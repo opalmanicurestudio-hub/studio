@@ -276,7 +276,6 @@ const Step2 = ({
       <SectionHeader icon={Calculator} title="Formula & Resources" step={2} />
       <div className="space-y-8 text-left">
 
-        {/* Products */}
         <div className="space-y-4">
           <div className="flex items-center justify-between px-1">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Package className="w-3.5 h-3.5 opacity-40" />Product Consumption</Label>
@@ -305,7 +304,6 @@ const Step2 = ({
           ) : <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><Box className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest">No Products in Formula</p></div>}
         </div>
 
-        {/* Resources */}
         <div className="space-y-4">
           <div className="flex items-center justify-between px-1">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Hammer className="w-3.5 h-3.5 opacity-40" />Logistics (Rooms/Equipment)</Label>
@@ -323,7 +321,6 @@ const Step2 = ({
           ) : <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><MapPin className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest">No Unit Required</p></div>}
         </div>
 
-        {/* Add-ons */}
         {!isAddon && (
           <div className="space-y-4">
             <div className="flex items-center justify-between px-1">
@@ -650,7 +647,6 @@ export const EditServiceDialog: React.FC<any> = ({
         </DialogContent>
       </DialogContainer>
 
-      {/* NESTED DIALOGS — outside the form entirely */}
       <BrowseProductsDialog open={isProductBrowserOpen} onOpenChange={setIsProductBrowserOpen} onSelect={handleProductSelect} allProducts={inventory.filter(i => i.type === 'professional')} initialSelected={currentSelectedProducts as InventoryItem[]} />
       <SelectResourcesDialog open={isResourceSelectorOpen} onOpenChange={setIsResourceSelectorOpen} onSelect={handleResourceSelect} allResources={resources} initialSelected={currentSelectedResources} />
       <SelectAddOnsDialog open={isAddOnSelectorOpen} onOpenChange={setIsAddOnSelectorOpen} onSelect={handleAddOnSelect} allAddOns={(allServices || []).filter((s: Service) => s.type === 'addon')} initialSelected={currentSelectedAddOns as Service[]} />

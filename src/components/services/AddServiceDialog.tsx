@@ -777,7 +777,6 @@ export const CheckoutHub = ({
   return (
     <div className="flex flex-col space-y-6 md:space-y-10 text-left">
 
-      {/* ── Payer selector ── */}
       <div className="flex-shrink-0 text-left">
         {isGroupCheckout && !selectedClientId && !isCartEmpty && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-2">
@@ -797,7 +796,6 @@ export const CheckoutHub = ({
         />
       </div>
 
-      {/* ── Service Recovery ── */}
       {!isCartEmpty && (
         <div className="space-y-4">
           <div className="flex items-center justify-between px-1">
@@ -885,7 +883,6 @@ export const CheckoutHub = ({
         </div>
       )}
 
-      {/* ── Birthday banner ── */}
       {selectedClient && isBirthdayToday && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
           <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
@@ -896,7 +893,6 @@ export const CheckoutHub = ({
         </motion.div>
       )}
 
-      {/* ── Entitlements ── */}
       {selectedClient && availableEntitlements.length > 0 && (
         <div className="space-y-4">
           <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2 ml-1"><Award className="w-3 h-3" />Available Benefits</p>
@@ -916,7 +912,6 @@ export const CheckoutHub = ({
         </div>
       )}
 
-      {/* ── Itemized Cart ── */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 px-1">
           <ShoppingCart className="w-4 h-4 text-primary" />
@@ -1034,7 +1029,6 @@ export const CheckoutHub = ({
         )}
       </div>
 
-      {/* ── Promo Code ── */}
       <div className="space-y-3">
         <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Promo Code</Label>
         <div className="flex gap-2">
@@ -1057,7 +1051,6 @@ export const CheckoutHub = ({
         )}
       </div>
 
-      {/* ── Payment Protocol ── */}
       <div className="space-y-4">
         <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Payment Protocol</Label>
         <Tabs value={paymentTab} onValueChange={v => { setPaymentTab(v); setCardMode('select'); }} className="w-full">
@@ -1067,12 +1060,10 @@ export const CheckoutHub = ({
             <TabsTrigger value="other" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><Landmark className="w-3 h-3 mr-1.5" /> OTHER</TabsTrigger>
           </TabsList>
 
-          {/* ── CARD TAB ── */}
           <AnimatePresence mode="wait">
             {paymentTab === 'card' && cardMode === 'select' && (
               <motion.div key="card-select" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4 space-y-3">
 
-                {/* Card on file option */}
                 {hasCardOnFile && (
                   <button onClick={() => setCardMode('cof_tip')}
                     className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/[0.02] hover:border-primary/40 hover:bg-primary/5 transition-all group text-left">
@@ -1091,7 +1082,6 @@ export const CheckoutHub = ({
                   </button>
                 )}
 
-                {/* Terminal reader option */}
                 <button onClick={handleTerminalPayment}
                   disabled={!readerConnected}
                   className={cn('w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all group text-left',
@@ -1116,7 +1106,6 @@ export const CheckoutHub = ({
                     : <Badge variant="outline" className="border-2 font-black text-[8px] uppercase h-5 px-2">Setup</Badge>}
                 </button>
 
-                {/* New card (embedded form) option */}
                 <button onClick={() => setCardMode('new_card')}
                   className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-border bg-white hover:border-primary/20 hover:bg-primary/[0.01] transition-all group text-left">
                   <div className="flex items-center gap-3">
@@ -1131,7 +1120,6 @@ export const CheckoutHub = ({
                   <ArrowRight className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
                 </button>
 
-                {/* Save card toggle for new card */}
                 {selectedClient && (
                   <button type="button" onClick={() => setSaveNewCard(v => !v)}
                     className={cn('w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all text-left', saveNewCard ? 'border-primary/20 bg-primary/5' : 'border-border bg-white')}>
@@ -1146,21 +1134,17 @@ export const CheckoutHub = ({
               </motion.div>
             )}
 
-            {/* ── Card on file confirmation ── */}
-            {/* ── Client-facing tip screen (card on file) ── */}
             {paymentTab === 'card' && cardMode === 'cof_tip' && selectedClient && (() => {
               const presets = [0, 10, 18, 20, 25];
               const baseForTip = subtotal; // tip on pre-tax subtotal
               return (
                 <motion.div key="cof-tip" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-4 space-y-6">
-                  {/* Client-facing header */}
                   <div className="text-center space-y-1 py-4">
                     <p className="text-[9px] font-black uppercase tracking-[0.25em] text-muted-foreground">Turn screen toward client</p>
                     <p className="text-2xl font-black uppercase tracking-tighter text-slate-900">Add a Gratuity?</p>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase">Your technician appreciates your support</p>
                   </div>
 
-                  {/* Preset tip % buttons — large for client tapping */}
                   <div className="grid grid-cols-2 gap-3">
                     {presets.filter(p => p > 0).map(pct => {
                       const tipAmt = Number((baseForTip * (pct / 100)).toFixed(2));
@@ -1181,7 +1165,6 @@ export const CheckoutHub = ({
                         </button>
                       );
                     })}
-                    {/* No tip */}
                     <button
                       onClick={() => handleTotalTipChange(0)}
                       className={cn(
@@ -1194,7 +1177,6 @@ export const CheckoutHub = ({
                     </button>
                   </div>
 
-                  {/* Custom tip amount */}
                   <div className="space-y-2">
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center">Or enter custom amount</p>
                     <div className="relative">
@@ -1211,7 +1193,6 @@ export const CheckoutHub = ({
                     </div>
                   </div>
 
-                  {/* Total preview */}
                   <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-2">
                     <div className="flex justify-between text-[11px] text-muted-foreground">
                       <span className="font-bold uppercase">Subtotal</span>
@@ -1242,7 +1223,6 @@ export const CheckoutHub = ({
               );
             })()}
 
-            {/* ── Card on file confirmation ── */}
             {paymentTab === 'card' && cardMode === 'cof_confirm' && selectedClient && (
               <motion.div key="cof-confirm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-4">
                 <CardOnFileConfirm
@@ -1255,7 +1235,6 @@ export const CheckoutHub = ({
               </motion.div>
             )}
 
-            {/* ── Terminal payment UI ── */}
             {paymentTab === 'card' && cardMode === 'terminal' && (
               <motion.div key="terminal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <TerminalPaymentUI
@@ -1266,7 +1245,6 @@ export const CheckoutHub = ({
               </motion.div>
             )}
 
-            {/* ── Embedded new card form ── */}
             {paymentTab === 'card' && cardMode === 'new_card' && tenantId && (
               <motion.div key="new-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <EmbeddedCardForm
@@ -1285,7 +1263,6 @@ export const CheckoutHub = ({
               </motion.div>
             )}
 
-            {/* ── Cash tab ── */}
             {paymentTab === 'cash' && (
               <motion.div key="cash" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4">
                 <CashCheckout
@@ -1348,7 +1325,6 @@ export const CheckoutHub = ({
         </Tabs>
       </div>
 
-      {/* ── Totals ── */}
       <div className="space-y-4 pt-4 border-t border-dashed">
         <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
           <p>Gross Manifest Value</p>
@@ -1394,7 +1370,6 @@ export const CheckoutHub = ({
               <p className="text-[10px] font-black uppercase text-destructive tracking-widest">Manager override required before checkout</p>
             </div>
           )}
-          {/* Cash handled inside CashCheckout component — only show button for OTHER */}
           {paymentTab === 'other' && (
             <Button
               className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight"
@@ -1413,7 +1388,6 @@ export const CheckoutHub = ({
                 : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`}
             </Button>
           )}
-          {/* Card tab — show selector prompt when no sub-mode chosen */}
           {paymentTab === 'card' && cardMode === 'select' && (
             <div className="p-4 rounded-2xl border-2 border-dashed border-primary/20 text-center">
               <p className="text-[10px] font-black uppercase tracking-widest text-primary/40">Select a payment method above to proceed</p>

@@ -290,7 +290,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
         }
       `}</style>
 
-      {/* ── Brand bar ────────────────────────────────────────────────────── */}
       <div className="bg-slate-900 px-4 py-3 flex items-center justify-between print:bg-slate-900">
         <div>
           <p className="text-white text-[11px] font-black uppercase tracking-widest">{business.name}</p>
@@ -302,9 +301,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
         </div>
       </div>
 
-      {/* ── Allergy/medical FIRST — v3 ───────────────────────────────────
-          In v2 this came after the header. Moved to position 1 so it's
-          the first thing a tech sees when they pick up the ticket. */}
       {hasAlerts && (
         <div className="border-b-2 border-red-200 bg-red-50 px-4 py-3 space-y-1.5 print:bg-red-50">
           {client.allergyNotes && (
@@ -330,7 +326,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
 
       <div className="p-4 space-y-4">
 
-        {/* ── Client + Service header ───────────────────────────────────── */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-base font-black uppercase tracking-tight text-slate-900 leading-none truncate">{service.name}</p>
@@ -360,7 +355,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
           </div>
         </div>
 
-        {/* ── Meta row: provider + station ─────────────────────────────── */}
         {(staffName || stationName) && (
           <div className="flex items-center gap-3 text-[10px] text-slate-400 font-bold uppercase">
             {staffName && (
@@ -376,7 +370,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
           </div>
         )}
 
-        {/* ── Pre-fill notice ───────────────────────────────────────────── */}
         {hasPrefill && (
           <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
             <Repeat className="w-3.5 h-3.5 text-green-600 shrink-0" />
@@ -386,7 +379,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
           </div>
         )}
 
-        {/* ── Primary service formula ───────────────────────────────────── */}
         <div>
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
             <FlaskConical className="h-3 w-3" />
@@ -404,7 +396,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
           />
         </div>
 
-        {/* ── Add-on formulas ───────────────────────────────────────────── */}
         {addOnServices.filter(s => (s.products || []).length > 0).map((addOn, idx) => (
           <div key={addOn.id}>
             <Separator className="mb-3" />
@@ -425,7 +416,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
           </div>
         ))}
 
-        {/* ── Guest context notes ───────────────────────────────────────── */}
         {client.notes && (
           <div>
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Guest Context</p>
@@ -438,7 +428,6 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
         )}
       </div>
 
-      {/* ── Check-in code + QR ───────────────────────────────────────────── */}
       {checkInCode && (
         <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 flex items-center justify-between gap-4">
           <div>

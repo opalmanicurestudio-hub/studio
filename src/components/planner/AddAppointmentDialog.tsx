@@ -590,7 +590,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                     />
                                 </div>
 
-                                {/* v10 — everything worth knowing about this client, visible at selection */}
                                 {selectedClient && (
                                     <div className="flex flex-wrap items-center gap-1.5 p-3 rounded-xl bg-muted/20 border border-dashed">
                                         {selectedClient.activeMembershipId && (
@@ -677,9 +676,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         </TooltipProvider>
                                     </div>
                                 </div>
-                                {/* v13 — provider strip, in-file and crash-proof. Shows what an
-                                    operator actually needs: today's load and who's off that day.
-                                    Only staff QUALIFIED for the chosen service appear. */}
                                 <div className="space-y-2">
                                     <Label className="text-[11px] font-medium text-muted-foreground ml-1">Provider</Label>
                                     <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 max-w-full min-w-0">
@@ -901,7 +897,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             </div>
         </div>
 
-        {/* v10 — desktop summary rail: follows the booking through every step */}
         {step !== 'success' && (
         <aside className="hidden md:flex w-[248px] shrink-0 border-l bg-muted/5 flex-col p-5 overflow-y-auto">
             <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">Booking so far</p>

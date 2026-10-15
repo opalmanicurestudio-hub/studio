@@ -248,8 +248,6 @@ export function PhotoMarkup({ tenantId, value, onChange, accent = '#7c3aed', max
       </div>}
       <p className="text-[12px] text-stone-500">{busy ? 'Saving your photo…' : `Up to ${max} photos — draw, stamp a nail shape, or pick an exact colour from the photo.`}</p>
       {err && <p className="text-[13px] text-red-700" role="alert">{err}</p>}
-      {/* Opened at the top of the page (a portal), so no animated or scrolling
-          parent can shrink it or put the page's buttons on top of it. */}
       {editing && typeof document !== 'undefined' && createPortal(<Editor src={editing.src} accent={realAccent()} initialNote={editing.note} initialColours={editing.colours} onCancel={() => setEditing(null)} onDone={save} />, document.body)}
     </div>
   );

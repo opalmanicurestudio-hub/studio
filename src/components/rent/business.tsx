@@ -287,7 +287,6 @@ export function ApptSheet({ a, services, tenantId, token, onClose, onChanged, bo
                 {a.paidByPackageId && <p className="text-[10px] font-bold text-emerald-800">This visit is covered by {a.paidByPackageName || 'a package'}.</p>}
               </div>
             )}
-            {/* The offer on this visit: a real one comes off when they tap Done. */}
             {(() => {
               const done = a.status === 'completed' || a.status === 'cancelled';
               const price = Number(a.renterServicePrice) || 0;

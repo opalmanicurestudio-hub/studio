@@ -91,7 +91,6 @@ export function MessagingConsentCard({ firestore, tenantId, client, staffName, s
         <MessageSquare className="w-5 h-5" />Text Messages
       </h3>
 
-      {/* Reminders — the client's own consent, read-only. */}
       <div className={cn('p-5 rounded-[2rem] border-2 flex items-start justify-between gap-3', reminder?.agreed ? 'bg-green-50 border-green-200' : 'bg-muted/60 border-border')}>
         <div className="min-w-0">
           <p className={cn('font-black text-xs uppercase tracking-tight', reminder?.agreed ? 'text-green-700' : 'text-foreground/80')}>
@@ -104,7 +103,6 @@ export function MessagingConsentCard({ firestore, tenantId, client, staffName, s
         {reminder?.agreed ? <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" /> : <Ban className="w-5 h-5 text-muted-foreground shrink-0" />}
       </div>
 
-      {/* Marketing — what Campaigns and Reconnect need to text them. */}
       <div className={cn('p-5 rounded-[2rem] border-2 space-y-3', marketingYes ? 'bg-green-50 border-green-200' : unsubscribed ? 'bg-amber-50 border-amber-200' : 'bg-muted/60 border-border')}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

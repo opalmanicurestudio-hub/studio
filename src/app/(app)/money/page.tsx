@@ -927,7 +927,6 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
         </div>
         <Separator />
 
-        {/* ── Period Performance panel — now includes tax liability ── */}
         <div className="p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Period Performance</p>
           <div className="space-y-2 text-xs">
@@ -966,9 +965,6 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
 const TxnActions = ({ transaction, onRevertClick, onPreviewReceipt, onRefundClick, stopProp }: any) => (
   <DropdownMenu>
     <DropdownMenuTrigger asChild>
-      {/* v66 — was opacity-0 group-hover:opacity-100, which made the
-          revert/refund menu INVISIBLE on touch devices (no hover on
-          phones). Now always visible on mobile, hover-reveal on desktop. */}
       <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 rounded-full opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0" onClick={stopProp}>
         <MoreHorizontal className="h-4 w-4" />
       </Button>
@@ -1329,8 +1325,6 @@ const LedgerTab = () => {
     <div className="w-full overflow-x-hidden">
       <div className="p-4 md:p-10 w-full max-w-7xl mx-auto">
 
-        {/* ── Section header — v66: one compact row on mobile (icon buttons)
-               instead of two stacked 56px full-width buttons ─────────────── */}
         <div className="flex flex-row items-center justify-between gap-3 mb-5 md:mb-8">
           <div className="min-w-0">
             <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-foreground leading-none truncate">The Ledger</h1>
@@ -1367,15 +1361,12 @@ const LedgerTab = () => {
           </div>
         </div>
 
-        {/* ── Bank feed & reconciliation (Plaid) ── */}
         {tenantId && firestore && (
           <div className="mb-8">
             <BankFeedSection tenantId={tenantId} firestore={firestore} actor={auditActor} />
           </div>
         )}
 
-        {/* ── KPI stat bar — v66: horizontal snap-scroll strip on mobile
-               (one row, thumb-swipeable), grid on desktop ───────────────── */}
         <div className="flex md:grid md:grid-cols-4 gap-3 md:gap-4 mb-5 md:mb-8 overflow-x-auto md:overflow-visible snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0 [&>*]:min-w-[190px] [&>*]:snap-start [&>*]:shrink-0 md:[&>*]:min-w-0 md:[&>*]:shrink">
           <StatCard
             label="Net Revenue"
@@ -1411,8 +1402,6 @@ const LedgerTab = () => {
         </div>
         <OwedToClients tenantId={tenantId} />
 
-        {/* ── Quick period chips — v66: the #1 ledger action (switching the
-               period) is now one tap on mobile, no accordion trip ────────── */}
         <div className="md:hidden flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner mb-5 overflow-x-auto">
           {([['today', 'Today'], ['7days', '7D'], ['30days', '30D'], ['thisMonth', 'Month'], ['lastMonth', 'Last Mo']] as [string, string][]).map(([v, l]) => (
             <Button key={v} variant="ghost" size="sm" onClick={() => setPeriodPreset(v)}
@@ -1423,10 +1412,8 @@ const LedgerTab = () => {
           ))}
         </div>
 
-        {/* ── Main grid ───────────────────────────────────────────────────── */}
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8 items-start">
 
-          {/* Sidebar filters */}
           <div className="md:col-span-1">
             {isMobile ? (
               <Accordion type="single" collapsible className="w-full mb-6">
@@ -1440,14 +1427,10 @@ const LedgerTab = () => {
             ) : <TransactionFilters {...filterProps} />}
           </div>
 
-          {/* Main content column */}
           <div className="md:col-span-2 lg:col-span-3 space-y-5 min-w-0">
 
-            {/* ── Bad debt aging — now uses BadDebtAgingCard ───────────────── */}
             <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} actor={auditActor} />
 
-            {/* ── Tips + refunds — v66: one compact chip row instead of two
-                   full-width strips ────────────────────────────────────────── */}
             {(kpiStats.totalTips > 0 || kpiStats.refundTotal > 0) && (
               <div className="flex gap-2.5 overflow-x-auto pb-1">
                 {kpiStats.totalTips > 0 && (
@@ -1467,7 +1450,6 @@ const LedgerTab = () => {
               </div>
             )}
 
-            {/* ── Desktop table ─────────────────────────────────────────────── */}
             <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-card">
               <CardContent className="p-0 overflow-x-auto">
                 <Table>
@@ -1504,7 +1486,6 @@ const LedgerTab = () => {
               </CardContent>
             </Card>
 
-            {/* ── Mobile cards ──────────────────────────────────────────────── */}
             <div className="md:hidden space-y-4">
               {isLoading && (
                 <div className="flex flex-col items-center justify-center py-24">
@@ -1527,7 +1508,6 @@ const LedgerTab = () => {
         </div>
       </div>
 
-      {/* ── Dialogs ────────────────────────────────────────────────────────── */}
 
       <AddTransactionDialog open={isAddTxnOpen} onOpenChange={setIsAddTxnOpen} staff={staff || []} onConfirm={handleAddTransaction} />
 
@@ -2046,7 +2026,6 @@ const PaydayTab = () => {
                 </Card>
             </div>
 
-            {/* ── Auto-draft banner — from the daily payroll-draft cron ── */}
             {pendingDraft && (
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 md:p-5 rounded-2xl bg-primary/5 border-2 border-primary/20 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="text-left">
@@ -2074,7 +2053,6 @@ const PaydayTab = () => {
                 </div>
             )}
 
-            {/* ── Payroll Ready (Gusto) ─────────────────────────────────── */}
             <Card className="border-2 shadow-xl overflow-hidden">
                 <CardHeader className="p-5 md:p-6 text-left border-b bg-muted/5">
                     <div className="flex items-center justify-between gap-2">
@@ -2126,7 +2104,6 @@ const PaydayTab = () => {
                         </div>
                     </div>
 
-                    {/* ── Level 2 automation: auto-draft on the pay cadence ── */}
                     <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border-2 border-dashed bg-muted/5">
                         <div className="text-left">
                             <Label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
@@ -2178,7 +2155,6 @@ const PaydayTab = () => {
                     <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Profit First methodology suggestions</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6 md:space-y-8 p-5 md:p-6">
-                    {/* ── Tax location — per tenant, drives the Tax bucket % ── */}
                     <div className="space-y-2 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tax Location</Label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -2391,7 +2367,6 @@ const BillRow = ({ bill, onMarkPaid }: { bill: EnrichedBill; onMarkPaid: (b: Enr
           <Badge className={cn('text-[8px] h-4 px-1.5 font-black uppercase tracking-widest border-none', bill.definition?.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>
             {bill.definition?.context || '—'}
           </Badge>
-          {/* v70 — cadence badge so non-monthly bills read at a glance */}
           {bill.definition?.cadence && bill.definition.cadence !== 'monthly' && (
             <Badge variant="outline" className="text-[8px] h-4 px-1.5 font-black uppercase tracking-widest border-2 text-muted-foreground">
               {bill.definition.cadence}
@@ -2520,7 +2495,6 @@ const BillsTab = () => {
           </p>
         </div>
 
-        {/* ── Summary cards ── */}
         <div className="grid grid-cols-3 gap-3 md:gap-4">
           <Card className={cn('border-2 shadow-sm', overdueTotal > 0 ? 'bg-destructive/5 border-destructive/20' : 'bg-muted/20')}>
             <CardContent className="p-4 md:p-5">
@@ -2545,7 +2519,6 @@ const BillsTab = () => {
           </Card>
         </div>
 
-        {/* ── Business vs Personal strip ── */}
         <div className="flex items-center justify-between px-5 py-3.5 rounded-2xl bg-muted/30 border-2 border-dashed border-muted-foreground/20 shadow-inner">
           <div className="flex items-center gap-2">
             <Building className="w-4 h-4 text-blue-600" />
@@ -2560,7 +2533,6 @@ const BillsTab = () => {
           </div>
         </div>
 
-        {/* ── Bill groups ── */}
         {unpaidBills.length === 0 && (
           <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
             <CheckCircle2 className="w-16 h-16" />
@@ -2590,7 +2562,6 @@ const BillsTab = () => {
         )}
       </div>
 
-      {/* ── Pay confirmation dialog ── */}
       <AlertDialog open={!!billToPay} onOpenChange={o => { if (!o) setBillToPay(null); }}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl bg-background">
           <AlertDialogHeader className="p-6 pb-0">
@@ -2723,7 +2694,6 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
     <div className="p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-8">
 
-        {/* ── Header + period pills ── */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Money Overview</h1>
@@ -2741,7 +2711,6 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
         {tenantId && <RestockingFundCard tenantId={tenantId} />}
         {tenantId && <TipShareCard tenantId={tenantId} mode={String((selectedTenant as any)?.tipSharing?.mode || 'direct')} period={(selectedTenant as any)?.tipSharing?.period === 'week' ? 'week' : 'day'} />}
 
-        {/* ── KPI grid ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
             label="Money In"
@@ -2776,7 +2745,6 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
           />
         </div>
 
-        {/* ── Safe to allocate banner ── */}
         <Card className={cn('border-2 shadow-xl overflow-hidden', safeToAllocate > 0 ? 'bg-primary/5 border-primary/20' : 'bg-destructive/5 border-destructive/20')}>
           <CardContent className="p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
@@ -2799,7 +2767,6 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
           </CardContent>
         </Card>
 
-        {/* ── Obligations + Bills snapshot ── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
             <CardHeader className="p-5 border-b bg-muted/5">
@@ -2864,7 +2831,6 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
           </Card>
         </div>
 
-        {/* ── Tips strip + ledger shortcut ── */}
         {summary.tips > 0 && (
           <div className="flex items-center justify-between px-5 py-3.5 rounded-2xl bg-amber-50 border-2 border-amber-200">
             <div className="flex items-center gap-2 text-amber-800">
@@ -2875,7 +2841,6 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
           </div>
         )}
 
-        {/* ── What just happened — live pulse of the business ── */}
         {recentActivity.length > 0 && (
           <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
             <CardHeader className="p-5 border-b bg-muted/5">
@@ -3022,7 +2987,6 @@ const ActivityTab = () => {
           </p>
         </div>
 
-        {/* ── Filters: team member + kind pills ── */}
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
           <Select value={memberFilter} onValueChange={setMemberFilter}>
             <SelectTrigger className="h-11 sm:w-56 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue /></SelectTrigger>
@@ -3043,7 +3007,6 @@ const ActivityTab = () => {
           </div>
         </div>
 
-        {/* ── Feed ── */}
         {grouped.length === 0 ? (
           <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
             <History className="w-16 h-16" />
@@ -3136,7 +3099,6 @@ function MoneyHubContent() {
     <div className="flex min-h-screen w-full flex-col overflow-x-hidden bg-background">
       <AppHeader title="Money Hub" />
 
-      {/* ── Tab bar ── */}
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b-2 px-4 py-3">
         <div className="max-w-lg mx-auto flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner">
           {HUB_TABS.map(({ key, label, icon: Icon }) => (
@@ -3160,8 +3122,6 @@ function MoneyHubContent() {
         </div>
       </div>
 
-      {/* ── Tab panels — lazy-mounted on first visit, then kept alive so
-             filters & state survive tab switches ── */}
       <main className="flex-1 w-full">
         {visitedTabs.has('overview') && <div className={cn(activeTab !== 'overview' && 'hidden')}><OverviewTab onNavigate={handleTabChange} /></div>}
         {visitedTabs.has('ledger')   && <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>}

@@ -114,7 +114,6 @@ const TicketingConfigPanel = ({
 
   return (
     <div className="space-y-5">
-      {/* Ticket type */}
       <div className="space-y-2">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Ticket Type</label>
         <div className="grid grid-cols-3 gap-2">
@@ -133,7 +132,6 @@ const TicketingConfigPanel = ({
         </div>
       </div>
 
-      {/* Price (paid only) */}
       {local.type === 'paid' && (
         <div className="space-y-1.5">
           <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Price per ticket</label>
@@ -145,7 +143,6 @@ const TicketingConfigPanel = ({
         </div>
       )}
 
-      {/* Ticket name */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Ticket Name</label>
         <input value={local.ticketName || ''} onChange={e => setLocal(l => ({ ...l, ticketName: e.target.value }))}
@@ -153,7 +150,6 @@ const TicketingConfigPanel = ({
           className="w-full h-11 rounded-xl border-2 border-slate-100 px-3 text-sm font-bold text-slate-700 outline-none focus:border-slate-300 placeholder:text-slate-300" />
       </div>
 
-      {/* Capacity */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Capacity (optional)</label>
         <input type="number" value={local.capacity || ''} onChange={e => setLocal(l => ({ ...l, capacity: parseInt(e.target.value) || undefined }))}
@@ -161,7 +157,6 @@ const TicketingConfigPanel = ({
           className="w-full h-11 rounded-xl border-2 border-slate-100 px-3 text-sm font-bold text-slate-700 outline-none focus:border-slate-300 placeholder:text-slate-300" />
       </div>
 
-      {/* Public access toggle */}
       <div className={cn('flex items-center justify-between p-3 rounded-xl border-2 transition-all cursor-pointer',
         local.allowPublicPurchase ? 'border-emerald-200 bg-emerald-50' : 'border-slate-100')}
         onClick={() => setLocal(l => ({ ...l, allowPublicPurchase: !l.allowPublicPurchase }))}>
@@ -177,7 +172,6 @@ const TicketingConfigPanel = ({
         </div>
       </div>
 
-      {/* Public event link */}
       {local.allowPublicPurchase && (
         <div className="space-y-1.5">
           <label className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Public Event Link</label>
@@ -358,12 +352,10 @@ const TicketRow = ({
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-2xl border-2 border-slate-100 bg-white hover:border-slate-200 transition-all">
-      {/* Avatar */}
       <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-500 shrink-0">
         {getInitials(ticket.guestName)}
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-black text-slate-800 truncate">{ticket.guestName}</p>
@@ -384,7 +376,6 @@ const TicketRow = ({
         )}
       </div>
 
-      {/* Actions */}
       <div className="flex items-center gap-1.5 shrink-0">
         {ticket.status !== 'checked_in' && ticket.status !== 'cancelled' && ticket.status !== 'no_show' && (
           <button onClick={handleCheckIn} disabled={acting}
@@ -529,7 +520,6 @@ export function ManifestTicketsTab({
 
   return (
     <div className="space-y-5">
-      {/* Section tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-2xl p-1">
         {([
           { id: 'overview', label: 'Overview' },
@@ -547,7 +537,6 @@ export function ManifestTicketsTab({
 
       <AnimatePresence mode="wait">
 
-        {/* ── OVERVIEW ── */}
         {activeSection === 'overview' && (
           <motion.div key="ov" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             className="space-y-4">
@@ -581,7 +570,6 @@ export function ManifestTicketsTab({
               </div>
             )}
 
-            {/* Quick check-in scanner */}
             <div className="bg-white rounded-2xl border-2 border-slate-100 p-4 space-y-3">
               <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">Quick Check-In</p>
               <div className="flex gap-2">
@@ -612,7 +600,6 @@ export function ManifestTicketsTab({
           </motion.div>
         )}
 
-        {/* ── GUESTS ── */}
         {activeSection === 'guests' && (
           <motion.div key="gu" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             className="space-y-4">
@@ -689,7 +676,6 @@ export function ManifestTicketsTab({
           </motion.div>
         )}
 
-        {/* ── INVITE ── */}
         {activeSection === 'invite' && (
           <motion.div key="inv" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <InviteFromClientLog
@@ -704,7 +690,6 @@ export function ManifestTicketsTab({
           </motion.div>
         )}
 
-        {/* ── CONFIG ── */}
         {activeSection === 'config' && (
           <motion.div key="cf" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <TicketingConfigPanel

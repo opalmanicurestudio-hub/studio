@@ -500,7 +500,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         <ScrollArea className="flex-1 min-h-0">
           <div className="p-8 space-y-10">
 
-            {/* ── Who is cancelling ── */}
             <div className="space-y-4">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
                 Who Is Cancelling?
@@ -510,7 +509,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 onValueChange={v => setActorType(v as ActorType)}
                 className="grid grid-cols-1 sm:grid-cols-3 gap-3"
               >
-                {/* Studio */}
                 <label htmlFor="actor-studio" className="cursor-pointer">
                   <div
                     className={cn(
@@ -533,7 +531,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   </div>
                 </label>
 
-                {/* Client */}
                 <label htmlFor="actor-client" className="cursor-pointer">
                   <div
                     className={cn(
@@ -556,7 +553,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   </div>
                 </label>
 
-                {/* No-show */}
                 <label htmlFor="actor-noshow" className="cursor-pointer">
                   <div
                     className={cn(
@@ -590,10 +586,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 </p>
               )}
 
-              {/* ── Deposit disposition — studio is always at fault here, ──
-                  client should never lose money. Only shown for studio cancels
-                  with a paid deposit; refund/store-credit is processed before
-                  the cancellation itself commits (see useCancellationConfirm). */}
               {actorType === 'studio' && hasDeposit && (
                 <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-inner">
                   <CardContent className="p-5 space-y-4">
@@ -677,7 +669,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               )}
             </div>
 
-            {/* ── Reason (hidden for no-show) ── */}
             {!isNoShow && (
               <div className="space-y-3">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
@@ -725,13 +716,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               </div>
             )}
 
-            {/* ── Recovery matrix breakdown — hidden for no-show, whose fee is
-                 fixed/flat and never derived from this matrix at all.
-                 Passive disclosure only: this used to be a SECOND editable
-                 fee mechanism (per-service checkboxes) sitting alongside a
-                 separate override input below, two controls fighting over
-                 one number. Now it's just "here's how the suggestion was
-                 calculated," collapsed by default. ── */}
             {!isNoShow && recoveryMatrix.length > 0 && (
               <button
                 type="button"
@@ -763,7 +747,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               </div>
             )}
 
-            {/* ── Fee + settlement ── */}
             <div className="space-y-6">
               <Separator className="border-dashed" />
               <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner">
@@ -808,7 +791,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     exit={{ opacity: 0, y: 10 }}
                   >
                     <div className="space-y-6">
-                      {/* Settlement protocol */}
                       <div className="space-y-4 pt-2 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
                           Settlement Protocol

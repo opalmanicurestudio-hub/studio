@@ -86,7 +86,6 @@ export default function HelpDeskPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
-            {/* The queue */}
             <div className="space-y-2">
               {shown.length === 0 && <Glass><p className="py-6 text-center text-muted-foreground">{q === 'overdue' ? 'Nothing overdue. ✨' : 'All clear here. ✨'}</p></Glass>}
               {shown.map((t) => { const d = due(t); const st = STATUS[t.status] || STATUS.open; return (
@@ -104,7 +103,6 @@ export default function HelpDeskPage() {
               ); })}
             </div>
 
-            {/* The working panel */}
             <div id="hq-ticket" className="scroll-mt-20 lg:sticky lg:top-20 lg:self-start">
               {!k ? <Glass><p className="py-10 text-center text-muted-foreground">Pick a request to work on it.</p></Glass> : (
                 <Glass className="space-y-4">

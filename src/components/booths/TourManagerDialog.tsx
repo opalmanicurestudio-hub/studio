@@ -245,20 +245,17 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
         </DialogHeader>
 
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-          {/* Contact */}
           <div className="flex gap-2">
             {tour?.phone && <a href={`tel:${tour.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center">Call</a>}
             {tour?.phone && <a href={`sms:${tour.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center">Text</a>}
             {tour?.email && <a href={`mailto:${tour.email}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center">Email</a>}
           </div>
 
-          {/* Printouts */}
           <div className="grid grid-cols-2 gap-2">
             <button onClick={printVisitor} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1.5 hover:bg-muted/60"><Printer className="w-3.5 h-3.5" /> Visitor confirmation</button>
             <button onClick={printPrep} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1.5 hover:bg-muted/60"><FileText className="w-3.5 h-3.5" /> Prep sheet</button>
           </div>
 
-          {/* Convert to renter — the post-tour bridge */}
           {onConvert && status !== 'converted' && !tour?.convertedRenterId && (tour?.name || tour?.phone || tour?.email) && (
             <button
               onClick={() => onConvert(tour)}
@@ -273,7 +270,6 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
             </div>
           )}
 
-          {/* Reschedule */}
           <div className="rounded-2xl border-2 p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" /> When</p>
@@ -292,7 +288,6 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
             )}
           </div>
 
-          {/* Notes */}
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Notes</p>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} onBlur={saveNotes} rows={2} placeholder="What did they want, first impressions, follow-up…" className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium resize-none" />
@@ -324,7 +319,6 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
             </div>
           )}
 
-          {/* Lifecycle actions */}
           {!outcomeOpen ? (
             <div className="grid grid-cols-2 gap-2">
               {(status === 'new' || status === 'in_review') && (

@@ -416,8 +416,6 @@ export default function RentersPage() {
                   <p className="text-[10px] font-bold text-amber-700">Not done automatically — money doesn&apos;t move on a status change.</p>
                 </div>
               )}
-              {/* The move-out sheet: what they owe, what you hold, which way the
-                  money goes. Print it now, before the lease is gone from view. */}
               {lease && (
                 <a href={`/api/booths/account-statement?tenantId=${encodeURIComponent(tenantId || '')}&renterId=${encodeURIComponent(ending.id)}&mode=final`}
                   target="_blank" rel="noopener"

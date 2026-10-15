@@ -175,7 +175,6 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
 
   return (
     <div className="space-y-4">
-      {/* ── Lease awaiting signature (v79) ── */}
       {pendingLease && (
         <div className="rounded-2xl border-2 border-indigo-300 bg-indigo-50/50 p-4 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">✍️ Your lease is ready to sign</p>
@@ -212,7 +211,6 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
         </div>
       )}
 
-      {/* ── Card on file ── */}
       <div className={`rounded-2xl border-2 p-4 space-y-2 ${card && card !== 'loading' ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200'}`}>
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Card on file</p>
         {card === 'loading' ? (
@@ -236,7 +234,6 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
         {cardMsg && <p className="text-[10px] font-black uppercase text-emerald-700">{cardMsg}</p>}
       </div>
 
-      {/* ── YTD ── */}
       {ytdTotal > 0 && (
         <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50/40 px-4 py-3">
           <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">{thisYear} rent paid</p>
@@ -298,7 +295,6 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
         </>
       )}
 
-      {/* ── Annual statements ── */}
       <div className="space-y-2">
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Annual statements</p>
         {[new Date().getFullYear(), new Date().getFullYear() - 1].map(yr => (
@@ -316,7 +312,6 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
         ))}
       </div>
 
-      {/* ── Tax note ── */}
       <div className="rounded-xl border bg-slate-50 px-4 py-3 space-y-1">
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tax guidance</p>
         <p className="text-[11px] text-muted-foreground leading-relaxed">

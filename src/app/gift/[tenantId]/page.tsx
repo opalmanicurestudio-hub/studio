@@ -108,7 +108,6 @@ export default function GiftShopPage() {
         </div>
       ) : (
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-4 pb-28 pt-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:gap-14 md:px-8 md:pt-12">
-          {/* The card, drawn as they choose */}
           <div className="min-w-0 md:sticky md:top-10 md:self-start">
             <div className="flex items-center gap-2.5">{shop.brand.logo ? <img src={shop.brand.logo} alt="" className="h-9 w-9 rounded-xl object-cover" /> : null}<span className="text-[15px] font-semibold">{shop.brand.name}</span></div>
             <h1 className="mt-5 hidden text-[40px] font-normal leading-[1.05] tracking-[-0.03em] md:block">Give a gift card</h1>
@@ -119,7 +118,6 @@ export default function GiftShopPage() {
             {note.trim() && step >= 2 ? <p className="mx-auto mt-5 max-w-[340px] text-center text-[14.5px] italic leading-relaxed md:mx-0 md:text-left" style={{ color: MUTED }}>“{note.trim()}”{from ? ` — ${from.split(' ')[0]}` : ''}</p> : null}
           </div>
 
-          {/* The steps */}
           <div className="min-w-0 rounded-[22px] bg-white p-5 md:p-7" style={{ boxShadow: '0 1px 0 rgba(22,23,26,.04), 0 18px 40px rgba(22,23,26,.06)' }}>
             <ol className="mb-6 flex gap-1.5" aria-label="Steps">{STEPS.map((s, i) => <li key={s} className="flex-1"><button type="button" disabled={i > step || !!pay} onClick={() => go(i)} aria-current={i === step ? 'step' : undefined} className="w-full text-left disabled:cursor-default">
               <span className="block h-1 rounded-full" style={{ background: i <= step ? INK : LINE }} /><span className="mt-1.5 block text-[11.5px] font-semibold" style={{ color: i === step ? INK : MUTED }}>{s}</span></button></li>)}</ol>

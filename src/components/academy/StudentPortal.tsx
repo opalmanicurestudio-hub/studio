@@ -132,7 +132,6 @@ export function StudentPortal({ tenantId, courses, onSignOut }: { tenantId: stri
           <button type="button" onClick={onSignOut} className="text-muted-foreground underline">{w.signOut}</button>
         </div>
       </div>
-      {/* Tab bar — thumb-friendly on phones */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-card/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl" aria-label="Portal">
         <div className="mx-auto flex max-w-2xl">{tabs.map(([k, l, i]) => (
           <button key={k} type="button" onClick={() => { setTab(k); window.scrollTo({ top: 0 }); }} aria-current={tab === k ? 'page' : undefined} className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] ${tab === k ? 'font-semibold' : 'text-muted-foreground'}`} style={tab === k ? { color } : undefined}>

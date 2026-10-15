@@ -128,7 +128,6 @@ export default function CampaignsPage() {
           <Button asChild className="hidden h-11 rounded-2xl sm:inline-flex"><Link href="/campaigns/new"><Plus className="mr-1.5 h-4 w-4" />New campaign</Link></Button>
         </div>
 
-        {/* Results */}
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Results</p>
@@ -147,7 +146,6 @@ export default function CampaignsPage() {
           </div>
         </section>
 
-        {/* Filters */}
         <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           {([['all', 'All'], ['draft', 'Drafts'], ['scheduled', 'Scheduled'], ['automation', 'Automations'], ['sent', 'Sent']] as const).map(([k, l]) => (
             <button key={k} type="button" onClick={() => setFilter(k)} aria-pressed={filter === k}
@@ -157,7 +155,6 @@ export default function CampaignsPage() {
           ))}
         </div>
 
-        {/* Campaigns */}
         {isLoading ? <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
           : shown.length === 0 ? (
             <div className="rounded-3xl border-2 border-dashed border-border bg-card p-8 text-center space-y-3">
@@ -221,7 +218,6 @@ export default function CampaignsPage() {
           )}
       </main>
 
-      {/* Phone: the main action stays in reach */}
       <Link href="/campaigns/new" className="fixed bottom-5 right-5 z-30 flex h-14 items-center gap-2 rounded-full bg-foreground px-5 text-sm font-black text-background shadow-xl sm:hidden" style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         <Plus className="h-5 w-5" />New
       </Link>

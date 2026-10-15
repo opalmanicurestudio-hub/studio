@@ -562,7 +562,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
             {mode === 'add' ? 'New service' : (values.name || 'Edit service')}
           </SheetTitle>
           <SheetDescription className="text-[14px] cf-muted mt-1">
-            {/* the live summary — what this service is, at a glance */}
             {[`${values.duration || 0} min${(values.padBefore || 0) + (values.padAfter || 0) ? ` (+${(values.padBefore || 0) + (values.padAfter || 0)} set-up/clean-up)` : ''}`, `$${Number(values.price || 0).toFixed(2)}`,
               Number(values.price) > 0 ? `${Math.round(((Number(values.price) - breakEven) / Number(values.price)) * 100)}% margin after time and product` : 'no price yet'].join(' · ')}
           </SheetDescription>
@@ -656,8 +655,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 ))}
               </div>
               )}
-              {/* How it's timed — decides whether provider times, "why did it run over?" and overtime apply, or
-                  overstay rules (rentals), or nothing (classes, events). */}
               <div className="space-y-1.5">
                 <Label className="text-[12px] font-semibold text-muted-foreground">How is this timed?</Label>
                 <select {...register('timedBy' as any)} className="h-12 w-full rounded-xl border bg-background px-3 text-[15px] font-semibold">
@@ -832,7 +829,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 </div>
                 {errors.price && <p className="text-[12px] font-semibold text-destructive">{errors.price.message}</p>}
               </div>
-              {/* How the price behaves: shown as "from", tax, and what members pay. */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label className="flex items-center gap-3 rounded-2xl border p-3 text-[14px]"><input type="checkbox" {...register('priceIsFrom' as any)} className="h-5 w-5" /><span>Show as <b>“from”</b> — the final price is agreed at the visit</span></label>
                 <label className="flex items-center gap-3 rounded-2xl border p-3 text-[14px]"><input type="checkbox" {...register('noExtraTimeCharge' as any)} className="h-5 w-5" /><span>Don’t charge for extra time on this service <span className="text-muted-foreground">— a client’s usual extra time is still reserved (Settings → Extra time)</span></span></label>
@@ -847,7 +843,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   <Input type="number" step="0.01" min={0} placeholder="The business’s rule" {...register('productCharge' as any)} className="h-12 rounded-xl border" /><p className="text-[11px] text-muted-foreground">Taken off the price before commission is worked out (e.g. $8 for gel). Blank = the rule in Settings.</p></div>
               </div>
 
-              {/* The money behind the pay choice for this service: what each kind of visit leaves the business. */}
               <PayImpact service={{ id: values.id, type: values.isAddon ? 'addon' : 'service', price: Number(values.price) || 0, memberPrice: (values as any).memberPrice, duration: Number(values.duration) || 60, padBefore: Number(values.padBefore) || 0, padAfter: Number(values.padAfter) || 0, products: values.products || [], commissionRate: (values as any).commissionRate, providerPay: (values as any).providerPay, productCharge: (values as any).productCharge }} />
               <RecoveryMatrix
                 pricingTiers={pricingTiers || []}
@@ -1029,18 +1024,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             {showAll && <Separator />}
 
-            {/* v2 — NEW: Required Documents. Mirrors the consent-forms
-                section above, but these are custom, ad-hoc entries rather
-                than picks from an existing library — a service just needs
-                "Photo ID" or "Doctor's note," not a reference to a shared
-                document definition. Configured once here, every booking
-                path (staff call-in, self-service, and any automated
-                booking agent) can read requiredFileRequirements directly
-                off the service instead of a human needing to remember to
-                ask case by case. persistToProfile mirrors the same field
-                already used in bookingCompletions.fileRequirements — "On
-                File" means signed/uploaded once, valid for future visits;
-                "Every Time" means re-requested at every booking. */}
 
             {showAll && <Separator />}
 
@@ -1091,7 +1074,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
             </section>
 
-            {/* MORE OPTIONS — the parts most owners never touch, out of the way but one tap away. */}
             <details className="rounded-3xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
               <summary className="cursor-pointer text-[15px] font-semibold">More options <span className="font-normal cf-muted">— the confirmation note, documents to sign, the return plan</span></summary>
               <div className="space-y-6 pt-4">

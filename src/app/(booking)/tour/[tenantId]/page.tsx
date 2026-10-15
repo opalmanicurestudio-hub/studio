@@ -97,7 +97,6 @@ export default function TourPage() {
           <p className="text-xs font-bold text-slate-500 mt-0.5">Come see the space — pick a time that works for you.</p>
         </div>
 
-        {/* Day picker */}
         <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pick a day</p>
           <div className="flex gap-1.5 overflow-x-auto pb-1">
@@ -115,7 +114,6 @@ export default function TourPage() {
           </div>
         </div>
 
-        {/* Time picker */}
         {date && (
           <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pick a time</p>
@@ -138,7 +136,6 @@ export default function TourPage() {
           </div>
         )}
 
-        {/* Details */}
         {time && (
           <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Your details</p>

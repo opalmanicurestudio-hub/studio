@@ -483,7 +483,6 @@ function SettingsPageImpl() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto space-y-8 md:space-y-10 px-4 py-6 md:px-10 md:py-10 pb-32">
 
-          {/* Page header — back to Settings, this page's name, what it's for, and the pages that belong with it */}
           <header className="space-y-4 text-left">
             <Link href="/settings" className="inline-flex items-center gap-1 text-[14px] font-medium cf-muted hover:underline"><ChevronLeft className="h-4 w-4" aria-hidden />Settings</Link>
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -514,7 +513,6 @@ function SettingsPageImpl() {
             </div>)}
           {!(SETTINGS_TAB_MODULE[activeTab] && !moduleEnabled(selectedTenant, SETTINGS_TAB_MODULE[activeTab])) && <Tabs value={activeTab} className="w-full">
 
-            {/* ── PROFILE ── */}
             <TabsContent value="profile" className="mt-0 space-y-10 text-left">
               <a href="/import" className="cf-sheet flex items-center justify-between gap-3 px-5 py-4">
                 <span className="min-w-0"><span className="block text-[15px] font-medium">Bring your records from another app</span><span className="block text-[13.5px] cf-muted">Clients, services and products from Square, Vagaro, Fresha, Mindbody, GlossGenius and others — from their CSV export.</span></span>
@@ -539,12 +537,10 @@ function SettingsPageImpl() {
               </More>
             </TabsContent>
 
-            {/* ── LOCATIONS ── */}
             <TabsContent value="locations" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <LocationsSettingsTab />
             </TabsContent>
 
-            {/* ── PAYMENTS ── */}
             <TabsContent value="payments" className="mt-0 space-y-10 text-left">
               <Section title="Get paid">
                 <div className="p-5">
@@ -572,16 +568,13 @@ function SettingsPageImpl() {
               </More>
             </TabsContent>
 
-            {/* ── TERMINAL READER ── */}
             <TabsContent value="terminal" className="mt-0 space-y-10 text-left">
               <Section title="Card reader" help="The card reader at your front desk. Connect it once and the desk uses it automatically.">
                 <div className="p-5"><TerminalSettings /></div>
               </Section>
             </TabsContent>
 
-            {/* ── AUTOMATIONS ── */}
 
-            {/* ── HOURS ── */}
             <TabsContent value="hours" className="mt-0 space-y-10 text-left">
               <Section title="When are you open?" help="Clients can only book inside these hours.">
                 {localSchedule ? dayOrder.map((day) => { const d = localSchedule[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }; const name = day[0].toUpperCase() + day.slice(1); return (
@@ -664,7 +657,6 @@ function SettingsPageImpl() {
               </More>
             </TabsContent>
 
-            {/* ── EXPERIENCE ── */}
             <TabsContent value="visits" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               {tenantId && <VisitStagesCard tenantId={tenantId} tenant={selectedTenant} canEdit={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />}
             </TabsContent>
@@ -687,7 +679,6 @@ function SettingsPageImpl() {
               </Section>
             </TabsContent>
 
-            {/* ── POLICIES ── */}
             <TabsContent value="policies" className="mt-0 space-y-10 text-left">
               <CancellationReview firestore={firestore as any} tenantId={tenantId || ''} timezone={(selectedTenant as any)?.timezone} canDecide={['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase())} />
               {(() => { const Num = ({ field, prefix, suffix, step = 1, width = 'w-24', int = false }: { field: string; prefix?: string; suffix?: string; step?: number; width?: string; int?: boolean }) => (
@@ -837,9 +828,7 @@ function SettingsPageImpl() {
               </>); })()}
             </TabsContent>
 
-            {/* ── BUILDER ── */}
 
-            {/* ── KIOSK ── */}
             <TabsContent value="kiosk" className="mt-0 space-y-10 text-left">
               {tenantId && <KioskOptionsCard tenantId={tenantId} tenant={selectedTenant} canEdit={String((role as any) || '').toLowerCase() === 'owner'} />}
               <Section title="How it looks" help="On the kiosk and on your guest pages (events, quotes, inquiries, job applications).">
@@ -879,7 +868,6 @@ function SettingsPageImpl() {
               </More>
             </TabsContent>
 
-            {/* ── TIME CLOCK ── */}
             <TabsContent value="timeclock" className="mt-0 space-y-10 text-left">
               {(() => { const Num = ({ field, suffix, min = 0, max = 999, step = 1, width = 'w-24' }: { field: string; suffix?: string; min?: number; max?: number; step?: number; width?: string }) => (
                 <span className="inline-flex items-center gap-2"><input type="number" inputMode="decimal" min={min} max={max} step={step} value={(tenantData as any)[field] ?? ''} placeholder="0"

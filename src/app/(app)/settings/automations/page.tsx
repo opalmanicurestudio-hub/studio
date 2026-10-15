@@ -194,7 +194,6 @@ function TriggerCard({
     )}>
       <CardContent className="p-5 space-y-5">
 
-        {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 flex-1 min-w-0">
             <div className={cn('p-2 rounded-xl shrink-0 mt-0.5', def.badgeColor.replace('text-', 'text-').replace('bg-', 'bg-'))}>
@@ -227,11 +226,9 @@ function TriggerCard({
           )}
         </div>
 
-        {/* Config — only show when enabled */}
         {value.enabled && (
           <div className="space-y-4 pt-2 border-t border-dashed">
 
-            {/* Severity */}
             <div className="space-y-2">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                 Action severity
@@ -260,7 +257,6 @@ function TriggerCard({
               </div>
             </div>
 
-            {/* Windows */}
             <div className="grid grid-cols-1 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
@@ -360,7 +356,6 @@ export default function AutomationsSettingsPage() {
         {tenantId && <AutomationsOverview tenantId={tenantId} firestore={firestore as any} />}
 
 
-        {/* Trigger cards */}
         <section id="followups" className="scroll-mt-8 space-y-4">
           <div className="space-y-1"><h2 className="text-[19px] font-semibold tracking-tight">Deposit and form reminders</h2>
             <p className="text-[14.5px] cf-muted">For appointments that still need a deposit or forms. Checked every hour; you’re told about everything it does.</p></div>
@@ -376,7 +371,6 @@ export default function AutomationsSettingsPage() {
           </div>
         </section>
 
-        {/* Save footer */}
         {isDirty && (
           <div className="sticky bottom-4 flex justify-end">
             <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex h-12 items-center gap-2 rounded-full px-6 text-[15px] font-semibold shadow-lg disabled:opacity-60" style={{ background: 'var(--accent)', color: 'hsl(var(--primary-foreground))' }}>

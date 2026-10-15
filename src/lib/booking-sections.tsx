@@ -428,7 +428,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
         style={{ background: pillBg }}
         aria-label="Open menu">
  
-        {/* hamburger — 3 thin lines, middle shorter */}
         {(!iconStyle || iconStyle === 'hamburger') && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <span style={{ display: 'block', width: 20, height: 1.5, background: iconColor }}/>
@@ -437,7 +436,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
           </div>
         )}
  
-        {/* minimal — 2 equal thin lines */}
         {iconStyle === 'minimal' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ display: 'block', width: 20, height: 1.5, background: iconColor }}/>
@@ -445,7 +443,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
           </div>
         )}
  
-        {/* bold — 3 slightly thicker rounded lines */}
         {iconStyle === 'bold' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <span style={{ display: 'block', width: 20, height: 2.5, borderRadius: 2, background: iconColor }}/>
@@ -454,7 +451,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
           </div>
         )}
  
-        {/* dots — 3 small circles */}
         {iconStyle === 'dots' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
             {[0,1,2].map(i => (
@@ -463,7 +459,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
           </div>
         )}
  
-        {/* grid — 2×2 small squares */}
         {iconStyle === 'grid' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
             {[0,1,2,3].map(i => (
@@ -486,7 +481,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
           boxShadow: '-20px 0 80px rgba(0,0,0,0.20)',
           animation: 'cf-slide-right 0.32s cubic-bezier(0.16,1,0.3,1) both' }}>
 
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 shrink-0"
           style={{ borderBottom: `1.5px solid ${ac(style)}10` }}>
           {config.logoDarkUrl || config.logoUrl
@@ -502,7 +496,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
           </button>
         </div>
 
-        {/* Nav links */}
         <nav className="flex-1 min-h-0 overflow-y-auto">
           <div className="px-4 py-3">
             {navLinks.map((link, i) => (
@@ -519,7 +512,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
             ))}
           </div>
 
-          {/* Extra sections */}
           {rawEnabledSections && rawEnabledSections.filter(t => t !== 'nav').length > navLinks.length && (
             <div className="px-4 py-4" style={{ borderTop: `1px solid ${ac(style)}08` }}>
               <p className="text-[9px] font-black uppercase tracking-[0.28em] mb-3 px-3"
@@ -546,7 +538,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
             </div>
           )}
 
-          {/* Quick book */}
           {config.showQuickBook !== false && data.services.length > 0 && (
             <div className="px-4 py-4" style={{ borderTop: `1px solid ${ac(style)}08` }}>
               <p className="text-[9px] font-black uppercase tracking-[0.28em] mb-3 px-3"
@@ -577,7 +568,6 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
           )}
         </nav>
 
-        {/* Book CTA */}
         <div className="px-5 shrink-0"
           style={{ borderTop: `1.5px solid ${ac(style)}10`,
             paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))', paddingTop: '16px' }}>
@@ -1967,7 +1957,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
         <div className="relative z-10 w-full max-w-5xl mx-auto px-6 md:px-16"
           style={{ paddingBottom: 'max(52px, env(safe-area-inset-bottom, 52px))', paddingTop: '120px' }}>
 
-          {/* Eyebrow */}
           <div className="flex items-center gap-3 mb-5"
             style={{ animation: soloVis ? 'cf-fade-in 0.6s 0.05s both' : 'none' }}>
             <div className="h-px w-8"
@@ -1977,7 +1966,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
             </span>
           </div>
 
-          {/* Name */}
           <h2 className="font-light leading-[0.87] text-white"
             style={{
               fontSize: 'clamp(40px,9vw,92px)',
@@ -1994,7 +1982,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
             ))}
           </h2>
 
-          {/* Accent line when nothing else follows */}
           {!showSpecs && !hasBelow && (
             <div className="mt-5"
               style={{ animation: soloVis ? 'cf-line-grow 0.8s 0.55s both' : 'none' }}>
@@ -2002,7 +1989,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
             </div>
           )}
 
-          {/* Specialties */}
           {showSpecs && (
             <div className="flex flex-wrap gap-2" style={{ marginBottom: hasBelow ? '20px' : '0' }}>
               {solo.specialties.map((s: string, i: number) => (
@@ -2022,12 +2008,10 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
             </div>
           )}
 
-          {/* Divider between specs and bio */}
           {showSpecs && showBio && (
             <div className="mb-5 h-px w-12" style={{ background: 'rgba(255,255,255,0.12)' }}/>
           )}
 
-          {/* Bio */}
           {showBio && (
             <p className="text-sm md:text-base leading-relaxed max-w-sm"
               style={{
@@ -2040,7 +2024,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
             </p>
           )}
 
-          {/* Book button */}
           {showBtn && (
             <div style={{ animation: soloVis ? 'cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) 0.6s both' : 'none' }}>
               <button
@@ -2083,7 +2066,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
             <div className="grid md:grid-cols-[1.1fr_1fr] overflow-hidden shadow-2xl"
               style={{ borderRadius: br(style, 2) }}>
 
-              {/* Portrait */}
               <div className="relative overflow-hidden" style={{ aspectRatio: '3/4' }}>
                 {solo.avatarUrl
                   ? <img src={solo.avatarUrl} alt={solo.name}
@@ -2100,7 +2082,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                       </span>
                     </div>}
 
-                {/* Vertical label — desktop only */}
                 <div className="absolute left-3 inset-y-0 hidden md:flex items-center pointer-events-none"
                   style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)',
                     fontSize: '9px', fontWeight: 900, letterSpacing: '0.4em',
@@ -2108,7 +2089,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                   {config.heading || 'The Artist'}
                 </div>
 
-                {/* Bottom gradient + specialty chips */}
                 <div className="absolute bottom-0 inset-x-0"
                   style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.08) 65%, transparent 100%)' }}>
                   {showSpecs && (
@@ -2131,11 +2111,9 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 </div>
               </div>
 
-              {/* Editorial panel */}
               <div className="bg-white flex flex-col p-6 md:p-10 lg:p-12"
                 style={{ justifyContent: sparse && !showBtn ? 'center' : 'space-between' }}>
 
-                {/* Top block */}
                 <div style={{ animation: soloVis ? 'cf-fade-up 0.6s 0.1s both' : 'none' }}>
                   <div className="flex items-baseline gap-2 mb-4">
                     <p className="text-[9px] font-black uppercase tracking-[0.45em]"
@@ -2162,7 +2140,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                     style={{ background: ac(style) + '20', animation: soloVis ? 'cf-line-grow 0.8s 0.3s both' : 'none' }}/>
                 </div>
 
-                {/* Middle */}
                 {showBio ? (
                   <p className="mt-5 text-sm text-slate-500 leading-relaxed flex-1"
                     style={{ fontFamily: bf(style), animation: soloVis ? 'cf-fade-up 0.7s 0.4s both' : 'none' }}>
@@ -2178,7 +2155,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                   </div>
                 ) : null}
 
-                {/* Book button */}
                 {showBtn && (
                   <div className="mt-6 space-y-3"
                     style={{ animation: soloVis ? 'cf-fade-up 0.7s 0.5s both' : 'none' }}>
@@ -2219,7 +2195,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
           {solo ? (
             <div className="flex flex-col items-center">
 
-              {/* Halo + portrait — padding absorbs ring overflow so nothing clips on mobile */}
               <div className="relative inline-flex items-center justify-center"
                 style={{
                   padding: 'clamp(28px, 7vw, 44px)',
@@ -2227,14 +2202,12 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                   animation: soloVis ? 'cf-scale-up 0.8s cubic-bezier(0.16,1,0.3,1) 0.05s both' : 'none',
                 }}>
 
-                {/* Outer conic ring */}
                 <div className="absolute inset-0 rounded-full pointer-events-none"
                   style={{
                     background: `conic-gradient(from 0deg, ${ac(style)}06, ${ac(style)}18, ${ac(style)}04, ${ac(style)}18, ${ac(style)}06)`,
                     animation: 'cf-drift-c 22s linear infinite',
                   }}/>
 
-                {/* Dashed ring */}
                 <div className="absolute rounded-full pointer-events-none"
                   style={{
                     inset: 'clamp(10px, 2.5vw, 14px)',
@@ -2243,7 +2216,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                     animation: 'cf-drift-a 14s ease-in-out infinite',
                   }}/>
 
-                {/* Portrait */}
                 <div className="relative overflow-hidden"
                   style={{
                     width: 'clamp(130px, 38vw, 180px)',
@@ -2269,7 +2241,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 </div>
               </div>
 
-              {/* Name */}
               <div style={{
                 marginBottom: showSpecs || showBio || showBtn ? 'clamp(16px,3vw,24px)' : '0',
                 animation: soloVis ? 'cf-fade-up 0.7s 0.25s both' : 'none',
@@ -2294,7 +2265,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 </div>
               </div>
 
-              {/* Specialties */}
               {showSpecs && (
                 <div className="flex flex-wrap gap-2 justify-center w-full"
                   style={{ marginBottom: showBio || showBtn ? 'clamp(16px,3vw,22px)' : '0' }}>
@@ -2314,7 +2284,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 </div>
               )}
 
-              {/* Bio */}
               {showBio && (
                 <p className="text-sm md:text-base text-slate-500 leading-relaxed max-w-sm mx-auto w-full"
                   style={{
@@ -2326,7 +2295,6 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 </p>
               )}
 
-              {/* Book button */}
               {showBtn && (
                 <div style={{
                   animation: soloVis ? 'cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) 0.6s both' : 'none',
@@ -2550,7 +2518,6 @@ function ReviewsSection({ config, style, data, isPreview, sectionId, onFieldTap 
             {reviews.map((r, i) => (
               <div key={i} className="text-center space-y-5"
                 style={{ animation: visible ? `cf-fade-up 0.7s ${i * 0.15}s both` : 'none' }}>
-                {/* Large quote mark */}
                 <div className="font-light select-none" style={{ fontFamily: hf(style), fontSize: 80, color: `${accent}20`, lineHeight: 0.8 }}>
                   "
                 </div>

@@ -109,7 +109,6 @@ export default function FinancePage() {
             </Glass>
           </div>
 
-          {/* ── Billing: ClarityFlow's own subscriptions ── */}
           <Glass className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>Subscriptions · {d.billing.subscribers} paying · {c2(d.income.subscriptions)} this month</Label>

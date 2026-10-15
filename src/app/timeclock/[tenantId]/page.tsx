@@ -312,7 +312,6 @@ export default function TimeClockPage() {
         <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-primary/5 blur-[100px] rounded-full" />
       </div>
 
-      {/* Live clock */}
       <div className="text-center mb-8 z-10">
         <p className="text-5xl md:text-7xl font-black text-slate-900 font-mono tracking-tighter">
           {format(currentTime, 'h:mm')}
@@ -322,7 +321,6 @@ export default function TimeClockPage() {
         {tenant?.name && <p className="text-slate-300 font-black uppercase tracking-widest text-[10px] mt-1">{tenant.name}</p>}
       </div>
 
-      {/* Geo status */}
       {tenant?.geoFenceEnabled && (
         <div className={cn("flex items-center gap-2 px-4 py-2 rounded-full border mb-6 z-10 text-[10px] font-black uppercase tracking-widest", geoStatus === 'verified' ? "bg-green-50 border-green-200 text-green-700" : geoStatus === 'failed' ? "bg-red-50 border-red-200 text-red-600" : "bg-slate-100 border-slate-200 text-slate-400")}>
           <MapPin className="w-3 h-3" />
@@ -332,7 +330,6 @@ export default function TimeClockPage() {
 
       <AnimatePresence mode="wait">
 
-        {/* IDLE */}
         {step === 'idle' && fromKiosk && (
           <button type="button" onClick={backToKiosk} className="fixed left-4 top-4 z-20 h-11 rounded-full bg-white/90 px-5 text-[15px] font-semibold text-slate-700 shadow">← Back</button>
         )}
@@ -352,7 +349,6 @@ export default function TimeClockPage() {
               ))}
             </div>
 
-            {/* Active staff list */}
             {activeStaff.length > 0 && (
               <Card className="bg-white border-slate-200 rounded-[2rem] overflow-hidden shadow-sm">
                 <CardContent className="p-5 space-y-3">
@@ -375,7 +371,6 @@ export default function TimeClockPage() {
           </motion.div>
         )}
 
-        {/* PIN ENTRY */}
         {step === 'pin_entry' && (
           <motion.div key="pin" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="w-full max-w-sm space-y-8 z-10">
             <div className="text-center space-y-2">
@@ -413,7 +408,6 @@ export default function TimeClockPage() {
           </motion.div>
         )}
 
-        {/* ACTION CONFIRM */}
         {step === 'action_confirm' && selectedStaff && (
           <motion.div key="confirm" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="w-full max-w-sm space-y-8 z-10 text-center">
             <Avatar className="w-28 h-28 mx-auto border-4 border-slate-200 rounded-[2.5rem] shadow-xl">
@@ -425,7 +419,6 @@ export default function TimeClockPage() {
               <p className="text-slate-400 font-black uppercase tracking-widest text-[10px]">{pendingAction ? actionLabel[pendingAction] : ''} -- {format(currentTime, 'h:mm a')}</p>
               {geoStatus === 'verified' && <Badge className="bg-green-100 text-green-700 border-none font-black text-[9px] uppercase"><MapPin className="w-2.5 h-2.5 mr-1" />Location Verified</Badge>}
               {geoStatus === 'failed' && tenant?.geoFenceFailBehavior === 'warn' && <Badge className="bg-amber-100 text-amber-700 border-none font-black text-[9px] uppercase"><AlertTriangle className="w-2.5 h-2.5 mr-1" />Outside Zone -- Warning Only</Badge>}
-              {/* Paid break indicator */}
               {pendingAction === 'break_end' && selectedStaff.breakStartTime && (
                 <div className={cn("mt-2 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase inline-flex items-center gap-1.5", (tenant?.paidBreakMinutes || 0) > 0 ? "bg-green-50 text-green-700 border border-green-200" : "bg-slate-100 text-slate-500 border border-slate-200")}>
                   {(tenant?.paidBreakMinutes || 0) > 0 ? <><CheckCircle2 className="w-3 h-3" />First {tenant.paidBreakMinutes}min Paid</> : 'Unpaid Break'}
@@ -441,7 +434,6 @@ export default function TimeClockPage() {
           </motion.div>
         )}
 
-        {/* SUCCESS */}
         {step === 'success' && selectedStaff && (
           <motion.div key="success" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.1 }} className="w-full max-w-sm space-y-6 z-10 text-center">
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 200, delay: 0.1 }} className="w-28 h-28 bg-green-100 rounded-full flex items-center justify-center mx-auto border-4 border-green-200">
@@ -456,7 +448,6 @@ export default function TimeClockPage() {
           </motion.div>
         )}
 
-        {/* ERROR */}
         {step === 'error' && (
           <motion.div key="error" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="w-full max-w-sm space-y-6 z-10 text-center">
             <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto border-4 border-red-200">

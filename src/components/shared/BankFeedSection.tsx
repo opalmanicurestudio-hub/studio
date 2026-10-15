@@ -204,7 +204,6 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
 
   return (
     <div className="space-y-3">
-      {/* ── Toolbar — icon buttons, rules up top ── */}
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="text-xs font-black uppercase tracking-widest">Bank feed</h2>
         {inbox.length > 0 && (
@@ -238,7 +237,6 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
         )}
       </div>
 
-      {/* ── Learned rules — now right under the toolbar ── */}
       {rulesOpen && (
         <div className="rounded-xl border-2 border-border bg-card p-3 space-y-1.5 animate-in fade-in duration-150">
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
@@ -304,7 +302,6 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
         </p>
       )}
 
-      {/* ── Review inbox — compact icon actions + category picker + receipt ── */}
       {inbox.length > 0 && (
         <div className="space-y-2">
           {inbox.map(bt => {
@@ -321,8 +318,6 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
                   <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0 ${bt.context === 'Personal' ? 'bg-muted text-muted-foreground' : 'bg-foreground text-background'}`}>{bt.context === 'Personal' ? '🏠' : '💼'}</span>
                 </div>
 
-                {/* v69 — bill match chip: booking this line will also mark
-                    the matched bill paid unless the owner unlinks it */}
                 {bt.suggestedBillInstanceId && (
                   <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${billUnlinked[bt.id] ? 'bg-muted/60 border-border' : 'bg-purple-50 border-purple-200'}`}>
                     <Landmark className={`w-3 h-3 shrink-0 ${billUnlinked[bt.id] ? 'text-muted-foreground' : 'text-purple-700'}`} />
@@ -340,7 +335,6 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
                 )}
 
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {/* Category — pulled from the shared library, editable pre-booking */}
                   <select
                     value={chosenCat}
                     onChange={e => setCatOverride(m => ({ ...m, [bt.id]: e.target.value }))}
@@ -378,7 +372,6 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
                   </IconBtn>
                 </div>
 
-                {/* Receipt capture — attach proof before booking */}
                 {receiptOpenFor === bt.id && (
                   <div className="rounded-lg border-2 border-dashed p-3 space-y-2 animate-in fade-in duration-150">
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">

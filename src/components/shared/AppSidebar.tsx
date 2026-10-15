@@ -447,7 +447,6 @@ export function AppSidebar() {
 
         <SidebarHeader className="p-3 pb-1">
           <div className="flex items-center justify-between gap-2">
-            {/* The business's own identity up top — ClarityFlow's mark sits quietly at the bottom. */}
             <style dangerouslySetInnerHTML={{ __html: SIDE_CSS }} />
             <Link href="/dashboard" className="cf-biz flex min-w-0 flex-1 items-center gap-3 rounded-[18px] p-2.5 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0">
               {brandLogo ? <img src={brandLogo} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" /> : <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-[15px] font-semibold text-primary-foreground">{String((selectedTenant as any)?.name || 'C').trim()[0]?.toUpperCase()}</span>}
@@ -458,7 +457,6 @@ export function AppSidebar() {
             </Link>
 
             <div className="group-data-[collapsible=icon]:hidden">
-              {/* (Collapse lives in the header bar and the sidebar's footer — the card keeps the business name readable.) */}
             </div>
           </div>
         </SidebarHeader>

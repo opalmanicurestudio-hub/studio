@@ -265,9 +265,6 @@ export const EditResourceDialog: React.FC<EditResourceDialogProps> = ({
                     )} />
                 </div>
 
-                {/* RENT IT OUT — a sauna, room, court or piece of equipment booked by the hour or day with no provider.
-                    Public booking, the signed agreement, kiosk check-in, check-out with grace and overstay charges all
-                    come from the rental engine; one rental space per unit of capacity. */}
                 <div className="space-y-3 rounded-2xl border p-4">
                     <div className="flex items-center justify-between gap-3">
                         <div><p className="text-[14px] font-semibold">Rent this out</p><p className="text-[12px] text-muted-foreground">Clients book it by the hour or day, no provider needed. Check-in, check-out and overstay charges are handled for you.</p></div>

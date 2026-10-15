@@ -839,9 +839,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardContent>
                 </Card>
 
-                {/* v2 — alerts stay full-width above the two-column split;
-                    these are important warnings that shouldn't get buried
-                    in a narrower column. */}
                 <div className="mt-8 space-y-3 text-left">
                     <AnimatePresence>
                         {adjustmentBreakdown.rescheduleFee > 0 && (
@@ -893,8 +890,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     )}
                 </div>
 
-                {/* v2 — the actual fix: two-column layout at lg+, single
-                    column (unchanged) below that / on mobile. */}
                 <div className={cn("mt-10", !isMobile && "grid grid-cols-1 lg:grid-cols-[1.4fr,1fr] gap-x-12 gap-y-10 items-start")}>
                     {flowAndActualsColumn}
                     {contextColumn}
@@ -930,7 +925,6 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
           />
       )}
 
-      {/* FIX #1: Replaced <img priority /> with Next.js <Image> which accepts the priority prop correctly */}
       <Dialog open={!!expandedImage} onOpenChange={(val) => !val && setExpandedImage(null)}>
         <DialogContent className="max-w-fit p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
             <DialogHeader className="sr-only">

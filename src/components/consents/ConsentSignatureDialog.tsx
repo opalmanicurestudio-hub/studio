@@ -263,12 +263,10 @@ export function ConsentSignatureDialog({
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6" onScroll={handleScroll}>
-          {/* Form content */}
           <div className="bg-white rounded-2xl border-2 p-5">
             {renderFormContent()}
           </div>
 
-          {/* Scroll indicator */}
           {!hasScrolled && (
             <div className="flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 animate-bounce">
               <ChevronDown className="w-3.5 h-3.5" />
@@ -276,7 +274,6 @@ export function ConsentSignatureDialog({
             </div>
           )}
 
-          {/* Signature section */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -287,7 +284,6 @@ export function ConsentSignatureDialog({
               </p>
             </div>
 
-            {/* Signature canvas — ref-based for reliable data extraction */}
             <SignatureCanvas
               canvasRef={canvasRef}
               onSign={setHasSigned}

@@ -43,7 +43,6 @@ export const StoreCreditConfirmation: React.FC<Props> = ({
   return (
     <div className="rounded-[2rem] border-4 border-green-200 bg-gradient-to-br from-green-50 to-white overflow-hidden shadow-lg">
 
-      {/* Header */}
       <div className="px-6 pt-6 pb-4 border-b border-green-100">
         <div className="flex items-center gap-3 mb-1">
           <div className="w-10 h-10 rounded-2xl bg-green-500 flex items-center justify-center">
@@ -60,7 +59,6 @@ export const StoreCreditConfirmation: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Amount */}
       <div className="px-6 py-5 text-center border-b border-green-100">
         <p className="text-[9px] font-black uppercase tracking-widest text-green-600 mb-1">
           Your credit balance
@@ -83,7 +81,6 @@ export const StoreCreditConfirmation: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Body */}
       <div className="px-6 py-5 space-y-3">
         {reason && (
           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-relaxed">
@@ -97,7 +94,6 @@ export const StoreCreditConfirmation: React.FC<Props> = ({
         </p>
       </div>
 
-      {/* Rebook CTA */}
       {bookingUrl && (
         <div className="px-6 pb-6">
           <a

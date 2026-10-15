@@ -138,7 +138,6 @@ export default function PlatformTermsPage() {
           </p>
         </section>
 
-        {/* ── The compliance section a carrier or aggregator expects to see ── */}
         <section id="messaging" className="space-y-3 rounded-2xl border-2 border-slate-200 bg-white p-4">
           <h2 className="text-sm font-black uppercase tracking-widest">7. Messaging compliance — you are the sender</h2>
           <p className="text-sm leading-relaxed">

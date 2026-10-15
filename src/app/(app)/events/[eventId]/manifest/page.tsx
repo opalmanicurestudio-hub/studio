@@ -246,7 +246,6 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
           </DialogTitle>
         </DialogHeader>
         <div className="p-6 space-y-4">
-          {/* Summary counts */}
           <div className="grid grid-cols-3 gap-3">
             <div className="text-center p-3 rounded-xl bg-primary/5 border border-primary/20">
               <p className="text-xl font-black text-primary">{eligible.length}</p>
@@ -262,7 +261,6 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
             </div>
           </div>
 
-          {/* Order breakdown */}
           <div className="space-y-2">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ticket Breakdown</p>
             {Object.entries(itemCounts).map(([id, data]) => (
@@ -280,7 +278,6 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
             ))}
           </div>
 
-          {/* Critical allergy guest list */}
           {criticalGuests.length > 0 && (
             <div className="p-3 rounded-xl bg-red-50 border-2 border-red-200 space-y-2">
               <p className="text-[9px] font-black uppercase tracking-widest text-red-600">Critical Allergy Guests — Alert Kitchen</p>
@@ -1304,12 +1301,9 @@ export default function EventManifestPage() {
       <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
 
-        {/* ── HEADER ─────────────────────────────────────────────────────── */}
         <>
-          {/* Desktop */}
           <div className="hidden md:flex items-start justify-between gap-4">
             <div className="flex items-start gap-6">
-              {/* Capacity ring */}
               <CapacityRing
                 checkedIn={stats.checkedIn}
                 total={stats.total}
@@ -1319,7 +1313,6 @@ export default function EventManifestPage() {
                 <h1 className="text-4xl font-black uppercase tracking-tighter text-foreground leading-none">{eventDisplayName}</h1>
                 {event.date  && <p className="text-sm text-muted-foreground mt-1">{format(new Date(event.date), 'EEEE, MMMM d, yyyy')}</p>}
                 {event.venue && <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mt-0.5">{event.venue}</p>}
-                {/* Capacity bar */}
                 {event.capacity && (
                   <div className="flex items-center gap-2 mt-2">
                     <div className="w-32 h-1.5 rounded-full bg-border overflow-hidden">
@@ -1331,7 +1324,6 @@ export default function EventManifestPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Quote badge */}
               {event.quoteId && (
                 <QuoteLinkBadge quoteId={event.quoteId} tenantId={tenantId} firestore={firestore} />
               )}
@@ -1376,7 +1368,6 @@ export default function EventManifestPage() {
             </div>
           </div>
 
-          {/* Mobile */}
           <div className="md:hidden space-y-3">
             <div className="flex items-center gap-4">
               <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
@@ -1435,12 +1426,9 @@ export default function EventManifestPage() {
           </div>
         </>
 
-        {/* ── BANNERS ─────────────────────────────────────────────────────── */}
 
-        {/* Menu note */}
         {event?.menuNote && <MenuNoteBanner note={event.menuNote} />}
 
-        {/* Ordering deadline */}
         {hasOrderingDeadline && (
           <OrderingDeadlineBanner
             deadline={event.orderingDeadline}
@@ -1448,7 +1436,6 @@ export default function EventManifestPage() {
           />
         )}
 
-        {/* Active broadcast */}
         {currentBroadcast && (
           <div className="flex items-center justify-between p-3 rounded-2xl bg-violet-50 border-2 border-violet-200">
             <div className="flex items-center gap-2">
@@ -1461,7 +1448,6 @@ export default function EventManifestPage() {
           </div>
         )}
 
-        {/* Undo */}
         <AnimatePresence>
           {undoWindowOpen && (
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
@@ -1475,7 +1461,6 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* Delta banners */}
         <AnimatePresence>
           {Object.entries(deltaGuestsByCourse).map(([n, dg]) => (
             <DeltaRefireBanner key={n} courseNumber={Number(n)} courseName={courseLabels[Number(n)] || `Course ${n}`}
@@ -1483,14 +1468,12 @@ export default function EventManifestPage() {
           ))}
         </AnimatePresence>
 
-        {/* All-courses-fired nudge */}
         <AnimatePresence>
           {allCoursesFired && (
             <AllCoursesFiredNudge onEndEvent={() => setIsEndEventOpen(true)} />
           )}
         </AnimatePresence>
 
-        {/* ── STATS ───────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Responses" value={stats.total} sub={`${stats.checkedIn} checked in`} />
           <StatCard label="Allergy Flags" value={stats.allergyCount} sub={stats.uniqueAllergies.slice(0, 2).join(', ') || 'None'} color="amber" />
@@ -1499,7 +1482,6 @@ export default function EventManifestPage() {
           ))}
         </div>
 
-        {/* Cross-contamination warnings */}
         {crossContaminationWarnings.length > 0 && (
           <div className="bg-red-50 rounded-2xl border-2 border-red-300 p-5 space-y-3">
             <div className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-600" /><h2 className="text-sm font-black uppercase tracking-[0.2em] text-red-800">Cross-Contamination Risk — {crossContaminationWarnings.length} Table{crossContaminationWarnings.length !== 1 ? 's' : ''}</h2></div>
@@ -1507,7 +1489,6 @@ export default function EventManifestPage() {
           </div>
         )}
 
-        {/* ── COURSE FIRING ───────────────────────────────────────────────── */}
         {courseNumbers.length > 0 && (
           <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
             <div className="p-5 border-b border-border"><h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2"><Utensils className="w-4 h-4 text-primary" /> Course Firing</h2></div>
@@ -1543,7 +1524,6 @@ export default function EventManifestPage() {
           </div>
         )}
 
-        {/* ── MAIN TABS ───────────────────────────────────────────────────── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
             <TabsList className="h-11 rounded-2xl border-2 bg-muted p-1 gap-1 w-max md:w-full">
@@ -1561,7 +1541,6 @@ export default function EventManifestPage() {
             </TabsList>
           </div>
 
-          {/* ── GUESTS TAB ─────────────────────────────────────────────── */}
           <TabsContent value="guests" className="mt-4 space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
               <Button onClick={() => { setIsAddingGuest(true); setEditingGuest(null); setGuestForm({ name: '', email: '', phone: '', tableNumber: '', seatNumber: '', mealChoiceId: '', notes: '' }); }}
@@ -1586,7 +1565,6 @@ export default function EventManifestPage() {
                   <SelectItem value="dietary">Dietary Req.</SelectItem>
                 </SelectContent>
               </Select>
-              {/* View toggle */}
               <div className="flex items-center rounded-xl border-2 border-border overflow-hidden h-10 ml-auto">
                 <button onClick={() => setGuestViewMode('list')}
                   className={cn('flex items-center justify-center w-10 h-full transition-colors', guestViewMode === 'list' ? 'bg-primary text-white' : 'hover:bg-muted/60 text-muted-foreground')}>
@@ -1599,7 +1577,6 @@ export default function EventManifestPage() {
               </div>
             </div>
 
-            {/* Bulk check-in bar */}
             {selectedGuests.size > 0 && (
               <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
                 className="flex items-center justify-between p-3 rounded-2xl bg-primary/5 border-2 border-primary/20">
@@ -1619,7 +1596,6 @@ export default function EventManifestPage() {
               </motion.div>
             )}
 
-            {/* Guest form */}
             <AnimatePresence>
               {(isAddingGuest || editingGuest) && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
@@ -1665,7 +1641,6 @@ export default function EventManifestPage() {
               )}
             </AnimatePresence>
 
-            {/* Table grouped view */}
             {guestViewMode === 'table' ? (
               <TableGroupedView
                 guests={filtered} menuItems={menuItems}
@@ -1752,7 +1727,6 @@ export default function EventManifestPage() {
             )}
           </TabsContent>
 
-          {/* ── MENU TAB ──────────────────────────────────────────────────── */}
           <TabsContent value="menu" className="mt-4 space-y-5">
             {menuItems.length > 0 && (
               <div className="space-y-2">
@@ -1822,12 +1796,10 @@ export default function EventManifestPage() {
             )}
           </TabsContent>
 
-          {/* ── SEATING TAB ───────────────────────────────────────────────── */}
           <TabsContent value="seating" className="mt-4">
             <SeatingChartTab eventId={eventId} tenantId={tenantId} firestore={firestore} guests={guests} staff={eventStaff} event={event} />
           </TabsContent>
 
-          {/* ── STAFF TAB ─────────────────────────────────────────────────── */}
           <TabsContent value="staff" className="mt-4 space-y-4">
             <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
               <div className="p-5 border-b border-border">
@@ -1898,7 +1870,6 @@ export default function EventManifestPage() {
             </div>
           </TabsContent>
 
-          {/* ── REQUESTS TAB ──────────────────────────────────────────────── */}
           <TabsContent value="requests" className="mt-4 space-y-4">
             <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
               <button onClick={() => { setLocalRequestTypes(requestTypes); setEditingRequestTypes(s => !s); }}
@@ -1954,7 +1925,6 @@ export default function EventManifestPage() {
           </TabsContent>
         </Tabs>
 
-        {/* ── GUEST LINK ──────────────────────────────────────────────────── */}
         <AnimatePresence>
           {showLink && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
@@ -1989,9 +1959,7 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* ── DIALOGS ─────────────────────────────────────────────────────── */}
 
-        {/* Meal override */}
         <AnimatePresence>
           {mealOverrideGuest && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -2032,7 +2000,6 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* Confirm activate */}
         <Dialog open={isConfirmActivateOpen} onOpenChange={setIsConfirmActivateOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500" /> Go Live</DialogTitle></DialogHeader>
@@ -2057,7 +2024,6 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* End event */}
         <Dialog open={isEndEventOpen} onOpenChange={setIsEndEventOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter">End Event</DialogTitle></DialogHeader>
@@ -2087,7 +2053,6 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Broadcast sheet */}
         <Sheet open={broadcastOpen} onOpenChange={setBroadcastOpen}>
           <SheetContent side="bottom" className="rounded-t-3xl border-t-0 pb-safe">
             <SheetHeader className="pb-4">
@@ -2110,7 +2075,6 @@ export default function EventManifestPage() {
           </SheetContent>
         </Sheet>
 
-        {/* Course fire confirm */}
         {fireConfirmCourse !== null && (
           <CourseFireConfirmDialog
             open={fireConfirmCourse !== null}
@@ -2128,7 +2092,6 @@ export default function EventManifestPage() {
           />
         )}
 
-        {/* Print modal */}
         <KitchenPrintModal
           open={printModalOpen}
           onOpenChange={setPrintModalOpen}

@@ -518,7 +518,6 @@ export default function ClientPortalPage() {
                     </ScrollArea>
 
                     <TabsContent value="appointments" className="space-y-12 animate-in fade-in duration-500 text-left">
-                        {/* STUDIO GIFTS (Post-Op Recovery) */}
                         {client.oneTimePerks && client.oneTimePerks.filter(p => !p.isRedeemed).length > 0 && (
                             <div className="space-y-6">
                                 <div className="flex items-center gap-3 px-1">

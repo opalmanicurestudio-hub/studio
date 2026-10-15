@@ -89,7 +89,6 @@ export function PayStubView({ tenantId, from, accent = INK, previousTotal, previ
                   </button>); })}
               </div>)}
           </section>
-          {/* ── Stub E's tiles: the numbers behind the money ── */}
           <section aria-label="Your numbers" className="grid grid-cols-2 gap-2">
             {[['Average visit', st.avgVisit != null ? money(st.avgVisit).replace(/\.00$/, '') : '—', delta(st.avgVisit, ps.avgVisit, '$')],
               ['Rebooked', st.rebookPct != null ? `${st.rebookPct}%` : '—', delta(st.rebookPct, ps.rebookPct, 'pts')],

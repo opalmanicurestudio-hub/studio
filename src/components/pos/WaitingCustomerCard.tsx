@@ -257,7 +257,6 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                 </div>
             )}
 
-            {/* Redesigned late-arrival entry: presets, custom minutes, or a specific clock time the client texted in */}
             <Dialog open={isLateEntryOpen} onOpenChange={setIsLateEntryOpen}>
                 <DialogContent className="sm:max-w-[380px] rounded-[2.5rem] border-4 shadow-2xl p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
                     <div className="bg-amber-500 px-7 pt-7 pb-5">
@@ -273,7 +272,6 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                     </div>
 
                     <div className="p-7 space-y-5">
-                        {/* Mode switch */}
                         <div className="grid grid-cols-2 gap-1.5 p-1 bg-muted/40 rounded-2xl border-2 border-border/50">
                             <button
                                 type="button"
@@ -341,7 +339,6 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                             </div>
                         )}
 
-                        {/* Live preview of what will be saved */}
                         <div className={cn(
                             "flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all",
                             resolvedMinutes !== null ? "bg-amber-50 border-amber-200" : "bg-muted/20 border-border/40"

@@ -114,13 +114,11 @@ const CanvasTableCard = ({
       )}
     >
       <div className={cn('rounded-xl border-2 overflow-hidden', color.border, isSelected ? 'ring-2 ring-white ring-offset-1' : '')}>
-        {/* Header */}
         <div className={cn('px-3 py-2', color.bg)}>
           <p className="text-[8px] font-black uppercase tracking-widest text-white/70 leading-none mb-0.5">Table</p>
           <p className="font-black text-white text-sm leading-none truncate">{table.name}</p>
         </div>
 
-        {/* Body */}
         <div className="bg-card/95 px-3 py-2 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Seats</span>
@@ -300,7 +298,6 @@ const TableConfigPanel = ({
 
   return (
     <div className="space-y-5">
-      {/* Name */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Table Name</label>
         <input
@@ -310,7 +307,6 @@ const TableConfigPanel = ({
         />
       </div>
 
-      {/* Seats */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Seat Count</label>
         <div className="flex items-center gap-3">
@@ -322,7 +318,6 @@ const TableConfigPanel = ({
         </div>
       </div>
 
-      {/* Label style */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Seat Labels</label>
         <div className="flex gap-2">
@@ -343,7 +338,6 @@ const TableConfigPanel = ({
         </div>
       </div>
 
-      {/* Color */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Table Color</label>
         <div className="flex gap-2">
@@ -355,7 +349,6 @@ const TableConfigPanel = ({
         </div>
       </div>
 
-      {/* Staff coverage */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Staff Coverage</label>
         <div className="space-y-1.5">
@@ -380,7 +373,6 @@ const TableConfigPanel = ({
         </div>
       </div>
 
-      {/* Guest seat assignment */}
       <div className="space-y-1.5">
         <label className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Seat Assignments</label>
         <div className="space-y-2">
@@ -421,7 +413,6 @@ const TableConfigPanel = ({
         </div>
       </div>
 
-      {/* QR codes */}
       <div className="space-y-2">
         <button onClick={generateQrCodes}
           className="w-full h-10 rounded-xl border-2 border-border flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-border hover:text-foreground/80 transition-all">
@@ -455,7 +446,6 @@ const TableConfigPanel = ({
         </AnimatePresence>
       </div>
 
-      {/* Delete */}
       <button onClick={onDelete}
         className="w-full h-9 rounded-xl border-2 border-red-100 text-red-400 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 hover:bg-red-50 transition-all">
         <Trash2 className="w-3.5 h-3.5" /> Remove Table
@@ -678,7 +668,6 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
 
   return (
     <div className="flex flex-col gap-4 h-full">
-      {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="font-black text-foreground text-sm uppercase tracking-tight">Room Layout</h3>
@@ -709,7 +698,6 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
       </div>
 
       <div className="flex gap-4 flex-1 min-h-0 flex-col md:flex-row">
-        {/* Canvas */}
         <div className="flex-1 min-w-0">
           <div
             ref={canvasRef}
@@ -717,7 +705,6 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
             style={{ aspectRatio: '16/9' }}
             onClick={e => { if (e.target === canvasRef.current) setSelectedId(null); }}
           >
-            {/* Grid lines */}
             <div className="absolute inset-0 pointer-events-none"
               style={{
                 backgroundImage: 'linear-gradient(rgba(148,163,184,0.15) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.15) 1px, transparent 1px)',
@@ -758,7 +745,6 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
             ))}
           </div>
 
-          {/* Table list below canvas */}
           {tables.length > 0 && (
             <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
               {tables.map(table => {
@@ -780,7 +766,6 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
           )}
         </div>
 
-        {/* Config panel */}
         <AnimatePresence>
           {selectedTable && (
             <motion.div

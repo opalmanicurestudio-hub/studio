@@ -606,7 +606,6 @@ export function AppointmentCard({
                     <Button size="xs" variant="outline" aria-label="Keep the request" className="h-6 px-2 border font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); setConfirmingDecline(false); }}>Keep</Button>
                 </div>
             )}
-            {/* The one action this state most likely needs, right on the card (the menu has the rest). */}
             {tier !== 'compact' && !canDecide && !canResolve && appointment.status === 'confirmed' && appointment.checkInStatus === 'arrived' && onStartService && (
                 <Button size="xs" aria-label={`Start ${client.name}'s service`} className="h-7 px-3 bg-primary text-white border-none font-semibold text-[12px] rounded-lg active:scale-95" onClick={e => { e.stopPropagation(); onStartService(appointment); }}>Start</Button>
             )}

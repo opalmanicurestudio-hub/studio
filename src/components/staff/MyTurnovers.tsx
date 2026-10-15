@@ -74,7 +74,6 @@ export function PortalHousekeeping({ tenantId, staffId, myAppts, services, staff
   const today = (all || []).filter((a: any) => String(a.startTime || '') <= new Date(Date.now() + 18 * 3600000).toISOString());
   return (
     <section aria-label="Housekeeping" className="space-y-3">
-      {/* Phone bar: Scan is always one tap; Jobs (one at a time), Timers (countdown rings) and the full Board */}
       <div className="sticky top-0 z-20 -mx-1 flex gap-2 bg-background/95 px-1 py-2 backdrop-blur">
         <button type="button" onClick={() => setScanOpen(true)} className="h-12 flex-[1.4] rounded-full bg-[#17181A] text-[16px] font-[800] text-white">Scan</button>
         {(['jobs', 'timers', 'board'] as const).map((t) => <button key={t} type="button" aria-pressed={tab === t} onClick={() => setTab(t)} className={`h-12 flex-1 rounded-full text-[14px] font-[700] ${tab === t ? 'bg-[#EDE8E1] text-[#17181A]' : 'border text-[#4A453E]'}`}>{t === 'jobs' ? 'Jobs' : t === 'timers' ? 'Timers' : 'Board'}</button>)}

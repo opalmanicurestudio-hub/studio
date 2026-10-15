@@ -265,7 +265,6 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
             </CardContent>
           </Card>
 
-          {/* ── Staff custody & replenishment ──────────────────────────────── */}
           {productType === 'professional' && (
             <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
               <CardContent className="p-5">

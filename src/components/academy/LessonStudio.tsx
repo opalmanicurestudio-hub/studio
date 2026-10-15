@@ -176,7 +176,6 @@ function InteractiveEditor({ tenantId, courseId, lessonId, accent, b, onChange }
   };
   return (
     <div className="space-y-2">
-      {/* Once built, the request folds away — students never see it. */}
       {b.html ? <details className="rounded-xl bg-muted/40 px-3 py-2 text-sm"><summary className="cursor-pointer font-bold text-muted-foreground">What you asked for</summary>
         <textarea rows={2} className={`${area} mt-2`} value={b.request} onChange={(e) => onChange({ request: e.target.value })} /></details>
         : <textarea rows={2} className={area} value={b.request} onChange={(e) => onChange({ request: e.target.value })} placeholder={b.game ? 'Describe the game — e.g. A salon simulator: a client arrives and students pick the service steps in order, with infection-control steps scored' : 'What should it show? e.g. How UV gel cures from the top down, and why thick or dark coats stay liquid underneath — with a time slider'} />}

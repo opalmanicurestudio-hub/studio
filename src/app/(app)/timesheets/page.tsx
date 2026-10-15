@@ -353,7 +353,6 @@ export default function TimesheetsPage() {
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto space-y-8">
         <ClockFixReview firestore={firestore} tenantId={tenantId || ""} />
 
-        {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-1">
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Timesheets</h1>
@@ -376,7 +375,6 @@ export default function TimesheetsPage() {
           </div>
         </div>
 
-        {/* Week nav */}
         <div className="flex items-center gap-4 p-4 bg-card rounded-[2rem] border-2 shadow-sm w-fit">
           <Button variant="ghost" size="icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl"><ChevronLeft className="w-5 h-5" /></Button>
           <div className="text-center min-w-[200px]">
@@ -387,7 +385,6 @@ export default function TimesheetsPage() {
           <Button variant="outline" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: wso }))} className="h-9 px-4 rounded-xl font-black uppercase text-[9px] border-2">This Week</Button>
         </div>
 
-        {/* KPI row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Total Staff', value: String(timesheets.length), icon: Users, color: 'text-primary' },
@@ -407,7 +404,6 @@ export default function TimesheetsPage() {
           ))}
         </div>
 
-        {/* Per-staff timesheets */}
         <div className="space-y-6">
           {timesheets.map(ts => (
             <Card key={ts.member.id} className={cn("border-2 rounded-[2rem] shadow-sm overflow-hidden bg-card", ts.hasUnapproved && "border-amber-300 shadow-amber-100")}>
@@ -473,7 +469,6 @@ export default function TimesheetsPage() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                {/* Day grid */}
                 <div className="grid grid-cols-7 divide-x border-b">
                   {ts.days.map(day => (
                     <div key={day.date.toISOString()} className={cn("p-3 text-center", isSameDay(day.date, new Date()) && "bg-primary/5")}>
@@ -485,7 +480,6 @@ export default function TimesheetsPage() {
                   ))}
                 </div>
 
-                {/* Session rows */}
                 <div className="divide-y">
                   {ts.days.map(day =>
                     day.sessions.map((session: any, idx: number) => (
@@ -534,13 +528,11 @@ export default function TimesheetsPage() {
                               Add clock-out
                             </Button>
                           )}
-                          {/* Review/Edit button for pending sessions */}
                           {session.status === 'pending' && session.clockOut && session.logId && (
                             <Button size="sm" variant="ghost" onClick={() => openReview(session, ts.member.id, ts.member.name)} className="h-7 px-3 text-[9px] font-black uppercase rounded-xl border border-muted hover:bg-primary/5 hover:text-primary hover:border-primary/20">
                               Review
                             </Button>
                           )}
-                          {/* Allow editing approved sessions too */}
                           {(session.status === 'approved' || session.status === 'rejected') && session.logId && (
                             <Button size="sm" variant="ghost" onClick={() => openReview(session, ts.member.id, ts.member.name)} className="h-7 px-3 text-[9px] font-black uppercase rounded-xl border border-muted hover:bg-primary/5 hover:text-primary hover:border-primary/20">
                               <Edit className="w-3 h-3 mr-1" /> Edit
@@ -562,7 +554,6 @@ export default function TimesheetsPage() {
         </div>
       </main>
 
-      {/* Review / Edit Dialog */}
       <Dialog open={isReviewOpen} onOpenChange={(v) => { setIsReviewOpen(v); if (!v) { setIsEditing(false); setReviewNote(''); } }}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
           <DialogHeader className="p-6 pb-0 text-left">
@@ -574,7 +565,6 @@ export default function TimesheetsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="p-6 space-y-6">
-            {/* Session summary */}
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10">
                 <p className="text-[9px] font-black uppercase text-primary/60">Duration</p>
@@ -595,7 +585,6 @@ export default function TimesheetsPage() {
               </div>
             </div>
 
-            {/* Edit time fields */}
             {isEditing ? (
               <div className="space-y-3 p-3 rounded-2xl bg-amber-50 border-2 border-amber-200">
                 <p className="text-[9px] font-black uppercase text-amber-700 flex items-center gap-1.5">

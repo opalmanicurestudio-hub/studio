@@ -129,7 +129,6 @@ const InquiryCard = ({
                     </Badge>
                 </div>
 
-                {/* Event summary */}
                 <div className="space-y-1.5">
                     <p className="font-black text-sm text-foreground uppercase tracking-tight truncate">
                         {inquiry.eventName || inquiry.eventType || 'Unnamed Event'}
@@ -156,7 +155,6 @@ const InquiryCard = ({
                     </div>
                 </div>
 
-                {/* Services */}
                 {inquiry.interestedServices?.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                         {inquiry.interestedServices.slice(0, 3).map((svc: any) => (
@@ -172,7 +170,6 @@ const InquiryCard = ({
                     </div>
                 )}
 
-                {/* Footer */}
                 <div className="flex items-center justify-between pt-2 border-t border-dashed border-border">
                     <p className="text-[9px] font-bold text-muted-foreground">
                         {inquiry.submittedAt
@@ -250,7 +247,6 @@ const InquiryDetailSheet = ({
                 <ScrollArea className="flex-1 min-h-0">
                     <div className="p-8 space-y-8 text-left">
 
-                        {/* Contact */}
                         <div className="space-y-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Contact Information</p>
                             <div className="grid grid-cols-1 gap-2">
@@ -285,7 +281,6 @@ const InquiryDetailSheet = ({
 
                         <Separator className="border-dashed" />
 
-                        {/* Event */}
                         <div className="space-y-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Event Details</p>
                             <div className="grid grid-cols-2 gap-3">
@@ -329,7 +324,6 @@ const InquiryDetailSheet = ({
 
                         <Separator className="border-dashed" />
 
-                        {/* Services */}
                         {(inquiry.interestedServices?.length > 0 || inquiry.customServiceNote) && (
                             <div className="space-y-3">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Requested Services</p>
@@ -356,7 +350,6 @@ const InquiryDetailSheet = ({
 
                         <Separator className="border-dashed" />
 
-                        {/* Budget & Timeline */}
                         <div className="space-y-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Investment</p>
                             <div className="grid grid-cols-2 gap-3">
@@ -386,7 +379,6 @@ const InquiryDetailSheet = ({
                             </div>
                         </div>
 
-                        {/* Special Requests */}
                         {inquiry.specialRequests && (
                             <>
                                 <Separator className="border-dashed" />
@@ -399,7 +391,6 @@ const InquiryDetailSheet = ({
                             </>
                         )}
 
-                        {/* Inspiration images + links */}
                         {(inquiry.inspirationImages?.length > 0 || inquiry.inspirationLinks) && (
                             <>
                                 <Separator className="border-dashed" />
@@ -424,7 +415,6 @@ const InquiryDetailSheet = ({
                             </>
                         )}
 
-                        {/* Status changer */}
                         <Separator className="border-dashed" />
                         <div className="space-y-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Update Status</p>
@@ -448,7 +438,6 @@ const InquiryDetailSheet = ({
                     </div>
                 </ScrollArea>
 
-                {/* Footer CTAs */}
                 <div className="p-8 pt-4 border-t bg-muted/5 flex-shrink-0 space-y-3">
                     {(inquiry.status === 'new' || inquiry.status === 'reviewing') && (
                         <Button
@@ -594,7 +583,6 @@ export const InquiriesTab = ({ tenantId }: { tenantId: string }) => {
 
     return (
         <div className="space-y-6">
-            {/* Stats bar */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
                     { label: 'Total Inquiries', value: stats.total,     highlight: false },
@@ -612,7 +600,6 @@ export const InquiriesTab = ({ tenantId }: { tenantId: string }) => {
                 ))}
             </div>
 
-            {/* Share link callout */}
             <div className="flex items-center justify-between gap-4 p-4 rounded-2xl border-2 border-dashed border-primary/20 bg-primary/[0.02]">
                 <div className="space-y-0.5 text-left">
                     <p className="text-[10px] font-black uppercase tracking-widest text-primary">Your Inquiry Link</p>
@@ -633,7 +620,6 @@ export const InquiriesTab = ({ tenantId }: { tenantId: string }) => {
                 </Button>
             </div>
 
-            {/* Filters */}
             <div className="flex gap-3">
                 <div className="relative flex-1">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
@@ -659,7 +645,6 @@ export const InquiriesTab = ({ tenantId }: { tenantId: string }) => {
                 </Select>
             </div>
 
-            {/* List */}
             {isLoading ? (
                 <div className="flex flex-col items-center justify-center py-24 gap-4">
                     <Loader className="w-8 h-8 animate-spin text-primary" />
@@ -691,7 +676,6 @@ export const InquiriesTab = ({ tenantId }: { tenantId: string }) => {
                 </div>
             )}
 
-            {/* Detail sheet */}
             <InquiryDetailSheet
                 inquiry={selected}
                 open={sheetOpen}

@@ -34,7 +34,6 @@ export default async function StationSign({ params, searchParams }: { params: Pr
           <div style={{ fontSize: 15, fontWeight: 600 }}>{business}</div>
           <div style={{ fontSize: 13, color: MUTED, marginTop: 28 }}>station</div>
           <h1 style={{ margin: '2px 0 0', fontSize: 52, fontWeight: 400, letterSpacing: '-.03em', lineHeight: 1.05 }}>{station.name || 'Station'}</h1>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={qr} alt="QR code" style={{ width: 300, height: 300, margin: '30px auto 18px', display: 'block' }} />
           <div style={{ fontSize: 18 }}>Scan for how we do things at this station</div>
           <div style={{ fontSize: 14, color: MUTED, marginTop: 4 }}>Opens the staff app — sign in with your PIN.</div>

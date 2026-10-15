@@ -169,7 +169,6 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
             <p className="text-xl font-black font-mono tracking-tighter text-foreground">${performance.totalRevenue.toFixed(0)}</p>
           </div>
         </div>
-        {/* What the owner actually needs at a glance: what it costs to deliver, what's left, how it's selling, and anything to fix. */}
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]" style={{ color: 'var(--muted)' }}>
           <span>Product {materialCost > 0 ? `$${materialCost.toFixed(2)}` : 'none'} · time ${timeCost.toFixed(2)}</span>
           {Number(service.price) > 0 && <span style={{ color: (service.price - materialCost - timeCost) / service.price < 0.3 ? 'var(--warn)' : 'var(--ok)' }}>{Math.round(((service.price - materialCost - timeCost) / service.price) * 100)}% left after time and product</span>}
@@ -434,8 +433,6 @@ export default function ServicesPage() {
                     onChange={e => setSearchTerm(e.target.value)}
                   />
                 </div>
-                {/* Narrow the list: a category, how it's sorted, and "needs attention" (no price, no recipe, unused, wrong length). */}
-                {/* One calm row: which category, and how it's sorted. The menu itself is already grouped by category. */}
                 <div className="flex flex-wrap items-center gap-2">
                   <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line)', background: 'var(--card)' }}>
                     <option value="all">All categories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>

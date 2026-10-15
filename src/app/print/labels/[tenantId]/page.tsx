@@ -79,12 +79,10 @@ export default async function PrintLabelsPage({
       <body>
         <div className="bar">
           <span>{pngs.length} label{pngs.length === 1 ? '' : 's'} ready{pdfs.length ? ` · ${pdfs.length} PDF listed at the end` : ''}</span>
-          {/* eslint-disable-next-line @next/next/no-sync-scripts */}
           <button type="button" data-print>Print stack</button>
         </div>
         {pngs.map((o: any) => (
           <div className="label" key={o.id}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={o.labelUrl} alt={`Shipping label for order #${String(o.orderNumber ?? '').padStart(4, '0')}`} />
           </div>
         ))}

@@ -601,7 +601,6 @@ const EditStaffFormInternal = ({
               </p>
             </div>
 
-            {/* TIPS — their part when tips are shared, and (owners / admins) whether they may share in them at all. */}
             <div className="space-y-2">
               <Label className="ml-1 text-[13px] font-semibold">Tips</Label>
               <Controller name="tipRole" control={control} render={({ field }) => (
@@ -726,7 +725,6 @@ const EditStaffFormInternal = ({
             </div>
           )}
 
-          {/* The money behind the choice: what this pay leaves the business on their main services. */}
           <PayImpact mode="person" staffMember={watch() as any} />
         </div>
       </div>

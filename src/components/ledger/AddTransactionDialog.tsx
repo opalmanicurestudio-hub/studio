@@ -226,11 +226,6 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
                         </div>
                     </div>
 
-                    {/* v61 — Category now pulls from the shared library
-                        (src/lib/categories.ts) instead of free text, filtered
-                        by income/expense, with a custom escape hatch. The
-                        library also stamps the correct taxBucket on save so
-                        report colors stay accurate. */}
                     <div className="space-y-2">
                         <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Classification Category</Label>
                         <Controller

@@ -915,7 +915,6 @@ export default function DocumentsPage() {
     <div className="flex min-h-screen w-full flex-col bg-background">
       <AppHeader title="Documents" />
       <main className="mx-auto w-full max-w-6xl flex-1 space-y-5 p-4 md:p-8" style={{ color: 'hsl(var(--foreground))', letterSpacing: '-0.01em' }}>
-        {/* Header: the library's name and the two ways to start a document. */}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-[12px] tracking-[0.1em]" style={{ color: 'hsl(var(--muted-foreground))' }}>documents</p>

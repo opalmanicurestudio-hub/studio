@@ -18,7 +18,6 @@ export function AftercareView({ name, logo, accent, service, from, when, doc, te
   return <div style={{ ...font, background: '#f7f7f8', minHeight: '100vh' }}><div style={{ maxWidth: 560, margin: '0 auto', padding: '28px 20px 60px', display: 'flex', flexDirection: 'column', gap: 18 }}>
 
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       {logo ? <img src={logo} alt="" style={{ width: 36, height: 36, borderRadius: 11, objectFit: 'cover' }} /> : <span style={{ width: 36, height: 36, borderRadius: 11, background: accent || INK, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700 }}>{name.slice(0, 1).toUpperCase()}</span>}
       <span style={{ fontSize: 15, fontWeight: 600 }}>{name}</span></div>
     {checkIn && <AftercareCheckIn {...checkIn} service={service} />}

@@ -63,7 +63,6 @@ export function ESignAgreement({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Header */}
       <div className="flex items-center gap-2.5">
         <span className="h-9 w-9 rounded-2xl bg-foreground flex items-center justify-center shrink-0">
           <PenLine className="h-4 w-4 text-white" />
@@ -74,7 +73,6 @@ export function ESignAgreement({
         </div>
       </div>
 
-      {/* Agreement body */}
       <div
         onScroll={handleScroll}
         className="max-h-[42vh] overflow-y-auto rounded-2xl border-2 bg-muted/20 p-4 text-[13px] leading-relaxed text-foreground/80 whitespace-pre-wrap"
@@ -86,7 +84,6 @@ export function ESignAgreement({
         <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 -mt-2">Scroll to the end to enable signing</p>
       )}
 
-      {/* Acknowledge */}
       <button
         type="button"
         onClick={() => setAgreed(a => !a)}
@@ -100,7 +97,6 @@ export function ESignAgreement({
         </span>
       </button>
 
-      {/* Sign */}
       <div className="space-y-1.5">
         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Type your full legal name</Label>
         <Input
@@ -116,7 +112,6 @@ export function ESignAgreement({
         {nowLabel && <p className="text-[10px] font-medium text-muted-foreground">Signed {nowLabel}</p>}
       </div>
 
-      {/* Actions */}
       <div className="flex gap-2 pt-1">
         {onCancel && (
           <Button type="button" variant="ghost" onClick={onCancel} disabled={busy} className="flex-1 h-12 rounded-2xl font-black uppercase tracking-widest text-[10px] text-muted-foreground">

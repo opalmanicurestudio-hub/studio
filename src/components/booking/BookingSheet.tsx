@@ -980,7 +980,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
      * Everything inside is unchanged; only the container is different. */
     !open || (!asPage && !mounted) ? null : (
     wrapInShell(<>
-        {/* ── Header ─────────────────────────────────────────────────────── */}
         <div
           ref={headerRef}
           className={cn(
@@ -990,10 +989,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
           )}
           style={{ paddingTop: 'max(0.875rem, env(safe-area-inset-top))' }}
         >
-          {/* Back lives up here, not in the footer. It is a secondary action
-              and it was competing with the primary one for the only reachable
-              row on the screen. Moving it frees the footer for a single
-              full-width target. */}
           <div className="flex items-center gap-2">
             {currentStepIndex > 0 && currentStep !== 'confirmation' ? (
               <button
@@ -1025,10 +1020,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             </button>
           </div>
 
-          {/* A rail of segments rather than a percentage bar: a percentage
-              tells you how far along you are, a rail tells you how much is
-              left and what it is called. Only shown while there are steps
-              left to take. */}
           {currentStep !== 'confirmation' && (
             <div className="mt-2.5 flex items-center gap-1.5" aria-hidden="true">
               {steps.slice(0, -1).map((st, i) => (
@@ -1049,16 +1040,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
           </p>
         </div>
 
-        {/* ── Body ─────────────────────────────────────────────────────────
-         * Absolutely filling the panel and scrolling itself. The generous
-         * bottom padding is not decoration: it guarantees the last control in
-         * any step can be scrolled clear of the pinned footer, so nothing is
-         * ever hidden behind the button that acts on it.
-         *
-         * A plain div rather than ScrollArea — the custom scroller adds a
-         * wrapper whose height it wants to compute, and computed heights are
-         * exactly what kept breaking this panel. Native overflow needs no
-         * measurement and gets momentum scrolling on iOS for free. */}
         <div
           className={cn(
             'text-left',
@@ -1078,31 +1059,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
             </div>
           </div>}
           <div className="px-4 pt-2 pb-2 space-y-5 text-left">
-            {/* ── NO EXIT ANIMATION BETWEEN STEPS ────────────────────────
-             * This was <AnimatePresence mode="wait">. That mode holds the
-             * NEW step off the screen until the OLD one has finished exiting,
-             * so any interruption — a step changed programmatically, a
-             * re-render mid-exit, a device that throttles animation — leaves
-             * the body showing nothing at all while the header and footer
-             * carry on as normal. A blank panel with a working button is
-             * exactly that failure.
-             *
-             * The fade was worth very little and could cost the whole screen.
-             * Steps now swap instantly; each still fades IN on mount, which
-             * needs no coordination and cannot strand the view. */}
             <React.Fragment>
 
-              {/* Confirmation */}
               {currentStep === 'confirmation' ? (
                 <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-8 space-y-7" key="confirmation">
                   <div className="w-20 h-20 bg-green-500/10 flex items-center justify-center mx-auto shadow-xl shadow-green-500/5 rotate-6" style={{ borderRadius: r3 }}>
                     <CheckCircle2 className="w-10 h-10 text-green-500 -rotate-6" />
                   </div>
                   <div className="space-y-2">
-                    {/* THE SCREEN MUST MATCH WHAT THE SERVER WROTE. A shop in
-                        approval mode has not booked anything yet, and telling
-                        the client "you're all set" would be the single most
-                        damaging lie in the whole flow. */}
                     <h2 style={{ fontFamily: headingFont }} className="text-2xl font-black uppercase tracking-tighter">
                       {bookingOutcome?.status === 'requested' ? 'Request Sent'
                         : bookingOutcome?.status === 'pending_payment' ? 'Almost There'
@@ -1157,7 +1121,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
               ) : (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={currentStep} className="space-y-8">
 
-                  {/* Active service card — compact, shown on every step except checkout (room is tight there) */}
                   {currentStep !== 'checkout' && (
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
@@ -1185,7 +1148,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </div>
                   )}
 
-                  {/* ── Step: Staff ──────────────────────────────────────── */}
                   {(currentStep === 'staff' || (simple && currentStep === 'dateTime' && !lockedStaffId)) && (
                     <div className="space-y-6">
                       <div className="space-y-1 text-left">
@@ -1224,7 +1186,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </div>
                   )}
 
-                  {/* ── Step: Date & Time ────────────────────────────────── */}
                   {currentStep === 'dateTime' && (
                     <div className="space-y-6 text-left">
                       {addOns.length > 0 && <div className="space-y-2 rounded-2xl border p-4" aria-label="Add to your visit">
@@ -1324,7 +1285,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </div>
                   )}
 
-                  {/* ── Step: Details ────────────────────────────────────── */}
                   {currentStep === 'details' && (
                     <FormProvider {...methods}>
                       <form id="booking-details-form" onSubmit={handleSubmit(handleNextStep)} className="space-y-7 text-left">
@@ -1431,7 +1391,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </FormProvider>
                   )}
 
-                  {/* ── Step: Consents ───────────────────────────────────── */}
                   {(currentStep === 'consents' || (simple && currentStep === 'details' && requiredForms.length > 0)) && (
                     <div className="space-y-7 text-left">
                       <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
@@ -1459,7 +1418,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </div>
                   )}
 
-                  {/* ── Step: Summary (no-deposit path only) ─────────────── */}
                   {(currentStep === 'summary' || (simple && currentStep === 'details')) && (
                     <div className="space-y-6 text-left">
                       <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
@@ -1494,7 +1452,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </div>
                   )}
 
-                  {/* ── Step: Checkout (deposit required — review + embedded payment combined) ── */}
                   {currentStep === 'checkout' && (
                     <div className="space-y-5 text-left">
                       <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
@@ -1566,7 +1523,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
           </div>
         </div>
 
-        {/* ── Footer ─────────────────────────────────────────────────────── */}
         {currentStep !== 'confirmation' && currentStep !== 'checkout' && (
           <div
             ref={footerRef}
@@ -1578,18 +1534,12 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                iPhone home indicator and reads as unresponsive. */
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
           >
-            {/* One full-width target, 56px tall. The previous version split
-                this row between Back and Continue, which made the primary
-                action a fraction of the only comfortably reachable strip on a
-                phone. Back now lives in the header. */}
             <Button
               onClick={handleNextStep}
               disabled={confirming || (currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity))}
               style={{ borderRadius: r3, fontFamily: headingFont }}
               className="group h-[52px] w-full font-black uppercase tracking-widest text-[11px] shadow-lg shadow-primary/20 transition-all active:scale-[0.99]"
             >
-              {/* The button names what happens next, and keeps that name all
-                  the way through the flow. */}
               {simple && currentStep === 'details' ? (steps[currentStepIndex + 1] === 'checkout' ? 'Continue to payment' : 'Confirm booking')
                 : currentStep === 'summary' ? 'Confirm booking'
                 : currentStep === 'staff' ? 'Choose a time'

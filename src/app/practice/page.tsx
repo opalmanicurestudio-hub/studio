@@ -295,7 +295,6 @@ export default function PracticePage() {
       <div ref={host} style={{ position: 'absolute', inset: 0 }} />
       {webglError && <Center><Card w={420}><H2>This device can’t show 3D</H2><Muted>Practice a shift needs a browser with 3D graphics turned on. Please try a recent Chrome, Safari or Edge.</Muted></Card></Center>}
 
-      {/* Top bar: level, time, today's goals */}
       {ready && screen === 'play' && (
         <div style={{ position: 'absolute', left: 10, right: 10, top: 10, display: 'flex', gap: narrow ? 8 : 14, alignItems: 'center', flexWrap: 'wrap', background: 'rgba(255,255,255,.95)', border: `1px solid ${LINE}`, borderRadius: 18, padding: narrow ? '8px 10px' : '9px 14px', boxShadow: '0 10px 30px -20px rgba(22,23,26,.4)', zIndex: 5 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -316,7 +315,6 @@ export default function PracticePage() {
         </div>
       )}
 
-      {/* One icon over each person who needs you; a name only when it matters */}
       {ready && screen === 'play' && !st.ended && Object.values(st.people).filter((p) => p.state !== 'gone').map((p) => {
         const n = iconFor.get(p.id); const pt = P(p.id); if (!pt.on) return null;
         const selected = panel?.pid === p.id || moving === p.id; const isDrag = ui.current.drag?.pid === p.id;
@@ -332,7 +330,6 @@ export default function PracticePage() {
         );
       })}
 
-      {/* Arrows on the edge for anyone off-screen who needs you */}
       {ready && screen === 'play' && !st.ended && needList.slice(0, 6).map((n) => {
         const pt = P(n.pid); if (pt.on || !st.people[n.pid]) return null;
         const cx = W / 2, cy = H / 2; const dx = pt.x - cx, dy = pt.y - cy; const k = Math.min((W / 2 - 40) / Math.abs(dx || 1), (H / 2 - 90) / Math.abs(dy || 1));
@@ -343,11 +340,9 @@ export default function PracticePage() {
         </button>;
       })}
 
-      {/* A team member making a drink: a little progress bar over them */}
       {ready && screen === 'play' && !st.ended && Object.values(st.people).filter((p) => p.task?.kind === 'brew' || p.task?.kind === 'break').map((p) => { const pt = P(p.id); if (!pt.on || !p.task) return null; const pct = Math.min(1, (st.t - p.task.start) / Math.max(0.1, p.task.until - p.task.start));
         return <div key={'task' + p.id} style={{ position: 'absolute', left: pt.x, top: pt.y - 6, transform: 'translate(-50%,-100%)', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 6, zIndex: 3, boxShadow: '0 8px 18px -10px rgba(0,0,0,.4)' }}><Icon name="coffee" size={14} color={AMBER} /><span style={{ width: 46, height: 5, borderRadius: 3, background: SOFT }}><span style={{ display: 'block', width: `${pct * 100}%`, height: 5, borderRadius: 3, background: AMBER }} /></span></div>; })}
 
-      {/* Rewards float up from the person */}
       {ready && screen === 'play' && st.pops.map((pp) => {
         const seen = popSeen.current.get(pp.id) ?? (popSeen.current.set(pp.id, now), now); const age = (now - seen) / 1000; if (age > 1.8) return null;
         const p = st.people[pp.pid]; if (!p || !E) return null; const a = E.anchorOf(p); const pt = E.project(a.x, a.y, a.z);
@@ -356,14 +351,11 @@ export default function PracticePage() {
         return <div key={pp.id} style={{ position: 'absolute', left: pt.x, top: pt.y - 40 - age * 36 - stackIdx * 26, transform: 'translate(-50%,-100%)', background: c[1], color: c[0], borderRadius: 999, padding: '4px 11px', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', opacity: Math.min(1, 2.2 - age * 1.2), zIndex: 6, pointerEvents: 'none', boxShadow: '0 8px 18px -10px rgba(0,0,0,.35)' }}>{pp.text}</div>;
       })}
 
-      {/* Dragging someone: a line from them to your finger */}
       {ui.current.drag && (() => { const d = ui.current.drag; const pt = P(d.pid); return <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 4 }} width={W} height={H}><line x1={pt.x} y1={pt.y + 40} x2={d.x} y2={d.y} stroke={INK} strokeWidth={2} strokeDasharray="6 6" /><circle cx={d.x} cy={d.y} r={10} fill="#fff" stroke={INK} strokeWidth={2} /></svg>; })()}
 
-      {/* The first shift teaches by doing */}
       {coachText && <Coach text={coachText.text} narrow={narrow} onSkip={coachText.done ? () => { setCoachDone(true); st.tutorial = 9; } : undefined} skipLabel={coachText.done ? 'Got it' : undefined} />}
       {moving && !coachText && <Banner>Tap or drag <b>{st.people[moving]?.name}</b> to a glowing place. <Btn small ghost onClick={() => setMoving(null)}>Cancel</Btn></Banner>}
 
-      {/* Needs you tray */}
       {ready && screen === 'play' && !st.ended && (
         narrow && !trayOpen ? (
           <button onClick={() => setTrayOpen(true)} style={{ position: 'absolute', right: 10, bottom: 10, zIndex: 6, display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '8px 14px', fontFamily: 'inherit', fontWeight: 700, fontSize: 13, boxShadow: '0 10px 30px -16px rgba(0,0,0,.5)' }}>
@@ -383,7 +375,6 @@ export default function PracticePage() {
         )
       )}
 
-      {/* Cards: open only when you tap, next to the person */}
       {panel && screen === 'play' && !st.ended && st.people[panel.pid] && (() => {
         const p = st.people[panel.pid]; const pt = P(p.id);
         const close = () => setPanel(null);
@@ -431,7 +422,6 @@ export default function PracticePage() {
         </Anchored>;
       })()}
 
-      {/* What just happened, and the texts that went out */}
       {ready && screen === 'play' && !st.ended && !narrow && (
         <div style={{ position: 'absolute', left: 10, bottom: 10, width: 330, display: 'flex', flexDirection: 'column', gap: 6, zIndex: 3, pointerEvents: 'none' }}>
           {st.log.slice(-2).map((l, i) => <div key={i} style={{ background: 'rgba(255,255,255,.9)', border: `1px solid ${LINE}`, borderRadius: 12, padding: '6px 10px', fontSize: 12, color: l.tone === 'bad' ? RED : l.tone === 'warn' ? AMBER : INK }}><span style={{ color: MUTED, marginRight: 6 }}>{G.clock(st, l.t)}</span>{l.text}</div>)}
@@ -446,7 +436,6 @@ export default function PracticePage() {
       )}
       {toast && <div style={{ position: 'absolute', left: '50%', top: narrow ? 70 : 78, transform: 'translateX(-50%)', background: INK, color: '#fff', borderRadius: 999, padding: '8px 16px', fontSize: 13, fontWeight: 600, zIndex: 12, maxWidth: '90vw', textAlign: 'center' }}>{toast}</div>}
 
-      {/* Menu */}
       {ready && screen === 'menu' && (
         <Center><Card w={560}>
           <div style={{ fontSize: 12, letterSpacing: '.1em', color: MUTED }}>PRACTICE A SHIFT</div>
@@ -480,7 +469,6 @@ export default function PracticePage() {
         </Card></Center>
       )}
 
-      {/* End-of-shift report: the best moment first */}
       {screen === 'report' && (() => { const r = G.report(st); const before = G.levelOf(totalXp - st.xp); const after = G.levelOf(totalXp); return (
         <Center><Card w={560}>
           <div style={{ fontSize: 12, letterSpacing: '.1em', color: MUTED }}>END OF SHIFT · {G.clock(st).toUpperCase()}</div>

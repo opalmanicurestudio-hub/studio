@@ -1073,7 +1073,6 @@ export function LiveJoin({ tenantId }: { tenantId: string }) {
           </Glass>
         )}
       </div>
-      {/* Always-there bar: how I'm doing · too fast · ask */}
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/70 bg-card/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-md items-center gap-2 p-2">
           {(['green', 'yellow', 'red'] as const).map((k) => <button key={k} type="button" onClick={() => setPulse({ pulse: k })} aria-pressed={mood.pulse === k} aria-label={k === 'green' ? 'Got it' : k === 'yellow' ? 'Almost' : 'Lost'} className={`h-11 w-11 rounded-full text-xl transition ${mood.pulse === k ? 'scale-110 bg-card shadow ring-2 ring-stone-900' : 'opacity-70'}`}>{k === 'green' ? '🟢' : k === 'yellow' ? '🟡' : '🔴'}</button>)}

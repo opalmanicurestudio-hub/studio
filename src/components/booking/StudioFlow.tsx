@@ -139,9 +139,6 @@ export function StudioFlow({ c }: { c: any }) {
   const forms: any[] = c.requiredForms || [];
   const youStep = (
     <FormProvider {...c.methods}>
-      {/* The form never submits by itself: buttons inside consent-form fields
-          (choices, the phone country picker) would otherwise submit it early
-          and show "Incomplete forms" mid-answer. Only Confirm moves on. */}
       <form id="studio-details" onSubmit={(e) => e.preventDefault()} className="space-y-5">
         <section className={`${card} space-y-4`} aria-label="Your details">
           <label className="block space-y-1.5"><span className="text-[14px] font-medium">Full name</span><input {...reg('clientName')} autoComplete="name" className={field} placeholder="Your name" />{errors.clientName && <span className="text-[13px] text-red-700">{String(errors.clientName.message || 'Please add your name')}</span>}</label>

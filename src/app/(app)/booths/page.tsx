@@ -1319,7 +1319,6 @@ function BoothCanvasCard({
         )}
       </div>
 
-      {/* True size in feet while designing (needs scale calibration) */}
       {!locked && pxPerFt > 0 && (
         <span className="absolute -bottom-4 left-0 text-[9px] font-black text-muted-foreground bg-card/85 rounded px-1 pointer-events-none whitespace-nowrap z-10">
           {(booth.canvasW / pxPerFt).toFixed(1)} × {(booth.canvasH / pxPerFt).toFixed(1)} ft
@@ -1375,7 +1374,6 @@ function DetailPanel({
       className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-x-auto sm:right-4 sm:top-4 sm:bottom-auto w-full sm:w-72 max-h-[75vh] sm:max-h-none overflow-y-auto bg-card border-2 rounded-t-3xl sm:rounded-2xl shadow-xl z-50 overflow-hidden"
       style={{ paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
     >
-      {/* Status-tinted identity band — the station's color IS the header */}
       <div className="px-4 pt-4 pb-3" style={{ background: sc.bg, borderBottom: `2px solid ${sc.border}44` }}>
         <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-black/10 sm:hidden" />
         <div className="flex items-start justify-between gap-2">
@@ -1426,8 +1424,6 @@ function DetailPanel({
           </div>
         )}
 
-        {/* v17 — every email/text this renter was sent, with delivery
-            journey — same treatment appointments get. */}
         {renter && (renter as any).id && (
           <CommsTrail recipientType="renter" recipientId={(renter as any).id} />
         )}
@@ -1566,12 +1562,9 @@ function ContactProfileDrawer({
     <div className="fixed inset-0 z-[70] flex justify-end">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       <div className="relative w-full sm:w-[420px] h-full bg-card shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-        {/* Header — same identity-banner language as the renter profile, in a
-            lighter tone: this is a lead/guest, not a resident (yet). */}
         <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 text-white px-5 pt-5 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3.5 min-w-0">
-              {/* Avatar — tap to add/replace a photo (same capability renters have) */}
               <label className="relative w-14 h-14 rounded-2xl overflow-hidden ring-2 ring-white/20 shrink-0 cursor-pointer group/av">
                 {contact.photoUrl ? (
                   <img src={contact.photoUrl} alt="" className="w-full h-full object-cover" />
@@ -1604,7 +1597,6 @@ function ContactProfileDrawer({
             <button onClick={onClose} className="h-9 w-9 rounded-xl bg-card/10 hover:bg-card/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
           </div>
 
-          {/* The three numbers, up in the banner where they read instantly */}
           <div className="grid grid-cols-3 gap-2 mt-4">
             <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
               <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Visits</p>
@@ -1635,10 +1627,6 @@ function ContactProfileDrawer({
             {contact.firstDate && contact.firstDate !== '9999' && <p className="text-[10px] font-bold text-muted-foreground">First seen {contact.firstDate}</p>}
           </div>
 
-          {/* v17 — every email/text the PLATFORM sent this person, with the
-              delivery journey. Matches by record id AND by their phone/email,
-              so reservation confirmations land here even for guests whose
-              contact record was created after the message went out. */}
           <CommsTrail
             recipientType="contact"
             recipientId={contactDocId(contact.key || '')}
@@ -1646,7 +1634,6 @@ function ContactProfileDrawer({
             contactEmail={contact.email || undefined}
           />
 
-          {/* ── Journey: where this lead is + what to do next ── */}
           <div className="rounded-2xl border-2 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Journey</p>
@@ -1660,7 +1647,6 @@ function ContactProfileDrawer({
               </div>
             ) : (
               <>
-                {/* Convert */}
                 <button
                   onClick={() => onConvert?.(contact)}
                   disabled={converting}
@@ -1669,7 +1655,6 @@ function ContactProfileDrawer({
                   <UserPlus className="h-4 w-4" /> {converting ? 'Converting…' : 'Convert to renter'}
                 </button>
 
-                {/* Pipeline stage */}
                 <div>
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Stage</p>
                   <div className="flex flex-wrap gap-1.5">
@@ -1684,7 +1669,6 @@ function ContactProfileDrawer({
                   </div>
                 </div>
 
-                {/* Follow-up */}
                 <div>
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Follow up on</p>
                   <div className="flex gap-2">
@@ -1695,7 +1679,6 @@ function ContactProfileDrawer({
                   {contact.nextFollowUpAt && <p className="text-[10px] font-bold text-amber-600 mt-1">Reminder set for {contact.nextFollowUpAt}</p>}
                 </div>
 
-                {/* Lost / re-engage */}
                 {stage === 'lost' ? (
                   <div className="rounded-xl bg-muted/60 border-2 px-3 py-2.5 space-y-2">
                     <p className="text-[10px] font-bold text-foreground/80">Lost{contact.lostReason ? ` · ${contact.lostReason}` : ''} — kept on file.</p>
@@ -1713,7 +1696,6 @@ function ContactProfileDrawer({
               </>
             )}
 
-            {/* Notes */}
             <div>
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Notes</p>
               <textarea value={noteDraft} onChange={e => setNoteDraft(e.target.value)} onBlur={() => { if ((noteDraft || '') !== (contact.ownerNotes || '')) onSaveNote?.(contact, noteDraft); }} rows={2} placeholder="Private notes about this contact…" className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium resize-none" />
@@ -5035,7 +5017,6 @@ export default function BoothsPage() {
       <AppHeader title="Booths" />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
-      {/* ── KPI HEADER STRIP ─────────────────────────────────────────── */}
       <div className="bg-card border-b px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="min-w-0">
@@ -5065,7 +5046,6 @@ export default function BoothsPage() {
           </div>
         </div>
 
-        {/* KPI row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: 'Monthly revenue', value: formatCents(metrics.monthlyRevenue), sub: `${metrics.occupancyPct}% occupancy`, color: 'text-emerald-700' },
@@ -5081,12 +5061,10 @@ export default function BoothsPage() {
           ))}
         </div>
 
-        {/* Sync the active tab from the URL (?tab=), isolated in Suspense. */}
         <Suspense fallback={null}>
           <TabQuerySync onTab={setTab} onLease={openLeaseWizard} onSettings={openBoothSettings} />
         </Suspense>
 
-        {/* Tab strip */}
         <div className="flex gap-0 border-b -mb-4">
           {([
             { id: 'spaces', label: 'Spaces', badge: null },
@@ -5107,7 +5085,6 @@ export default function BoothsPage() {
         </div>
       </div>
 
-      {/* ── SPACES TAB ───────────────────────────────────────────────── */}
       {tab === 'spaces' && (
         <div className="px-4 sm:px-6 md:px-8 pt-5 space-y-4"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
@@ -5160,7 +5137,6 @@ export default function BoothsPage() {
             </div>
           </div>
 
-          {/* ── LIVE FLOOR COMMAND BAR — real-time day state across every space ── */}
           <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
             {[
               { key: 'in', label: 'Checked in', value: floorNow.checkedIn, sub: 'now', cls: 'border-emerald-200 bg-emerald-50', val: 'text-emerald-700', live: floorNow.checkedIn > 0 },
@@ -5393,14 +5369,12 @@ export default function BoothsPage() {
                   {floorBgUrl && (
                     <img src={floorBgUrl} alt="" draggable={false} className="absolute inset-0 pointer-events-none select-none" style={{ width: CANVAS_W, height: CANVAS_H, objectFit: 'cover', opacity: 0.55 }} />
                   )}
-                  {/* Alignment guides — live snap lines while dragging */}
                   {guides.x.map((gx) => (
                     <div key={`gx-${gx}`} className="absolute top-0 bottom-0 pointer-events-none z-20" style={{ left: gx, width: 1, background: '#6366f1', boxShadow: '0 0 4px #6366f188' }} />
                   ))}
                   {guides.y.map((gy) => (
                     <div key={`gy-${gy}`} className="absolute left-0 right-0 pointer-events-none z-20" style={{ top: gy, height: 1, background: '#6366f1', boxShadow: '0 0 4px #6366f188' }} />
                   ))}
-                  {/* Room dimensions readout when the floor is calibrated */}
                   {!locked && pxPerFt > 0 && (
                     <div className="absolute bottom-2 right-2 z-20 rounded-lg bg-slate-900/80 text-white px-2.5 py-1 text-[10px] font-black uppercase tracking-widest pointer-events-none">
                       Room {floorScaleFt} × {(CANVAS_H / pxPerFt).toFixed(0)} ft
@@ -5445,7 +5419,6 @@ export default function BoothsPage() {
             </div>
           )}
 
-          {/* Mobile: selected booth detail */}
           {isMobile && selectedBooth && (
             <DetailPanel
               booth={{ ...effectiveBooth(selectedBooth), status: displayStatus(selectedBooth) }}
@@ -5460,11 +5433,9 @@ export default function BoothsPage() {
         </div>
       )}
 
-      {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
       {tab === 'ops' && (
         <div className="px-4 sm:px-6 md:px-8 pt-5 space-y-6"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
-          {/* ── NEEDS ATTENTION THIS WEEK — the one digest ── */}
           {weeklyDigest.length > 0 && (
             <div className="rounded-2xl border-2 border-border bg-card p-4 space-y-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-foreground/80 flex items-center gap-1.5">
@@ -5488,17 +5459,11 @@ export default function BoothsPage() {
             </div>
           )}
 
-          {/* ── QUICK LINKS — every shareable door into the system, one tap
-              to copy. No more hunting through profiles and dialogs when a
-              renter asks "where do I log in?" ── */}
           <div className="rounded-2xl border-2 bg-card p-4 space-y-2.5">
             <div className="flex items-center gap-2">
               <p className="flex-1 text-[10px] font-black uppercase tracking-widest text-foreground/80 flex items-center gap-1.5">
                 <Link2 className="h-3.5 w-3.5" /> Quick links
               </p>
-              {/* The domain is AUTOMATIC (Vercel injects the production
-                  domain at build time). This button is only an override
-                  for the rare case links should live somewhere else. */}
               <button onClick={async () => {
                   const cur = String((selectedTenant as any)?.publicOrigin || '');
                   const v = window.prompt(`Links are automatic — they currently use ${shareOrigin.replace(/^https?:\/\//, '')}. Only enter a domain here to OVERRIDE that (e.g. https://yourbrand.com). Leave empty to stay automatic:`, cur);
@@ -5552,7 +5517,6 @@ export default function BoothsPage() {
 
           <ZoneLabel>Products</ZoneLabel>
 
-          {/* ── DAY PASSES — prepaid bundles: cash today, loyalty tomorrow ── */}
           <div id="money-passes" className="space-y-2 scroll-mt-14">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-black uppercase tracking-widest">Day passes</h2>
@@ -5601,7 +5565,6 @@ export default function BoothsPage() {
 
           {reviewStats && <ZoneLabel>Reputation</ZoneLabel>}
 
-          {/* ── Reviews (v83) ── */}
           {reviewStats && (
             <div id="money-reviews" className="space-y-2 scroll-mt-14">
               <div className="flex items-center gap-2">
@@ -5632,7 +5595,6 @@ export default function BoothsPage() {
             <CircleDollarSign className="h-8 w-8 text-white/20" />
           </div>
 
-          {/* Year-end W-9 compliance */}
           {sortedRenters.length > 0 && (
             <div className="rounded-2xl border-2 bg-card p-4 space-y-3">
               <p className="text-xs font-black uppercase tracking-widest">Year-end compliance</p>
@@ -6251,7 +6213,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Renter dialog */}
       <Dialog open={renterDialogOpen} onOpenChange={handleRenterDialogOpenChange}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
@@ -6278,7 +6239,6 @@ export default function BoothsPage() {
                 {renterForm.linkedStaffId && <p className="text-[9px] font-black uppercase tracking-widest text-violet-600">✓ Details pre-filled from their staff record</p>}
               </div>
             )}
-            {/* Photo */}
             <div className="flex items-center gap-3">
               {renterForm.avatarUrl ? (
                 <img src={renterForm.avatarUrl} alt="" className="h-16 w-16 rounded-2xl object-cover border-2 shrink-0" />
@@ -6355,7 +6315,6 @@ export default function BoothsPage() {
               </Button>
             </div>
 
-            {/* Client amenities / concierge */}
             <div className="space-y-2 rounded-2xl border-2 border-border p-3.5">
               <label className="flex items-start gap-3 cursor-pointer">
                 <input type="checkbox" checked={renterForm.amenitiesEnabled} onChange={(e) => setRenterForm(p => ({ ...p, amenitiesEnabled: e.target.checked }))} className="h-4 w-4 mt-0.5" />
@@ -6407,7 +6366,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Lease wizard */}
       <Dialog open={leaseDialogOpen} onOpenChange={handleLeaseDialogOpenChange}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
@@ -6418,7 +6376,6 @@ export default function BoothsPage() {
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{WIZARD_STEPS[leaseStep]}</DialogDescription>
           </DialogHeader>
 
-          {/* Step indicator */}
           <div className="flex items-center gap-2 pb-1">
             {WIZARD_STEPS.map((s, i) => (
               <div key={s} className="flex items-center gap-2">
@@ -6602,7 +6559,6 @@ export default function BoothsPage() {
 
           {leaseStep === 3 && (
             <div className="space-y-3">
-              {/* v79 — e-signature */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Lease terms (shown to the renter)</Label>
@@ -6686,7 +6642,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Renter status change */}
       <Dialog open={Boolean(statusTarget)} onOpenChange={(open) => { if (!open) setStatusTarget(null); }}>
         <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
@@ -6711,7 +6666,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* End lease */}
       <AlertDialog open={Boolean(endLeaseTarget)} onOpenChange={(open) => { if (!open) setEndLeaseTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -6772,8 +6726,6 @@ export default function BoothsPage() {
       </AlertDialog>
 
 
-      {/* ── Automation settings (v85) ── */}
-      {/* ── 🎟 Sell a day pass ── */}
       <Dialog open={sellPassOpen} onOpenChange={(o) => { if (!o) setSellPassOpen(false); }}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
@@ -6783,7 +6735,6 @@ export default function BoothsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {/* Who */}
             {sellPerson ? (
               <div className="rounded-xl border-2 border-violet-200 bg-violet-50 px-3 py-2 flex items-center gap-2">
                 <p className="flex-1 min-w-0 text-sm font-black truncate">{sellPerson.name}</p>
@@ -6809,7 +6760,6 @@ export default function BoothsPage() {
                 )}
               </div>
             )}
-            {/* Pack presets from settings, else free-form */}
             {dayPassPacks.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {dayPassPacks.map((p: any, i: number) => (
@@ -6847,7 +6797,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Send card-setup link to a renter ── */}
       <Dialog open={!!cardLink} onOpenChange={(o) => { if (!o) setCardLink(null); }}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
@@ -6889,7 +6838,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Report an issue (maintenance) ── */}
       <Dialog open={!!maintFor} onOpenChange={(o) => { if (!o) setMaintFor(null); }}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
@@ -6937,7 +6885,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Full application dialog (v81) ── */}
       <Dialog open={!!viewingApp} onOpenChange={(o) => { if (!o) setViewingApp(null); }}>
         <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl">
           {viewingApp && (
@@ -6990,7 +6937,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Kiosk link dialog (v74) ── */}
       <Dialog open={kioskOpen} onOpenChange={setKioskOpen}>
         <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
@@ -7098,7 +7044,6 @@ export default function BoothsPage() {
         />
       )}
 
-      {/* ── Incidentals charge-policy editor ── */}
       <Dialog open={chargePolicyOpen} onOpenChange={(o) => { if (!o) setChargePolicyOpen(false); }}>
         <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
@@ -7154,7 +7099,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Tour-sheet copy editor ── */}
       <Dialog open={tourSheetsOpen} onOpenChange={(o) => { if (!o) setTourSheetsOpen(false); }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
@@ -7165,7 +7109,6 @@ export default function BoothsPage() {
           </DialogHeader>
           {sheetDraft && (
             <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1">
-              {/* Visitor confirmation */}
               <div className="space-y-2.5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Visitor confirmation</p>
                 <div className="space-y-1">
@@ -7202,7 +7145,6 @@ export default function BoothsPage() {
                 </div>
               </div>
 
-              {/* Staff prep sheet */}
               <div className="space-y-2.5 border-t pt-4">
                 <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Staff prep sheet</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -7261,7 +7203,6 @@ export default function BoothsPage() {
                 </div>
               </div>
 
-              {/* Footer / branding */}
               <div className="space-y-2.5 border-t pt-4">
                 <div className="space-y-1">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Footer note (both sheets, optional)</Label>
@@ -7281,7 +7222,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── No-show policy ── */}
       <Dialog open={noShowOpen} onOpenChange={(o) => { if (!o) setNoShowOpen(false); }}>
         <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
@@ -7328,7 +7268,6 @@ export default function BoothsPage() {
         }
       />
 
-      {/* ── Reschedule booking (v85) ── */}
       <Dialog open={!!reschedRes} onOpenChange={(o) => { if (!o) setReschedRes(null); }}>
         <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
@@ -7366,7 +7305,6 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Record rent / deposit payment (v84) ── */}
       <Dialog open={!!recordPay} onOpenChange={(o) => { if (!o) setRecordPay(null); }}>
         <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>

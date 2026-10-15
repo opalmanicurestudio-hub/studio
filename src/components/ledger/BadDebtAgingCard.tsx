@@ -211,7 +211,6 @@ const ChargeCardDialog = ({
         </DialogHeader>
 
         <div className="p-7 space-y-5">
-          {/* Amount block */}
           <div className="p-5 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 text-center space-y-1">
             <p className="text-[9px] font-black uppercase tracking-[0.3em] text-primary/50">
               Charge amount
@@ -224,7 +223,6 @@ const ChargeCardDialog = ({
             </p>
           </div>
 
-          {/* Reason */}
           <div className="space-y-1">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
               Reason
@@ -235,7 +233,6 @@ const ChargeCardDialog = ({
             </p>
           </div>
 
-          {/* Card status */}
           {!hasCard && (
             <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border-2 border-amber-200">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -249,7 +246,6 @@ const ChargeCardDialog = ({
             </div>
           )}
 
-          {/* Error */}
           {error && (
             <div className="flex items-start gap-3 p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/20">
               <X className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
@@ -475,7 +471,6 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
           total > 0 ? 'border-amber-200 bg-amber-50/30' : 'border-border',
         )}
       >
-        {/* ── Collapsible header ─────────────────────────────────────────── */}
         <CardHeader
           className="border-b border-amber-200/70 bg-amber-50/50 py-4 cursor-pointer select-none"
           onClick={() => setExpanded(e => !e)}
@@ -510,10 +505,8 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
           </div>
         </CardHeader>
 
-        {/* ── Expanded body ──────────────────────────────────────────────── */}
         {expanded && (
           <CardContent className="p-0">
-            {/* Bucket summary bar */}
             <div className="grid grid-cols-4 divide-x divide-amber-200 border-b border-amber-200">
               {(buckets as number[]).map((amt, i) => (
                 <div key={i} className="py-3 px-2 text-center">
@@ -530,7 +523,6 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
               ))}
             </div>
 
-            {/* Fee rows */}
             <ScrollArea className="max-h-80">
               <div className="divide-y divide-amber-100">
                 {items.map((item, idx) => {
@@ -548,7 +540,6 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
                         isProcessing && 'opacity-40 pointer-events-none',
                       )}
                     >
-                      {/* Age badge */}
                       <Badge
                         className={cn(
                           'shrink-0 font-black text-[9px] border-none h-5 px-2 uppercase tracking-widest',
@@ -558,7 +549,6 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
                         {item.days}d
                       </Badge>
 
-                      {/* Client + reason */}
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-black uppercase tracking-tight text-foreground truncate">
                           {item.clientName}
@@ -568,18 +558,15 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
                         </p>
                       </div>
 
-                      {/* Amount */}
                       <span className="font-mono font-black text-sm text-amber-800 shrink-0">
                         {fmt(item.amount)}
                       </span>
 
-                      {/* Actions */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         {isProcessing ? (
                           <Loader2 className="w-4 h-4 animate-spin text-primary" />
                         ) : (
                           <>
-                            {/* Card on file — shown only when Stripe IDs exist */}
                             {hasCard && (
                               <Button
                                 size="sm"
@@ -593,7 +580,6 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
                               </Button>
                             )}
 
-                            {/* Mark collected (cash/other) */}
                             <Button
                               size="sm"
                               variant="outline"
@@ -613,7 +599,6 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
               </div>
             </ScrollArea>
 
-            {/* Footer */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-amber-200 bg-amber-50/40">
               <div className="flex items-center gap-4 text-[10px] font-bold uppercase text-muted-foreground opacity-60">
                 <span className="flex items-center gap-1.5">
@@ -633,7 +618,6 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
         )}
       </Card>
 
-      {/* ── Charge card dialog ─────────────────────────────────────────────── */}
       <ChargeCardDialog
         item={charging}
         open={!!charging}

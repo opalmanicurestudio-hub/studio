@@ -122,13 +122,11 @@ export default function ServiceReportPage() {
                 </div>
 
                 <div id="print-area" className="space-y-10">
-                    {/* Header for Print Only */}
                     <div className="hidden print:block space-y-2 border-b-4 border-black pb-6 mb-10">
                         <h1 className="text-4xl font-black uppercase tracking-tighter">Studio Yield Dossier</h1>
                         <p className="text-xs font-black uppercase tracking-widest opacity-60">Generated on {format(new Date(), 'PPPP')}</p>
                     </div>
 
-                    {/* KPI Grid */}
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
                             <div className="absolute top-0 right-0 p-4 opacity-5 transition-opacity group-hover:opacity-10">
@@ -182,7 +180,6 @@ export default function ServiceReportPage() {
                         </Card>
                     </div>
 
-                    {/* Performance Ledger */}
                     <Card className="border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-card">
                         <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-row items-center justify-between">
                             <div className="space-y-1">

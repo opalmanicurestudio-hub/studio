@@ -193,7 +193,6 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
         </div>
       </div>
 
-      {/* ── Staff custody & replenishment ────────────────────────────────── */}
       <div className="pt-4 border-t border-dashed">
         <div className="flex items-center justify-between p-5 rounded-2xl bg-primary/[0.03] border-2 border-primary/10">
           <div className="flex items-start gap-3 pr-4">

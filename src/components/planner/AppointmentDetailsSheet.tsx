@@ -730,8 +730,6 @@ const EditableNoteRow = ({
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 min-w-0">
           <Icon className={cn('w-3.5 h-3.5 shrink-0 mt-px', tone.dot)} />
-          {/* Label and provenance stack rather than sharing one line — on a
-              phone "Service note · From checkout · Jul 25" truncated. */}
           <div className="min-w-0">
             <span className="block text-[12px] font-semibold text-muted-foreground opacity-60 truncate">{tone.label}</span>
             {provenance && (
@@ -739,8 +737,6 @@ const EditableNoteRow = ({
             )}
           </div>
         </div>
-        {/* h-8 keeps the row visually tight; the -inset-2 pseudo-element gives
-            it a ~48px touch target on a phone without growing the layout. */}
         <Button variant="ghost" size="sm" onClick={() => { setDraft(value); setEditing(true); }}
           className="relative h-8 px-2.5 text-[12px] font-semibold rounded-lg shrink-0 after:absolute after:-inset-2 after:content-['']">
           <Edit className="w-2.5 h-2.5 mr-1" /> Edit
@@ -781,9 +777,6 @@ const AppointmentNotesPanel = ({
       <EditableNoteRow kind="service" value={serviceNote} appointment={appointment} tenantId={tenantId} firestore={firestore}
         provenance={serviceProvenance} />
 
-      {/* Escalation resolution — was rendered far down the drawer, well away
-          from every other note. Repeated here so one place answers "what do we
-          know about this appointment." */}
       {resolutionNote && (
         <div className="rounded-2xl border border-border bg-muted/60 p-4 space-y-2">
           <div className="flex items-center gap-2">
@@ -1239,7 +1232,6 @@ const CompletionReceipt = ({ appointment, transactions, staff, providers }: { ap
               <span className="text-[11px] font-semibold font-mono text-primary">-${giftCardUsed.toFixed(2)}</span>
             </div>
           )}
-          {/* Payment method breakdown for split payments */}
           {singleMethod ? (
             <div className="flex items-center justify-between px-4 py-3">
               <span className="text-[12px] font-semibold text-muted-foreground">Payment</span>
@@ -2436,7 +2428,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               <Mail className="w-2.5 h-2.5 shrink-0" /><span className="truncate">{client.email}</span>
             </a>
           )}
-          {/* Copyable ticket ID */}
           <button
             onClick={() => copyTicket(appointment.id)}
             className="flex items-center gap-1 text-[12px] font-bold text-muted-foreground opacity-50 hover:opacity-80 transition-opacity shrink-0"
@@ -2466,7 +2457,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div hidden={visitTab !== 'now'} className="space-y-5">
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}
-        {/* Before the visit (lib/prep-check) and a change found on the day (lib/prep-day) — here too, for owners who work from the planner. */}
         {tenantId && appointment?.id && !['cancelled', 'no_show', 'completed', 'checked_out', 'paid'].includes(String(appointment?.status || '')) && <div className="space-y-2">
           <PrepSummary apt={appointment} tenantId={tenantId} solo={isSoloTeam(staff || [])} />
           <DayChange apt={appointment} tenantId={tenantId} solo={isSoloTeam(staff || [])} staffName={(staff || []).find((m: any) => m.id === appointment?.staffId)?.name || appointment?.staffName} />
@@ -2489,7 +2479,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
-        {/* ── Status section ─────────────────────────────────────────────── */}
         {isCancelled
           ? <CancellationRecord appointment={appointment} transactions={transactions} staff={staff || []} cancellationEvent={cancellationEvent} depositDecision={latestDepositDecision} onProcessRefund={handleProcessPendingRefund} onKeepAsCredit={handleKeepAsCredit} isProcessingRefund={isProcessingRefund} />
           : isCompleted
@@ -2518,7 +2507,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
-        {/* ── Live timer ─────────────────────────────────────────────────── */}
         {appointment.status === 'servicing' && elapsedTime && (
           <div className={cn('rounded-2xl border-4 text-center p-4 transition-all', isRunningOver ? 'bg-destructive/5 border-destructive animate-pulse' : 'bg-primary/5 border-primary/20')}>
             <p className="text-[12px] font-semibold text-primary mb-1">Live Session Time</p>
@@ -2536,7 +2524,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
-        {/* ── Reschedule badge ────────────────────────────────────────────── */}
         {safeNumber(appointment.rescheduleCount) > 0 && (
           <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-[12px] font-bold text-blue-700">
             <RefreshCw className="w-3 h-3 shrink-0" />
@@ -2548,19 +2535,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'client'} className="space-y-5">
-        {/* ── Client intelligence ─────────────────────────────────────────── */}
         <div className="space-y-3">
           <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
             <Activity className="w-3 h-3" /> Client Intelligence
           </h3>
           <ClientStatsBar client={client} recentVisits={recentVisits} allVisits={allClientVisits} isLoading={isLoadingClientHistory} />
-          {/* Staff relationship signal */}
           {(isPreferredStaff || isFirstTimeWithStaff) && (
             <div className={cn('flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-[12px] font-bold', isPreferredStaff ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-amber-50 border-amber-200 text-amber-700')}>
               {isPreferredStaff ? <><Star className="w-3 h-3 shrink-0" /> Preferred artist — {allClientVisits.filter((a: any) => a.staffId === mainStaffId).length} visits together</> : <><UserCheck className="w-3 h-3 shrink-0" /> First time with {mainStaffMember?.name || 'this artist'}</>}
             </div>
           )}
-          {/* Referral source */}
           {client.referralSource && (
             <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-muted/5 border border-transparent text-[12px] font-bold text-muted-foreground">
               <ArrowUpRight className="w-3 h-3 shrink-0 opacity-50" /> Referred via {client.referralSource}
@@ -2572,7 +2556,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div hidden={visitTab !== 'service'} className="space-y-5">
         <ThisVisitFormula appointment={appointment} onClear={() => writeFormula(null)} />
         {appointment?.status === 'completed' && tenantId && <ProductsUsed tenantId={tenantId} visitId={String(appointment.id)} className="rounded-2xl p-4" style={{ background: 'var(--card)', border: '1px solid var(--line)' }} />}
-        {/* ── Service card ─────────────────────────────────────────────────── */}
         <Card className="rounded-[1.5rem] border bg-muted/5 shadow-inner overflow-hidden">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
@@ -2590,7 +2573,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               </span>
             </div>
 
-            {/* Multi-provider strip — shows everyone currently involved */}
             {providers.length > 1 && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-200">
                 <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -2671,7 +2653,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 })}
               </div>
             )}
-            {/* Promo code if applied */}
             {appointment.promoCode && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
                 <BadgePercent className="w-3 h-3 text-amber-600 shrink-0" />
@@ -2689,7 +2670,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </div>
         <div hidden={visitTab !== 'money'} className="space-y-5">
         {tenantId && appointment?.id && visitTab === 'money' && <VisitCharges tenantId={tenantId} appointmentId={String(appointment.id)} />}
-        {/* ── Financial summary (active appointments only) ──────────────── */}
         {!isCancelled && !isCompleted && (
           <div className="space-y-3">
             <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
@@ -2714,7 +2694,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               {adjustmentCharge > 0 && (
                 <RequirementRow icon={<Scale className="w-3.5 h-3.5" />} label="Adjustment Fee" status="warn" value={`$${adjustmentCharge.toFixed(2)} at checkout`} />
               )}
-              {/* Profit margin indicator for owner/admin */}
               {isOwnerOrAdminUser && financialData && financialData.breakEven > 0 && (
                 <RequirementRow
                   icon={<TrendingUp className="w-3.5 h-3.5" />} label="Margin"
@@ -2736,12 +2715,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'client'} className="space-y-5">
-        {/* ── Notes ───────────────────────────────────────────────────────────
-            One place for every note attached to THIS appointment: the booking
-            note, the staff-only internal note, whatever the technician typed at
-            checkout, an escalation resolution, and the running session log.
-            Previously only the session log appeared here, so a note typed at
-            checkout was saved and then never shown. */}
         <div className="space-y-2">
           <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
             <StickyNote className="w-3 h-3" /> Notes
@@ -2754,7 +2727,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'client'} className="space-y-5">
-        {/* ── After photos (completed only) ───────────────────────────────── */}
         {isCompleted && (
           <div className="space-y-2">
             <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
@@ -2766,7 +2738,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'service'} className="space-y-5">
-        {/* ── Visit outcome (v2 — completed only) ─────────────────────────── */}
         {isCompleted && (
           <div className="space-y-2">
             <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60 flex items-center gap-1.5">
@@ -2780,7 +2751,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
-        {/* ── Requirements & intake ───────────────────────────────────────── */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Requirements & Intake</h3>
@@ -2866,14 +2836,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </Button>
               ) : (
                 <div className="space-y-3 pt-2">
-                  {/* v2 — ad-hoc extra forms. Lists every form in the
-                      tenant's library, not just this service's defaults, so
-                      staff can request a one-off consultation form. Forms
-                      already satisfied (per complianceInfo.allFormsWithStatus
-                      — signed once and not flagged requiresEveryAppointment)
-                      show "On file" and are collapsed out of the way by
-                      default rather than inviting staff to needlessly
-                      re-request something that's already fine. */}
                   {(complianceInfo.allFormsWithStatus || []).length > 0 && (
                     <div className="space-y-1.5">
                       <p className="text-[12px] font-semibold text-muted-foreground ml-1">Additional forms for this visit</p>
@@ -2977,7 +2939,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'client'} className="space-y-5">
-        {/* ── Inspiration photo & markup ───────────────────────────────────── */}
         {appointment.inspirationPhotoUrl && (
           <div className="space-y-3">
             <div className="flex justify-between items-center gap-2 flex-wrap">
@@ -2991,9 +2952,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </Button>
               </div>
             </div>
-            {/* v15 — the photo IS the content here: full width, natural
-                aspect (object-contain, never cropped), tall enough to
-                actually read nail detail. Tap for the full-screen viewer. */}
             <div className="relative w-full rounded-2xl overflow-hidden border border-primary/10 bg-slate-950/90 group cursor-zoom-in" onClick={() => openLightbox([{ url: appointment.inspirationPhotoUrl, name: 'Inspiration reference' }], 0)}>
               <img src={appointment.inspirationPhotoUrl} alt="Inspiration" className="w-full max-h-[68vh] object-contain" />
               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -3008,7 +2966,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'history'} className="space-y-5">
-        {/* ── Incident report ──────────────────────────────────────────────── */}
         {appointment.incident && (
           <div className="space-y-3">
             <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Incident Report</h3>
@@ -3033,8 +2990,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
-        {/* ── v18 STATUS AT A GLANCE — always visible, never in a drawer.
-            Red = act now · amber = waiting on client · green = settled. ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {([
             ['Visit', glance.visit],
@@ -3063,7 +3018,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'history'} className="space-y-5">
-        {/* ── Activity timeline ────────────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
           <AccordionItem value="timeline" className="border rounded-2xl overflow-hidden bg-card shadow-inner">
             <AccordionTrigger className="px-4 py-3 hover:no-underline">
@@ -3106,7 +3060,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'history'} className="space-y-5">
-        {/* ── Communications journey ───────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
           <AccordionItem value="comms" className="border rounded-2xl overflow-hidden bg-card shadow-inner">
             <AccordionTrigger className="px-4 py-3 hover:no-underline">
@@ -3144,7 +3097,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         {m.sentAt ? fmtDT(m.sentAt, 'MMM d, h:mm a') : ''}
                       </span>
                     </div>
-                    {/* Journey chips: Sent → Delivered → Opened → Clicked */}
                     {!failed && !skipped && (
                       <div className="flex items-center gap-1 mt-2 flex-wrap">
                         {(m.channel === 'sms' ? STEPS.slice(0, 2) : STEPS).map((s, i) => (
@@ -3170,7 +3122,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 );
               })}
 
-              {/* Fix & resend — corrects the client record AND resends in one motion */}
               <div className="rounded-xl border p-3 space-y-2">
                 <p className="text-[12px] font-semibold text-foreground/80">Fix contact info &amp; resend confirmation</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -3188,7 +3139,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'client'} className="space-y-5">
-        {/* ── Dossier intelligence ─────────────────────────────────────────── */}
         <div className="space-y-3">
           <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Dossier Intelligence</h3>
           <Accordion type="multiple" className="w-full space-y-2">
@@ -3198,8 +3148,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <Sparkles className="w-3.5 h-3.5 mr-2 opacity-40" /> Client Profile &amp; Preferences
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
-                {/* Standing record on the CLIENT, not notes about this visit —
-                    appointment notes live in the Notes section above. */}
                 <p className="text-[12px] font-bold text-muted-foreground opacity-40 leading-relaxed">
                   Standing record for {client.name || 'this client'} — carries across every visit
                 </p>
@@ -3243,7 +3191,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <Badge variant="outline" className="h-4 px-1.5 rounded-full text-[12px] font-semibold border ml-2">{allClientVisits.length}</Badge>
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-2">
-                {/* Visit frequency sparkline */}
                 {allClientVisits.length > 1 && (
                   <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-card border border-muted/20 mb-2">
                     <div className="min-w-0">
@@ -3265,7 +3212,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* v2 — quick satisfaction glance from visitOutcome, if recorded */}
                         {a.visitOutcome?.satisfactionRating && (
                           <span className="flex items-center gap-0.5" title="Satisfaction rating">
                             {Array.from({ length: a.visitOutcome.satisfactionRating }).map((_, i) => (
@@ -3296,7 +3242,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
-        {/* ── Escalation panel ─────────────────────────────────────────────── */}
         <div className="space-y-3">
           {appointment.isEscalated ? (
             <div className="flex flex-col gap-4 p-5 rounded-3xl border-4 bg-destructive text-white border-destructive shadow-xl shadow-destructive/20">
@@ -3339,13 +3284,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </div>
 
         </div>
-        {/* History also holds the visit record: stage, payments, receipts, handoff notes, timeline and approvals. */}
         <div hidden={visitTab !== 'history'} className="space-y-5">
           <HandoffLog appointment={appointment} staff={staff || []} allServices={allServices || []} />
           {tenantId && appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && visitTab === 'history' && <div className="rounded-2xl border p-3" style={{ borderColor: 'var(--line)' }}><VisitTicket tenantId={tenantId} appointmentId={String(appointment.id)} hideProducts /></div>}
         </div>
         <div hidden={visitTab !== 'money' || !['completed', 'cancelled'].includes(String(appointment?.status))}><p className="rounded-2xl p-4 text-[14px]" style={{ background: 'var(--soft)' }}>Payments, receipts and refunds for this visit are under <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setVisitTab('history')}>History</button>.</p></div>
-        {/* ── Keyboard shortcut hint ───────────────────────────────────────── */}
         {!isMobile && (canStart || canFinish) && (
           <p className="text-center text-[12px] font-bold text-muted-foreground opacity-30 pb-2">
             {canStart ? 'K' : 'F'} to {canStart ? 'start' : 'finish'} · P to print · Esc to close
@@ -3482,7 +3425,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <nav className="mt-3 flex gap-1 overflow-x-auto" role="tablist" aria-label="Visit sections">{([['now', 'Now'], ['client', 'Client'], ['service', 'Service'], ['money', 'Money'], ['history', 'History']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={visitTab === k} onClick={() => setVisitTab(k)} className="h-9 shrink-0 rounded-full px-4 text-[13px] font-semibold" style={visitTab === k ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}
               {appointment?.id && !String(appointment.id).startsWith('apt-walkin-') && <button type="button" onClick={async () => { const url = `${window.location.origin}/planner?visit=${encodeURIComponent(String(appointment.id))}`; try { await navigator.clipboard.writeText(url); } catch { window.prompt('Link to this visit', url); } }} className="ml-auto h-9 shrink-0 rounded-full px-3 text-[13px] font-semibold" style={{ color: 'var(--muted)' }} aria-label="Copy a link to this visit">Copy link</button>}</nav>
           </SheetHeader>
-          {/* An offer is waiting: booked with a campaign code, or a renter's offer. */}
           {((appointment as any)?.pendingDiscountCode || (appointment as any)?.renterOfferLine) && (
             <div className="glass relative mx-4 mt-2 overflow-hidden rounded-2xl px-4 py-3 text-xs font-bold text-emerald-900 shadow-[0_8px_24px_-12px_rgba(16,185,129,0.35)]">
               🎁 {(appointment as any).pendingDiscountCode

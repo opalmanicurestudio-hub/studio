@@ -968,8 +968,6 @@ export function MaintenanceSection({
 
   return (
     <div className="space-y-3">
-      {/* Header: title + primary action on one line; tools live in a
-          single horizontal-scroll chip row that never wraps on a phone. */}
       <div className="flex items-center gap-2">
         <h2 className="text-xs font-black uppercase tracking-widest flex items-center gap-1.5"><Wrench className="h-3.5 w-3.5" /> Maintenance</h2>
         {openCount > 0 && <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{openCount}</span>}
@@ -1016,7 +1014,6 @@ export function MaintenanceSection({
         )}
       </div>
 
-      {/* Running costs — what maintenance is actually costing, live */}
       {(spend.allMaterials > 0 || spend.allLabor > 0 || spend.owedLabor > 0) && (
         <div className="rounded-2xl border-2 bg-card p-3 flex gap-4 overflow-x-auto">
           {[
@@ -1086,8 +1083,6 @@ export function MaintenanceSection({
                 </button>
                 {expanded && (
                   <div className="border-t px-4 py-3 space-y-3">
-                    {/* Request decision card — everything needed to say yes
-                        from a phone: what, how many, when, cost, who, job */}
                     {isRequest && t.requestMeta && (
                       <div className="rounded-xl border-2 border-violet-200 bg-violet-50 p-3 grid grid-cols-2 gap-x-4 gap-y-2">
                         {([
@@ -1106,8 +1101,6 @@ export function MaintenanceSection({
                         <p className="col-span-2 text-[10px] font-bold text-violet-600">Bought it? Resolve with the Materials $ and receipt — the purchase logs to the ledger and {t.reporter?.name || 'the tech'} gets a text.</p>
                       </div>
                     )}
-                    {/* Requests filed against THIS job — on this thread,
-                        handled here, never a second work order */}
                     {(t.openRequests || []).filter((r: any) => r.status === 'open').map((r: any) => (
                       <div key={r.id} className="rounded-xl border-2 border-amber-300 bg-amber-50 p-2.5 flex items-start gap-2">
                         <div className="flex-1 min-w-0">
@@ -1133,8 +1126,6 @@ export function MaintenanceSection({
                         ))}
                       </div>
                     )}
-                    {/* Quote card — pending gets decision buttons; decided
-                        shows the verdict; resolved shows quoted vs actual */}
                     {t.quote && (
                       <div className={`rounded-xl border-2 p-2.5 ${t.quote.status === 'approved' ? 'border-emerald-200 bg-emerald-50' : t.quote.status === 'declined' ? 'border-border bg-muted/60' : 'border-amber-300 bg-amber-50'}`}>
                         <p className="text-[9px] font-black uppercase tracking-widest text-foreground/80">
@@ -1169,8 +1160,6 @@ export function MaintenanceSection({
                           (t.laborCents || 0) > 0 ? `Labor $${(t.laborCents / 100).toFixed(2)}${(t.laborHours || 0) > 0 ? ` (${t.laborHours}h)` : ''}` : (t.laborHours || 0) > 0 ? `${t.laborHours}h logged · no rate set` : null].filter(Boolean).join(' · ')}
                       </p>
                     )}
-                    {/* Job clock read-out: live when running; timed-vs-claimed
-                        check once resolved (amber when claimed runs 25%+ hot) */}
                     {(t.workSessions || []).length > 0 && (() => {
                       const tm = timedMinutesOf(t, Date.now());
                       const running = (t.workSessions || []).some((s: any) => !s.endAt);
@@ -1182,8 +1171,6 @@ export function MaintenanceSection({
                             {running ? `Clock running · ${fmtMinutes(tm)} so far` : `Timer: ${fmtMinutes(tm)} across ${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'}`}
                             {hot ? ` · claimed ${t.laborHours}h — ${fmtMinutes(Math.round(claimedMin - tm))} more than timed` : ''}
                           </p>
-                          {/* Sessions with location stamps — tap to see where
-                              they clocked in/out */}
                           {(t.workSessions || []).slice(-4).map((s: any, i: number) => (
                             <p key={i} className="text-[10px] font-bold text-muted-foreground">
                               {fmtWhen(s.startAt)}{s.endAt ? ` – ${new Date(s.endAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ' – running'}
@@ -1203,7 +1190,6 @@ export function MaintenanceSection({
                         Mileage {t.mileage} mi{(t.mileageCents || 0) > 0 ? ` · $${((t.mileageCents || 0) / 100).toFixed(2)} reimbursed via payout balance` : ''}
                       </p>
                     )}
-                    {/* The crew: lead + helpers, and who logged what */}
                     {(t.helpers || []).length > 0 && (
                       <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
                         Crew: {t.assigneeName || 'unassigned'} (lead){(t.helpers || []).map((h: any) => ` + ${h.name}`).join('')}
@@ -1369,7 +1355,6 @@ export function MaintenanceSection({
         </div>
       )}
 
-      {/* ── New ticket ── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
@@ -1406,7 +1391,6 @@ export function MaintenanceSection({
                 </select>
               )}
             </div>
-            {/* Photos — show, don't describe */}
             <div className="flex gap-2 items-center flex-wrap">
               {createPhotos.map((u, i) => (
                 <span key={i} className="relative">
@@ -1433,7 +1417,6 @@ export function MaintenanceSection({
         </DialogContent>
       </Dialog>
 
-      {/* ── Provider directory — the business rolodex ── */}
       <PanelShell show={tab === 'vendors'}>
         <div>
           <div>
@@ -1521,7 +1504,6 @@ export function MaintenanceSection({
         </div>
       </PanelShell>
 
-      {/* ── Preventive plans — recurring work that files its own tickets ── */}
       <PanelShell show={tab === 'plans'}>
         <div>
           <div>
@@ -1609,8 +1591,6 @@ export function MaintenanceSection({
         </div>
       </PanelShell>
 
-      {/* ── Team roster ── */}
-      {/* ── APPROVAL RULES — the business writes its own policy ── */}
       <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
         <DialogContent className="max-w-sm rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -1678,7 +1658,6 @@ export function MaintenanceSection({
         </DialogContent>
       </Dialog>
 
-      {/* ── WORK ORDER HISTORY — the archive, with money attached ── */}
       <PanelShell show={tab === 'history'}>
         <div>
           <div>
@@ -1702,8 +1681,6 @@ export function MaintenanceSection({
                 ))}
               </div>
             </div>
-            {/* Totals for exactly what's filtered — answer "what did the
-                pedicure chairs cost me this year" in two taps */}
             <div className="rounded-xl border-2 bg-muted/60 p-2.5 flex items-center gap-4 flex-wrap">
               <p className="text-[10px] font-black uppercase tracking-widest text-foreground/80">
                 {historyTotals.jobs} job{historyTotals.jobs === 1 ? '' : 's'} · ${(historyTotals.materials / 100).toFixed(0)} materials · ${(historyTotals.labor / 100).toFixed(0)} labor · ${((historyTotals.materials + historyTotals.labor) / 100).toFixed(0)} total
@@ -1749,7 +1726,6 @@ export function MaintenanceSection({
             </p>
           </div>
           <div className="space-y-3">
-            {/* Rotation: one switch, honored by every ticket entry point */}
             <div className={`rounded-2xl border-2 p-3 flex items-center gap-3 ${autoAssign ? 'border-indigo-300 bg-indigo-50' : ''}`}>
               <div className="flex-1 min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-widest">Auto-rotation</p>
@@ -1784,7 +1760,6 @@ export function MaintenanceSection({
                   </button>
                   {showProfile && (
                     <div className="border-t px-3 py-3 space-y-3">
-                      {/* KPIs from the ticket history — nothing entered by hand */}
                       <div className="grid grid-cols-3 gap-2">
                         {[
                           { label: 'Open now', value: String(st.open), tone: st.overdueNow > 0 ? 'text-red-600' : '' },
@@ -1800,7 +1775,6 @@ export function MaintenanceSection({
                           </div>
                         ))}
                       </div>
-                      {/* Pay setup — payroll lives on the Staff page; per-job accrues here */}
                       <div className="rounded-xl border-2 p-2.5 space-y-2">
                         <div className="flex items-center gap-2">
                           <p className="flex-1 text-[9px] font-black uppercase tracking-widest text-muted-foreground">How they're paid</p>
@@ -1857,7 +1831,6 @@ export function MaintenanceSection({
                           </div>
                         )}
                       </div>
-                      {/* Recent activity */}
                       {st.recent.length > 0 && (
                         <div className="space-y-1">
                           <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Recent jobs</p>
@@ -1870,7 +1843,6 @@ export function MaintenanceSection({
                           ))}
                         </div>
                       )}
-                      {/* Access */}
                       <div className="flex gap-2">
                         {w.phone && (
                           <a href={`sms:${w.phone}?&body=${encodeURIComponent(`Your maintenance portal for the studio — open tickets, add notes, mark resolved: ${workerLink(w)}`)}`}

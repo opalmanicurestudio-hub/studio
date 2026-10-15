@@ -280,7 +280,6 @@ export default function ReportsPage() {
         <VisitProfit />
         <HousekeepingStats />
 
-        {/* Period selector */}
         <div className="p-6 rounded-[2.5rem] bg-muted/30 border-2 border-dashed border-border/50">
           <div className="flex flex-col sm:flex-row items-center gap-6">
             <div className="flex-1 w-full space-y-2">
@@ -312,7 +311,6 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* KPI row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6 w-full">
           <KpiStat label="Gross Yield" value={`$${analyticsData.overall.totalRevenue?.toFixed(0) || 0}`} subLabel="Direct period sales" icon={TrendingUp} colorClass="text-primary" />
           <KpiStat label="Overall Util." value={`${analyticsData.overall.utilization?.toFixed(1) || 0}%`} subLabel="Team productivity mean" icon={Target} />
@@ -321,7 +319,6 @@ export default function ReportsPage() {
         </div>
         {['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase()) && <LastYearSales tenantId={selectedTenant?.id || ''} from={effectiveFrom} to={effectiveTo} current={Number(analyticsData.overall.totalRevenue) || 0} />}
 
-        {/* Rebooking — booked their next visit before leaving */}
         <section className="space-y-6">
           <div className="flex items-center gap-2 px-1">
             <ShieldCheck className="w-4 h-4 text-primary" />
@@ -330,7 +327,6 @@ export default function ReportsPage() {
           <RebookingReport appointments={(appointments || []) as any[]} staff={(staff || []) as any[]} from={effectiveFrom} to={effectiveTo} />
         </section>
 
-        {/* Acquisition matrix */}
         <section className="space-y-6">
           <div className="flex items-center gap-2 px-1">
             <ShieldCheck className="w-4 h-4 text-primary" />
@@ -370,7 +366,6 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        {/* P&L Statement -- mobile-optimised */}
         <section className="space-y-6">
           <div className="flex items-center gap-2 px-1">
             <Scale className="w-4 h-4 text-primary" />
@@ -378,7 +373,6 @@ export default function ReportsPage() {
           </div>
           <Card className="border-4 rounded-[3rem] shadow-2xl bg-card overflow-hidden">
             <CardContent className="p-5 sm:p-8 md:p-12 space-y-8">
-              {/* Line items */}
               <div className="space-y-5">
                 <div className="flex justify-between items-center border-b-2 border-border pb-3">
                   <h4 className="font-black uppercase tracking-widest text-[10px] text-muted-foreground">Category</h4>
@@ -400,7 +394,6 @@ export default function ReportsPage() {
                 ))}
               </div>
 
-              {/* Net yield -- mobile-friendly dark box */}
               <div className="rounded-[2rem] sm:rounded-[3rem] bg-foreground text-background overflow-hidden relative">
                 <div className="absolute inset-0 opacity-5 flex items-center justify-end p-8"><DollarSign className="w-40 h-40" /></div>
                 <div className="relative z-10 p-6 sm:p-10 flex flex-col gap-6">
@@ -421,7 +414,6 @@ export default function ReportsPage() {
           </Card>
         </section>
 
-        {/* Service Recovery Ledger -- with Authorized By */}
         <section className="space-y-6">
           <div className="flex items-center gap-2 px-1">
             <HeartHandshake className="w-4 h-4 text-primary" />
@@ -477,7 +469,6 @@ export default function ReportsPage() {
           </Card>
         </section>
 
-        {/* Absorption Audit */}
         <section className="space-y-6">
           <div className="flex items-center gap-2 px-1">
             <ShieldAlert className="w-4 h-4 text-destructive" />

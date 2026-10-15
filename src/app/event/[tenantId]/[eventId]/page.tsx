@@ -320,7 +320,6 @@ export default function EventPublicPage() {
   // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen" style={{ background: '#f8fafc' }}>
-      {/* Hero */}
       <div className="relative overflow-hidden" style={{ background: primaryHex, minHeight: 260 }}>
         <div className="absolute inset-0 pointer-events-none"
           style={{ background: `radial-gradient(ellipse at 30% 50%, rgba(255,255,255,0.12) 0%, transparent 70%), radial-gradient(ellipse at 80% 20%, rgba(0,0,0,0.15) 0%, transparent 60%)` }} />
@@ -375,7 +374,6 @@ export default function EventPublicPage() {
         </div>
       </div>
 
-      {/* Main */}
       <div className="max-w-2xl mx-auto px-6 py-10">
         <AnimatePresence mode="wait">
 

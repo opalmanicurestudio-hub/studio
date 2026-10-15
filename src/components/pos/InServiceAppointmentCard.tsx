@@ -95,7 +95,6 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                         </div>
                     )}
 
-                    {/* Card content is tappable for details — separate from buttons */}
                     <CardContent className="p-5 space-y-4 flex-1 cursor-pointer" onClick={onViewDetails}>
                         <div className="flex justify-between items-start gap-3">
                             <div className="space-y-4 flex-1 min-w-0 text-left">
@@ -198,7 +197,6 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                         )}
                     </CardContent>
                     
-                    {/* Buttons live OUTSIDE the clickable CardContent so they're never intercepted */}
                     <div className="p-2 pt-0 flex gap-2">
                         <Button
                             size="sm"

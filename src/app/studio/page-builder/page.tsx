@@ -758,7 +758,6 @@ const ImageArrayEditor = ({ value, onChange, maxImages = 24 }: { value: GalleryI
               {img.url ? <img src={img.url} alt={img.caption || ''} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-muted flex items-center justify-center"><ImageIcon className="w-5 h-5 text-muted-foreground/40"/></div>}
               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><button onClick={() => remove(img.id)} className="w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center"><X className="w-3 h-3"/></button></div>
             </div>
-            {/* Per-image link input */}
             <input
               type="url"
               value={img.link || ''}
@@ -868,7 +867,6 @@ const LinkPickerEditor = ({ value, onChange, enabledTypes = [] }: {
   return (
     <div className="space-y-3">
 
-      {/* Booking flow */}
       <button onClick={() => onChange('booking')}
         className={cn('w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 text-left transition-all',
           isBooking ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-primary/20')}>
@@ -880,7 +878,6 @@ const LinkPickerEditor = ({ value, onChange, enabledTypes = [] }: {
         {isBooking && <Check className="w-3.5 h-3.5 text-primary shrink-0"/>}
       </button>
 
-      {/* Page section scroll links */}
       {sectionLinks.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">Scroll to section</p>
@@ -898,7 +895,6 @@ const LinkPickerEditor = ({ value, onChange, enabledTypes = [] }: {
         </div>
       )}
 
-      {/* Custom URL — saves as you type, no button needed */}
       <div className="space-y-1.5">
         <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">Custom URL</p>
      <Input
@@ -1523,11 +1519,9 @@ export function PageBuilderPageInner() {
         </div>
       )}
 
-      {/* ═══ MOBILE ══════════════════════════════════════════════════════════ */}
       <div className="lg:hidden flex-1 min-h-0 relative overflow-hidden">
         {isLandscape && (
           <div className="absolute inset-0 flex">
-            {/* ─ preview ─ */}
             <div className="flex-1 min-w-0 relative overflow-hidden" style={{ background: resolvedPreviewStyle.bgColor }}>
               {selectedTenant ? (
                 // transform: translateZ(0) scopes position:fixed children to this div
@@ -1546,7 +1540,6 @@ export function PageBuilderPageInner() {
                 {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur shadow flex items-center justify-center text-slate-500"><ExternalLink className="w-3.5 h-3.5"/></a>}
               </div>
             </div>
-            {/* ─ editor panel ─ */}
             <div className="h-full bg-white border-l flex flex-col shadow-2xl overflow-hidden transition-all duration-300 shrink-0" style={{ width: drawerOpen ? 'min(300px,58vw)' : '0px' }}>
               {drawerOpen && (
                 <>
@@ -1562,7 +1555,6 @@ export function PageBuilderPageInner() {
         )}
         {!isLandscape && (
           <>
-            {/* ─ preview ─ */}
             <div className="absolute inset-0 overflow-hidden" style={{ background: resolvedPreviewStyle.bgColor }}>
               {selectedTenant ? (
                 // transform: translateZ(0) scopes position:fixed children to this div
@@ -1575,7 +1567,6 @@ export function PageBuilderPageInner() {
             <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
               {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-xl bg-white/90 backdrop-blur shadow-lg flex items-center justify-center text-slate-500"><ExternalLink className="w-4 h-4"/></a>}
             </div>
-            {/* ─ bottom sheet ─ */}
             <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-[0_-8px_40px_rgba(0,0,0,0.14)] flex flex-col z-20"
               style={{ height: '100%', transform: `translateY(${sheetTranslate})`, transition: 'transform 0.32s cubic-bezier(0.16,1,0.3,1)' }}>
               <div className="shrink-0 cursor-pointer select-none pt-2.5" style={{ height: `${HANDLE_H}px` }} onClick={cycleSheet}>
@@ -1595,11 +1586,9 @@ export function PageBuilderPageInner() {
         )}
       </div>
 
-      {/* ═══ DESKTOP ══════════════════════════════════════════════════════════ */}
       <main className="hidden lg:flex flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full w-full">
 
-          {/* Left sidebar */}
           <div className="w-72 h-full flex flex-col border-r bg-white shrink-0">
             <div className="p-3 border-b flex items-center gap-2 shrink-0">
               <div className="flex gap-1 flex-1">
@@ -1646,7 +1635,6 @@ export function PageBuilderPageInner() {
             </div>
           </div>
 
-          {/* Center: field editor */}
           <div className="w-80 xl:w-[420px] h-full flex flex-col border-r bg-white shrink-0">
             {selectedSection && selectedDef && activePanel === 'sections' ? (
               <>
@@ -1698,7 +1686,6 @@ export function PageBuilderPageInner() {
             )}
           </div>
 
-          {/* Right: live preview */}
           <div className="flex-1 min-w-0 h-full flex flex-col bg-slate-100">
             <div className="h-12 px-4 border-b bg-white flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">

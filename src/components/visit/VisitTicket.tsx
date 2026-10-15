@@ -51,7 +51,6 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, ta
   const trackIdx = TRACK.indexOf(v.stage);
   return (
     <div className="space-y-3">
-      {/* Who, what, when */}
       <section className={card} style={cardStyle} aria-label="The visit">
         <div className="flex items-start justify-between gap-3">
           <div><p className="text-[20px] font-semibold leading-tight">{v.clientName || 'Guest'}</p>
@@ -77,7 +76,6 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, ta
           {v.fixBrief.caseId && !tabs && <a href={`/cases?id=${v.fixBrief.caseId}`} className="text-[13.5px] underline underline-offset-2">Open the case</a>}
         </div>}
       </section>
-      {/* Stage + the next step */}
       <section className={card} style={cardStyle} aria-label="Where the visit is">
         {closed && v.stage !== 'complete' ? <p className="text-[16px] font-semibold">{v.stageLabel}</p> : <ol className="grid grid-cols-6 gap-1" aria-label={`Stage: ${v.stageLabel}`}>
           {TRACK.map((s, i) => <li key={s} className="space-y-1 text-center"><span className="block h-1.5 rounded-full" style={{ background: i <= trackIdx ? 'var(--accent)' : 'var(--line)' }} />
@@ -93,7 +91,6 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, ta
         {([['visit', 'Visit'], ['payment', 'Payment'], ['timeline', 'Timeline'], ['more', 'More']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className="px-3 py-2 text-[14px] font-semibold" style={tab === k ? { borderBottom: '2px solid hsl(var(--foreground))' } : { color: 'var(--muted)' }}>{l}</button>)}
       </div>}
       {tabs && tab === 'payment' && !(v.receipts || []).length && <section className={card} style={cardStyle}><p className="text-[15px] font-semibold">{v.paymentLabel || 'Not paid yet'}</p><p className="text-[14px]" style={muted}>Payments show here once the visit is checked out.</p></section>}
-      {/* Paid: receipts + book next */}
       {show('payment') && (v.receipts || []).length > 0 && <section className={card} style={cardStyle} aria-label="Payments">
         <p className="text-[15px] font-semibold">Payments</p>
         {v.receipts.map((r: any) => <div key={r.id} className="flex items-center justify-between gap-2 text-[14px]"><span>{money(r.total)} · {r.payments?.length ? `split · ${r.payments.length} payments` : String(r.paymentMethod || '').replace(/_/g, ' ')}{r.voided ? ' · voided' : ''}</span>
@@ -101,7 +98,6 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, ta
         {v.stage === 'complete' && act.bookNext && <button type="button" onClick={() => act.bookNext!(v.id, v.clientId, v.serviceId)} className="h-10 w-full rounded-full text-[14px] font-semibold" style={soft}>Book {first}’s next visit</button>}
       </section>}
       {show('visit') && String(v.stage) === 'complete' && !hideProducts && <ProductsUsed tenantId={tenantId} visitId={appointmentId} className={card} style={cardStyle} />}
-      {/* Handoff notes */}
       {show('visit') && timing && timing.actualMinutes !== null && <section className={card} style={cardStyle} aria-label="How long it took">
         <p className="text-[15px]"><b>Took {timing.actualMinutes} min</b> <span style={{ color: 'var(--muted)' }}>· booked {timing.bookedMinutes}{timing.overMinutes > 0 ? ` · ${timing.overMinutes} over` : timing.actualMinutes < timing.bookedMinutes ? ` · ${timing.bookedMinutes - timing.actualMinutes} under` : ''}</span></p>
         {timing.quality !== 'ok' && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{({ auto_closed: 'Finished by the system, not tapped — not counted in anyone’s typical times.', late_tap: '“Done” was tapped after they paid — not counted in typical times.', outlier: 'Very different from the booked time — not counted in typical times.' } as any)[timing.quality] || ''}</p>}
@@ -119,7 +115,6 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, ta
         <div className="flex items-center justify-between gap-2"><label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={forClient} onChange={(e) => setForClient(e.target.checked)} /> Show to {first}</label>
           <button type="button" disabled={busy === 'note' || !note.trim()} onClick={addNote} className="h-9 rounded-full px-4 text-[13px] font-semibold disabled:opacity-40" style={primaryStyle}>{busy === 'note' ? 'Saving…' : 'Add note'}</button></div>
       </section>}
-      {/* The timeline */}
       {show('timeline') && <section className={card} style={cardStyle} aria-label="Timeline">
         <p className="text-[15px] font-semibold">Timeline</p>
         {!(v.timeline || []).length ? <p className="text-[14px]" style={muted}>Nothing yet — moves, notes and payments appear here.</p>
@@ -128,12 +123,10 @@ export function VisitTicket({ tenantId, appointmentId, onClose, hideProducts, ta
               <span className="flex-1"><span style={e.kind === 'note' ? { fontStyle: 'italic' } : undefined}>{e.text}</span>{e.forClient ? <span className="ml-1 text-[12px]" style={muted}>· shown to client</span> : null}
                 {(e.by || e.via) && <span className="block text-[12px]" style={muted}>{[e.by, e.via && e.via !== 'desk' ? e.via : null].filter(Boolean).join(' · ')}</span>}</span></li>)}</ol>}
       </section>}
-      {/* Signed approvals */}
       {show('visit') && (v.consents || []).length > 0 && <section className={card} style={cardStyle} aria-label="Signed">
         <p className="text-[15px] font-semibold">Signed</p>
         {v.consents.map((c: any) => <p key={c.id} className="text-[14px]">{c.kind === 'membership_terms' ? (c.title || 'Membership terms') : c.kind === 'card_on_file_charge' ? `Card charge approved${c.amount ? ` · ${money(c.amount)}` : ''}` : c.title || 'Signed'} <span style={muted}>· {when(c.signedAt)}</span></p>)}
       </section>}
-      {/* The client's link + more */}
       {show('more') && <section className={card} style={cardStyle} aria-label="More">
         {(v.shortCode || v.checkInToken) && <div className="flex flex-wrap gap-1.5">
           {(['letter', 'receipt'] as const).map((size) => <button key={size} type="button" onClick={() => {

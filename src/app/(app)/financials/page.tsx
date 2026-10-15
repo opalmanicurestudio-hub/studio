@@ -98,8 +98,6 @@ const BillItemRow = ({ bill, isEditing = false, onBillChange, onDelete }: {
             <Label className="font-black uppercase tracking-tight text-[10px] sm:text-xs text-foreground truncate">{bill.title}</Label>
             {!isEditing && (
               <div className="flex items-center gap-2 text-muted-foreground mt-0.5 opacity-40 flex-wrap">
-                {/* v70 — cadence-aware due label: weekly bills show the
-                    weekday, monthly+ show the day of month */}
                 {bill.dueDay != null && normalizeCadence(bill.cadence) !== 'daily' && (
                   <span className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase">
                     <Calendar className="w-2 h-2 sm:w-2.5 sm:h-2.5" />
@@ -132,8 +130,6 @@ const BillItemRow = ({ bill, isEditing = false, onBillChange, onDelete }: {
         <AccordionItem value="details" className="border-none">
           <AccordionTrigger className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest justify-start gap-2 p-0 hover:no-underline text-primary/60">Configure Logic &amp; Alerts</AccordionTrigger>
           <AccordionContent className="pt-4 space-y-4">
-            {/* v70 — cadence: bills can be daily, weekly, bi-weekly, monthly,
-                quarterly, or annual. Totals & TMHR normalize to monthly. */}
             <div className="space-y-1.5 text-left">
               <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">How Often</Label>
               <Select value={normalizeCadence(bill.cadence)} onValueChange={(v) => onBillChange(bill.id, 'cadence', v)}>

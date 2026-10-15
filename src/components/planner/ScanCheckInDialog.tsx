@@ -377,8 +377,6 @@ export function ScanCheckInDialog({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground">Match found</p>
-            {/* Wrapping, not truncating: the desk needs the whole name and the whole
-                service to be sure it has the right person, and the card can grow. */}
             <p className="mt-1 break-words text-xl font-black leading-tight tracking-tighter sm:text-2xl">{nameOf(apt)}</p>
             <p className="break-words text-sm font-semibold leading-snug text-muted-foreground">{serviceOf(apt)}</p>
           </div>
@@ -507,7 +505,6 @@ export function ScanCheckInDialog({
 
         {camOn ? (
           <div className="relative overflow-hidden rounded-[1.5rem] border-2 bg-foreground">
-            {/* playsInline keeps iOS from taking the video full-screen. */}
             <video ref={videoRef} playsInline muted autoPlay className="block h-48 w-full object-cover sm:h-56" />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="h-32 w-32 rounded-2xl border-4 border-white/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />

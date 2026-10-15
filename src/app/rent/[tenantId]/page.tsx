@@ -586,8 +586,6 @@ export default function RenterPortalPage() {
                       </button>
                     </div>
                   ))}
-                  {/* Autopay — their own switch. Reads the same flag the owner
-                      can set; refuses without a card on file. */}
                   {(() => {
                     const r: any = data?.renter || {};
                     const on = r.autopayEnabled === true;

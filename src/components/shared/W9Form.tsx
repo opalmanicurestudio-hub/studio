@@ -236,7 +236,6 @@ export function W9Form({ tenantId, renterId, existingW9, onComplete }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Step indicator */}
       <div className="flex items-center gap-2">
         {steps.map((s, i) => (
           <div key={i} className="flex items-center gap-2">
@@ -249,7 +248,6 @@ export function W9Form({ tenantId, renterId, existingW9, onComplete }: Props) {
         <p className="text-[10px] font-bold text-muted-foreground ml-1">{step + 1} of {steps.length}</p>
       </div>
 
-      {/* Step content */}
       <div className="space-y-1">
         <h3 className="font-black text-base tracking-tight">{currentStep.title}</h3>
         <p className="text-[11px] font-bold text-muted-foreground">{currentStep.subtitle}</p>
@@ -259,7 +257,6 @@ export function W9Form({ tenantId, renterId, existingW9, onComplete }: Props) {
 
       {error && <p className="text-xs font-bold text-red-600 rounded-xl bg-red-50 border border-red-200 px-3 py-2">{error}</p>}
 
-      {/* Navigation */}
       <div className="flex gap-3 pt-1">
         {step > 0 && (
           <button onClick={() => setStep(s => s - 1)} className="h-11 px-4 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest text-slate-600">Back</button>

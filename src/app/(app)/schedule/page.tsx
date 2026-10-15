@@ -837,7 +837,6 @@ export default function SchedulePage() {
         )}
       </main>
 
-      {/* Add/Edit Shift Dialog */}
       <Dialog open={isAddShiftOpen} onOpenChange={setIsAddShiftOpen}>
         <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background p-0 overflow-hidden flex flex-col max-h-[90dvh]">
           <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b text-left">
@@ -955,7 +954,6 @@ export default function SchedulePage() {
         </DialogContent>
       </Dialog>
 
-      {/* AI Suggestion Review Dialog */}
       <Dialog open={isAISuggestOpen} onOpenChange={setIsAISuggestOpen}>
         <DialogContent className="sm:max-w-2xl rounded-[3rem] border-4 shadow-3xl bg-background max-h-[90dvh] flex flex-col p-0 overflow-hidden">
           <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b text-left">
@@ -1009,7 +1007,6 @@ export default function SchedulePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Publish Confirmation */}
       <Dialog open={isPublishConfirmOpen} onOpenChange={setIsPublishConfirmOpen}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
           <DialogHeader className="p-6 pb-0 text-left">

@@ -471,7 +471,6 @@ function QuoteGeneratorPageInner() {
             <div className="lg:col-span-2 space-y-10">
               <Accordion type="multiple" defaultValue={['event-details', 'services-products', 'travel-expenses', 'team-labor', 'legal-compliance', 'financial-logic']} className="w-full space-y-10">
 
-                {/* ── 1. Engagement Profile ── */}
                 <AccordionItem value="event-details" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -548,7 +547,6 @@ function QuoteGeneratorPageInner() {
                   </Card>
                 </AccordionItem>
                 
-                {/* ── 2. Protocol Manifest ── */}
                 <AccordionItem value="services-products" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -602,7 +600,6 @@ function QuoteGeneratorPageInner() {
                   </Card>
                 </AccordionItem>
 
-                {/* ── 3. Logistics & Deployment ── */}
                 <AccordionItem value="travel-expenses" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -678,7 +675,6 @@ function QuoteGeneratorPageInner() {
                   </Card>
                 </AccordionItem>
 
-                {/* ── 4. Team & Labor Matrix ── */}
                 <AccordionItem value="team-labor" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -765,7 +761,6 @@ function QuoteGeneratorPageInner() {
                   </Card>
                 </AccordionItem>
 
-                {/* ── 5. Legal & Compliance ── */}
                 <AccordionItem value="legal-compliance" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -805,7 +800,6 @@ function QuoteGeneratorPageInner() {
                   </Card>
                 </AccordionItem>
                 
-                {/* ── 6. Governance & Terms ── */}
                 <AccordionItem value="financial-logic" className="border-none">
                   <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card">
                     <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -864,7 +858,6 @@ function QuoteGeneratorPageInner() {
               </Accordion>
             </div>
 
-            {/* ── Yield Engine sidebar ── */}
             <div className="lg:col-span-1">
               <YieldEngineCard 
                 lineItems={lineItems}

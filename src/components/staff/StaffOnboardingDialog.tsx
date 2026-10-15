@@ -255,7 +255,6 @@ export function StaffOnboardingDialog({
           <DialogDescription className="text-[12px] font-bold text-muted-foreground">
             {headerLabel}
           </DialogDescription>
-          {/* progress */}
           <div className="flex gap-1.5 pt-1" role="progressbar" aria-valuenow={step === 'done' ? totalSteps : stepIndex + 1} aria-valuemin={1} aria-valuemax={totalSteps} aria-label="Onboarding progress">
             {Array.from({ length: totalSteps }).map((_, i) => (
               <div
@@ -276,7 +275,6 @@ export function StaffOnboardingDialog({
             </div>
           )}
 
-          {/* ── STEP 1: CLASSIFICATION ─────────────────────────────────────── */}
           {step === 'classify' && (
             <div className="flex flex-col gap-4">
               <div>
@@ -341,7 +339,6 @@ export function StaffOnboardingDialog({
                 })}
               </div>
 
-              {/* Contradiction warning — pay says wage, choice says contractor. */}
               {payConflict && (
                 <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-3.5">
                   <div className="flex items-start gap-2.5">
@@ -355,7 +352,6 @@ export function StaffOnboardingDialog({
                 </div>
               )}
 
-              {/* Correction notice — a bad record already exists. */}
               {isCorrection && (
                 <div className="rounded-2xl border-2 border-border bg-muted/30 p-3.5">
                   <div className="flex items-start gap-2.5">
@@ -397,7 +393,6 @@ export function StaffOnboardingDialog({
             </div>
           )}
 
-          {/* ── STEP 2: THE WORK AGREEMENT ─────────────────────────────────── */}
           {step === 'agreement' && (
             <div className="flex flex-col gap-4">
               {isCorrection && (
@@ -419,7 +414,6 @@ export function StaffOnboardingDialog({
             </div>
           )}
 
-          {/* ── STEP 3: HOUSE RULES ───────────────────────────────────────── */}
           {step === 'house_rules' && (
             <ESignAgreement
               title={AGREEMENT_TEMPLATES.house_rules.title}
@@ -431,7 +425,6 @@ export function StaffOnboardingDialog({
             />
           )}
 
-          {/* ── DONE ──────────────────────────────────────────────────────── */}
           {step === 'done' && (
             <div className="py-6 flex flex-col items-center text-center gap-4">
               <span className="h-16 w-16 rounded-3xl bg-emerald-500/10 flex items-center justify-center">
@@ -452,9 +445,6 @@ export function StaffOnboardingDialog({
                 ))}
               </div>
 
-              {/* A W-2 hire needs federal paperwork this app does not collect.
-                  Saying so is better than letting the owner assume onboarding
-                  is legally finished. */}
               {employmentType === 'w2_employee' && (
                 <div className="w-full rounded-2xl border-2 border-border bg-muted/30 p-3.5 text-left">
                   <div className="flex items-start gap-2.5">

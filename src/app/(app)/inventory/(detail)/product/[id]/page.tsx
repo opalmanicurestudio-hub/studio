@@ -688,8 +688,6 @@ export default function ProductDetailPage() {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {/* FIX: product.batches.sort(...) crashed the whole page whenever batches
-                                                    was undefined. Using the guarded productBatches array instead. */}
                                                 {[...productBatches].sort((a,b) => safeDate(b.receivedDate).getTime() - safeDate(a.receivedDate).getTime()).map(batch => (
                                                     <TableRow key={batch.id} className="group hover:bg-primary/[0.02]">
                                                         <TableCell className="p-6 text-left">

@@ -159,7 +159,6 @@ export function AppointmentFinancials({
         </div>
       ) : null}
 
-      {/* Revenue */}
       <div className="rounded-2xl border-2 bg-muted/5 p-4 space-y-2">
         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
           <Receipt className="w-3 h-3 opacity-40" /> Revenue
@@ -176,7 +175,6 @@ export function AppointmentFinancials({
         </div>
       </div>
 
-      {/* Cost */}
       <div className="rounded-2xl border-2 bg-muted/5 p-4 space-y-2">
         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
           <Wrench className="w-3 h-3 opacity-40" /> Estimated cost
@@ -199,7 +197,6 @@ export function AppointmentFinancials({
         </div>
       </div>
 
-      {/* Margin verdict */}
       {tier && (
         <div className={cn('rounded-2xl border-2 p-4 flex items-center justify-between', tierStyles[tier].bg, tierStyles[tier].border)}>
           <div className="flex items-center gap-2">
@@ -224,7 +221,6 @@ export function AppointmentFinancials({
         </div>
       )}
 
-      {/* Deposit reconciliation */}
       {hasDeposit && (
         <div className="rounded-2xl border-2 border-dashed bg-muted/5 p-4 space-y-1.5">
           <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Deposit reconciliation</p>

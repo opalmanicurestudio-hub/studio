@@ -45,7 +45,6 @@ export function Counter({ e, onFollowUp }: { e: any; onFollowUp?: (visit: any) =
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       <div className="space-y-4">
-        {/* Who's paying? */}
         {!client && !guest ? (
           <section className="space-y-3 rounded-3xl p-5" style={{ background: 'var(--card)' }} aria-label="Who's paying">
             <p className="text-[20px] font-light">Who’s <b className="font-semibold">paying?</b></p>

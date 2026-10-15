@@ -105,7 +105,6 @@ export const StoreCreditHistory: React.FC<Props> = ({ client, isOwnerOrAdmin }) 
   return (
     <div className="space-y-6">
 
-      {/* ── Summary banner ── */}
       <div className="flex items-center justify-between p-5 rounded-[2rem] border-2 border-green-200 bg-green-50 shadow-inner">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-green-500 flex items-center justify-center">
@@ -123,7 +122,6 @@ export const StoreCreditHistory: React.FC<Props> = ({ client, isOwnerOrAdmin }) 
         </p>
       </div>
 
-      {/* ── Manual issue (admin/owner only) ── */}
       {isOwnerOrAdmin && (
         <div className="space-y-3">
           {!isIssuing ? (
@@ -185,7 +183,6 @@ export const StoreCreditHistory: React.FC<Props> = ({ client, isOwnerOrAdmin }) 
         </div>
       )}
 
-      {/* ── Credit history list ── */}
       <div className="space-y-3">
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 ml-1">
           Credit History

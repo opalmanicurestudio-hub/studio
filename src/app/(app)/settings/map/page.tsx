@@ -105,7 +105,6 @@ export default function SettingsSetupPage() {
                             <p className="mt-0.5 text-[11px] font-bold leading-relaxed text-muted-foreground">{e.summary}</p>
                           </div>
 
-                          {/* Toggles sit on the right, where a thumb already is. */}
                           {c?.kind === 'toggle' && (
                             <button type="button" role="switch" aria-checked={c.on(selectedTenant)} aria-label={e.label}
                               disabled={!isMgr || busy === key}
@@ -125,9 +124,6 @@ export default function SettingsSetupPage() {
                           )}
                         </div>
 
-                        {/* Choices render as a full-width row of taps — no
-                            dropdown, because a dropdown hides the options you
-                            are trying to compare. */}
                         {c?.kind === 'choice' && (
                           <div className="mt-2.5 flex flex-wrap gap-1.5">
                             {c.options.map((o) => {
@@ -165,7 +161,6 @@ export default function SettingsSetupPage() {
                           </div>
                         )}
 
-                        {/* Only shown where you actually have to leave. */}
                         {c && (
                           <Link href={e.href}
                             className="mt-2 inline-block text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 underline-offset-4 hover:underline">

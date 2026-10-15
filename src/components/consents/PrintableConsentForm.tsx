@@ -50,7 +50,6 @@ export const PrintableConsentForm: React.FC<PrintableConsentFormProps> = ({
         }
       `}</style>
 
-      {/* Header Section */}
       <div className="flex justify-between items-start mb-8 border-b-2 border-black pb-6">
         <div>
           <h1 className="text-2xl font-bold uppercase tracking-tight">{tenant?.name || 'ClarityFlow Business'}</h1>
@@ -62,7 +61,6 @@ export const PrintableConsentForm: React.FC<PrintableConsentFormProps> = ({
         </div>
       </div>
 
-      {/* Client Information */}
       <div className="grid grid-cols-2 gap-8 mb-8 bg-gray-50 p-4 rounded-lg">
         <div>
           <h2 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-1">Client Details</h2>
@@ -77,7 +75,6 @@ export const PrintableConsentForm: React.FC<PrintableConsentFormProps> = ({
         </div>
       </div>
 
-      {/* Form Responses */}
       <div className="space-y-6">
         <h2 className="text-xl font-bold border-b pb-2">Form Responses</h2>
         <div className="grid grid-cols-1 gap-y-6 pt-2">
@@ -112,7 +109,6 @@ export const PrintableConsentForm: React.FC<PrintableConsentFormProps> = ({
         </div>
       </div>
 
-      {/* Signature Section */}
       <div className="mt-16 pt-8 border-t-2 border-black break-inside-avoid">
         <h2 className="text-xl font-bold mb-8">Acknowledgment & Signature</h2>
         <div className="flex flex-col md:flex-row justify-between items-end gap-12">
@@ -142,7 +138,6 @@ export const PrintableConsentForm: React.FC<PrintableConsentFormProps> = ({
         </div>
       </div>
 
-      {/* Footer */}
       <div className="mt-12 pt-4 border-t border-gray-100 text-center text-[10px] text-gray-400">
         <p>This is a legally binding electronic record. Page 1 of 1</p>
       </div>

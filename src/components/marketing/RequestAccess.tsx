@@ -70,7 +70,6 @@ export function RequestAccess({ initialType }: { initialType: string }) {
               </div>
               <input className={input} placeholder="What do you use now? (optional)" value={f.currently} onChange={(e) => set('currently', e.target.value)} />
               <textarea className={input + ' h-24 py-3'} placeholder="Anything we should know? (optional)" value={f.note} onChange={(e) => set('note', e.target.value)} />
-              {/* Bots fill this; people never see it. */}
               <input tabIndex={-1} aria-hidden className="hidden" value={f.website} onChange={(e) => set('website', e.target.value)} autoComplete="off" />
               {err && <p className="text-sm text-red-700">{err}</p>}
               <button type="button" disabled={busy} onClick={submit} className="h-12 w-full rounded-full bg-stone-900 text-sm font-medium text-white disabled:opacity-50">{busy ? 'Sending…' : 'Request access'}</button>

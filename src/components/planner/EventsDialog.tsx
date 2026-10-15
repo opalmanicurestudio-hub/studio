@@ -166,7 +166,6 @@ const AddEventForm = ({
     <div id="add-event-form-container">
       <form id="add-event-form" onSubmit={e => { e.preventDefault(); handleSaveAttempt(); }} className="space-y-6">
 
-        {/* ── Details ── */}
         <div className="space-y-4 text-left">
           <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
             <Briefcase className="w-6 h-6 text-primary" /> Event Details
@@ -193,7 +192,6 @@ const AddEventForm = ({
             </RadioGroup>
           </div>
 
-          {/* Staff assignment */}
           <div className="space-y-4 pt-4">
             <div className="flex items-center justify-between">
               <Label className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
@@ -224,12 +222,10 @@ const AddEventForm = ({
           </div>
         </div>
 
-        {/* ── Timing ── */}
         <div className="space-y-4 pt-6 border-t border-dashed">
           <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
             <CalendarIcon className="w-6 h-6 text-primary" /> Timing
           </h3>
-          {/* Week picker */}
           <div className="space-y-2 text-left">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Date</Label>
             <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-6 shadow-inner">
@@ -291,7 +287,6 @@ const AddEventForm = ({
           )}
         </div>
 
-        {/* ── Engagement ── */}
         <div className="space-y-6 pt-6 border-t border-dashed text-left">
           <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
             <PlusCircle className="w-6 h-6 text-primary" /> Engagement
@@ -422,7 +417,6 @@ const EditEventForm = ({
     <form id="edit-event-form" onSubmit={e => { e.preventDefault(); handleSubmit(); }}>
       <div className="space-y-6">
 
-        {/* ── Details ── */}
         <div className="space-y-4 text-left">
           <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
             <Briefcase className="w-6 h-6 text-primary" /> Event Details
@@ -449,7 +443,6 @@ const EditEventForm = ({
             </RadioGroup>
           </div>
 
-          {/* Staff assignment */}
           <div className="space-y-4 pt-4">
             <div className="flex items-center justify-between">
               <Label className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
@@ -480,7 +473,6 @@ const EditEventForm = ({
           </div>
         </div>
 
-        {/* ── Timing — native inputs, no Popover ── */}
         <div className="space-y-4 pt-6 border-t border-dashed text-left">
           <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
             <CalendarIcon className="w-6 h-6 text-primary" /> Timing
@@ -506,7 +498,6 @@ const EditEventForm = ({
           </div>
         </div>
 
-        {/* ── Engagement ── */}
         <div className="space-y-6 pt-6 border-t border-dashed text-left">
           <h3 className="text-lg font-black uppercase tracking-tight flex items-center gap-3">
             <PlusCircle className="w-6 h-6 text-primary" /> Engagement

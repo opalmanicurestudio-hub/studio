@@ -149,7 +149,6 @@ export function ReceiptPreviewDialog({ transaction, tenantId, open, onOpenChange
 
           {!loading && receipt && (
             <div className="space-y-4 font-mono text-sm">
-              {/* Header */}
               <div className="text-center space-y-1 pb-3 border-b border-dashed">
                 <p className="font-black text-base uppercase">{receipt.studioName || 'Studio'}</p>
                 <p className="text-[11px] text-muted-foreground">
@@ -161,7 +160,6 @@ export function ReceiptPreviewDialog({ transaction, tenantId, open, onOpenChange
                 )}
               </div>
 
-              {/* Line items */}
               <div className="space-y-1.5">
                 {(receipt.lineItems || []).map((item, i) => (
                   <div key={i} className="flex justify-between items-start gap-3">
@@ -174,7 +172,6 @@ export function ReceiptPreviewDialog({ transaction, tenantId, open, onOpenChange
                 ))}
               </div>
 
-              {/* Totals */}
               <div className="pt-3 border-t border-dashed space-y-1.5">
                 <div className="flex justify-between text-[12px] text-muted-foreground">
                   <span>Subtotal</span><span>${receipt.subtotal?.toFixed(2)}</span>
@@ -197,7 +194,6 @@ export function ReceiptPreviewDialog({ transaction, tenantId, open, onOpenChange
                 </div>
               </div>
 
-              {/* Payment */}
               <div className="pt-3 border-t border-dashed space-y-1.5">
                 <div className="flex justify-between text-[12px] items-center">
                   <span className="flex items-center gap-1.5 font-bold">

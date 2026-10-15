@@ -299,7 +299,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     <div className="min-h-dvh bg-slate-50 py-8 px-4">
       <div className="w-full max-w-lg mx-auto space-y-5">
 
-        {/* Header */}
         <div className="text-center space-y-2 pt-4">
           <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{studioName}</p>
           <h1 className="text-2xl font-black tracking-tight text-slate-900">
@@ -325,7 +324,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           </div>
         )}
 
-        {/* Deposit summary — only when not skipping card step */}
         {!skipCardStep && depositDollars > 0 && (
           <div className="bg-white rounded-2xl border shadow-sm p-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -339,7 +337,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           </div>
         )}
 
-        {/* Consent forms */}
         {forms.map((form: any) => (
           <div key={form.id} className="bg-white rounded-2xl border shadow-sm p-6 space-y-5">
             <div className="flex items-center gap-2 pb-3 border-b">
@@ -362,7 +359,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           </div>
         ))}
 
-        {/* File uploads */}
         {fileReqs.map((fr: any) => {
           const cfg = fileCfg(fr);
           const got = uploads[fr.id] || [];
@@ -405,7 +401,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           );
         })}
 
-        {/* Policy + card authorization — only shown when card step is NOT skipped */}
         {!skipCardStep && (
           <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
             <div className="flex items-center gap-2">
@@ -438,7 +433,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           </div>
         )}
 
-        {/* Submit button */}
         <button
           onClick={handleSubmit}
           disabled={submitting || uploading}

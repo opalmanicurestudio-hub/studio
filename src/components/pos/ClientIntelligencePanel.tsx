@@ -101,7 +101,6 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
 
   return (
     <div className={cn('space-y-3', className)}>
-      {/* Section label */}
       <div className="flex items-center gap-2">
         <div className="h-px flex-1 bg-border" />
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground px-1">
@@ -110,7 +109,6 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
         <div className="h-px flex-1 bg-border" />
       </div>
 
-      {/* Insights */}
       <div className="space-y-2">
         {intel.insights.map((insight) => (
           <InsightCard
@@ -121,7 +119,6 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
         ))}
       </div>
 
-      {/* Preference chips */}
       {resolvedChips.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pt-1">
           {resolvedChips.map((chip) => (
@@ -135,7 +132,6 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
         </div>
       )}
 
-      {/* Stats row */}
       {(intel.lifetimeVisits > 0 || intel.weeksSinceLastVisit !== null) && (
         <div className="flex items-center gap-4 px-1 pt-1">
           {intel.lifetimeVisits > 0 && (

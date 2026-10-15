@@ -1625,7 +1625,6 @@ export default function RentRollPage() {
         ))}
       </div>
 
-      {/* Owed — from invoices, the collection every automation reads */}
       <Card className="rounded-[2rem] border-2">
         <CardHeader className="p-5 pb-2">
           <CardTitle className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest">

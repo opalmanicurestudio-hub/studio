@@ -570,10 +570,6 @@ const RefreshmentCard = ({
                 isPerkAvailableNow && "border-indigo-500/20 ring-1 ring-indigo-500/10",
                 item.isMembersOnly && "border-indigo-500/30"
             )}>
-                {/* A full square is right when there is a real photo. With no photo
-                    it was 240px of empty grey holding one small icon, which made
-                    every card ~450px tall and the menu an endless scroll on a
-                    phone. No photo gets a short band instead. */}
                 <div className={cn(
                     "relative w-full bg-muted/20 flex items-center justify-center overflow-hidden border-b",
                     item.imageUrl ? "aspect-square" : "h-32 md:h-36"
@@ -603,9 +599,6 @@ const RefreshmentCard = ({
                         )}
                     </div>
 
-                    {/* A price chip floated over a photo needs the frosted panel to
-                        stay readable. Over the short no-photo band it collided
-                        with the icon, so there it moves inline under the name. */}
                     {item.imageUrl && (
                         <div className="absolute bottom-4 right-4">
                             <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
@@ -617,9 +610,6 @@ const RefreshmentCard = ({
 
                 <CardContent className="p-5 md:p-6 flex-1 flex flex-col justify-between space-y-4 text-left">
                     <div className="space-y-1.5">
-                        {/* Not `truncate`: at 390px the card is 240px wide and a
-                            real name like "Warm Almond Croissant" lost its last
-                            word to an ellipsis. Wrapping to two lines instead. */}
                         <h4 className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 leading-tight break-words line-clamp-2">{item.name}</h4>
                         {!item.imageUrl && <div className="pt-0.5">{priceLabel}</div>}
                         {item.description && (
@@ -630,9 +620,6 @@ const RefreshmentCard = ({
                     </div>
 
                     <div className="pt-4 border-t border-dashed space-y-4">
-                        {/* Stacked on a phone, side by side from md up. Side by side
-                            at 240px forced the minus/plus buttons down to 32px of
-                            tappable height, which is under the 44px thumb minimum. */}
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                             <div className="flex items-center justify-center gap-2 bg-muted/50 rounded-xl px-1 h-12 border shadow-inner md:justify-start">
                                 <button aria-label="One fewer" onClick={() => onQtyChange(-1)} disabled={hasPendingRequest} className="flex min-h-[44px] w-11 items-center justify-center rounded-lg hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-4 h-4" /></button>
@@ -701,9 +688,6 @@ const WhileYouWaitPanel = ({
             </h3>
 
             <div className="rounded-[2rem] border-2 bg-white shadow-lg overflow-hidden">
-                {/* One row per known fact. A two-column grid on a phone would
-                    squeeze a station name like "Pedicure Suite 2" into an
-                    ellipsis, so this stacks and lets the value wrap. */}
                 <div className="divide-y divide-dashed">
                     {rows.map(row => {
                         const RowIcon = row.icon;
@@ -989,8 +973,6 @@ const AssistanceStrip = ({
                                         ? <Loader className="w-3.5 h-3.5 animate-spin text-primary" />
                                         : <Icon className={cn('w-3.5 h-3.5', row ? 'text-primary' : 'text-slate-500')} />}
                                 </span>
-                                {/* min-w-0 so a long technician name truncates inside the
-                                    chip instead of pushing it past the card edge on a phone. */}
                                 <span className="min-w-0 flex-1">
                                     <span className="block text-[11px] font-black uppercase tracking-tight text-slate-900 leading-tight">
                                         {opt.label}
@@ -1387,10 +1369,6 @@ const ConciergeExperienceView = ({
                     </div>
                 </div>
 
-                {/* The band that used to be blank. py-8 + space-y-16 gave roughly
-                    220px of padding around two conditional children that were
-                    both empty for a guest; it is now tighter and always has
-                    something real in it. */}
                 <div className="space-y-10 pb-2">
                     <WhileYouWaitPanel
                         isWaiting={isWaiting}
@@ -1405,9 +1383,6 @@ const ConciergeExperienceView = ({
                         perkTotal={perkTotal}
                     />
 
-                    {/* Sits above the menu on purpose: needing a person is more
-                        urgent than wanting a drink, and it is the one thing on
-                        this screen a guest might be looking for in a hurry. */}
                     <AssistanceStrip
                         options={assistOptions}
                         live={assistLive}
@@ -1553,9 +1528,6 @@ const ConciergeExperienceView = ({
                         );
                     })}
 
-                    {/* Honest empty state. The old code was a bare .map with no
-                        fallback, which is why an empty menu rendered as nothing
-                        at all rather than as an explanation. */}
                     {menuIsEmpty && (
                         <div className="px-6 md:px-8">
                             <div className="rounded-[2rem] border-2 border-dashed bg-muted/10 p-8 text-center space-y-3">
@@ -1609,10 +1581,6 @@ const ConciergeExperienceView = ({
                             )}
                         </div>
                     )}
-                    {/* Only rendered when we actually know who this is. It used
-                        to render unconditionally and resolve to
-                        /portal/{tenantId}/undefined for every guest, because a
-                        guest cannot read their own client document. */}
                     {tenant?.id && portalClientId && (
                         <div className="pt-2 text-center">
                             <Button asChild variant="outline" className="w-full min-h-[44px] h-14 rounded-2xl border-2 font-black uppercase text-[10px] bg-white shadow-sm">
@@ -1949,10 +1917,6 @@ const CompletionGateView = ({
                     );
                 })}
 
-                {/* v4 — acknowledgments: lightweight "confirm you've read this"
-                    items with no data collection, e.g. prep instructions.
-                    Text is fully staff-configured — see the request panel
-                    in AppointmentDetailsSheet. */}
                 {acknowledgments.map((ack: any) => (
                     <div key={ack.id} className="pub-card p-6 space-y-3">
                         <div className="flex items-center gap-2 pb-2 border-b">
@@ -1972,10 +1936,6 @@ const CompletionGateView = ({
                     </div>
                 ))}
 
-                {/* v4 — marketing/photo consent: a permanent client
-                    preference, not a per-visit form. Two explicit buttons
-                    rather than a checkbox so "no" is a real, equally
-                    easy-to-select answer, not just an unchecked default. */}
                 {completion?.requestMarketingConsent && (
                     <div className="pub-card p-6 space-y-4">
                         <div className="flex items-center gap-2 pb-2 border-b">
@@ -2004,9 +1964,6 @@ const CompletionGateView = ({
                     </div>
                 )}
 
-                {/* v4 — emergency contact: a permanent client profile field,
-                    not appointment-specific — captured once, then it's just
-                    on file like phone/email. */}
                 {completion?.requestEmergencyContact && (
                     <div className="pub-card p-6 space-y-4">
                         <div className="flex items-center gap-2 pb-2 border-b">

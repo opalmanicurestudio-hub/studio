@@ -212,7 +212,6 @@ export default function AcademyBuilderPage() {
       <AppHeader title="Academy" />
       <main className="mx-auto max-w-7xl px-3 pb-32 pt-4 sm:px-4 lg:pb-24">
         <div className="grid gap-6 lg:grid-cols-[230px_1fr]">
-          {/* The menu: grouped by job, in plain words. A strip of buttons on phones. */}
           <nav aria-label="Academy" className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
             <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-2 lg:mx-0 lg:block lg:space-y-4 lg:overflow-visible lg:px-0">
               {visible.map((g) => (
@@ -587,7 +586,6 @@ export default function AcademyBuilderPage() {
         </div>
       </main>
 
-      {/* Phones: the Academy's tab bar — every section is two taps away. */}
       <nav aria-label="Academy sections" className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
         <div className="mx-auto flex max-w-lg">{TABS.map((t) => { const I = t.icon; const on = activeTab === t.key; const n = badgeOf(t); return (
           <button key={t.key} type="button" onClick={() => { if (t.key === 'today') go('home'); else { setHub(t.key); setPicked(false); window.scrollTo({ top: 0 }); } }} aria-current={on ? 'page' : undefined}

@@ -309,7 +309,6 @@ export const StaffDetailsSheet = ({
 
   const content = (
     <div className="space-y-8 md:space-y-10">
-          {/* PAY AND TIPS — how they're paid and their part when tips are shared, at a glance (edit to change). */}
           {staffMember?.id && (() => { const m: any = staffMember; const ps = String(m.payStructure || '');
             const varies = Object.keys(m.serviceCommission || {}).length > 0 || (services || []).some((x: any) => x?.commissionRate != null && x.commissionRate !== '' && Number(x.commissionRate) !== Number(m.commissionRate ?? 0)); const pay = ps === 'per_service' ? `$${Number(m.serviceHourRate || 0).toFixed(2)} per hour of service${Object.keys(m.servicePay || {}).length || (services || []).some((x: any) => x?.providerPay != null && x.providerPay !== '') ? ' (some services set)' : ''}` : ps === 'commission' ? `${m.commissionRate ?? 0}% of services${varies ? ' (some differ)' : ''}` : ps === 'hourly' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour` : ps === 'hourly_plus_commission' ? `$${Number(m.hourlyRate || 0).toFixed(2)} an hour + ${m.commissionRate ?? 0}% of services` : ps === 'salary' ? 'Salary' : 'Not set';
             const tipPart = m.role === 'renter' ? 'Renter — keeps their own tips' : ['owner', 'admin', 'manager'].includes(String(m.role)) && m.tipPoolEligible !== true ? 'Can’t share in tips (owner / manager)' : ({ provider: 'Provider', assistant: 'Assistant', front_desk: 'Front desk' } as any)[m.tipRole || (m.isAssistant ? 'assistant' : 'provider')] || 'Provider';

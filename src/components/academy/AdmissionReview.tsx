@@ -45,7 +45,6 @@ export function AdmissionReview({ x, act, brand }: { x: any; act: (body: any, do
 
   return (
     <div className="space-y-4">
-      {/* The offer, once made */}
       {a.offer && ['offer', 'accepted', 'agreement', 'enrolled', 'withdrawn'].includes(stage) && (
         <section className="space-y-2 rounded-2xl border-2 border-violet-200 bg-violet-50/60 p-3 text-sm">
           <p className="font-black">{a.offer.fromWaitlist ? '🎟 Offer from the waitlist' : '🎟 Offer of admission'}{a.offer.auto ? ' · sent automatically' : ''}</p>
@@ -63,7 +62,6 @@ export function AdmissionReview({ x, act, brand }: { x: any; act: (body: any, do
         </section>
       )}
 
-      {/* Review */}
       {['applied', 'review', 'waitlist'].includes(stage) && (
         <section className="space-y-3 rounded-2xl bg-muted/40 p-3 text-sm">
           <div className="flex items-center justify-between gap-2">
@@ -99,7 +97,6 @@ export function AdmissionReview({ x, act, brand }: { x: any; act: (body: any, do
         </section>
       )}
 
-      {/* Decision */}
       {DECIDABLE.includes(a.stage) && (
         <section className="space-y-2 rounded-2xl border-2 border-foreground/10 p-3 text-sm">
           <p className="font-black">⚖️ Decision <span className="font-normal text-muted-foreground">— made by a person, emailed as a letter, kept on the record</span></p>
@@ -129,7 +126,6 @@ export function AdmissionReview({ x, act, brand }: { x: any; act: (body: any, do
         </details>
       )}
 
-      {/* Letters */}
       {(a.letters || []).length > 0 && (
         <section className="space-y-1.5">
           <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Letters</p>

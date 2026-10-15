@@ -204,14 +204,12 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
     <div className="cf-page relative min-h-dvh overflow-x-clip bg-[#f7f5f2] text-stone-900">
       <style>{CSS}</style>
 
-      {/* Soft moving light */}
       <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="cf-orb absolute -left-32 -top-32 h-[520px] w-[520px] rounded-full bg-gradient-to-br from-amber-200/60 via-rose-200/50 to-transparent blur-3xl" />
         <div className="cf-orb cf-orb-2 absolute -right-40 top-1/3 h-[560px] w-[560px] rounded-full bg-gradient-to-bl from-violet-200/50 via-sky-200/40 to-transparent blur-3xl" />
         <div className="cf-orb cf-orb-3 absolute -bottom-40 left-1/4 h-[480px] w-[480px] rounded-full bg-gradient-to-tr from-emerald-200/40 via-amber-100/40 to-transparent blur-3xl" />
       </div>
 
-      {/* ── Splash: the mess folds into one calm place ── */}
       {splash !== 'gone' && (
         <button type="button" onClick={() => (window as any).__cfLeave?.()} data-leaving={splash === 'leaving'} aria-label="Enter"
           className="cf-splash fixed inset-0 z-[80] flex items-center justify-center overflow-hidden bg-[#f7f5f2]">
@@ -236,7 +234,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
 
       <div aria-hidden className="fixed inset-x-0 top-0 z-50 h-[3px] origin-left bg-stone-900 transition-opacity duration-300" style={{ transform: `scaleX(${progress})`, opacity: inDay ? 1 : 0 }} />
 
-      {/* ── Header ── */}
       <header className="relative z-40 mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
         <Link href="/" className="text-lg font-light tracking-tight">Clarity<span className="font-semibold">Flow</span></Link>
         <nav className="flex items-center gap-1 text-sm">
@@ -249,7 +246,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
       </header>
 
       <main className="relative z-10">
-        {/* ── Hero ── */}
         <section className="mx-auto flex min-h-[88dvh] max-w-4xl flex-col items-center justify-center px-5 pb-12 text-center">
           <span data-rise className="glass rounded-full px-4 py-1.5 text-xs text-stone-600">Now in early access</span>
           <h1 data-rise className="mt-6 text-balance text-5xl font-light leading-[1.02] tracking-tight sm:text-7xl">Run your business. <span className="font-semibold">Not five apps.</span></h1>
@@ -273,7 +269,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
         </section>
 
-        {/* ── A day at the business ── */}
         <section id="day" ref={journeyRef} key={n.key} className="relative mx-auto max-w-6xl px-5">
           <p data-rise className="text-center text-xs uppercase tracking-[0.3em] text-stone-400">A day at {n.biz}</p>
           <div className="md:grid md:grid-cols-2 md:gap-16">
@@ -298,7 +293,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
         </section>
 
-        {/* ── Only in ClarityFlow ── */}
         <section className="mx-auto max-w-5xl px-5 pt-24">
           <p data-rise className="text-center text-xs uppercase tracking-[0.3em] text-stone-400">What others don’t do</p>
           <h2 data-rise className="mt-3 text-center text-balance text-4xl font-light leading-tight tracking-tight sm:text-5xl">Built to protect your profit — <span className="font-semibold">and give you your evenings back.</span></h2>
@@ -313,7 +307,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
         </section>
 
-        {/* ── À la carte ── */}
         <section id="tools" className="mx-auto max-w-6xl px-5 py-24">
           <p data-rise className="text-center text-xs uppercase tracking-[0.3em] text-stone-400">À la carte</p>
           <h2 data-rise className="mt-3 text-center text-balance text-4xl font-light leading-tight tracking-tight sm:text-5xl">Unlock what your business needs. <span className="font-semibold">Nothing it doesn’t.</span></h2>
@@ -327,14 +320,12 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
         </section>
 
-        {/* ── Proof ── */}
         <section className="mx-auto max-w-3xl px-5 py-24 text-center">
           <p data-rise className="text-xs uppercase tracking-[0.3em] text-stone-400">Why it exists</p>
           <p data-rise className="mt-5 text-balance text-3xl font-light leading-snug tracking-tight sm:text-4xl">“I was running my business across five apps and a spreadsheet. So I built one place — and <span className="font-semibold">I run my own studio on it every day.</span>”</p>
           <p data-rise className="mt-5 text-stone-500">Jessica Marshall · Owner, Opal Manicure Studio</p>
         </section>
 
-        {/* ── Switching ── */}
         <section className="mx-auto max-w-3xl px-5 pb-10">
           <div data-rise className="glass rounded-[2rem] p-8 text-center sm:p-10">
             <p className="text-2xl font-light tracking-tight sm:text-3xl">Coming from <span className="font-semibold">{n.switchFrom}</span>?</p>
@@ -342,7 +333,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
         </section>
 
-        {/* ── Made for ── */}
         <section className="mx-auto max-w-5xl px-5 py-16">
           <h2 data-rise className="text-center text-3xl font-light tracking-tight sm:text-4xl">Made for businesses <span className="font-semibold">that run on people.</span></h2>
           <div className="mt-10 grid gap-3 sm:grid-cols-2">
@@ -355,7 +345,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
         </section>
 
-        {/* ── Pricing ── */}
         <section id="pricing" className="mx-auto max-w-xl px-5 py-16 text-center">
           <div data-rise className="glass relative overflow-hidden rounded-[2rem] p-8 sm:p-10">
             <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gradient-to-br from-amber-200/70 to-rose-200/50 blur-2xl" />
@@ -370,7 +359,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
         </section>
 
-        {/* ── Questions ── */}
         <section className="mx-auto max-w-2xl px-5 py-16">
           <h2 data-rise className="text-center text-3xl font-light tracking-tight">Questions</h2>
           <div className="mt-8 space-y-2">
@@ -383,7 +371,6 @@ export function Journey({ initialNiche }: { initialNiche?: NicheKey }) {
           </div>
         </section>
 
-        {/* ── Start ── */}
         <section className="mx-auto flex max-w-3xl flex-col items-center px-5 pb-28 pt-16 text-center">
           <h2 data-rise className="text-balance text-4xl font-light leading-tight tracking-tight sm:text-6xl">See it for yourself. <span className="font-semibold">Two minutes.</span></h2>
           <p data-rise className="mt-5 text-stone-600">Book as a {niche === 'fitness' ? 'member' : niche === 'shop' ? 'customer' : 'client'}, accept as the owner, check them out and bring them back — in a live demo. No sign-up.</p>

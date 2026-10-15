@@ -219,7 +219,6 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
             <SectionHeader icon={ShieldCheck} title="Governance & Security" />
             <div className="space-y-4 text-left">
 
-                {/* ── Require signature at POS checkout ── */}
                 <div className={cn(
                   "flex items-center justify-between p-6 rounded-[2rem] border-2 transition-all",
                   requiresSignature ? "border-primary/30 bg-primary/5" : "bg-muted/5 border-border"

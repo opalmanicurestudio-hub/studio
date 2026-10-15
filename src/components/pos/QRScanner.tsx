@@ -181,7 +181,6 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
   return (
     // Full-screen overlay — important on mobile so the viewfinder is usable
     <div className="fixed inset-0 z-[200] flex flex-col bg-foreground">
-      {/* Close */}
       <div className="absolute top-4 right-4 z-10">
         <button
           onClick={() => { stopStream(); onClose(); }}
@@ -191,7 +190,6 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
         </button>
       </div>
 
-      {/* Camera viewfinder */}
       <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-foreground">
         <video
           ref={videoRef}
@@ -205,11 +203,9 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
         />
         <canvas ref={canvasRef} className="hidden" />
 
-        {/* Framing guide — visible during scanning */}
         {(mode === 'scanning' || mode === 'manual') && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="relative w-56 h-56">
-              {/* Corner brackets */}
               {(['tl','tr','bl','br'] as const).map(corner => (
                 <div key={corner} className={cn(
                   'absolute w-10 h-10 border-white border-[3px]',
@@ -219,7 +215,6 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
                   corner === 'br' && 'bottom-0 right-0 border-l-0 border-t-0 rounded-br-lg',
                 )} />
               ))}
-              {/* Scan line animation */}
               {mode === 'scanning' && (
                 <div
                   className="absolute left-0 right-0 h-0.5 bg-green-400 opacity-80"
@@ -230,7 +225,6 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
           </div>
         )}
 
-        {/* Status overlays */}
         {mode === 'requesting' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white">
             <Camera className="w-10 h-10 animate-pulse opacity-60" />
@@ -253,7 +247,6 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
         )}
       </div>
 
-      {/* Bottom panel — instruction + manual fallback */}
       <div className="bg-black/90 p-5 pb-safe space-y-3" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
         {mode === 'scanning' && (
           <p className="text-white/70 text-xs text-center font-medium">

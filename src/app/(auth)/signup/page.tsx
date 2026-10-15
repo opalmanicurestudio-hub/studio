@@ -133,7 +133,6 @@ function Signup() {
       </header>
 
       <main className={`mx-auto w-full flex-1 py-8 ${step === 1 ? 'max-w-5xl' : 'max-w-md'}`}>
-        {/* Progress */}
         <div className="mx-auto flex max-w-md items-center gap-2" aria-label={`Step ${step + 1} of 3`}>
           {[0, 1, 2].map((i) => <span key={i} className={`h-1.5 flex-1 rounded-full transition-colors duration-500 ${i <= step ? 'bg-stone-900' : 'bg-stone-300/70'}`} />)}
         </div>

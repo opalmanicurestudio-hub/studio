@@ -456,7 +456,6 @@ export const DayTimeline = ({
                     onResolveIssue={onResolveIssue} canResolveIssues={canResolveIssues}
                     resources={resources} transactions={allTransactions}
                 />
-                {/* the card's own header shows the new start ("~3:12", "Starts +12") */}
             </div>
             </React.Fragment>
         );
@@ -501,11 +500,6 @@ export const DayTimeline = ({
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
                 <div className={cn('relative h-full rounded-xl sm:rounded-2xl border overflow-hidden shadow-none transition-colors p-1.5 sm:p-2', scheme.bg, scheme.border)}>
-                    {/* A tour opens its LEAD in the pipeline — the place with the
-                        approve/confirm/outcome buttons — not the booth hub's old
-                        contact drawer, which is being retired. Day rentals still
-                        open the hub's contact card until the POS spaces tab grows
-                        its own. */}
                     <a
                         href={isTour
                             ? `/pipeline?lead=${encodeURIComponent(String(item.id).replace(/^tour-/, ''))}`
@@ -647,10 +641,8 @@ export const DayTimeline = ({
                         <div key={column.id} className="relative border-r border-border"
                              onDragOver={(e) => { if (!dragRef.current || !onMoveAppointment) return; e.preventDefault(); const rect = e.currentTarget.getBoundingClientRect(); const y = e.clientY - rect.top - (dragRef.current.grabOffset || 0); const mins = Math.max(0, Math.round((y / PX_PER_MIN) / 5) * 5); setDrag({ id: dragRef.current.id, mins, columnId: column.id, top: mins * PX_PER_MIN }); }}
                              onDrop={(e) => { if (!dragRef.current || !onMoveAppointment || !drag) return; e.preventDefault(); const start = setHours(startOfDay(date), START_HOUR); const when = new Date(start.getTime() + drag.mins * 60000); onMoveAppointment(dragRef.current.appointment, column.id, format(when, 'HH:mm')); dragRef.current = null; setDrag(null); }}>
-                            {/* Outside the provider's hours: dimmed, so the day reads at a glance. */}
                             {(() => { const h = hoursFor(column); if (!h) return null; const s0 = START_HOUR * 60, e0 = END_HOUR * 60; const dim = 'absolute left-0 right-0 z-[1] pointer-events-none bg-stone-900/[0.04]';
                                 return <>{h.start > s0 && <div className={dim} style={{ top: 0, height: `${(h.start - s0) * PX_PER_MIN}px` }} />}{h.end < e0 && <div className={dim} style={{ top: `${(h.end - s0) * PX_PER_MIN}px`, height: `${(e0 - h.end) * PX_PER_MIN}px` }} />}</>; })()}
-                            {/* Gaps inside working hours (20 min or more) are things, not blank space. */}
                             {onBookAt && 'role' in column && (() => { const h = hoursFor(column); if (!h) return null; const s0 = START_HOUR * 60;
                                 const busy = (positionedItemsByColumn.get(column.id) || []).filter((it: any) => it.itemType !== 'bill').map((it: any) => { const a = safeDate(it.startTime), b = safeDate(it.endTime); return [differenceInMinutes(a, startOfDay(date)), differenceInMinutes(b, startOfDay(date))]; }).sort((x: number[], y: number[]) => x[0] - y[0]);
                                 const nowMin = isToday(date) ? differenceInMinutes(new Date(), startOfDay(new Date())) : -1; const gaps: number[][] = []; let cursor = Math.max(h.start, nowMin > 0 ? Math.ceil(nowMin / 5) * 5 : h.start);
@@ -661,7 +653,6 @@ export const DayTimeline = ({
                                         <span className="flex gap-2">{onBlockAt && <button type="button" onClick={() => onBlockAt(column.id, when, b - a)} className="font-semibold underline-offset-2 hover:underline" aria-label={`Block ${b - a} minutes at ${format(when, 'h:mm a')}`}>Block</button>}
                                         <button type="button" onClick={() => onBookAt(column.id, when)} className="font-semibold" style={{ color: 'var(--accent)' }} aria-label={`${b - a} minute gap at ${format(when, 'h:mm a')} — book here`}>Book here</button></span>
                                     </div>); }); })()}
-                            {/* Where a dragged card would land. */}
                             {drag && drag.columnId === column.id && (() => { const a = dragRef.current?.appointment; const len = a ? Math.max(15, differenceInMinutes(safeDate(a.endTime), safeDate(a.startTime))) : 30;
                                 return <div className="absolute left-1 right-1 z-[30] rounded-lg border-2 border-dashed px-2 py-1 text-[12px] font-semibold pointer-events-none" style={{ top: `${drag.top}px`, height: `${len * PX_PER_MIN}px`, borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 8%, transparent)', color: 'var(--accent)' }}>{format(new Date(setHours(startOfDay(date), START_HOUR).getTime() + drag.mins * 60000), 'h:mm a')}</div>; })()}
                             {hours.map(hour => (

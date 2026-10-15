@@ -111,7 +111,6 @@ export default function HqTenantPage({ params }: { params: Promise<{ id: string 
               </section>
             )}
 
-            {/* ── Fix & manage — every action is logged ── */}
             <section className="space-y-3 glass rounded-[1.75rem] border border-stone-900/40 p-4">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Fix & manage</p>
               {msg && <p className="break-all rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-900">{msg}</p>}

@@ -74,7 +74,6 @@ export function GiftCardShowcase({ tenantId, brand, items, services = [], offere
       {occasion && <div className="mb-6 flex justify-center"><span className="gcs-pop inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13.5px] font-medium" style={{ background: `color-mix(in srgb, ${accent} 10%, #fff)`, color: ink }}>
         <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: occasion.lineColor || accent }} />{occasion.name} cards are here — schedule it to arrive on the day</span></div>}
 
-      {/* The stage: three real cards */}
       <div ref={stage} onPointerMove={onMove} onPointerLeave={() => setTilt({ x: 0, y: 0 })}
         onTouchStart={(e) => { swipe.current = e.touches[0]?.clientX ?? null; }} onTouchEnd={(e) => { const x0 = swipe.current; const x1 = e.changedTouches[0]?.clientX; swipe.current = null; if (x0 == null || x1 == null || Math.abs(x1 - x0) < 40) return; setActive((a) => Math.max(0, Math.min(list.length - 1, a + (x1 < x0 ? 1 : -1)))); }}
         className="relative mx-auto" style={{ perspective: 1400, height: wide ? cardH + 90 : cardH + 40, maxWidth: wide ? cw * 3 : '100%', overflow: wide ? 'visible' : 'hidden', touchAction: 'pan-y' }}>
@@ -97,11 +96,9 @@ export function GiftCardShowcase({ tenantId, brand, items, services = [], offere
         </div>
       </div>
 
-      {/* Mobile: dots to swipe between them */}
       {!wide && <div className="mt-3 flex justify-center gap-1.5">{list.map((_, i) => <button key={i} type="button" aria-label={`Card ${i + 1}`} onClick={() => setActive(i)} className="flex h-6 items-center justify-center px-1" style={{ minHeight: 0 }}><span className="block h-1.5 rounded-full transition-all" style={{ width: i === active ? 20 : 6, background: i === active ? ink : line }} /></button>)}</div>}
       {!wide && <div className="mt-2 flex justify-between px-1">{active > 0 ? <button type="button" onClick={() => setActive(active - 1)} className="text-[13px]" style={{ color: muted }}>‹ {money(list[active - 1].amount)}</button> : <span />}{active < list.length - 1 ? <button type="button" onClick={() => setActive(active + 1)} className="text-[13px]" style={{ color: muted }}>{money(list[active + 1].amount)} ›</button> : <span />}</div>}
 
-      {/* The chosen one: what it is, what it covers, who it's for, and the button */}
       <div className="mx-auto mt-6 max-w-md text-center">
         <div key={active} className="gcs-pop">
           <p className="text-[13px] uppercase tracking-[0.14em]" style={{ color: muted }}>{it.label || 'Gift card'}</p>

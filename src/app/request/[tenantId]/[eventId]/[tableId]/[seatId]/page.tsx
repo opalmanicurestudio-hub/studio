@@ -240,7 +240,6 @@ export default function GuestRequestPage() {
       className="min-h-screen flex flex-col"
       style={{ background: `rgb(${hexToRgb(primaryHex)})` }}
     >
-      {/* Mesh overlay */}
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
@@ -249,7 +248,6 @@ export default function GuestRequestPage() {
         }}
       />
 
-      {/* Header */}
       <div className="relative z-10 px-6 pt-10 pb-6">
         <div className="flex items-center justify-between mb-6">
           {tenant && guestLogo(tenant) ? (
@@ -305,14 +303,12 @@ export default function GuestRequestPage() {
         </AnimatePresence>
       </div>
 
-      {/* Card */}
       <div
         className="relative z-10 flex-1 rounded-t-[2rem] overflow-hidden"
         style={{ background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(20px)' }}
       >
         <AnimatePresence mode="wait">
 
-          {/* Loading */}
           {pageState === 'loading' && (
             <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="flex items-center justify-center py-24">
@@ -320,7 +316,6 @@ export default function GuestRequestPage() {
             </motion.div>
           )}
 
-          {/* Choose */}
           {pageState === 'choose' && (
             <motion.div key="choose" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
               className="p-6 space-y-5">
@@ -336,7 +331,6 @@ export default function GuestRequestPage() {
                 </div>
               )}
 
-              {/* Critical allergy warning */}
               {guest?.allergies?.some((a: any) => typeof a === 'object' && a.severity === 'critical') && (
                 <div className="flex items-center gap-3 p-3 rounded-2xl bg-red-50 border-2 border-red-200">
                   <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
@@ -377,7 +371,6 @@ export default function GuestRequestPage() {
             </motion.div>
           )}
 
-          {/* Message input */}
           {pageState === 'message' && selected && (
             <motion.div key="message" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
               className="p-6 space-y-6">
@@ -419,7 +412,6 @@ export default function GuestRequestPage() {
             </motion.div>
           )}
 
-          {/* Confirm */}
           {pageState === 'confirm' && selected && (
             <motion.div key="confirm" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
               className="p-6 space-y-6">
@@ -470,7 +462,6 @@ export default function GuestRequestPage() {
             </motion.div>
           )}
 
-          {/* Success */}
           {pageState === 'success' && (
             <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
               className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-6 text-center">
@@ -510,7 +501,6 @@ export default function GuestRequestPage() {
             </motion.div>
           )}
 
-          {/* Cooldown */}
           {pageState === 'cooldown' && (
             <motion.div key="cooldown" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-6 text-center">
@@ -527,7 +517,6 @@ export default function GuestRequestPage() {
             </motion.div>
           )}
 
-          {/* Error */}
           {pageState === 'error' && (
             <motion.div key="error" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
               className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4 text-center">

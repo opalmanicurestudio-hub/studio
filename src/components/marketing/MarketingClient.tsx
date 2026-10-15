@@ -146,8 +146,6 @@ export function StudioTypeSwitch({ billingLive = false }: { billingLive?: boolea
         ))}
       </div>
 
-      {/* aria-live so a screen reader hears the panel change, and keyed so the
-          fade replays on every switch rather than only the first one. */}
       <div key={s.key} aria-live="polite" className="cf-fade mt-5 border-t pt-5">
         <h3 className="text-base font-black uppercase tracking-tight text-foreground">{s.title}</h3>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
@@ -232,7 +230,6 @@ export function AvailabilityDemo() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
-      {/* ── the grid of times ─────────────────────────────────────────────── */}
       <div className="rounded-3xl border bg-card p-4 shadow-xl sm:p-5">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div className="min-w-0">
@@ -290,7 +287,6 @@ export function AvailabilityDemo() {
         </p>
       </div>
 
-      {/* ── the verdict ───────────────────────────────────────────────────── */}
       <div
         key={s.t}
         aria-live="polite"
@@ -552,8 +548,6 @@ export function ProductTour() {
 
   return (
     <div>
-      {/* Wraps rather than scrolls. A hidden-scrollbar tab strip on a 390px
-          phone leaves the last tab off-screen with nothing to say it is there. */}
       <div role="tablist" aria-label="Product screens" className="mb-4 flex flex-wrap gap-2">
         {TOUR.map((tab, j) => (
           <button
@@ -799,7 +793,6 @@ export function LoungeWalkthrough() {
         </div>
       </div>
 
-      {/* The tablet. aspect-free and height-capped so it never blows out a phone. */}
       <div key={s.key + '-screen'} className="cf-fade rounded-3xl border bg-card p-4 shadow-xl sm:p-5">
         <div className="mb-3 flex items-center justify-between gap-3 border-b pb-3">
           <div className="flex min-w-0 items-center gap-2">

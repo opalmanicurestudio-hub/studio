@@ -125,8 +125,6 @@ export default function MessageSettingsPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
-        {/* Quiet hours protect every kind at once — one setting instead of a
-            per-message rule nobody would keep consistent. */}
         <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-4 space-y-2">
             <div className="flex items-start justify-between gap-3">
@@ -175,8 +173,6 @@ export default function MessageSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Where you are is not the same class of information as when. One
-            setting governs every message that carries {{address}}. */}
         <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-4 space-y-3">
             <div className="min-w-0">
@@ -294,7 +290,6 @@ export default function MessageSettingsPage() {
                   </p>
                 )}
 
-                {/* Timing — only where this kind actually has a schedule. */}
                 {k.timing !== 'immediate' && !k.timingOwnedElsewhere && (
                   <div className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed px-2.5 py-2">
                     <span className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">

@@ -43,7 +43,6 @@ export function RunningBehind({ tenantId, delays, appts, staff, onOpenVisit, mar
               </div>
               <div className="text-right"><p className="text-[30px] font-[800] leading-none tabular-nums" style={{ color: RED }}>+{d.delayMin}</p><p className="text-[11px] font-[600]" style={{ color: RED }}>min behind</p></div>
             </button>
-            {/* booked → now: the solid part is the booked finish, the stripes are the overrun, grey is the reset */}
             <div className="mx-4 mb-3 flex h-1.5 overflow-hidden rounded-full" style={{ background: '#f1ece5' }} aria-hidden>
               <div style={{ flex: '3 0 0', background: INK }} />
               <div style={{ flex: `${Math.max(0.4, (d.delayMin * 60000) / span * 3)} 0 0`, background: `repeating-linear-gradient(-45deg, ${RED} 0 4px, color-mix(in srgb, ${RED} 35%, transparent) 4px 8px)` }} />

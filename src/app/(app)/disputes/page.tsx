@@ -271,13 +271,11 @@ function EvidenceBuilderDialog({
           <ScrollArea className="flex-1 min-h-0">
             <div className="p-6 space-y-6">
 
-              {/* Dispute reason */}
               <div className="p-4 rounded-2xl border-2 border-amber-200 bg-amber-50">
                 <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 mb-1">Dispute Reason</p>
                 <p className="text-sm font-bold text-amber-900">{REASON_LABELS[dispute.reason] || dispute.reason}</p>
               </div>
 
-              {/* Evidence checklist */}
               <div className="space-y-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Evidence Available</p>
 
@@ -313,7 +311,6 @@ function EvidenceBuilderDialog({
                 />
               </div>
 
-              {/* Stripe winning tips */}
               <div className="p-4 rounded-2xl bg-blue-50 border-2 border-blue-100 space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 flex items-center gap-1.5">
                   <Info className="w-3.5 h-3.5" /> Tips to Win This Dispute
@@ -334,7 +331,6 @@ function EvidenceBuilderDialog({
                 </ul>
               </div>
 
-              {/* Additional notes */}
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                   Additional Context for Stripe
@@ -350,7 +346,6 @@ function EvidenceBuilderDialog({
                 </p>
               </div>
 
-              {/* Manual file uploads */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
@@ -365,7 +360,6 @@ function EvidenceBuilderDialog({
                   Screenshots of texts, emails, before/after photos, signed documents — anything that supports your case.
                 </div>
 
-                {/* Upload buttons by purpose */}
                 <div className="grid grid-cols-1 gap-2">
                   {FILE_PURPOSES.map(p => (
                     <label key={p.value} className={cn(
@@ -389,7 +383,6 @@ function EvidenceBuilderDialog({
                   ))}
                 </div>
 
-                {/* Uploaded files preview */}
                 {uploadedUrls.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-[9px] font-black uppercase tracking-widest text-green-600">Uploaded Files</p>
@@ -414,7 +407,6 @@ function EvidenceBuilderDialog({
                 )}
               </div>
 
-              {/* Evidence preview */}
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Evidence Preview</p>
                 <pre className="text-[10px] font-mono bg-muted/60 border-2 rounded-xl p-4 whitespace-pre-wrap text-foreground/80">
@@ -491,7 +483,6 @@ function DisputeCard({ dispute, onOpenEvidence, retailOrder }: {
       isOpen    ? 'bg-card' : 'bg-muted/5 opacity-75'
     )}>
       <CardContent className="p-5 space-y-4">
-        {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -516,7 +507,6 @@ function DisputeCard({ dispute, onOpenEvidence, retailOrder }: {
           </div>
         </div>
 
-        {/* Deadline bar */}
         {isOpen && dispute.deadline && (
           <div className="space-y-1">
             <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
@@ -532,10 +522,6 @@ function DisputeCard({ dispute, onOpenEvidence, retailOrder }: {
           </div>
         )}
 
-        {/* Evidence status — a shipped order has none of the service evidence
-            and all of the carrier evidence, so it gets its own row. Showing
-            "Consent: missing" on a parcel reads as a weak case when the case is
-            actually strong. */}
         {retailOrder ? (
           <>
             <div className="flex items-center gap-2 rounded-xl border-2 border-dashed px-3 py-2">
@@ -572,7 +558,6 @@ function DisputeCard({ dispute, onOpenEvidence, retailOrder }: {
           </div>
         )}
 
-        {/* Actions */}
         {isOpen && !dispute.evidenceSubmitted && (
           <Button
             onClick={() => onOpenEvidence(dispute)}
@@ -743,7 +728,6 @@ function DisputeCenterContent() {
       <AppHeader title="Dispute Center" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-5xl mx-auto space-y-8">
 
-        {/* Header */}
         <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
           <div className="space-y-1">
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">
@@ -765,7 +749,6 @@ function DisputeCenterContent() {
           )}
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Open Disputes"    value={openDisputes.length}      color={openDisputes.length > 0 ? 'text-red-600' : 'text-foreground'} />
           <StatCard label="At Risk"          value={`$${totalExposure.toFixed(2)}`} color={totalExposure > 0 ? 'text-amber-600' : 'text-foreground'} />
@@ -773,7 +756,6 @@ function DisputeCenterContent() {
           <StatCard label="Total Lost"       value={`$${totalLost.toFixed(2)}`}    color={totalLost > 0 ? 'text-red-600' : 'text-foreground'} />
         </div>
 
-        {/* Main content */}
         <Tabs defaultValue="open">
           <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner gap-1.5">
             <TabsTrigger value="open"   className="px-6 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest data-[state=active]:bg-card data-[state=active]:shadow-md">
@@ -820,7 +802,6 @@ function DisputeCenterContent() {
           </TabsContent>
         </Tabs>
 
-        {/* Prevention tips */}
         <Card className="border-2 rounded-[1.5rem] bg-blue-50 border-blue-100">
           <CardHeader className="pb-2">
             <CardTitle className="text-[10px] font-black uppercase tracking-widest text-blue-600 flex items-center gap-2">

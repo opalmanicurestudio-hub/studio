@@ -242,7 +242,6 @@ export default function BookingPoliciesPage() {
             <Row label="Holding unpaid bookings" source={P.holds.holdMinutes.source}>
               <Num field="bookingMode.holdMinutes" value={P.holds.holdMinutes.value} unit="minutes while paying online" label="Hold time" max={1440} />
               <Num field="bookingMode.paymentGraceHours" value={P.holds.paymentGraceHours.value} unit="hours when a card fails / a link is sent" label="Payment grace" max={168} />
-              {/* lib/deposit-release: inside this many hours of the visit an unpaid deposit never cancels it — the desk decides. */}
               <Num field="bookingMode.depositProtectHours" value={t?.bookingMode?.depositProtectHours !== undefined && Number.isFinite(Number(t.bookingMode.depositProtectHours)) ? Number(t.bookingMode.depositProtectHours) : 18} unit="hours before the visit: never cancelled for an unpaid deposit — the desk decides" label="Protect the visit" max={72} />
               <Num field="voiceAgent.holdHours" value={Number(t.voiceAgent?.holdHours) || 24} unit="hours for a phone-assistant booking to pay its deposit" label="Phone hold" min={1} max={168} />
               <span className="w-full text-xs text-muted-foreground">Optional texts (waitlist offers, “could you come earlier?”, opportunities) — never more than this per client a day:</span>

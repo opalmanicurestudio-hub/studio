@@ -108,7 +108,6 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
             ))}</div>
           )}
         </Section>
-        {/* Rentable spaces (rooms, saunas, equipment) — booked by the hour or day through the rental engine; hidden when none are on offer. */}
         {tenant?.id && <div id="spaces"><BoothListingsSection tenantId={tenant.id} config={{ kind: 'spaces', title: 'Book a space', subtitle: 'By the hour or the day — no appointment needed.', showMonthly: false, hideWhenEmpty: true }} /></div>}
 
         {team.length > 0 && <Section id="team" eyebrow="The team" title={<>Meet the <b>people</b></>}>
@@ -128,7 +127,6 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
           ))}</div>
         </Section>}
 
-        {/* Gift cards — the three the owner chose (Gift cards → Online shop & designs), when selling online is on. */}
         {tenant?.id && tenant?.giftCardSettings?.online && tenant.giftCardSettings.onBooking !== false && <Section id="gift-cards" eyebrow="Gift cards" title={<>Give the gift of a <b>visit</b></>}>
           <GiftCardShowcase tenantId={tenant.id} brand={{ name, logo: tenant?.logoUrl || null, accent }} items={tenant.giftCardSettings.showcase || null} services={bookable} offered={tenant.giftCardSettings.designs || null} />
         </Section>}
@@ -146,7 +144,6 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
       </main>
 
       <footer className="mx-auto max-w-6xl px-4 pb-28 pt-8 text-[13px] text-stone-500 md:pb-10">© {new Date().getFullYear()} {name} · Online booking by ClarityFlow</footer>
-      {/* Always-there Book bar on phones, above the home bar */}
       <div className="pub-safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-stone-200/70 bg-[#faf8f5]/95 px-4 pt-3 backdrop-blur md:hidden">
         <PrimaryButton onClick={bookTop} className="w-full">Book an appointment</PrimaryButton>
       </div>

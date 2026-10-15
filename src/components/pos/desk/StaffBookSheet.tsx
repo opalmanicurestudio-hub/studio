@@ -310,7 +310,6 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
         ) : (
           <>
             <div className="flex-1 space-y-4 overflow-y-auto px-5 pb-4">
-              {/* ── Client ── */}
               <Card>
                 <H>Client</H>
                 {client ? (
@@ -371,7 +370,6 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                 {owesMsg && owesOk && <p className="text-[13px] font-semibold">{owesMsg}</p>}
               </Card>
 
-              {/* ── Service ── */}
               <Card>
                 <H>Service</H>
                 <select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setAddOnIds([]); setLenAdj(0); setTime(''); setPlace(''); }} className={inp} style={inpS}>
@@ -390,7 +388,6 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                 {placeOpts.length > 1 && <div className="space-y-1.5"><p className="text-[13px]" style={{ color: 'var(--muted)' }}>How they’ll meet</p><div className="flex flex-wrap gap-1.5">{placeOpts.map((k) => <Chip key={k} on={(place || placeOpts[0]) === k} onClick={() => setPlace(k)}>{PLACE_LABEL[k]}</Chip>)}</div></div>}
               </Card>
 
-              {/* ── When ── */}
               {svc && <Card>
                 <H>When</H>
                 <div className="grid grid-cols-2 gap-2">
@@ -417,7 +414,6 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                 </div>}
               </Card>}
 
-              {/* ── Booking type ── */}
               {svc && <Card>
                 <H>Booking type</H>
                 <Seg label="Booking type" value={mode} onChange={(v) => { setMode(v); if ((v === 'group' || v === 'steps') && deposit === 'link') setDeposit('charge'); }} options={[['one', 'Just this one'], ['repeat', 'Repeat'], ['group', 'Group'], ['steps', 'More providers']]} />
@@ -451,7 +447,6 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                 </div>}
               </Card>}
 
-              {/* ── Payment & notes ── */}
               {svc && <Card>
                 <H>Payment &amp; notes</H>
                 {hasDeposit && <><p className="text-[13px]" style={{ color: 'var(--muted)' }}>This service takes a deposit.</p>
@@ -473,7 +468,6 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                 <textarea value={privateNotes} onChange={(e) => setPrivateNotes(e.target.value)} rows={2} placeholder="Private note (team only)" className="w-full resize-none rounded-xl px-3.5 py-2.5 text-[15px] outline-none" style={inpS} />
               </Card>}
 
-              {/* ── Save for a call-back ── */}
               {cbOpen && <Card>
                 <H>Save for a call-back</H>
                 <div className="flex flex-wrap gap-1.5">{callbackReasonsFor(tenant).map((r) => <Chip key={r.id} on={cb.reason === r.id} onClick={() => setCb((x) => ({ ...x, reason: r.id }))}>{r.label}</Chip>)}</div>

@@ -293,7 +293,6 @@ const FloorTableCard = ({
         movingGuest && !isSelected ? 'border-slate-300' : '',
       )}
     >
-      {/* Table header */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{table.name}</p>
@@ -315,7 +314,6 @@ const FloorTableCard = ({
         </div>
       </div>
 
-      {/* Guest avatar cluster — FIX 4: at-a-glance avatars with status dots */}
       <div className="flex flex-wrap gap-2 min-h-[2.5rem]">
         {seated.map((guest: any) => {
           const guestOrder = orders.find(o => o.guestId === guest.id || o.guestName === guest.name);
@@ -350,7 +348,6 @@ const FloorTableCard = ({
                   {(guest.name || '?').charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              {/* Status dot */}
               <span className={cn(
                 'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white',
                 hasCritical ? 'bg-red-500' :
@@ -363,7 +360,6 @@ const FloorTableCard = ({
           );
         })}
 
-        {/* Empty seat placeholders */}
         {Array.from({ length: Math.min(emptySeats, 6) }).map((_, i) => (
           <div key={`empty-${i}`}
             className="w-9 h-9 rounded-full border-2 border-dashed border-slate-200 flex items-center justify-center">
@@ -372,7 +368,6 @@ const FloorTableCard = ({
         ))}
       </div>
 
-      {/* Status bar */}
       <div className="flex items-center gap-3 pt-2 border-t border-slate-100">
         <div className="flex items-center gap-1 text-[9px] font-black uppercase">
           <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
@@ -447,7 +442,6 @@ const FloorPlanView = ({
 
   return (
     <div className="space-y-6">
-      {/* Legend + instructions */}
       <div className="flex items-center flex-wrap gap-4 px-1">
         {legend.map(l => (
           <div key={l.label} className="flex items-center gap-1.5">
@@ -460,7 +454,6 @@ const FloorPlanView = ({
         </span>
       </div>
 
-      {/* Moving guest indicator */}
       <AnimatePresence>
         {movingGuest && (
           <motion.div
@@ -485,7 +478,6 @@ const FloorPlanView = ({
         )}
       </AnimatePresence>
 
-      {/* Unassigned guests panel */}
       {unassigned.length > 0 && (
         <div className="p-4 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
@@ -522,7 +514,6 @@ const FloorPlanView = ({
         </div>
       )}
 
-      {/* Table grid */}
       {tableList.length === 0 ? (
         <div className="text-center py-16 border-4 border-dashed rounded-[2.5rem] opacity-30">
           <TableIcon className="w-10 h-10 mx-auto mb-3" />
@@ -545,7 +536,6 @@ const FloorPlanView = ({
         </div>
       )}
 
-      {/* Summary footer */}
       <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-dashed text-[10px] font-black uppercase tracking-widest text-slate-400">
         <span>{guests.length} total guests</span>
         <span>{guests.filter(g => g.checkedIn).length} checked in</span>
@@ -627,7 +617,6 @@ const TableGroupedView = ({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-black text-sm text-slate-900">{g.name}</p>
-                        {/* FIX: show human-readable seat, not raw value */}
                         {g.seatNumber && (
                           <span className="text-[9px] font-bold text-slate-400 uppercase bg-slate-100 px-1.5 py-0.5 rounded-lg">
                             Seat {g.seatNumber}
@@ -1358,7 +1347,6 @@ export default function EventManifestPage() {
       <AppHeader title={`${eventDisplayName} — Manifest`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 pb-24">
 
-        {/* ── HEADER ─────────────────────────────────────────────────────── */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="flex items-start gap-4 md:gap-6">
             <CapacityRing checkedIn={stats.checkedIn} total={stats.total} capacity={event.capacity || null} />
@@ -1401,7 +1389,6 @@ export default function EventManifestPage() {
           </div>
         </div>
 
-        {/* ── BANNERS ─────────────────────────────────────────────────────── */}
         {event?.menuNote && (
           <div className="flex items-start gap-3 p-4 rounded-2xl bg-blue-50 border-2 border-blue-200">
             <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
@@ -1442,7 +1429,6 @@ export default function EventManifestPage() {
           {allCoursesFired && <AllCoursesFiredNudge onEndEvent={() => setIsEndEventOpen(true)} />}
         </AnimatePresence>
 
-        {/* ── STATS ───────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Responses" value={stats.total} sub={`${stats.checkedIn} checked in`} />
           <StatCard label="Allergy Flags" value={stats.allergyCount} sub={stats.uniqueAllergies.slice(0, 2).join(', ') || 'None'} color="amber" />
@@ -1451,7 +1437,6 @@ export default function EventManifestPage() {
           ))}
         </div>
 
-        {/* ── COURSE FIRING ───────────────────────────────────────────────── */}
         {courseNumbers.length > 0 && (
           <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
             <div className="p-5 border-b border-slate-100">
@@ -1487,7 +1472,6 @@ export default function EventManifestPage() {
           </div>
         )}
 
-        {/* ── MAIN TABS ───────────────────────────────────────────────────── */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
             <TabsList className="h-11 rounded-2xl border-2 bg-slate-100 p-1 gap-1 w-max md:w-full">
@@ -1504,9 +1488,7 @@ export default function EventManifestPage() {
             </TabsList>
           </div>
 
-          {/* ── GUESTS TAB ─────────────────────────────────────────────── */}
           <TabsContent value="guests" className="mt-4 space-y-4">
-            {/* Toolbar */}
             <div className="flex items-center gap-2 flex-wrap">
               <Button onClick={() => { setIsAddingGuest(true); setEditingGuest(null); setGuestForm({ name: '', email: '', phone: '', tableId: '', seatNumber: '', mealChoiceId: '', notes: '' }); }}
                 className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest gap-2 shadow-lg shadow-primary/20">
@@ -1529,7 +1511,6 @@ export default function EventManifestPage() {
                   <SelectItem value="allergies">Has Allergy</SelectItem>
                 </SelectContent>
               </Select>
-              {/* View toggle — now includes floor plan */}
               <div className="flex items-center rounded-xl border-2 border-slate-200 overflow-hidden h-10 ml-auto">
                 {[
                   { mode: 'list' as const, Icon: List, label: 'List' },
@@ -1545,7 +1526,6 @@ export default function EventManifestPage() {
               </div>
             </div>
 
-            {/* Bulk check-in bar */}
             {selectedGuests.size > 0 && (
               <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
                 className="flex items-center justify-between p-3 rounded-2xl bg-primary/5 border-2 border-primary/20">
@@ -1562,7 +1542,6 @@ export default function EventManifestPage() {
               </motion.div>
             )}
 
-            {/* Guest form */}
             <AnimatePresence>
               {(isAddingGuest || editingGuest) && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
@@ -1597,7 +1576,6 @@ export default function EventManifestPage() {
                           <SelectContent><SelectItem value={NO_SELECTION}>No selection</SelectItem>{menuItems.map(m => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
-                      {/* FIX 1: Table select shows names, not IDs */}
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Table</Label>
                         <TableSelectField
@@ -1606,7 +1584,6 @@ export default function EventManifestPage() {
                           onChange={v => setGuestForm(p => ({ ...p, tableId: v, seatNumber: '' }))}
                         />
                       </div>
-                      {/* FIX 2: Seat select derived from table capacity */}
                       <div className="space-y-1.5">
                         <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Seat</Label>
                         <SeatSelectField
@@ -1628,7 +1605,6 @@ export default function EventManifestPage() {
               )}
             </AnimatePresence>
 
-            {/* Views */}
             {guestViewMode === 'floor' ? (
               <FloorPlanView tables={tables} guests={guests} orders={[]} onAssignGuest={handleAssignGuest} />
             ) : guestViewMode === 'table' ? (
@@ -1672,7 +1648,6 @@ export default function EventManifestPage() {
                             <p className="font-black text-sm text-slate-900">{guest.name}</p>
                             <p className="text-[10px] text-slate-400">{guest.email || ''}</p>
                           </td>
-                          {/* FIX 6: Show resolved table name + seat number, not raw IDs */}
                           <td className="px-4 py-3">
                             <div className="space-y-0.5">
                               {resolveTableName(guest) !== '—' && (
@@ -1722,7 +1697,6 @@ export default function EventManifestPage() {
             )}
           </TabsContent>
 
-          {/* ── MENU TAB ──────────────────────────────────────────────────── */}
           <TabsContent value="menu" className="mt-4 space-y-4">
             {menuItems.map(item => {
               const selectionCount = guests.filter(g => g.mealChoiceId === item.id || Object.values(g.courseSelections || {}).includes(item.id)).length;
@@ -1782,7 +1756,6 @@ export default function EventManifestPage() {
             </div>
           </TabsContent>
 
-          {/* ── STAFF TAB ─────────────────────────────────────────────────── */}
           <TabsContent value="staff" className="mt-4 space-y-4">
             <div className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden">
               <div className="p-5 border-b border-slate-100">
@@ -1853,7 +1826,6 @@ export default function EventManifestPage() {
             </div>
           </TabsContent>
 
-          {/* ── REQUESTS TAB ──────────────────────────────────────────────── */}
           <TabsContent value="requests" className="mt-4 space-y-4">
             <FloorRequestPanel
               requests={floorRequests}
@@ -1872,7 +1844,6 @@ export default function EventManifestPage() {
           </TabsContent>
         </Tabs>
 
-        {/* ── GUEST LINK ──────────────────────────────────────────────────── */}
         <AnimatePresence>
           {showLink && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
@@ -1889,9 +1860,7 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* ── DIALOGS ─────────────────────────────────────────────────────── */}
 
-        {/* Meal override */}
         <AnimatePresence>
           {mealOverrideGuest && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -1929,7 +1898,6 @@ export default function EventManifestPage() {
           )}
         </AnimatePresence>
 
-        {/* Confirm activate */}
         <Dialog open={isConfirmActivateOpen} onOpenChange={setIsConfirmActivateOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500" /> Go Live</DialogTitle></DialogHeader>
@@ -1954,7 +1922,6 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* End event */}
         <Dialog open={isEndEventOpen} onOpenChange={setIsEndEventOpen}>
           <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
             <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter">End Event</DialogTitle></DialogHeader>
@@ -1973,7 +1940,6 @@ export default function EventManifestPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Broadcast sheet */}
         <Sheet open={broadcastOpen} onOpenChange={setBroadcastOpen}>
           <SheetContent side="bottom" className="rounded-t-3xl">
             <SheetHeader className="pb-4"><SheetTitle className="flex items-center gap-2 font-black uppercase tracking-tight"><Megaphone className="w-5 h-5 text-violet-600" /> Send to Floor Staff</SheetTitle></SheetHeader>
@@ -1992,7 +1958,6 @@ export default function EventManifestPage() {
           </SheetContent>
         </Sheet>
 
-        {/* Course fire confirm */}
         {fireConfirmCourse !== null && (
           <CourseFireConfirmDialog
             open={fireConfirmCourse !== null}
@@ -2005,7 +1970,6 @@ export default function EventManifestPage() {
           />
         )}
 
-        {/* Print modal */}
         <KitchenPrintModal open={printModalOpen} onOpenChange={setPrintModalOpen} event={event} guests={guests} menuItems={menuItems} courseNumbers={courseNumbers} />
 
       </main>

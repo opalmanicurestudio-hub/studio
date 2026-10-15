@@ -796,7 +796,6 @@ const TemplateEditor = ({
         </div>
       </div>
 
-      {/* Line items */}
       <div className="space-y-2">
         <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Line Items</Label>
         {lineItems.map((li: any, i: number) => (
@@ -839,7 +838,6 @@ const TemplateEditor = ({
         </button>
       </div>
 
-      {/* Fees */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Service Fee %</Label>
@@ -861,7 +859,6 @@ const TemplateEditor = ({
         </div>
       </div>
 
-      {/* Total preview */}
       <div className="flex items-center justify-between p-3 rounded-xl bg-foreground text-background">
         <span className="text-[9px] font-black uppercase tracking-widest opacity-40">Estimated Total</span>
         <span className="font-black font-mono">{formatCurrency(total)}</span>
@@ -1002,7 +999,6 @@ const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients 
         <ScrollArea className="flex-1">
           <div className="p-6 space-y-5">
 
-            {/* Client assignment */}
             <div className="space-y-1.5">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Assign to Client (optional)</Label>
               <Select value={clientId || '**none**'} onValueChange={v => setClientId(v === '**none**' ? '' : v)}>
@@ -1018,7 +1014,6 @@ const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients 
               </Select>
             </div>
 
-            {/* New template form */}
             {showNewForm ? (
               <TemplateEditor
                 initial={SEED_TEMPLATE}
@@ -1035,7 +1030,6 @@ const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients 
               </button>
             )}
 
-            {/* Template list */}
             {loading ? (
               <div className="flex justify-center py-8">
                 <Loader className="w-6 h-6 animate-spin text-primary" />
@@ -1410,7 +1404,6 @@ export default function QuotesPage() {
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
           {[
             { label: 'Total',         value: stats.total,                  color: '' },
@@ -1429,7 +1422,6 @@ export default function QuotesPage() {
           ))}
         </div>
 
-        {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner mb-8 inline-flex">
             {[
@@ -1452,7 +1444,6 @@ export default function QuotesPage() {
             ))}
           </TabsList>
 
-          {/* Quotes tab */}
           <TabsContent value="quotes" className="mt-0">
             <div className="flex flex-col sm:flex-row gap-3 mb-6">
               <div className="relative flex-1">
@@ -1519,7 +1510,6 @@ export default function QuotesPage() {
         </Tabs>
       </main>
 
-      {/* Detail sheet */}
       <QuoteDetailSheet
         quote={selectedQuote} clients={clients || []} tenantId={tenantId || ''}
         firestore={firestore} open={sheetOpen} onOpenChange={setSheetOpen}
@@ -1538,7 +1528,6 @@ export default function QuotesPage() {
         quote={convertDialogQuote} clients={clients || []} tenantId={tenantId || ''} firestore={firestore}
       />
 
-      {/* FIX: QuoteTemplatesSheet now loads from Firestore, not a hardcoded array */}
       <QuoteTemplatesSheet
         open={templatesSheetOpen} onOpenChange={setTemplatesSheetOpen}
         tenantId={tenantId || ''} firestore={firestore} clients={clients || []}

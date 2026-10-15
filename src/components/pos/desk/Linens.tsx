@@ -134,7 +134,6 @@ export function Linens({ tenantId, services, appts = [], inventory = [], manager
       {linens.filter((l) => !focusLinenId || l.id === focusLinenId).map((l) => { const o = outlook.find((x) => x.id === l.id); const own = l.inventoryItemId ? Number((inventory || []).find((i: any) => i.id === l.inventoryItemId)?.totalStock) : NaN; return (
         <div key={l.id} className="rounded-2xl border bg-card p-3">
           <p className="text-[15px] font-semibold">{l.name}</p>
-          {/* The loop at a glance: bin → wash → dryer → fold → clean */}
           <div className="mt-1.5 grid grid-cols-5 gap-1 text-center text-[12px]" aria-label={`${l.name} laundry`}>
             {([['In the bin', l.dirty], ['Washing', l.washing], ['Drying', l.drying || 0], ['To fold', l.folding || 0], ['Clean', l.clean]] as [string, number][]).map(([lab, n], i) => (
               <div key={lab} className="rounded-xl py-1.5" style={{ background: i === 4 ? '#e3f3e7' : n ? '#f6f1ea' : '#faf8f5', color: i === 4 ? '#1f6b3a' : n ? '#17181a' : '#a39d93' }}><div className="text-[17px] font-[800] tabular-nums">{n}</div><div>{lab}</div></div>))}

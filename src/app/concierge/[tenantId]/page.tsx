@@ -968,7 +968,6 @@ function ConciergeKioskContent() {
                                         </div>
                                     </div>
 
-                                    {/* Day-guest stay: opt-in "charge to my station" toggle (existing). */}
                                     {activeStay?.payerType === 'reservation' && activeStay?.cardOnFile && pendingPrice > 0 && !pendingIsPerk && (
                                         <button
                                             type="button"
@@ -991,7 +990,6 @@ function ConciergeKioskContent() {
                                         </button>
                                     )}
 
-                                    {/* Renter station: complimentary within the host's allowance. */}
                                     {activeStay?.payerType === 'renter' && renterWithinComp && pendingPrice > 0 && !pendingIsPerk && (
                                         <div className="w-full rounded-[2rem] border-2 border-green-200 bg-green-50 p-4 flex items-center gap-4 text-left">
                                             <HandHeart className="w-6 h-6 text-green-600 shrink-0" />
@@ -1002,7 +1000,6 @@ function ConciergeKioskContent() {
                                         </div>
                                     )}
 
-                                    {/* Renter station: paid item billed to the host's card. */}
                                     {activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile && pendingPrice > 0 && !pendingIsPerk && !renterWithinComp && (
                                         <div className="w-full rounded-[2rem] border-2 border-primary/30 bg-primary/5 p-4 flex items-center gap-4 text-left">
                                             <CreditCard className="w-6 h-6 text-primary shrink-0" />
@@ -1044,12 +1041,6 @@ function ConciergeKioskContent() {
                                                 <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
                                             </div>
 
-                                            {/* No card number is typed here on purpose. Handling a raw
-                                                card outside Stripe's tokenized flow is a real PCI
-                                                problem — and the three inputs that used to sit here
-                                                collected nothing, charged nothing, and the kiosk booked
-                                                the sale as revenue anyway. These are the only three
-                                                ways this order can honestly settle. */}
                                             <div className="space-y-3 text-left">
                                                 <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary/60 ml-1">Settlement Method</Label>
 
@@ -1152,9 +1143,6 @@ function ConciergeKioskContent() {
                                             Preparing your selection now. Please relax, we will be with you shortly.
                                         </p>
                                     </div>
-                                    {/* A guest should never have to guess whether they still owe
-                                        for something. Whatever happened to the money is stated
-                                        here in plain language. */}
                                     {settledSummary && (
                                         <div className="rounded-[2rem] border-2 border-primary/20 bg-primary/5 px-6 py-5 max-w-md mx-auto">
                                             <p className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary/60 mb-2">Your Order</p>

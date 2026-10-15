@@ -811,7 +811,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           <div className={pane}>
             {rescheduleNote && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: card, color: ink, border: `1px solid ${accent}`, fontWeight: lightWeight }}>{rescheduleNote}</p>}
             {pkgThanks && <p className="mb-4 rounded-2xl px-4 py-3 text-[13px]" style={{ background: accent, color: onAcc, fontWeight: lightWeight }}>Thank you — your package is ready. Your credits come off each visit; just book as usual.</p>}
-            {/* The client's offer on the renter's page — glass, in the renter's colours. */}
             {offerShown ? (
               <div className="glass relative mb-6 overflow-hidden rounded-[1.5rem] p-4" style={{ border: `1px solid ${line}` }} role="status">
                 <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full blur-2xl" style={{ background: accent, opacity: 0.25 }} />
@@ -1192,9 +1191,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           </div>
         );
       })()}
-      {/* The client's offer: shown when they arrive from a campaign, or typed in.
-          Glass, like the rest of the app — the amount is the headline, the
-          code a tag, and one line says what happens next. */}
       <div className="mx-auto w-full max-w-3xl px-4 pt-4">
         {offerShown ? (
           <div className="glass relative overflow-hidden rounded-[1.75rem] p-4 sm:p-5 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.18)]" role="status" aria-live="polite">

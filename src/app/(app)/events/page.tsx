@@ -173,7 +173,6 @@ export default function EventsPage() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto space-y-8">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-black uppercase tracking-tighter text-foreground flex items-center gap-3">
@@ -189,7 +188,6 @@ export default function EventsPage() {
         </Button>
       </div>
 
-      {/* Events list */}
       {loading ? (
         <div className="text-center py-20 text-muted-foreground font-bold uppercase text-[10px] tracking-widest">Loading…</div>
       ) : events.length === 0 ? (
@@ -274,7 +272,6 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* Create / Edit dialog */}
       <Dialog open={isDialogOpen} onOpenChange={v => { if (!v) { setIsDialogOpen(false); setEditingEvent(null); } }}>
         <DialogContent className="sm:max-w-xl rounded-[2rem] border-4 shadow-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader className="p-6 pb-0">
@@ -285,7 +282,6 @@ export default function EventsPage() {
           </DialogHeader>
           <div className="p-6 space-y-5">
 
-            {/* Title + type */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5 col-span-2">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Event Name *</Label>
@@ -306,7 +302,6 @@ export default function EventsPage() {
               </div>
             </div>
 
-            {/* Date + time */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Date *</Label>
@@ -320,7 +315,6 @@ export default function EventsPage() {
               </div>
             </div>
 
-            {/* Capacity + description */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Max Capacity</Label>
@@ -335,7 +329,6 @@ export default function EventsPage() {
               </div>
             </div>
 
-            {/* Ordering deadline */}
             <div className="space-y-1.5">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                 Order Submission Deadline
@@ -351,7 +344,6 @@ export default function EventsPage() {
               <p className="text-[9px] text-muted-foreground font-bold">After this time guests can no longer submit orders.</p>
             </div>
 
-            {/* Menu note */}
             <div className="space-y-1.5">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                 <FileText className="w-3 h-3" /> Menu Note (shown to guests on order form)
@@ -361,7 +353,6 @@ export default function EventsPage() {
                 className="h-12 rounded-xl border-2" />
             </div>
 
-            {/* Description */}
             <div className="space-y-1.5">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Description (internal)</Label>
               <Input value={form.description} onChange={e => f('description', e.target.value)}

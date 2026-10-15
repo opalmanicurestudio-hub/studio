@@ -434,7 +434,6 @@ export default function PublicQuotePage() {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
-            {/* Header */}
             <div className="sticky top-0 z-20 border-b bg-white/80 backdrop-blur-xl px-6 py-4">
                 <div className="max-w-3xl mx-auto flex items-center justify-between">
                     {logoUrl ? (
@@ -449,11 +448,9 @@ export default function PublicQuotePage() {
             <div className="max-w-3xl mx-auto px-4 py-10 pb-32 space-y-8">
                 <AnimatePresence mode="wait">
 
-                    {/* ── REVIEW ── */}
                     {step === 'review' && (
                         <motion.div key="review" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
 
-                            {/* Quote header */}
                             <div className="bg-white rounded-[2.5rem] border-2 shadow-sm p-8 space-y-6">
                                 <div className="space-y-2">
                                     <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-60">Custom Proposal for</p>
@@ -503,7 +500,6 @@ export default function PublicQuotePage() {
                                     )}
                                 </div>
 
-                                {/* Expiry notice */}
                                 {quote.expiresInDays && quote.sentAt && (
                                     <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-50 border-2 border-amber-100">
                                         <Clock className="w-4 h-4 text-amber-600 shrink-0" />
@@ -515,7 +511,6 @@ export default function PublicQuotePage() {
                                 )}
                             </div>
 
-                            {/* Line items */}
                             <div className="bg-white rounded-[2.5rem] border-2 shadow-sm p-8 space-y-4">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Services Included</p>
                                 <div className="space-y-3">
@@ -544,7 +539,6 @@ export default function PublicQuotePage() {
                                     )}
                                 </div>
 
-                                {/* Total */}
                                 <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-4">
                                     <div className="flex justify-between items-center">
                                         <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Total Investment</span>
@@ -562,10 +556,8 @@ export default function PublicQuotePage() {
                                 </div>
                             </div>
 
-                            {/* Payment schedule */}
                             <PaymentSchedule quote={quote} total={total} />
 
-                            {/* Terms / cancellation policy */}
                             {(quote.cancellationPolicy || tenant?.cancellationPolicy) && (
                                 <div className="bg-white rounded-[2.5rem] border-2 shadow-sm p-8 space-y-3">
                                     <div className="flex items-center gap-2">
@@ -578,7 +570,6 @@ export default function PublicQuotePage() {
                                 </div>
                             )}
 
-                            {/* Studio contact */}
                             {(tenant?.phone || tenant?.email) && (
                                 <div className="bg-white rounded-[2.5rem] border-2 shadow-sm p-6 space-y-3">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Questions? Reach us directly</p>
@@ -597,7 +588,6 @@ export default function PublicQuotePage() {
                                 </div>
                             )}
 
-                            {/* Action buttons */}
                             {canInteract && (
                                 <div className="space-y-3">
                                     <Button
@@ -636,7 +626,6 @@ export default function PublicQuotePage() {
                         </motion.div>
                     )}
 
-                    {/* ── PAYMENT ── */}
                     {step === 'payment' && (
                         <motion.div key="payment" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
                             className="bg-white rounded-[3rem] border-4 shadow-3xl p-8 md:p-12 space-y-8 text-center">
@@ -694,7 +683,6 @@ export default function PublicQuotePage() {
                         </motion.div>
                     )}
 
-                    {/* ── DECLINE REASON ── */}
                     {step === 'decline_reason' && (
                         <motion.div key="decline" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
                             className="bg-white rounded-[3rem] border-4 shadow-3xl p-8 space-y-8">
@@ -745,7 +733,6 @@ export default function PublicQuotePage() {
                         </motion.div>
                     )}
 
-                    {/* ── SUCCESS ── */}
                     {step === 'success' && (
                         <motion.div key="success" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
                             className="bg-white rounded-[3rem] border-4 shadow-3xl p-12 md:p-20 text-center space-y-10">
@@ -792,7 +779,6 @@ export default function PublicQuotePage() {
                         </motion.div>
                     )}
 
-                    {/* ── DECLINED ── */}
                     {step === 'declined' && (
                         <motion.div key="declined" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
                             className="bg-white rounded-[3rem] border-4 shadow-3xl p-12 md:p-20 text-center space-y-8">
@@ -825,7 +811,6 @@ export default function PublicQuotePage() {
                         </motion.div>
                     )}
 
-                    {/* ── EXPIRED ── */}
                     {step === 'expired' && (
                         <motion.div key="expired" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
                             className="bg-white rounded-[3rem] border-4 shadow-3xl p-12 md:p-20 text-center space-y-8">
@@ -855,7 +840,6 @@ export default function PublicQuotePage() {
                         </motion.div>
                     )}
 
-                    {/* ── REVISION SENT ── */}
                     {step === 'revision_sent' && (
                         <motion.div key="revision" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
                             className="bg-white rounded-[3rem] border-4 shadow-3xl p-12 md:p-20 text-center space-y-8">
@@ -881,7 +865,6 @@ export default function PublicQuotePage() {
                 </AnimatePresence>
             </div>
 
-            {/* Revision request dialog */}
             <RevisionDialog
                 open={showRevision}
                 onClose={() => setShowRevision(false)}

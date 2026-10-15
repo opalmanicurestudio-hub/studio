@@ -1204,7 +1204,6 @@ export default function WalkInKioskPage() {
   return (
     <div className="min-h-dvh bg-gradient-to-b from-rose-50 via-white to-white text-slate-900 flex flex-col">
 
-      {/* ── OWNER CONTROL BAR ── only for a signed-in owner, hidden in kiosk mode ── */}
       {showOwnerBar && (
         <div className="w-full bg-slate-900 text-white">
           <div className="max-w-3xl mx-auto px-4 py-3 space-y-3">
@@ -1222,8 +1221,6 @@ export default function WalkInKioskPage() {
                 <span>{floor?.queueLength ?? 0} in line</span>
               </div>
             </div>
-            {/* Stacked on a phone, side by side on the tablet this usually runs
-                on — the labels are full sentences and must never wrap. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 onClick={toggleKioskEnabled}
@@ -1251,7 +1248,6 @@ export default function WalkInKioskPage() {
         </div>
       )}
 
-      {/* Header */}
       <header className="pt-8 pb-2 text-center">
         <button
           type="button"
@@ -1264,7 +1260,6 @@ export default function WalkInKioskPage() {
 
       <main className="flex-1 flex flex-col items-center justify-center px-5 sm:px-6 pb-10 w-full max-w-lg mx-auto">
 
-        {/* ── KIOSK SWITCHED OFF ── */}
         {kioskOff && (
           <div className="w-full text-center space-y-6">
             <div className="w-24 h-24 rounded-[2rem] bg-slate-100 flex items-center justify-center mx-auto">
@@ -1285,7 +1280,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── WELCOME ── */}
         {!kioskOff && step === 'welcome' && (doorOptions?.length || 0) > 1 && (
           <div className="w-full space-y-6 py-6">
             <div className="text-center space-y-2">
@@ -1360,7 +1354,6 @@ export default function WalkInKioskPage() {
           </button>
         )}
 
-        {/* ── FRONT DOOR — pickup / renter visit / tour / help / custom ── */}
         {!kioskOff && step === 'door' && door && (
           <div className="w-full space-y-5">
             <div className="text-center space-y-1.5">
@@ -1409,7 +1402,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── PHONE FIRST ── one field, and it unlocks everything else ── */}
         {!kioskOff && step === 'phone' && (
           <div className="w-full space-y-6">
             <div className="text-center space-y-1.5">
@@ -1464,7 +1456,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── LOOKING / LOADING OPTIONS ── */}
         {!kioskOff && (step === 'looking' || step === 'options') && (
           <div className="text-center space-y-5 py-16">
             <Loader className="w-10 h-10 animate-spin text-rose-400 mx-auto" />
@@ -1474,7 +1465,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── WELCOME BACK ── the one-tap rebook ── */}
         {!kioskOff && step === 'recognize' && lookup?.usual && (
           <div className="w-full space-y-6">
             <div className="text-center space-y-1.5">
@@ -1525,7 +1515,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── SERVICE PICK ── */}
         {!kioskOff && step === 'service' && (
           <div className="w-full space-y-5">
             <div className="text-center space-y-1">
@@ -1561,7 +1550,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── WHO TAKES THEM ── */}
         {!kioskOff && step === 'provider' && (
           <div className="w-full space-y-5">
             <div className="text-center space-y-1">
@@ -1572,10 +1560,6 @@ export default function WalkInKioskPage() {
               </p>
             </div>
 
-            {/* The explicit two-way choice. This panel is the whole point: a
-                guest who asks for someone mid-service is told what waiting for
-                them actually costs, in minutes, and offered the alternative in
-                the same breath. Nothing is decided for them. */}
             {chosen && !chosen.readyNow && (
               <div className="w-full rounded-2xl border-2 border-amber-200 bg-amber-50/70 p-5 space-y-4">
                 <div className="flex items-start gap-3">
@@ -1680,7 +1664,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── DETAILS ── name only if we don't already know them ── */}
         {!kioskOff && step === 'details' && service && (
           <div className="w-full space-y-6">
             <div className="text-center space-y-1">
@@ -1691,10 +1674,6 @@ export default function WalkInKioskPage() {
               </p>
             </div>
 
-            {/* The guest skipped provider selection because no tech cleared this
-                service's skill / certification / roster gates. They are still
-                joining the walk-in queue — say so plainly rather than letting them
-                reach the end wondering who they're seeing. */}
             {options?.needsFrontDesk && (
               <div className="rounded-2xl border-2 border-amber-100 bg-amber-50/60 px-5 py-4 flex items-start gap-3">
                 <UserCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -1729,9 +1708,6 @@ export default function WalkInKioskPage() {
                   </div>
                 </div>
               )}
-              {/* Email — optional, and it says so, because the tap-through rate
-                  on a required email at a kiosk is where guests give up and walk
-                  out. The Continue button below is NOT gated on it. */}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-500 px-1">
                   Email <span className="text-slate-300 font-normal">— optional, for your receipt</span>
@@ -1749,8 +1725,6 @@ export default function WalkInKioskPage() {
                     spellCheck={false}
                     className="w-full h-16 min-h-[44px] pl-12 pr-12 rounded-2xl border-2 border-slate-200 bg-white text-lg font-medium focus:border-rose-300 focus:outline-none"
                   />
-                  {/* A quiet tick once it parses. No red error state — nagging a
-                      guest about a field they were told was optional is rude. */}
                   {looksLikeEmail(email) && (
                     <Check className="w-5 h-5 text-emerald-500 absolute right-4 top-1/2 -translate-y-1/2" />
                   )}
@@ -1758,8 +1732,6 @@ export default function WalkInKioskPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-500 px-1">How many in your party?</label>
-                {/* A fixed six-column grid, not flex-wrap: wrapping would let a
-                    lone "6" stretch to the full width and look like a mistake. */}
                 <div className="grid grid-cols-6 gap-1.5">
                   {GROUP_CHOICES.map(n => (
                     <button
@@ -1816,11 +1788,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── WHO ELSE WALKED IN ──
-            A party of four used to be one row, one provider and one ticket, with
-            the other three people existing only as the number "4" on a card. Each
-            name typed here becomes its own row in the queue, its own chair with
-            its own tech, and its own printed ticket. */}
         {!kioskOff && step === 'party' && (
           <div className="w-full space-y-6">
             <div className="text-center space-y-1">
@@ -1849,9 +1816,6 @@ export default function WalkInKioskPage() {
                       className="w-full h-16 min-h-[44px] pl-12 pr-4 rounded-2xl border-2 border-slate-200 bg-white text-xl font-medium focus:border-rose-300 focus:outline-none"
                     />
                   </div>
-                  {/* One line for either. Whichever they type, that guest gets
-                      their own "your chair is ready" message instead of everyone
-                      relying on the one phone that checked the party in. */}
                   <input
                     value={g.contact}
                     onChange={e => setGuestField(i, 'contact', e.target.value)}
@@ -1861,7 +1825,6 @@ export default function WalkInKioskPage() {
                     spellCheck={false}
                     className="w-full h-14 min-h-[44px] px-4 rounded-2xl border-2 border-slate-200 bg-white text-base font-medium focus:border-rose-300 focus:outline-none"
                   />
-                  {/* What they're having: the same as the person checking in, or their own. */}
                   <select value={g.serviceId || ''} onChange={e => setGuestField(i, 'serviceId', e.target.value)} aria-label={`Guest ${i + 2}'s service`}
                     className="w-full h-14 min-h-[44px] px-4 rounded-2xl border-2 border-slate-200 bg-white text-base font-medium focus:border-rose-300 focus:outline-none">
                     <option value="">{service?.name ? `Same as you — ${service.name}` : 'Same as you'}</option>
@@ -1895,7 +1858,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── CONSENT, BEFORE A CHAIR IS GIVEN AWAY ── */}
         {!kioskOff && step === 'consent' && (
           <div className="w-full space-y-5">
             <div className="text-center space-y-1.5">
@@ -2016,7 +1978,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── PATCH TEST ── told plainly, not a dead end ── */}
         {!kioskOff && step === 'patch' && (
           <div className="w-full space-y-6">
             <div className="text-center space-y-2">
@@ -2052,7 +2013,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── PLACING ── */}
         {!kioskOff && step === 'placing' && (
           <div className="text-center space-y-5 py-16">
             <Loader className="w-10 h-10 animate-spin text-rose-400 mx-auto" />
@@ -2060,7 +2020,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── SUCCESS ── ticket, code, and the QR that opens their waiting page ── */}
         {!kioskOff && step === 'success' && result && (
           <div className="w-full text-center space-y-6">
             <div className="w-24 h-24 rounded-[2rem] bg-emerald-50 flex items-center justify-center mx-auto">
@@ -2083,12 +2042,6 @@ export default function WalkInKioskPage() {
               </p>
             </div>
 
-            {/* The old behaviour here was the bug Jessica hit head-on: a service
-                with a required skill nobody's profile listed produced zero
-                eligible providers, the route refused the join, and the kiosk's
-                only remaining offer was the WAITLIST — "we'll call you" — while
-                three techs stood on the floor. She is in the queue now, and this
-                is the one honest sentence to show her. */}
             {result.needsFrontDesk && (
               <p className="text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 flex items-start gap-2 text-left">
                 <User className="w-4 h-4 shrink-0 mt-0.5" />
@@ -2123,18 +2076,12 @@ export default function WalkInKioskPage() {
               <div className="rounded-2xl border-2 border-slate-100 bg-white px-4 py-5">
                 <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-slate-400">Wait</p>
                 <p className="text-xl font-semibold mt-1 leading-tight">{waitLine}</p>
-                {/* "Ready for you now · roughly" reads like a hedge on something
-                    that is not an estimate at all. Only soften a real estimate. */}
                 {waitLine !== 'Ready for you now' && (
                   <p className="text-xs text-slate-400 mt-0.5">roughly</p>
                 )}
               </div>
             </div>
 
-            {/* Their code, and the QR that opens their own waiting page — where
-                they can order from the lounge and see what else is on offer.
-                Shown on screen as well as printed, so an empty paper tray is an
-                inconvenience rather than a dead end. */}
             {(result.shortCode || qrMarkup) && (
               <div className="rounded-2xl border-2 border-slate-900 bg-white p-5 space-y-4">
                 {result.shortCode && (
@@ -2161,10 +2108,6 @@ export default function WalkInKioskPage() {
               </div>
             )}
 
-            {/* Only said when a message actually left the building. The route
-                reports what it managed to send rather than what it intended to,
-                because "check your texts" to a guest who never got one is the
-                start of a complaint at the desk. */}
             {result.messageSent && (
               <p className="text-sm text-slate-500 flex items-center justify-center gap-2">
                 {result.messageChannel === 'email'
@@ -2176,10 +2119,6 @@ export default function WalkInKioskPage() {
               </p>
             )}
 
-            {/* One row per person, each with their own code and their own ticket.
-                The tech calling the next guest forward reads a name off a ticket,
-                so four people sharing one piece of paper is four chances to seat
-                the wrong one. */}
             {ticketPeople.length > 1 && (
               <div className="rounded-2xl border-2 border-slate-100 bg-white text-left divide-y divide-slate-100">
                 <div className="px-4 py-3 flex items-center gap-2">
@@ -2193,8 +2132,6 @@ export default function WalkInKioskPage() {
                         <p className="text-sm font-semibold text-slate-800 truncate">
                           {firstNameOf(g.name) || `Guest ${i + 1}`}
                         </p>
-                        {/* So whoever is handing paper out can see at a glance
-                            which ones are still to come. */}
                         {printedKeys.includes(ticketKey(g, i)) && (
                           <span className="text-[11px] font-semibold text-emerald-600 shrink-0">
                             ✓ printed
@@ -2225,9 +2162,6 @@ export default function WalkInKioskPage() {
               </div>
             )}
 
-            {/* Names we were given that did not become a chair. Said out loud
-                rather than dropped quietly — somebody standing in a lobby nobody
-                is expecting them in is the worst version of this. */}
             {Number(result.guestsSkipped) > 0 && (
               <p className="text-sm text-amber-700 bg-amber-50 border-2 border-amber-100 rounded-xl px-4 py-3 flex items-start gap-2 text-left">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -2442,7 +2376,6 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── NOBODY FREE / ERROR ── */}
         {!kioskOff && step === 'full' && (
           <div className="w-full text-center space-y-6">
             <div className="w-24 h-24 rounded-[2rem] bg-amber-50 flex items-center justify-center mx-auto">
@@ -2460,7 +2393,6 @@ export default function WalkInKioskPage() {
               )}
             </div>
 
-            {/* Waitlist offer — only when we actually have a way to reach them */}
             {canJoinWaitlist && waitState !== 'joined' && (
               <button
                 onClick={joinWaitlist}

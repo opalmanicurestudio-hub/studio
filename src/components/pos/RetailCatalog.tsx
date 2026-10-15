@@ -93,7 +93,6 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
   return (
     <div className="space-y-10 animate-in fade-in duration-700">
         <div className="space-y-6">
-            {/* Header Actions - Search and Scan now on the same line */}
             <div className="flex flex-row gap-3 items-center justify-between">
                 <div className="relative flex-1">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
@@ -115,7 +114,6 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
                 </Button>
             </div>
 
-            {/* Department Switcher (High-level grouping) */}
             <div className="space-y-3">
                 <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground ml-1 opacity-60">Departments</Label>
                 <div className="p-1.5 md:p-2 bg-muted/30 rounded-2xl md:rounded-3xl border-2 border-muted shadow-inner flex overflow-x-auto scrollbar-hide gap-1.5 md:gap-2">
@@ -142,7 +140,6 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
                 </div>
             </div>
 
-            {/* Sub-Category Chips */}
             {subCategories.length > 1 && (
                 <div className="space-y-3">
                     <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground ml-1 opacity-60">Categories</Label>
@@ -168,7 +165,6 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
             )}
         </div>
 
-        {/* Results Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
             {filteredItems.map(item => {
                 if ('interval' in item) { // Membership

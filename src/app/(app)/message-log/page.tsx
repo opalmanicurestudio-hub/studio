@@ -88,7 +88,6 @@ export default function MessageLogPage() {
     // scrolling sideways for the same reason.
     <div className="p-3 sm:p-6 w-full max-w-4xl mx-auto space-y-3 sm:space-y-4 min-w-0 overflow-x-clip"
       style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-      {/* Header */}
       <div className="rounded-3xl bg-foreground text-background p-4 sm:p-6 shadow-xl">
         <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground flex items-center gap-2">
           <Send className="w-3.5 h-3.5" /> Communications
@@ -105,8 +104,6 @@ export default function MessageLogPage() {
         )}
       </div>
 
-      {/* Filters — chips WRAP (never sideways-scroll) so the page can
-          never be forced wider than the phone. */}
       <div className="space-y-2">
         <div className="flex flex-wrap gap-1.5">
           {AUDIENCES.map((a) => {
@@ -149,7 +146,6 @@ export default function MessageLogPage() {
         </div>
       </div>
 
-      {/* List */}
       <div className="space-y-2">
         {!docs && (
           <div className="rounded-2xl border-2 bg-card p-8 text-center">

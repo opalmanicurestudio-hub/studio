@@ -189,7 +189,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
   return (
     <div style={{ fontFamily: "'Inter', -apple-system, sans-serif", maxWidth: '820px', margin: '0 auto', padding: '40px 32px', fontSize: '12px', color: '#111', background: '#fff' }}>
 
-      {/* ── Print styles ── */}
       <style>{`
         @media print {
           @page { size: A4; margin: 0.6in; }
@@ -198,7 +197,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
         }
       `}</style>
 
-      {/* ── Cover header ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px', paddingBottom: '20px', borderBottom: '3px solid #111' }}>
         <div>
           <div style={{ fontSize: '26px', fontWeight: 900, letterSpacing: '-0.03em', textTransform: 'uppercase', marginBottom: '4px' }}>Studio Financial Report</div>
@@ -212,7 +210,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
         </div>
       </div>
 
-      {/* ── Color Legend ── */}
       <div style={{ marginBottom: '24px', padding: '14px 16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafafa' }}>
         <div style={{ fontWeight: 900, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '10px', color: '#374151' }}>
           Color Key — Category Classification
@@ -231,9 +228,7 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
         </div>
       </div>
 
-      {/* ── P&L Summary ── */}
       <div style={{ marginBottom: '28px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-        {/* Summary table */}
         <div style={{ padding: '16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafafa' }}>
           <div style={{ fontWeight: 900, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px', color: '#374151' }}>Financial Summary</div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
@@ -250,7 +245,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
           </table>
         </div>
 
-        {/* Revenue by category */}
         <div style={{ padding: '16px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafafa' }}>
           <div style={{ fontWeight: 900, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px', color: '#374151' }}>Revenue Breakdown</div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
@@ -271,7 +265,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
         </div>
       </div>
 
-      {/* ── Checkout Sessions ── */}
       {sessions.length > 0 && (
         <div style={{ marginBottom: '32px' }}>
           <div style={{ fontWeight: 900, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '16px', color: '#111', borderBottom: '2px solid #111', paddingBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
@@ -281,7 +274,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
 
           {sessions.map((session) => (
             <div key={session.checkoutSessionId} style={{ marginBottom: '16px', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', breakInside: 'avoid' }}>
-              {/* Session header */}
               <div style={{ background: '#f8fafc', padding: '10px 14px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontWeight: 900, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{session.clientName}</div>
@@ -295,7 +287,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
                 </div>
               </div>
 
-              {/* Line items with color-coded categories */}
               <div style={{ padding: '8px 14px' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <tbody>
@@ -327,7 +318,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
                 </table>
               </div>
 
-              {/* Session totals */}
               <div style={{ padding: '8px 14px 10px', background: '#f8fafc', borderTop: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'flex', gap: '24px', justifyContent: 'flex-end', fontSize: '11px' }}>
                   {session.subtotal > 0 && <span style={{ color: '#6b7280' }}>Services <strong style={{ fontFamily: 'monospace', color: '#111' }}>${session.subtotal.toFixed(2)}</strong></span>}
@@ -342,7 +332,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
         </div>
       )}
 
-      {/* ── Ungrouped transactions ── */}
       {ungrouped.length > 0 && (
         <div style={{ marginBottom: '32px' }}>
           <div style={{ fontWeight: 900, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '12px', color: '#111', borderBottom: '2px solid #111', paddingBottom: '6px' }}>
@@ -387,7 +376,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
         </div>
       )}
 
-      {/* ── Receipt Appendix ── */}
       {appendixItems.length > 0 && (
         <div className="page-break" style={{ marginTop: '40px' }}>
           <div style={{ fontWeight: 900, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '16px', color: '#111', borderBottom: '2px solid #111', paddingBottom: '6px' }}>
@@ -411,7 +399,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
                 </div>
                 {item.receiptUrl ? (
                   <div style={{ padding: '8px', background: '#fff' }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={item.receiptUrl} alt={`IMG-${item.imgNum}`} style={{ width: '100%', maxHeight: '280px', objectFit: 'contain', display: 'block' }} />
                   </div>
                 ) : (
@@ -425,7 +412,6 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
         </div>
       )}
 
-      {/* ── Footer ── */}
       <div style={{ marginTop: '40px', borderTop: '2px solid #111', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', color: '#9ca3af', fontSize: '9px' }}>
         <div>
           <div style={{ fontWeight: 700 }}>ClarityFlow Studio Management</div>

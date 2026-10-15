@@ -208,7 +208,6 @@ export default function EventReconciliationPage() {
       <AppHeader title={`${event?.title || event?.name || 'Event'} — Reconciliation`} />
       <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-24">
 
-        {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
             <button onClick={() => router.push(`/events/${eventId}/manifest`)}
@@ -228,7 +227,6 @@ export default function EventReconciliationPage() {
           </Button>
         </div>
 
-        {/* Summary stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Total RSVPs" value={stats.totalRSVPs} sub="Pre-registered" icon={<Users className="w-8 h-8" />} />
           <StatCard label="Attended" value={stats.checkedIn} sub={`${stats.attendanceRate}% attendance`}
@@ -242,7 +240,6 @@ export default function EventReconciliationPage() {
             icon={<TrendingDown className="w-8 h-8" />} />
         </div>
 
-        {/* Meal breakdown */}
         {Object.keys(stats.mealBreakdown).length > 0 && (
           <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
             <div className="p-5 border-b border-border">
@@ -264,7 +261,6 @@ export default function EventReconciliationPage() {
           </div>
         )}
 
-        {/* Inventory reconciliation */}
         <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
           <div className="p-5 border-b border-border flex items-center justify-between">
             <h2 className="text-sm font-black uppercase tracking-[0.2em] text-foreground flex items-center gap-2">
@@ -348,7 +344,6 @@ export default function EventReconciliationPage() {
           )}
         </div>
 
-        {/* Course fire log */}
         {fires.length > 0 && (
           <div className="bg-card rounded-2xl border-2 border-border overflow-hidden">
             <div className="p-5 border-b border-border">
@@ -374,7 +369,6 @@ export default function EventReconciliationPage() {
           </div>
         )}
 
-        {/* Allergy summary */}
         {stats.allergyCount > 0 && (
           <div className="bg-amber-50 rounded-2xl border-2 border-amber-200 p-5">
             <h2 className="text-sm font-black uppercase tracking-[0.2em] text-amber-800 flex items-center gap-2 mb-3">

@@ -68,14 +68,12 @@ function DemoBusiness({ niche, onNiche }: { niche: NicheKey; onNiche: (k: NicheK
         <div className="absolute -right-40 top-1/3 h-[520px] w-[520px] rounded-full bg-gradient-to-bl from-violet-200/40 via-sky-200/30 to-transparent blur-3xl" />
       </div>
 
-      {/* Demo notice */}
       <div className="relative z-30 flex items-center gap-3 bg-stone-900 px-4 py-2.5 text-white" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}>
         <p className="min-w-0 flex-1 text-[12px]"><span className="font-semibold">Live demo</span> · a sample business. Nothing here is real or saved.</p>
         <Link href={`/request-access?type=${niche}`} className="shrink-0 rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-stone-900">Request access</Link>
       </div>
 
       <div className="relative z-10 mx-auto max-w-3xl px-4 pb-28 pt-4">
-        {/* Business + niche */}
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <Link href="/" className="text-[12px] text-stone-500">← ClarityFlow</Link>
@@ -86,14 +84,12 @@ function DemoBusiness({ niche, onNiche }: { niche: NicheKey; onNiche: (k: NicheK
           </select>
         </div>
 
-        {/* Today at a glance */}
         <div className="mt-4 grid grid-cols-3 gap-2">
           {[['Taken today', money(revenue)], ['Booked', String(day.filter((a) => a.status !== 'requested').length)], ['Awaiting you', String(awaiting.length)]].map(([l, v]) => (
             <div key={l} className="glass rounded-2xl p-3"><p className="text-[10px] uppercase tracking-widest text-stone-400">{l}</p><p className="mt-0.5 text-xl font-semibold tabular-nums">{v}</p></div>
           ))}
         </div>
 
-        {/* The guided loop */}
         <div className="glass mt-3 rounded-3xl p-4">
           {loopDone ? (
             <div className="text-center">
@@ -116,7 +112,6 @@ function DemoBusiness({ niche, onNiche }: { niche: NicheKey; onNiche: (k: NicheK
           )}
         </div>
 
-        {/* Tabs */}
         <nav className="-mx-4 mt-4 flex gap-1.5 overflow-x-auto px-4 pb-1" aria-label="Screens">
           {tabs.map(([k, l, badge]) => (
             <button key={k} type="button" onClick={() => setTab(k)} aria-pressed={tab === k}

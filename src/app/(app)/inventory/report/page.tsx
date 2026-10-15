@@ -183,7 +183,6 @@ const InventoryReportPage = () => {
                         <p className="text-muted-foreground">Generated on {format(new Date(), 'MMMM d, yyyy')}</p>
                     </header>
 
-                    {/* KPIs */}
                     <Card className="print:shadow-none print:border-border">
                         <CardHeader><CardTitle>Inventory Snapshot</CardTitle></CardHeader>
                         <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -210,7 +209,6 @@ const InventoryReportPage = () => {
                         </CardContent>
                     </Card>
 
-                    {/* Alerts */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <Card className="print:shadow-none print:border-border">
                             <CardHeader>
@@ -240,7 +238,6 @@ const InventoryReportPage = () => {
                         </Card>
                     </div>
 
-                    {/* Stock Details */}
                     <Card className="print:shadow-none print:border-border">
                         <CardHeader><CardTitle>Full Inventory Stock Details</CardTitle></CardHeader>
                         <CardContent>
@@ -307,7 +304,6 @@ const InventoryReportPage = () => {
                         </CardContent>
                     </Card>
                     
-                    {/* Retail Performance */}
                     <Card className="print:shadow-none print:border-border">
                         <CardHeader>
                             <CardTitle>Retail Performance</CardTitle>
@@ -343,7 +339,6 @@ const InventoryReportPage = () => {
                         </CardContent>
                     </Card>
                     
-                     {/* Professional Usage */}
                     <Card className="print:shadow-none print:border-border">
                         <CardHeader><CardTitle>Professional Product Usage</CardTitle><CardDescription>Top 10 most used products in completed services.</CardDescription></CardHeader>
                         <CardContent>

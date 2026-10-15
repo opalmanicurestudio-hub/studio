@@ -820,7 +820,6 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
   return (
     <div className="p-4 space-y-4">
 
-      {/* ── STEP 1: Pick add-on ── */}
       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Select Add-on</p>
       <div className="space-y-2 max-h-44 overflow-y-auto">
         {compatibleAddOns.map((addon: any) => (
@@ -841,7 +840,6 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
         ))}
       </div>
 
-      {/* ── STEP 2: Assignment options (shown once add-on selected) ── */}
       <AnimatePresence>
         {selectedAddOn && (
           <motion.div
@@ -850,7 +848,6 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
             exit={{ opacity: 0, y: 6 }}
             className="space-y-3 pt-2 border-t border-dashed"
           >
-            {/* Self-assign — always first, prominent */}
             <button
               onClick={() => { setMode('self'); handleSelfAdd(); }}
               disabled={saving}
@@ -878,7 +875,6 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
               <ChevronRight className="w-4 h-4 text-primary shrink-0" />
             </button>
 
-            {/* Assign to another tech */}
             <div className="space-y-2">
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-50 px-1">
                 Or Assign to Available Tech
@@ -940,7 +936,6 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
               )}
             </div>
 
-            {/* Flow type + confirm — shown when a tech is selected */}
             <AnimatePresence>
               {assignedTechId && (
                 <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="space-y-3 pt-2 border-t border-dashed">
@@ -1052,12 +1047,10 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
         className="w-full max-w-lg mx-auto bg-white rounded-t-[2.5rem] overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 rounded-full bg-slate-200" />
         </div>
 
-        {/* Header info */}
         <div className="px-5 py-4 border-b border-slate-100 space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
@@ -1077,7 +1070,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
             </Badge>
           </div>
 
-          {/* Live timer */}
           {st === 'servicing' && elapsed && (
             <div className={cn('rounded-2xl border-4 text-center py-3 transition-all',
               isOverTime ? 'bg-destructive/5 border-destructive/30 animate-pulse' : 'bg-primary/5 border-primary/20')}>
@@ -1090,7 +1082,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
             </div>
           )}
 
-          {/* Notes */}
           {apt.notes && (
             <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-100">
               <p className="text-[10px] font-black uppercase text-amber-700 mb-0.5">Client Notes</p>
@@ -1098,7 +1089,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
             </div>
           )}
 
-          {/* What the client told us (running late / on the way / here) + decide on the spot */}
           <ClientStatusCard apt={apt} tenantId={tenantId} />
           {apt.fixBrief && (
             <div className="rounded-2xl border-2 border-sky-200 bg-sky-50 p-3 text-sky-950">
@@ -1112,7 +1102,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
           )}
         </div>
 
-        {/* Add-on sheet — slides in when toggled */}
         <AnimatePresence>
           {showAddOn && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
@@ -1126,10 +1115,8 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
           )}
         </AnimatePresence>
 
-        {/* Actions */}
         {!showAddOn && (
           <div className="p-4 space-y-2.5">
-            {/* Start */}
             {(st === 'confirmed' || st === 'pending') && (
               <button onClick={() => { onAction(apt.id, 'start', apt); onClose(); }}
                 className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-primary text-white shadow-lg shadow-primary/30">
@@ -1137,7 +1124,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </button>
             )}
 
-            {/* Servicing actions */}
             {st === 'servicing' && (<>
               <button onClick={() => { onReview(apt); onClose(); }}
                 className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-emerald-600 text-white shadow-lg shadow-emerald-500/30">
@@ -1153,7 +1139,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </button>
             </>)}
 
-            {/* Ready for checkout */}
             {st === 'ready_for_checkout' && (
               <button onClick={() => { onEscalate(apt); onClose(); }}
                 className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-amber-500 text-white shadow-lg">
@@ -1161,7 +1146,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
               </button>
             )}
 
-            {/* No show — available on any non-terminal status */}
             {!['completed','cancelled','no_show'].includes(st) && (
               <button onClick={() => { onAction(apt.id, 'noshow', apt); onClose(); }}
                 className="w-full h-11 rounded-2xl font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] bg-slate-100 text-slate-600 border-2 border-slate-200">
@@ -1281,7 +1265,6 @@ function TechPeekSheet({ apt, tech, service, onClose }: any) {
       >
         <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-slate-200" /></div>
         <div className="px-5 py-4 space-y-4">
-          {/* Tech info */}
           <div className="flex items-center gap-3">
             <Avatar className="h-10 w-10 rounded-2xl border-2 shrink-0">
               <AvatarImage src={tech?.avatarUrl} className="object-cover" />
@@ -1298,7 +1281,6 @@ function TechPeekSheet({ apt, tech, service, onClose }: any) {
               <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">→ {format(biz(end), 'h:mm a')}</p>
             </div>
           </div>
-          {/* Service category shown but NOT client name */}
           <div className="p-3 rounded-2xl bg-slate-50 border-2 border-slate-100 flex items-center gap-3">
             <div className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
             <div>
@@ -1479,7 +1461,6 @@ function DayTimeline({
 
   return (
     <div className="rounded-[2rem] border-2 border-slate-100 bg-white flex flex-col">
-      {/* ── Header with mode toggle ── */}
       <div className="px-4 py-3 border-b bg-white flex items-center justify-between shrink-0 rounded-t-[2rem]">
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
           {isToday_ ? "Today's Timeline" : format(selectedDate, 'EEE, MMM d')}
@@ -1488,7 +1469,6 @@ function DayTimeline({
           <p className="text-[9px] font-black uppercase text-primary">
             {dayApts.length} apt{dayApts.length !== 1 ? 's' : ''}
           </p>
-          {/* View mode toggle — only shown when floor data is available */}
           {!mode && (allStaff?.length ?? 0) > 1 && (
             <div className="flex items-center bg-slate-100 rounded-xl p-0.5 ml-1">
               <button
@@ -1510,13 +1490,9 @@ function DayTimeline({
         </div>
       </div>
 
-      {/* ════════════════════════════════════════════
-          MY DAY VIEW — collision-aware own apt layout
-          ════════════════════════════════════════════ */}
       {viewMode === 'my_day' && (
         <div ref={scrollRef} className="overflow-y-auto rounded-b-[2rem]" style={{ height: 460 }}>
           <div className="relative overflow-hidden" style={{ height: TIMELINE_H }}>
-            {/* Hour grid lines */}
             {hours.map(h => {
               const topPx = h * 60 * PX_PER_MIN;
               const label = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
@@ -1528,7 +1504,6 @@ function DayTimeline({
               );
             })}
 
-            {/* Now indicator */}
             {isToday_ && (
               <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: timeToPx(now) }}>
                 <div className="w-3 h-3 rounded-full bg-rose-500 ml-10 shrink-0 ring-2 ring-white shadow-md shadow-rose-400/60" />
@@ -1537,17 +1512,6 @@ function DayTimeline({
               </div>
             )}
 
-            {/* ── EVENT BLOCKS ──────────────────────────────────────────
-                 Logic:
-                 1. allDay flag OR duration ≥ 1 full day (1440m)
-                    → full-height background wash behind all blocks (z-5)
-                    → no top/height positioning needed — fills entire column
-                 2. Multi-day event spanning today
-                    → starts at midnight (top=0) if event started before today
-                    → ends at midnight (bottom=TIMELINE_H) if event ends after today
-                 3. Timed single-day event
-                    → precise top/height from actual startTime → endTime
-                 ──────────────────────────────────────────────────────────── */}
             {(allEvents || [])
               .filter((e: any) => {
                 // Only show if event is global (no staffIds) OR includes this staff member
@@ -1598,7 +1562,6 @@ function DayTimeline({
                     )}
                     style={{ top: evTop, height: evH }}
                   >
-                    {/* Label — pinned to top-left so it's always visible */}
                     <div className="sticky top-0 flex items-center gap-1.5 px-2 py-1">
                       <CalendarDays className={cn('w-2.5 h-2.5 shrink-0', evText)} />
                       <p className={cn('text-[7px] font-black uppercase truncate', evText)}>
@@ -1619,7 +1582,6 @@ function DayTimeline({
                 );
               })}
 
-            {/* Break block — amber hatched block while tech is on break */}
             {clockStatus?.isOnBreak && clockStatus?.breakStartTime && isToday_ && (
               <div
                 className="absolute left-14 right-2 z-25 rounded-2xl overflow-hidden pointer-events-none"
@@ -1637,7 +1599,6 @@ function DayTimeline({
               </div>
             )}
 
-            {/* Appointment blocks — collision-aware side-by-side */}
             {myDayWithCols.map(apt => {
               const start      = safeDate(apt.startTime);
               const padBefore  = apt._padBefore ?? 0;
@@ -1685,7 +1646,6 @@ function DayTimeline({
                     : { top: topPx, height: totalH, left: '56px', right: '8px' }
                   }
                 >
-                  {/* Pre-pad */}
                   {padBefore > 0 && (
                     <div className="shrink-0 rounded-t-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden" style={{ height: padBPx }}>
                       <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
@@ -1693,7 +1653,6 @@ function DayTimeline({
                     </div>
                   )}
 
-                  {/* Service zone */}
                   <button
                     onClick={() => onAptTap(apt)}
                     className={cn(
@@ -1709,14 +1668,12 @@ function DayTimeline({
                   >
                     <StepEdge service={(services || []).find((s: any) => s.id === apt.serviceId)} appointment={apt} />
                     <div className="p-3 pr-4 h-full flex flex-col gap-1 overflow-hidden">
-                      {/* Escalated banner */}
                       {apt.isEscalated && (
                         <div className="flex items-center gap-1 mb-0.5">
                           <ShieldAlert className="w-2.5 h-2.5 text-destructive shrink-0" />
                           <span className="text-[7px] font-black uppercase text-destructive tracking-widest">Manager Alerted</span>
                         </div>
                       )}
-                      {/* Service name + dot + check-in */}
                       <div className="flex items-center gap-1.5 min-w-0">
                         <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls[st] || 'bg-slate-400')} />
                         <p className="font-black text-[11px] uppercase truncate text-slate-800 flex-1">
@@ -1727,17 +1684,14 @@ function DayTimeline({
                         {!apt.studioAskedToMove && apt.checkInStatus === 'running_late' && <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">{apt.etaAt ? `Late ~${new Date(apt.etaAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '')}` : `+${apt.lateTimeMinutes}M`}</span>}
                         {apt.checkInStatus === 'on_my_way'    && <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">{apt.clientTrip?.etaMin && apt.clientTrip?.at && Date.now() - Date.parse(apt.clientTrip.at) < 600000 ? `En route ~${apt.clientTrip.etaMin}m` : 'En route'}</span>}
                       </div>
-                      {/* Time + client */}
                       <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
                         {format(biz(start), 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
                       </p>
-                      {/* Padding summary */}
                       {(padBefore > 0 || padAfter > 0) && (
                         <p className="text-[8px] font-bold text-muted-foreground opacity-50 uppercase pl-3 truncate">
                           {svcDur}m svc{padBefore > 0 ? ` · ${padBefore}m pre` : ''}{padAfter > 0 ? ` · ${padAfter}m post` : ''}
                         </p>
                       )}
-                      {/* Multi-staff badge */}
                       {hasMultiStaff && (
                         <div className={cn('flex items-center gap-1 ml-3 px-1.5 py-0.5 rounded-lg w-fit',
                           hasSelfAddOn ? 'bg-teal-100 text-teal-700' :
@@ -1762,11 +1716,8 @@ function DayTimeline({
                           )}
                         </div>
                       )}
-                      {/* Add-on tech badge */}
                       {isAddOnTech && <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>}
-                      {/* Live timer */}
                       {st === 'servicing' && apt.actualStartTime && <LiveTimerBadge startTime={apt.actualStartTime} duration={svcDur} />}
-                      {/* Status */}
                       <div className="flex items-center justify-between mt-auto pl-3">
                         <span className="text-[8px] font-black uppercase text-muted-foreground opacity-50">{statusTxt[st] || st}</span>
                         <span className="flex items-center gap-0.5 text-[8px] font-black uppercase text-primary bg-primary/10 rounded-lg px-1.5 py-0.5">
@@ -1776,7 +1727,6 @@ function DayTimeline({
                     </div>
                   </button>
 
-                  {/* Post-pad */}
                   {padAfter > 0 && (
                     <div className="shrink-0 rounded-b-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden" style={{ height: padAPx }}>
                       <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
@@ -1799,16 +1749,10 @@ function DayTimeline({
         </div>
       )}
 
-      {/* ════════════════════════════════════════════
-          FLOOR VIEW — horizontally scrollable columns
-          ════════════════════════════════════════════ */}
       {viewMode === 'floor' && (
         <div className="flex flex-col rounded-b-[2rem] overflow-hidden" style={{ height: 460 }}>
-          {/* Column headers — sticky */}
           <div className="flex shrink-0 border-b border-slate-100 bg-white">
-            {/* Time gutter spacer */}
             <div style={{ width: FLOOR_TIME_GUTTER, minWidth: FLOOR_TIME_GUTTER }} className="shrink-0" />
-            {/* Horizontally scrollable headers — sync scroll with body */}
             <div className="flex overflow-x-auto scrollbar-hide" id="floor-header-scroll">
               {floorColumns.map(({ tech, isMe }) => (
                 <div
@@ -1826,13 +1770,11 @@ function DayTimeline({
                   <p className={cn('font-black uppercase truncate text-center', isMe ? 'text-[9px] text-primary' : 'text-[8px] text-slate-500')}>
                     {isMe ? `★ ${tech.name?.split(' ')[0]}` : tech.name?.split(' ')[0]}
                   </p>
-                  {/* On-break indicator in column header */}
                   {isMe && clockStatus?.isOnBreak && (
                     <span className="text-[6px] font-black uppercase bg-amber-400 text-amber-900 rounded px-1 animate-pulse">
                       Break
                     </span>
                   )}
-                  {/* Tech status dot for other techs */}
                   {!isMe && (() => {
                     const techObj = (allStaff || []).find((s: any) => s.id === tech.id);
                     const techStatus = techObj?.status;
@@ -1850,7 +1792,6 @@ function DayTimeline({
             </div>
           </div>
 
-          {/* Floor at capacity banner */}
           {(() => {
 if (!allStaff) return null;
             const todayStr2 = format(selectedDate, 'yyyy-MM-dd');
@@ -1873,7 +1814,6 @@ if (!allStaff) return null;
             );
           })()}
 
-          {/* Scrollable body */}
           <div
             ref={scrollRef}
             className="flex-1 overflow-auto"
@@ -1885,7 +1825,6 @@ if (!allStaff) return null;
           >
             <div className="relative flex" style={{ height: TIMELINE_H }}>
 
-              {/* ── Cross-column event banners — rendered over all columns ── */}
               {(allEvents || [])
                 .filter((e: any) => {
                   // Cross-column banner: only truly global events (no staffIds assigned)
@@ -1930,7 +1869,6 @@ if (!allStaff) return null;
                   );
                 })}
 
-              {/* Fixed time gutter */}
               <div className="relative shrink-0" style={{ width: FLOOR_TIME_GUTTER, minWidth: FLOOR_TIME_GUTTER }}>
                 {hours.map(h => {
                   const topPx = h * 60 * PX_PER_MIN;
@@ -1941,7 +1879,6 @@ if (!allStaff) return null;
                     </div>
                   );
                 })}
-                {/* Now indicator dot */}
                 {isToday_ && (
                   <div className="absolute right-0 w-full z-20 pointer-events-none" style={{ top: timeToPx(now) }}>
                     <div className="w-2 h-2 rounded-full bg-rose-500 ml-auto mr-1 ring-1 ring-white" />
@@ -1949,7 +1886,6 @@ if (!allStaff) return null;
                 )}
               </div>
 
-              {/* Tech columns */}
               {floorColumns.map(({ tech, isMe, items }) => {
                 const colW = isMe ? FLOOR_MY_COL : FLOOR_OTHER_COL;
                 return (
@@ -1958,7 +1894,6 @@ if (!allStaff) return null;
                     className={cn('relative shrink-0 border-r border-slate-100', isMe ? 'bg-primary/[0.01]' : 'bg-white')}
                     style={{ width: colW, minWidth: colW, height: TIMELINE_H }}
                   >
-                    {/* Hour grid lines for this column */}
                     {hours.map(h => (
                       <div
                         key={h}
@@ -1968,12 +1903,10 @@ if (!allStaff) return null;
                       />
                     ))}
 
-                    {/* Now line */}
                     {isToday_ && (
                       <div className="absolute left-0 right-0 h-[2px] bg-rose-500/60 z-20 pointer-events-none" style={{ top: timeToPx(now) }} />
                     )}
 
-                    {/* Event overlays for this column — show if global OR assigned to this tech */}
                     {(allEvents || [])
                       .filter((e: any) => {
                         const staffIds: string[] = e.staffIds || [];
@@ -2000,7 +1933,6 @@ if (!allStaff) return null;
                         );
                       })}
 
-                    {/* Break overlay for this tech's column */}
                     {isMe && clockStatus?.isOnBreak && clockStatus?.breakStartTime && isToday_ && (
                       <div
                         className="absolute left-0 right-0 z-25 overflow-hidden pointer-events-none"
@@ -2015,12 +1947,10 @@ if (!allStaff) return null;
                         </div>
                       </div>
                     )}
-                    {/* Other tech on break — amber column tint */}
                     {!isMe && tech.status === 'on_break' && (
                       <div className="absolute inset-0 bg-amber-400/8 pointer-events-none z-5" />
                     )}
 
-                    {/* Appointment / walk-in / block items */}
                     {items.map((item: any) => {
                       const start    = safeDate(item.startTime || item.checkInTime);
                       const dur      = item._svcDur ?? 30;
@@ -2121,7 +2051,6 @@ if (!allStaff) return null;
                           className="absolute z-30 flex flex-col"
                           style={{ top: topPx, height: totalH, left: leftPx, width: widthPx }}
                         >
-                          {/* Pre-pad */}
                           {padB > 0 && (
                             <div className="shrink-0 rounded-t-xl border border-dashed border-slate-200 bg-slate-50 flex items-center px-1 overflow-hidden" style={{ height: padBPx }}>
                               <span className="text-[6px] font-black uppercase text-slate-400 truncate">{padB}m</span>
@@ -2158,10 +2087,8 @@ if (!allStaff) return null;
                                   <p className="text-[8px] font-bold text-muted-foreground uppercase pl-2.5 truncate">
                                     {format(biz(start), 'h:mm')} · {item.clientName?.split(' ')[0] || 'Guest'}
                                   </p>
-                                  {/* Check-in badge */}
                                   {item.checkInStatus === 'arrived'      && <span className="text-[6px] font-black uppercase bg-green-500 text-white rounded px-1 w-fit ml-2.5">HERE</span>}
                                   {item.checkInStatus === 'running_late' && <span className="text-[6px] font-black uppercase bg-amber-500 text-white rounded px-1 w-fit ml-2.5 animate-pulse">LATE</span>}
-                                  {/* Multi-staff badge */}
                                   {addOnTs.length > 0 && (
                                     <div className={cn('flex items-center gap-0.5 ml-2.5 px-1 py-0.5 rounded w-fit',
                                       concIds.length > 0 ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700')}>
@@ -2169,15 +2096,12 @@ if (!allStaff) return null;
                                       <span className="text-[6px] font-black uppercase">{concIds.length > 0 ? 'CON' : 'SEQ'} +{addOnTs.length}</span>
                                     </div>
                                   )}
-                                  {/* Escalated */}
                                   {isEsc && <span className="text-[6px] font-black uppercase bg-destructive text-white rounded px-1 w-fit ml-2.5 animate-pulse">ESC</span>}
-                                  {/* Live timer */}
                                   {st === 'servicing' && item.actualStartTime && (
                                     <LiveTimerBadge startTime={item.actualStartTime} duration={dur} />
                                   )}
                                 </>
                               )}
-                              {/* For other techs — just show status dot and time, no client info */}
                               {!isMe && (
                                 <p className="text-[7px] font-bold text-slate-400 uppercase pl-2.5 truncate">
                                   {format(biz(start), 'h:mm')}–{format(biz(addMinutes(start, dur)), 'h:mm')}
@@ -2186,7 +2110,6 @@ if (!allStaff) return null;
                             </div>
                           </button>
 
-                          {/* Post-pad */}
                           {padA > 0 && (
                             <div className="shrink-0 rounded-b-xl border border-dashed border-slate-200 bg-slate-50 flex items-center px-1 overflow-hidden" style={{ height: padAPx }}>
                               <span className="text-[6px] font-black uppercase text-slate-400 truncate">{padA}m</span>
@@ -2203,7 +2126,6 @@ if (!allStaff) return null;
         </div>
       )}
 
-      {/* Read-only peek sheet for other techs' appointments */}
       <AnimatePresence>
         {peekApt && (
           <TechPeekSheet
@@ -2215,7 +2137,6 @@ if (!allStaff) return null;
         )}
       </AnimatePresence>
 
-      {/* Floor view legend */}
       {viewMode === 'floor' && (
         <div className="px-4 py-2 border-t border-slate-100 flex items-center gap-4 flex-wrap bg-slate-50 rounded-b-[2rem]">
           {[
@@ -2253,7 +2174,6 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
 
   return (
     <div className="bg-white border-2 border-slate-100 rounded-[2rem] overflow-hidden">
-      {/* Week strip header */}
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
         <button onClick={() => onChange(addWeeks(selectedDate, -1))}
           className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-95 transition-all">
@@ -2272,7 +2192,6 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
         </button>
       </div>
 
-      {/* 7-day strip */}
       <div className="grid grid-cols-7 gap-1 px-3 pb-3">
         {weekDays.map(day => {
           const isSel = isSameDay(day, selectedDate);
@@ -2291,7 +2210,6 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
         })}
       </div>
 
-      {/* Expandable full month picker */}
       <AnimatePresence>
         {showMonthPicker && (
           <motion.div
@@ -2576,7 +2494,6 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
 
   return (
     <div className="flex items-center gap-1.5">
-      {/* Break toggle */}
       <button onClick={handleBreak} disabled={processing}
         className={cn('flex items-center gap-1 h-10 px-3 rounded-[14px] font-bold text-[13px] transition-all active:scale-95 disabled:opacity-50',
           isOnBreak
@@ -2584,7 +2501,6 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
             : 'bg-[#16171a] text-white')}>
         {processing ? <Loader className="w-3 h-3 animate-spin" /> : isOnBreak ? <><Coffee className="w-3.5 h-3.5" />End break</> : <><Coffee className="w-3.5 h-3.5" />Break</>}
       </button>
-      {/* Clock out */}
       <button onClick={handleClockInOut} disabled={processing || isOnBreak}
         className="flex items-center gap-1 h-10 px-3 rounded-[14px] font-semibold text-[13px] transition-all active:scale-95 disabled:opacity-50 border border-[#e6e6e8] bg-white text-[#16171a]">
         {processing ? <Loader className="w-3 h-3 animate-spin" /> : <><LogOut className="w-3.5 h-3.5" />Out</>}
@@ -2817,7 +2733,6 @@ function WalkInLeaderboard({
 
   return (
     <>
-      {/* ── Action bottom sheet (cancel / no-show / skip) ── */}
       <AnimatePresence>
         {actionSheet && (
           <div className="fixed inset-0 z-[9999] bg-black/60 flex items-end" onClick={() => setActionSheet(null)}>
@@ -2878,10 +2793,8 @@ function WalkInLeaderboard({
         )}
       </AnimatePresence>
 
-      {/* ── Main panel ── */}
       <div className="rounded-[2rem] border-2 border-slate-100 bg-white overflow-hidden">
 
-        {/* Header */}
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-white">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-xl bg-teal-500 flex items-center justify-center shrink-0">
@@ -2895,7 +2808,6 @@ function WalkInLeaderboard({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* View toggle */}
             <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
               <button onClick={() => setView('queue')}
                 className={cn('px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all',
@@ -2908,7 +2820,6 @@ function WalkInLeaderboard({
                 Floor
               </button>
             </div>
-            {/* My accepting toggle */}
             <button onClick={toggleAccepting}
               className={cn('h-7 px-2.5 rounded-xl font-black uppercase text-[8px] tracking-widest transition-all active:scale-95 border',
                 isAccepting
@@ -2919,10 +2830,8 @@ function WalkInLeaderboard({
           </div>
         </div>
 
-        {/* ══════ QUEUE VIEW ══════ */}
         {view === 'queue' && (
           <div>
-            {/* Turn order strip */}
             {turnOrder.length > 0 && (
               <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 overflow-x-auto scrollbar-hide">
                 <p className="text-[7px] font-black uppercase text-slate-400 shrink-0">Turn:</p>
@@ -2938,7 +2847,6 @@ function WalkInLeaderboard({
               </div>
             )}
 
-            {/* Waiting guests */}
             {queue.length === 0 && inService.length === 0 ? (
               <div className="py-10 text-center opacity-30">
                 <Users className="w-8 h-8 mx-auto mb-2" />
@@ -2964,13 +2872,11 @@ function WalkInLeaderboard({
                         isMe && isArrived ? 'bg-green-50 border-l-4 border-green-500' :
                         isMe ? 'bg-teal-50 border-l-4 border-teal-500' : 'bg-white')}>
                       <div className="flex items-start gap-3">
-                        {/* Position */}
                         <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-black text-sm mt-0.5',
                           isMe && isArrived ? 'bg-green-500 text-white' :
                           isMe ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500')}>
                           {idx + 1}
                         </div>
-                        {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p className={cn('font-black uppercase text-[11px] truncate',
@@ -3012,10 +2918,8 @@ function WalkInLeaderboard({
                             )}
                           </div>
                         </div>
-                        {/* Actions */}
                         {isMe && (
                           <div className="flex flex-col gap-1 shrink-0">
-                            {/* Start service — only when arrived */}
                             {isArrived ? (
                               <button onClick={() => startService(w)} disabled={!!processing}
                                 className="h-9 px-3 rounded-xl bg-green-500 text-white font-black uppercase text-[8px] flex items-center gap-1 active:scale-95 disabled:opacity-50 shadow-sm">
@@ -3050,7 +2954,6 @@ function WalkInLeaderboard({
                   );
                 })}
 
-                {/* In service section */}
                 {inService.length > 0 && (
                   <>
                     <div className="px-4 py-2 bg-slate-50 border-t border-slate-100">
@@ -3084,7 +2987,6 @@ function WalkInLeaderboard({
           </div>
         )}
 
-        {/* ══════ FLOOR VIEW ══════ */}
         {view === 'floor' && (
           <div className="divide-y divide-slate-50">
             {onShiftToday.length === 0 ? (
@@ -3140,7 +3042,6 @@ function WalkInLeaderboard({
                         )}
                       </div>
                     </div>
-                    {/* Accepting toggle — only for current tech */}
                     {isMe && (
                       <button onClick={toggleAccepting}
                         className={cn('h-7 px-2.5 rounded-xl font-black uppercase text-[7px] transition-all active:scale-95 border shrink-0',
@@ -3244,7 +3145,6 @@ function NextBanner({ appointments, services }: any) {
         </div>
       </div>
 
-      {/* Running late details */}
       {isRunningLate && (
         <div className="space-y-1.5 pl-1">
           <div className="flex items-center gap-2 flex-wrap">
@@ -3266,14 +3166,12 @@ function NextBanner({ appointments, services }: any) {
         </div>
       )}
 
-      {/* On my way ETA */}
       {isOnMyWay && !isRunningLate && (
         <p className="text-[9px] font-bold uppercase opacity-70 pl-1">
           Client is heading in · {format(biz(start), 'h:mm a')} appointment
         </p>
       )}
 
-      {/* Cancellation reason */}
       {isCancelled && (
         <div className="pl-1 space-y-1">
           <p className="text-[9px] font-black uppercase text-destructive">
@@ -4142,7 +4040,6 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
 
   return (
     <div className="p-5 space-y-4">
-      {/* ── Rent status ── */}
       <div className={cn('rounded-2xl border-2 p-5 space-y-3', openInvoice?.status === 'late' ? 'border-red-300 bg-red-50' : openInvoice ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50/50')}>
         <div className="flex items-center justify-between">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Rent Status</p>
@@ -4168,7 +4065,6 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
         )}
       </div>
 
-      {/* ── Lease ── */}
       {activeLease && (
         <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">My Lease</p>
@@ -4204,7 +4100,6 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
         </div>
       )}
 
-      {/* ── Credits ── */}
       {myCredits.length > 0 && (
         <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
           <div className="flex items-center justify-between">
@@ -4227,7 +4122,6 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
         </div>
       )}
 
-      {/* ── Upcoming bookings ── */}
       {myUpcoming.length > 0 && (
         <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Upcoming Bookings</p>
@@ -4249,7 +4143,6 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
         </div>
       )}
 
-      {/* ── Payment history ── */}
       <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
         <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Payment History</p>
         {myPayments.length === 0 ? (
@@ -4833,11 +4726,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         )}
       </header>
 
-      {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         <div className="px-4 pb-10 space-y-4">
 
-          {/* TODAY */}
           {activeTab==='orders' && (
             <div className="p-4">
               <FulfilmentPanel tenantId={tenantId} firestore={firestore as any} staffMember={staffMember as any} />
@@ -4968,7 +4859,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             )
           )}
 
-          {/* SCHEDULE */}
           {activeTab==='schedule' && (
             shiftsLoading ? <TabSkeleton /> : (
               <div className="space-y-4">
@@ -5000,12 +4890,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             )
           )}
 
-          {/* EARNINGS */}
           {activeTab==='earnings' && (
             <PayHome tenantId={tenantId} staffId={staffMember.id} firestore={firestore} accent={accentColor} />
           )}
 
-          {/* REQUESTS */}
           {activeTab==='requests' && (
             <div className="space-y-4">
               {isOwnerOrAdmin&&(pendingApprovals||[]).length>0&&(
@@ -5049,7 +4937,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             </div>
           )}
 
-          {/* INBOX */}
           {activeTab==='rent' && isRenter && (
             <div className="pb-3"><StudioCard firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={(isRenter && (myRenter?.businessName || myRenter?.business)) || (isSoloBiz ? ((portalTenant as any)?.name || staffMember.name) : staffMember.name) || 'My business'}
   sub={isRenter ? `${myRentData?.booth?.name ? `${myRentData.booth.name} · ` : ''}${(portalTenant as any)?.name || ''}` : staffMember.name || ''} logo={isRenter ? (myRenter?.logoUrl || staffMember.avatarUrl || null) : (brandLogo(portalTenant) || null)} accent={accentColor}
@@ -5150,7 +5037,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='documents' && (isRenter || isHybrid) && (
             <div className="space-y-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Documents & Receipts</p>
-              {/* W-9 status / collection */}
               {w9Status === 'loading' ? null : w9Status && !showW9Form ? (
                 <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-1">
                   <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">W-9 on file ✓</p>
@@ -5201,7 +5087,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
       <PortalTicket tenantId={tenantId} appointmentId={ticketId} accent={accentColor} onClose={() => setTicketId(null)} />
       {scanOpen && <PortalScan open={scanOpen} onOpenChange={setScanOpen} firestore={firestore} tenantId={tenantId} appointments={[...(allTodayApptsRaw || []), ...(allMyApts || [])]} services={services || []} staff={allStaff || []} onFound={(a: any) => setTicketId(a.id)} />}
-      {/* Appointment action drawer */}
       {drawerApt && (
         <AppointmentDrawer
           viewerIsRenter={isRenter}
@@ -5224,7 +5109,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           }} />
       )}
 
-      {/* Technician Review Dialog — opens when staff tap "Finish Service & Review" */}
       {reviewApt && reviewSvc && (
         <TechnicianReviewDialog
           open={!!reviewApt}
@@ -5255,7 +5139,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         />
       )}
 
-      {/* Request dialog */}
       <Dialog open={isRequestOpen} onOpenChange={v => { if (!v) { setIsRequestOpen(false); setRequestReason(''); setRequestDate(''); setSwapTargetShiftId(''); setSwapTargetStaffId(''); }}}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
           <DialogHeader className="p-6 pb-0 text-left">

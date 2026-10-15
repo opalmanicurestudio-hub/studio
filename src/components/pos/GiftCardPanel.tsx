@@ -64,7 +64,6 @@ export function GiftCardPanel({ tenantId, clientId, clientName, owedBeforeGift, 
     <section className="space-y-3 rounded-[20px] p-4" style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, hsl(var(--border)))' }} aria-label="Gift cards">
       <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">Gift cards</p>
         <div className="flex gap-1.5">{(['pay', 'sell'] as const).map((k) => <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(tab === k ? '' : k)} className="h-9 rounded-full px-3.5 text-[13.5px] font-semibold" style={tab === k ? { background: 'var(--ink, #16171a)', color: '#fff' } : { background: 'var(--soft, #f3f3f5)' }}>{k === 'pay' ? 'Pay with one' : 'Sell one'}</button>)}</div></div>
-      {/* The client has gift cards: say so up front, with one tap to use them (or ask them on the client screen). */}
       {cards.length > 0 && !applied.length && leftCents > 0 && (() => { const total = cards.reduce((t, c) => t + (c.availableCents || 0), 0); const first = cards[0]; const nm = clientName ? String(clientName).split(' ')[0] : 'They';
         const useAll = async () => { let left = leftCents; for (const c of cards) { if (left <= 0) break; left -= await apply({ id: c.id }, left); } };
         return (

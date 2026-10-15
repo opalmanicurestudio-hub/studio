@@ -934,7 +934,6 @@ function KDSContent() {
       <LabelPreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} payload={previewPayload} onConfirm={handleConfirmPrint} isPrinting={isPrinting} printerConfig={printerConfig} />
       <PrinterSettingsDialog open={printerSettingsOpen} onOpenChange={setPrinterSettingsOpen} config={printerConfig} onSave={handleSavePrinterConfig} />
 
-      {/* Top Bar */}
       <header className="shrink-0 bg-white border-b-2 border-slate-100 px-6 py-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4 min-w-0">
           <div className="p-2.5 bg-primary/10 rounded-2xl shrink-0"><ChefHat className="w-5 h-5 text-primary" /></div>
@@ -963,7 +962,6 @@ function KDSContent() {
         <div className="flex items-center gap-3 shrink-0">
           <StatsBar requests={allRequests} />
 
-          {/* Printer mode indicator */}
           <button
             onClick={() => setPrinterSettingsOpen(true)}
             className={cn('flex items-center gap-2 px-3 py-2 rounded-2xl border-2 transition-all hover:border-primary/30', printerConfig.mode === 'network' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-500')}
@@ -979,7 +977,6 @@ function KDSContent() {
             <button onClick={handleLogout} className="ml-1 text-slate-400 hover:text-red-500 transition-colors"><LogOut className="w-3.5 h-3.5" /></button>
           </div>
 
-          {/* Sound toggle — also unblocks AudioContext on click */}
           <Button
             variant="outline"
             size="sm"
@@ -994,7 +991,6 @@ function KDSContent() {
         </div>
       </header>
 
-      {/* Three Lanes */}
       <main className="flex-1 overflow-hidden p-6">
         <div className="h-full grid grid-cols-3 gap-6">
           <div className="overflow-y-auto pr-1 scrollbar-none">
@@ -1015,7 +1011,6 @@ function KDSContent() {
         </div>
       </main>
 
-      {/* Footer */}
       <footer className="shrink-0 bg-white border-t-2 border-slate-100 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">

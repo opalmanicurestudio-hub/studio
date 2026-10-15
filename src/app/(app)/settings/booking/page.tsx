@@ -207,7 +207,6 @@ export default function BookingSettingsPage() {
               </div>
             )}
 
-            {/* The master deposit switch lives HERE (it used to sit in the old Policies tab). */}
             <label className={cn('flex items-center justify-between gap-3 rounded-xl border-2 px-3 py-2.5', depositsLive ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-300 bg-amber-50')}>
               <span className="text-sm"><b>{depositsLive ? 'Collecting deposits' : 'Deposits are switched off'}</b>
                 <span className="block text-xs text-muted-foreground">{depositsLive ? 'Services with a deposit ask for it when clients book.' : 'No deposit is collected anywhere, whatever each service says — turn on when you’re ready.'}</span></span>
@@ -231,9 +230,6 @@ export default function BookingSettingsPage() {
 
         <More help="No-show limits, rebooking at the counter, who can move appointments, blocked time, and when plans change.">
 
-        {/* Guardian's two numbers. Both were in the code — half the price, and
-            more than two strikes — with the threshold repeated in eleven
-            places. One definition now, and it belongs to the shop. */}
         <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <div>
@@ -284,9 +280,6 @@ export default function BookingSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Rebooking at the counter is a different act from booking online —
-            the client is in front of you and their card is often already on
-            file. Until now a rebook just inherited the service's rule. */}
         <Card className="border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-4">
             <div>

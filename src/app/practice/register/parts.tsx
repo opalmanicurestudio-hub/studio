@@ -189,20 +189,16 @@ export function CashDrawer({ code, drawer, onTake, counts, setCount, narrow, w }
   const coinCupH = counting ? 74 : 58;
   return (
     <div style={{ width: W, maxWidth: '100%', flexShrink: 0 }}>
-      {/* the drawer body */}
       <div style={{ position: 'relative', borderRadius: '12px 12px 4px 4px', padding: `${pad}px ${pad}px 10px`, background: 'linear-gradient(180deg,#45474d 0%,#2f3035 8%,#26272b 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.18), 0 30px 50px -26px rgba(0,0,0,.75)' }}>
-        {/* under the tray: big notes slipped in at the back */}
         <div style={{ height: under.length ? 22 : 10, marginBottom: 6, borderRadius: 4, background: 'linear-gradient(180deg,#0c0c0e,#1a1b1e)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,.8)', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px' }}>
           {under.map((v) => <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#c9ccd2', fontSize: 10.5, fontWeight: 700 }}><span style={{ display: 'inline-block', height: 12, overflow: 'hidden', borderRadius: 2 }}><NoteArt code={code} value={v} scale={0.28} /></span>{$.denomLabel(code, v)} × {drawer[v]}</span>)}
           {under.length > 0 && <span style={{ marginLeft: 'auto', fontSize: 9.5, color: '#8b8f96', letterSpacing: '.06em' }}>UNDER THE TRAY</span>}
         </div>
-        {/* note compartments */}
         <div style={{ display: 'flex', gap, background: '#111214', borderRadius: 6, padding: 0, boxShadow: 'inset 0 3px 8px rgba(0,0,0,.85)' }}>
           {noteSlots.map((v, i) => { const n = drawer[v] || 0; const show = counting ? Math.min(n, 18) : Math.min(n, 5); const up = counting || lift === v;
             return <button key={v} disabled={!onTake || !n} onClick={() => take(v)} aria-label={`Take ${$.denomLabel(code, v)}`} style={{ position: 'relative', width: slotW, height: compH, border: 'none', padding: 0, cursor: onTake && n ? 'pointer' : 'default', background: 'linear-gradient(180deg,#1d1e21,#141517)', borderRadius: 5, boxShadow: i ? 'inset 2px 0 0 #2a2b2f' : undefined, overflow: 'hidden' }}>
               {Array.from({ length: show }, (_, k) => <div key={k} style={{ position: 'absolute', left: 7 + ((k * 7) % 3) - 1, top: counting ? 6 + k * FAN : 8 + (show - 1 - k) * 1.5, transform: `rotate(${((k * 37) % 5) - 2}deg)`, transition: 'top .2s' }}><NoteArt code={code} value={v} scale={sc} /></div>)}
               {!n && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#6b6f76' }}>empty</div>}
-              {/* chrome bill weight */}
               <div style={{ position: 'absolute', left: '50%', top: 2, width: 12, marginLeft: -6, height: up ? 16 : noteH * 0.82, borderRadius: 6, background: 'linear-gradient(90deg,#7f868f,#f4f6f8 35%,#aeb4bc 60%,#e8ebef 80%,#7f868f)', boxShadow: '0 3px 4px rgba(0,0,0,.55)', transition: 'height .2s ease' }}>
                 <div style={{ position: 'absolute', left: -5, right: -5, bottom: -5, height: 10, borderRadius: 5, background: 'linear-gradient(180deg,#f4f6f8,#9ba1a9)', boxShadow: '0 2px 3px rgba(0,0,0,.5)' }} />
               </div>
@@ -210,7 +206,6 @@ export function CashDrawer({ code, drawer, onTake, counts, setCount, narrow, w }
               <div style={{ position: 'absolute', left: 6, bottom: 4, padding: '1px 6px', borderRadius: 4, background: '#efe9dc', color: INK, fontSize: 10, fontWeight: 800 }}>{$.denomLabel(code, v)}{!counting && <span style={{ fontWeight: 600, color: MUTED }}> · {n}</span>}</div>
             </button>; })}
         </div>
-        {/* coin cups */}
         <div style={{ display: 'flex', gap: 5, marginTop: 8 }}>
           {coins.map((v) => { const n = drawer[v] || 0; const show = counting ? Math.min(n, 30) : Math.min(n, 6); const k0 = $.CURRENCIES[code].coins.find((c) => c.value === v)!;
             const cs = (narrow ? 0.55 : 0.8) * (counting ? 0.85 : 1);
@@ -223,7 +218,6 @@ export function CashDrawer({ code, drawer, onTake, counts, setCount, narrow, w }
             </button>; })}
         </div>
       </div>
-      {/* drawer front with handle and lock */}
       <div style={{ height: 22, borderRadius: '0 0 12px 12px', background: 'linear-gradient(180deg,#2c2d32,#1b1c1f)', boxShadow: '0 14px 22px -12px rgba(0,0,0,.7)', position: 'relative' }}>
         <div style={{ position: 'absolute', left: '50%', top: 6, width: 90, marginLeft: -45, height: 8, borderRadius: 4, background: '#0e0f11', boxShadow: 'inset 0 2px 3px rgba(0,0,0,.9)' }} />
         <div style={{ position: 'absolute', right: 18, top: 5, width: 12, height: 12, borderRadius: 6, background: 'radial-gradient(circle at 35% 35%,#f4f6f8,#8b9199)' }}><div style={{ position: 'absolute', left: 5, top: 2, width: 2, height: 8, background: '#2a2c30', borderRadius: 1 }} /></div>

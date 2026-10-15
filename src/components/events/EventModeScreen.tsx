@@ -361,7 +361,6 @@ export function EventModeScreen({
 
       <div className="relative z-10 max-w-lg mx-auto px-5 py-8 space-y-8">
 
-        {/* Top bar */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             {logoUrl && (
@@ -380,7 +379,6 @@ export function EventModeScreen({
           </div>
         </div>
 
-        {/* Welcome */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="space-y-1">
           {lookingUp ? (
             <div className="flex items-center gap-2">
@@ -401,7 +399,6 @@ export function EventModeScreen({
           <p className="text-white/30 text-sm pt-1">Your meal is being prepared. Tap below for anything you need.</p>
         </motion.div>
 
-        {/* Status bar */}
         <AnimatePresence>
           {(pendingCount > 0 || ackdCount > 0) && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
@@ -419,7 +416,6 @@ export function EventModeScreen({
           )}
         </AnimatePresence>
 
-        {/* Request grid */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <p className="text-[8px] font-bold uppercase tracking-[0.3em] text-white/20 mb-3">Request Assistance</p>
           <div className="grid grid-cols-3 gap-2.5">
@@ -435,7 +431,6 @@ export function EventModeScreen({
           </div>
         </motion.div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between pt-2">
           <button
             onClick={() => {

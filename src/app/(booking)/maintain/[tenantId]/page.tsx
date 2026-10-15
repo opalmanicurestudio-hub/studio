@@ -362,7 +362,6 @@ export function MaintenancePortalPage() {
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
       <div className="max-w-lg mx-auto space-y-4">
-        {/* ── HEADER — who you are, what's on your plate, what you're owed ── */}
         <div className="rounded-3xl bg-slate-900 text-white p-5 shadow-xl">
           <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">{studioName || 'Maintenance'}</p>
           <h1 className="text-xl font-black tracking-tight mt-0.5">
@@ -391,8 +390,6 @@ export function MaintenancePortalPage() {
           )}
         </div>
 
-        {/* Persistent error banner — a photo that failed to save must not
-            vanish with the collapsed ticket. */}
         {state === 'ready' && error && (
           <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-3 flex items-start gap-2">
             <p className="flex-1 text-[11px] font-bold text-red-700">{error}</p>
@@ -485,7 +482,6 @@ export function MaintenancePortalPage() {
                       ))}
                     </div>
                   )}
-                  {/* ── JOB CLOCK — tap when the wrench comes out ── */}
                   {['open', 'in_progress'].includes(t.status) && (() => {
                     const running = (t.workSessions || []).some((s: any) => !s.endAt);
                     const ms = timedMs(t, Date.now());
@@ -512,7 +508,6 @@ export function MaintenancePortalPage() {
                       </div>
                     );
                   })()}
-                  {/* ── QUOTE — price it before you start ── */}
                   {t.quoteRequested && !t.quote && (
                     <p className="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-2.5 text-[11px] font-bold text-indigo-700">
                       The studio wants a quote before work starts — tap Send quote below.
@@ -640,8 +635,6 @@ export function MaintenancePortalPage() {
                         ? ` Labor pays at the studio's rate: $${((worker.hourlyRateCents || 0) / 100).toFixed(2)}/hr${Number(hoursDraft) > 0 ? ` × ${Math.min(24, Number(hoursDraft))}h = $${((Math.min(24, Number(hoursDraft)) * (worker.hourlyRateCents || 0)) / 100).toFixed(2)}` : ''}.`
                         : ' No hourly rate is on file yet — hours are logged, but ask the studio to set your rate so labor can accrue.'}
                   </p>
-                  {/* The studio's own rules, surfaced BEFORE the server
-                      rejects — no one finds out at the last tap. */}
                   {(() => {
                     const mat = Math.round((Number(costDollars) || 0) * 100);
                     const lab = worker?.payType !== 'payroll' ? Math.round(Math.min(24, Number(hoursDraft) || 0) * (worker?.hourlyRateCents || 0)) : 0;
@@ -703,9 +696,6 @@ export function MaintenancePortalPage() {
           );
         })}
 
-        {/* ── REQUEST SOMETHING — structured enough to decide from a phone:
-            what kind, how many, by when, roughly how much, for which job,
-            and which staff member is affected. ── */}
         {state === 'ready' && (
           <div className={`rounded-3xl bg-white border-2 overflow-hidden shadow-sm ${requestOpen ? 'border-indigo-300' : ''}`}>
             <button onClick={() => setRequestOpen(o => !o)} className="w-full text-left p-4 flex items-center justify-between gap-2">
@@ -717,7 +707,6 @@ export function MaintenancePortalPage() {
             </button>
             {requestOpen && (
               <div className="border-t px-4 py-3 space-y-2.5">
-                {/* What KIND — one tap sets the shape of the request */}
                 <div className="flex gap-1.5 flex-wrap">
                   {REQ_KINDS.map((k) => (
                     <button key={k.value} onClick={() => setReqKind(k.value)}
@@ -789,7 +778,6 @@ export function MaintenancePortalPage() {
           </div>
         )}
 
-        {/* ── MY HISTORY — the jobs already done, reprintable on site ── */}
         {state === 'ready' && history.length > 0 && (
           <div className="rounded-3xl bg-white border-2 overflow-hidden">
             <button onClick={() => setShowHistory(o => !o)} className="w-full text-left p-4 flex items-center justify-between">

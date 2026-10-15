@@ -124,7 +124,6 @@ export function SchoolIdentity({ tenantId, onSaved }: { tenantId: string; onSave
         <p className="text-[11px] text-muted-foreground">Certificates can be opened by anyone with their verification link (like a printed certificate), so whatever is on them can be seen. Other official documents are printed by your team.</p>
       </div>
 
-      {/* Preview */}
       <div className="space-y-1"><p className="text-[12px] font-black uppercase tracking-widest text-muted-foreground">Preview — an official document</p>
         <div className="rounded-2xl bg-card p-5 text-foreground shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-border pb-3">

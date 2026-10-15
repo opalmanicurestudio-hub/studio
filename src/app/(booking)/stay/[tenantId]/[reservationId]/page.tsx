@@ -253,7 +253,6 @@ export function StayPage(props: StayPageProps = {}) {
           </h1>
         </div>
 
-        {/* Booking summary */}
         <div className="rounded-2xl border-2 bg-muted/20 p-4 space-y-1.5 text-sm">
           <Row label="Space" value={b.boothName} />
           <Row label="When" value={fmtWindow(b)} />
@@ -281,14 +280,12 @@ export function StayPage(props: StayPageProps = {}) {
           </div>
         ) : (
           <>
-            {/* Emergency contact (optional) */}
             <div className="rounded-2xl border-2 p-4 space-y-2.5">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Emergency contact <span className="text-slate-400">(optional)</span></p>
               <input value={emName} onChange={e => setEmName(e.target.value)} placeholder="Name" className="w-full h-11 rounded-xl border-2 px-3.5 text-sm font-semibold" />
               <input value={emPhone} onChange={e => setEmPhone(e.target.value)} inputMode="tel" placeholder="Phone" className="w-full h-11 rounded-xl border-2 px-3.5 text-sm font-semibold" />
             </div>
 
-            {/* Type-to-sign */}
             {agreement ? (
               <div className="rounded-2xl border-2 p-4">
                 <ESignAgreement
@@ -306,7 +303,6 @@ export function StayPage(props: StayPageProps = {}) {
           </>
         ))}
 
-        {/* ── Rate your stay — once it's underway or done ── */}
         {stayStartedOrDone && (
           hasReviewed ? (
             <div className="rounded-2xl border-2 p-4">
@@ -336,7 +332,6 @@ export function StayPage(props: StayPageProps = {}) {
           )
         )}
 
-        {/* ── Need to cancel? Quiet, but findable ── */}
         {canRequestCancel && (
           <div className="pt-1">
             {!cancelOpen ? (

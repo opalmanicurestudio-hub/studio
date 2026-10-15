@@ -125,7 +125,6 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
         <ScrollArea className="max-h-[60vh]">
           <div className="p-8 space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* BEFORE CARD */}
               <Card className="rounded-[2rem] border-2 border-border/50 bg-muted/10 shadow-inner overflow-hidden">
                 <CardHeader className="p-6 pb-2 text-center">
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Original Estimate</p>
@@ -141,7 +140,6 @@ export const EndCostPerUseTestDialog: React.FC<EndCostPerUseTestDialogProps> = (
                 </CardContent>
               </Card>
 
-              {/* AFTER CARD */}
               <Card className="rounded-[2rem] border-4 border-primary/20 bg-primary/5 shadow-2xl shadow-primary/5 overflow-hidden">
                 <CardHeader className="p-6 pb-2 text-center">
                   <p className="text-[10px] font-black uppercase tracking-widest text-primary">Actual Results</p>

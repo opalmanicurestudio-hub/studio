@@ -263,7 +263,6 @@ function Editor() {
     <div className="min-h-screen bg-background">
       <AppHeader title={editId ? 'Campaign' : 'New campaign'} />
       <main className="mx-auto max-w-2xl px-4 pb-40 pt-4 space-y-5">
-        {/* Steps */}
         <nav className="flex gap-1 overflow-x-auto pb-1" aria-label="Steps">
           {STEPS.map((s, i) => (
             <button key={s.id} type="button" onClick={() => go(s.id)} disabled={locked && s.id !== 'review'}
@@ -275,7 +274,6 @@ function Editor() {
 
         {locked && <p className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">This campaign has been sent. You can review it here; to send something similar, start a new one.</p>}
 
-        {/* 1 · START */}
         {step === 'start' && (
           <Card>
             <H sub="Pick one to start from — you can change every word.">What do you want to do?</H>
@@ -294,7 +292,6 @@ function Editor() {
           </Card>
         )}
 
-        {/* 2 · WHO */}
         {step === 'who' && (
           <Card>
             <H sub="Only clients who can receive it are counted — you’ll see the exact number on Review.">Who should get it?</H>
@@ -339,7 +336,6 @@ function Editor() {
           </Card>
         )}
 
-        {/* 3 · MESSAGE */}
         {step === 'message' && (
           <Card>
             <H sub="Emails are free. Texts only reach clients who said yes to offers by text.">Write your message</H>
@@ -377,7 +373,6 @@ function Editor() {
           </Card>
         )}
 
-        {/* 4 · OFFER */}
         {step === 'offer' && (
           <Card>
             <H sub="An offer is one of your discounts. Its code goes into the message, and when a client books from it, the discount is applied at checkout automatically.">Add an offer? (optional)</H>
@@ -411,7 +406,6 @@ function Editor() {
           </Card>
         )}
 
-        {/* 5 · WHEN */}
         {step === 'when' && (
           <Card>
             <H sub="Texts only go out 9am–8pm.">When should it go out?</H>
@@ -435,7 +429,6 @@ function Editor() {
           </Card>
         )}
 
-        {/* 6 · REVIEW */}
         {step === 'review' && (
           <div className="space-y-4">
             <Card>
@@ -494,7 +487,6 @@ function Editor() {
         )}
       </main>
 
-      {/* Bottom bar */}
       {step !== 'start' && !locked && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
           <div className="mx-auto flex max-w-2xl gap-2">

@@ -1217,9 +1217,6 @@ export default function OrderStatusPage() {
                   <div className="max-h-72 space-y-2 overflow-y-auto">
                     {supportThread.map((t, i) => (
                       <div key={i} className="space-y-2">
-                        {/* THE CASE TRACKER — the visibility that prevents the
-                            chaser message: named case, four honest steps, and
-                            the same expectation stamp everywhere else quotes. */}
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border-2 border-dashed px-2.5 py-1.5">
                           <span className="text-[9px] font-black uppercase tracking-widest">
                             Case{t.caseRef ? ` #${t.caseRef}` : ''}
@@ -1391,11 +1388,6 @@ export default function OrderStatusPage() {
                       </div>
                     )}
                   </div>
-                  {/* THE ELIGIBLE-OPTIONS MENU. Only what THIS order can
-                      actually do right now — eligibility computed server-side
-                      next to the code that enforces it, so no option here can
-                      ever error with "not allowed". Chips either jump to the
-                      real flow, open a link, or start the message for them. */}
                   {helpElig && !helpCooldown && (
                     <div className="flex flex-wrap gap-1.5">
                       {([

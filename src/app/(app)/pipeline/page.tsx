@@ -980,11 +980,6 @@ export default function PipelinePage() {
                 </div>
               ))}
 
-              {/* ── One next step, everything else behind More ──────────
-                  A lead has exactly one thing you should do next. That is
-                  the only button that gets colour and a full label; the
-                  rest still exist, one tap away, but they no longer compete
-                  for the eye. Destructive ones keep their two-tap arming. */}
               {(() => {
                 const t = r.tourId ? tourById.get(r.tourId) : null;
                 const inv = inviteByApp.get(r.id);

@@ -232,7 +232,6 @@ export default function ScheduleRequestsPage() {
       <AppHeader title="Schedule Requests" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-4xl mx-auto space-y-8">
 
-        {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
@@ -250,7 +249,6 @@ export default function ScheduleRequestsPage() {
           </Button>
         </div>
 
-        {/* Swap consent explainer */}
         {allRequests.some(r => r.status === 'pending_swap_consent') && (
           <div className="p-4 rounded-2xl bg-purple-50 border-2 border-purple-200 flex items-start gap-3">
             <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
@@ -260,7 +258,6 @@ export default function ScheduleRequestsPage() {
           </div>
         )}
 
-        {/* Filter tabs */}
         <div className="flex gap-2 p-1 bg-card rounded-2xl border-2 w-fit shadow-sm">
           {(['pending', 'all', 'resolved'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
@@ -272,7 +269,6 @@ export default function ScheduleRequestsPage() {
           ))}
         </div>
 
-        {/* Request list */}
         <div className="space-y-4">
           {filtered.length === 0 && (
             <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30">
@@ -320,7 +316,6 @@ export default function ScheduleRequestsPage() {
                         </p>
                       )}
 
-                      {/* Swap detail */}
                       {isSwap && swapWith && (
                         <div className="flex items-center gap-2 p-3 rounded-xl bg-purple-50 border-2 border-purple-100">
                           <Avatar className="w-7 h-7 rounded-xl border shrink-0">
@@ -337,7 +332,6 @@ export default function ScheduleRequestsPage() {
                         </div>
                       )}
 
-                      {/* Consent status for swaps */}
                       {isSwap && (
                         <div className={cn("flex items-start gap-2 p-3 rounded-xl border-2 text-[9px] font-bold uppercase",
                           req.status === 'swap_consent_given' ? "bg-green-50 border-green-200 text-green-700" :
@@ -362,7 +356,6 @@ export default function ScheduleRequestsPage() {
                     </div>
                   </div>
 
-                  {/* Action button -- responsive */}
                   {(req.status === 'pending' || req.status === 'swap_consent_given') && (
                     <div className="mt-4 pt-4 border-t border-dashed">
                       <Button
@@ -395,7 +388,6 @@ export default function ScheduleRequestsPage() {
         </div>
       </main>
 
-      {/*  Review Dialog  */}
       <Dialog open={!!selected} onOpenChange={v => { if (!v) { setSelected(null); setManagerNote(''); } }}>
         <DialogContent className="sm:max-w-lg rounded-[3rem] border-4 shadow-3xl bg-background">
           <DialogHeader className="p-6 pb-0 text-left">
@@ -411,7 +403,6 @@ export default function ScheduleRequestsPage() {
           </DialogHeader>
           <div className="p-6 space-y-5">
 
-            {/* Swap shift details */}
             {selected?.type === 'swap' && (
               <div className="space-y-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Shift Exchange Details</p>
@@ -450,7 +441,6 @@ export default function ScheduleRequestsPage() {
                   </div>
                 </div>
 
-                {/* Consent status banner */}
                 <div className={cn("flex items-center gap-3 p-4 rounded-2xl border-2",
                   isSwapReadyForApproval ? "bg-green-50 border-green-200" :
                   isSwapPendingConsent ? "bg-purple-50 border-purple-200" :
@@ -476,7 +466,6 @@ export default function ScheduleRequestsPage() {
               </div>
             )}
 
-            {/* Day off / early release details */}
             {selected?.type !== 'swap' && (
               <div className="p-4 rounded-2xl bg-muted/20 border-2 border-dashed">
                 <p className="text-[9px] font-black uppercase text-muted-foreground mb-1">Staff Reason</p>
@@ -484,7 +473,6 @@ export default function ScheduleRequestsPage() {
               </div>
             )}
 
-            {/* Manager note */}
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 Manager Note {selected?.type !== 'swap' ? '(required for denial)' : '(optional)'}
@@ -499,7 +487,6 @@ export default function ScheduleRequestsPage() {
           </div>
 
           <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-            {/* Swap -- both agreed */}
             {isSwapReadyForApproval && (
               <>
                 <Button onClick={handleApproveSwap} disabled={isProcessing}
@@ -513,7 +500,6 @@ export default function ScheduleRequestsPage() {
               </>
             )}
 
-            {/* Swap -- pending consent, manager can only deny or wait */}
             {isSwapPendingConsent && (
               <>
                 <div className="p-3 rounded-2xl bg-purple-50 border-2 border-purple-200 text-center">
@@ -526,7 +512,6 @@ export default function ScheduleRequestsPage() {
               </>
             )}
 
-            {/* Swap consent denied -- just close */}
             {selected?.status === 'swap_consent_denied' && (
               <Button variant="outline" onClick={handleDeny} disabled={isProcessing}
                 className="w-full h-12 rounded-2xl font-black uppercase border-2">
@@ -534,7 +519,6 @@ export default function ScheduleRequestsPage() {
               </Button>
             )}
 
-            {/* Day off / early release / generic pending */}
             {selected?.type !== 'swap' && selected?.status === 'pending' && (
               <>
                 <Button onClick={handleApprove} disabled={isProcessing}

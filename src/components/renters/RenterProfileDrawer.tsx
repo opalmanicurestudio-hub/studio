@@ -321,9 +321,6 @@ export function RenterProfileDrawer({
     <div className="fixed inset-0 z-[70] flex justify-end">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       <div className="relative w-full sm:w-[420px] h-full bg-card shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-        {/* Header — identity banner: who they are + the three numbers that
-            matter, readable in one glance. Dark gradient so the profile feels
-            like a card, not a form. */}
         <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white px-5 pt-5 pb-0">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3.5 min-w-0">
@@ -349,7 +346,6 @@ export function RenterProfileDrawer({
             <button onClick={onClose} className="h-9 w-9 rounded-xl bg-card/10 hover:bg-card/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
           </div>
 
-          {/* The three numbers: station · rent · YTD value */}
           <div className="grid grid-cols-3 gap-2 mt-4">
             <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
               <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Station</p>
@@ -382,7 +378,6 @@ export function RenterProfileDrawer({
           </div>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {ptab === 'overview' && (
             <>
@@ -469,8 +464,6 @@ export function RenterProfileDrawer({
                 </div>
               )}
 
-              {/* Shared owner notes — the same journey note a lead carries, so a
-                  contact's notes follow them from lead to renter. */}
               {onSaveNote && (
                 <div className="rounded-2xl border-2 p-4 space-y-1.5">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Notes</p>
@@ -478,8 +471,6 @@ export function RenterProfileDrawer({
                 </div>
               )}
 
-              {/* v71 — card on file + incidental charge (v86: capped policy picker,
-                  no made-up charges — same policy the day/hourly path enforces) */}
               {(renter as any).cardOnFile ? (
                 <div className="rounded-2xl border-2 p-4 space-y-2">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
@@ -556,8 +547,6 @@ export function RenterProfileDrawer({
                   </a>
                 </div>
               )}
-              {/* Money actions — record a payment or get their card on file,
-                  right where you're already looking at their money. */}
               <div className="grid grid-cols-2 gap-2">
                 {onRecordPayment && (
                   <button onClick={onRecordPayment} className="h-11 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest transition-colors">
@@ -575,9 +564,6 @@ export function RenterProfileDrawer({
                 ) : null}
               </div>
 
-              {/* Deposit — held, deducted, returnable. Derived from the ledger so
-                  it is the same number on the statement and the move-out sheet.
-                  Every change is a deliberate ledger line with a reason. */}
               {lease && (() => {
                 const dep = depositPosition(lease, record?.ledger || []);
                 if (dep.status === 'none') return null;
@@ -649,9 +635,6 @@ export function RenterProfileDrawer({
                             Deduct
                           </button>
                         </div>
-                        {/* Photos of the damage, taken now, attached to the deduction
-                            they justify. A deduction with a photo is a fact; one
-                            without is an assertion. */}
                         <div className="flex items-center gap-2 flex-wrap">
                           <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="renters"
                             onImageUploaded={(url) => { if (url && !url.startsWith('data:')) setDedPhotos((p) => [...p, url]); }} />
@@ -681,11 +664,6 @@ export function RenterProfileDrawer({
                 );
               })()}
 
-              {/* Autopay — the switch that never existed. The cron has always
-                  required renter.autopayEnabled and nothing ever set it, so no
-                  renter has ever been drafted. Only enableable with a card on
-                  file, and it says which card, so what will be charged is
-                  never a guess. */}
               {(() => {
                 const r: any = renter;
                 const hasCard = !!(r.cardOnFile && r.stripeCustomerId && (r.stripePaymentMethodId || r.defaultPaymentMethodId));

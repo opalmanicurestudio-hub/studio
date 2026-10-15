@@ -257,7 +257,6 @@ export function EventModeKiosk({
   return (
     <div className="p-6 space-y-6">
 
-      {/* Guest order confirmation */}
       {guestOrder && (
         <div className="p-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50 space-y-3">
           <div className="flex items-start gap-3">
@@ -283,7 +282,6 @@ export function EventModeKiosk({
             </div>
           </div>
 
-          {/* Allergy flags — shown prominently to anyone viewing */}
           {(guestOrder.allergies?.length > 0 || guestOrder.allergyNote) && (
             <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-100 border border-amber-300">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -305,7 +303,6 @@ export function EventModeKiosk({
         </div>
       )}
 
-      {/* Pending requests from this table */}
       {recentRequests.length > 0 && (
         <div className="p-3 rounded-xl border-2 border-blue-200 bg-blue-50 space-y-1">
           <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">
@@ -324,7 +321,6 @@ export function EventModeKiosk({
         </div>
       )}
 
-      {/* Floor service request section */}
       <div className="space-y-4">
         <div>
           <p className="text-[9px] font-black uppercase tracking-[0.25em] text-slate-400">
@@ -335,7 +331,6 @@ export function EventModeKiosk({
           </p>
         </div>
 
-        {/* Item grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {FLOOR_SERVICE_ITEMS.map(item => (
             <FloorServiceTile
@@ -347,7 +342,6 @@ export function EventModeKiosk({
           ))}
         </div>
 
-        {/* Optional note */}
         <div className="space-y-1.5">
           <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">
             Additional note (optional)
@@ -361,7 +355,6 @@ export function EventModeKiosk({
           />
         </div>
 
-        {/* Submit — success state is driven by snapshot (justSubmittedAll), not a timer */}
         <AnimatePresence mode="wait">
           {justSubmittedAll ? (
             <motion.div
@@ -397,7 +390,6 @@ export function EventModeKiosk({
         </AnimatePresence>
       </div>
 
-      {/* Table indicator */}
       <p className="text-center text-[9px] font-black uppercase tracking-widest text-slate-300">
         Table {tableNumber}
         {seatNumber ? ` · Seat ${seatNumber}` : ''}

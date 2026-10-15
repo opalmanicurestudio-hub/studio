@@ -66,7 +66,6 @@ export default function ChipInPage() {
           {thanks && <p className="rounded-2xl px-4 py-3 text-[14.5px]" style={{ background: '#e9f3ed', color: GREEN }}><b>Thank you!</b> You’re on the card. A receipt is on its way to your email.</p>}
           {msg && <p className="text-[14px] font-semibold" style={{ color: msg === 'Sent!' || msg === 'Saved.' || msg.startsWith('Cancelled') ? GREEN : RED }} role="status">{msg}</p>}
 
-          {/* Organizer controls */}
           {isOrg && g.status === 'collecting' && <>
             <div className="flex items-center gap-2 rounded-[18px] bg-white p-3.5" style={{ border: `1px solid ${LINE}` }}>
               <div className="min-w-0 flex-1"><p className="text-[12.5px]" style={{ color: MUTED }}>Share this link</p><p className="truncate text-[14.5px]">{shareUrl}</p></div>
@@ -88,7 +87,6 @@ export default function ChipInPage() {
           </>}
           {isOrg && g.status === 'sent' && g.cardPath && <a href={g.cardPath} className="flex h-12 items-center justify-center rounded-full text-[15px] font-semibold text-white" style={{ background: INK }}>See the gift card</a>}
 
-          {/* Chip in (friends — and the organizer can add more) */}
           {g.status === 'collecting' && (pay ? (stripePromise ? <div className="overflow-hidden rounded-2xl"><EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret: pay.clientSecret, onComplete: confirm }}><EmbeddedCheckout /></EmbeddedCheckoutProvider></div> : <p style={{ color: RED }}>Card payments aren’t set up here yet.</p>)
             : (!isOrg || open) && !thanks ? <div className="space-y-3">
               <p className="text-[13px] font-semibold" style={{ color: MUTED }}>{isOrg ? 'Add more yourself' : 'How much would you like to add?'}</p>

@@ -1097,7 +1097,6 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
           <div className="flex flex-wrap gap-1">{TOKENS.map((t) => <button key={t.token} type="button" onClick={() => { setDraft({ ...draft, body: `${draft.body || ''}${draft.body && !/\s$/.test(draft.body) ? ' ' : ''}${t.token}` }); setQuote(null); }} className="rounded-full border-2 border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600">+ {t.label}</button>)}</div>
           <textarea value={draft.body} onChange={(e) => { setDraft({ ...draft, body: e.target.value.slice(0, 1200) }); setQuote(null); }} rows={5} placeholder="Your message — {first} becomes their first name" aria-label="Message" className="w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-[12px]" />
           {/\[[^\]]+\]/.test(draft.body || '') && <p className="text-[10px] font-bold text-amber-700">Replace the part in [square brackets] with your own words.</p>}
-          {/* A real offer: code, rules, applied automatically when you tap Done on their visit. */}
           <div className="space-y-1.5 rounded-xl border-2 border-slate-100 p-2">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Offer (optional)</p>
             <div className="flex flex-wrap gap-1.5">

@@ -72,16 +72,6 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
         )}
       </AnimatePresence>
 
-      {/* bottom-8 was measured from the true bottom of the viewport, which on
-          a phone sits behind Safari's toolbar and the home indicator — the
-          button was there, just underneath them. Safe-area padding lifts it
-          clear, and z-[60] keeps it above sheets and sticky bars that also
-          claim z-50. */}
-      {/* Raised well clear of the mobile bottom bar. `bottom-8` measured from
-          the true viewport bottom, which on a phone is behind Safari's toolbar
-          AND behind the app's own bottom navigation — so the button existed
-          but nothing could reach it. 6rem clears both; z-[60] keeps it above
-          sticky bars and sheets that also claim z-50. */}
       <div
         className="fixed right-5 z-[60] flex flex-col items-end gap-4"
         style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
@@ -95,7 +85,6 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
               exit="closed"
               className="flex flex-col items-end gap-4 mb-4"
             >
-              {/* New Event Button */}
               <motion.div variants={itemVariants} className="flex items-center gap-4 group">
                 <span className="bg-white/95 backdrop-blur-xl border border-primary/10 px-5 py-2.5 rounded-2xl shadow-2xl font-semibold text-[12px] text-slate-900">
                   New Event
@@ -109,7 +98,6 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
                 </Button>
               </motion.div>
 
-              {/* New Appointment Button */}
               <motion.div variants={itemVariants} className="flex items-center gap-4 group">
                 <span className="bg-white/95 backdrop-blur-xl border border-primary/10 px-5 py-2.5 rounded-2xl shadow-2xl font-semibold text-[12px] text-slate-900">
                   New Session
@@ -126,7 +114,6 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
           )}
         </AnimatePresence>
 
-        {/* Main Toggle Button */}
         <Button
           className="rounded-3xl w-20 h-20 shadow-3xl bg-primary text-white hover:bg-primary/90 transition-all active:scale-95 border-4 border-white flex flex-col items-center justify-center gap-1"
           size="lg"

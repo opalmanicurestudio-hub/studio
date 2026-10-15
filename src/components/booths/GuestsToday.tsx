@@ -480,7 +480,6 @@ const openReschedule = (r: any) => {
                       <p className="text-[10px] font-black uppercase text-indigo-600">Reschedule requested{r.rescheduleRequestNote ? ` — “${r.rescheduleRequestNote}”` : ''}</p>
                     )}
                     <div className="flex gap-2 items-center">
-                      {/* PRIMARY action — one clear next step for this reservation's state */}
                       {r.status === 'confirmed' ? (
                         <button onClick={() => checkInRes(r)} className="flex-1 h-9 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>
                       ) : r.status === 'checked_in' ? (
@@ -496,7 +495,6 @@ const openReschedule = (r: any) => {
                       ) : (
                         <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-foreground/80 flex items-center justify-center gap-1"><FileText className="h-3 w-3" /> Receipt</a>
                       )}
-                      {/* Secondary actions tucked into one tidy menu */}
                       <OverflowMenu
                         align="right"
                         items={[
@@ -542,10 +540,6 @@ const openReschedule = (r: any) => {
             </div>
           )}
 
-          {/* ── PEOPLE — one directory. Renters, regulars, guests, and leads
-              are the same humans at different stages of one journey, so they
-              live in ONE searchable list. Filter chips slice it; renters get
-              the full management card, everyone else a contact card. ── */}
     </div>
   );
 }

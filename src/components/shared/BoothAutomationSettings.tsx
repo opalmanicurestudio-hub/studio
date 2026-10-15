@@ -122,9 +122,6 @@ export function BoothAutomationSettings({
         <div className="grid grid-cols-2 gap-4">
           <NumField label="Minimum notice" k="bookingLeadHours" suffix="hours ahead" />
         </div>
-        {/* "Book up to N days out" lived here and was never read by anything —
-            it saved to automationRules while the engine reads a different
-            field. Booking Release replaced it, and is enforced. */}
         <p className="mt-3 text-[11px] font-bold text-muted-foreground">
           How far ahead clients can book — and how much earlier members can — is set in <a href="/settings/policies" className="font-semibold underline underline-offset-2">Settings → Booking policies</a>.
         </p>

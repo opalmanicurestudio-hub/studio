@@ -577,11 +577,9 @@ export default function QuoteInquiryPage() {
 
     return (
         <div className="min-h-screen" style={{ background: '#f8fafc' }}>
-            {/* Header */}
             <div className="sticky top-0 z-20" style={{ background: primaryColor }}>
                 <div className="max-w-xl mx-auto px-6 py-4 space-y-3">
                     <div className="flex items-center justify-between">
-                        {/* FIX: logo with transparent background support — use img not next/image for external URLs */}
                         {logoUrl ? (
                             <img
                                 src={logoUrl}
@@ -602,11 +600,9 @@ export default function QuoteInquiryPage() {
                 </div>
             </div>
 
-            {/* Content */}
             <div className="max-w-xl mx-auto px-6 py-8 pb-32">
                 <AnimatePresence mode="wait">
 
-                    {/* ── CONTACT ── */}
                     {step === 'contact' && (
                         <motion.div key="contact" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                             <div className="space-y-1.5">
@@ -641,7 +637,6 @@ export default function QuoteInquiryPage() {
                                 </div>
                             </Field>
 
-                            {/* FIX: structured best time — day chips + time slot */}
                             <Field label="Best Days to Reach You (optional)">
                                 <div className="flex flex-wrap gap-2">
                                     {DAYS_OF_WEEK.map(d => (
@@ -671,7 +666,6 @@ export default function QuoteInquiryPage() {
                         </motion.div>
                     )}
 
-                    {/* ── EVENT ── */}
                     {step === 'event' && (
                         <motion.div key="event" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                             <div className="space-y-1.5">
@@ -698,7 +692,6 @@ export default function QuoteInquiryPage() {
                                 <FieldInput value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g. The Williams Wedding, Sarah's 30th" />
                             </Field>
 
-                            {/* FIX: dates stacked on mobile to prevent clash */}
                             <div className="space-y-3">
                                 <Field label="Preferred Date" error={errors.eventDate}>
                                     <FieldInput type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} error={errors.eventDate} className="w-full" />
@@ -719,7 +712,6 @@ export default function QuoteInquiryPage() {
                         </motion.div>
                     )}
 
-                    {/* ── SERVICES ── FIX: pull from library efficiently ── */}
                     {step === 'services' && (
                         <motion.div key="services" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                             <div className="space-y-1.5">
@@ -729,7 +721,6 @@ export default function QuoteInquiryPage() {
 
                             {services.length > 0 ? (
                                 <Field label={`Services (${services.length} available)`} error={errors.services}>
-                                    {/* Group by category for efficiency */}
                                     {(() => {
                                         const byCategory: Record<string, any[]> = {};
                                         services.forEach(s => {
@@ -822,7 +813,6 @@ export default function QuoteInquiryPage() {
                         </motion.div>
                     )}
 
-                    {/* ── LOGISTICS ── FIX: full address + mileage calc ── */}
                     {step === 'logistics' && (
                         <motion.div key="logistics" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                             <div className="space-y-1.5">
@@ -850,7 +840,6 @@ export default function QuoteInquiryPage() {
 
                             {(venueType === 'on_site' || venueType === 'destination') && (
                                 <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-                                    {/* FIX: complete address fields */}
                                     <Field label="Venue / Hotel Name">
                                         <FieldInput value={venueName} onChange={e => setVenueName(e.target.value)} placeholder="e.g. The Ritz-Carlton" />
                                     </Field>
@@ -869,7 +858,6 @@ export default function QuoteInquiryPage() {
                                         <FieldInput value={venueZip} onChange={e => setVenueZip(e.target.value)} placeholder="30301" />
                                     </Field>
 
-                                    {/* FIX: mileage calculation result */}
                                     {calcingMiles && (
                                         <div className="flex items-center gap-3 p-4 rounded-2xl bg-blue-50 border-2 border-blue-100">
                                             <Loader className="w-4 h-4 animate-spin text-blue-500 shrink-0" />
@@ -911,7 +899,6 @@ export default function QuoteInquiryPage() {
                         </motion.div>
                     )}
 
-                    {/* ── BUDGET ── */}
                     {step === 'budget' && (
                         <motion.div key="budget" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                             <div className="space-y-1.5">
@@ -950,7 +937,6 @@ export default function QuoteInquiryPage() {
                         </motion.div>
                     )}
 
-                    {/* ── FINAL ── */}
                     {step === 'final' && (
                         <motion.div key="final" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
                             <div className="space-y-1.5">
@@ -971,7 +957,6 @@ export default function QuoteInquiryPage() {
                                 </div>
                             </Field>
 
-                            {/* FIX: referral code input when referred by friend */}
                             <AnimatePresence>
                                 {(showReferralCode || referralSource === 'Referral from a friend') && (
                                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
@@ -999,7 +984,6 @@ export default function QuoteInquiryPage() {
                                 />
                             </Field>
 
-                            {/* FIX: image upload instead of just links */}
                             <Field label="Inspiration Photos (optional)" hint="Upload images directly — Pinterest screenshots, saved looks, etc.">
                                 <ImageUploader tenantId={tenantId} onUploaded={setInspoImageUrls} />
                             </Field>
@@ -1031,7 +1015,6 @@ export default function QuoteInquiryPage() {
                         </motion.div>
                     )}
 
-                    {/* ── DONE ── FIX: contact info + back to booking page ── */}
                     {step === 'done' && (
                         <motion.div key="done" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="py-8 text-center space-y-8">
                             <motion.div
@@ -1053,7 +1036,6 @@ export default function QuoteInquiryPage() {
                                 </p>
                             </div>
 
-                            {/* Summary card */}
                             <div className="p-6 rounded-3xl bg-white border-2 border-slate-100 shadow-sm text-left space-y-3">
                                 <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Your Request Summary</p>
                                 <div className="space-y-2 text-sm font-bold text-slate-700">
@@ -1082,7 +1064,6 @@ export default function QuoteInquiryPage() {
                                 </div>
                             </div>
 
-                            {/* FIX: studio contact info on confirmation */}
                             {(tenant?.phone || tenant?.email || tenant?.address) && (
                                 <div className="p-5 rounded-2xl bg-slate-50 border-2 border-slate-200 text-left space-y-3">
                                     <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Contact {studioName} Directly</p>
@@ -1109,7 +1090,6 @@ export default function QuoteInquiryPage() {
                                 </div>
                             )}
 
-                            {/* FIX: back to booking page */}
                             <div className="flex flex-col gap-3">
                                 <Link
                                     href={`/book/${tenantId}`}
@@ -1128,7 +1108,6 @@ export default function QuoteInquiryPage() {
 
                 </AnimatePresence>
 
-                {/* Navigation */}
                 {step !== 'done' && (
                     <div className="fixed bottom-0 left-0 right-0 px-6 pb-8 pt-4 bg-gradient-to-t from-[#f8fafc] via-[#f8fafc] to-transparent">
                         <div className="max-w-xl mx-auto flex gap-3">
@@ -1161,7 +1140,6 @@ export default function QuoteInquiryPage() {
                     </div>
                 )}
 
-                {/* Step label */}
                 {step !== 'done' && (
                     <div className="mt-6 text-center space-y-0.5 pb-24">
                         <p className="text-xs font-black uppercase tracking-widest text-slate-400">

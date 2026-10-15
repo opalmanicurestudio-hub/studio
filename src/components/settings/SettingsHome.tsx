@@ -128,7 +128,6 @@ export function SettingsHome({ tenant }: { tenant: any }) {
     <main className="cf-settings min-h-full">
       <SettingsStyle />
       <div className="mx-auto w-full max-w-5xl px-4 py-8 md:grid md:grid-cols-[224px_minmax(0,1fr)] md:gap-12 md:px-8 md:py-12">
-        {/* The eight groups, always in reach on a computer */}
         <nav aria-label="Settings groups" className="hidden md:block">
           <ul className="sticky top-8 space-y-1">{index.map((g) => { const Icon = GROUP_ICON[g.question]; return (
             <li key={g.question}><a href={`#${slug(g.question)}`} className="flex items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-[14px] cf-muted transition-colors hover:bg-[var(--soft)] hover:text-[var(--ink)]">{Icon && <Icon className="h-4 w-4 shrink-0" aria-hidden />}<span className="truncate">{g.question}</span></a></li>); })}</ul>

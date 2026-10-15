@@ -730,9 +730,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                     style={{ backgroundColor: c.value }}
                                 />
                             ))}
-                            {/* v2 — custom color wheel: any color, not just
-                                the 6 presets. Works everywhere, unlike the
-                                eyedropper next to it. */}
                             <label
                                 className="relative w-7 h-7 rounded-full border-2 border-dashed border-border flex items-center justify-center cursor-pointer overflow-hidden shrink-0"
                                 title="Custom color"
@@ -746,9 +743,6 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                     className="absolute inset-0 opacity-0 cursor-pointer"
                                 />
                             </label>
-                            {/* v2 — eyedropper: samples an exact color from
-                                the photo itself (e.g. matching a shade),
-                                rather than eyeballing it on a color wheel. */}
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>

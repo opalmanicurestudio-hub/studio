@@ -859,9 +859,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                 <p className="font-black text-sm uppercase">{confirmedRes.boothName}</p>
                 <p className="text-xs font-bold text-slate-600">{confirmedRes.startDate} → {confirmedRes.endDate}</p>
               </div>
-              {/* The guest's ONE link for the whole visit: check-in signing,
-                  emergency contact, cancellation requests, rating. Surfaced
-                  HERE because nothing else delivers it automatically. */}
               {confirmedRes.reservationId && (
                 <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-4 text-left space-y-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">📱 Your stay link — save this</p>
@@ -910,7 +907,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           {config.subtitle && <p className="mt-3 text-sm md:text-base opacity-70 max-w-xl mx-auto font-medium">{config.subtitle}</p>}
         </div>
 
-        {/* ── 🎟 Day passes for sale — prepaid bundles, straight from the site ── */}
         {passPacks.length > 0 && (
           <div className="mb-10 md:mb-14 rounded-3xl border-2 border-violet-200 bg-violet-50/50 p-5 md:p-6">
             <div className="text-center mb-4">
@@ -930,7 +926,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           </div>
         )}
 
-        {/* Buy-pass mini checkout */}
         {buyIdx >= 0 && passPacks[buyIdx] && (
           <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => !buyBusy && setBuyIdx(-1)}>
             <div className="bg-white w-full max-w-sm rounded-3xl p-6 space-y-3" onClick={e => e.stopPropagation()}>
@@ -970,7 +965,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           </div>
         )}
 
-        {/* Pass purchase confirmed 🎉 */}
         {passConfirm && (
           <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
             <div className="bg-white w-full max-w-md rounded-3xl p-8 text-center space-y-4 animate-in fade-in zoom-in-95 duration-300">
@@ -998,8 +992,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           /* v72 — IMMERSIVE: Airbnb-style full-bleed cards. Photo carries
              the card; content overlays the lower third on a gradient. */
           <div className="grid gap-6 md:grid-cols-2">
-            {/* v73 — was `visibleBooths` (undefined): guaranteed crash for
-                any tenant configured with the immersive layout */}
             {visible.map((b: any) => {
               const ph = photosOf(b);
               const rates = dayRates(b);
@@ -1101,7 +1093,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         )}
       </div>
 
-      {/* ── Application dialog — immersive: photo strip + guided form ── */}
       {applyFor && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={() => !submitting && setApplyFor(null)}>
           <div role="dialog" aria-modal="true" className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden max-h-[92dvh] flex flex-col" style={{ backgroundColor: '#fff' }} onClick={e => e.stopPropagation()}>
@@ -1235,8 +1226,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <button type="button" onClick={() => setShowChooser(true)} className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 transition-colors">‹ Back to options</button>
                   )}
 
-                  {/* Space details now live in the chooser overview above — the
-                      focused flow stays clean, just the form for the chosen action. */}
                   {(applyMode !== 'day' || reserveStep === 'you') && (
                   <div className="space-y-3 animate-in fade-in duration-200">
                   <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name *" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
@@ -1266,7 +1255,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   )}
                   {applyMode !== 'day' && (
                   <>
-                  {/* Niche — owner-configured, prefilled options */}
                   <div className="flex flex-wrap gap-1.5">
                     {niches.map(n => (
                       <button key={n} type="button" onClick={() => setForm(f => ({ ...f, niche: n }))}
@@ -1305,7 +1293,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   </div>
                   )}
 
-                  {/* Dates — different question per product */}
 {inquiryKind === 'tour' ? (
                     <div className="space-y-3">
                       <div>
@@ -1381,7 +1368,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {/* Stepper rail */}
                       {(() => {
                         const hasChoice = dailyRateOf(applyFor) && (hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0);
                         const steps = hasChoice ? ['type', 'when', 'time', 'you'] : ['when', 'time', 'you'];
@@ -1426,7 +1412,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                         return (
                           <div key={step} className="animate-in fade-in slide-in-from-right-2 duration-200 space-y-3">
 
-                            {/* STEP: TYPE */}
                             {step === 'type' && (
                               <div className="space-y-2">
                                 <p className="text-sm font-black tracking-tight">How do you want to book?</p>
@@ -1444,7 +1429,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                               </div>
                             )}
 
-                            {/* STEP: WHEN (calendar) */}
                             {step === 'when' && (
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between">
@@ -1485,7 +1469,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                               </div>
                             )}
 
-                            {/* STEP: TIME — start-time grid + duration (and slots if offered) */}
                             {step === 'time' && useTime && (() => {
                               const starts = startTimesFor(applyFor);
                               const showSlots = hasSlots && hourlyMode === 'slots';
@@ -1497,7 +1480,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                     <button type="button" onClick={() => setReserveStep('when')} className="text-[10px] font-black uppercase tracking-widest text-slate-400">← Back</button>
                                   </div>
 
-                                  {/* Slots vs by-the-hour toggle — only when both exist */}
                                   {hasSlots && hourRate && (
                                     <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
                                       {(['slots', 'custom'] as const).map(m => (
@@ -1523,7 +1505,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                     </div>
                                   ) : (
                                     <>
-                                      {/* Start time grid */}
                                       <div>
                                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Start time</p>
                                         {starts.length === 0 ? (
@@ -1541,7 +1522,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                         )}
                                       </div>
 
-                                      {/* Duration chips — capped at closing time */}
                                       {pickedStart && (
                                         <div className="animate-in fade-in duration-200">
                                           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">How long?</p>
@@ -1575,7 +1555,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                               );
                             })()}
 
-                            {/* STEP: YOU (summary + details) */}
                             {step === 'you' && (
                               <div className="space-y-3">
                                 <div className="flex items-center justify-between">
@@ -1709,7 +1688,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       <p className="text-[11px] font-bold text-slate-500 leading-snug">No paperwork needed yet — we'll collect your license, insurance{requiredDocs.length > 0 ? ' and documents' : ''} once your application is approved.</p>
                     </div>
                   )}
-                  {/* Required documents — owner-configured */}
                   {inquiryKind === 'application' && !deferPaperwork && requiredDocs.map(rd => {
                     const state = docs[rd];
                     return (
@@ -1774,8 +1752,6 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       )}
                     </div>
                   ) : null}
-                  {/* Sticky action bar — the primary action is always reachable,
-                      pinned to the bottom of the modal regardless of scroll. */}
                   <div className="sticky bottom-0 -mx-6 mt-1 px-6 pt-3 bg-white border-t" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
                     <button onClick={submitApplication} disabled={!canSubmit} className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40 active:scale-[0.99] transition-transform">
                       {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : scheduleIssue ? 'Pick available dates' : !agreementSatisfied ? (isPaidDayBooking ? 'Sign the agreement to continue' : 'Agree to the terms to continue') : (applyMode === 'day' ? (isLease(applyFor) ? 'Submit' : 'Pay & Reserve') : 'Submit')}

@@ -246,7 +246,6 @@ export function WaitlistSheet({
           row.status === 'notified' && 'border-amber-300/70 bg-amber-50/40',
         )}
       >
-        {/* Identity */}
         <div className="flex items-start gap-3">
           <div className="h-11 w-11 shrink-0 rounded-[0.9rem] border-2 bg-muted flex items-center justify-center">
             <span className="text-xs font-black tracking-tight">{initials(row.name)}</span>
@@ -291,10 +290,6 @@ export function WaitlistSheet({
           </div>
         </div>
 
-        {/* Contact + note */}
-        {/* `row.client` matters here on its own: a front-desk row carries no
-            phone or email of its own, so without it the block would collapse
-            and the desk would see a name with no way to reach it. */}
         {(reachable || e.note || row.client) && (
           <div className="space-y-1.5 pl-14">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
@@ -325,7 +320,6 @@ export function WaitlistSheet({
           </div>
         )}
 
-        {/* What happened last time we reached out */}
         {row.isOpen && e.notifiedAt && (
           <p className={cn('pl-14 text-[11px]', e.lastNotifyOk === false ? 'text-destructive' : 'text-amber-700')}>
             {e.lastNotifyOk === false
@@ -335,7 +329,6 @@ export function WaitlistSheet({
           </p>
         )}
 
-        {/* Actions */}
         {row.isOpen && (
           <div className="flex flex-wrap gap-2 pl-14">
             <Button

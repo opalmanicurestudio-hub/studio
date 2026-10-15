@@ -58,7 +58,6 @@ export const BookingTeam = ({ staff, tenant }: { tenantId: string; staff: Staff[
                                 alt={member.name || 'Staff'}
                                 className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
                             />
-                            {/* ATMOSPHERIC OVERLAY: Active by default, disappears on hover */}
                             <div className="absolute inset-0 bg-primary/10 mix-blend-multiply transition-opacity duration-500 group-hover:opacity-0 pointer-events-none" />
                             <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 via-transparent to-transparent transition-opacity duration-500 group-hover:opacity-0 pointer-events-none" />
                         </div>

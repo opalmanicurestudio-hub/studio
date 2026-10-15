@@ -1621,8 +1621,6 @@ function PlannerPageContent() {
       {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
       {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: (clients || []).find(c => c.id === selectedAppointment.clientId), service: (services || []).find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
 
-      {/* EVERY PLANNER BOOKING GOES THROUGH THE BOOKING ENGINE (the desk's Book sheet): availability, deposits,
-          confirmations, consent — and repeat, group and several-providers bookings. Pre-filled from where it was opened. */}
       <StaffBookSheet open={isAddAppointmentOpen} onClose={() => { setIsAddAppointmentOpen(false); setClientForNewApt(null); setAppointmentToRebook(null); setBookPreset(null); setBookMode('one'); setBookGuests(null); }}
         tenantId={tenantId || ''} tenant={selectedTenant} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)}
         appointments={appointments || []} role={role} uid={currentUser?.uid || null}

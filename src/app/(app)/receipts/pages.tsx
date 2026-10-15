@@ -335,7 +335,6 @@ export default function ReceiptsPage() {
 
   return (
     <div className="p-6 md:p-8 space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
@@ -352,7 +351,6 @@ export default function ReceiptsPage() {
         </Button>
       </div>
 
-      {/* Empty state */}
       {!isLoading && sortedReceipts.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center space-y-3">
@@ -370,7 +368,6 @@ export default function ReceiptsPage() {
         </Card>
       )}
 
-      {/* Receipt list */}
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         {sortedReceipts.map((receipt) => {
           const renter = renterById.get(receipt.renterId);
@@ -438,7 +435,6 @@ export default function ReceiptsPage() {
         })}
       </div>
 
-      {/* ── Day & hourly rental receipts ─────────────────────────────── */}
       {paidReservations.length > 0 && (
         <div className="space-y-3 pt-2">
           <div>
@@ -483,7 +479,6 @@ export default function ReceiptsPage() {
         </div>
       )}
 
-      {/* Generate dialog */}
       <Dialog open={genOpen} onOpenChange={(open) => { if (!open) setGenError(null); setGenOpen(open); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -533,7 +528,6 @@ export default function ReceiptsPage() {
               </Select>
             </div>
 
-            {/* Lease summary */}
             {genLease && genBooth && (
               <div className="rounded-lg border p-3 text-sm space-y-1">
                 <p className="font-medium">{genBooth.name}</p>
@@ -544,7 +538,6 @@ export default function ReceiptsPage() {
               </div>
             )}
 
-            {/* Extra line items */}
             <div className="space-y-2">
               <Label>Additional charges or credits (optional)</Label>
               {genCustomItems.map((ci, i) => (

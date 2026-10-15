@@ -442,10 +442,6 @@ export default function RetailSupportPage() {
                   ))}
                 </div>
               )}
-              {/* SATURATION, NOT SPAM. Follow-ups landed on this case instead
-                  of becoming new tickets; the chip is the consolidated truth —
-                  "3 follow-ups, nothing new" reads in one glance — and the
-                  messages sit inline with evidence marked apart from chasers. */}
               {(t.customerMessagesSinceStaffReply || 0) > 0 && t.status === 'open' && (
                 <p className="rounded-xl border-2 border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-widest text-amber-700">
                   {t.customerMessagesSinceStaffReply} follow-up{(t.customerMessagesSinceStaffReply || 0) === 1 ? '' : 's'} since your last reply
