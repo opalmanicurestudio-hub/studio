@@ -7,6 +7,7 @@ import * as React from 'react';
 import { useTenant } from '@/context/TenantContext';
 import { payPost, money0 } from '@/components/pay/pay-client';
 import { planLabel, type Plan } from '@/lib/pay-clarity';
+import { CONTRACTOR_QUESTIONS } from '@/lib/pay-extras';
 
 const MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', INK = 'hsl(var(--foreground))', BG = 'hsl(var(--background))';
 const AMBER = '#b45309', GREEN = '#1f7a4d', DARK = '#16171a';
@@ -34,6 +35,13 @@ export function PlanCheck() {
         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: AMBER }} />
         <p className="min-w-0 flex-1 text-[14px]"><b className="font-semibold">{p.toppedUpWeeks ? `${p.toppedUpWeeks} week${p.toppedUpWeeks === 1 ? '' : 's'}` : 'Some weeks'} where {p.name.split(' ')[0]}’s pay before tips came in under minimum wage for their hours.</b> Payroll topped it up ({money0(p.toppedUpAmount)} in all). Worth checking their schedule against their bookings, or their pay plan.</p>
         <span className="text-[12.5px]" style={{ color: MUTED }}>Not legal advice</span></div>)}
+      {(d.people || []).filter((p: any) => p.falling).map((p: any) => <div key={`f${p.staffId}`} className="flex flex-wrap items-center gap-3 rounded-[18px] border p-4" style={{ borderColor: LINE }}>
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: '#6d7075' }} />
+        <p className="min-w-0 flex-1 text-[14px]"><b className="font-semibold">{p.name.split(' ')[0]}’s pay per hour has dropped three periods in a row</b>, from {$2(p.falling.from)} to {$2(p.falling.to)} before tips. Often the first sign someone is thinking of leaving: worth a conversation about their book and schedule.</p></div>)}
+      {d.offClock > 0 && <div className="flex flex-wrap items-center gap-3 rounded-[18px] border p-4" style={{ borderColor: AMBER }}>
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: AMBER }} />
+        <p className="min-w-0 flex-1 text-[14px]"><b className="font-semibold">{d.offClock} {d.offClock === 1 ? 'person has' : 'people have'} privately noted working off the clock this month.</b> You won’t see who. Time worked must be paid: check that opening, prep and cleanup happen on the clock.</p></div>}
+      {d.tipCredit && <p className="text-[12.5px]" style={{ color: MUTED }}>Tip credit on ({d.tipCredit.state}): tips count toward minimum wage above a cash wage of {$2(d.tipCredit.cashWage)} an hour.</p>}
       {!d.people?.length && <div className="rounded-[18px] border p-5 text-[14px]" style={{ borderColor: LINE, color: MUTED }}>No clocked hours in this stretch yet. Pay per hour needs the time clock.</div>}
       {d.people?.length > 0 && <div className="overflow-x-auto rounded-[22px] border" style={{ borderColor: LINE }}>
         <table className="w-full min-w-[760px] text-left text-[14px]">
@@ -67,6 +75,12 @@ export function PlanCheck() {
           <p className="text-[12.5px]" style={{ color: '#c9cace' }}>Pay before tips. Payroll works “whichever is more” out week by week, so the real figure can be a little higher.</p>
         </section>}
       </div>
+      {(d.contractors || []).length > 0 && <section className="space-y-2 rounded-[22px] border bg-card p-5" style={{ borderColor: LINE }}>
+        <p className="text-[16px] font-semibold">Paid as contractors: worth checking</p>
+        <p className="text-[13.5px]" style={{ color: MUTED }}>{d.contractors.map((c: any) => c.name.split(' ')[0]).join(', ')}. Agencies look at how the work is done, not what it’s called. If most answers below are yes, they may count as employees, with minimum wage, overtime and payroll taxes owed.</p>
+        <ul className="list-disc space-y-1 pl-5 text-[14px]">{CONTRACTOR_QUESTIONS.filter((q) => q.employeeIfYes).map((q) => <li key={q.id}>{q.owner}</li>)}</ul>
+        <p className="text-[12px]" style={{ color: MUTED }}>Not legal advice. An employment lawyer or your state labor department can confirm.</p>
+      </section>}
       <p className="text-[12.5px]" style={{ color: MUTED }}>Each person sees only their own numbers in their Pay tab. Their goals, own costs and comparisons stay private to them and are never shown here.</p>
     </div>);
 }

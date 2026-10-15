@@ -36,23 +36,32 @@ export async function periodsFor(db: any, t: string, staffId: string, days: numb
 
 // ── Private to the person ──────────────────────────────────────────────────────────────────────────────────────────
 export const privateKey = (t: string, staffId: string) => createHash('sha256').update(`${process.env.PRIVATE_PAY_SECRET || process.env.CRON_SECRET || 'pay'}|${t}|${staffId}`).digest('hex');
-export type Private = { goalMonthly: number | null; costs: Cost[]; plans: Plan[]; updatedAt: string | null };
+export type Private = { goalMonthly: number | null; costs: Cost[]; plans: Plan[]; perks: import('@/lib/pay-extras').MyPerks; tax: { on: boolean; filing: 'single' | 'joint' | 'head'; statePct: number }; updatedAt: string | null };
 export async function readPrivate(db: any, t: string, staffId: string): Promise<Private> {
   const d: any = (await db.doc(`privatePay/${privateKey(t, staffId)}`).get()).data() || {};
-  return { goalMonthly: Number(d.goalMonthly) > 0 ? Number(d.goalMonthly) : null, costs: Array.isArray(d.costs) ? d.costs : [], plans: Array.isArray(d.plans) ? d.plans : [], updatedAt: d.updatedAt || null };
+  return { goalMonthly: Number(d.goalMonthly) > 0 ? Number(d.goalMonthly) : null, costs: Array.isArray(d.costs) ? d.costs : [], plans: Array.isArray(d.plans) ? d.plans : [], perks: d.perks || {}, tax: d.tax || { on: false, filing: 'single', statePct: 0 }, updatedAt: d.updatedAt || null };
 }
 export async function savePrivate(db: any, t: string, staffId: string, raw: any): Promise<Private> {
   const g = Number(raw?.goalMonthly); const costs: Cost[] = (Array.isArray(raw?.costs) ? raw.costs : []).slice(0, 30).map((c: any) => ({ id: String(c?.id || Math.random().toString(36).slice(2, 9)).slice(0, 30), label: String(c?.label || '').trim().slice(0, 60) || 'A cost', amount: Math.max(0, Math.min(100000, Number(c?.amount) || 0)), per: (c?.per === 'once' ? 'once' : 'month') as Cost['per'] })).filter((c: Cost) => c.amount > 0);
   const plans = (Array.isArray(raw?.plans) ? raw.plans : []).slice(0, 8).map(cleanPlan).filter(Boolean) as Plan[];
-  const next: Private = { goalMonthly: g > 0 && g < 10000000 ? Math.round(g) : null, costs, plans, updatedAt: new Date().toISOString() };
-  await db.doc(`privatePay/${privateKey(t, staffId)}`).set(next); return next;
+  const n = (v: any, hi: number) => { const k = Number(v); return Number.isFinite(k) ? Math.max(0, Math.min(hi, k)) : 0; };
+  const pk = raw?.perks || {}; const perks = { ptoDays: n(pk.ptoDays, 120), healthMonthly: n(pk.healthMonthly, 10000), matchPct: n(pk.matchPct, 25), commuteMin: n(pk.commuteMin, 300), daysPerWeek: n(pk.daysPerWeek, 7) || 5, offClockMonthly: n(pk.offClockMonthly, 200) };
+  const tx = raw?.tax || {}; const tax = { on: tx.on === true, filing: (['single', 'joint', 'head'].includes(tx.filing) ? tx.filing : 'single') as Private['tax']['filing'], statePct: n(tx.statePct, 15) };
+  const next: Private = { goalMonthly: g > 0 && g < 10000000 ? Math.round(g) : null, costs, plans, perks, tax, updatedAt: new Date().toISOString() };
+  await db.doc(`privatePay/${privateKey(t, staffId)}`).set(next);
+  // Hours worked off the clock: the business learns only HOW MANY people reported some this month — never who, or how much.
+  { const { tenantTimeZone, dayKey } = await import('@/lib/tenant-time'); const tenant: any = (await db.doc(`tenants/${t}`).get()).data() || {}; const month = dayKey(new Date(), tenantTimeZone(tenant)).slice(0, 7);
+    const tag = createHash('sha256').update(`offclock|${privateKey(t, staffId)}`).digest('hex').slice(0, 16); const ref = db.doc(`tenants/${t}/private/offClock`);
+    const cur: any = (await ref.get()).data() || {}; const m: Record<string, boolean> = { ...(cur[month] || {}) }; if (perks.offClockMonthly > 0) m[tag] = true; else delete m[tag];
+    await ref.set({ ...cur, [month]: m }); }
+  return next;
 }
 
 const DEFAULT_PLANS = (now: Plan): Plan[] => {
   const out: Plan[] = [];
   if (now.kind !== 'hourly') out.push({ id: 'h', kind: 'hourly', rate: 20 });
   if (now.kind === 'commission' || now.kind === 'tiered') out.push({ id: 'hc', kind: 'hourly_commission', rate: 15, pct: 10, retailPct: now.retailPct || 0 }, { id: 'g', kind: 'greater_of', rate: 16, pct: now.pct || 40, retailPct: now.retailPct || 0 });
-  out.push({ id: 'self', kind: 'self', self: { spacePerWeek: 250, suppliesPct: 8, cardPct: 2.9 } });
+  out.push({ id: 'self', kind: 'self', self: { spacePerWeek: 250, suppliesPct: 8, cardPct: 2.9, otherMonthly: 90, unpaidWeeks: 2 } });
   return out;
 };
 /** Everything for one person's "What my time is worth". */
@@ -62,10 +71,16 @@ export async function myClarity(db: any, t: string, staffId: string, range: stri
   const { payRules } = await import('@/lib/pay-period'); const minimumWage = payRules(tenant).minimumWage;
   const periods = await periodsFor(db, t, staffId, days); const priv = await readPrivate(db, t, staffId);
   const rec = planOfRecord(m); const c = clarity(periods, { costs: priv.costs, goalMonthly: priv.goalMonthly, commissionPct: rec.kind === 'commission' || rec.kind === 'tiered' || rec.kind === 'hourly_commission' ? rec.pct : null });
-  const basis = { hours: c.hours, serviceSales: c.sales, retailSales: c.retail, tips: c.tips, otherPay: r2(c.sources.filter((s) => s.key === 'time' || s.key === 'other').reduce((a, s) => a + s.amount, 0)), days: c.days, currentGross: c.gross, minimumWage };
+  const { tipCreditOf } = await import('@/lib/pay-extras'); const tcr = tipCreditOf(tenant);
+  const basis = { hours: c.hours, serviceSales: c.sales, retailSales: c.retail, tips: c.tips, otherPay: r2(c.sources.filter((s) => s.key === 'time' || s.key === 'other').reduce((a, s) => a + s.amount, 0)), days: c.days, currentGross: c.gross, minimumWage, tipCredit: tcr ? { cashWage: tcr.cashWage } : null };
   const plans = [{ id: 'now', kind: 'current' as const }, ...(priv.plans.length ? priv.plans : DEFAULT_PLANS(rec))];
   const compare = c.hours > 0 ? plans.map((p) => ({ plan: p, label: p.kind === 'current' ? `How you’re paid now (${planLabel(rec)})` : planLabel(p), ...planPay(p, basis) })) : [];
-  return { ok: true, range, periods, clarity: c, private: priv, compare, basis, payNow: { ...rec, label: planLabel(rec) }, minimumWage, name: String(m.name || '').split(' ')[0] || null };
+  const X = await import('@/lib/pay-extras'); const ai = c.hours > 0 ? X.allIn({ gross: c.gross, grossNoTips: c.grossNoTips, hours: c.hours, days: c.days, costs: c.costs }, priv.perks || {}) : null;
+  const nowRow = compare[0]; const monthly = (v: number) => (c.days ? r2(v * (30.44 / c.days)) : 0);
+  const tax = priv.tax?.on && nowRow ? X.takeHome(monthly(nowRow.beforeIncomeTax), { filing: priv.tax.filing, statePct: priv.tax.statePct, monthlyTaxable: monthly(c.gross) }) : null;
+  return { ok: true, range, periods, clarity: c, private: priv, compare, basis, payNow: { ...rec, label: planLabel(rec) }, minimumWage, name: String(m.name || '').split(' ')[0] || null,
+    allIn: ai, takeHome: tax, monthlyBeforeIncomeTax: nowRow ? monthly(nowRow.beforeIncomeTax) : null, seasonality: X.seasonalityHint(c.days, c.trend.filter((x: any) => !x.current).map((x: any) => x.perHour)),
+    contractor: m.employmentType === 'contractor', taxYear: X.TAX_YEAR };
 }
 
 /** The owner's "Pay plan check": per person, per hour before and with tips, unbooked time, weeks topped up to minimum
@@ -85,8 +100,15 @@ export async function planCheck(db: any, t: string, o: { days?: number; simulate
       const b = { hours: c.hours, serviceSales: c.sales, retailSales: c.retail, tips: c.tips, otherPay: r2(c.sources.filter((s) => s.key === 'time' || s.key === 'other').reduce((a, s) => a + s.amount, 0)), days: c.days, currentGross: c.gross, minimumWage: rules.minimumWage };
       const x = planPay(sim, b); const d = r2(x.payBeforeTips - c.grossNoTips); row.simulated = { payBeforeTips: x.payBeforeTips, delta: d }; simDelta += d; simWho.push({ name: row.name.split(' ')[0], delta: d });
     }
+    // Early warning: pay per hour (before tips) down three periods in a row.
+    const tr = c.trend.filter((x: any) => !x.current && x.perHourNoTips !== null).map((x: any) => x.perHourNoTips as number);
+    row.falling = tr.length >= 4 && tr[tr.length - 1] < tr[tr.length - 2] && tr[tr.length - 2] < tr[tr.length - 3] && tr[tr.length - 3] < tr[tr.length - 4] ? { from: tr[tr.length - 4], to: tr[tr.length - 1] } : null;
     people.push(row);
   }
-  return { ok: true, days, minimumWage: rules.minimumWage, overtimeHours: rules.overtimeHours, dailyOvertime: !!rules.dailyOvertimeHours, people,
+  const { tenantTimeZone, dayKey } = await import('@/lib/tenant-time'); const month = dayKey(new Date(), tenantTimeZone(tenant)).slice(0, 7);
+  const oc: any = (await db.doc(`tenants/${t}/private/offClock`).get()).data() || {}; const offClock = Object.keys(oc[month] || {}).length;
+  const contractors = team.filter((m: any) => m.employmentType === 'contractor').map((m: any) => ({ staffId: m.id, name: String(m.name || 'Team member') }));
+  const { tipCreditOf } = await import('@/lib/pay-extras'); const tcr = tipCreditOf(tenant);
+  return { ok: true, days, offClock, contractors, tipCredit: tcr, minimumWage: rules.minimumWage, overtimeHours: rules.overtimeHours, dailyOvertime: !!rules.dailyOvertimeHours, people,
     simulation: sim ? { plan: sim, label: planLabel(sim), delta: r2(simDelta), who: simWho } : null };
 }

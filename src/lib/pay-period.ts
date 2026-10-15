@@ -107,6 +107,12 @@ export function periodPay(input: {
 
   // Per workweek: overtime on other pay, and the minimum-wage check
   let overtimePremium = 0, minWageTopUp = 0; const weekRows: PayLine['weeks'] = [];
+  // A tip credit, only where the business switched it on and its state allows one (lib/pay-extras tipCreditOf): tips that
+  // week can make up minimum wage above the cash wage. Tips for the period are shared across weeks by hours when they
+  // come from a pool. Off by default: tips never count.
+  const tc = (() => { const t = tenant?.payRules?.tipCredit; const st = String(tenant?.payRules?.state || '').toUpperCase();
+    return t?.on === true && Number(t.cashWage) > 0 && st && !['AK', 'CA', 'MN', 'MT', 'NV', 'OR', 'WA'].includes(st) && m.tipCreditOk !== false ? Number(t.cashWage) : null; })();
+  const weekTips = (wk: string, h: number) => input.tips != null ? (hours > 0 ? (tips * h) / hours : 0) : (byWeek.get(wk) || []).filter((t) => t.staffId === m.id && (t.category === 'Tips' || t.tipAmount)).reduce((s, t) => s + (t.tipAmount || amt(t)), 0);
   for (const w of weeks) {
     const h = w.minutes / 60, ot = w.overtime / 60, dt = (w.doubleTime || 0) / 60; const wt = byWeek.get(w.weekStart) || [];
     const other = (earns ? svcFor(wt) + retailFor(wt) + ((nsByWeek.get(w.weekStart) || 0) / 60) * nsRate : 0);                                   // commission / per service / retail that week
@@ -118,7 +124,8 @@ export function periodPay(input: {
       else if (ps === 'hourly_plus_commission') { const rr = other / h; premium = 0.5 * rr * ot + rr * dt; }   // the hourly part is already in hourlyPay
       else if (salaryNonExempt) premium = (ot * rules.multiplier + dt * 2) * (salaryWeekly / rules.overtimeHours);
     }
-    const topUp = ps !== 'salary' && h > 0 ? Math.max(0, rules.minimumWage * h - straight) : 0;
+    const need = tc !== null ? Math.max(tc * h, rules.minimumWage * h - weekTips(w.weekStart, h)) : rules.minimumWage * h;
+    const topUp = ps !== 'salary' && h > 0 ? Math.max(0, need - straight) : 0;
     overtimePremium += premium; minWageTopUp += topUp;
     weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: r2(ot), doubleTimeHours: r2(dt), earned: r2(straight), topUp: r2(topUp), premium: r2(premium) });
   }

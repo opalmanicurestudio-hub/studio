@@ -37,5 +37,22 @@ import { makeDb, check, failures } from './fake-db';
   const row = pc.people.find((p: any) => p.staffId === 'maya');
   check('owner: flagged week, and no private notes anywhere', row && row.toppedUpAmount >= 200 && !JSON.stringify(pc).includes('Tools') && !JSON.stringify(pc).includes('4000'), row);
   check('owner: “$16 or 40%” would pay her more than minimum wage', row?.simulated && row.simulated.delta > 0, row?.simulated);
+  await S.savePrivate(db, 't1', 'maya', { ...saved, perks: { offClockMonthly: 6, commuteMin: 20 } });
+  const pc2: any = await S.planCheck(db, 't1', { days: 28 });
+  check('off the clock: the owner sees a count, not who or how much', pc2.offClock === 1 && !JSON.stringify(pc2).includes('"offClockMonthly"'));
+  const mine2: any = await S.myClarity(db, 't1', 'maya', '4w');
+  check('her all-in view counts the extra hours', mine2.allIn && mine2.allIn.offClockHours > 0 && mine2.allIn.perHourAllIn < mine2.clarity.perHour, mine2.allIn);
+  await S.savePrivate(db, 't1', 'maya', { ...saved, perks: { offClockMonthly: 0 } });
+  check('and the count drops when she clears it', (await S.planCheck(db, 't1', { days: 28 })).offClock === 0);
+  // Tip credit (payroll): an hourly server at $2.13 with $300 in tips over 40 hours, minimum $7.25.
+  for (const [st, want] of [['TX', 0], ['CA', 7.25 * 40 - 2.13 * 40]] as const) {
+    const d2 = makeDb(); const T2 = 'tenants/t2';
+    await d2.doc(T2).set({ name: 'Diner', timezone: 'America/New_York', payRules: { minimumWage: 7.25, state: st, tipCredit: { on: true, cashWage: 2.13 } }, payroll: { cadence: 'weekly' }, workweekStartsOn: 1 });
+    await d2.doc(`${T2}/staff/sv`).set({ name: 'Sol', role: 'server', payStructure: 'hourly' }); await d2.doc(`${T2}/staffPay/sv`).set({ hourlyRate: 2.13 });
+    let k = 0; for (const d of days) { await d2.doc(`${T2}/activityLogs/i${k}`).set({ staffId: 'sv', type: 'clock_in', timestamp: `${d}T13:00:00.000Z` }); await d2.doc(`${T2}/activityLogs/o${k}`).set({ staffId: 'sv', type: 'clock_out', timestamp: `${d}T21:00:00.000Z` });
+      await d2.doc(`${T2}/transactions/t${k}`).set({ type: 'income', category: 'Tips', staffId: 'sv', amount: 60, date: `${d}T18:00:00.000Z` }); k++; }
+    const p2 = (await S.periodsFor(d2, 't2', 'sv', 28)).find((p) => p.from === '2026-10-05');
+    check(`tip credit in ${st}: top-up ${want ? 'to the full minimum (no tip credit there)' : 'none, tips cover it'}`, Math.abs((p2?.topUp || 0) - want) < 0.01, p2?.topUp);
+  }
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

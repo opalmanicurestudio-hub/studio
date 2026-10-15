@@ -1,4 +1,5 @@
 'use client';
+import { US_STATES } from '@/lib/pay-extras';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
 import { CancellationReview } from '@/components/settings/CancellationReview';
@@ -719,6 +720,16 @@ function SettingsPageImpl() {
                 <Row label="Minimum wage" help="Each workweek, everyone paid by commission, per service or by the hour must earn at least this for every hour on the clock (tips don’t count). Payday and payroll add a top-up when they don’t, and overtime on commission or per service pay is worked out from it. Use your state or city rate when it’s higher than the federal $7.25.">
                   {(() => { const pr: any = (tenantData as any).payRules || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } }));
                     return (<div className="flex flex-wrap items-center gap-2 text-[15px]">$<input type="number" min={0} step={0.01} value={pr.minimumWage ?? ''} placeholder="7.25" onChange={(e) => set({ minimumWage: Math.max(0, parseFloat(e.target.value) || 0) || null })} aria-label="Minimum wage per hour" className="h-11 w-24 rounded-xl border px-3 text-right" style={{ borderColor: 'hsl(var(--border))' }} /><span>an hour</span></div>); })()}
+                </Row>
+                <Row label="Your state, and tips" help="Some states let tips make up part of minimum wage (a “tip credit”): the business pays at least a lower cash wage and tips cover the rest. Alaska, California, Minnesota, Montana, Nevada, Oregon and Washington don’t allow it. Off unless you switch it on; check your state’s current cash wage.">
+                  {(() => { const pr: any = (tenantData as any).payRules || {}; const tc: any = pr.tipCredit || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } })); const ipt = { borderColor: 'hsl(var(--border))' } as any;
+                    const st = String(pr.state || ''); const blocked = ['AK', 'CA', 'MN', 'MT', 'NV', 'OR', 'WA'].includes(st);
+                    return (<div className="space-y-2 text-[15px]">
+                      <div className="flex flex-wrap items-center gap-2"><span>State</span><select value={st} onChange={(e) => set({ state: e.target.value || null })} aria-label="State" className="h-11 rounded-xl border px-3" style={ipt}><option value="">Choose…</option>{US_STATES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+                      <label className="flex flex-wrap items-center gap-2"><input type="checkbox" disabled={!st || blocked} checked={tc.on === true && !blocked} onChange={(e) => set({ tipCredit: { ...tc, on: e.target.checked, cashWage: tc.cashWage || 2.13 } })} /> Let tips count toward minimum wage, above a cash wage of
+                        $<input type="number" min={0} step={0.01} value={tc.cashWage ?? ''} placeholder="2.13" disabled={!st || blocked} onChange={(e) => set({ tipCredit: { ...tc, cashWage: Math.max(0, parseFloat(e.target.value) || 0) } })} aria-label="Cash wage per hour" className="h-11 w-24 rounded-xl border px-3 text-right" style={ipt} /> an hour</label>
+                      {blocked && <p className="text-[13px] cf-muted">Your state doesn’t allow a tip credit: everyone gets the full minimum wage before tips.</p>}
+                    </div>); })()}
                 </Row>
                 <Row label="Commission rules" help="How commission is worked out for everyone on commission. Changes apply to new sales.">
                   {(() => { const pr: any = (tenantData as any).payRules || {}; const pc: any = pr.productCharge || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } })); const ipt = { borderColor: 'hsl(var(--border))' } as any;
