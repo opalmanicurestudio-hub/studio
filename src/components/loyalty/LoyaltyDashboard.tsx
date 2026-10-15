@@ -18,8 +18,8 @@ export function LoyaltyDashboard({ tenantId, unit }: { tenantId: string; unit: s
     <section className="space-y-4 rounded-[22px] border bg-card p-5" style={{ borderColor: LINE }}>
       <div><p className="text-[18px] font-semibold">How it’s going</p><p className="text-[13.5px]" style={{ color: MUTED }}>Measured from your own records. The last box is an association, kept apart on purpose.</p></div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {tile(m.members, 'members (earned in the last year)')}{tile(m.memberActive90, 'of them came in, last 90 days')}
-        {tile(`${m.rewardsUsed90} · ${money(m.rewardCost90Cents)}`, 'rewards used and their cost, 90 days')}{tile(`${m.owedPoints} · ${money(m.owedCents)}`, `${unit} still owed and roughly their cost`)}
+        {tile(Number(m.members).toLocaleString('en-US'), 'members (earned in the last year)')}{tile(m.memberActive90, 'of them came in, last 90 days')}
+        {tile(`${m.rewardsUsed90} · ${money(m.rewardCost90Cents)}`, 'rewards used and their cost, 90 days')}{tile(`${Number(m.owedPoints).toLocaleString('en-US')} · ${money(m.owedCents)}`, `${unit} still owed and roughly their cost`)}
       </div>
       {m.byReward?.length > 0 && <div><p className="mb-1.5 text-[13px]" style={{ color: MUTED }}>Which rewards get used (90 days)</p><div className="flex flex-wrap gap-2">{m.byReward.map((r: any) => <span key={r.name} className="rounded-full px-3 py-1.5 text-[13px]" style={{ background: SOFT }}>{r.name} · {r.used} · {money(r.costCents)}</span>)}</div></div>}
       {m.tiers?.length > 0 && <div><p className="mb-1.5 text-[13px]" style={{ color: MUTED }}>Tiers</p><div className="flex flex-wrap gap-2">{m.tiers.map((x: any) => <span key={x.name} className="rounded-full px-3 py-1.5 text-[13px]" style={{ background: SOFT }}>{x.name} · {x.members}</span>)}</div></div>}

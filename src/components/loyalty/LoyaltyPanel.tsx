@@ -14,7 +14,7 @@ export function LoyaltyPanel({ tenantId, clientId, clientName, reward, setReward
   if (!d?.on || d.optedOut) return null;
   const first = String(clientName || 'They').split(' ')[0]; const unit = d.unit || 'points';
   if (!d.joined) return (<section style={{ background: 'var(--soft)', borderRadius: 18, padding: 16 }} className="space-y-2"><p className="text-[15px] font-semibold">Rewards</p><p className="text-[14px]">Ask {first} if they’d like to join. This visit will count.</p>
-    <button type="button" onClick={async () => { const r = await payPost('/api/loyalty', { tenantId, action: 'join', clientId }); if (r.ok) setD({ ...d, joined: true }); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--accent, var(--ink))', color: 'var(--accent-ink, #fff)' }}>They said yes</button></section>);
+    <button type="button" onClick={async () => { const r = await payPost('/api/loyalty', { tenantId, action: 'join', clientId }); if (r.ok) setD({ ...d, joined: true }); }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--ink, #16171a)', color: 'var(--paper, #fff)' }}>They said yes</button></section>);
   const value = (r: Reward) => rewardCents(r, { lines: bill.lines, discountableCents: Math.max(0, Math.round((bill.subtotal - bill.discountBase) * 100)) });
   const usable: Reward[] = (d.ready || []).filter((r: Reward) => value(r) > 0);
   const pick = (r: Reward) => { const c = value(r); if (c <= 0) { setMsg(`${r.name} can’t be used on this bill.`); return; } setReward({ rewardId: r.id, cents: c, label: `Reward: ${r.name}` }); setMsg(''); };
@@ -27,7 +27,7 @@ export function LoyaltyPanel({ tenantId, clientId, clientName, reward, setReward
       {reward ? <div className="flex items-center justify-between gap-2 text-[14px]"><span>−${(reward.cents / 100).toFixed(2)} off this bill</span><button type="button" onClick={() => setReward(null)} className="text-[13px] font-semibold underline">Don’t use it</button></div>
         : usable.length && !saved ? <>
           <p className="text-[14px]">{usable[0].name} ({usable[0].points} {unit}). Mention it before {first} leaves.</p>
-          <div className="flex gap-2"><button type="button" onClick={() => pick(usable[0])} className="h-11 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--accent, var(--ink))', color: 'var(--accent-ink, #fff)' }}>Use it today</button>
+          <div className="flex gap-2"><button type="button" onClick={() => pick(usable[0])} className="h-11 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--ink, #16171a)', color: 'var(--paper, #fff)' }}>Use it today</button>
             <button type="button" onClick={() => setSaved(true)} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>Save it</button></div>
           {usable.length > 1 && <div className="flex flex-wrap gap-1.5 text-[12.5px]">{usable.slice(1).map((r) => <button key={r.id} type="button" onClick={() => pick(r)} className="h-8 rounded-full px-3 font-semibold" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>Or {r.name}</button>)}</div>}
           {d.oneRewardPerVisit && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>One reward per visit.</p>}

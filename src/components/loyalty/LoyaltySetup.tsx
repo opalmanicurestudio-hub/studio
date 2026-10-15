@@ -42,8 +42,8 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
       </div>
       {msg && <p className="text-[14px] font-semibold" style={{ color: msg.ok ? GREEN : '#b42318' }}>{msg.t}</p>}
 
-      {stats && <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[[String(stats.members), 'members with points'], [String(stats.owedPoints), `${unit} still owed`], [money(stats.owedCents || 0), 'what they’d cost if all used'], [`${stats.usedCount} · ${money(stats.usedCostCents || 0)}`, 'rewards used, 30 days']].map(([n, l]) => (
+      {stats && !s.on && stats.members > 0 && <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {[[Number(stats.members).toLocaleString('en-US'), 'members with points'], [Number(stats.owedPoints).toLocaleString('en-US'), `${unit} still owed`], [money(stats.owedCents || 0), 'what they’d cost if all used'], [`${stats.usedCount} · ${money(stats.usedCostCents || 0)}`, 'rewards used, 30 days']].map(([n, l]) => (
           <div key={l} className="rounded-[18px] border p-4" style={{ borderColor: LINE }}><p className="text-[26px] font-light tracking-[-0.02em]">{n}</p><p className="text-[13px]" style={{ color: MUTED }}>{l}</p></div>))}
       </div>}
 
