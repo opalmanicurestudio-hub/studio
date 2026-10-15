@@ -54,6 +54,28 @@ import { makeDb, check, failures } from './fake-db';
     await LS.reverseSale(db2, 't', { saleId: 'order_o1', refundCents: 1800, refundId: 'rf1', by: 'Refund' });
     check('…and a shop refund takes back its share', (await LS.balanceFor(db2, 't', 'c2')) === 30 - 18); }
 
+  // Phase 4: tiers, milestones, quiet-time bonus, messages
+  { const T4: any = { timezone: 'America/New_York', name: 'Opal', loyalty: { ...tenant.loyalty, tiers: [{ id: 'gold', name: 'Gold', points: 100, multiplier: 1.5, perks: ['priority booking'] }], milestones: [{ visits: 2, points: 50 }], quiet: { on: true, windows: [{ id: 'q', days: [2], from: '13:00', to: '16:00', serviceIds: ['gel'], bonus: 25 }] }, auto: { rewardReady: true, tierUp: true } } };
+    const S4 = L.loyaltyOf(T4);
+    check('tiers by points earned in a year; a grace period before stepping down', L.tierFor(S4, 120).tier?.id === 'gold' && L.tierFor(S4, 20).tier === null && L.tierFor(S4, 20, { id: 'gold', until: '2099-01-01' }).tier?.id === 'gold');
+    check('quiet-time bonus only in the window and for the chosen service', L.quietBonus(S4, 2, 14 * 60, 'gel')?.points === 25 && !L.quietBonus(S4, 2, 17 * 60, 'gel') && !L.quietBonus(S4, 3, 14 * 60, 'gel') && !L.quietBonus(S4, 2, 14 * 60, 'pedi'));
+    const db3 = makeDb(); await db3.doc('tenants/t/clients/c3').set({ name: 'Lia Park', phone: '+15550600', smsMarketingOptIn: true });
+    const v = { services: [{ serviceId: 'gel', cents: 10000 }], products: [], giftSpentCents: 0, giftBoughtCents: 0, visits: 1, rebooked: false, renter: false };
+    const a1 = await LS.earnForSale(db3, 't', T4, { clientId: 'c3', saleId: 'v1', sale: v, by: 'D', quiet: [{ day: 2, min: 14 * 60, serviceId: 'gel' }] });
+    check('first visit: 100 points plus the quiet-time bonus, and they reach Gold', a1.points === 125 && (a1 as any).tier === 'Gold');
+    const a2 = await LS.earnForSale(db3, 't', T4, { clientId: 'c3', saleId: 'v2', sale: v, by: 'D' });
+    check('second visit: ×1.5 for Gold, plus the visit-2 milestone', a2.points === 150 + 50);
+    await LS.reverseSale(db3, 't', { saleId: 'v1', full: true, by: 'D' });
+    check('undoing a sale takes back its bonus too', (await LS.balanceFor(db3, 't', 'c3')) === 200);
+    const texts: string[] = []; const now = Date.parse('2026-10-14T15:00:00Z');
+    const sw = await LS.automationSweep(db3, 't', T4, now, async (_to, text) => { texts.push(text); return true; });
+    check('messages: the tier-up text goes first, one a month', sw.sent === 1 && /now Gold/.test(texts[0]));
+    const sw2 = await LS.automationSweep(db3, 't', T4, now + 864e5, async (_to, text) => { texts.push(text); return true; });
+    check('…and nothing more inside 30 days', sw2.sent === 0);
+    await db3.doc('tenants/t/clients/c4').set({ name: 'No Consent', phone: '+15550700', loyalty: { balance: 900, tier: { id: 'gold' } } });
+    const sw3 = await LS.automationSweep(db3, 't', T4, now + 40 * 864e5, async (_to, text) => { texts.push(text); return true; });
+    check('…never without marketing consent', !texts.some((x) => /No/.test(x.split(',')[0])) && sw3.sent >= 0); }
+
   // Checkout maths
   const { computeCheckout } = await import('../../src/lib/checkout-calc');
   const base: any = { tenant: { loyalty: { on: true } }, visits: [{ appointment: { id: 'a1', staffId: 's' }, service: { id: 'gel', price: 55 }, addOnServices: [] }], staff: [{ id: 's' }], redeemedOffer: null, waivedIds: [], items: [], fees: [], discounts: [], client: null, memberships: [], tip: 0, storeCredit: 0 };

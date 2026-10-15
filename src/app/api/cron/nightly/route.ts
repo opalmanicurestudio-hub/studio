@@ -1511,7 +1511,7 @@ export async function GET(req: NextRequest) {
     const { reviewSweep } = await import('@/lib/review-watch');
     for (const tDoc of (await db.collection('tenants').get()).docs) { try { if (await monthlyReportNotice(db, tDoc.id, tDoc.data())) mirReports++; } catch (e) { console.error('[nightly] mir report', tDoc.id, e); }
       try { const { giftReminderSweep } = await import('@/lib/gift-cards'); await giftReminderSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] gift reminders', tDoc.id, e); }
-      if ((tDoc.data() as any)?.loyalty?.on === true) { try { const { expirySweep } = await import('@/lib/loyalty-server'); await expirySweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] loyalty expiry', tDoc.id, e); } }
+      if ((tDoc.data() as any)?.loyalty?.on === true) { try { const { expirySweep } = await import('@/lib/loyalty-server'); await expirySweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] loyalty', tDoc.id, e); } }
       if ((tDoc.data() as any)?.makingItRight?.reviews?.on) { try { await reviewSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] reviews', tDoc.id, e); } } } } catch (e) { console.error('[nightly] mir reports', e); }
   return NextResponse.json({ ok: true, timingGroups, mirReports, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
 }

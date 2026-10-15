@@ -4,7 +4,7 @@
 // app, no sign-in. Shows first names only.
 import { getAdminDb } from '@/lib/firebase-admin';
 import { rewardsKey } from '@/lib/loyalty-link';
-import { loyaltyOf, rewardsFor, worthCents, termsOf, unitOf } from '@/lib/loyalty';
+import { loyaltyOf, rewardsFor, worthCents, termsOf, unitOf, tierFor } from '@/lib/loyalty';
 import { ledgerFor } from '@/lib/loyalty-server';
 import { brandAccent } from '@/lib/brand-accent';
 
@@ -27,6 +27,7 @@ export default async function RewardsPage({ params, searchParams }: { params: Pr
   const gifts = (await db.collection(`tenants/${tenantId}/giftCards`).where('recipientId', '==', clientId).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {}).filter((g: any) => g.status === 'active' && Number(g.balanceCents) > 0 && !g.ownerRenterId);
   const giftLeft = gifts.reduce((t: number, g: any) => t + Number(g.balanceCents || 0), 0);
   const first = String(c.firstName || c.name || '').trim().split(/\s+/)[0];
+  const e12 = ledger.filter((e: any) => (e.type === 'earn' || e.type === 'bonus') && Date.parse(e.at) >= Date.now() - 365 * 864e5).reduce((a: number, e: any) => a + Math.max(0, Number(e.points) || 0), 0); const tr = tierFor(S, e12, c.loyalty?.tier || null);
   return shell(<>
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>{tenant.logoUrl ? <img src={tenant.logoUrl} alt="" style={{ width: 34, height: 34, borderRadius: 10, objectFit: 'cover' }} /> : <span style={{ width: 34, height: 34, borderRadius: 10, background: accent, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{name.charAt(0)}</span>}<span style={{ fontSize: 15, fontWeight: 600 }}>{name}</span></div>
     <div><div style={{ fontSize: 14, color: MUTED }}>{first ? `Hi ${first},` : 'Hello,'}</div><h1 style={{ margin: '2px 0 0', fontSize: 30, fontWeight: 300, letterSpacing: '-0.03em' }}>Your rewards</h1></div>
@@ -35,6 +36,7 @@ export default async function RewardsPage({ params, searchParams }: { params: Pr
         <svg width="96" height="96" viewBox="0 0 96 96" role="img" aria-label={`${bal} ${unit}${r.next ? ` of ${r.next.reward.points}` : ''}`}><circle cx="48" cy="48" r="40" fill="none" stroke="#2c2d31" strokeWidth="10" /><circle cx="48" cy="48" r="40" fill="none" stroke={MINT} strokeWidth="10" strokeLinecap="round" strokeDasharray={`${C * pct} ${C}`} transform="rotate(-90 48 48)" /></svg>
         <div><div style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.03em', lineHeight: 1 }}>{bal}</div><div style={{ fontSize: 13.5, color: '#c9cace', marginTop: 4 }}>{unit}{worth > 0 ? ` · worth about ${money(worth)}` : ''}</div></div>
       </div>
+      {tr.tier && <div style={{ fontSize: 13.5, color: '#c9cace' }}>{tr.tier.name}{tr.tier.perks.length ? ` · ${tr.tier.perks.join(', ')}` : ''}{tr.next ? ` · ${tr.next.toGo} more this year for ${tr.next.tier.name}` : ''}</div>}
       <div style={{ fontSize: 14 }}>{r.next ? `${r.next.toGo} more for ${r.next.reward.name.charAt(0).toLowerCase()}${r.next.reward.name.slice(1)}.` : r.ready.length ? 'You have a reward ready.' : 'Earning with every visit.'}</div>
     </div>
     {(r.ready.length > 0 || r.next) && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}><div style={{ fontSize: 15, fontWeight: 600 }}>{r.ready.length ? 'Ready to use' : 'Coming up'}</div>

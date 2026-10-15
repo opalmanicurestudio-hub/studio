@@ -3,7 +3,7 @@
 // Booking policies). The time-sensitive ones (same-day tidy asks, waitlist offers) come first: the less urgent ones
 // only go out while a slot is left over for them. Confirmations, reminders, pay links and cancellation messages are
 // never counted or held back — those are owed.
-export type BudgetKind = 'tidy_ask' | 'waitlist_offer' | 'waitlist_still' | 'opportunity';
+export type BudgetKind = 'tidy_ask' | 'waitlist_offer' | 'waitlist_still' | 'opportunity' | 'loyalty';
 const URGENT: BudgetKind[] = ['tidy_ask', 'waitlist_offer'];
 const digits = (p: any) => String(p || '').replace(/\D/g, '').slice(-10);
 async function dayKey(db: any, t: string, now: number) {

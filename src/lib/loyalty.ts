@@ -18,7 +18,16 @@ export interface LoyaltySettings {
   counts: { services: boolean; products: boolean; giftCards: 'spent' | 'bought' };
   leaveOut: { memberVisits: boolean; serviceIds: string[]; productIds: string[] };
   rewards: Reward[]; expiryMonths: number; commission: 'full' | 'paid'; join: 'everyone' | 'opt_in'; oneRewardPerVisit: boolean;
+  /** Phase 4: tiers earned over a qualifying year, with a grace period before stepping down; milestones by visit count. */
+  tiers: Tier[]; graceMonths: number; milestones: Milestone[];
+  /** Phase 4: automatic messages — each off until switched on, with a monthly budget and one loyalty text a month at most. */
+  auto: { rewardReady: boolean; tierUp: boolean; unused: boolean; comeBack: boolean; monthlyTexts: number };
+  /** Phase 4: rewards for open time — bonus points on chosen services in quiet times (lib/loyalty quietBonus). */
+  quiet: { on: boolean; windows: QuietWindow[] };
 }
+export interface Tier { id: string; name: string; points: number; multiplier: number; perks: string[] }
+export interface Milestone { visits: number; points: number }
+export interface QuietWindow { id: string; days: number[]; from: string; to: string; serviceIds: string[]; bonus: number; label?: string }
 export const EARN_LABEL: Record<EarnMode, string> = { per_dollar: 'Points per dollar', per_visit: 'Points per visit', punch: 'Visit punch card' };
 export const EXPIRY_CHOICES = [0, 6, 12, 18, 24] as const;
 export const unitOf = (S: { earn: { mode: EarnMode } }) => (S.earn.mode === 'punch' ? 'punches' : 'points');
@@ -35,7 +44,12 @@ export function loyaltyOf(tenant: any): LoyaltySettings {
     counts: { services: c.services !== false, products: c.products !== false, giftCards: c.giftCards === 'bought' ? 'bought' : 'spent' },
     leaveOut: { memberVisits: o.memberVisits === true, serviceIds: ids(o.serviceIds), productIds: ids(o.productIds) },
     rewards, expiryMonths: (EXPIRY_CHOICES as readonly number[]).includes(Number(l.expiryMonths)) ? Number(l.expiryMonths) : 12,
-    commission: l.commission === 'paid' ? 'paid' : 'full', join: l.join === 'opt_in' ? 'opt_in' : 'everyone', oneRewardPerVisit: l.oneRewardPerVisit !== false };
+    commission: l.commission === 'paid' ? 'paid' : 'full', join: l.join === 'opt_in' ? 'opt_in' : 'everyone', oneRewardPerVisit: l.oneRewardPerVisit !== false,
+    tiers: (Array.isArray(l.tiers) ? l.tiers : []).slice(0, 5).map((x: any) => ({ id: String(x?.id || rid()).slice(0, 40), name: String(x?.name || '').trim().slice(0, 30), points: Math.round(num(x?.points, 1, 1000000, 0)), multiplier: Math.round(num(x?.multiplier, 1, 3, 1) * 100) / 100, perks: (Array.isArray(x?.perks) ? x.perks : []).map((p: any) => String(p || '').trim().slice(0, 80)).filter(Boolean).slice(0, 5) })).filter((x: Tier) => x.name && x.points > 0).sort((a: Tier, b: Tier) => a.points - b.points),
+    graceMonths: [0, 1, 2, 3, 6].includes(Number(l.graceMonths)) ? Number(l.graceMonths) : 3,
+    milestones: (Array.isArray(l.milestones) ? l.milestones : []).slice(0, 8).map((m: any) => ({ visits: Math.round(num(m?.visits, 2, 500, 0)), points: Math.round(num(m?.points, 1, 10000, 0)) })).filter((m: Milestone) => m.visits && m.points).sort((a: Milestone, b: Milestone) => a.visits - b.visits),
+    auto: { rewardReady: l.auto?.rewardReady === true, tierUp: l.auto?.tierUp === true, unused: l.auto?.unused === true, comeBack: l.auto?.comeBack === true, monthlyTexts: Math.round(num(l.auto?.monthlyTexts, 0, 5000, 200)) },
+    quiet: { on: l.quiet?.on === true, windows: (Array.isArray(l.quiet?.windows) ? l.quiet.windows : []).slice(0, 6).map((w: any) => ({ id: String(w?.id || rid()).slice(0, 40), days: (Array.isArray(w?.days) ? w.days : []).map(Number).filter((d: number) => d >= 0 && d <= 6), from: /^\d{2}:\d{2}$/.test(String(w?.from)) ? String(w.from) : '13:00', to: /^\d{2}:\d{2}$/.test(String(w?.to)) ? String(w.to) : '16:00', serviceIds: ids(w?.serviceIds), bonus: Math.round(num(w?.bonus, 1, 1000, 25)), label: w?.label ? String(w.label).slice(0, 40) : undefined })).filter((w: QuietWindow) => w.days.length) } };
 }
 export function cleanReward(r: any): Reward | null {
   const points = Math.round(num(r?.points, 1, 100000, 0)); const name = String(r?.name || '').trim().slice(0, 60); if (!points || !name) return null;
@@ -47,7 +61,7 @@ export function cleanReward(r: any): Reward | null {
 /** What gets saved when the owner changes the program: a new version whenever the earning or reward rules change. */
 export function nextLoyalty(prev: LoyaltySettings, raw: any, at = new Date().toISOString()): LoyaltySettings {
   const n = loyaltyOf({ loyalty: { ...raw, version: prev.version } });
-  const sig = (s: LoyaltySettings) => JSON.stringify([s.earn, s.counts, s.leaveOut, s.rewards.map((r) => [r.id, r.points, r.kind, r.cents, r.serviceId, r.on]), s.expiryMonths]);
+  const sig = (s: LoyaltySettings) => JSON.stringify([s.earn, s.counts, s.leaveOut, s.rewards.map((r) => [r.id, r.points, r.kind, r.cents, r.serviceId, r.on]), s.expiryMonths, s.tiers, s.graceMonths, s.milestones, s.quiet]);
   return { ...n, version: sig(n) !== sig(prev) ? prev.version + 1 : prev.version, updatedAt: at };
 }
 
@@ -96,7 +110,7 @@ export function worthCents(S: LoyaltySettings, balance: number): number {
 }
 
 // ── Balance and expiry ──────────────────────────────────────────────────────────────────────────────────────────────
-export interface LedgerEntry { id?: string; type: 'earn' | 'redeem' | 'reverse' | 'adjust' | 'expire'; points: number; at: string }
+export interface LedgerEntry { id?: string; type: 'earn' | 'bonus' | 'redeem' | 'reverse' | 'adjust' | 'expire'; points: number; at: string }
 /** The ledger's sum. It can dip below zero when a refund takes back points that were already used; nothing more can be
  *  redeemed until it's back above. */
 export const balanceOf = (ledger: LedgerEntry[]) => ledger.reduce((t, e) => t + (Number(e.points) || 0), 0);
@@ -118,3 +132,34 @@ export function termsOf(S: LoyaltySettings): string {
   const expiry = S.expiryMonths ? ` ${unit === 'punches' ? 'Punches' : 'Points'} last ${S.expiryMonths} months from your last visit.` : ` ${unit === 'punches' ? 'Punches' : 'Points'} never expire.`;
   return `${earn}${reward}${bonus}${expiry}${S.earn.mode === 'per_dollar' ? ' Tips and tax don’t earn points.' : ''} Rewards can’t be exchanged for cash.`;
 }
+
+// ── Phase 4: tiers, milestones, quiet-time bonuses ─────────────────────────────────────────────────────────────────
+/** Their tier: from points EARNED (not spent) in the last 12 months. Stepping down waits for the grace period: someone
+ *  who held a tier keeps it until `graceMonths` after they last qualified. */
+export function tierFor(S: LoyaltySettings, earnedLast12: number, held?: { id: string; until?: string | null } | null, now = Date.now()): { tier: Tier | null; next: { tier: Tier; toGo: number } | null; grace: boolean } {
+  if (!S.tiers.length) return { tier: null, next: null, grace: false };
+  const qualifies = [...S.tiers].reverse().find((t) => earnedLast12 >= t.points) || null;
+  const heldTier = held?.id ? S.tiers.find((t) => t.id === held.id) || null : null;
+  const graceOk = !!heldTier && !!held?.until && Date.parse(String(held.until)) > now && (!qualifies || heldTier.points > qualifies.points);
+  const tier = graceOk ? heldTier : qualifies; const after = S.tiers.find((t) => t.points > (tier?.points ?? -1) && t.points > earnedLast12);
+  return { tier, next: after ? { tier: after, toGo: after.points - earnedLast12 } : null, grace: graceOk };
+}
+/** Milestone bonus earned by reaching visit number `visitNumber` (exactly), if the program has one there. */
+export const milestoneAt = (S: LoyaltySettings, visitNumber: number) => S.milestones.find((m) => m.visits === visitNumber) || null;
+const hm = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+/** Quiet-time bonus for a visit that starts at local weekday `day` (0 = Sunday) and minute-of-day `min`, for a service. */
+export function quietBonus(S: LoyaltySettings, day: number, min: number, serviceId: string | null): { points: number; label: string } | null {
+  if (!S.on || !S.quiet.on || !serviceId) return null;
+  const w = S.quiet.windows.find((x) => x.days.includes(day) && min >= hm(x.from) && min < hm(x.to) && (!x.serviceIds.length || x.serviceIds.includes(serviceId)));
+  return w ? { points: w.bonus, label: w.label || 'Quiet-time bonus' } : null;
+}
+const DAY_NAME = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const clock = (s: string) => { const [h, m] = s.split(':').map(Number); return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`; };
+export const windowWords = (w: QuietWindow) => `${w.days.map((d) => DAY_NAME[d]).join(', ')} ${clock(w.from)}–${clock(w.to)}`;
+/** The automatic messages, word for word, so the business previews them before switching any on. */
+export const AUTO_TEXTS = {
+  rewardReady: (o: { first: string; reward: string; business: string }) => `Hi ${o.first}, this is ${o.business}. You have enough points for ${o.reward}. Just mention it at your next visit.`,
+  tierUp: (o: { first: string; tier: string; business: string; perks: string }) => `Hi ${o.first}, this is ${o.business}. You are now ${o.tier}${o.perks ? `: ${o.perks}` : ''}. Thank you for coming to see us.`,
+  unused: (o: { first: string; points: number; unit: string; business: string; reward?: string }) => `Hi ${o.first}, this is ${o.business}. A friendly note that you have ${o.points} ${o.unit} waiting${o.reward ? `, enough for ${o.reward}` : ''}. We would love to see you soon.`,
+  comeBack: (o: { first: string; business: string; points: number; unit: string }) => `Hi ${o.first}, this is ${o.business}. It has been a while, and we hope you are well. Your ${o.points} ${o.unit} are still here whenever you would like to come in.`,
+};

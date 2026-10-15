@@ -22,7 +22,8 @@ export function LoyaltyPanel({ tenantId, clientId, clientName, reward, setReward
   return (
     <section style={box} className="space-y-2.5">
       <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">{reward ? `Using ${reward.label.replace(/^Reward: /, '')}` : usable.length && !saved ? `${first} has a reward ready` : 'Rewards'}</p>
-        <span className="rounded-full px-2.5 py-1 text-[12px] font-bold" style={{ background: 'color-mix(in srgb, var(--ok) 14%, transparent)', color: 'var(--ok)' }}>{d.balance} {unit}</span></div>
+        <span className="flex items-center gap-1.5">{d.tier && <span className="rounded-full px-2.5 py-1 text-[12px] font-bold" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>{d.tier.name}</span>}<span className="rounded-full px-2.5 py-1 text-[12px] font-bold" style={{ background: 'color-mix(in srgb, var(--ok) 14%, transparent)', color: 'var(--ok)' }}>{d.balance} {unit}</span></span></div>
+      {d.tier?.perks?.length ? <p className="text-[12.5px]" style={{ color: 'var(--muted)' }}>{d.tier.name}: {d.tier.perks.join(', ')}</p> : null}
       {reward ? <div className="flex items-center justify-between gap-2 text-[14px]"><span>−${(reward.cents / 100).toFixed(2)} off this bill</span><button type="button" onClick={() => setReward(null)} className="text-[13px] font-semibold underline">Don’t use it</button></div>
         : usable.length && !saved ? <>
           <p className="text-[14px]">{usable[0].name} ({usable[0].points} {unit}). Mention it before {first} leaves.</p>

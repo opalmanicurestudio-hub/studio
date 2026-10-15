@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
   const results: any[] = [];
   const tenants = await db.collection('tenants').get();
   for (const t of tenants.docs) {
+    // Loyalty messages (lib/loyalty-server): once a day from 10am, only what the business switched on.
+    if ((t.data() as any)?.loyalty?.on === true) { try { const { automationSweep } = await import('@/lib/loyalty-server'); await automationSweep(db, t.id, t.data()); } catch (e) { console.error('[campaigns] loyalty', t.id, e); } }
     // Automations: once a day, at 10am in the business's own time zone.
     try {
       const tz = String((t.data() as any)?.timezone || 'America/New_York');

@@ -5,7 +5,7 @@
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
 import { useInventory } from '@/context/InventoryContext';
-import { EARN_LABEL, EXPIRY_CHOICES, termsOf, loyaltyOf, type EarnMode, type Reward } from '@/lib/loyalty';
+import { EARN_LABEL, EXPIRY_CHOICES, termsOf, loyaltyOf, AUTO_TEXTS, windowWords, type EarnMode, type Reward } from '@/lib/loyalty';
 
 const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', BG = 'hsl(var(--background))', GREEN = '#1f7a4d';
 const money = (c: number) => `$${(c / 100).toLocaleString('en-US', { maximumFractionDigits: c % 100 ? 2 : 0, minimumFractionDigits: c % 100 ? 2 : 0 })}`;
@@ -97,6 +97,57 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
             <label className="space-y-1.5 text-[13px]" style={{ color: MUTED }}>Staff commission when a reward is used<select value={s.commission} onChange={(e) => set({ commission: e.target.value })} className={input} style={{ borderColor: LINE, color: INK }}><option value="full">Paid on the full price</option><option value="paid">Paid on what the client paid</option></select></label>
           </div>
           <label className="flex items-center gap-2 text-[14px]"><input type="checkbox" checked={s.oneRewardPerVisit !== false} onChange={(e) => set({ oneRewardPerVisit: e.target.checked })} /> One reward per visit</label>
+        </section>
+      </div>
+
+      <div className="grid gap-5 md:grid-cols-2">
+        <section className={`${card} space-y-3`} style={{ borderColor: LINE }}>
+          <div><p className="text-[18px] font-semibold">Tiers</p><p className="text-[13.5px]" style={{ color: MUTED }}>Reached by {unit} earned over 12 months (using rewards doesn’t lower it). Benefits don’t have to be discounts: priority booking, early access, a free add-on.</p></div>
+          {(s.tiers || []).map((tr: any, i: number) => (
+            <div key={tr.id || i} className="space-y-2 rounded-[16px] border p-3" style={{ borderColor: LINE }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <input value={tr.name} onChange={(e) => setS((x: any) => ({ ...x, tiers: x.tiers.map((y: any, k: number) => (k === i ? { ...y, name: e.target.value } : y)) }))} aria-label="Tier name" placeholder="Gold" className="h-10 w-32 rounded-[10px] border bg-background px-3 text-[14px]" style={{ borderColor: LINE }} />
+                <label className="flex items-center gap-1 text-[13px]" style={{ color: MUTED }}>from<input type="number" min={1} value={tr.points} onChange={(e) => setS((x: any) => ({ ...x, tiers: x.tiers.map((y: any, k: number) => (k === i ? { ...y, points: Number(e.target.value) } : y)) }))} aria-label={`${unit} a year`} className="h-10 w-24 rounded-[10px] border bg-background px-2 text-[14px]" style={{ borderColor: LINE }} />{unit} a year</label>
+                <label className="flex items-center gap-1 text-[13px]" style={{ color: MUTED }}>earns ×<input type="number" min={1} max={3} step={0.25} value={tr.multiplier} onChange={(e) => setS((x: any) => ({ ...x, tiers: x.tiers.map((y: any, k: number) => (k === i ? { ...y, multiplier: Number(e.target.value) } : y)) }))} aria-label="Earning multiplier" className="h-10 w-16 rounded-[10px] border bg-background px-2 text-[14px]" style={{ borderColor: LINE }} /></label>
+                <button type="button" onClick={() => setS((x: any) => ({ ...x, tiers: x.tiers.filter((_: any, k: number) => k !== i) }))} className="h-10 px-2 text-[12.5px]" style={{ color: MUTED }}>Remove</button>
+              </div>
+              <input value={(tr.perks || []).join(', ')} onChange={(e) => setS((x: any) => ({ ...x, tiers: x.tiers.map((y: any, k: number) => (k === i ? { ...y, perks: e.target.value.split(',').map((p) => p.trim()).filter(Boolean) } : y)) }))} placeholder="Perks, separated by commas (priority booking, early access to new services)" aria-label="Perks" className="h-10 w-full rounded-[10px] border bg-background px-3 text-[13.5px]" style={{ borderColor: LINE }} />
+            </div>))}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setS((x: any) => ({ ...x, tiers: [...(x.tiers || []), { id: Math.random().toString(36).slice(2, 9), name: '', points: 1000, multiplier: 1.25, perks: [] }] }))} className="h-10 rounded-full border border-dashed px-4 text-[13.5px] font-semibold" style={{ borderColor: '#c9cace' }}>+ Add a tier</button>
+            <label className="flex items-center gap-1.5 text-[13px]" style={{ color: MUTED }}>Grace before stepping down<select value={s.graceMonths ?? 3} onChange={(e) => set({ graceMonths: Number(e.target.value) })} className="h-10 rounded-[10px] border bg-background px-2 text-[13.5px]" style={{ borderColor: LINE, color: INK }}>{[0, 1, 2, 3, 6].map((m) => <option key={m} value={m}>{m ? `${m} month${m === 1 ? '' : 's'}` : 'None'}</option>)}</select></label>
+          </div>
+          <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${LINE}` }}><p className="text-[15px] font-semibold">Milestones</p>
+            <div className="flex flex-wrap gap-2">{(s.milestones || []).map((m: any, i: number) => <span key={i} className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[13px]" style={{ background: SOFT }}>Visit <input type="number" min={2} value={m.visits} onChange={(e) => setS((x: any) => ({ ...x, milestones: x.milestones.map((y: any, k: number) => (k === i ? { ...y, visits: Number(e.target.value) } : y)) }))} aria-label="Visit number" className="w-12 rounded-[6px] border bg-background px-1 text-center" style={{ borderColor: LINE }} /> → +<input type="number" min={1} value={m.points} onChange={(e) => setS((x: any) => ({ ...x, milestones: x.milestones.map((y: any, k: number) => (k === i ? { ...y, points: Number(e.target.value) } : y)) }))} aria-label="Bonus" className="w-16 rounded-[6px] border bg-background px-1 text-center" style={{ borderColor: LINE }} /> <button type="button" aria-label="Remove milestone" onClick={() => setS((x: any) => ({ ...x, milestones: x.milestones.filter((_: any, k: number) => k !== i) }))} style={{ color: MUTED }}>×</button></span>)}
+              <button type="button" onClick={() => setS((x: any) => ({ ...x, milestones: [...(x.milestones || []), { visits: 10, points: 100 }] }))} className="h-8 rounded-full border border-dashed px-3 text-[12.5px] font-semibold" style={{ borderColor: '#c9cace' }}>+ Milestone</button></div></div>
+        </section>
+
+        <section className={`${card} space-y-3`} style={{ borderColor: LINE }}>
+          <div><p className="text-[18px] font-semibold">Automatic messages</p><p className="text-[13.5px]" style={{ color: MUTED }}>Each is off until you switch it on. Only clients who agreed to marketing texts; one loyalty text a month at most; never more than your shared daily limit; 10 am to 8 pm.</p></div>
+          {([['rewardReady', 'A reward is ready', AUTO_TEXTS.rewardReady({ first: 'Maria', reward: (s.rewards?.[0]?.name || 'a reward').toLowerCase(), business: 'your business' })],
+             ['tierUp', 'They reached a new tier', AUTO_TEXTS.tierUp({ first: 'Maria', tier: s.tiers?.[0]?.name || 'Gold', business: 'your business', perks: (s.tiers?.[0]?.perks || []).join(', ') })],
+             ['unused', 'Points waiting (2 months since their visit)', AUTO_TEXTS.unused({ first: 'Maria', points: 640, unit, business: 'your business', reward: (s.rewards?.[0]?.name || '').toLowerCase() })],
+             ['comeBack', 'Come back (4 months since their visit)', AUTO_TEXTS.comeBack({ first: 'Maria', business: 'your business', points: 640, unit })]] as [string, string, string][]).map(([k, l, preview]) => (
+            <div key={k} className="space-y-1.5 rounded-[14px] p-3" style={{ background: SOFT }}>
+              <label className="flex items-center justify-between gap-2 text-[14px] font-semibold">{l}<input type="checkbox" checked={!!s.auto?.[k]} onChange={(e) => set({ auto: { ...(s.auto || {}), [k]: e.target.checked } })} /></label>
+              <p className="text-[13px] leading-[1.5]" style={{ color: MUTED }}>“{preview}”</p></div>))}
+          <label className="flex items-center justify-between gap-2 text-[14px]">Most loyalty texts a month<input type="number" min={0} max={5000} value={s.auto?.monthlyTexts ?? 200} onChange={(e) => set({ auto: { ...(s.auto || {}), monthlyTexts: Number(e.target.value) } })} className="h-10 w-24 rounded-[10px] border bg-background px-2 text-[14px]" style={{ borderColor: LINE }} /></label>
+          <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${LINE}` }}>
+            <label className="flex items-center justify-between gap-2"><span><span className="block text-[15px] font-semibold">Rewards for open time</span><span className="block text-[13px]" style={{ color: MUTED }}>Bonus {unit} on chosen services in your quiet times. An empty slot doesn’t always need a discount: this asks nothing off the price.</span></span><input type="checkbox" checked={!!s.quiet?.on} onChange={(e) => set({ quiet: { ...(s.quiet || { windows: [] }), on: e.target.checked } })} /></label>
+            {s.quiet?.on && <>{(s.quiet.windows || []).map((w: any, i: number) => (
+              <div key={w.id || i} className="space-y-2 rounded-[14px] border p-3" style={{ borderColor: LINE }}>
+                <div className="flex flex-wrap gap-1">{['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((dn, d) => <button key={d} type="button" aria-pressed={w.days.includes(d)} aria-label={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d]} onClick={() => setS((x: any) => ({ ...x, quiet: { ...x.quiet, windows: x.quiet.windows.map((y: any, k: number) => (k === i ? { ...y, days: y.days.includes(d) ? y.days.filter((z: number) => z !== d) : [...y.days, d].sort() } : y)) } }))} className="h-9 w-9 rounded-full text-[13px] font-semibold" style={pill(w.days.includes(d))}>{dn}</button>)}</div>
+                <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                  <input type="time" value={w.from} onChange={(e) => setS((x: any) => ({ ...x, quiet: { ...x.quiet, windows: x.quiet.windows.map((y: any, k: number) => (k === i ? { ...y, from: e.target.value } : y)) } }))} aria-label="From" className="h-9 rounded-[8px] border bg-background px-2" style={{ borderColor: LINE }} />to
+                  <input type="time" value={w.to} onChange={(e) => setS((x: any) => ({ ...x, quiet: { ...x.quiet, windows: x.quiet.windows.map((y: any, k: number) => (k === i ? { ...y, to: e.target.value } : y)) } }))} aria-label="To" className="h-9 rounded-[8px] border bg-background px-2" style={{ borderColor: LINE }} />
+                  <label className="flex items-center gap-1">+<input type="number" min={1} value={w.bonus} onChange={(e) => setS((x: any) => ({ ...x, quiet: { ...x.quiet, windows: x.quiet.windows.map((y: any, k: number) => (k === i ? { ...y, bonus: Number(e.target.value) } : y)) } }))} aria-label="Bonus" className="h-9 w-16 rounded-[8px] border bg-background px-2" style={{ borderColor: LINE }} />{unit}</label>
+                  <button type="button" onClick={() => setS((x: any) => ({ ...x, quiet: { ...x.quiet, windows: x.quiet.windows.filter((_: any, k: number) => k !== i) } }))} style={{ color: MUTED }}>Remove</button>
+                </div>
+                <details><summary className="cursor-pointer text-[13px] font-semibold">Services ({(w.serviceIds || []).length || 'all'})</summary><div className="mt-2 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">{svcList.map((v: any) => <button key={v.id} type="button" onClick={() => setS((x: any) => ({ ...x, quiet: { ...x.quiet, windows: x.quiet.windows.map((y: any, k: number) => (k === i ? { ...y, serviceIds: (y.serviceIds || []).includes(v.id) ? y.serviceIds.filter((z: string) => z !== v.id) : [...(y.serviceIds || []), v.id] } : y)) } }))} className="h-8 rounded-full px-3 text-[12.5px] font-semibold" style={pill((w.serviceIds || []).includes(v.id))}>{v.name}</button>)}</div></details>
+                {w.days.length > 0 && <p className="text-[12.5px]" style={{ color: MUTED }}>{windowWords(w)} · +{w.bonus} {unit}</p>}
+              </div>))}
+              <button type="button" onClick={() => setS((x: any) => ({ ...x, quiet: { ...x.quiet, windows: [...(x.quiet?.windows || []), { id: Math.random().toString(36).slice(2, 9), days: [2], from: '13:00', to: '16:00', serviceIds: [], bonus: 25 }] } }))} className="h-9 rounded-full border border-dashed px-3 text-[13px] font-semibold" style={{ borderColor: '#c9cace' }}>+ A quiet time</button></>}
+          </div>
         </section>
       </div>
 

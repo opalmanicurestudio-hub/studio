@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
-import { loyaltyOf, nextLoyalty, rewardsFor, worthCents, termsOf, expiresAt } from '@/lib/loyalty';
+import { loyaltyOf, nextLoyalty, rewardsFor, worthCents, termsOf, expiresAt, tierFor } from '@/lib/loyalty';
 import { ledgerFor, adjustPoints } from '@/lib/loyalty-server';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +42,9 @@ export async function POST(req: NextRequest) {
     const S = loyaltyOf(tenant); const c: any = (await db.doc(`${T}/clients/${clientId}`).get()).data() || {};
     const ledger = await ledgerFor(db, tenantId, clientId); const balance = Math.max(0, ledger.reduce((t, e) => t + (Number(e.points) || 0), 0));
     const r = rewardsFor(S, balance);
-    return j({ ok: true, on: S.on, unit: S.earn.mode === 'punch' ? 'punches' : 'points', balance, worthCents: worthCents(S, balance), ready: r.ready, next: r.next, oneRewardPerVisit: S.oneRewardPerVisit,
+    const e12 = ledger.filter((e: any) => (e.type === 'earn' || e.type === 'bonus') && Date.parse(e.at) >= Date.now() - 365 * 864e5).reduce((a: number, e: any) => a + Math.max(0, Number(e.points) || 0), 0);
+    const tr = tierFor(S, e12, c.loyalty?.tier || null);
+    return j({ ok: true, on: S.on, tier: tr.tier ? { name: tr.tier.name, perks: tr.tier.perks, multiplier: tr.tier.multiplier, grace: tr.grace } : null, nextTier: tr.next ? { name: tr.next.tier.name, toGo: tr.next.toGo } : null, unit: S.earn.mode === 'punch' ? 'punches' : 'points', balance, worthCents: worthCents(S, balance), ready: r.ready, next: r.next, oneRewardPerVisit: S.oneRewardPerVisit,
       expiresAt: expiresAt(S, c.loyalty?.lastVisitAt || null), terms: termsOf(S), optedOut: c.loyaltyOptOut === true, joined: S.join !== 'opt_in' || !!c.loyaltyJoinedAt,
       ledger: ledger.slice(0, 80).map((e: any) => ({ id: e.id, type: e.type, points: e.points, at: e.at, why: e.why || '', saleId: e.saleId || null, version: e.version || null, by: e.by || null })) });
   }

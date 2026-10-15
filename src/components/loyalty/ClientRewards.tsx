@@ -21,7 +21,7 @@ export function ClientRewards({ tenantId, clientId, manager }: { tenantId: strin
   return (
     <section className="space-y-3 rounded-[22px] border bg-card p-5" style={{ borderColor: LINE }}>
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="text-[13px]" style={{ color: MUTED }}>Rewards</p><p className="text-[28px] font-light tracking-[-0.02em]">{d.balance} {unit}</p></div>
+        <div><p className="text-[13px]" style={{ color: MUTED }}>Rewards{d.tier ? ` · ${d.tier.name}${d.tier.grace ? ' (keeping it for now)' : ''}` : ''}</p><p className="text-[28px] font-light tracking-[-0.02em]">{d.balance} {unit}</p>{d.nextTier && <p className="text-[12.5px]" style={{ color: MUTED }}>{d.nextTier.toGo} {unit} this year to {d.nextTier.name}</p>}</div>
         {manager && !adj && <button type="button" onClick={() => setAdj({ points: '', note: '' })} className="h-10 rounded-full border px-4 text-[13.5px] font-semibold" style={{ borderColor: LINE }}>Adjust (with a reason)</button>}
       </div>
       {adj && <div className="flex flex-wrap items-center gap-2 rounded-[14px] p-3" style={{ background: SOFT }}>
