@@ -85,10 +85,10 @@ export function PortalDecisionBar({
 
   if (openIssue) {
     return (
-      <div className="mt-2 flex items-start gap-2 rounded-xl border-2 border-destructive/40 bg-destructive/[0.05] px-3 py-2">
+      <div className="mt-2 flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/[0.05] px-3 py-2">
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
         <span className="min-w-0">
-          <span className="block text-[11px] font-black uppercase tracking-widest text-destructive">With a manager</span>
+          <span className="block text-[11px] font-semibold text-destructive">With a manager</span>
           <span className="block truncate text-[11px] font-bold text-muted-foreground">{openIssue.label}</span>
         </span>
       </div>
@@ -102,8 +102,8 @@ export function PortalDecisionBar({
 
   if (picking) {
     return (
-      <div className="mt-2 space-y-1.5 rounded-xl border-2 bg-white p-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Why can you not take it?</p>
+      <div className="mt-2 space-y-1.5 rounded-xl border bg-white p-2">
+        <p className="text-[12px] font-semibold text-muted-foreground">Why can you not take it?</p>
         <div className="max-h-48 space-y-1 overflow-y-auto">
           {reasons.map(r => (
             <button
@@ -114,7 +114,7 @@ export function PortalDecisionBar({
                 () => raiseIssue(firestore, tenantId, appointment, r.code, null, actor, policy, allStaff || [], tenant?.userId || null),
                 'Sent to a manager',
               )}
-              className="w-full rounded-lg border-2 border-border bg-white px-2.5 py-2 text-left text-[11px] font-bold leading-snug text-foreground active:scale-[0.99] disabled:opacity-50"
+              className="w-full rounded-lg border border-border bg-white px-2.5 py-2 text-left text-[11px] font-bold leading-snug text-foreground active:scale-[0.99] disabled:opacity-50"
             >
               {r.label}
             </button>
@@ -123,7 +123,7 @@ export function PortalDecisionBar({
         <button
           type="button"
           onClick={() => setPicking(false)}
-          className="w-full rounded-lg px-2 py-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground"
+          className="w-full rounded-lg px-2 py-1.5 text-[12px] font-semibold text-muted-foreground"
         >
           Back
         </button>
@@ -138,7 +138,7 @@ export function PortalDecisionBar({
         disabled={busy}
         aria-label={`Report an issue with ${appointment?.clientName || 'this booking'}`}
         onClick={() => setPicking(true)}
-        className="mt-2 h-8 w-full rounded-xl border-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground active:scale-95 disabled:opacity-50"
+        className="mt-2 h-8 w-full rounded-xl border text-[12px] font-semibold text-muted-foreground active:scale-95 disabled:opacity-50"
       >
         Report an issue
       </button>
@@ -149,7 +149,7 @@ export function PortalDecisionBar({
     <div className="mt-2 space-y-1.5">
       {clock && (
         <p className={cn(
-          'text-[11px] font-black uppercase tracking-widest',
+          'text-[11px] font-semibold',
           clock.overdue ? 'text-destructive' : 'text-muted-foreground',
         )}>
           {clock.overdue
@@ -168,7 +168,7 @@ export function PortalDecisionBar({
           () => approveBooking(firestore, tenantId, appointment, actor.uid, tenant?.name, actor.name),
           'Accepted',
         )}
-        className="flex h-9 flex-1 items-center justify-center gap-1 rounded-xl bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50"
+        className="flex h-9 flex-1 items-center justify-center gap-1 rounded-xl bg-emerald-600 text-[12px] font-semibold text-white active:scale-95 disabled:opacity-50"
       >
         {busy ? <Loader className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
           : <><Check className="h-3.5 w-3.5" aria-hidden="true" />Accept</>}
@@ -183,14 +183,14 @@ export function PortalDecisionBar({
                 () => denyBooking(firestore, tenantId, appointment, actor.uid, actor.name, 'alternative'),
                 'Declined',
               )}
-              className="h-9 rounded-xl bg-destructive px-3 text-[10px] font-black uppercase tracking-widest text-white active:scale-95 disabled:opacity-50"
+              className="h-9 rounded-xl bg-destructive px-3 text-[12px] font-semibold text-white active:scale-95 disabled:opacity-50"
             >
               Yes
             </button>
             <button
               type="button"
               onClick={() => setConfirmDecline(false)}
-              className="h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground active:scale-95"
+              className="h-9 rounded-xl border px-3 text-[12px] font-semibold text-muted-foreground active:scale-95"
             >
               Keep
             </button>
@@ -200,7 +200,7 @@ export function PortalDecisionBar({
             type="button" disabled={busy}
             aria-label={`Decline ${appointment?.clientName || 'this booking'}`}
             onClick={() => setConfirmDecline(true)}
-            className="h-9 flex-1 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest text-foreground active:scale-95 disabled:opacity-50"
+            className="h-9 flex-1 rounded-xl border text-[12px] font-semibold text-foreground active:scale-95 disabled:opacity-50"
           >
             Decline
           </button>
@@ -211,7 +211,7 @@ export function PortalDecisionBar({
           aria-label={`Report an issue with ${appointment?.clientName || 'this booking'}`}
           onClick={() => setPicking(true)}
           className={cn(
-            'h-9 flex-1 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest text-foreground active:scale-95 disabled:opacity-50',
+            'h-9 flex-1 rounded-xl border text-[12px] font-semibold text-foreground active:scale-95 disabled:opacity-50',
           )}
         >
           Report issue

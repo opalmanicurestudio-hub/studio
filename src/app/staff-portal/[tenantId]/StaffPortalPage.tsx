@@ -215,10 +215,10 @@ const RotationRow = ({ r, tenantId, staffMember, onOpenDoc: openDoc, todayStr }:
 
   if (satisfied) {
     return (
-      <div className="flex items-center justify-between gap-2 rounded-2xl border-2 border-emerald-300 bg-emerald-50/60 px-4 py-3">
+      <div className="flex items-center justify-between gap-2 rounded-2xl border border-emerald-300 bg-emerald-50/60 px-4 py-3">
         <div className="min-w-0">
-          <p className="truncate text-[12px] font-black tracking-tight text-emerald-900">✓ {r.title}</p>
-          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-800">
+          <p className="truncate text-[12px] font-semibold tracking-tight text-emerald-900">✓ {r.title}</p>
+          <p className="text-[12px] font-semibold text-emerald-800">
             Done {r.cadence === 'weekly' ? 'this week' : 'today'}{lastEntry ? ` by ${lastEntry.staffName}` : ''}
           </p>
         </div>
@@ -228,23 +228,23 @@ const RotationRow = ({ r, tenantId, staffMember, onOpenDoc: openDoc, todayStr }:
 
   if (isMyTurn) {
     return (
-      <div className="rounded-2xl border-2 border-slate-900 bg-white p-4">
-        <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Your turn</p>
-        <p className="mt-0.5 text-[15px] font-black tracking-tight text-slate-900">{r.title}</p>
+      <div className="rounded-2xl border border-[#c9cace] bg-white p-4">
+        <p className="text-[12px] font-semibold tracking-[0.25em] text-[#6d7075]">Your turn</p>
+        <p className="mt-0.5 text-[15px] font-semibold tracking-tight text-[#16171a]">{r.title}</p>
         {gateOnChecklist && !myChecklistDone && (
-          <p className="mt-1 text-[11px] font-bold text-slate-600">This turn has a checklist — finish it first, then pass the turn.</p>
+          <p className="mt-1 text-[11px] font-bold text-[#6d7075]">This turn has a checklist — finish it first, then pass the turn.</p>
         )}
         <div className="mt-2.5 flex flex-wrap gap-2">
           {r.linkedDocId && (
-            <button type="button" onClick={onOpenDoc} className={cn('flex h-10 items-center gap-1.5 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest', gateOnChecklist && !myChecklistDone ? 'bg-slate-900 text-white' : 'border-2 text-slate-700')}>
+            <button type="button" onClick={onOpenDoc} className={cn('flex h-10 items-center gap-1.5 rounded-xl px-3 text-[12px] font-semibold', gateOnChecklist && !myChecklistDone ? 'bg-[#16171a] text-white' : 'border text-[#16171a]')}>
               <FileText className="h-3.5 w-3.5" /> Open the checklist
             </button>
           )}
-          <button type="button" disabled={gateOnChecklist && !myChecklistDone} onClick={() => advance('done')} className={cn('flex h-10 items-center gap-1.5 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest', gateOnChecklist && !myChecklistDone ? 'border-2 bg-slate-100 text-slate-400' : 'bg-slate-900 text-white')}>
+          <button type="button" disabled={gateOnChecklist && !myChecklistDone} onClick={() => advance('done')} className={cn('flex h-10 items-center gap-1.5 rounded-xl px-3 text-[12px] font-semibold', gateOnChecklist && !myChecklistDone ? 'border bg-[#f5f5f7] text-[#6d7075]' : 'bg-[#16171a] text-white')}>
             <CheckCircle2 className="h-3.5 w-3.5" /> {gateOnChecklist && !myChecklistDone ? 'Finish the checklist first' : 'Done — pass the turn'}
           </button>
           {r.allowSwap !== false && (
-            <button type="button" onClick={swapWithNext} className="flex h-10 items-center gap-1.5 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-700">
+            <button type="button" onClick={swapWithNext} className="flex h-10 items-center gap-1.5 rounded-xl border px-3 text-[12px] font-semibold text-[#16171a]">
               ⇄ Swap with next
             </button>
           )}
@@ -254,18 +254,18 @@ const RotationRow = ({ r, tenantId, staffMember, onOpenDoc: openDoc, todayStr }:
   }
 
   return (
-    <div className="flex items-center justify-between gap-2 rounded-2xl border-2 border-dashed bg-white/70 px-4 py-3">
+    <div className="flex items-center justify-between gap-2 rounded-2xl border border-dashed bg-white/70 px-4 py-3">
       <div className="min-w-0">
-        <p className="truncate text-[12px] font-black tracking-tight text-slate-700">{r.title}</p>
-        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Turn: {(r.memberNames || {})[cur] || 'a teammate'}</p>
+        <p className="truncate text-[12px] font-semibold tracking-tight text-[#16171a]">{r.title}</p>
+        <p className="text-[12px] font-semibold text-muted-foreground">Turn: {(r.memberNames || {})[cur] || 'a teammate'}</p>
       </div>
       {r.allowCover !== false && (
         gateOnChecklist && !myChecklistDone ? (
-          <button type="button" onClick={onOpenDoc} className="h-9 shrink-0 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+          <button type="button" onClick={onOpenDoc} className="h-9 shrink-0 rounded-xl border px-3 text-[12px] font-semibold text-[#6d7075]">
             Do the checklist to cover
           </button>
         ) : (
-          <button type="button" onClick={() => advance('cover', cur, (r.memberNames || {})[cur])} className="h-9 shrink-0 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest text-slate-600">
+          <button type="button" onClick={() => advance('cover', cur, (r.memberNames || {})[cur])} className="h-9 shrink-0 rounded-xl border px-3 text-[12px] font-semibold text-[#6d7075]">
             I did it instead
           </button>
         )
@@ -373,11 +373,11 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
   if (mine.length === 0) return null;
 
   return (
-    <div className="rounded-2xl border-2 bg-white p-4 space-y-2">
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Tasks for you</p>
+    <div className="rounded-2xl border bg-white p-4 space-y-2">
+      <p className="text-[12px] font-semibold text-[#16171a]">Tasks for you</p>
       <input ref={taskFileRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden="true" tabIndex={-1} onChange={(e) => handleTaskPhoto(e.target.files?.[0] || null)} />
       {taskUploadErr && (
-        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
           <p className="text-[11px] font-bold text-amber-900">{taskUploadErr}</p>
         </div>
       )}
@@ -385,22 +385,22 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
         const uploading = uploadingId === t.id;
         const taken = pendingPhotos[t.id] || [];
         return (
-          <div key={t.id} className="rounded-xl border-2 p-3">
+          <div key={t.id} className="rounded-xl border p-3">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-[13px] font-black tracking-tight text-slate-900">{t.title}</p>
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                <p className="text-[13px] font-semibold tracking-tight text-[#16171a]">{t.title}</p>
+                <p className="text-[12px] font-semibold text-muted-foreground">
                   {t.dueDate ? `Due ${t.dueDate}` : 'No due date'}{t.requirePhoto ? ' · 📷 photo required' : ''}
                 </p>
-                {t.notes && <p className="mt-1 text-[12px] font-bold text-slate-600">{t.notes}</p>}
+                {t.notes && <p className="mt-1 text-[12px] font-bold text-[#6d7075]">{t.notes}</p>}
               </div>
               {taken.length === 0 ? (
-                <button type="button" disabled={uploading} onClick={() => handleTap(t)} className={cn('flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest', uploading ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white')}>
+                <button type="button" disabled={uploading} onClick={() => handleTap(t)} className={cn('flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12px] font-semibold', uploading ? 'bg-[#f5f5f7] text-[#6d7075]' : 'bg-[#16171a] text-white')}>
                   {uploading ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                   {uploading ? 'Uploading…' : t.requirePhoto ? 'Photo + done' : 'Done'}
                 </button>
               ) : (
-                <button type="button" disabled={uploading} onClick={() => completeTask(t, taken)} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white">
+                <button type="button" disabled={uploading} onClick={() => completeTask(t, taken)} className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-[12px] font-semibold text-white">
                   <CheckCircle2 className="h-3.5 w-3.5" /> Finish task
                 </button>
               )}
@@ -408,10 +408,10 @@ const TasksForYou = ({ tenantId, staffMember }: { tenantId: string; staffMember:
             {taken.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {taken.map((u: string, pi: number) => (
-                  <img key={pi} src={u} alt={`Photo ${pi + 1} of ${taken.length} for ${t.title}`} className="h-12 w-12 rounded-lg border-2 object-cover" />
+                  <img key={pi} src={u} alt={`Photo ${pi + 1} of ${taken.length} for ${t.title}`} className="h-12 w-12 rounded-lg border object-cover" />
                 ))}
                 {taken.length < 6 && (
-                  <button type="button" disabled={uploading} onClick={() => { setPendingTaskId(t.id); taskFileRef.current?.click(); }} className={cn('flex h-12 items-center gap-1 rounded-lg border-2 border-dashed px-3 text-[10px] font-black uppercase tracking-widest', uploading ? 'text-slate-300' : 'text-slate-600')}>
+                  <button type="button" disabled={uploading} onClick={() => { setPendingTaskId(t.id); taskFileRef.current?.click(); }} className={cn('flex h-12 items-center gap-1 rounded-lg border border-dashed px-3 text-[12px] font-semibold', uploading ? 'text-[#6d7075]' : 'text-[#6d7075]')}>
                     {uploading ? <Loader className="h-3.5 w-3.5 animate-spin" /> : '＋'} {uploading ? 'Uploading…' : 'Add another photo'}
                   </button>
                 )}
@@ -470,7 +470,7 @@ class ErrorBoundary extends React.Component<
 
 const STATUS_SWAP: Record<string, { label: string; color: string }> = {
   pending:              { label: 'Pending Review',          color: 'bg-amber-100 text-amber-700'   },
-  pending_swap_consent: { label: 'Awaiting Response',       color: 'bg-purple-100 text-purple-700' },
+  pending_swap_consent: { label: 'Awaiting Response',       color: 'bg-[#f5f5f7] text-[#16171a]' },
   swap_consent_given:   { label: 'Agreed — Needs Approval', color: 'bg-blue-100 text-blue-700'     },
   swap_consent_denied:  { label: 'They Declined',           color: 'bg-red-100 text-red-700'       },
   approved:             { label: 'Approved',                color: 'bg-green-100 text-green-700'   },
@@ -506,7 +506,7 @@ const timeToPx = (d0: Date) => { const d = biz(d0);   // the business's clock, n
 
 // ─── SKELETON ─────────────────────────────────────────────────────────────────
 function Skel({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded-2xl bg-slate-200', className)} />;
+  return <div className={cn('animate-pulse rounded-2xl bg-[#ececee]', className)} />;
 }
 function TabSkeleton() {
   return (
@@ -772,8 +772,8 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
   if (compatibleAddOns.length === 0) {
     return (
       <div className="p-6 text-center space-y-3">
-        <p className="text-[10px] font-black uppercase text-muted-foreground opacity-40">No compatible add-ons available</p>
-        <button onClick={onClose} className="text-[10px] font-black uppercase text-primary">Close</button>
+        <p className="text-[12px] font-semibold text-muted-foreground opacity-40">No compatible add-ons available</p>
+        <button onClick={onClose} className="text-[12px] font-semibold text-primary">Close</button>
       </div>
     );
   }
@@ -784,19 +784,19 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
     const isSelfConflict = !!selfConflict;
     return (
       <div className="p-4 space-y-4">
-        <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-200 space-y-3">
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-3">
           <div className="flex items-center gap-2 text-amber-700">
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            <p className="font-black uppercase text-[11px] tracking-wide">Schedule Conflict</p>
+            <p className="font-semibold text-[11px] tracking-wide">Schedule Conflict</p>
           </div>
           <p className="text-[11px] font-bold text-amber-800 leading-relaxed">
-            Adding <span className="font-black">{selectedAddOn?.name}</span> ({selectedAddOn?.duration}m) will run{' '}
-            <span className="font-black text-amber-900">{conflict?.overlapMins} min</span> into{' '}
+            Adding <span className="font-semibold">{selectedAddOn?.name}</span> ({selectedAddOn?.duration}m) will run{' '}
+            <span className="font-semibold text-amber-900">{conflict?.overlapMins} min</span> into{' '}
             {isSelfConflict ? 'your' : 'their'} next appointment
             {conflict?.nextApt?.clientName ? ` with ${conflict.nextApt.clientName}` : ''} at{' '}
             {conflict?.nextApt ? format(biz(safeDate(conflict.nextApt.startTime)), 'h:mm a') : ''}.
           </p>
-          <p className="text-[10px] font-bold text-amber-700 uppercase opacity-70">
+          <p className="text-[12px] font-bold text-amber-700 opacity-70">
             Consider reassigning or adjusting the schedule.
           </p>
         </div>
@@ -806,13 +806,13 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
             else if (assignedTechId) commitAddOn(assignedTechId, false);
           }}
           disabled={saving || (isSelfConflict ? !currentStaffId : !assignedTechId)}
-          className="w-full h-12 rounded-2xl bg-amber-500 text-white font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.97] transition-all"
+          className="w-full h-12 rounded-2xl bg-amber-500 text-white font-semibold text-[11px] tracking-wide flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.97] transition-all"
         >
           {saving ? <Loader className="w-4 h-4 animate-spin" /> : 'Proceed Anyway'}
         </button>
         <button
           onClick={() => { setShowConflictWarning(false); setPendingSubmit(false); }}
-          className="w-full h-10 rounded-2xl border-2 border-slate-200 font-black uppercase text-[10px] text-slate-400 tracking-widest active:scale-[0.97]"
+          className="w-full h-10 rounded-2xl border border-[#ececee] font-semibold text-[12px] text-[#6d7075] active:scale-[0.97]"
         >
           Go Back
         </button>
@@ -823,20 +823,20 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
   return (
     <div className="p-4 space-y-4">
 
-      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">Select Add-on</p>
+      <p className="text-[12px] font-semibold text-muted-foreground opacity-60 px-1">Select Add-on</p>
       <div className="space-y-2 max-h-44 overflow-y-auto">
         {compatibleAddOns.map((addon: any) => (
           <button
             key={addon.id}
             onClick={() => { setSelectedAddOn(addon); setMode(null); setAssignedTechId(null); }}
             className={cn(
-              'w-full flex items-center justify-between p-3 rounded-2xl border-2 text-left transition-all active:scale-[0.98]',
-              selectedAddOn?.id === addon.id ? 'border-primary bg-primary/5' : 'border-slate-100 bg-white hover:border-primary/20',
+              'w-full flex items-center justify-between p-3 rounded-2xl border text-left transition-all active:scale-[0.98]',
+              selectedAddOn?.id === addon.id ? 'border-primary bg-primary/5' : 'border-[#ececee] bg-white hover:border-primary/20',
             )}
           >
             <div>
-              <p className="font-black uppercase text-[11px] text-slate-800">{addon.name}</p>
-              <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{addon.duration}m · ${addon.price?.toFixed(2)}</p>
+              <p className="font-semibold text-[11px] text-[#16171a]">{addon.name}</p>
+              <p className="text-[12px] font-bold text-muted-foreground opacity-60">{addon.duration}m · ${addon.price?.toFixed(2)}</p>
             </div>
             {selectedAddOn?.id === addon.id && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
           </button>
@@ -854,7 +854,7 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
             <button
               onClick={() => { setMode('self'); handleSelfAdd(); }}
               disabled={saving}
-              className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-primary bg-primary/5 active:scale-[0.98] transition-all"
+              className="w-full flex items-center justify-between p-4 rounded-2xl border border-primary bg-primary/5 active:scale-[0.98] transition-all"
             >
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center shrink-0">
@@ -864,8 +864,8 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
                   }
                 </div>
                 <div className="text-left">
-                  <p className="font-black uppercase text-[11px] text-primary">Add to My Session</p>
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
+                  <p className="font-semibold text-[11px] text-primary">Add to My Session</p>
+                  <p className="text-[12px] font-bold text-muted-foreground opacity-60">
                     Extends your appointment by {selectedAddOn.duration}m
                     {loadingAvailability
                       ? ' · Checking conflicts...'
@@ -879,13 +879,13 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
             </button>
 
             <div className="space-y-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-50 px-1">
+              <p className="text-[12px] font-semibold text-muted-foreground opacity-50 px-1">
                 Or Assign to Available Tech
               </p>
               {loadingAvailability ? (
                 <div className="flex items-center justify-center py-6 gap-2">
                   <Loader className="w-4 h-4 animate-spin text-primary" />
-                  <p className="text-[10px] font-black uppercase text-muted-foreground opacity-40">Checking availability...</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground opacity-40">Checking availability...</p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -902,26 +902,26 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
                           onClick={() => isAvailable ? setAssignedTechId(tech.id) : undefined}
                           disabled={!isAvailable}
                           className={cn(
-                            'w-full flex items-center justify-between p-3 rounded-2xl border-2 text-left transition-all',
+                            'w-full flex items-center justify-between p-3 rounded-2xl border text-left transition-all',
                             isSelected ? 'border-primary bg-primary/5' :
-                            isAvailable ? 'border-slate-100 bg-white hover:border-primary/20 active:scale-[0.98]' :
-                            'border-slate-100 bg-slate-50 opacity-40 cursor-not-allowed',
+                            isAvailable ? 'border-[#ececee] bg-white hover:border-primary/20 active:scale-[0.98]' :
+                            'border-[#ececee] bg-[#f5f5f7] opacity-40 cursor-not-allowed',
                           )}
                         >
                           <div className="flex items-center gap-3">
-                            <Avatar className="h-8 w-8 rounded-xl border-2 shrink-0">
+                            <Avatar className="h-8 w-8 rounded-xl border shrink-0">
                               <AvatarImage src={tech.avatarUrl} className="object-cover" />
-                              <AvatarFallback className="text-[9px] font-black bg-primary/10 text-primary">
+                              <AvatarFallback className="text-[12px] font-semibold bg-primary/10 text-primary">
                                 {(tech.name || 'T')[0]}
                               </AvatarFallback>
                             </Avatar>
                             <div className="min-w-0 text-left">
-                              <p className="font-black uppercase text-[10px] text-slate-800 truncate">{tech.name?.split(' ')[0]}</p>
+                              <p className="font-semibold text-[12px] text-[#16171a] truncate">{tech.name?.split(' ')[0]}</p>
                               <p className={cn(
-                                'text-[8px] font-bold uppercase',
+                                'text-[11px] font-bold',
                                 av?.reason === 'idle' ? 'text-green-600' :
                                 av?.reason === 'conflict' ? 'text-amber-500' :
-                                'text-slate-400',
+                                'text-[#6d7075]',
                               )}>
                                 {av?.reason === 'idle' ? '● Idle'
                                   : av?.reason === 'conflict' ? `⚠ Free · ${av.conflictMinutes}m overlap`
@@ -942,7 +942,7 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
             <AnimatePresence>
               {assignedTechId && (
                 <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="space-y-3 pt-2 border-t border-dashed">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-50 px-1">Flow Type</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground opacity-50 px-1">Flow Type</p>
                   <div className="grid grid-cols-2 gap-2">
                     {[
                       { label: 'Sequential', value: false, icon: Workflow, desc: 'After current' },
@@ -952,13 +952,13 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
                         key={opt.label}
                         onClick={() => setIsConcurrent(opt.value)}
                         className={cn(
-                          'p-3 rounded-2xl border-2 flex flex-col items-center gap-1 transition-all',
-                          isConcurrent === opt.value ? 'border-primary bg-primary/5 text-primary' : 'border-slate-100 bg-white text-slate-500',
+                          'p-3 rounded-2xl border flex flex-col items-center gap-1 transition-all',
+                          isConcurrent === opt.value ? 'border-primary bg-primary/5 text-primary' : 'border-[#ececee] bg-white text-[#6d7075]',
                         )}
                       >
                         <opt.icon className="w-4 h-4" />
-                        <p className="font-black uppercase text-[9px]">{opt.label}</p>
-                        <p className="font-bold text-[8px] opacity-60">{opt.desc}</p>
+                        <p className="font-semibold text-[12px]">{opt.label}</p>
+                        <p className="font-bold text-[11px] opacity-60">{opt.desc}</p>
                       </button>
                     ))}
                   </div>
@@ -966,7 +966,7 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
                   <button
                     onClick={handleAssignTech}
                     disabled={saving}
-                    className="w-full h-14 rounded-2xl bg-primary text-white font-black uppercase text-[12px] tracking-wide flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.97] transition-all shadow-lg shadow-primary/20"
+                    className="w-full h-14 rounded-2xl bg-primary text-white font-semibold text-[12px] tracking-wide flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.97] transition-all shadow-lg shadow-primary/20"
                   >
                     {saving ? <Loader className="w-4 h-4 animate-spin" /> : <><PlusCircle className="w-5 h-5" />Assign & Notify Tech</>}
                   </button>
@@ -979,7 +979,7 @@ function MidServiceAddOnSheet({ apt, service, allServices, allStaff, allShifts, 
 
       <button
         onClick={onClose}
-        className="w-full h-10 rounded-2xl border-2 border-slate-200 font-black uppercase text-[10px] text-slate-400 tracking-widest active:scale-[0.97]"
+        className="w-full h-10 rounded-2xl border border-[#ececee] font-semibold text-[12px] text-[#6d7075] active:scale-[0.97]"
       >
         Cancel
       </button>
@@ -1039,7 +1039,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
     pending: 'bg-amber-100 text-amber-700', confirmed: 'bg-blue-100 text-blue-700',
     servicing: 'bg-primary/10 text-primary', ready_for_checkout: 'bg-emerald-100 text-emerald-700',
     completed: 'bg-green-100 text-green-700', cancelled: 'bg-red-100 text-red-700',
-    no_show: 'bg-slate-100 text-slate-600',
+    no_show: 'bg-[#f5f5f7] text-[#6d7075]',
   };
 
   return (
@@ -1051,24 +1051,24 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
         onClick={e => e.stopPropagation()}
       >
         <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 rounded-full bg-slate-200" />
+          <div className="w-10 h-1 rounded-full bg-[#ececee]" />
         </div>
 
-        <div className="px-5 py-4 border-b border-slate-100 space-y-3">
+        <div className="px-5 py-4 border-b border-[#ececee] space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <p className="font-black text-xl uppercase tracking-tight text-slate-900 truncate">{service?.name || 'Service'}</p>
+              <p className="font-semibold text-xl tracking-tight text-[#16171a] truncate">{service?.name || 'Service'}</p>
               <p className="text-sm font-bold text-muted-foreground mt-0.5">
                 {apt.clientName || 'Guest'} · {format(biz(start), 'h:mm a')} – {format(biz(end), 'h:mm a')}
                 {(padBefore > 0 || padAfter > 0) && (
-                  <span className="text-[10px] font-bold opacity-50 ml-1">
+                  <span className="text-[12px] font-bold opacity-50 ml-1">
                     ({svcDur}m svc{padBefore > 0 ? ` · ${padBefore}m pre` : ''}{padAfter > 0 ? ` · ${padAfter}m post` : ''})
                   </span>
                 )}
               </p>
               {(apt.clientPhone || (apt as any).clientPhoneHint) && <p className="text-[11px] font-bold text-muted-foreground mt-0.5">📞 {apt.clientPhone || (apt as any).clientPhoneHint}</p>}
             </div>
-            <Badge className={cn('font-black text-[10px] uppercase border-none shrink-0 mt-1', statusColor[st] || 'bg-slate-100 text-slate-600')}>
+            <Badge className={cn('font-semibold text-[12px] border-none shrink-0 mt-1', statusColor[st] || 'bg-[#f5f5f7] text-[#6d7075]')}>
               {statusLabel[st] || st}
             </Badge>
           </div>
@@ -1076,10 +1076,10 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
           {st === 'servicing' && elapsed && (
             <div className={cn('rounded-2xl border-4 text-center py-3 transition-all',
               isOverTime ? 'bg-destructive/5 border-destructive/30 animate-pulse' : 'bg-primary/5 border-primary/20')}>
-              <p className="text-[8px] font-black uppercase tracking-widest opacity-60 mb-0.5">
+              <p className="text-[11px] font-semibold opacity-60 mb-0.5">
                 {isOverTime ? '⚠ Running Over' : 'Live Session Time'}
               </p>
-              <p className={cn('font-black font-mono text-3xl tracking-tighter', isOverTime ? 'text-destructive' : 'text-primary')}>
+              <p className={cn('font-semibold font-mono text-3xl tracking-tighter', isOverTime ? 'text-destructive' : 'text-primary')}>
                 {elapsed}
               </p>
             </div>
@@ -1087,15 +1087,15 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
 
           {apt.notes && (
             <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-100">
-              <p className="text-[10px] font-black uppercase text-amber-700 mb-0.5">Client Notes</p>
+              <p className="text-[12px] font-semibold text-amber-700 mb-0.5">Client Notes</p>
               <p className="text-xs text-amber-800">{apt.notes}</p>
             </div>
           )}
 
           <ClientStatusCard apt={apt} tenantId={tenantId} />
           {apt.fixBrief && (
-            <div className="rounded-2xl border-2 border-sky-200 bg-sky-50 p-3 text-sky-950">
-              <p className="text-[10px] font-black uppercase tracking-widest text-sky-700">Making it right · {apt.fixBrief.number}</p>
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3 text-sky-950">
+              <p className="text-[12px] font-semibold text-sky-700">Making it right · {apt.fixBrief.number}</p>
               <p className="mt-0.5 text-[13px] font-bold">{apt.fixBrief.handover ? 'You’re fixing a visit someone else did.' : 'This is a free fix of your earlier visit.'} {apt.fixBrief.reason}.</p>
               {apt.fixBrief.said && <p className="mt-1 text-[12.5px]">They said: “{apt.fixBrief.said}”</p>}
               {apt.fixBrief.plan && <p className="mt-1 text-[12.5px]"><b>Plan:</b> {apt.fixBrief.plan.join(' → ')}</p>}
@@ -1108,7 +1108,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
         <AnimatePresence>
           {showAddOn && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden border-t border-slate-100 bg-slate-50">
+              className="overflow-hidden border-t border-[#ececee] bg-[#f5f5f7]">
               <MidServiceAddOnSheet
                 apt={apt} service={service} allServices={allServices} allStaff={allStaff}
                 allShifts={allShifts} currentStaffId={currentStaffId}
@@ -1122,36 +1122,36 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
           <div className="p-4 space-y-2.5">
             {(st === 'confirmed' || st === 'pending') && (
               <button onClick={() => { onAction(apt.id, 'start', apt); onClose(); }}
-                className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-primary text-white shadow-lg shadow-primary/30">
+                className="w-full h-14 rounded-2xl font-semibold text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-primary text-white shadow-lg shadow-primary/30">
                 <Play className="w-5 h-5" />Start Service
               </button>
             )}
 
             {st === 'servicing' && (<>
               <button onClick={() => { onReview(apt); onClose(); }}
-                className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-emerald-600 text-white shadow-lg shadow-emerald-500/30">
+                className="w-full h-14 rounded-2xl font-semibold text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-emerald-600 text-white shadow-lg shadow-emerald-500/30">
                 <ShoppingCart className="w-5 h-5" />Finish Service & Review
               </button>
               <button onClick={() => setShowAddOn(true)}
-                className="w-full h-12 rounded-2xl font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] border-2 border-primary/20 bg-primary/5 text-primary">
+                className="w-full h-12 rounded-2xl font-semibold text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] border border-primary/20 bg-primary/5 text-primary">
                 <PlusCircle className="w-4 h-4" />Add On Mid-Service
               </button>
               <button onClick={() => { onEscalate(apt); onClose(); }}
-                className="w-full h-12 rounded-2xl font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] bg-destructive/10 border-2 border-destructive/20 text-destructive">
+                className="w-full h-12 rounded-2xl font-semibold text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] bg-destructive/10 border border-destructive/20 text-destructive">
                 <ShieldAlert className="w-4 h-4" />Alert Management
               </button>
             </>)}
 
             {st === 'ready_for_checkout' && (
               <button onClick={() => { onEscalate(apt); onClose(); }}
-                className="w-full h-14 rounded-2xl font-black uppercase text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-amber-500 text-white shadow-lg">
+                className="w-full h-14 rounded-2xl font-semibold text-[13px] tracking-wide flex items-center justify-center gap-3 transition-all active:scale-[0.97] bg-amber-500 text-white shadow-lg">
                 <AlertTriangle className="w-5 h-5" />Escalate to Manager
               </button>
             )}
 
             {!['completed','cancelled','no_show'].includes(st) && (
               <button onClick={() => { onAction(apt.id, 'noshow', apt); onClose(); }}
-                className="w-full h-11 rounded-2xl font-black uppercase text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] bg-slate-100 text-slate-600 border-2 border-slate-200">
+                className="w-full h-11 rounded-2xl font-semibold text-[11px] tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.97] bg-[#f5f5f7] text-[#6d7075] border border-[#ececee]">
                 <XCircle className="w-4 h-4" />Mark No Show
               </button>
             )}
@@ -1162,15 +1162,15 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
             {!['cancelled','no_show'].includes(st) && <SomethingHappened apt={apt} tenantId={tenantId} />}
             {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} />}
             {['cancelled','no_show'].includes(st) && (
-              <p className="text-center text-[11px] font-black uppercase text-muted-foreground opacity-30 py-2">
+              <p className="text-center text-[11px] font-semibold text-muted-foreground opacity-30 py-2">
                 No actions available
               </p>
             )}
 
             {onOpenTicket && !String(apt.id || '').startsWith('apt-walkin-') && <button onClick={() => { onOpenTicket(apt.id); onClose(); }}
-              className="w-full h-11 rounded-2xl border-2 border-slate-200 bg-white text-[13px] font-bold text-slate-700 active:scale-[0.97]">Full ticket</button>}
+              className="w-full h-11 rounded-2xl border border-[#ececee] bg-white text-[13px] font-bold text-[#16171a] active:scale-[0.97]">Full ticket</button>}
             <button onClick={onClose}
-              className="w-full h-11 rounded-2xl border-2 border-slate-200 font-black uppercase text-[11px] text-slate-400 tracking-widest hover:bg-slate-50 transition-all active:scale-[0.97]">
+              className="w-full h-11 rounded-2xl border border-[#ececee] font-semibold text-[11px] text-[#6d7075] hover:bg-[#f5f5f7] transition-all active:scale-[0.97]">
               Dismiss
             </button>
           </div>
@@ -1201,7 +1201,7 @@ function LiveTimerBadge({ startTime, duration }: { startTime: any; duration: num
   }, [startTime, duration]);
   return (
     <div className={cn('flex items-center justify-center rounded-xl py-1 mt-0.5', isOver ? 'bg-destructive/10' : 'bg-primary/10')}>
-      <p className={cn('font-black font-mono text-sm tracking-tighter', isOver ? 'text-destructive' : 'text-primary')}>{elapsed}</p>
+      <p className={cn('font-semibold font-mono text-sm tracking-tighter', isOver ? 'text-destructive' : 'text-primary')}>{elapsed}</p>
     </div>
   );
 }
@@ -1256,7 +1256,7 @@ function TechPeekSheet({ apt, tech, service, onClose }: any) {
   const st     = apt.status ?? 'confirmed';
   const stColor: Record<string, string> = {
     servicing: 'text-primary', confirmed: 'text-blue-600',
-    completed: 'text-green-600', no_show: 'text-slate-500',
+    completed: 'text-green-600', no_show: 'text-[#6d7075]',
   };
   return (
     <div className="fixed inset-0 z-[9999] bg-black/50 flex items-end" onClick={onClose}>
@@ -1266,37 +1266,37 @@ function TechPeekSheet({ apt, tech, service, onClose }: any) {
         className="w-full max-w-sm mx-auto bg-white rounded-t-[2rem] overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-slate-200" /></div>
+        <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-[#ececee]" /></div>
         <div className="px-5 py-4 space-y-4">
           <div className="flex items-center gap-3">
-            <Avatar className="h-10 w-10 rounded-2xl border-2 shrink-0">
+            <Avatar className="h-10 w-10 rounded-2xl border shrink-0">
               <AvatarImage src={tech?.avatarUrl} className="object-cover" />
-              <AvatarFallback className="font-black text-sm bg-primary/10 text-primary">{(tech?.name || 'T')[0]}</AvatarFallback>
+              <AvatarFallback className="font-semibold text-sm bg-primary/10 text-primary">{(tech?.name || 'T')[0]}</AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-black uppercase text-sm text-slate-900">{tech?.name?.split(' ')[0] || 'Tech'}</p>
-              <p className={cn('text-[10px] font-black uppercase', stColor[st] || 'text-slate-500')}>
+              <p className="font-semibold text-sm text-[#16171a]">{tech?.name?.split(' ')[0] || 'Tech'}</p>
+              <p className={cn('text-[12px] font-semibold', stColor[st] || 'text-[#6d7075]')}>
                 {st === 'servicing' ? '● In Service' : st === 'confirmed' ? '● Confirmed' : st === 'completed' ? '✓ Done' : st}
               </p>
             </div>
             <div className="ml-auto text-right">
-              <p className="font-black text-sm text-slate-900">{format(biz(start), 'h:mm a')}</p>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">→ {format(biz(end), 'h:mm a')}</p>
+              <p className="font-semibold text-sm text-[#16171a]">{format(biz(start), 'h:mm a')}</p>
+              <p className="text-[12px] font-bold text-muted-foreground opacity-60">→ {format(biz(end), 'h:mm a')}</p>
             </div>
           </div>
-          <div className="p-3 rounded-2xl bg-slate-50 border-2 border-slate-100 flex items-center gap-3">
+          <div className="p-3 rounded-2xl bg-[#f5f5f7] border border-[#ececee] flex items-center gap-3">
             <div className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
             <div>
-              <p className="font-black uppercase text-[11px] text-slate-700">
+              <p className="font-semibold text-[11px] text-[#16171a]">
                 {apt._isWalkIn ? 'Walk-in' : (service?.category || 'Service')}
               </p>
-              <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{dur}m · {apt._isWalkIn ? 'Unscheduled' : 'Scheduled'}</p>
+              <p className="text-[12px] font-bold text-muted-foreground opacity-60">{dur}m · {apt._isWalkIn ? 'Unscheduled' : 'Scheduled'}</p>
             </div>
           </div>
-          <p className="text-center text-[9px] font-black uppercase text-muted-foreground opacity-40">
+          <p className="text-center text-[12px] font-semibold text-muted-foreground opacity-40">
             Client info is private to assigned staff
           </p>
-          <button onClick={onClose} className="w-full h-11 rounded-2xl border-2 border-slate-200 font-black uppercase text-[10px] text-slate-400 tracking-widest">
+          <button onClick={onClose} className="w-full h-11 rounded-2xl border border-[#ececee] font-semibold text-[12px] text-[#6d7075]">
             Close
           </button>
         </div>
@@ -1447,7 +1447,7 @@ function DayTimeline({
     servicing:          'border-primary ring-2 ring-primary/30 bg-primary/5 shadow-md shadow-primary/10',
     ready_for_checkout: 'border-emerald-400 ring-2 ring-emerald-300/30 bg-emerald-50',
     completed:          'border-green-300 bg-green-50',
-    no_show:            'border-slate-200 bg-slate-50 opacity-40',
+    no_show:            'border-[#ececee] bg-[#f5f5f7] opacity-40',
     confirmed:          'border-primary/30 bg-white shadow-sm',
     pending:            'border-amber-300 bg-amber-50/60',
   };
@@ -1463,28 +1463,28 @@ function DayTimeline({
   };
 
   return (
-    <div className="rounded-[2rem] border-2 border-slate-100 bg-white flex flex-col">
+    <div className="rounded-[22px] border border-[#ececee] bg-white flex flex-col">
       <div className="px-4 py-3 border-b bg-white flex items-center justify-between shrink-0 rounded-t-[2rem]">
-        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+        <p className="text-[12px] font-semibold text-muted-foreground opacity-60">
           {isToday_ ? "Today's Timeline" : format(selectedDate, 'EEE, MMM d')}
         </p>
         <div className="flex items-center gap-2">
-          <p className="text-[9px] font-black uppercase text-primary">
+          <p className="text-[12px] font-semibold text-primary">
             {dayApts.length} apt{dayApts.length !== 1 ? 's' : ''}
           </p>
           {!mode && (allStaff?.length ?? 0) > 1 && (
-            <div className="flex items-center bg-slate-100 rounded-xl p-0.5 ml-1">
+            <div className="flex items-center bg-[#f5f5f7] rounded-xl p-0.5 ml-1">
               <button
                 onClick={() => setViewMode('my_day')}
-                className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all',
-                  viewMode === 'my_day' ? 'bg-white text-primary shadow-sm' : 'text-slate-500')}
+                className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-all',
+                  viewMode === 'my_day' ? 'bg-white text-primary shadow-sm' : 'text-[#6d7075]')}
               >
                 <User className="w-2.5 h-2.5" />My Day
               </button>
               <button
                 onClick={() => setViewMode('floor')}
-                className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all',
-                  viewMode === 'floor' ? 'bg-white text-primary shadow-sm' : 'text-slate-500')}
+                className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-all',
+                  viewMode === 'floor' ? 'bg-white text-primary shadow-sm' : 'text-[#6d7075]')}
               >
                 <Users className="w-2.5 h-2.5" />Floor
               </button>
@@ -1501,8 +1501,8 @@ function DayTimeline({
               const label = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
               return (
                 <div key={h} className="absolute left-0 right-0 flex items-center pointer-events-none" style={{ top: topPx }}>
-                  <span className="text-[8px] font-black text-slate-400 w-12 text-right pr-2 shrink-0 leading-none select-none bg-white z-10">{label}</span>
-                  <div className={cn('flex-1 border-t', h % 6 === 0 ? 'border-slate-200' : 'border-dashed border-slate-100')} />
+                  <span className="text-[11px] font-semibold text-[#6d7075] w-12 text-right pr-2 shrink-0 leading-none select-none bg-white z-10">{label}</span>
+                  <div className={cn('flex-1 border-t', h % 6 === 0 ? 'border-[#ececee]' : 'border-dashed border-[#ececee]')} />
                 </div>
               );
             })}
@@ -1511,7 +1511,7 @@ function DayTimeline({
               <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: timeToPx(now) }}>
                 <div className="w-3 h-3 rounded-full bg-rose-500 ml-10 shrink-0 ring-2 ring-white shadow-md shadow-rose-400/60" />
                 <div className="flex-1 h-[2px] bg-rose-500 opacity-80" />
-                <span className="text-[8px] font-black text-rose-500 pr-2 shrink-0 bg-white/90 rounded px-1">{format(biz(now), 'h:mm a')}</span>
+                <span className="text-[11px] font-semibold text-rose-500 pr-2 shrink-0 bg-white/90 rounded px-1">{format(biz(now), 'h:mm a')}</span>
               </div>
             )}
 
@@ -1545,14 +1545,14 @@ function DayTimeline({
                 const evH    = spansDays ? TIMELINE_H : Math.max(28, differenceInMinutes(clampedEnd, clampedStart) * PX_PER_MIN);
 
                 // Colour by event type
-                const evBg = e.type === 'blocked'  ? 'bg-slate-800/10 border-slate-400/30' :
+                const evBg = e.type === 'blocked'  ? 'bg-[#16171a]/10 border-[#c9cace]/30' :
                              e.type === 'holiday'  ? 'bg-rose-500/10 border-rose-400/30' :
                              e.type === 'training' ? 'bg-amber-500/10 border-amber-400/30' :
-                                                     'bg-indigo-500/10 border-indigo-400/30';
-                const evText = e.type === 'blocked'  ? 'text-slate-600' :
+                                                     'bg-[#16171a]/10 border-[#d9d9de]';
+                const evText = e.type === 'blocked'  ? 'text-[#6d7075]' :
                                e.type === 'holiday'  ? 'text-rose-600' :
                                e.type === 'training' ? 'text-amber-700' :
-                                                       'text-indigo-600';
+                                                       'text-[#16171a]';
 
                 return (
                   <div
@@ -1567,7 +1567,7 @@ function DayTimeline({
                   >
                     <div className="sticky top-0 flex items-center gap-1.5 px-2 py-1">
                       <CalendarDays className={cn('w-2.5 h-2.5 shrink-0', evText)} />
-                      <p className={cn('text-[7px] font-black uppercase truncate', evText)}>
+                      <p className={cn('text-[11px] font-semibold truncate', evText)}>
                         {e.title || e.name || 'Event'}
                         {spansDays && !e.allDay && (
                           <span className="opacity-60 ml-1 normal-case font-bold">
@@ -1576,7 +1576,7 @@ function DayTimeline({
                         )}
                       </p>
                       {!spansDays && (
-                        <p className={cn('text-[6px] font-bold uppercase shrink-0 ml-auto opacity-70', evText)}>
+                        <p className={cn('text-[6px] font-bold shrink-0 ml-auto opacity-70', evText)}>
                           {format(biz(clampedStart), 'h:mm')}–{format(biz(clampedEnd), 'h:mm a')}
                         </p>
                       )}
@@ -1593,9 +1593,9 @@ function DayTimeline({
                   height: Math.max(40, differenceInMinutes(now, clockStatus.breakStartTime) * PX_PER_MIN),
                 }}
               >
-                <div className="h-full w-full bg-amber-400/20 border-2 border-dashed border-amber-400 flex flex-col items-center justify-center gap-0.5">
+                <div className="h-full w-full bg-amber-400/20 border border-dashed border-amber-400 flex flex-col items-center justify-center gap-0.5">
                   <Coffee className="w-3 h-3 text-amber-600 animate-pulse" />
-                  <p className="text-[7px] font-black uppercase text-amber-700 tracking-widest">
+                  <p className="text-[11px] font-semibold text-amber-700">
                     On Break · {clockStatus.breakMinutes}m
                   </p>
                 </div>
@@ -1650,9 +1650,9 @@ function DayTimeline({
                   }
                 >
                   {padBefore > 0 && (
-                    <div className="shrink-0 rounded-t-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden" style={{ height: padBPx }}>
+                    <div className="shrink-0 rounded-t-2xl border border-dashed border-[#ececee] bg-[#f5f5f7] flex items-center px-2 gap-1 overflow-hidden" style={{ height: padBPx }}>
                       <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
-                      <span className="text-[7px] font-black uppercase text-slate-400 tracking-widest truncate">{padBefore}m prep</span>
+                      <span className="text-[11px] font-semibold text-[#6d7075] truncate">{padBefore}m prep</span>
                     </div>
                   )}
 
@@ -1661,8 +1661,8 @@ function DayTimeline({
                     className={cn(
                       'relative flex-1 text-left pointer-events-auto cursor-pointer transition-all active:scale-[0.97] active:brightness-95',
                       padBefore > 0 && padAfter > 0 ? 'rounded-none border-x-2 border-b-0 border-t-0' :
-                      padBefore > 0 ? 'rounded-b-2xl border-2 border-t-0' :
-                      padAfter  > 0 ? 'rounded-t-2xl border-2 border-b-0' : 'rounded-2xl border-2',
+                      padBefore > 0 ? 'rounded-b-2xl border border-t-0' :
+                      padAfter  > 0 ? 'rounded-t-2xl border border-b-0' : 'rounded-2xl border',
                       apt.isEscalated ? 'border-destructive ring-2 ring-destructive/30 bg-destructive/5 animate-pulse' :
                       ringCls[st] || 'border-primary/20 bg-white shadow-sm',
                       isPast && st !== 'completed' && !apt.isEscalated && 'opacity-55',
@@ -1674,33 +1674,33 @@ function DayTimeline({
                       {apt.isEscalated && (
                         <div className="flex items-center gap-1 mb-0.5">
                           <ShieldAlert className="w-2.5 h-2.5 text-destructive shrink-0" />
-                          <span className="text-[7px] font-black uppercase text-destructive tracking-widest">Manager Alerted</span>
+                          <span className="text-[11px] font-semibold text-destructive">Manager Alerted</span>
                         </div>
                       )}
                       <div className="flex items-center gap-1.5 min-w-0">
                         <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotCls[st] || 'bg-slate-400')} />
-                        <p className="font-black text-[11px] uppercase truncate text-slate-800 flex-1">
+                        <p className="font-semibold text-[11px] truncate text-[#16171a] flex-1">
                           {(services || []).find((s: any) => s.id === apt.serviceId)?.name || 'Service'}
                         </p>
-                        {apt.checkInStatus === 'arrived'      && <span className="shrink-0 text-[7px] font-black uppercase bg-green-500 text-white rounded-md px-1 py-0.5">HERE</span>}
-                        {apt.studioAskedToMove && <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5">Resched.</span>}
-                        {!apt.studioAskedToMove && apt.checkInStatus === 'running_late' && <span className="shrink-0 text-[7px] font-black uppercase bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">{apt.etaAt ? `Late ~${new Date(apt.etaAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '')}` : `+${apt.lateTimeMinutes}M`}</span>}
-                        {apt.checkInStatus === 'on_my_way'    && <span className="shrink-0 text-[7px] font-black uppercase bg-blue-500 text-white rounded-md px-1 py-0.5">{apt.clientTrip?.etaMin && apt.clientTrip?.at && Date.now() - Date.parse(apt.clientTrip.at) < 600000 ? `En route ~${apt.clientTrip.etaMin}m` : 'En route'}</span>}
+                        {apt.checkInStatus === 'arrived'      && <span className="shrink-0 text-[11px] font-semibold bg-green-500 text-white rounded-md px-1 py-0.5">HERE</span>}
+                        {apt.studioAskedToMove && <span className="shrink-0 text-[11px] font-semibold bg-amber-500 text-white rounded-md px-1 py-0.5">Resched.</span>}
+                        {!apt.studioAskedToMove && apt.checkInStatus === 'running_late' && <span className="shrink-0 text-[11px] font-semibold bg-amber-500 text-white rounded-md px-1 py-0.5 animate-pulse">{apt.etaAt ? `Late ~${new Date(apt.etaAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '')}` : `+${apt.lateTimeMinutes}M`}</span>}
+                        {apt.checkInStatus === 'on_my_way'    && <span className="shrink-0 text-[11px] font-semibold bg-blue-500 text-white rounded-md px-1 py-0.5">{apt.clientTrip?.etaMin && apt.clientTrip?.at && Date.now() - Date.parse(apt.clientTrip.at) < 600000 ? `En route ~${apt.clientTrip.etaMin}m` : 'En route'}</span>}
                       </div>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase pl-3 truncate">
+                      <p className="text-[12px] font-bold text-muted-foreground pl-3 truncate">
                         {format(biz(start), 'h:mm a')} · {apt.clientName?.split(' ')[0] || 'Guest'}
                       </p>
                       {(padBefore > 0 || padAfter > 0) && (
-                        <p className="text-[8px] font-bold text-muted-foreground opacity-50 uppercase pl-3 truncate">
+                        <p className="text-[11px] font-bold text-muted-foreground opacity-50 pl-3 truncate">
                           {svcDur}m svc{padBefore > 0 ? ` · ${padBefore}m pre` : ''}{padAfter > 0 ? ` · ${padAfter}m post` : ''}
                         </p>
                       )}
                       {hasMultiStaff && (
                         <div className={cn('flex items-center gap-1 ml-3 px-1.5 py-0.5 rounded-lg w-fit',
                           hasSelfAddOn ? 'bg-teal-100 text-teal-700' :
-                          isConcurrent ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700')}>
+                          isConcurrent ? 'bg-[#f5f5f7] text-[#16171a]' : 'bg-[#f5f5f7] text-[#16171a]')}>
                           <Zap className="w-2.5 h-2.5 shrink-0" />
-                          <span className="text-[7px] font-black uppercase tracking-widest">
+                          <span className="text-[11px] font-semibold">
                             {hasSelfAddOn
                               ? `Self · +Add-on`
                               : isConcurrent
@@ -1712,18 +1712,18 @@ function DayTimeline({
                               {addOnTechs.slice(0, 2).map((t: any) => (
                                 <Avatar key={t.id} className="h-3.5 w-3.5 border border-white rounded-full shrink-0">
                                   <AvatarImage src={t.avatarUrl} className="object-cover" />
-                                  <AvatarFallback className="text-[5px] font-black">{t.name?.[0]}</AvatarFallback>
+                                  <AvatarFallback className="text-[5px] font-semibold">{t.name?.[0]}</AvatarFallback>
                                 </Avatar>
                               ))}
                             </div>
                           )}
                         </div>
                       )}
-                      {isAddOnTech && <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>}
+                      {isAddOnTech && <span className="text-[11px] font-semibold bg-[#f5f5f7] text-[#16171a] rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>}
                       {st === 'servicing' && apt.actualStartTime && <LiveTimerBadge startTime={apt.actualStartTime} duration={svcDur} />}
                       <div className="flex items-center justify-between mt-auto pl-3">
-                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-50">{statusTxt[st] || st}</span>
-                        <span className="flex items-center gap-0.5 text-[8px] font-black uppercase text-primary bg-primary/10 rounded-lg px-1.5 py-0.5">
+                        <span className="text-[11px] font-semibold text-muted-foreground opacity-50">{statusTxt[st] || st}</span>
+                        <span className="flex items-center gap-0.5 text-[11px] font-semibold text-primary bg-primary/10 rounded-lg px-1.5 py-0.5">
                           <ChevronUp className="w-2.5 h-2.5" />Actions
                         </span>
                       </div>
@@ -1731,9 +1731,9 @@ function DayTimeline({
                   </button>
 
                   {padAfter > 0 && (
-                    <div className="shrink-0 rounded-b-2xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center px-2 gap-1 overflow-hidden" style={{ height: padAPx }}>
+                    <div className="shrink-0 rounded-b-2xl border border-dashed border-[#ececee] bg-[#f5f5f7] flex items-center px-2 gap-1 overflow-hidden" style={{ height: padAPx }}>
                       <div className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
-                      <span className="text-[7px] font-black uppercase text-slate-400 tracking-widest truncate">{padAfter}m buffer</span>
+                      <span className="text-[11px] font-semibold text-[#6d7075] truncate">{padAfter}m buffer</span>
                     </div>
                   )}
                 </div>
@@ -1744,7 +1744,7 @@ function DayTimeline({
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingTop: 8 * 60 * PX_PER_MIN }}>
                 <div className="text-center opacity-20">
                   <Scissors className="w-8 h-8 mx-auto mb-2" />
-                  <p className="text-[10px] font-black uppercase tracking-widest">No appointments</p>
+                  <p className="text-[12px] font-semibold">No appointments</p>
                 </div>
               </div>
             )}
@@ -1754,27 +1754,27 @@ function DayTimeline({
 
       {viewMode === 'floor' && (
         <div className="flex flex-col rounded-b-[2rem] overflow-hidden" style={{ height: 460 }}>
-          <div className="flex shrink-0 border-b border-slate-100 bg-white">
+          <div className="flex shrink-0 border-b border-[#ececee] bg-white">
             <div style={{ width: FLOOR_TIME_GUTTER, minWidth: FLOOR_TIME_GUTTER }} className="shrink-0" />
             <div className="flex overflow-x-auto scrollbar-hide" id="floor-header-scroll">
               {floorColumns.map(({ tech, isMe }) => (
                 <div
                   key={tech.id}
                   style={{ minWidth: isMe ? FLOOR_MY_COL : FLOOR_OTHER_COL, width: isMe ? FLOOR_MY_COL : FLOOR_OTHER_COL }}
-                  className={cn('shrink-0 px-2 py-2 border-r border-slate-100 flex flex-col items-center gap-1',
+                  className={cn('shrink-0 px-2 py-2 border-r border-[#ececee] flex flex-col items-center gap-1',
                     isMe ? 'bg-primary/5 border-primary/10' : 'bg-white')}
                 >
-                  <Avatar className={cn('rounded-xl border-2 shrink-0', isMe ? 'h-8 w-8 border-primary/30' : 'h-6 w-6 border-slate-200')}>
+                  <Avatar className={cn('rounded-xl border shrink-0', isMe ? 'h-8 w-8 border-primary/30' : 'h-6 w-6 border-[#ececee]')}>
                     <AvatarImage src={tech.avatarUrl} className="object-cover" />
-                    <AvatarFallback className={cn('font-black', isMe ? 'text-xs bg-primary/10 text-primary' : 'text-[8px] bg-slate-100 text-slate-500')}>
+                    <AvatarFallback className={cn('font-semibold', isMe ? 'text-xs bg-primary/10 text-primary' : 'text-[11px] bg-[#f5f5f7] text-[#6d7075]')}>
                       {(tech.name || 'T')[0]}
                     </AvatarFallback>
                   </Avatar>
-                  <p className={cn('font-black uppercase truncate text-center', isMe ? 'text-[9px] text-primary' : 'text-[8px] text-slate-500')}>
+                  <p className={cn('font-semibold truncate text-center', isMe ? 'text-[12px] text-primary' : 'text-[11px] text-[#6d7075]')}>
                     {isMe ? `★ ${tech.name?.split(' ')[0]}` : tech.name?.split(' ')[0]}
                   </p>
                   {isMe && clockStatus?.isOnBreak && (
-                    <span className="text-[6px] font-black uppercase bg-amber-400 text-amber-900 rounded px-1 animate-pulse">
+                    <span className="text-[6px] font-semibold bg-amber-400 text-amber-900 rounded px-1 animate-pulse">
                       Break
                     </span>
                   )}
@@ -1810,7 +1810,7 @@ if (!allStaff) return null;
             return (
               <div className="px-3 py-1.5 bg-rose-500 flex items-center justify-center gap-2 shrink-0">
                 <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse shrink-0" />
-                <p className="text-[9px] font-black uppercase text-white tracking-widest">
+                <p className="text-[12px] font-semibold text-white">
                   Floor at Capacity — All Techs Busy
                 </p>
               </div>
@@ -1840,9 +1840,9 @@ if (!allStaff) return null;
                   const evDur    = differenceInMinutes(evEnd, evStart);
                   const evTop    = timeToPx(evStart);
                   const evH      = e.allDay ? 20 : Math.max(24, evDur * PX_PER_MIN);
-                  const evColor  = e.type === 'blocked'  ? 'bg-slate-800/75 border-slate-600' :
+                  const evColor  = e.type === 'blocked'  ? 'bg-[#16171a]/75 border-[#c9cace]' :
                                    e.type === 'holiday'  ? 'bg-rose-500/75 border-rose-400'   :
-                                                           'bg-indigo-500/75 border-indigo-400';
+                                                           'bg-[#16171a]/75 border-[#d9d9de]';
                   // left offset = time gutter + starts after gutter
                   return (
                     <div
@@ -1860,11 +1860,11 @@ if (!allStaff) return null;
                       }}
                     >
                       <CalendarDays className="w-2.5 h-2.5 text-white shrink-0" />
-                      <p className="text-[7px] font-black uppercase text-white truncate flex-1">
+                      <p className="text-[11px] font-semibold text-white truncate flex-1">
                         {e.title || e.name || 'Event'}
                       </p>
                       {!e.allDay && (
-                        <p className="text-[6px] font-bold text-white/70 uppercase shrink-0">
+                        <p className="text-[6px] font-bold text-white/70 shrink-0">
                           {format(biz(evStart), 'h:mm')}–{format(biz(evEnd), 'h:mm')}
                         </p>
                       )}
@@ -1878,7 +1878,7 @@ if (!allStaff) return null;
                   const label = h === 0 ? '12A' : h < 12 ? `${h}A` : h === 12 ? '12P' : `${h-12}P`;
                   return (
                     <div key={h} className="absolute right-0 flex items-center justify-end pr-1.5 pointer-events-none" style={{ top: topPx }}>
-                      <span className="text-[7px] font-black text-slate-400 leading-none select-none">{label}</span>
+                      <span className="text-[11px] font-semibold text-[#6d7075] leading-none select-none">{label}</span>
                     </div>
                   );
                 })}
@@ -1894,14 +1894,14 @@ if (!allStaff) return null;
                 return (
                   <div
                     key={tech.id}
-                    className={cn('relative shrink-0 border-r border-slate-100', isMe ? 'bg-primary/[0.01]' : 'bg-white')}
+                    className={cn('relative shrink-0 border-r border-[#ececee]', isMe ? 'bg-primary/[0.01]' : 'bg-white')}
                     style={{ width: colW, minWidth: colW, height: TIMELINE_H }}
                   >
                     {hours.map(h => (
                       <div
                         key={h}
                         className={cn('absolute left-0 right-0 border-t pointer-events-none',
-                          h % 6 === 0 ? 'border-slate-200' : 'border-dashed border-slate-100')}
+                          h % 6 === 0 ? 'border-[#ececee]' : 'border-dashed border-[#ececee]')}
                         style={{ top: h * 60 * PX_PER_MIN }}
                       />
                     ))}
@@ -1925,10 +1925,10 @@ if (!allStaff) return null;
                         const evH     = Math.max(20, evDur * PX_PER_MIN);
                         return (
                           <div key={e.id}
-                            className="absolute left-0 right-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none bg-indigo-400/15 border-y border-indigo-300/40"
+                            className="absolute left-0 right-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none bg-[#d9d9de] border-y border-[#d9d9de]"
                             style={{ top: evTop, height: e.allDay ? 16 : evH }}>
                             {isMe && (
-                              <p className="text-[6px] font-black uppercase text-indigo-600 truncate px-1">
+                              <p className="text-[6px] font-semibold text-[#16171a] truncate px-1">
                                 {e.title || e.name || 'Event'}
                               </p>
                             )}
@@ -1946,7 +1946,7 @@ if (!allStaff) return null;
                       >
                         <div className="h-full w-full bg-amber-400/20 border-y-2 border-dashed border-amber-400 flex items-center justify-center gap-1">
                           <Coffee className="w-2.5 h-2.5 text-amber-600 animate-pulse shrink-0" />
-                          <p className="text-[6px] font-black uppercase text-amber-700">Break</p>
+                          <p className="text-[6px] font-semibold text-amber-700">Break</p>
                         </div>
                       </div>
                     )}
@@ -1984,7 +1984,7 @@ if (!allStaff) return null;
                             <button
                               onClick={() => isMe ? onAptTap(item) : setPeekApt({ apt: item, tech })}
                               className={cn(
-                                'flex-1 rounded-xl border-2 text-left transition-all active:scale-[0.97] overflow-hidden',
+                                'flex-1 rounded-xl border text-left transition-all active:scale-[0.97] overflow-hidden',
                                 isMe
                                   ? 'bg-teal-500 border-teal-600 shadow-md shadow-teal-500/20'
                                   : 'bg-teal-100 border-teal-200 cursor-default',
@@ -1994,12 +1994,12 @@ if (!allStaff) return null;
                               <div className="p-1.5 h-full flex flex-col gap-0.5 overflow-hidden">
                                 <div className="flex items-center gap-1">
                                   <div className="w-1.5 h-1.5 rounded-full bg-white/80 shrink-0 animate-pulse" />
-                                  <p className={cn('font-black text-[9px] uppercase truncate', isMe ? 'text-white' : 'text-teal-700')}>
+                                  <p className={cn('font-semibold text-[12px] truncate', isMe ? 'text-white' : 'text-teal-700')}>
                                     {isMe ? (item.customerName || item.clientName || 'Walk-in')?.split(' ')[0] : 'Walk-in'}
                                   </p>
                                 </div>
                                 {isMe && (
-                                  <p className="text-[8px] font-bold text-white/70 uppercase pl-2.5 truncate">
+                                  <p className="text-[11px] font-bold text-white/70 pl-2.5 truncate">
                                     {format(biz(start), 'h:mm a')} · {dur}m
                                   </p>
                                 )}
@@ -2017,9 +2017,9 @@ if (!allStaff) return null;
                             className="absolute z-30"
                             style={{ top: topPx, height: Math.max(24, totalH), left: leftPx + 2, width: widthPx - 4 }}
                           >
-                            <div className="h-full rounded-xl border-2 border-dashed border-purple-300 bg-purple-50/80 flex flex-col items-center justify-center p-1 overflow-hidden">
-                              <Zap className="w-2.5 h-2.5 text-purple-500 shrink-0" />
-                              <p className="text-[7px] font-black uppercase text-purple-600 truncate">{item.label ? String(item.label) : item.reason && item.reason !== 'addon' ? 'Blocked' : `${dur}m add-on`}</p>
+                            <div className="h-full rounded-xl border border-dashed border-[#d9d9de] bg-[#f5f5f7] flex flex-col items-center justify-center p-1 overflow-hidden">
+                              <Zap className="w-2.5 h-2.5 text-[#16171a] shrink-0" />
+                              <p className="text-[11px] font-semibold text-[#16171a] truncate">{item.label ? String(item.label) : item.reason && item.reason !== 'addon' ? 'Blocked' : `${dur}m add-on`}</p>
                             </div>
                           </div>
                         );
@@ -2037,7 +2037,7 @@ if (!allStaff) return null;
                         confirmed: 'bg-white border-primary/20 shadow-sm',
                         completed: 'bg-green-50 border-green-200',
                         ready_for_checkout: 'bg-emerald-50 border-emerald-300',
-                        no_show: 'bg-slate-50 border-slate-200 opacity-40',
+                        no_show: 'bg-[#f5f5f7] border-[#ececee] opacity-40',
                         pending: 'bg-amber-50 border-amber-200',
                       };
                       // Multi-staff indicator
@@ -2055,8 +2055,8 @@ if (!allStaff) return null;
                           style={{ top: topPx, height: totalH, left: leftPx, width: widthPx }}
                         >
                           {padB > 0 && (
-                            <div className="shrink-0 rounded-t-xl border border-dashed border-slate-200 bg-slate-50 flex items-center px-1 overflow-hidden" style={{ height: padBPx }}>
-                              <span className="text-[6px] font-black uppercase text-slate-400 truncate">{padB}m</span>
+                            <div className="shrink-0 rounded-t-xl border border-dashed border-[#ececee] bg-[#f5f5f7] flex items-center px-1 overflow-hidden" style={{ height: padBPx }}>
+                              <span className="text-[6px] font-semibold text-[#6d7075] truncate">{padB}m</span>
                             </div>
                           )}
 
@@ -2068,8 +2068,8 @@ if (!allStaff) return null;
                               padB > 0 ? 'rounded-b-xl border border-t-0' :
                               padA > 0 ? 'rounded-t-xl border border-b-0' : 'rounded-xl border',
                               isMe
-                                ? (isEsc ? 'border-destructive bg-destructive/5 ring-1 ring-destructive/20 animate-pulse' : (myBg[st] || 'bg-white border-slate-200'))
-                                : 'bg-slate-100 border-slate-200 cursor-default',
+                                ? (isEsc ? 'border-destructive bg-destructive/5 ring-1 ring-destructive/20 animate-pulse' : (myBg[st] || 'bg-white border-[#ececee]'))
+                                : 'bg-[#f5f5f7] border-[#ececee] cursor-default',
                               !isMe && 'opacity-70',
                             )}
                             style={{ height: svcH }}
@@ -2078,35 +2078,35 @@ if (!allStaff) return null;
                               <div className="flex items-center gap-1 min-w-0">
                                 <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', isMe ? (statusDot[st] || 'bg-slate-400') : 'bg-slate-400')} />
                                 {isMe ? (
-                                  <p className="font-black text-[9px] uppercase truncate text-slate-800 flex-1">
+                                  <p className="font-semibold text-[12px] truncate text-[#16171a] flex-1">
                                     {(services||[]).find((s: any) => s.id === item.serviceId)?.name || 'Svc'}
                                   </p>
                                 ) : (
-                                  <p className="font-black text-[9px] uppercase text-slate-500 truncate flex-1">Booked</p>
+                                  <p className="font-semibold text-[12px] text-[#6d7075] truncate flex-1">Booked</p>
                                 )}
                               </div>
                               {isMe && (
                                 <>
-                                  <p className="text-[8px] font-bold text-muted-foreground uppercase pl-2.5 truncate">
+                                  <p className="text-[11px] font-bold text-muted-foreground pl-2.5 truncate">
                                     {format(biz(start), 'h:mm')} · {item.clientName?.split(' ')[0] || 'Guest'}
                                   </p>
-                                  {item.checkInStatus === 'arrived'      && <span className="text-[6px] font-black uppercase bg-green-500 text-white rounded px-1 w-fit ml-2.5">HERE</span>}
-                                  {item.checkInStatus === 'running_late' && <span className="text-[6px] font-black uppercase bg-amber-500 text-white rounded px-1 w-fit ml-2.5 animate-pulse">LATE</span>}
+                                  {item.checkInStatus === 'arrived'      && <span className="text-[6px] font-semibold bg-green-500 text-white rounded px-1 w-fit ml-2.5">HERE</span>}
+                                  {item.checkInStatus === 'running_late' && <span className="text-[6px] font-semibold bg-amber-500 text-white rounded px-1 w-fit ml-2.5 animate-pulse">LATE</span>}
                                   {addOnTs.length > 0 && (
                                     <div className={cn('flex items-center gap-0.5 ml-2.5 px-1 py-0.5 rounded w-fit',
-                                      concIds.length > 0 ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700')}>
+                                      concIds.length > 0 ? 'bg-[#f5f5f7] text-[#16171a]' : 'bg-[#f5f5f7] text-[#16171a]')}>
                                       <Zap className="w-2 h-2 shrink-0" />
-                                      <span className="text-[6px] font-black uppercase">{concIds.length > 0 ? 'CON' : 'SEQ'} +{addOnTs.length}</span>
+                                      <span className="text-[6px] font-semibold">{concIds.length > 0 ? 'CON' : 'SEQ'} +{addOnTs.length}</span>
                                     </div>
                                   )}
-                                  {isEsc && <span className="text-[6px] font-black uppercase bg-destructive text-white rounded px-1 w-fit ml-2.5 animate-pulse">ESC</span>}
+                                  {isEsc && <span className="text-[6px] font-semibold bg-destructive text-white rounded px-1 w-fit ml-2.5 animate-pulse">ESC</span>}
                                   {st === 'servicing' && item.actualStartTime && (
                                     <LiveTimerBadge startTime={item.actualStartTime} duration={dur} />
                                   )}
                                 </>
                               )}
                               {!isMe && (
-                                <p className="text-[7px] font-bold text-slate-400 uppercase pl-2.5 truncate">
+                                <p className="text-[11px] font-bold text-[#6d7075] pl-2.5 truncate">
                                   {format(biz(start), 'h:mm')}–{format(biz(addMinutes(start, dur)), 'h:mm')}
                                 </p>
                               )}
@@ -2114,8 +2114,8 @@ if (!allStaff) return null;
                           </button>
 
                           {padA > 0 && (
-                            <div className="shrink-0 rounded-b-xl border border-dashed border-slate-200 bg-slate-50 flex items-center px-1 overflow-hidden" style={{ height: padAPx }}>
-                              <span className="text-[6px] font-black uppercase text-slate-400 truncate">{padA}m</span>
+                            <div className="shrink-0 rounded-b-xl border border-dashed border-[#ececee] bg-[#f5f5f7] flex items-center px-1 overflow-hidden" style={{ height: padAPx }}>
+                              <span className="text-[6px] font-semibold text-[#6d7075] truncate">{padA}m</span>
                             </div>
                           )}
                         </div>
@@ -2141,18 +2141,18 @@ if (!allStaff) return null;
       </AnimatePresence>
 
       {viewMode === 'floor' && (
-        <div className="px-4 py-2 border-t border-slate-100 flex items-center gap-4 flex-wrap bg-slate-50 rounded-b-[2rem]">
+        <div className="px-4 py-2 border-t border-[#ececee] flex items-center gap-4 flex-wrap bg-[#f5f5f7] rounded-b-[2rem]">
           {[
             { color: 'bg-primary/20 border border-primary/30', label: 'Your apts' },
-            { color: 'bg-slate-200 border border-slate-300', label: 'Other techs' },
+            { color: 'bg-[#ececee] border border-[#ececee]', label: 'Other techs' },
             { color: 'bg-teal-400', label: 'Walk-in' },
-            { color: 'bg-purple-100 border border-dashed border-purple-300', label: 'Add-on block' },
+            { color: 'bg-[#f5f5f7] border border-dashed border-[#d9d9de]', label: 'Add-on block' },
             { color: 'bg-amber-300/40 border border-dashed border-amber-400', label: 'On break' },
-            { color: 'bg-indigo-400/50', label: 'Event' },
+            { color: 'bg-[#d9d9de]', label: 'Event' },
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-1.5">
               <div className={cn('w-3 h-3 rounded shrink-0', color)} />
-              <span className="text-[8px] font-black uppercase text-slate-500">{label}</span>
+              <span className="text-[11px] font-semibold text-[#6d7075]">{label}</span>
             </div>
           ))}
         </div>
@@ -2176,22 +2176,22 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
   const blankStart = (startOfMonth(monthBase).getDay() + 6) % 7;
 
   return (
-    <div className="bg-white border-2 border-slate-100 rounded-[2rem] overflow-hidden">
+    <div className="bg-white border border-[#ececee] rounded-[22px] overflow-hidden">
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
         <button onClick={() => onChange(addWeeks(selectedDate, -1))}
-          className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-95 transition-all">
-          <ChevronLeft className="w-4 h-4 text-slate-500" />
+          className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-[#f5f5f7] active:scale-95 transition-all">
+          <ChevronLeft className="w-4 h-4 text-[#6d7075]" />
         </button>
         <button
           onClick={() => setShowMonthPicker(v => !v)}
-          className="flex items-center gap-1 font-black uppercase text-[11px] text-slate-700 hover:text-primary transition-colors"
+          className="flex items-center gap-1 font-semibold text-[11px] text-[#16171a] hover:text-primary transition-colors"
         >
           {format(selectedDate, 'MMMM yyyy')}
           {showMonthPicker ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         </button>
         <button onClick={() => onChange(addWeeks(selectedDate, 1))}
-          className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-slate-100 active:scale-95 transition-all">
-          <ChevronRight className="w-4 h-4 text-slate-500" />
+          className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-[#f5f5f7] active:scale-95 transition-all">
+          <ChevronRight className="w-4 h-4 text-[#6d7075]" />
         </button>
       </div>
 
@@ -2203,9 +2203,9 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
             <button key={day.toISOString()} onClick={() => onChange(day)}
               className={cn('flex flex-col items-center py-2 rounded-xl transition-all active:scale-95',
                 isSel ? 'bg-primary text-white shadow-lg shadow-primary/30'
-                      : isT ? 'bg-primary/10 text-primary' : 'hover:bg-slate-100 text-slate-600')}>
-              <span className="text-[8px] font-black uppercase">{format(day, 'EEE')}</span>
-              <span className={cn('font-black text-sm mt-0.5', isSel ? 'text-white' : isT ? 'text-primary' : 'text-slate-800')}>
+                      : isT ? 'bg-primary/10 text-primary' : 'hover:bg-[#f5f5f7] text-[#6d7075]')}>
+              <span className="text-[11px] font-semibold">{format(day, 'EEE')}</span>
+              <span className={cn('font-semibold text-sm mt-0.5', isSel ? 'text-white' : isT ? 'text-primary' : 'text-[#16171a]')}>
                 {format(day, 'd')}
               </span>
             </button>
@@ -2217,16 +2217,16 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
         {showMonthPicker && (
           <motion.div
             initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }} className="overflow-hidden border-t border-slate-100"
+            transition={{ duration: 0.2 }} className="overflow-hidden border-t border-[#ececee]"
           >
             <div className="flex items-center justify-between px-4 py-2">
-              <button onClick={() => setMonthOffset(o => o - 1)} className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-slate-100"><ChevronLeft className="w-4 h-4" /></button>
-              <p className="font-black uppercase text-[11px] text-slate-700">{format(monthBase, 'MMMM yyyy')}</p>
-              <button onClick={() => setMonthOffset(o => o + 1)} className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-slate-100"><ChevronRight className="w-4 h-4" /></button>
+              <button onClick={() => setMonthOffset(o => o - 1)} className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-[#f5f5f7]"><ChevronLeft className="w-4 h-4" /></button>
+              <p className="font-semibold text-[11px] text-[#16171a]">{format(monthBase, 'MMMM yyyy')}</p>
+              <button onClick={() => setMonthOffset(o => o + 1)} className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-[#f5f5f7]"><ChevronRight className="w-4 h-4" /></button>
             </div>
             <div className="grid grid-cols-7 px-3 pb-1">
               {['M','T','W','T','F','S','S'].map((d, i) => (
-                <p key={i} className="text-[8px] font-black uppercase text-center text-slate-400">{d}</p>
+                <p key={i} className="text-[11px] font-semibold text-center text-[#6d7075]">{d}</p>
               ))}
             </div>
             <div className="grid grid-cols-7 gap-0.5 px-3 pb-3">
@@ -2236,8 +2236,8 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
                 const isT   = isSameDay(day, today);
                 return (
                   <button key={day.toISOString()} onClick={() => { onChange(day); setShowMonthPicker(false); }}
-                    className={cn('aspect-square rounded-xl flex items-center justify-center text-[11px] font-black transition-all active:scale-95',
-                      isSel ? 'bg-primary text-white' : isT ? 'bg-primary/10 text-primary' : 'hover:bg-slate-100 text-slate-700')}>
+                    className={cn('aspect-square rounded-xl flex items-center justify-center text-[11px] font-semibold transition-all active:scale-95',
+                      isSel ? 'bg-primary text-white' : isT ? 'bg-primary/10 text-primary' : 'hover:bg-[#f5f5f7] text-[#16171a]')}>
                     {format(day, 'd')}
                   </button>
                 );
@@ -2300,23 +2300,23 @@ function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-xs space-y-8">
-        <button onClick={onBack} className="flex items-center gap-2 text-[#6d7075] font-black text-[9px] tracking-widest hover:text-[#16171a] transition-colors">
+        <button onClick={onBack} className="flex items-center gap-2 text-[#6d7075] font-semibold text-[12px] hover:text-[#16171a] transition-colors">
           <ChevronLeft className="w-4 h-4" />Back to PIN
         </button>
 
         {step === 'name' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="text-center space-y-2">
-              <div className="w-14 h-14 rounded-[2rem] bg-amber-500/20 border-2 border-amber-500/30 flex items-center justify-center mx-auto">
+              <div className="w-14 h-14 rounded-[22px] bg-amber-500/20 border border-amber-500/30 flex items-center justify-center mx-auto">
                 <User className="w-7 h-7 text-amber-400" />
               </div>
-              <h2 className="text-2xl font-black tracking-tight text-[#16171a]">Forgot PIN</h2>
-              <p className="text-[10px] font-black tracking-[0.2em] text-[#6d7075]">Enter your name to continue</p>
+              <h2 className="text-2xl font-semibold tracking-tight text-[#16171a]">Forgot PIN</h2>
+              <p className="text-[12px] font-semibold tracking-[0.2em] text-[#6d7075]">Enter your name to continue</p>
             </div>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Your full name"
               onKeyDown={e => e.key === 'Enter' && lookupByName()}
               className="w-full h-14 rounded-2xl bg-[#f6f6f7] border border-[#ececee] px-4 text-[#16171a] font-bold placeholder:text-[#9a9ca1] outline-none focus:border-primary/50" />
-            {error && <p className="text-[10px] font-black text-destructive text-center">{error}</p>}
+            {error && <p className="text-[12px] font-semibold text-destructive text-center">{error}</p>}
             <button onClick={lookupByName} disabled={loading || !name.trim()}
               className="w-full h-14 rounded-2xl bg-[#16171a] font-bold text-white disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2">
               {loading ? <Loader className="w-4 h-4 animate-spin" /> : <>Continue <ChevronRight className="w-4 h-4" /></>}
@@ -2327,20 +2327,20 @@ function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
         {step === 'code' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="text-center space-y-2">
-              <div className="w-14 h-14 rounded-[2rem] bg-blue-500/20 border-2 border-blue-500/30 flex items-center justify-center mx-auto">
+              <div className="w-14 h-14 rounded-[22px] bg-blue-500/20 border border-blue-500/30 flex items-center justify-center mx-auto">
                 <Lock className="w-7 h-7 text-blue-400" />
               </div>
-              <h2 className="text-2xl font-black tracking-tight text-[#16171a]">Enter Reset Code</h2>
-              <p className="text-[10px] font-black tracking-[0.15em] text-[#6d7075] leading-relaxed">
+              <h2 className="text-2xl font-semibold tracking-tight text-[#16171a]">Enter Reset Code</h2>
+              <p className="text-[12px] font-semibold tracking-[0.15em] text-[#6d7075] leading-relaxed">
                 A 6-digit code was sent to your manager{hint ? ` (on file: ${hint})` : ''}.<br />Ask them for it, then set a new PIN.
               </p>
             </div>
             <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit code" inputMode="numeric"
-              className="w-full h-14 rounded-2xl bg-[#f6f6f7] border border-[#ececee] px-4 text-[#16171a] font-black text-center text-2xl tracking-[0.4em] placeholder:text-[#9a9ca1] placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
+              className="w-full h-14 rounded-2xl bg-[#f6f6f7] border border-[#ececee] px-4 text-[#16171a] font-semibold text-center text-2xl tracking-[0.4em] placeholder:text-[#9a9ca1] placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
             <input value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="new 4-digit PIN" inputMode="numeric" type="password"
               onKeyDown={e => e.key === 'Enter' && confirmReset()}
-              className="w-full h-14 rounded-2xl bg-[#f6f6f7] border border-[#ececee] px-4 text-[#16171a] font-black text-center text-2xl tracking-[0.4em] placeholder:text-[#9a9ca1] placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
-            {error && <p className="text-[10px] font-black text-destructive text-center">{error}</p>}
+              className="w-full h-14 rounded-2xl bg-[#f6f6f7] border border-[#ececee] px-4 text-[#16171a] font-semibold text-center text-2xl tracking-[0.4em] placeholder:text-[#9a9ca1] placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
+            {error && <p className="text-[12px] font-semibold text-destructive text-center">{error}</p>}
             <button onClick={confirmReset} disabled={loading || code.length !== 6 || newPin.length !== 4}
               className="w-full h-14 rounded-2xl bg-[#16171a] font-bold text-white disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2">
               {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Set New PIN'}
@@ -2415,42 +2415,42 @@ function PinEntry({ onSuccess, tenantId, firestore, notice }: any) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-[#16171a] flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-xs space-y-10">
         <div className="text-center space-y-3">
-          <div className="w-16 h-16 rounded-[2rem] bg-primary/20 border-2 border-primary/30 flex items-center justify-center mx-auto">
+          <div className="w-16 h-16 rounded-[22px] bg-primary/20 border border-primary/30 flex items-center justify-center mx-auto">
             <Shield className="w-8 h-8 text-primary" />
           </div>
-          <h1 className="text-3xl font-black uppercase tracking-tighter text-white leading-none">Staff Portal</h1>
-          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary/60">Enter your 4-digit PIN</p>
+          <h1 className="text-3xl font-semibold tracking-tighter text-white leading-none">Staff Portal</h1>
+          <p className="text-[12px] font-semibold tracking-[0.3em] text-primary/60">Enter your 4-digit PIN</p>
         </div>
 
         <motion.div animate={shake ? { x: [-8, 8, -8, 8, 0] } : {}} transition={{ duration: 0.4 }} className="flex justify-center gap-4">
           {[0,1,2,3].map(i => (
-            <div key={i} className={cn('w-14 h-14 rounded-2xl border-2 flex items-center justify-center transition-all', pin.length > i ? 'bg-primary border-primary' : 'bg-white/5 border-white/10')}>
+            <div key={i} className={cn('w-14 h-14 rounded-2xl border flex items-center justify-center transition-all', pin.length > i ? 'bg-primary border-primary' : 'bg-white/5 border-white/10')}>
               {pin.length > i && <div className="w-3 h-3 rounded-full bg-white" />}
             </div>
           ))}
         </motion.div>
 
-        {error && <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="text-center text-[10px] font-black uppercase tracking-widest text-destructive">{error}</motion.p>}
+        {error && <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="text-center text-[12px] font-semibold text-destructive">{error}</motion.p>}
 
         <div className="grid grid-cols-3 gap-3">
           {DIGITS.map((d, i) => (
             <button key={i} onClick={() => d !== '' && handleDigit(d)} disabled={checking || d === ''}
-              className={cn('h-16 rounded-2xl font-black text-xl transition-all active:scale-95',
+              className={cn('h-16 rounded-2xl font-semibold text-xl transition-all active:scale-95',
                 d === '' ? 'pointer-events-none opacity-0'
-                  : d === 'del' ? 'bg-white/5 border-2 border-white/10 text-white/60 hover:bg-white/10'
-                  : 'bg-white/10 border-2 border-white/10 text-white hover:bg-white/20')}>
+                  : d === 'del' ? 'bg-white/5 border border-white/10 text-white/60 hover:bg-white/10'
+                  : 'bg-white/10 border border-white/10 text-white hover:bg-white/20')}>
               {d === 'del' ? <Delete className="w-5 h-5 mx-auto" /> : d}
             </button>
           ))}
         </div>
 
-        {checking && <p className="text-center text-[10px] font-black uppercase tracking-widest text-primary/60 animate-pulse">Verifying...</p>}
+        {checking && <p className="text-center text-[12px] font-semibold text-primary/60 animate-pulse">Verifying...</p>}
 
         <button onClick={() => setShowForgot(true)}
-          className="w-full text-center text-[10px] font-black uppercase tracking-widest text-white/25 hover:text-white/50 transition-colors pt-2">
+          className="w-full text-center text-[12px] font-semibold text-white/25 hover:text-white/50 transition-colors pt-2">
           Forgot PIN?
         </button>
       </div>
@@ -2745,9 +2745,9 @@ function WalkInLeaderboard({
               className="w-full max-w-lg mx-auto bg-white rounded-t-[2.5rem] overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-slate-200" /></div>
+              <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-[#ececee]" /></div>
               <div className="px-5 py-4 space-y-4">
-                <p className="font-black uppercase text-base text-slate-900">
+                <p className="font-semibold text-base text-[#16171a]">
                   {actionSheet.type === 'cancel' ? 'Cancel Walk-in' :
                    actionSheet.type === 'noshow' ? 'Mark No Show' : 'Skip Guest'}
                 </p>
@@ -2761,8 +2761,8 @@ function WalkInLeaderboard({
                   <div className="grid grid-cols-2 gap-2">
                     {CANCEL_REASONS.map(r => (
                       <button key={r} onClick={() => setCancelReason(r)}
-                        className={cn('p-2.5 rounded-2xl border-2 font-black uppercase text-[9px] transition-all active:scale-95',
-                          cancelReason === r ? 'border-destructive bg-destructive/5 text-destructive' : 'border-slate-200 bg-white text-slate-600')}>
+                        className={cn('p-2.5 rounded-2xl border font-semibold text-[12px] transition-all active:scale-95',
+                          cancelReason === r ? 'border-destructive bg-destructive/5 text-destructive' : 'border-[#ececee] bg-white text-[#6d7075]')}>
                         {r}
                       </button>
                     ))}
@@ -2771,17 +2771,17 @@ function WalkInLeaderboard({
                 {actionSheet.type === 'cancel' && cancelReason === 'Other' && (
                   <input value={customReason} onChange={e => setCustomReason(e.target.value)}
                     placeholder="Describe reason..."
-                    className="w-full h-11 rounded-2xl border-2 px-4 font-bold text-sm outline-none focus:border-primary/40" />
+                    className="w-full h-11 rounded-2xl border px-4 font-bold text-sm outline-none focus:border-primary/40" />
                 )}
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <button onClick={() => { setActionSheet(null); setCancelReason(''); setCustomReason(''); }}
-                    className="h-12 rounded-2xl border-2 border-slate-200 font-black uppercase text-[10px] text-slate-400 active:scale-95">
+                    className="h-12 rounded-2xl border border-[#ececee] font-semibold text-[12px] text-[#6d7075] active:scale-95">
                     Back
                   </button>
                   <button
                     onClick={confirmAction}
                     disabled={!!processing || (actionSheet.type === 'cancel' && !cancelReason)}
-                    className={cn('h-12 rounded-2xl font-black uppercase text-[10px] text-white active:scale-95 disabled:opacity-50',
+                    className={cn('h-12 rounded-2xl font-semibold text-[12px] text-white active:scale-95 disabled:opacity-50',
                       actionSheet.type === 'noshow' ? 'bg-slate-600' :
                       actionSheet.type === 'skip'   ? 'bg-amber-500' : 'bg-destructive')}>
                     {processing ? <Loader className="w-4 h-4 animate-spin mx-auto" /> :
@@ -2796,38 +2796,38 @@ function WalkInLeaderboard({
         )}
       </AnimatePresence>
 
-      <div className="rounded-[2rem] border-2 border-slate-100 bg-white overflow-hidden">
+      <div className="rounded-[22px] border border-[#ececee] bg-white overflow-hidden">
 
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-white">
+        <div className="px-4 py-3 border-b border-[#ececee] flex items-center justify-between bg-white">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-xl bg-teal-500 flex items-center justify-center shrink-0">
               <Users className="w-3.5 h-3.5 text-white" />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-800">Walk-ins</p>
-              <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+              <p className="text-[12px] font-semibold text-[#16171a]">Walk-ins</p>
+              <p className="text-[11px] font-bold text-muted-foreground opacity-60">
                 {queue.length} waiting · {inService.length} in service
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center bg-slate-100 rounded-xl p-0.5">
+            <div className="flex items-center bg-[#f5f5f7] rounded-xl p-0.5">
               <button onClick={() => setView('queue')}
-                className={cn('px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all',
-                  view === 'queue' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-500')}>
+                className={cn('px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all',
+                  view === 'queue' ? 'bg-white text-teal-600 shadow-sm' : 'text-[#6d7075]')}>
                 Queue
               </button>
               <button onClick={() => setView('floor')}
-                className={cn('px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all',
-                  view === 'floor' ? 'bg-white text-primary shadow-sm' : 'text-slate-500')}>
+                className={cn('px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all',
+                  view === 'floor' ? 'bg-white text-primary shadow-sm' : 'text-[#6d7075]')}>
                 Floor
               </button>
             </div>
             <button onClick={toggleAccepting}
-              className={cn('h-7 px-2.5 rounded-xl font-black uppercase text-[8px] tracking-widest transition-all active:scale-95 border',
+              className={cn('h-7 px-2.5 rounded-xl font-semibold text-[11px] transition-all active:scale-95 border',
                 isAccepting
                   ? 'bg-teal-500/10 border-teal-400/30 text-teal-700'
-                  : 'bg-slate-100 border-slate-200 text-slate-400')}>
+                  : 'bg-[#f5f5f7] border-[#ececee] text-[#6d7075]')}>
               {isAccepting ? '● Accepting' : '○ Paused'}
             </button>
           </div>
@@ -2836,12 +2836,12 @@ function WalkInLeaderboard({
         {view === 'queue' && (
           <div>
             {turnOrder.length > 0 && (
-              <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2 overflow-x-auto scrollbar-hide">
-                <p className="text-[7px] font-black uppercase text-slate-400 shrink-0">Turn:</p>
+              <div className="px-4 py-2 bg-[#f5f5f7] border-b border-[#ececee] flex items-center gap-2 overflow-x-auto scrollbar-hide">
+                <p className="text-[11px] font-semibold text-[#6d7075] shrink-0">Turn:</p>
                 {turnOrder.map((t: any, i: number) => (
                   <div key={t.id} className={cn('flex items-center gap-1 shrink-0 px-2 py-0.5 rounded-lg',
-                    t.id === currentStaffId ? 'bg-teal-100 text-teal-700' : 'bg-white border border-slate-200 text-slate-500')}>
-                    <span className="text-[7px] font-black uppercase">
+                    t.id === currentStaffId ? 'bg-teal-100 text-teal-700' : 'bg-white border border-[#ececee] text-[#6d7075]')}>
+                    <span className="text-[11px] font-semibold">
                       {i === 0 ? '★ ' : ''}{t.name?.split(' ')[0]}
                       {t.id === currentStaffId ? ' (You)' : ''}
                     </span>
@@ -2853,10 +2853,10 @@ function WalkInLeaderboard({
             {queue.length === 0 && inService.length === 0 ? (
               <div className="py-10 text-center opacity-30">
                 <Users className="w-8 h-8 mx-auto mb-2" />
-                <p className="text-[9px] font-black uppercase tracking-widest">Queue clear</p>
+                <p className="text-[12px] font-semibold">Queue clear</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-50">
+              <div className="divide-y divide-[#ececee]">
                 {queue.map((w: any, idx: number) => {
                   const isMe       = w.staffId === currentStaffId;
                   const isArrived  = w.status === 'arrived';
@@ -2875,49 +2875,49 @@ function WalkInLeaderboard({
                         isMe && isArrived ? 'bg-green-50 border-l-4 border-green-500' :
                         isMe ? 'bg-teal-50 border-l-4 border-teal-500' : 'bg-white')}>
                       <div className="flex items-start gap-3">
-                        <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-black text-sm mt-0.5',
+                        <div className={cn('w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-semibold text-sm mt-0.5',
                           isMe && isArrived ? 'bg-green-500 text-white' :
-                          isMe ? 'bg-teal-500 text-white' : 'bg-slate-100 text-slate-500')}>
+                          isMe ? 'bg-teal-500 text-white' : 'bg-[#f5f5f7] text-[#6d7075]')}>
                           {idx + 1}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className={cn('font-black uppercase text-[11px] truncate',
-                              isMe ? 'text-teal-800' : 'text-slate-700')}>
+                            <p className={cn('font-semibold text-[11px] truncate',
+                              isMe ? 'text-teal-800' : 'text-[#16171a]')}>
                               {w.customerName || w.clientName || 'Guest'}
                             </p>
                             {groupSize > 1 && (
-                              <span className="text-[7px] font-black uppercase bg-purple-100 text-purple-700 rounded px-1.5 py-0.5 shrink-0">
+                              <span className="text-[11px] font-semibold bg-[#f5f5f7] text-[#16171a] rounded px-1.5 py-0.5 shrink-0">
                                 Group · {groupSize}
                               </span>
                             )}
                             {isMe && (
-                              <span className="text-[7px] font-black uppercase bg-teal-500 text-white rounded px-1.5 py-0.5 shrink-0">YOU</span>
+                              <span className="text-[11px] font-semibold bg-teal-500 text-white rounded px-1.5 py-0.5 shrink-0">YOU</span>
                             )}
                             {isArrived && (
-                              <span className="text-[7px] font-black uppercase bg-green-500 text-white rounded px-1.5 py-0.5 shrink-0 animate-pulse">
+                              <span className="text-[11px] font-semibold bg-green-500 text-white rounded px-1.5 py-0.5 shrink-0 animate-pulse">
                                 HERE
                               </span>
                             )}
                             {isNotified && !isArrived && (
-                              <span className="text-[7px] font-black uppercase bg-blue-500 text-white rounded px-1.5 py-0.5 shrink-0">
+                              <span className="text-[11px] font-semibold bg-blue-500 text-white rounded px-1.5 py-0.5 shrink-0">
                                 Notified
                               </span>
                             )}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            {svcName && <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-70 truncate">{svcName}</p>}
-                            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-50">
+                            {svcName && <p className="text-[11px] font-bold text-muted-foreground opacity-70 truncate">{svcName}</p>}
+                            <p className="text-[11px] font-bold text-muted-foreground opacity-50">
                               {waitMins < 60 ? `${waitMins}m wait` : `${Math.floor(waitMins/60)}h ${waitMins%60}m`}
                             </p>
                             {idx > 0 && (
-                              <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-40">~{estWait}m est.</p>
+                              <p className="text-[11px] font-bold text-muted-foreground opacity-40">~{estWait}m est.</p>
                             )}
                             {assignedT && !isMe && (
-                              <p className="text-[8px] font-bold text-slate-500 uppercase">→ {assignedT.name?.split(' ')[0]}</p>
+                              <p className="text-[11px] font-bold text-[#6d7075]">→ {assignedT.name?.split(' ')[0]}</p>
                             )}
                             {!w.staffId && (
-                              <p className="text-[8px] font-bold text-amber-600 uppercase">Unassigned</p>
+                              <p className="text-[11px] font-bold text-amber-600">Unassigned</p>
                             )}
                           </div>
                         </div>
@@ -2925,21 +2925,21 @@ function WalkInLeaderboard({
                           <div className="flex flex-col gap-1 shrink-0">
                             {isArrived ? (
                               <button onClick={() => startService(w)} disabled={!!processing}
-                                className="h-9 px-3 rounded-xl bg-green-500 text-white font-black uppercase text-[8px] flex items-center gap-1 active:scale-95 disabled:opacity-50 shadow-sm">
+                                className="h-9 px-3 rounded-xl bg-green-500 text-white font-semibold text-[11px] flex items-center gap-1 active:scale-95 disabled:opacity-50 shadow-sm">
                                 {processing === w.id ? <Loader className="w-3 h-3 animate-spin" /> : <><Play className="w-2.5 h-2.5" />Start</>}
                               </button>
                             ) : (
                               <button onClick={() => startService(w)} disabled={!!processing}
-                                className="h-9 px-3 rounded-xl bg-teal-500 text-white font-black uppercase text-[8px] flex items-center gap-1 active:scale-95 disabled:opacity-50 shadow-sm shadow-teal-500/20">
+                                className="h-9 px-3 rounded-xl bg-teal-500 text-white font-semibold text-[11px] flex items-center gap-1 active:scale-95 disabled:opacity-50 shadow-sm shadow-teal-500/20">
                                 {processing === w.id ? <Loader className="w-3 h-3 animate-spin" /> : <><Play className="w-2.5 h-2.5" />Accept</>}
                               </button>
                             )}
                             <button onClick={() => passWalkIn(w)} disabled={!!processing}
-                              className="h-7 px-3 rounded-xl border border-slate-200 text-slate-400 font-black uppercase text-[7px] active:scale-95 disabled:opacity-50">
+                              className="h-7 px-3 rounded-xl border border-[#ececee] text-[#6d7075] font-semibold text-[11px] active:scale-95 disabled:opacity-50">
                               Pass
                             </button>
                             <button onClick={() => setActionSheet({ walkIn: w, type: 'cancel' })}
-                              className="h-7 px-2 rounded-xl text-destructive/60 font-black uppercase text-[6px] active:scale-95">
+                              className="h-7 px-2 rounded-xl text-destructive/60 font-semibold text-[6px] active:scale-95">
                               Cancel
                             </button>
                           </div>
@@ -2947,7 +2947,7 @@ function WalkInLeaderboard({
                         {!isMe && w.staffId && (
                           <div className="flex flex-col gap-1 shrink-0">
                             <button onClick={() => setActionSheet({ walkIn: w, type: 'noshow' })}
-                              className="h-7 px-2 rounded-xl border border-slate-100 text-slate-400 font-black uppercase text-[6px] active:scale-95">
+                              className="h-7 px-2 rounded-xl border border-[#ececee] text-[#6d7075] font-semibold text-[6px] active:scale-95">
                               No Show
                             </button>
                           </div>
@@ -2959,8 +2959,8 @@ function WalkInLeaderboard({
 
                 {inService.length > 0 && (
                   <>
-                    <div className="px-4 py-2 bg-slate-50 border-t border-slate-100">
-                      <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest">In Service Now</p>
+                    <div className="px-4 py-2 bg-[#f5f5f7] border-t border-[#ececee]">
+                      <p className="text-[11px] font-semibold text-[#6d7075]">In Service Now</p>
                     </div>
                     {inService.map((w: any) => {
                       const tech    = w.staffId ? (allStaff || []).find((s: any) => s.id === w.staffId) : null;
@@ -2972,11 +2972,11 @@ function WalkInLeaderboard({
                           isMe ? 'bg-primary/5' : 'bg-white')}>
                           <div className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="font-black uppercase text-[10px] text-slate-700 truncate">
+                            <p className="font-semibold text-[12px] text-[#16171a] truncate">
                               {tech?.name?.split(' ')[0] || 'Tech'}{isMe ? ' (You)' : ''}
                               {svcName ? ` · ${svcName}` : ''}
                             </p>
-                            <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                            <p className="text-[11px] font-bold text-muted-foreground opacity-60">
                               {w.customerName || w.clientName || 'Guest'} · {elapsed}m in
                             </p>
                           </div>
@@ -2991,11 +2991,11 @@ function WalkInLeaderboard({
         )}
 
         {view === 'floor' && (
-          <div className="divide-y divide-slate-50">
+          <div className="divide-y divide-[#ececee]">
             {onShiftToday.length === 0 ? (
               <div className="py-10 text-center opacity-30">
                 <Users className="w-8 h-8 mx-auto mb-2" />
-                <p className="text-[9px] font-black uppercase tracking-widest">No techs on shift</p>
+                <p className="text-[12px] font-semibold">No techs on shift</p>
               </div>
             ) : onShiftToday.map((tech: any) => {
               const isMe   = tech.id === currentStaffId;
@@ -3013,44 +3013,44 @@ function WalkInLeaderboard({
                   className={cn('px-4 py-3 transition-all',
                     isMe ? 'bg-primary/[0.02] border-l-4 border-primary/30' : 'bg-white')}>
                   <div className="flex items-center gap-3">
-                    <Avatar className={cn('rounded-xl border-2 shrink-0', isMe ? 'h-10 w-10 border-primary/30' : 'h-8 w-8 border-slate-200')}>
+                    <Avatar className={cn('rounded-xl border shrink-0', isMe ? 'h-10 w-10 border-primary/30' : 'h-8 w-8 border-[#ececee]')}>
                       <AvatarImage src={tech.avatarUrl} className="object-cover" />
-                      <AvatarFallback className={cn('font-black', isMe ? 'text-sm bg-primary/10 text-primary' : 'text-xs bg-slate-100 text-slate-500')}>
+                      <AvatarFallback className={cn('font-semibold', isMe ? 'text-sm bg-primary/10 text-primary' : 'text-xs bg-[#f5f5f7] text-[#6d7075]')}>
                         {(tech.name || 'T')[0]}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className={cn('font-black uppercase text-[11px]', isMe ? 'text-primary' : 'text-slate-800')}>
+                        <p className={cn('font-semibold text-[11px]', isMe ? 'text-primary' : 'text-[#16171a]')}>
                           {tech.name?.split(' ')[0]}{isMe ? ' (You)' : ''}
                         </p>
                         {turnPos === 0 && accepting && (
-                          <span className="text-[7px] font-black uppercase bg-teal-500 text-white rounded px-1.5 py-0.5">Up Next</span>
+                          <span className="text-[11px] font-semibold bg-teal-500 text-white rounded px-1.5 py-0.5">Up Next</span>
                         )}
                         {turnPos > 0 && accepting && (
-                          <span className="text-[7px] font-black uppercase bg-slate-100 text-slate-500 rounded px-1.5 py-0.5">#{turnPos + 1} in rotation</span>
+                          <span className="text-[11px] font-semibold bg-[#f5f5f7] text-[#6d7075] rounded px-1.5 py-0.5">#{turnPos + 1} in rotation</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', ts.dot)} />
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-70">{ts.label}</p>
+                        <p className="text-[11px] font-bold text-muted-foreground opacity-70">{ts.label}</p>
                         {myWalkIn && (
-                          <p className="text-[8px] font-bold text-teal-600 uppercase">
+                          <p className="text-[11px] font-bold text-teal-600">
                             {isWorkingWalkIn(myWalkIn.status) ? '● Walk-in in service' :
                              myWalkIn.status === 'arrived' ? '★ Client arrived' : '→ Walk-in assigned'}
                           </p>
                         )}
                         {!accepting && (
-                          <span className="text-[7px] font-black uppercase bg-amber-100 text-amber-700 rounded px-1.5 py-0.5">Not accepting</span>
+                          <span className="text-[11px] font-semibold bg-amber-100 text-amber-700 rounded px-1.5 py-0.5">Not accepting</span>
                         )}
                       </div>
                     </div>
                     {isMe && (
                       <button onClick={toggleAccepting}
-                        className={cn('h-7 px-2.5 rounded-xl font-black uppercase text-[7px] transition-all active:scale-95 border shrink-0',
+                        className={cn('h-7 px-2.5 rounded-xl font-semibold text-[11px] transition-all active:scale-95 border shrink-0',
                           isAccepting
                             ? 'bg-teal-500/10 border-teal-400/30 text-teal-700'
-                            : 'bg-slate-100 border-slate-200 text-slate-400')}>
+                            : 'bg-[#f5f5f7] border-[#ececee] text-[#6d7075]')}>
                         {isAccepting ? '● On' : '○ Off'}
                       </button>
                     )}
@@ -3106,7 +3106,7 @@ function NextBanner({ appointments, services }: any) {
                 isArrived         ? 'bg-green-50 border-green-300 text-green-800' :
                 isOnMyWay         ? 'bg-blue-50 border-blue-200 text-blue-700' :
                 minsUntil <= 10   ? 'bg-primary/10 border-primary/30 text-primary' :
-                                    'bg-slate-50 border-slate-200 text-slate-700';
+                                    'bg-[#f5f5f7] border-[#ececee] text-[#16171a]';
 
   const iconTheme = isCancelled   ? 'bg-destructive text-white' :
                     isRunningLate ? 'bg-amber-500 text-white' :
@@ -3115,7 +3115,7 @@ function NextBanner({ appointments, services }: any) {
                                     'bg-primary text-white';
 
   return (
-    <div className={cn('rounded-2xl border-2 p-3 space-y-2 transition-all', theme)}>
+    <div className={cn('rounded-2xl border p-3 space-y-2 transition-all', theme)}>
       <div className="flex items-center gap-3">
         <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', iconTheme)}>
           {isCancelled   ? <XCircle className="w-5 h-5" /> :
@@ -3125,24 +3125,24 @@ function NextBanner({ appointments, services }: any) {
                            <Timer className="w-5 h-5" />}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[9px] font-black uppercase tracking-widest opacity-60">
+          <p className="text-[12px] font-semibold opacity-60">
             {isCancelled   ? 'Appointment Cancelled' :
              isRunningLate ? 'Client Running Late' :
              isArrived     ? 'Client Arrived' :
              isOnMyWay     ? 'Client En Route' :
              minsUntil <= 0 ? 'Starting Now' : 'Next Up'}
           </p>
-          <p className="font-black text-sm truncate">
+          <p className="font-semibold text-sm truncate">
             {svc?.name || 'Service'} · {next.clientName?.split(' ')[0] || 'Guest'}
           </p>
         </div>
         <div className="text-right shrink-0">
           {!isCancelled && (
             <>
-              <p className="font-black text-lg leading-none">
+              <p className="font-semibold text-lg leading-none">
                 {minsUntil <= 0 ? 'Now' : minsUntil < 60 ? `${minsUntil}m` : `${Math.floor(minsUntil/60)}h ${minsUntil%60}m`}
               </p>
-              <p className="text-[8px] font-black uppercase opacity-60">{format(biz(start), 'h:mm a')}</p>
+              <p className="text-[11px] font-semibold opacity-60">{format(biz(start), 'h:mm a')}</p>
             </>
           )}
         </div>
@@ -3151,11 +3151,11 @@ function NextBanner({ appointments, services }: any) {
       {isRunningLate && (
         <div className="space-y-1.5 pl-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-700 rounded-lg px-2 py-0.5">
+            <span className="text-[12px] font-semibold bg-amber-100 text-amber-700 rounded-lg px-2 py-0.5">
               +{lateBy}m late
             </span>
             {estimatedArrival && (
-              <span className="text-[10px] font-black uppercase opacity-70">
+              <span className="text-[12px] font-semibold opacity-70">
                 Est. arrival {format(biz(estimatedArrival), 'h:mm a')}
               </span>
             )}
@@ -3163,27 +3163,27 @@ function NextBanner({ appointments, services }: any) {
           {lateFeeApplies && (
             <div className="flex items-center gap-1.5 text-amber-700">
               <DollarSign className="w-3 h-3 shrink-0" />
-              <p className="text-[9px] font-black uppercase">Late fee may apply — notify front desk</p>
+              <p className="text-[12px] font-semibold">Late fee may apply — notify front desk</p>
             </div>
           )}
         </div>
       )}
 
       {isOnMyWay && !isRunningLate && (
-        <p className="text-[9px] font-bold uppercase opacity-70 pl-1">
+        <p className="text-[12px] font-bold opacity-70 pl-1">
           Client is heading in · {format(biz(start), 'h:mm a')} appointment
         </p>
       )}
 
       {isCancelled && (
         <div className="pl-1 space-y-1">
-          <p className="text-[9px] font-black uppercase text-destructive">
+          <p className="text-[12px] font-semibold text-destructive">
             {next.cancellationReason
               ? `Reason: ${next.cancellationReason}`
               : 'No reason provided'}
           </p>
           {next.cancelledAt && (
-            <p className="text-[8px] font-bold uppercase opacity-60">
+            <p className="text-[11px] font-bold opacity-60">
               Cancelled at {format(biz(safeDate(next.cancelledAt)), 'h:mm a')}
             </p>
           )}
@@ -3218,24 +3218,24 @@ function SwapConsentCard({ req, staffMember, tenantId, firestore, allStaff, allS
   };
 
   return (
-    <div className="rounded-[2rem] border-2 border-purple-200 bg-purple-50 overflow-hidden">
-      <div className="px-4 py-3 bg-purple-100/60 border-b border-purple-200 flex items-center gap-2">
-        <Repeat className="w-4 h-4 text-purple-600 shrink-0" />
-        <p className="font-black uppercase text-[10px] text-purple-700">Swap Request from {requester?.name}</p>
+    <div className="rounded-[22px] border border-[#d9d9de] bg-[#f5f5f7] overflow-hidden">
+      <div className="px-4 py-3 bg-[#f5f5f7] border-b border-[#d9d9de] flex items-center gap-2">
+        <Repeat className="w-4 h-4 text-[#16171a] shrink-0" />
+        <p className="font-semibold text-[12px] text-[#16171a]">Swap Request from {requester?.name}</p>
       </div>
       <div className="p-4 space-y-3">
         <div className="grid grid-cols-2 gap-3">
-          {[{ label: 'Their shift → you', sh: theirShift, col: 'text-primary' }, { label: 'Your shift → them', sh: myShift, col: 'text-purple-600' }].map(({ label, sh, col }) => (
-            <div key={label} className="p-3 rounded-xl bg-white border-2 border-purple-100">
-              <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-0.5">{label}</p>
-              {sh ? <><p className={cn('font-black text-[11px]', col)}>{fmt12(sh.startTime)} – {fmt12(sh.endTime)}</p><p className="text-[8px] font-bold opacity-60 uppercase">{sh.date}</p></> : <p className="text-[9px] opacity-40 uppercase">Not found</p>}
+          {[{ label: 'Their shift → you', sh: theirShift, col: 'text-primary' }, { label: 'Your shift → them', sh: myShift, col: 'text-[#16171a]' }].map(({ label, sh, col }) => (
+            <div key={label} className="p-3 rounded-xl bg-white border border-[#d9d9de]">
+              <p className="text-[11px] font-semibold text-muted-foreground opacity-60 mb-0.5">{label}</p>
+              {sh ? <><p className={cn('font-semibold text-[11px]', col)}>{fmt12(sh.startTime)} – {fmt12(sh.endTime)}</p><p className="text-[11px] font-bold opacity-60">{sh.date}</p></> : <p className="text-[12px] opacity-40">Not found</p>}
             </div>
           ))}
         </div>
-        {req.reason && <p className="text-[10px] font-bold text-purple-700 uppercase">{req.reason}</p>}
+        {req.reason && <p className="text-[12px] font-bold text-[#16171a]">{req.reason}</p>}
         <div className="grid grid-cols-2 gap-3">
-          <button onClick={() => respond(false)} disabled={processing} className="h-12 rounded-2xl border-2 border-destructive/20 bg-white text-destructive font-black uppercase text-[9px] active:scale-95 disabled:opacity-50 flex flex-col items-center justify-center gap-0.5"><XCircle className="w-4 h-4" />Decline</button>
-          <button onClick={() => respond(true)}  disabled={processing} className="h-12 rounded-2xl bg-green-600 text-white font-black uppercase text-[9px] active:scale-95 disabled:opacity-50 shadow-lg flex flex-col items-center justify-center gap-0.5"><CheckCircle2 className="w-4 h-4" />Agree</button>
+          <button onClick={() => respond(false)} disabled={processing} className="h-12 rounded-2xl border border-destructive/20 bg-white text-destructive font-semibold text-[12px] active:scale-95 disabled:opacity-50 flex flex-col items-center justify-center gap-0.5"><XCircle className="w-4 h-4" />Decline</button>
+          <button onClick={() => respond(true)}  disabled={processing} className="h-12 rounded-2xl bg-green-600 text-white font-semibold text-[12px] active:scale-95 disabled:opacity-50 shadow-lg flex flex-col items-center justify-center gap-0.5"><CheckCircle2 className="w-4 h-4" />Agree</button>
         </div>
       </div>
     </div>
@@ -3261,24 +3261,24 @@ function SwapApproveCard({ req, staffMember, tenantId, firestore, allStaff, allS
   };
 
   return (
-    <div className="rounded-[2rem] border-2 border-blue-200 bg-blue-50 overflow-hidden">
+    <div className="rounded-[22px] border border-blue-200 bg-blue-50 overflow-hidden">
       <div className="px-4 py-3 bg-blue-100/60 border-b border-blue-200 flex items-center gap-2">
         <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
-        <p className="font-black uppercase text-[10px] text-blue-700">Swap Awaiting Approval</p>
+        <p className="font-semibold text-[12px] text-blue-700">Swap Awaiting Approval</p>
       </div>
       <div className="p-4 space-y-3">
         <div className="grid grid-cols-2 gap-3">
           {[{ label: `${requester?.name?.split(' ')[0]}'s shift`, sh: shift1 }, { label: `${consentGiver?.name?.split(' ')[0]}'s shift`, sh: shift2 }].map(({ label, sh }) => (
-            <div key={label} className="p-3 rounded-xl bg-white border-2 border-blue-100">
-              <p className="text-[8px] font-black uppercase opacity-60 mb-0.5">{label}</p>
-              {sh ? <><p className="font-black text-[11px] text-primary">{fmt12(sh.startTime)} – {fmt12(sh.endTime)}</p><p className="text-[8px] font-bold opacity-60 uppercase">{sh.date}</p></> : <p className="text-[9px] opacity-40">N/A</p>}
+            <div key={label} className="p-3 rounded-xl bg-white border border-blue-100">
+              <p className="text-[11px] font-semibold opacity-60 mb-0.5">{label}</p>
+              {sh ? <><p className="font-semibold text-[11px] text-primary">{fmt12(sh.startTime)} – {fmt12(sh.endTime)}</p><p className="text-[11px] font-bold opacity-60">{sh.date}</p></> : <p className="text-[12px] opacity-40">N/A</p>}
             </div>
           ))}
         </div>
-        <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Manager note (optional)" className="rounded-2xl border-2 bg-white min-h-[60px] text-sm" />
+        <Textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Manager note (optional)" className="rounded-2xl border bg-white min-h-[60px] text-sm" />
         <div className="grid grid-cols-2 gap-3">
-          <button onClick={() => decide(false)} disabled={processing} className="h-12 rounded-2xl border-2 border-destructive/20 bg-white text-destructive font-black uppercase text-[9px] active:scale-95 disabled:opacity-50 flex flex-col items-center justify-center gap-0.5"><XCircle className="w-4 h-4" />Deny</button>
-          <button onClick={() => decide(true)}  disabled={processing} className="h-12 rounded-2xl bg-blue-600 text-white font-black uppercase text-[9px] active:scale-95 disabled:opacity-50 shadow-lg flex flex-col items-center justify-center gap-0.5"><CheckCircle2 className="w-4 h-4" />Approve</button>
+          <button onClick={() => decide(false)} disabled={processing} className="h-12 rounded-2xl border border-destructive/20 bg-white text-destructive font-semibold text-[12px] active:scale-95 disabled:opacity-50 flex flex-col items-center justify-center gap-0.5"><XCircle className="w-4 h-4" />Deny</button>
+          <button onClick={() => decide(true)}  disabled={processing} className="h-12 rounded-2xl bg-blue-600 text-white font-semibold text-[12px] active:scale-95 disabled:opacity-50 shadow-lg flex flex-col items-center justify-center gap-0.5"><CheckCircle2 className="w-4 h-4" />Approve</button>
         </div>
       </div>
     </div>
@@ -3672,7 +3672,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const renderBody = (body: string) => {
     const parts = body.split(/(@[A-Za-z]+)/g);
     return parts.map((p, i) => p.startsWith('@') && staffFirstNames.has(p.slice(1).toLowerCase())
-      ? <span key={i} className="font-black underline decoration-2 underline-offset-2">{p}</span> : p);
+      ? <span key={i} className="font-semibold underline decoration-2 underline-offset-2">{p}</span> : p);
   };
   const toggleReaction = async (m: any, emoji: string) => {
     if (!firestore || !tenantId || !openId) return;
@@ -3754,24 +3754,24 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     return (
       <div className="flex flex-col h-[calc(100dvh-190px)]">
         <div className="flex items-center gap-3 px-1 pb-3">
-          <button onClick={() => { setOpenId(null); setOpenClientId(null); setText(''); }} className="p-2 rounded-xl border-2 bg-white"><ArrowLeft className="w-4 h-4"/></button>
-          <p className="font-black uppercase text-sm truncate">{title}</p>
+          <button onClick={() => { setOpenId(null); setOpenClientId(null); setText(''); }} className="p-2 rounded-xl border bg-white"><ArrowLeft className="w-4 h-4"/></button>
+          <p className="font-semibold text-sm truncate">{title}</p>
         </div>
         {isClient && guestCtx && (guestCtx.next || guestCtx.visitCount > 0) && (
-          <div className="rounded-xl bg-slate-900 px-3.5 py-2.5 mb-2 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-300">
+          <div className="rounded-xl bg-[#16171a] px-3.5 py-2.5 mb-2 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-300">
             <CalendarDays className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
-            <p className="text-[10px] font-black uppercase tracking-wide text-white flex-1 min-w-0 truncate">
+            <p className="text-[12px] font-semibold tracking-wide text-white flex-1 min-w-0 truncate">
               {guestCtx.next
                 ? `${format(biz(parseISO(guestCtx.next.startTime)), 'EEE MMM d · h:mm a')} — ${guestCtx.nextService}`
                 : 'No upcoming appointment'}
             </p>
             {guestCtx.visitCount > 0 && (
-              <span className="text-[9px] font-bold uppercase text-white/50 shrink-0">{guestCtx.visitCount} visits</span>
+              <span className="text-[12px] font-bold text-white/50 shrink-0">{guestCtx.visitCount} visits</span>
             )}
           </div>
         )}
         {isClient && openCase && (
-          <div className="mb-2 rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-[12.5px] text-amber-900">
+          <div className="mb-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-[12.5px] text-amber-900">
             <p className="font-bold">There’s an open case with this client ({openCase.number}).</p>
             <p>The desk is handling it — please don’t discuss the complaint here. Add anything you know as your side, so it’s all on the record.</p>
             <p className="mt-1 font-bold">Me → Client cases</p>
@@ -3779,13 +3779,13 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
         )}
         {isClient && guestCtx && (guestCtx.banned || guestCtx.membership || guestCtx.cancels > 0 || guestCtx.noShows > 0 || guestCtx.hasCareNotes) && (
           <div className="flex flex-wrap gap-1.5 mb-2 px-0.5">
-            {guestCtx.banned && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">⛔ Banned</span>}
-            {showFinancials && guestCtx.owes > 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Owes ${guestCtx.owes.toFixed(2)}</span>}
-            {guestCtx.packageSessions > 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-violet-100 text-violet-700 border border-violet-300 rounded-full px-2 py-0.5">{guestCtx.packageSessions} pkg sessions</span>}
-            {guestCtx.membership === 'active' && <span className="text-[8px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5">Member</span>}
-            {guestCtx.membership === 'past_due' && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Past due</span>}
-            {(guestCtx.cancels > 0 || guestCtx.noShows > 0) && <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-2 py-0.5">{guestCtx.cancels} cancels · {guestCtx.noShows} no-shows</span>}
-            {guestCtx.hasCareNotes && <span className="text-[8px] font-black uppercase tracking-widest bg-sky-100 text-sky-700 border border-sky-300 rounded-full px-2 py-0.5">Care notes</span>}
+            {guestCtx.banned && <span className="text-[11px] font-semibold bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">⛔ Banned</span>}
+            {showFinancials && guestCtx.owes > 0 && <span className="text-[11px] font-semibold bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Owes ${guestCtx.owes.toFixed(2)}</span>}
+            {guestCtx.packageSessions > 0 && <span className="text-[11px] font-semibold bg-[#f5f5f7] text-[#16171a] border border-[#d9d9de] rounded-full px-2 py-0.5">{guestCtx.packageSessions} pkg sessions</span>}
+            {guestCtx.membership === 'active' && <span className="text-[11px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5">Member</span>}
+            {guestCtx.membership === 'past_due' && <span className="text-[11px] font-semibold bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Past due</span>}
+            {(guestCtx.cancels > 0 || guestCtx.noShows > 0) && <span className="text-[11px] font-semibold bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-2 py-0.5">{guestCtx.cancels} cancels · {guestCtx.noShows} no-shows</span>}
+            {guestCtx.hasCareNotes && <span className="text-[11px] font-semibold bg-sky-100 text-sky-700 border border-sky-300 rounded-full px-2 py-0.5">Care notes</span>}
           </div>
         )}
         {!isClient && (openThread as any)?.pinnedMessage && (() => { const pm = (openThread as any).pinnedMessage; const acks: string[] = pm.ackBy || []; const others = (openThread.participantIds || []).length - 1; const got = acks.includes(staffMember.id);
@@ -3806,41 +3806,41 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             return (
               <div key={m.id} className={cn('flex animate-in fade-in slide-in-from-bottom-1 duration-200', mine ? 'justify-end' : 'justify-start')}>
                 <div className="max-w-[80%]">
-                  {!mine && sender && <p className="text-[9px] font-black uppercase text-indigo-600/70 mb-0.5 ml-1">{sender.name}</p>}
-                  <div onClick={() => { if (!isClient) setReactionForId(reactionForId === m.id ? null : m.id); }} className={cn('px-3.5 py-2 text-sm font-medium', mine ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md' : 'bg-white text-slate-800 border-2 border-slate-200 rounded-2xl rounded-bl-md')}>
+                  {!mine && sender && <p className="text-[12px] font-semibold text-[#6d7075] mb-0.5 ml-1">{sender.name}</p>}
+                  <div onClick={() => { if (!isClient) setReactionForId(reactionForId === m.id ? null : m.id); }} className={cn('px-3.5 py-2 text-sm font-medium', mine ? 'bg-[#16171a] text-white rounded-2xl rounded-br-md' : 'bg-white text-[#16171a] border border-[#ececee] rounded-2xl rounded-bl-md')}>
                     {m.kind === 'shoutout' && !m.deleted && <p className="mb-1 flex items-center gap-1.5 text-[13px] font-bold"><Star className="h-4 w-4" />Shout-out to {String(m.toName || 'a teammate').split(' ')[0]}</p>}
                     {m.deleted ? <p className="italic opacity-50 text-xs">Message deleted</p> : (<>
                       {m.imageUrl && <a href={m.imageUrl} target="_blank" rel="noreferrer"><img src={m.imageUrl} alt="" className="rounded-xl max-h-56 mb-1 border"/></a>}
                       {m.audioUrl && <audio controls src={m.audioUrl} className="max-w-full h-10 my-0.5"/>}
-                      {m.fileUrl && <a href={m.fileUrl} target="_blank" rel="noreferrer" className={cn('flex items-center gap-2 rounded-xl border-2 px-3 py-2 my-0.5 text-xs font-bold', mine ? 'border-white/30 text-white' : 'border-slate-200 text-slate-700')}><FileText className="w-4 h-4 shrink-0"/><span className="truncate">{m.fileName||'Attachment'}</span></a>}
+                      {m.fileUrl && <a href={m.fileUrl} target="_blank" rel="noreferrer" className={cn('flex items-center gap-2 rounded-xl border px-3 py-2 my-0.5 text-xs font-bold', mine ? 'border-white/30 text-white' : 'border-[#ececee] text-[#16171a]')}><FileText className="w-4 h-4 shrink-0"/><span className="truncate">{m.fileName||'Attachment'}</span></a>}
                       {m.clientRef && (
-                        <div className={cn('rounded-2xl border-2 px-3 py-2.5 my-0.5 active:scale-[0.98] transition-transform', mine ? 'border-white/30 bg-white/10' : 'border-indigo-200 bg-gradient-to-br from-indigo-50 to-white')}>
+                        <div className={cn('rounded-2xl border px-3 py-2.5 my-0.5 active:scale-[0.98] transition-transform', mine ? 'border-white/30 bg-white/10' : 'border-[#d9d9de] bg-gradient-to-br from-[#f5f5f7] to-white')}>
                           <div className="flex items-center gap-2.5">
-                            <div className={cn('w-9 h-9 rounded-xl overflow-hidden border-2 flex items-center justify-center shrink-0 font-black text-xs', mine ? 'border-white/40 bg-white/20 text-white' : 'border-indigo-200 bg-indigo-600 text-white')}>
+                            <div className={cn('w-9 h-9 rounded-xl overflow-hidden border flex items-center justify-center shrink-0 font-semibold text-xs', mine ? 'border-white/40 bg-white/20 text-white' : 'border-[#d9d9de] bg-[#16171a] text-white')}>
                               {m.clientRef.avatarUrl ? <img src={m.clientRef.avatarUrl} alt="" className="w-full h-full object-cover" /> : (m.clientRef.name || '?').charAt(0).toUpperCase()}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className={cn('text-xs font-black uppercase truncate', mine ? 'text-white' : 'text-slate-900')}>{m.clientRef.name}</p>
-                              {m.clientRef.phone && <a href={`tel:${m.clientRef.phone}`} className={cn('text-[10px] font-bold underline', mine ? 'text-white/80' : 'text-indigo-600')}>{m.clientRef.phone}</a>}
+                              <p className={cn('text-xs font-semibold truncate', mine ? 'text-white' : 'text-[#16171a]')}>{m.clientRef.name}</p>
+                              {m.clientRef.phone && <a href={`tel:${m.clientRef.phone}`} className={cn('text-[12px] font-bold underline', mine ? 'text-white/80' : 'text-[#16171a]')}>{m.clientRef.phone}</a>}
                             </div>
                             {m.clientRef.phone && (
-                              <a href={`tel:${m.clientRef.phone}`} className={cn('h-8 w-8 rounded-lg border-2 flex items-center justify-center shrink-0', mine ? 'border-white/30 text-white' : 'border-emerald-300 bg-emerald-50 text-emerald-600')}>
+                              <a href={`tel:${m.clientRef.phone}`} className={cn('h-8 w-8 rounded-lg border flex items-center justify-center shrink-0', mine ? 'border-white/30 text-white' : 'border-emerald-300 bg-emerald-50 text-emerald-600')}>
                                 <Phone className="w-3.5 h-3.5" />
                               </a>
                             )}
                           </div>
                           {(m.clientRef.member || m.clientRef.careFlag || m.clientRef.lastVisit) && (
                             <div className="flex flex-wrap gap-1 mt-1.5">
-                              {m.clientRef.member === 'active' && <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', mine ? 'bg-emerald-400/20 text-emerald-200 border-emerald-300/30' : 'bg-emerald-100 text-emerald-700 border-emerald-300')}>Member</span>}
-                              {m.clientRef.member === 'past_due' && <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', mine ? 'bg-red-400/20 text-red-200 border-red-300/30' : 'bg-red-100 text-red-700 border-red-300')}>Past due</span>}
-                              {m.clientRef.careFlag && <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', mine ? 'bg-sky-400/20 text-sky-200 border-sky-300/30' : 'bg-sky-100 text-sky-700 border-sky-300')}>Care notes</span>}
-                              {m.clientRef.lastVisit && <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', mine ? 'bg-white/10 text-white/60 border-white/20' : 'bg-slate-100 text-slate-500 border-slate-200')}>Last {format(parseISO(m.clientRef.lastVisit), 'MMM d')}</span>}
+                              {m.clientRef.member === 'active' && <span className={cn('text-[11px] font-semibold rounded-full px-1.5 py-0.5 border', mine ? 'bg-emerald-400/20 text-emerald-200 border-emerald-300/30' : 'bg-emerald-100 text-emerald-700 border-emerald-300')}>Member</span>}
+                              {m.clientRef.member === 'past_due' && <span className={cn('text-[11px] font-semibold rounded-full px-1.5 py-0.5 border', mine ? 'bg-red-400/20 text-red-200 border-red-300/30' : 'bg-red-100 text-red-700 border-red-300')}>Past due</span>}
+                              {m.clientRef.careFlag && <span className={cn('text-[11px] font-semibold rounded-full px-1.5 py-0.5 border', mine ? 'bg-sky-400/20 text-sky-200 border-sky-300/30' : 'bg-sky-100 text-sky-700 border-sky-300')}>Care notes</span>}
+                              {m.clientRef.lastVisit && <span className={cn('text-[11px] font-semibold rounded-full px-1.5 py-0.5 border', mine ? 'bg-white/10 text-white/60 border-white/20' : 'bg-[#f5f5f7] text-[#6d7075] border-[#ececee]')}>Last {format(parseISO(m.clientRef.lastVisit), 'MMM d')}</span>}
                             </div>
                           )}
                         </div>
                       )}
                       {m.kind === 'cc' && m.quote && (
-                        <div className={cn('my-0.5 rounded-xl border-l-4 px-3 py-2', mine ? 'border-white/50 bg-white/10' : 'border-slate-300 bg-slate-50')}>
+                        <div className={cn('my-0.5 rounded-xl border-l-4 px-3 py-2', mine ? 'border-white/50 bg-white/10' : 'border-[#ececee] bg-[#f5f5f7]')}>
                           <p className="text-[11px] font-semibold opacity-80">{m.quote.from} · {m.quote.where}</p>
                           {m.quote.imageUrl && <img src={m.quote.imageUrl} alt="" className="mt-1 max-h-40 rounded-lg" />}
                           {m.quote.body && <p className="mt-0.5 whitespace-pre-wrap text-[13px]">{m.quote.body}</p>}
@@ -3852,10 +3852,10 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                           {differs && <button type="button" onClick={(e) => { e.stopPropagation(); setShowOrig((x) => ({ ...x, [m.id]: !x[m.id] })); }} className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold underline underline-offset-2 opacity-70"><Languages className="h-3 w-3" />{useTr ? 'Translated · see original' : 'See translation'}</button>}
                           {trBusy === m.id && <p className="mt-0.5 text-[11px] opacity-60">Translating…</p>}</>); })()}
                     </>)}
-                    <p className={cn('text-[9px] font-bold uppercase mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(biz(parseISO(m.sentAt)), 'h:mm a') : ''}</p>
+                    <p className={cn('text-[12px] font-bold mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(biz(parseISO(m.sentAt)), 'h:mm a') : ''}</p>
                   </div>
                   {!isClient && reactionForId === m.id && (
-                    <div className={cn('flex gap-1 mt-1 bg-white border-2 rounded-full px-2 py-1 w-fit shadow-sm', mine ? 'ml-auto' : '')}>
+                    <div className={cn('flex gap-1 mt-1 bg-white border rounded-full px-2 py-1 w-fit shadow-sm', mine ? 'ml-auto' : '')}>
                       {REACTIONS.map(e => (
                         <button key={e} onClick={() => toggleReaction(m, e)} className="text-base active:scale-125 transition-transform">{e}</button>
                       ))}
@@ -3867,12 +3867,12 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                       <button type="button" onClick={() => setCcFor(m)} className="flex h-8 items-center gap-1.5 rounded-full border bg-white px-3 text-[12px] font-semibold"><Forward className="h-3.5 w-3.5" />Copy someone in</button>
                     </div>
                   )}
-                  {Array.isArray(m.ccTo) && m.ccTo.length > 0 && <p className={cn('mt-0.5 text-[10.5px] text-slate-500', mine ? 'text-right' : '')}>Copied in: {m.ccTo.join(', ')}</p>}
+                  {Array.isArray(m.ccTo) && m.ccTo.length > 0 && <p className={cn('mt-0.5 text-[10.5px] text-[#6d7075]', mine ? 'text-right' : '')}>Copied in: {m.ccTo.join(', ')}</p>}
                   {m.reactions && Object.keys(m.reactions).length > 0 && (
                     <div className={cn('flex flex-wrap gap-1 mt-1', mine ? 'justify-end' : 'justify-start')}>
                       {Object.entries(m.reactions as Record<string,string[]>).map(([emoji, ids]) => (
-                        <button key={emoji} onClick={() => !isClient && toggleReaction(m, emoji)} className={cn('h-6 px-1.5 rounded-full border-2 text-[11px] font-bold flex items-center gap-1 bg-white', (ids as string[]).includes(staffMember.id) ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200')}>
-                          <span>{emoji}</span><span className="text-[9px] text-slate-500">{(ids as string[]).length}</span>
+                        <button key={emoji} onClick={() => !isClient && toggleReaction(m, emoji)} className={cn('h-6 px-1.5 rounded-full border text-[11px] font-bold flex items-center gap-1 bg-white', (ids as string[]).includes(staffMember.id) ? 'border-[#d9d9de] bg-[#f5f5f7]' : 'border-[#ececee]')}>
+                          <span>{emoji}</span><span className="text-[12px] text-[#6d7075]">{(ids as string[]).length}</span>
                         </button>
                       ))}
                     </div>
@@ -3883,31 +3883,31 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
           })}
           {!isClient && typers.length > 0 && (
             <div className="flex items-center gap-2">
-              <div className="bg-white border-2 border-slate-200 rounded-2xl rounded-bl-md px-3.5 py-2 flex items-center gap-1.5">
+              <div className="bg-white border border-[#ececee] rounded-2xl rounded-bl-md px-3.5 py-2 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }}/>
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }}/>
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }}/>
               </div>
-              <p className="text-[9px] font-black uppercase text-slate-400">{typers.join(' & ')} {typers.length===1?'is':'are'} typing</p>
+              <p className="text-[12px] font-semibold text-[#6d7075]">{typers.join(' & ')} {typers.length===1?'is':'are'} typing</p>
             </div>
           )}
           <div ref={endRef}/>
         </div>
         {clPickerOpen && !isClient && (
-          <div className="rounded-xl border-2 bg-white p-3 space-y-2 mt-2 mx-1">
+          <div className="rounded-xl border bg-white p-3 space-y-2 mt-2 mx-1">
             <div className="flex items-center justify-between">
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Share a client</p>
-              <button onClick={()=>setClPickerOpen(false)} className="text-[9px] font-black uppercase text-muted-foreground">Close</button>
+              <p className="text-[12px] font-semibold text-muted-foreground">Share a client</p>
+              <button onClick={()=>setClPickerOpen(false)} className="text-[12px] font-semibold text-muted-foreground">Close</button>
             </div>
-            <input value={clSearch} onChange={e=>setClSearch(e.target.value)} placeholder="Search clients..." className="w-full h-9 rounded-lg border-2 px-3 text-xs font-bold"/>
+            <input value={clSearch} onChange={e=>setClSearch(e.target.value)} placeholder="Search clients..." className="w-full h-9 rounded-lg border px-3 text-xs font-bold"/>
             <div className="max-h-40 overflow-y-auto space-y-1">
-              {shareClients===null && <p className="text-center py-3 text-[9px] font-black uppercase text-slate-400">Loading...</p>}
+              {shareClients===null && <p className="text-center py-3 text-[12px] font-semibold text-[#6d7075]">Loading...</p>}
               {(shareClients||[]).filter((cl:any)=>(cl.name||'').toLowerCase().includes(clSearch.toLowerCase())).slice(0,25).map((cl:any) => (
-                <button key={cl.id} onClick={()=>shareClientCard(cl)} className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-indigo-50 text-left">
-                  <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-600 font-black text-[10px] flex items-center justify-center shrink-0">{(cl.name||'?').charAt(0)}</div>
+                <button key={cl.id} onClick={()=>shareClientCard(cl)} className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-[#f5f5f7] text-left">
+                  <div className="w-7 h-7 rounded-lg bg-[#f5f5f7] text-[#16171a] font-semibold text-[12px] flex items-center justify-center shrink-0">{(cl.name||'?').charAt(0)}</div>
                   <div className="min-w-0">
-                    <p className="text-xs font-black uppercase truncate">{cl.name||'Unnamed'}</p>
-                    <p className="text-[10px] font-bold text-slate-400">{cl.phone||''}</p>
+                    <p className="text-xs font-semibold truncate">{cl.name||'Unnamed'}</p>
+                    <p className="text-[12px] font-bold text-[#6d7075]">{cl.phone||''}</p>
                   </div>
                 </button>
               ))}
@@ -3918,18 +3918,18 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
           <GifPicker className="mt-2 mx-1" onSelect={sendGif} onClose={()=>setGifOpen(false)} />
         )}
         {recording && (
-          <div className="flex items-center gap-2.5 rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2 mt-2 mx-1">
+          <div className="flex items-center gap-2.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 mt-2 mx-1">
             <span className="relative flex h-2.5 w-2.5 shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"/>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"/>
             </span>
-            <p className="text-[10px] font-black uppercase text-red-700 w-9 shrink-0">{Math.floor(recSeconds/60)}:{String(recSeconds%60).padStart(2,'0')}</p>
+            <p className="text-[12px] font-semibold text-red-700 w-9 shrink-0">{Math.floor(recSeconds/60)}:{String(recSeconds%60).padStart(2,'0')}</p>
             <div className="flex items-end gap-0.5 h-6 flex-1">
               {Array.from({length:18}).map((_,i)=>(
                 <span key={i} className="flex-1 rounded-sm bg-red-400 transition-all duration-75" style={{ height: `${Math.max(10, Math.min(100, micLevel*320*(0.5+(((i*37)%17)/17)*0.5)))}%`, opacity: micLevel>0.015?1:0.25 }}/>
               ))}
             </div>
-            <button onClick={cancelRec} className="text-[9px] font-black uppercase text-slate-500 px-1 shrink-0">Cancel</button>
+            <button onClick={cancelRec} className="text-[12px] font-semibold text-[#6d7075] px-1 shrink-0">Cancel</button>
           </div>
         )}
         {!isClient && langPick && (
@@ -3962,15 +3962,15 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
           {!isClient && (<>
             <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0]; if(f){uploadAndSend(f,f.name,'image'); if(imgRef.current) imgRef.current.value='';}}}/>
             <input ref={fileRef} type="file" className="hidden" onChange={e=>{const f=e.target.files?.[0]; if(f){uploadAndSend(f,f.name,'file'); if(fileRef.current) fileRef.current.value='';}}}/>
-            <button onClick={()=>imgRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0">{uploading ? <Loader className="w-4 h-4 animate-spin"/> : <ImagePlus className="w-4 h-4"/>}</button>
-            <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white items-center justify-center shrink-0 hidden sm:flex"><Paperclip className="w-4 h-4"/></button>
-            <button onClick={toggleRec} disabled={uploading} className={cn('h-11 w-11 rounded-xl border-2 flex items-center justify-center shrink-0', recording ? 'bg-red-500 text-white animate-pulse' : 'bg-white')}>{recording ? <Square className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
-            <button onClick={openClPicker} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0"><User className="w-4 h-4"/></button>
-            <button onClick={()=>setShoutOpen(v=>!v)} aria-label="Give a shout-out" disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0"><Star className="w-4 h-4"/></button>
-            {GIF_ENABLED && <button onClick={()=>setGifOpen(v=>!v)} disabled={uploading||recording} className="h-11 px-2.5 rounded-xl border-2 bg-white flex items-center justify-center shrink-0 font-black text-[9px] tracking-widest">GIF</button>}
+            <button onClick={()=>imgRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border bg-white flex items-center justify-center shrink-0">{uploading ? <Loader className="w-4 h-4 animate-spin"/> : <ImagePlus className="w-4 h-4"/>}</button>
+            <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border bg-white items-center justify-center shrink-0 hidden sm:flex"><Paperclip className="w-4 h-4"/></button>
+            <button onClick={toggleRec} disabled={uploading} className={cn('h-11 w-11 rounded-xl border flex items-center justify-center shrink-0', recording ? 'bg-red-500 text-white animate-pulse' : 'bg-white')}>{recording ? <Square className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
+            <button onClick={openClPicker} disabled={uploading||recording} className="h-11 w-11 rounded-xl border bg-white flex items-center justify-center shrink-0"><User className="w-4 h-4"/></button>
+            <button onClick={()=>setShoutOpen(v=>!v)} aria-label="Give a shout-out" disabled={uploading||recording} className="h-11 w-11 rounded-xl border bg-white flex items-center justify-center shrink-0"><Star className="w-4 h-4"/></button>
+            {GIF_ENABLED && <button onClick={()=>setGifOpen(v=>!v)} disabled={uploading||recording} className="h-11 px-2.5 rounded-xl border bg-white flex items-center justify-center shrink-0 font-semibold text-[12px]">GIF</button>}
           </>)}
-          <input value={text} onChange={e=>{setText(e.target.value); if(!isClient) recordTyping();}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault(); isClient ? sendClientReply() : sendTeamText();}}} placeholder="Type a message..." className="flex-1 h-11 rounded-xl border-2 px-3 text-sm font-medium bg-white min-w-0"/>
-          <button onClick={isClient ? sendClientReply : sendTeamText} disabled={sending||!text.trim()} className="h-11 w-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 disabled:opacity-40">{sending ? <Loader className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}</button>
+          <input value={text} onChange={e=>{setText(e.target.value); if(!isClient) recordTyping();}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault(); isClient ? sendClientReply() : sendTeamText();}}} placeholder="Type a message..." className="flex-1 h-11 rounded-xl border px-3 text-sm font-medium bg-white min-w-0"/>
+          <button onClick={isClient ? sendClientReply : sendTeamText} disabled={sending||!text.trim()} className="h-11 w-11 rounded-xl bg-[#16171a] text-white flex items-center justify-center shrink-0 disabled:opacity-40">{sending ? <Loader className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}</button>
         </div>
       </div>
     );
@@ -3980,9 +3980,9 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   return (
     <div className="space-y-4">
       {!isRenter && (
-        <div className="flex gap-2 p-1 bg-muted/30 rounded-2xl border-2 w-fit">
-          <button onClick={()=>setSection('team')} className={cn('h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest', section==='team' ? 'bg-white text-indigo-600 shadow-sm' : 'text-muted-foreground')}>Team</button>
-          <button onClick={()=>setSection('clients')} className={cn('h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest', section==='clients' ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground')}>Clients</button>
+        <div className="flex gap-2 p-1 bg-muted/30 rounded-2xl border w-fit">
+          <button onClick={()=>setSection('team')} className={cn('h-9 px-4 rounded-xl font-semibold text-[12px]', section==='team' ? 'bg-white text-[#16171a] shadow-sm' : 'text-muted-foreground')}>Team</button>
+          <button onClick={()=>setSection('clients')} className={cn('h-9 px-4 rounded-xl font-semibold text-[12px]', section==='clients' ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground')}>Clients</button>
         </div>
       )}
 
@@ -3993,64 +3993,64 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             <div className="flex-1 min-w-0"><p className="text-[12px] font-bold" style={{ color: '#2e6b66' }}>Announcement · {pm.senderName}</p><p className="text-[15px] font-semibold text-[#16171a] line-clamp-3">{pm.preview}</p></div>
             <button type="button" onClick={() => ackPinned(tt.id)} className="h-9 shrink-0 rounded-full bg-[#16171a] px-4 text-[13px] font-bold text-white">Got it</button>
           </div>); })()}
-        <button onClick={openTeamBroadcast} className="w-full text-left rounded-2xl border-2 border-indigo-200 bg-indigo-50/60 p-4 flex items-center gap-3">
-          <div className="p-2.5 bg-indigo-600 rounded-xl shrink-0"><Users className="w-4 h-4 text-white"/></div>
+        <button onClick={openTeamBroadcast} className="w-full text-left rounded-2xl border border-[#d9d9de] bg-[#f5f5f7] p-4 flex items-center gap-3">
+          <div className="p-2.5 bg-[#16171a] rounded-xl shrink-0"><Users className="w-4 h-4 text-white"/></div>
           <div className="flex-1 min-w-0">
-            <p className="font-black uppercase text-xs">{isRenter ? 'Building Announcements' : 'Team Announcements'}</p>
-            <p className="text-[11px] text-slate-500 truncate">{threads.find((t:any)=>t.type==='team')?.lastMessagePreview || 'Message everyone at once'}</p>
+            <p className="font-semibold text-xs">{isRenter ? 'Building Announcements' : 'Team Announcements'}</p>
+            <p className="text-[11px] text-[#6d7075] truncate">{threads.find((t:any)=>t.type==='team')?.lastMessagePreview || 'Message everyone at once'}</p>
           </div>
-          {threads.find((t:any)=>t.type==='team' && unread(t)) && <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0"/>}
+          {threads.find((t:any)=>t.type==='team' && unread(t)) && <span className="w-2.5 h-2.5 rounded-full bg-[#16171a] shrink-0"/>}
         </button>
 
         <div className="flex items-center justify-between px-1">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Conversations</p>
-          <button onClick={()=>setPickerOpen(v=>!v)} className="h-8 px-3 rounded-xl bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest flex items-center gap-1"><Plus className="w-3 h-3"/> New</button>
+          <p className="text-[12px] font-semibold text-muted-foreground">Conversations</p>
+          <button onClick={()=>setPickerOpen(v=>!v)} className="h-8 px-3 rounded-xl bg-[#16171a] text-white text-[12px] font-semibold flex items-center gap-1"><Plus className="w-3 h-3"/> New</button>
         </div>
 
         {pickerOpen && (
-          <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
+          <div className="rounded-2xl border bg-white p-3 space-y-2">
             {(allStaff||[]).filter((s:any)=>s.id!==staffMember.id && (isRenter ? (s.role==='owner'||s.role==='admin') : !(s.isRenter || s.role === 'renter'))).map((s:any) => {
               const checked = selectedIds.includes(s.id);
               return (
-                <button key={s.id} onClick={()=>setSelectedIds(ids=>checked?ids.filter(i=>i!==s.id):[...ids,s.id])} className={cn('w-full flex items-center gap-2.5 p-2 rounded-xl border-2 text-left', checked ? 'border-indigo-400 bg-indigo-50' : 'border-transparent')}>
-                  <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 font-black text-xs flex items-center justify-center shrink-0">{(s.name||'?').charAt(0)}</div>
-                  <p className="font-black text-xs uppercase truncate flex-1">{s.name}</p>
-                  <div className={cn('w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center', checked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300')}>{checked && <span className="text-white text-[8px] font-black">✓</span>}</div>
+                <button key={s.id} onClick={()=>setSelectedIds(ids=>checked?ids.filter(i=>i!==s.id):[...ids,s.id])} className={cn('w-full flex items-center gap-2.5 p-2 rounded-xl border text-left', checked ? 'border-[#d9d9de] bg-[#f5f5f7]' : 'border-transparent')}>
+                  <div className="w-8 h-8 rounded-lg bg-[#f5f5f7] text-[#16171a] font-semibold text-xs flex items-center justify-center shrink-0">{(s.name||'?').charAt(0)}</div>
+                  <p className="font-semibold text-xs truncate flex-1">{s.name}</p>
+                  <div className={cn('w-4 h-4 rounded border shrink-0 flex items-center justify-center', checked ? 'bg-[#16171a] border-[#16171a]' : 'border-[#ececee]')}>{checked && <span className="text-white text-[11px] font-semibold">✓</span>}</div>
                 </button>
               );
             })}
-            {selectedIds.length>1 && <input value={groupName} onChange={e=>setGroupName(e.target.value)} placeholder="Group name (optional)" className="w-full h-9 rounded-xl border-2 px-3 text-xs font-bold"/>}
-            <button onClick={startConversation} disabled={selectedIds.length===0} className="w-full h-10 rounded-xl bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{selectedIds.length>1 ? `Start Group (${selectedIds.length+1})` : 'Start Conversation'}</button>
+            {selectedIds.length>1 && <input value={groupName} onChange={e=>setGroupName(e.target.value)} placeholder="Group name (optional)" className="w-full h-9 rounded-xl border px-3 text-xs font-bold"/>}
+            <button onClick={startConversation} disabled={selectedIds.length===0} className="w-full h-10 rounded-xl bg-[#16171a] text-white font-semibold text-[12px] disabled:opacity-40">{selectedIds.length>1 ? `Start Group (${selectedIds.length+1})` : 'Start Conversation'}</button>
           </div>
         )}
 
         {threads.filter((t:any)=>t.type!=='team').map((t:any) => (
-          <button key={t.id} onClick={()=>setOpenId(t.id)} className={cn('w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 bg-white text-left', unread(t) && 'border-indigo-300 bg-indigo-50/40')}>
-            <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shrink-0', t.type==='group' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-600')}>
+          <button key={t.id} onClick={()=>setOpenId(t.id)} className={cn('w-full flex items-center gap-3 p-3.5 rounded-2xl border bg-white text-left', unread(t) && 'border-[#d9d9de] bg-[#f5f5f7]')}>
+            <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-semibold text-xs shrink-0', t.type==='group' ? 'bg-[#16171a] text-white' : 'bg-[#f5f5f7] text-[#16171a]')}>
               {t.type==='group' ? <Users className="w-4 h-4"/> : (threadName(t)||'?').charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-black text-xs uppercase truncate">{threadName(t)}</p>
-              <p className={cn('text-[11px] truncate', unread(t) ? 'text-slate-800 font-bold' : 'text-slate-500')}>{t.lastMessagePreview}</p>
+              <p className="font-semibold text-xs truncate">{threadName(t)}</p>
+              <p className={cn('text-[11px] truncate', unread(t) ? 'text-[#16171a] font-bold' : 'text-[#6d7075]')}>{t.lastMessagePreview}</p>
             </div>
-            {unread(t) && <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0"/>}
+            {unread(t) && <span className="w-2.5 h-2.5 rounded-full bg-[#16171a] shrink-0"/>}
           </button>
         ))}
         {threads.filter((t:any)=>t.type!=='team').length===0 && !pickerOpen && (
-          <p className="text-center py-8 text-[10px] font-black uppercase text-slate-400">No conversations yet</p>
+          <p className="text-center py-8 text-[12px] font-semibold text-[#6d7075]">No conversations yet</p>
         )}
       </>) : (<>
         {clientThreads.map((t:any) => (
-          <button key={t.id} onClick={()=>setOpenClientId(t.id)} className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 bg-white text-left">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary font-black text-xs flex items-center justify-center shrink-0">{(t.clientName||t.clientPhone||'?').charAt(0).toUpperCase()}</div>
+          <button key={t.id} onClick={()=>setOpenClientId(t.id)} className="w-full flex items-center gap-3 p-3.5 rounded-2xl border bg-white text-left">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary font-semibold text-xs flex items-center justify-center shrink-0">{(t.clientName||t.clientPhone||'?').charAt(0).toUpperCase()}</div>
             <div className="flex-1 min-w-0">
-              <p className="font-black text-xs uppercase truncate">{t.clientName || t.clientPhone}</p>
-              <p className="text-[11px] text-slate-500 truncate">{t.lastMessagePreview}</p>
+              <p className="font-semibold text-xs truncate">{t.clientName || t.clientPhone}</p>
+              <p className="text-[11px] text-[#6d7075] truncate">{t.lastMessagePreview}</p>
             </div>
-            {t.status==='open' && <span className="text-[8px] font-black uppercase bg-primary text-white px-1.5 py-0.5 rounded-full shrink-0">New</span>}
+            {t.status==='open' && <span className="text-[11px] font-semibold bg-primary text-white px-1.5 py-0.5 rounded-full shrink-0">New</span>}
           </button>
         ))}
-        {clientThreads.length===0 && <p className="text-center py-8 text-[10px] font-black uppercase text-slate-400">No client conversations</p>}
+        {clientThreads.length===0 && <p className="text-center py-8 text-[12px] font-semibold text-[#6d7075]">No client conversations</p>}
       </>)}
     </div>
   );
@@ -4096,10 +4096,10 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
   if (!renter) {
     return (
       <div className="p-5">
-        <div className="rounded-2xl border-2 border-dashed bg-white p-8 text-center space-y-2">
-          <Landmark className="w-10 h-10 mx-auto text-slate-300" />
-          <p className="font-black uppercase text-sm text-slate-700">No rental profile linked</p>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 leading-relaxed">Ask the owner to link your renter profile to this portal account.</p>
+        <div className="rounded-2xl border border-dashed bg-white p-8 text-center space-y-2">
+          <Landmark className="w-10 h-10 mx-auto text-[#6d7075]" />
+          <p className="font-semibold text-sm text-[#16171a]">No rental profile linked</p>
+          <p className="text-[12px] font-bold text-[#6d7075] leading-relaxed">Ask the owner to link your renter profile to this portal account.</p>
         </div>
       </div>
     );
@@ -4107,60 +4107,60 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
 
   return (
     <div className="p-5 space-y-4">
-      <div className={cn('rounded-2xl border-2 p-5 space-y-3', openInvoice?.status === 'late' ? 'border-red-300 bg-red-50' : openInvoice ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50/50')}>
+      <div className={cn('rounded-2xl border p-5 space-y-3', openInvoice?.status === 'late' ? 'border-red-300 bg-red-50' : openInvoice ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50/50')}>
         <div className="flex items-center justify-between">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Rent Status</p>
-          <span className={cn('text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full', openInvoice?.status === 'late' ? 'bg-red-600 text-white' : openInvoice ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white')}>
+          <p className="text-[12px] font-semibold tracking-[0.2em] text-[#6d7075]">Rent Status</p>
+          <span className={cn('text-[12px] font-semibold px-2 py-0.5 rounded-full', openInvoice?.status === 'late' ? 'bg-red-600 text-white' : openInvoice ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white')}>
             {openInvoice?.status === 'late' ? 'Late' : openInvoice ? 'Due' : 'Current'}
           </span>
         </div>
         {openInvoice ? (
           <>
-            <p className="text-3xl font-black font-mono tracking-tighter text-slate-900">
+            <p className="text-3xl font-semibold font-mono tracking-tighter text-[#16171a]">
               {fmtC((openInvoice.amountCents || 0) + (openInvoice.lateFeeCents || 0))}
             </p>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            <p className="text-[12px] font-bold text-[#6d7075]">
               Due {openInvoice.dueDate ? format(new Date(String(openInvoice.dueDate).slice(0, 10) + 'T12:00:00'), 'EEE, MMM d') : '—'}
               {(openInvoice.lateFeeCents || 0) > 0 ? ` · incl. ${fmtC(openInvoice.lateFeeCents)} late fee` : ''}
             </p>
-            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+            <p className="text-[12px] font-bold text-[#6d7075]">
               {renter.cardOnFile ? 'Auto-collect will charge your card on file — or pay at the front desk.' : 'Pay at the front desk, or add a card on file in Documents.'}
             </p>
           </>
         ) : (
-          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Nothing owed right now.</p>
+          <p className="text-[12px] font-bold text-emerald-700">Nothing owed right now.</p>
         )}
       </div>
 
       {activeLease && (
-        <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">My Lease</p>
+        <div className="rounded-2xl border bg-white p-5 space-y-3">
+          <p className="text-[12px] font-semibold tracking-[0.2em] text-[#6d7075]">My Lease</p>
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-black uppercase text-sm text-slate-900">{myBooth?.name || 'Space'}</p>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              <p className="font-semibold text-sm text-[#16171a]">{myBooth?.name || 'Space'}</p>
+              <p className="text-[12px] font-bold text-[#6d7075]">
                 Since {activeLease.startDate ? format(new Date(String(activeLease.startDate).slice(0, 10) + 'T12:00:00'), 'MMM d, yyyy') : '—'}
                 {activeLease.status !== 'active' ? ` · ${String(activeLease.status).replace(/_/g, ' ')}` : ''}
               </p>
             </div>
-            <p className="font-black font-mono text-lg tracking-tighter text-slate-900">
-              {fmtC(activeLease.rentAmountCents)}<span className="text-[10px] text-slate-400">{FREQ_LABEL[activeLease.frequency] || ''}</span>
+            <p className="font-semibold font-mono text-lg tracking-tighter text-[#16171a]">
+              {fmtC(activeLease.rentAmountCents)}<span className="text-[12px] text-[#6d7075]">{FREQ_LABEL[activeLease.frequency] || ''}</span>
             </p>
           </div>
           {activeLease.scheduleSlot?.days?.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-dashed">
-              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">My days:</span>
+              <span className="text-[12px] font-semibold text-[#6d7075] mr-1">My days:</span>
               {activeLease.scheduleSlot.days.map((d: number) => (
-                <span key={d} className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-primary/10 text-primary">{DOW[d] || d}</span>
+                <span key={d} className="text-[12px] font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">{DOW[d] || d}</span>
               ))}
               {activeLease.scheduleSlot.startTime && (
-                <span className="text-[9px] font-bold uppercase text-slate-400 ml-1">{activeLease.scheduleSlot.startTime}–{activeLease.scheduleSlot.endTime}</span>
+                <span className="text-[12px] font-bold text-[#6d7075] ml-1">{activeLease.scheduleSlot.startTime}–{activeLease.scheduleSlot.endTime}</span>
               )}
             </div>
           )}
           <div className="flex items-center gap-2 pt-2 border-t border-dashed">
-            <CreditCard className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+            <CreditCard className="w-3.5 h-3.5 text-[#6d7075]" />
+            <span className="text-[12px] font-semibold text-[#6d7075]">
               {renter.cardOnFile ? `Card on file ${renter.cardBrand ? `· ${renter.cardBrand}` : ''} ${renter.cardLast4 ? `•••• ${renter.cardLast4}` : ''}` : 'No card on file'}
             </span>
           </div>
@@ -4168,40 +4168,40 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
       )}
 
       {myCredits.length > 0 && (
-        <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
+        <div className="rounded-2xl border bg-white p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking Credits</p>
+            <p className="text-[12px] font-semibold tracking-[0.2em] text-[#6d7075]">Booking Credits</p>
             {availableCreditCents > 0 && (
-              <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{fmtC(availableCreditCents)} available</span>
+              <span className="text-[12px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{fmtC(availableCreditCents)} available</span>
             )}
           </div>
           <div className="space-y-1.5">
             {myCredits.slice(0, 5).map((c: any) => (
-              <div key={c.id} className="flex items-center justify-between text-[10px] font-bold">
-                <span className="uppercase tracking-widest text-slate-500">{c.minutes ? `${c.minutes} min unused` : 'Credit'} {c.sourceBoothName ? `· ${c.sourceBoothName}` : ''}</span>
-                <span className={cn('font-mono font-black', c.status === 'available' ? 'text-emerald-600' : 'text-slate-400')}>
+              <div key={c.id} className="flex items-center justify-between text-[12px] font-bold">
+                <span className="text-[#6d7075]">{c.minutes ? `${c.minutes} min unused` : 'Credit'} {c.sourceBoothName ? `· ${c.sourceBoothName}` : ''}</span>
+                <span className={cn('font-mono font-semibold', c.status === 'available' ? 'text-emerald-600' : 'text-[#6d7075]')}>
                   {fmtC(c.amountCents)}{c.status !== 'available' ? ` (${c.status})` : ''}
                 </span>
               </div>
             ))}
           </div>
-          <p className="text-[8px] font-bold uppercase tracking-widest text-slate-400">Available credits auto-apply to your next booking.</p>
+          <p className="text-[11px] font-bold text-[#6d7075]">Available credits auto-apply to your next booking.</p>
         </div>
       )}
 
       {myUpcoming.length > 0 && (
-        <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Upcoming Bookings</p>
+        <div className="rounded-2xl border bg-white p-5 space-y-3">
+          <p className="text-[12px] font-semibold tracking-[0.2em] text-[#6d7075]">Upcoming Bookings</p>
           <div className="space-y-2">
             {myUpcoming.slice(0, 6).map((r: any) => (
               <div key={r.id} className="flex items-center justify-between rounded-xl border p-3">
                 <div>
-                  <p className="text-[11px] font-black uppercase text-slate-800">{r.boothName || 'Space'}</p>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                  <p className="text-[11px] font-semibold text-[#16171a]">{r.boothName || 'Space'}</p>
+                  <p className="text-[12px] font-bold text-[#6d7075]">
                     {r.startDate}{r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.startTime ? ` · ${r.startTime}–${r.endTime}` : ''}
                   </p>
                 </div>
-                <span className={cn('text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full', r.status === 'checked_in' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700')}>
+                <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-full', r.status === 'checked_in' ? 'bg-[#f5f5f7] text-[#16171a]' : 'bg-emerald-100 text-emerald-700')}>
                   {r.status === 'checked_in' ? 'Checked in' : 'Confirmed'}
                 </span>
               </div>
@@ -4210,19 +4210,19 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
         </div>
       )}
 
-      <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
-        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Payment History</p>
+      <div className="rounded-2xl border bg-white p-5 space-y-3">
+        <p className="text-[12px] font-semibold tracking-[0.2em] text-[#6d7075]">Payment History</p>
         {myPayments.length === 0 ? (
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 py-3 text-center">No payments on record yet</p>
+          <p className="text-[12px] font-bold text-[#6d7075] py-3 text-center">No payments on record yet</p>
         ) : (
           <div className="space-y-1.5">
             {myPayments.map((t: any) => (
-              <div key={t.id} className="flex items-center justify-between text-[10px] font-bold border-b border-dashed last:border-0 pb-1.5 last:pb-0">
+              <div key={t.id} className="flex items-center justify-between text-[12px] font-bold border-b border-dashed last:border-0 pb-1.5 last:pb-0">
                 <div className="min-w-0 mr-2">
-                  <p className="uppercase tracking-tight text-slate-700 truncate">{t.description || t.category}</p>
-                  <p className="text-[8px] uppercase tracking-widest text-slate-400">{t.date ? format(new Date(t.date), 'MMM d, yyyy') : ''} · {t.paymentMethod || ''}</p>
+                  <p className="tracking-tight text-[#16171a] truncate">{t.description || t.category}</p>
+                  <p className="text-[11px] text-[#6d7075]">{t.date ? format(new Date(t.date), 'MMM d, yyyy') : ''} · {t.paymentMethod || ''}</p>
                 </div>
-                <span className="font-mono font-black text-slate-900 shrink-0">${(t.amount || 0).toFixed(2)}</span>
+                <span className="font-mono font-semibold text-[#16171a] shrink-0">${(t.amount || 0).toFixed(2)}</span>
               </div>
             ))}
           </div>
@@ -4681,10 +4681,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     timesheet_approved: <CheckCircle2 className="w-4 h-4 text-green-500" />,
     timesheet_rejected: <XCircle className="w-4 h-4 text-destructive" />,
     day_off_approved:   <Calendar className="w-4 h-4 text-blue-500" />,
-    swap_approved:      <Repeat className="w-4 h-4 text-purple-500" />,
+    swap_approved:      <Repeat className="w-4 h-4 text-[#16171a]" />,
     swap_consent_given: <CheckCircle2 className="w-4 h-4 text-green-500" />,
     swap_consent_denied:<XCircle className="w-4 h-4 text-destructive" />,
-    swap_request:       <Repeat className="w-4 h-4 text-purple-500" />,
+    swap_request:       <Repeat className="w-4 h-4 text-[#16171a]" />,
     request_approved:   <CheckCircle2 className="w-4 h-4 text-green-500" />,
     request_denied:     <XCircle className="w-4 h-4 text-destructive" />,
     schedule_published: <CalendarDays className="w-4 h-4 text-primary" />,
@@ -4693,7 +4693,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     sms_escalation:      <MessageSquare className="w-4 h-4 text-primary" />,
     sms_escalation_unassigned: <MessageSquare className="w-4 h-4 text-amber-500" />,
     membership_payment_failed: <CreditCard className="w-4 h-4 text-destructive" />,
-    staff_message: <MessageSquare className="w-4 h-4 text-indigo-500" />,
+    staff_message: <MessageSquare className="w-4 h-4 text-[#16171a]" />,
     shift_changed: <CalendarDays className="w-4 h-4 text-primary" />,
     shoutout: <Star className="w-4 h-4 text-amber-500" />,
   };
@@ -4742,7 +4742,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               onUploaded={async (newUrl) => {
                 await updateDoc(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id), { avatarUrl: newUrl });
               }}
-              className="w-12 h-12 rounded-full border-2 border-white shadow-sm"
+              className="w-12 h-12 rounded-full border border-white shadow-sm"
               fallbackClassName="bg-[#f1f1f3] text-[#16171a] font-bold"
             />
             <div className="min-w-0">
@@ -4763,7 +4763,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             )}
             <button onClick={() => setActiveTab('inbox')} aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} new` : 'Notifications'} className="relative h-10 w-10 rounded-full border border-[#ececee] bg-white flex items-center justify-center">
               <Bell className="w-[18px] h-[18px]" />
-              {unreadCount > 0 && <span className="absolute top-2 right-2.5 h-2 w-2 rounded-full border-2 border-white" style={{ background: accentColor }} />}
+              {unreadCount > 0 && <span className="absolute top-2 right-2.5 h-2 w-2 rounded-full border border-white" style={{ background: accentColor }} />}
             </button>
           </div>
         </div>
@@ -4841,10 +4841,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 {isRenter && <TasksForYou tenantId={tenantId} staffMember={staffMember} />}
 <PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />
 {stuckApts.length > 0 && (
-                  <div className="rounded-[2rem] border-2 border-amber-300 bg-amber-50 overflow-hidden">
+                  <div className="rounded-[22px] border border-amber-300 bg-amber-50 overflow-hidden">
                     <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2 bg-amber-100/60">
                       <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <p className="font-black uppercase text-[10px] text-amber-700 tracking-widest">
+                      <p className="font-semibold text-[12px] text-amber-700">
                         {stuckApts.length} Session{stuckApts.length > 1 ? 's' : ''} Need Attention
                       </p>
                     </div>
@@ -4862,15 +4862,15 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                                 : <ShoppingCart className="w-4 h-4 text-emerald-600" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="font-black uppercase text-[11px] text-slate-800 truncate">
+                              <p className="font-semibold text-[11px] text-[#16171a] truncate">
                                 {apt.clientName?.split(' ')[0] || 'Guest'} · {svc?.name || 'Service'}
                               </p>
-                              <p className="text-[8px] font-bold text-amber-700 uppercase">
+                              <p className="text-[11px] font-bold text-amber-700">
                                 Started {format(safeDate(apt.startTime), 'MMM d')} · Never closed
                               </p>
                             </div>
                             <div className="flex flex-col items-end gap-1 shrink-0">
-                              <span className={cn('text-[7px] font-black uppercase rounded-lg px-1.5 py-0.5',
+                              <span className={cn('text-[11px] font-semibold rounded-lg px-1.5 py-0.5',
                                 apt.status === 'servicing' ? 'bg-primary/10 text-primary' : 'bg-emerald-100 text-emerald-700')}>
                                 {apt.status === 'servicing' ? 'In Service' : 'Checkout Queue'}
                               </span>
@@ -4886,11 +4886,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   .filter((a: any) => (a.status === 'requested' || a.voiceApproval === 'pending' || a.issue?.status === 'open') && !(Date.parse(String(a.startTime || '')) < Date.now() && a.issue?.status !== 'open'))
                   .slice(0, 5)
                   .map((a: any) => (
-                    <div key={`decide-${a.id}`} className="rounded-2xl border-2 border-primary/40 bg-primary/[0.03] p-3">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-primary">
+                    <div key={`decide-${a.id}`} className="rounded-2xl border border-primary/40 bg-primary/[0.03] p-3">
+                      <p className="text-[12px] font-semibold text-primary">
                         {a.issue?.status === 'open' ? 'Raised with a manager' : 'Waiting on you'}
                       </p>
-                      <p className="mt-0.5 truncate text-[13px] font-black tracking-tight text-foreground">
+                      <p className="mt-0.5 truncate text-[13px] font-semibold tracking-tight text-foreground">
                         {a.clientName || 'Guest'}
                       </p>
                       <p className="truncate text-[11px] font-bold text-muted-foreground">
@@ -4920,7 +4920,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   currentStaffId={staffMember?.id}
                   activityLogs={activityLogs || []}
                 />}
-                {todayView !== 'now' && <p className="px-1 pt-1 text-[13px] font-bold uppercase tracking-wide text-[#6d7075]">{todayView === 'floor' ? 'The floor today' : 'Rest of today'}</p>}
+                {todayView !== 'now' && <p className="px-1 pt-1 text-[13px] font-bold tracking-wide text-[#6d7075]">{todayView === 'floor' ? 'The floor today' : 'Rest of today'}</p>}
                 {todayView !== 'now' && <DayTimeline
                   mode={todayView === 'floor' ? 'floor' : 'my_day'}
                   appointments={allMyApts}
@@ -4982,37 +4982,37 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <div className="space-y-4">
               {isOwnerOrAdmin&&(pendingApprovals||[]).length>0&&(
                 <div className="space-y-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-700 px-1 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5"/>Awaiting Your Approval</p>
+                  <p className="text-[12px] font-semibold text-blue-700 px-1 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5"/>Awaiting Your Approval</p>
                   {(pendingApprovals||[]).map((r: any) => <SwapApproveCard key={r.id} req={r} staffMember={staffMember} tenantId={tenantId} firestore={firestore} allStaff={allStaff} allShifts={allShiftsRaw}/>)}
                 </div>
               )}
               {(incomingSwaps||[]).length>0&&(
                 <div className="space-y-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-purple-700 px-1 flex items-center gap-2"><Repeat className="w-3.5 h-3.5"/>Swap Requests For You</p>
+                  <p className="text-[12px] font-semibold text-[#16171a] px-1 flex items-center gap-2"><Repeat className="w-3.5 h-3.5"/>Swap Requests For You</p>
                   {(incomingSwaps||[]).map((r: any) => <SwapConsentCard key={r.id} req={r} staffMember={staffMember} tenantId={tenantId} firestore={firestore} allStaff={allStaff} allShifts={allShiftsRaw}/>)}
                 </div>
               )}
               <div className="space-y-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 px-1">My Requests</p>
+                <p className="text-[12px] font-semibold text-muted-foreground opacity-60 px-1">My Requests</p>
                 {sortedRequests.length===0&&(incomingSwaps||[]).length===0&&(!isOwnerOrAdmin||(pendingApprovals||[]).length===0)&&(
-                  <div className="py-12 text-center border-2 border-dashed rounded-[2rem] opacity-30"><ClipboardList className="w-10 h-10 mx-auto mb-3"/><p className="text-[10px] font-black uppercase tracking-widest">No requests yet</p></div>
+                  <div className="py-12 text-center border border-dashed rounded-[22px] opacity-30"><ClipboardList className="w-10 h-10 mx-auto mb-3"/><p className="text-[12px] font-semibold">No requests yet</p></div>
                 )}
                 {sortedRequests.map((req: any) => {
                   const swapTarget = req.swapWithStaffId ? (allStaff||[]).find((s: any) => s.id===req.swapWithStaffId) : null;
                   const si = STATUS_SWAP[req.status]||STATUS_SWAP.pending;
                   return (
-                    <Card key={req.id} className="border-2 rounded-[2rem] bg-white shadow-sm">
+                    <Card key={req.id} className="border rounded-[22px] bg-white shadow-sm">
                       <CardContent className="p-4 space-y-3">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2">
-                            {req.type==='day_off'?<Calendar className="w-4 h-4 text-blue-600"/>:req.type==='swap'?<Repeat className="w-4 h-4 text-purple-600"/>:<Zap className="w-4 h-4 text-amber-600"/>}
-                            <div><p className="font-black uppercase text-[10px] text-slate-900">{req.type==='day_off'?'Day Off':req.type==='swap'?'Shift Swap':'Early Release'}{req.date&&` · ${format(safeDate(req.date),'MMM d')}`}</p><p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{format(biz(safeDate(req.createdAt)), 'MMM d, p')}</p></div>
+                            {req.type==='day_off'?<Calendar className="w-4 h-4 text-blue-600"/>:req.type==='swap'?<Repeat className="w-4 h-4 text-[#16171a]"/>:<Zap className="w-4 h-4 text-amber-600"/>}
+                            <div><p className="font-semibold text-[12px] text-[#16171a]">{req.type==='day_off'?'Day Off':req.type==='swap'?'Shift Swap':'Early Release'}{req.date&&` · ${format(safeDate(req.date),'MMM d')}`}</p><p className="text-[11px] font-bold text-muted-foreground opacity-60">{format(biz(safeDate(req.createdAt)), 'MMM d, p')}</p></div>
                           </div>
-                          <Badge className={cn('font-black text-[8px] uppercase border-none h-5 px-2 shrink-0',si.color)}>{si.label}</Badge>
+                          <Badge className={cn('font-semibold text-[11px] border-none h-5 px-2 shrink-0',si.color)}>{si.label}</Badge>
                         </div>
-                        {req.type==='swap'&&swapTarget&&<div className="flex items-center gap-2 text-[9px] font-bold text-purple-700 uppercase"><ArrowRight className="w-3 h-3 shrink-0"/>Swap with {swapTarget.name?.split(' ')[0]}</div>}
-                        <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">{req.reason}</p>
-                        {req.managerNote&&<div className="p-2.5 rounded-xl bg-primary/5 border border-primary/10"><p className="text-[9px] font-black uppercase text-primary/60 mb-0.5">Manager Response</p><p className="text-[10px] font-bold text-slate-700">{req.managerNote}</p></div>}
+                        {req.type==='swap'&&swapTarget&&<div className="flex items-center gap-2 text-[12px] font-bold text-[#16171a]"><ArrowRight className="w-3 h-3 shrink-0"/>Swap with {swapTarget.name?.split(' ')[0]}</div>}
+                        <p className="text-[12px] text-muted-foreground font-medium leading-relaxed">{req.reason}</p>
+                        {req.managerNote&&<div className="p-2.5 rounded-xl bg-primary/5 border border-primary/10"><p className="text-[12px] font-semibold text-primary/60 mb-0.5">Manager Response</p><p className="text-[12px] font-bold text-[#16171a]">{req.managerNote}</p></div>}
                       </CardContent>
                     </Card>
                   );
@@ -5044,19 +5044,19 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <div className="space-y-3">
               {sortedNotifs.length>0&&(
                 <div className="flex items-center justify-between px-1">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{unreadCount>0?`${unreadCount} unread`:'All caught up'}</p>
-                  <button onClick={handleClearInbox} disabled={isClearingInbox} className="flex items-center gap-1.5 h-8 px-3 rounded-xl border-2 border-destructive/20 bg-white text-destructive font-black uppercase text-[8px] tracking-widest hover:bg-destructive/5 transition-all active:scale-95 disabled:opacity-50">
+                  <p className="text-[12px] font-semibold text-muted-foreground opacity-60">{unreadCount>0?`${unreadCount} unread`:'All caught up'}</p>
+                  <button onClick={handleClearInbox} disabled={isClearingInbox} className="flex items-center gap-1.5 h-8 px-3 rounded-xl border border-destructive/20 bg-white text-destructive font-semibold text-[11px] hover:bg-destructive/5 transition-all active:scale-95 disabled:opacity-50">
                     {isClearingInbox?<Loader className="w-3 h-3 animate-spin"/>:<Trash2 className="w-3 h-3"/>}Clear All
                   </button>
                 </div>
               )}
-              {sortedNotifs.length===0&&<div className="py-16 text-center opacity-30"><Bell className="w-10 h-10 mx-auto mb-3"/><p className="text-[10px] font-black uppercase tracking-widest">No notifications</p></div>}
+              {sortedNotifs.length===0&&<div className="py-16 text-center opacity-30"><Bell className="w-10 h-10 mx-auto mb-3"/><p className="text-[12px] font-semibold">No notifications</p></div>}
               {sortedNotifs.map(n => (
-                <div key={n.id} onClick={() => handleNotifClick(n)} className={cn('flex items-start gap-3 p-4 rounded-2xl border-2 bg-white cursor-pointer transition-all active:scale-[0.98]', !n.read?'border-primary/20 bg-primary/[0.02]':'border-slate-100')}>
+                <div key={n.id} onClick={() => handleNotifClick(n)} className={cn('flex items-start gap-3 p-4 rounded-2xl border bg-white cursor-pointer transition-all active:scale-[0.98]', !n.read?'border-primary/20 bg-primary/[0.02]':'border-[#ececee]')}>
                   <div className="p-2 rounded-xl bg-muted/20 border shrink-0">{NOTIF_ICONS[n.type]||<Bell className="w-4 h-4 text-muted-foreground"/>}</div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-bold text-slate-700 leading-relaxed">{n.message}</p>
-                    <div className="flex items-center gap-2 mt-1"><p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">{format(biz(safeDate(n.createdAt)), 'MMM d, h:mm a')}</p>{n.link&&<p className="text-[8px] font-black uppercase text-primary/50 flex items-center gap-0.5"><ChevronRight className="w-2.5 h-2.5"/>View</p>}</div>
+                    <p className="text-[11px] font-bold text-[#16171a] leading-relaxed">{n.message}</p>
+                    <div className="flex items-center gap-2 mt-1"><p className="text-[11px] font-semibold text-muted-foreground opacity-40">{format(biz(safeDate(n.createdAt)), 'MMM d, h:mm a')}</p>{n.link&&<p className="text-[11px] font-semibold text-primary/50 flex items-center gap-0.5"><ChevronRight className="w-2.5 h-2.5"/>View</p>}</div>
                   </div>
                   {!n.read&&<div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5"/>}
                 </div>
@@ -5121,23 +5121,23 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           )}
           {activeTab==='documents' && (isRenter || isHybrid) && (
             <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Documents & Receipts</p>
+              <p className="text-[12px] font-semibold text-muted-foreground px-1">Documents & Receipts</p>
               {w9Status === 'loading' ? null : w9Status && !showW9Form ? (
-                <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-1">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">W-9 on file ✓</p>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-1">
+                  <p className="text-[12px] font-semibold text-emerald-700">W-9 on file ✓</p>
                   <p className="text-xs font-bold text-emerald-800">{w9Status.legalName} · TIN {w9Status.tinMasked}</p>
-                  <button onClick={()=>setShowW9Form(true)} className="text-[9px] font-black uppercase tracking-widest text-emerald-600 underline underline-offset-2">Update</button>
+                  <button onClick={()=>setShowW9Form(true)} className="text-[12px] font-semibold text-emerald-600 underline underline-offset-2">Update</button>
                 </div>
               ) : showW9Form || !w9Status ? (
-                <div className="rounded-2xl border-2 p-4 space-y-3">
+                <div className="rounded-2xl border p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-black uppercase text-slate-700">W-9 Information</p>
-                    {w9Status && <button onClick={()=>setShowW9Form(false)} className="text-[9px] font-black uppercase text-slate-400">Cancel</button>}
+                    <p className="text-xs font-semibold text-[#16171a]">W-9 Information</p>
+                    {w9Status && <button onClick={()=>setShowW9Form(false)} className="text-[12px] font-semibold text-[#6d7075]">Cancel</button>}
                   </div>
                   {!w9Status && !showW9Form && (
                     <div className="space-y-2">
-                      <p className="text-xs text-slate-600 font-medium">Your landlord needs your W-9 information to issue year-end tax documents and comply with IRS requirements.</p>
-                      <button onClick={()=>setShowW9Form(true)} className="w-full h-11 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest">Provide W-9 Information</button>
+                      <p className="text-xs text-[#6d7075] font-medium">Your landlord needs your W-9 information to issue year-end tax documents and comply with IRS requirements.</p>
+                      <button onClick={()=>setShowW9Form(true)} className="w-full h-11 rounded-2xl bg-[#16171a] text-white font-semibold text-[12px]">Provide W-9 Information</button>
                     </div>
                   )}
                   {showW9Form && (
@@ -5149,19 +5149,19 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   )}
                 </div>
               ) : (
-                <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">W-9 required</p>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+                  <p className="text-[12px] font-semibold text-amber-700">W-9 required</p>
                   <p className="text-xs text-amber-700">Your landlord needs your tax information to issue annual statements and comply with IRS rules.</p>
-                  <button onClick={()=>setShowW9Form(true)} className="w-full h-11 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest">Provide W-9 Information</button>
+                  <button onClick={()=>setShowW9Form(true)} className="w-full h-11 rounded-2xl bg-[#16171a] text-white font-semibold text-[12px]">Provide W-9 Information</button>
                 </div>
               )}
 
-              <div className="rounded-2xl border-2 bg-slate-50 p-4 space-y-3">
-                <p className="text-xs font-black uppercase text-slate-700">Paid bookings</p>
+              <div className="rounded-2xl border bg-[#f5f5f7] p-4 space-y-3">
+                <p className="text-xs font-semibold text-[#16171a]">Paid bookings</p>
                 <RenterDocumentsTab tenantId={tenantId} staffMember={staffMember} firestore={firestore} />
               </div>
-              <div className="rounded-2xl border-2 p-4 space-y-2">
-                <p className="text-xs font-black uppercase text-slate-700">Tax & business notes</p>
+              <div className="rounded-2xl border p-4 space-y-2">
+                <p className="text-xs font-semibold text-[#16171a]">Tax & business notes</p>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">Rent paid for business space is typically deductible as a business expense on Schedule C. Each receipt above shows the amount paid, period covered, and your studio's business info. Retain all receipts and provide them to your tax preparer at year end.</p>
               </div>
             </div>
@@ -5227,54 +5227,54 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       <Dialog open={isRequestOpen} onOpenChange={v => { if (!v) { setIsRequestOpen(false); setRequestReason(''); setRequestDate(''); setSwapTargetShiftId(''); setSwapTargetStaffId(''); }}}>
         <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
           <DialogHeader className="p-6 pb-0 text-left">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Submit Request</DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Your manager will be notified.</DialogDescription>
+            <DialogTitle className="text-2xl font-semibold tracking-tighter text-[#16171a]">Submit Request</DialogTitle>
+            <DialogDescription className="text-[12px] font-bold opacity-60 mt-1">Your manager will be notified.</DialogDescription>
           </DialogHeader>
           <div className="p-6 space-y-5">
             <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Type</Label>
+              <Label className="text-[12px] font-semibold text-muted-foreground">Type</Label>
               <Select value={requestType} onValueChange={(v: any) => { setRequestType(v); setSwapTargetShiftId(''); setSwapTargetStaffId(''); }}>
-                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px]"><SelectValue/></SelectTrigger>
-                <SelectContent className="rounded-xl border-2 shadow-2xl">
-                  <SelectItem value="day_off" className="font-bold uppercase text-[10px]"><div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600"/>Day Off</div></SelectItem>
-                  <SelectItem value="swap" className="font-bold uppercase text-[10px]"><div className="flex items-center gap-2"><Repeat className="w-4 h-4 text-purple-600"/>Shift Swap</div></SelectItem>
-                  <SelectItem value="early_release" className="font-bold uppercase text-[10px]"><div className="flex items-center gap-2"><Zap className="w-4 h-4 text-amber-600"/>Early Release</div></SelectItem>
+                <SelectTrigger className="h-12 rounded-2xl border font-semibold text-[12px]"><SelectValue/></SelectTrigger>
+                <SelectContent className="rounded-xl border shadow-2xl">
+                  <SelectItem value="day_off" className="font-bold text-[12px]"><div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600"/>Day Off</div></SelectItem>
+                  <SelectItem value="swap" className="font-bold text-[12px]"><div className="flex items-center gap-2"><Repeat className="w-4 h-4 text-[#16171a]"/>Shift Swap</div></SelectItem>
+                  <SelectItem value="early_release" className="font-bold text-[12px]"><div className="flex items-center gap-2"><Zap className="w-4 h-4 text-amber-600"/>Early Release</div></SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date</Label>
-              <input type="date" value={requestDate} onChange={e => setRequestDate(e.target.value)} min={format(today,'yyyy-MM-dd')} className="w-full h-12 rounded-2xl border-2 px-4 font-bold text-sm outline-none bg-white focus:border-primary/40"/>
+              <Label className="text-[12px] font-semibold text-muted-foreground">Date</Label>
+              <input type="date" value={requestDate} onChange={e => setRequestDate(e.target.value)} min={format(today,'yyyy-MM-dd')} className="w-full h-12 rounded-2xl border px-4 font-bold text-sm outline-none bg-white focus:border-primary/40"/>
             </div>
             {requestType==='swap'&&requestDate&&(
               <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Swap With</Label>
-                {myShiftOnRequestDate ? <p className="text-[9px] font-bold text-primary/70 uppercase">Your shift: {fmt12(myShiftOnRequestDate.startTime)} – {fmt12(myShiftOnRequestDate.endTime)}</p>
-                  : <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200"><AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0"/><p className="text-[9px] font-bold text-amber-700 uppercase">No shift on this date — swap not allowed</p></div>}
+                <Label className="text-[12px] font-semibold text-muted-foreground">Swap With</Label>
+                {myShiftOnRequestDate ? <p className="text-[12px] font-bold text-primary/70">Your shift: {fmt12(myShiftOnRequestDate.startTime)} – {fmt12(myShiftOnRequestDate.endTime)}</p>
+                  : <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200"><AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0"/><p className="text-[12px] font-bold text-amber-700">No shift on this date — swap not allowed</p></div>}
                 {shiftsOnRequestDate.length>0 ? (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {shiftsOnRequestDate.map(({ shift, member }: any) => (
                       <button key={shift.id} type="button" onClick={() => { setSwapTargetShiftId(shift.id); setSwapTargetStaffId(shift.staffId); }}
-                        className={cn('w-full flex items-center gap-3 p-3 rounded-2xl border-2 transition-all text-left', swapTargetShiftId===shift.id?'border-purple-400 bg-purple-50':'border-slate-200 bg-white hover:border-purple-200')}>
-                        <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><p className="font-black text-primary text-sm">{member?.name?.[0]}</p></div>
-                        <div className="flex-1 min-w-0"><p className="font-black uppercase text-[10px] truncate">{member?.name?.split(' ')[0]}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{fmt12(shift.startTime)} – {fmt12(shift.endTime)}</p></div>
-                        {swapTargetShiftId===shift.id&&<CheckCircle2 className="w-4 h-4 text-purple-600 shrink-0"/>}
+                        className={cn('w-full flex items-center gap-3 p-3 rounded-2xl border transition-all text-left', swapTargetShiftId===shift.id?'border-[#d9d9de] bg-[#f5f5f7]':'border-[#ececee] bg-white hover:border-[#d9d9de]')}>
+                        <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><p className="font-semibold text-primary text-sm">{member?.name?.[0]}</p></div>
+                        <div className="flex-1 min-w-0"><p className="font-semibold text-[12px] truncate">{member?.name?.split(' ')[0]}</p><p className="text-[12px] font-bold text-muted-foreground opacity-60">{fmt12(shift.startTime)} – {fmt12(shift.endTime)}</p></div>
+                        {swapTargetShiftId===shift.id&&<CheckCircle2 className="w-4 h-4 text-[#16171a] shrink-0"/>}
                       </button>
                     ))}
                   </div>
-                ) : <div className="p-4 rounded-2xl bg-slate-50 border-2 border-dashed text-center"><p className="text-[9px] font-black uppercase text-muted-foreground opacity-40">No other staff scheduled on this date</p></div>}
+                ) : <div className="p-4 rounded-2xl bg-[#f5f5f7] border border-dashed text-center"><p className="text-[12px] font-semibold text-muted-foreground opacity-40">No other staff scheduled on this date</p></div>}
               </div>
             )}
             <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reason</Label>
-              <Textarea value={requestReason} onChange={e => setRequestReason(e.target.value)} placeholder="Explain your request..." className="rounded-2xl border-2 min-h-[80px]"/>
+              <Label className="text-[12px] font-semibold text-muted-foreground">Reason</Label>
+              <Textarea value={requestReason} onChange={e => setRequestReason(e.target.value)} placeholder="Explain your request..." className="rounded-2xl border min-h-[80px]"/>
             </div>
           </div>
           <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-            <Button onClick={handleSubmitRequest} disabled={isSubmitting||!requestDate||!requestReason.trim()||(requestType==='swap'&&(!swapTargetShiftId||!myShiftOnRequestDate))} className="w-full h-14 rounded-2xl font-black uppercase shadow-xl shadow-primary/20">
+            <Button onClick={handleSubmitRequest} disabled={isSubmitting||!requestDate||!requestReason.trim()||(requestType==='swap'&&(!swapTargetShiftId||!myShiftOnRequestDate))} className="w-full h-14 rounded-2xl font-semibold shadow-xl shadow-primary/20">
               {isSubmitting ? <Loader className="animate-spin"/> : 'Submit Request'}
             </Button>
-            <Button variant="ghost" onClick={() => setIsRequestOpen(false)} className="font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
+            <Button variant="ghost" onClick={() => setIsRequestOpen(false)} className="font-bold text-[12px]">Cancel</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
