@@ -272,6 +272,7 @@ export default function ReportsPage() {
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Studio Pulse</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Strategic Performance Audit</p>
           </div>
+          <a href="/month" className="flex h-14 items-center rounded-2xl border px-6 text-[13px] font-semibold">Month in review</a>
           <Button variant="outline" className="h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-card/50" onClick={() => window.print()}>
             <Printer className="mr-2 h-4 w-4" /> Export Report
           </Button>
