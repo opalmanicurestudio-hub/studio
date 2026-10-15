@@ -122,6 +122,8 @@ export async function POST(req: NextRequest) {
       if (action === 'desk') return NextResponse.json(await W.deskView(db, tenantId));
       if (action === 'auto') { if (!(w.actor.isManager || w.actor.isOwner)) return NextResponse.json({ ok: false, error: 'Managers only.' }, { status: 403 });
         await db.doc(`tenants/${tenantId}`).set({ waitlistAuto: body?.on !== false }, { merge: true }); return NextResponse.json({ ok: true }); }
+      if (action === 'calls') { if (!(w.actor.isManager || w.actor.isOwner)) return NextResponse.json({ ok: false, error: 'Managers only.' }, { status: 403 });
+        const cap = Math.round(Number(body?.capDollars)); await db.doc(`tenants/${tenantId}`).set({ waitlistCalls: { on: body?.on === true, capDollars: cap >= 1 && cap <= 500 ? cap : 20 } }, { merge: true }); return NextResponse.json({ ok: true }); }
       if (action === 'close_opening') { await db.doc(`tenants/${tenantId}/openings/${str(body?.openingId, 120)}`).set({ status: 'closed', closedAt: new Date().toISOString(), closedBy: w.actor.name }, { merge: true }); return NextResponse.json({ ok: true }); }
       if (action === 'offer_now') return NextResponse.json(await W.offerTo(db, tenantId, str(body?.openingId, 120), str(body?.entryId, 120)));
       if (action === 'remove') { await db.doc(`tenants/${tenantId}/waitlist/${str(body?.entryId, 120)}`).set({ status: 'closed', closedAt: new Date().toISOString(), closedBy: w.actor.name }, { merge: true }); return NextResponse.json({ ok: true }); }

@@ -26,6 +26,8 @@ export type Deps = {
   book?: (tenant: any, body: any) => Promise<any>;
   engine?: (db: any, t: string) => Promise<any>;
   openTimes?: (e: any, o: { date: string; serviceId: string; staffId?: string | null }) => { startIso: string }[];
+  call?: (o: { fromNumber: string; toNumber: string; dynamicVariables: Record<string, string>; metadata?: any }) => Promise<{ ok: boolean; callId?: string; error?: string }>;
+  vars?: (db: any, t: string, tenant: any) => Promise<Record<string, string>>;
 };
 async function deps(d: Deps = {}) {
   const send = d.send || (async (...a: any[]) => { const { sendTenantSms } = await import('@/lib/sms'); return (sendTenantSms as any)(...a); });
@@ -156,6 +158,9 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
     if ((op.offers || []).some((f: any) => f.mode === 'one' && f.status === 'sent' && ms(f.holdUntil) <= now)) await unhold(db, t, op.id);
     // Offers that ran out without even being opened count toward "still hoping?"
     for (const f of (op.offers || []).filter((f: any) => f.status === 'sent' && ms(f.holdUntil) <= now && !f.viewedAt)) await ignored(db, t, f.entryId);
+    // Under 3 hours, if the owner turned calls on: the assistant calls whoever fits (and said yes to calls), one at a time.
+    try { const c = await callStep(db, t, { ...op, offers }, tenant, tz, now, d, cache); if (c === 'busy') { if (JSON.stringify(offers) !== JSON.stringify(op.offers || [])) await ref.update({ offers }); continue; } }
+    catch (e) { console.error('[waitlist] calls', e); }
     if (mode === 'desk') { if (!op.deskAt) { await tellDesk(db, t, op, tz, now); desk++; } await ref.update({ mode, offers, deskAt: op.deskAt || iso(now) }); continue; }
     const fresh = JSON.stringify(offers) !== JSON.stringify(op.offers || []);
     if (!canText) { if (fresh) await ref.update({ offers }); continue; }
@@ -178,6 +183,48 @@ export async function waitlistSweep(db: any, t: string, tenant: any, now = Date.
     if (e.stillAskedAt && (Number(e.ignoredInARow) || 0) >= STALE_AFTER && now - ms(e.stillAskedAt) > STALE_ANSWER_H * H) { await db.doc(`${T(t)}/waitlist/${e.id}`).set({ status: 'paused', pausedAt: iso(now), pausedWhy: 'no answer to “still hoping?”' }, { merge: true }); continue; } const until = e.until ? ms(`${String(e.until).slice(0, 10)}T23:59:59Z`) : ms(e.createdAt || e.addedAt) + 60 * DAY;
     if (until && until < now) await db.doc(`${T(t)}/waitlist/${e.id}`).set({ status: 'expired', closedAt: iso(now) }, { merge: true }); }
   return { ok: true, openings: ops.length, sent, desk };
+}
+
+/** One step of the calls for an opening: settle calls that ended (no answer → the text instead), else place the next. 'busy' = a call is live. */
+async function callStep(db: any, t: string, op: any, tenant: any, tz: string, now: number, d: Deps, cache: any): Promise<'busy' | 'idle'> {
+  const L = await import('@/lib/waitlist-calls'); const S = L.callSettingsOf(tenant); const calls: any[] = op.calls || [];
+  if (!S.on && !calls.some((c) => c.status === 'calling')) return 'idle';
+  const fromNumber = String(tenant?.voiceAgent?.phoneNumber || '').trim(); if (!fromNumber) return 'idle';
+  const ref = db.doc(`${T(t)}/openings/${op.id}`); const step = L.nextCallStep(calls, now);
+  let m: any = null; const matches = async () => (m ||= await matchesFor(db, t, op, now, d, cache));
+  if (step.settle.length) {
+    const next = [...calls];
+    for (const c of step.settle) { const i = next.indexOf(c); const v = c.callId ? ((await db.doc(`${T(t)}/voiceCalls/${c.callId}`).get()).data() || null) : null;
+      // Booked on the call? The opening is theirs.
+      const booked = rows(await db.collection(`${T(t)}/appointments`).where('startTime', '==', op.start).get()).find((a: any) => a.staffId === op.staffId && !DEAD.includes(String(a.status || '')) && ((c.clientId && a.clientId === c.clientId) || (digitsOf(c.phone) && digitsOf(a.clientPhone) === digitsOf(c.phone))));
+      if (booked) { next[i] = { ...c, status: 'booked' }; await ref.update({ calls: next, status: 'filled', filledAt: iso(now), filledBy: { token: null, entryId: c.entryId, kind: 'new', appointmentId: booked.id, name: c.name || '', byCall: true } });
+        await db.doc(`${T(t)}/waitlist/${c.entryId}`).set({ status: 'booked', bookedAt: iso(now), appointmentId: booked.id, priorityUntil: null }, { merge: true });
+        await db.doc(`${T(t)}/appointments/${booked.id}`).set({ fromWaitlist: { openingId: op.id, kind: 'call', at: iso(now) } }, { merge: true }).catch(() => {}); return 'busy'; }
+      if (L.unanswered(v)) { next[i] = { ...c, status: 'no_answer' };
+        const fit = (await matches()).fits.find((f: any) => f.e.id === c.entryId);
+        if (fit) { const r = await sendOffer(db, t, op, fit, 'first', now, d, m, 15); if (r) await ref.update({ offers: [...(op.offers || []), { ...r, afterCall: true }] }); op = { ...op, offers: [...(op.offers || []), ...(r ? [r] : [])] }; } }
+      else next[i] = { ...c, status: 'declined' }; }
+    await ref.update({ calls: next }); op = { ...op, calls: next };
+  }
+  if (step.wait) return 'busy';
+  if (!S.on || !step.room) return 'idle';
+  const { localHour } = await import('@/lib/voice/voice-utils'); if (!L.callWindow(ms(op.start), now, localHour(new Date(now), tz))) return 'idle';
+  const month = L.monthKey(now, tz); const usage = Number(tenant?.waitlistCallsUsed?.[month]) || 0; if (usage >= L.callsAllowed(S)) return 'idle';
+  const tried = new Set((op.calls || []).map((c: any) => c.entryId));
+  const fits = (await matches()).fits.filter((f: any) => !tried.has(f.e.id) && f.e.kind !== 'sooner' && !f.appt);
+  let pick: any = null, cl: any = {};
+  for (const f of fits) { const c = f.e.clientId ? (cache.clients?.get(f.e.clientId) || ((await db.doc(`${T(t)}/clients/${f.e.clientId}`).get()).data() || {})) : {}; if (L.mayCall(f.e, c) && String(f.e.phone || c.phone || '').trim()) { pick = f; cl = c; break; } }
+  if (!pick) return 'idle';
+  const phone = String(pick.e.phone || cl.phone || '').trim(); const s = m.service(serviceOf(pick.e));
+  const call = d.call || (await import('@/lib/voice/retell-client')).placeRetellCall;
+  const vars = d.vars ? await d.vars(db, t, tenant) : await (await import('@/lib/voice/tenant-variables')).buildTenantVariables(db, t, tenant);
+  const task = L.callTask({ first: first(pick.e.name || cl.firstName || cl.name), business: String(tenant.name || 'the studio'), service: String(s?.name || 'visit').toLowerCase(), provider: first(op.staffName), when: whenLabel(ms(op.start), tz, now) });
+  const rec = { entryId: pick.e.id, clientId: pick.e.clientId || null, name: pick.e.name || cl.name || '', phone, at: iso(now), status: 'calling', callId: null as string | null };
+  await ref.update({ calls: [...(op.calls || []), rec] });   // recorded BEFORE dialing: an overlapping sweep never calls twice
+  const r = await call({ fromNumber, toNumber: phone, dynamicVariables: { ...vars, call_direction: 'outbound', outbound_task: task }, metadata: { tenantId: t, outboundReason: 'waitlist_opening', openingId: op.id, clientId: pick.e.clientId || undefined } });
+  await ref.update({ calls: [...(op.calls || []), { ...rec, callId: r.callId || null, status: r.ok ? 'calling' : 'failed' }] });
+  if (r.ok) await db.doc(T(t)).set({ waitlistCallsUsed: { [month]: usage + 1 } }, { merge: true });
+  return r.ok ? 'busy' : 'idle';
 }
 
 async function sendOffer(db: any, t: string, op: any, c: any, mode: Mode, now: number, d: Deps, m: any, holdMin?: number) {
@@ -437,14 +484,16 @@ export async function deskView(db: any, t: string, now = Date.now(), d: Deps = {
     withMatches.push({ ...o, mode: base === 'first' && ms(o.start) - now >= WAVE_FROM_H * H ? 'wave' : base, when: whenLabel(ms(o.start), tz, now), backups: (o.backups || []).length,
     fits: m.fits.slice(0, 6).map((f: any) => ({ id: f.e.id, name: f.e.name, kind: f.e.kind || 'new', owed: f.pri || null, autoBook: !!f.e.autoBook && !f.appt, alreadyBooked: !!(f.e as any).alreadyBooked, leftover: f.leftover, wanted: f.e.staffId && f.e.staffId !== 'any' ? 'asked for them' : 'anyone', waitedDays: Math.round((now - ms(f.e.createdAt || f.e.addedAt)) / DAY), freed: f.appt ? whenLabel(ms(f.appt.startTime), tz, now) : null })),
     not: m.not.slice(0, 6).map((x: any) => ({ id: x.e.id, name: x.e.name, why: x.why })),
-    offers: (o.offers || []).map((f: any) => ({ name: f.name, status: f.status === 'sent' && ms(f.holdUntil) <= now ? 'lapsed' : f.status, sentAt: f.sentAt, holdUntil: f.holdUntil, kind: f.kind, mode: f.mode })) }); }
+    offers: (o.offers || []).map((f: any) => ({ name: f.name, status: f.status === 'sent' && ms(f.holdUntil) <= now ? 'lapsed' : f.status, sentAt: f.sentAt, holdUntil: f.holdUntil, kind: f.kind, mode: f.mode, afterCall: !!f.afterCall })),
+    calls: (o.calls || []).map((c: any) => ({ name: c.name, status: c.status, at: c.at })) }); }
   const done = ops.filter((o: any) => o.status === 'filled'); const filledCents = 0;
   const entries = rows(await db.collection(`${T(t)}/waitlist`).get()).sort((a: any, b: any) => ms(b.createdAt || b.addedAt) - ms(a.createdAt || a.addedAt));
   const { demandOf } = await import('@/lib/waitlist-engine');
   const avgMin = done.length ? Math.round(done.reduce((s: number, o: any) => s + (ms(o.filledAt) - ms(o.createdAt)), 0) / done.length / 60000) : null;
   return { ok: true, tz, live: withMatches, recent: ops.filter((o: any) => o.status !== 'open').slice(-20).reverse().map((o: any) => ({ id: o.id, when: whenLabel(ms(o.start), tz, now), staffName: o.staffName, status: o.status, filledBy: o.filledBy?.name || null, kind: o.filledBy?.kind || null, source: o.source })),
     entries: entries.filter((e: any) => isWaiting(e) || e.status === 'paused').slice(0, 200), stats: { openings: ops.length, filled: done.length, avgMinutes: avgMin, moveUps: done.filter((o: any) => o.filledBy?.kind === 'sooner').length, filledCents },
-    demand: demandOf(entries, now).slice(0, 6), auto: tenant.waitlistAuto !== false };
+    demand: demandOf(entries, now).slice(0, 6), auto: tenant.waitlistAuto !== false, calls: await (async () => { const L = await import('@/lib/waitlist-calls'); const S = L.callSettingsOf(tenant); const used = Number(tenant?.waitlistCallsUsed?.[L.monthKey(now, tz)]) || 0;
+      return { ...S, used, allowed: L.callsAllowed(S), hasNumber: !!String(tenant?.voiceAgent?.phoneNumber || '').trim(), willing: entries.filter((e: any) => isWaiting(e) && e.callOk === true).length }; })() };
 }
 
 /** The desk offers it to one particular person (from the fits list) — the same text and link. */

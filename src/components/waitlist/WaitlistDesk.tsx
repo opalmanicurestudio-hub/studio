@@ -37,6 +37,7 @@ export function WaitlistDesk({ tenantId }: { tenantId: string }) {
               <div className="flex flex-wrap items-start justify-between gap-2 p-4">
                 <div><p className="text-[17px] font-semibold">{o.when} · {String(o.staffName || '').split(' ')[0]}</p><p className="text-[13px]" style={{ color: MUTED }}>{o.minutes} min free · {o.source === 'moveup' ? 'freed by a move-up' : o.source === 'freed' ? 'freed when a visit changed' : o.source === 'fell_through' ? 'a waitlist booking that fell through' : 'a cancellation'}{o.chainDepth ? ` · move ${o.chainDepth} of 2` : ''}{o.backups ? ` · ${o.backups} backup${o.backups === 1 ? '' : 's'} first` : ''}</p></div>
                 <div className="flex items-center gap-2">{chip(ml, mc, mb)}<button type="button" onClick={() => act({ action: 'close_opening', openingId: o.id }, 'Closed — no more offers for it.')} className="text-[12.5px] underline" style={{ color: MUTED }}>Close</button></div></div>
+              {(o.calls || []).length > 0 && <div className="px-4 pb-2"><p className="pb-1 text-[12px] font-bold" style={{ color: MUTED }}>CALLED</p>{o.calls.map((c: any, i: number) => <p key={i} className="text-[13.5px]">{c.name} · {c.status === 'calling' ? <b style={{ color: BLUE }}>on the phone now</b> : c.status === 'booked' ? <b style={{ color: GREEN }}>booked on the call</b> : c.status === 'no_answer' ? <span style={{ color: MUTED }}>no answer, texted instead</span> : c.status === 'declined' ? <span style={{ color: MUTED }}>said not this one</span> : <span style={{ color: MUTED }}>call didn’t go through</span>}</p>)}</div>}
               {o.offers.length > 0 && <div className="px-4 pb-3"><p className="pb-1 text-[12px] font-bold" style={{ color: MUTED }}>OFFERED</p>{o.offers.map((f: any, i: number) => <p key={i} className="text-[13.5px]">{f.name} · {f.kind === 'sooner' ? 'move up · ' : ''}{f.status === 'sent' ? <b style={{ color: BLUE }}>{f.mode === 'first' ? `texted — first to tap (round ends ${hhmm(f.holdUntil)})` : `has it until ${hhmm(f.holdUntil)} · held for them`}</b> : f.status === 'lapsed' ? <span style={{ color: MUTED }}>no answer</span> : f.status === 'declined' ? <span style={{ color: MUTED }}>not this one</span> : f.status === 'taken' ? <b style={{ color: GREEN }}>took it</b> : f.status === 'lost' ? <span style={{ color: MUTED }}>too late</span> : f.status}</p>)}</div>}
               <div style={{ borderTop: `1px solid ${LINE}` }}>
                 <div className="grid grid-cols-[1.3fr_2fr_auto] gap-3 px-4 py-2 text-[12px] font-bold" style={{ color: MUTED, background: 'hsl(var(--secondary))' }}><span>Who fits next</span><span>Why</span><span /></div>
@@ -56,6 +57,7 @@ export function WaitlistDesk({ tenantId }: { tenantId: string }) {
         <div className="space-y-3">
           <div className="rounded-[18px] border bg-card p-4" style={{ borderColor: LINE }}><p className="text-[15px] font-semibold">Last 30 days</p>
             <div className="mt-2 grid grid-cols-3 gap-2">{[[`${d.stats.filled} of ${d.stats.openings}`, 'openings filled', INK], [d.stats.moveUps, 'came in sooner', BLUE], [d.stats.avgMinutes === null ? '—' : d.stats.avgMinutes < 90 ? `${d.stats.avgMinutes} min` : `${Math.round(d.stats.avgMinutes / 60)} h`, 'to fill', INK]].map(([v, l, c]) => <div key={String(l)}><p className="text-[20px] font-bold" style={{ color: c as string }}>{v}</p><p className="text-[11.5px]" style={{ color: MUTED }}>{l}</p></div>)}</div></div>
+          {d.calls && <CallsCard c={d.calls} busy={!!busy} save={(on: boolean, capDollars: number) => act({ action: 'calls', on, capDollars }, on ? 'Calls on for openings under 3 hours away.' : 'Calls off.')} />}
           {d.demand.length > 0 && <div className="rounded-[18px] border bg-card p-4" style={{ borderColor: LINE }}><p className="text-[15px] font-semibold">Most wanted</p><p className="text-[12.5px]" style={{ color: MUTED }}>Asked for, and how many never got in</p>
             {d.demand.map((x: any) => <div key={`${x.weekday}${x.part}`} className="flex justify-between py-1.5 text-[13.5px]" style={{ borderTop: `1px solid ${LINE}` }}><span>{DAY[x.weekday]} {x.part}s</span><span><b>{x.asked}</b> asked · <span style={{ color: x.asked - x.served ? AMBER : MUTED }}>{x.asked - x.served} waiting</span></span></div>)}
             <p className="pt-2 text-[12px]" style={{ color: MUTED }}>Lots waiting for one time? A shift there, or someone with the same skills, fills it.</p></div>}
@@ -67,5 +69,21 @@ export function WaitlistDesk({ tenantId }: { tenantId: string }) {
               <button type="button" onClick={() => act({ action: 'remove', entryId: e.id }, 'Taken off the list.')} className="shrink-0 text-[12px] underline" style={{ color: MUTED }}>Remove</button></div>)}</div>
         </div>
       </div>
+    </div>);
+}
+
+function CallsCard({ c, busy, save }: { c: any; busy: boolean; save: (on: boolean, cap: number) => void }) {
+  const [cap, setCap] = React.useState(String(c.capDollars));
+  const capN = Math.round(Number(cap)) || c.capDollars;
+  return (
+    <div className="rounded-[18px] border bg-card p-4" style={{ borderColor: LINE }}>
+      <div className="flex items-start justify-between gap-3"><div><p className="text-[15px] font-semibold">Call about same-day openings</p>
+        <p className="text-[12.5px] leading-snug" style={{ color: MUTED }}>Under 3 hours away, the voice assistant calls up to 3 people who fit, one at a time, between 9am and 7pm. Only people who said yes to calls. No answer means a text instead, never a voicemail.</p></div>
+        <button type="button" role="switch" aria-checked={c.on} aria-label="Call about same-day openings" disabled={busy || (!c.on && !c.hasNumber)} onClick={() => save(!c.on, capN)} className="relative mt-1 h-6 w-10 shrink-0 rounded-full disabled:opacity-40" style={{ background: c.on ? GREEN : '#dcdde0' }}><span className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-card" style={{ left: c.on ? 19 : 3 }} /></button></div>
+      {!c.hasNumber && <p className="mt-2 text-[12.5px]" style={{ color: AMBER }}>Set up the voice assistant’s phone number first.</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[13.5px]"><span>Monthly limit $</span>
+        <input inputMode="numeric" value={cap} onChange={(e) => setCap(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))} aria-label="Monthly limit in dollars" className="h-9 w-16 rounded-full border px-3 text-[14px]" style={{ borderColor: LINE }} />
+        {capN !== c.capDollars && <button type="button" disabled={busy} onClick={() => save(c.on, capN)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: INK, color: 'hsl(var(--background))' }}>Save</button>}</div>
+      <p className="mt-2 text-[12.5px]" style={{ color: MUTED }}>{c.used} of about {c.allowed} calls used this month · {c.willing} on the list said yes to calls</p>
     </div>);
 }
