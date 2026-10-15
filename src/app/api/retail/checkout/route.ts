@@ -760,6 +760,8 @@ async function handleCheckout(req: NextRequest) {
       if (!g) { await codeTries(db, tenantId, `shop_${ip}`, true); return NextResponse.json({ error: 'We could not find that gift card code. Please check it, or remove it to pay by card.' }, { status: 400 }); }
       if (g.ownerRenterId) return NextResponse.json({ error: 'This gift card can only be used for one provider’s services, so it cannot be used in the shop.' }, { status: 400 });
       if (g.promo) return NextResponse.json({ error: 'Bonus cards can be used during your visit, but they cannot be used in the online shop.' }, { status: 400 });
+      if (g.limits && tenant?.giftCardSettings?.advancedLimits === true) { const { giftCap } = await import('@/lib/gift-limits');
+        const lim = giftCap(g, { channel: 'shop', lines: [{ kind: 'product', cents: subtotalCents }] }, true); if (lim.error) return NextResponse.json({ error: lim.error }, { status: 400 }); }
       const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
       // ── The gift card covers the WHOLE order: nothing for the card processor to collect, so skip it (its 50¢
       // minimum would otherwise leave 50¢ to pay). Any store credit is left untouched for next time. Same atomic

@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = String(b.tenantId || ''); const action = String(b.action || '');
-  const mgrOnly = ['list', 'adjust', 'issue', 'settings', 'transfer', 'report', 'bulk-list', 'bulk-save', 'bulk-send', 'bulk-paid', 'bulk-cancel'].includes(action);
+  const mgrOnly = ['list', 'limits', 'adjust', 'issue', 'settings', 'transfer', 'report', 'bulk-list', 'bulk-save', 'bulk-send', 'bulk-paid', 'bulk-cancel'].includes(action);
   const g = await requireRole(req, tenantId, mgrOnly ? 'manager' : 'staff'); if (g.deny) return g.deny;
   const db = getAdminDb(); const by = g.actor?.name || 'Staff'; const T = `tenants/${tenantId}`;
   // Wrong codes are counted per person: after 8 misses in 15 minutes they wait 15 minutes, and managers hear about it.
@@ -55,6 +55,10 @@ export async function POST(req: NextRequest) {
     const r: any = await adjustGiftCard(db, tenantId, { id: String(b.id || ''), kind, cents: Math.round(Number(b.cents) || 0), note: b.note, by });
     if (r.ok) { const c: any = (await db.doc(`${T}/giftCards/${String(b.id || '')}`).get()).data() || {}; await alertManagers(db, tenantId, kind === 'void' ? `${by} cancelled gift card ${c.code}.` : `${by} changed gift card ${c.code} to $${(r.balanceCents / 100).toFixed(2)} — “${String(b.note || '').slice(0, 80)}”`, '/gift-cards', g.actor?.uid || null).catch(() => {}); }
     return j(r, r.ok ? 200 : 400); }
+  if (action === 'limits') { const ref = db.doc(`${T}/giftCards/${String(b.id || '')}`); const x: any = (await ref.get()).data(); if (!x) return j({ ok: false, error: 'That gift card wasn’t found.' }, 404);
+    const { cleanLimits } = await import('@/lib/gift-limits'); const limits = cleanLimits(b.limits); const { FieldValue } = await import('firebase-admin/firestore');
+    await ref.update({ limits: limits || FieldValue.delete(), history: [...(x.history || []).slice(-80), { at: new Date().toISOString(), type: 'limits', cents: 0, balanceAfter: x.balanceCents, by, note: limits ? 'Limits changed' : 'Limits removed' }] });
+    return j({ ok: true, limits }); }
   if (action === 'resend') { const ref = db.doc(`${T}/giftCards/${String(b.id || '')}`); const x: any = (await ref.get()).data(); if (!x) return j({ ok: false, error: 'That gift card wasn’t found.' }, 404);
     const patch: any = { sendStatus: null, sendAt: null }; if (b.via === 'text' || b.via === 'email') patch.sendVia = b.via; if (b.phone) patch.recipientPhone = String(b.phone).slice(0, 30); if (b.email) patch.recipientEmail = String(b.email).slice(0, 120);
     await ref.set(patch, { merge: true }); const t: any = (await db.doc(T).get()).data() || {}; const r = await deliverGiftCard(db, tenantId, t, { ...x, ...patch, id: ref.id });
@@ -107,13 +111,15 @@ export async function POST(req: NextRequest) {
       const t0 = Date.parse(f.at); const before = ap.filter((a: any) => Date.parse(a.startTime) < t0 - 6 * 3600e3); const after = ap.filter((a: any) => Date.parse(a.startTime) > t0 + 6 * 3600e3);
       gifted.recipients++; if (!before.length) gifted.newClients++; if (after.length) gifted.cameBack++; gifted.laterVisits += after.length;
       gifted.laterSpendCents += Math.round(after.reduce((t: number, a: any) => t + (Number(a.revenue) || 0), 0) * 100); }
-    return j({ ok: true, months: months.reverse(), owedNow, idle, gifted, offers: Object.values(offers) }); }
+    const { locationSettlement } = await import('@/lib/gift-limits'); const settle = locationSettlement(snap.docs.map((d: any) => d.data()));
+    const locNames: Record<string, string> = {}; if (settle.length) for (const d of (await db.collection(`${T}/locations`).get()).docs) locNames[d.id] = (d.data() as any)?.name || 'Location';
+    return j({ ok: true, months: months.reverse(), owedNow, idle, gifted, offers: Object.values(offers), locations: settle.map((x) => ({ ...x, fromName: locNames[x.from] || 'Location', toName: locNames[x.to] || 'Location' })) }); }
   if (action === 'settings') { const { shopSettings, cleanShowcase } = await import('@/lib/gift-designs'); const tref = db.doc(T); const t: any = (await tref.get()).data() || {};
     if (b.save && typeof b.save === 'object') { const v = b.save; const cur = shopSettings(t);
       const next = { online: v.online === true, designs: Array.isArray(v.designs) ? v.designs.map(String).filter((x: string) => /^[a-z0-9-]{2,30}$/.test(x)).slice(0, 80) : null,
         amounts: Array.isArray(v.amounts) ? v.amounts.map(Number).filter((n: number) => n >= 1 && n <= 5000).slice(0, 6) : cur.amounts, custom: v.custom !== false,
         min: Math.max(1, Math.min(5000, Number(v.min) || cur.min)), max: Math.max(1, Math.min(5000, Number(v.max) || cur.max)), seasonalOnly: v.seasonalOnly !== false,
-        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, buyerThanks: v.buyerThanks !== false, serviceCards: v.serviceCards !== false, balanceReminders: v.balanceReminders !== false, showcase: cleanShowcase(v.showcase), offers: (await import('@/lib/gift-offers')).cleanOffers(v.offers), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, expiryYears: [0, 5, 6, 7, 10].includes(Number(v.expiryYears)) ? Number(v.expiryYears) : 0, paysFor: { services: v.paysFor?.services !== false, products: v.paysFor?.products !== false, tips: v.paysFor?.tips !== false }, cashBackUnderCents: [0, 500, 1000].includes(Number(v.cashBackUnderCents)) ? Number(v.cashBackUnderCents) : 0, refundDays: [0, 7, 14, 30].includes(Number(v.refundDays)) ? Number(v.refundDays) : 0, updatedAt: new Date().toISOString(), updatedBy: by };
+        rules: String(v.rules || '').trim().slice(0, 600) || null, onBooking: v.onBooking !== false, buyerThanks: v.buyerThanks !== false, serviceCards: v.serviceCards !== false, balanceReminders: v.balanceReminders !== false, showcase: cleanShowcase(v.showcase), offers: (await import('@/lib/gift-offers')).cleanOffers(v.offers), renters: { salonCards: v.renters?.salonCards !== false, ownCards: v.renters?.ownCards === true }, advancedLimits: v.advancedLimits === true, expiryYears: [0, 5, 6, 7, 10].includes(Number(v.expiryYears)) ? Number(v.expiryYears) : 0, paysFor: { services: v.paysFor?.services !== false, products: v.paysFor?.products !== false, tips: v.paysFor?.tips !== false }, cashBackUnderCents: [0, 500, 1000].includes(Number(v.cashBackUnderCents)) ? Number(v.cashBackUnderCents) : 0, refundDays: [0, 7, 14, 30].includes(Number(v.refundDays)) ? Number(v.refundDays) : 0, updatedAt: new Date().toISOString(), updatedBy: by };
       if (next.max < next.min) return j({ ok: false, error: 'The most someone can spend has to be more than the least.' }, 400);
       if (next.designs && !next.designs.length) return j({ ok: false, error: 'Keep at least one design on.' }, 400);
       await tref.set({ giftCardSettings: next }, { merge: true }); return j({ ok: true, settings: shopSettings({ giftCardSettings: next }), paymentsReady: !!t.stripeAccountId }); }

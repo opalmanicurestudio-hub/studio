@@ -11,16 +11,17 @@ import { payPost } from '@/components/pay/pay-client';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { GiftShopSettings } from '@/components/gift/GiftShopSettings';
 import { GiftBulkDrawer } from '@/components/gift/GiftBulkDrawer';
+import { GiftLimitsEditor } from '@/components/gift/GiftLimitsEditor';
 import { brandAccent } from '@/lib/brand-accent';
 
 const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))', SOFT = 'hsl(var(--secondary))', GREEN = '#1f7a4d', RED = '#b42318';
 const card = { background: 'hsl(var(--card))', border: `1px solid ${LINE}`, borderRadius: 18 } as const;
 const $ = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: new Date(iso).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined }) : '—');
-const HIST: Record<string, string> = { issue: 'Sold', import: 'Brought in', spend: 'Used', adjust: 'Balance changed', void: 'Cancelled', transfer: 'Given to someone else' };
+const HIST: Record<string, string> = { issue: 'Sold', import: 'Brought in', spend: 'Used', adjust: 'Balance changed', void: 'Cancelled', transfer: 'Given to someone else', limits: 'Limits changed' };
 
 export default function GiftCardsPage() {
-  const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id || ''; const { services } = useInventory() as any;
+  const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id || ''; const { services, staff: staffList } = useInventory() as any;
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const [cards, setCards] = React.useState<any[] | null>(null); const [q, setQ] = React.useState(''); const [show, setShow] = React.useState<'left' | 'all'>('left');
   const [open, setOpen] = React.useState<any>(null); const [msg, setMsg] = React.useState(''); const [busy, setBusy] = React.useState(false);
@@ -67,6 +68,7 @@ export default function GiftCardsPage() {
           <div className="flex justify-center"><GiftCardFace design={cur.design} brand={brand} amount={$(cur.initialCents).replace('.00', '')} name={cur.recipientName} code={cur.code} expires={cur.expiresAt} line={cur.line || ''} width={340} /></div>
           {cur.path && <div className="flex justify-center gap-2"><a href={cur.path.replace('?k=', '/print?k=')} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full px-4 text-[13.5px] font-semibold" style={{ background: SOFT }}>Print card</a><a href={cur.path} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-full px-4 text-[13.5px] font-semibold" style={{ background: SOFT }}>Their card page</a></div>}
           <div className="rounded-2xl p-4" style={{ background: SOFT }}><p className="text-[30px] font-normal tracking-[-0.03em]">{$(cur.balanceCents)} <span className="text-[15px]" style={{ color: MUTED }}>of {$(cur.initialCents)}</span></p><p className="text-[13.5px]" style={{ color: MUTED }}>{cur.recipientName ? `For ${cur.recipientName}` : 'Not linked to a client yet — it works by code'}{cur.purchaserName ? ` · from ${cur.purchaserName}` : ''}</p>{cur.message && <p className="mt-2 text-[14px]">“{cur.message}”</p>}</div>
+          {selectedTenant?.giftCardSettings?.advancedLimits === true && cur.status !== 'void' && !cur.promo && <GiftLimitsEditor limits={cur.limits || null} services={services || []} staff={staffList || []} busy={busy} onSave={(limits) => act({ action: 'limits', id: cur.id, limits }, limits ? 'Limits saved.' : 'Limits removed.')} />}
           <div><p className="pb-1 text-[13px] font-semibold" style={{ color: MUTED }}>HISTORY</p>{(cur.history || []).slice().reverse().map((h: any, i: number) => <div key={i} className="flex justify-between gap-2 py-2 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}><span>{HIST[h.type] || h.type}{h.note ? <span style={{ color: MUTED }}> — {h.note}</span> : null}<span className="block text-[12px]" style={{ color: MUTED }}>{day(h.at)} · {h.by}</span></span><span className="text-right font-semibold" style={{ color: h.cents < 0 ? INK : GREEN }}>{h.cents > 0 ? '+' : h.cents < 0 ? '−' : ''}{$(Math.abs(h.cents))}<span className="block text-[12px] font-normal" style={{ color: MUTED }}>{$(h.balanceAfter)} left</span></span></div>)}</div>
           {cur.status !== 'void' && <>
             {(cur.recipientPhone || cur.recipientEmail) && <button type="button" disabled={busy} onClick={() => act({ action: 'resend', id: cur.id, via: cur.recipientPhone ? 'text' : 'email' }, 'Sent.')} className="h-11 rounded-full text-[14px] font-semibold" style={{ background: SOFT }}>Send it again to {cur.recipientPhone || cur.recipientEmail}</button>}

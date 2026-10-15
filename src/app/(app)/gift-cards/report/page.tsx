@@ -34,6 +34,12 @@ export default function GiftCardReportPage() {
             <div className="p-4" style={card}><p className="text-[26px] font-normal tracking-[-0.03em]">{$(d.owedNow)}</p><p className="text-[13px]" style={{ color: MUTED }}>owed on cards now</p></div>
             {idle && ([['y1', '1–2 years'], ['y2', '2–3 years'], ['y3', '3+ years']] as const).map(([k, l]) => <div key={k} className="p-4" style={card}><p className="text-[26px] font-normal tracking-[-0.03em]" style={{ color: k === 'y3' && idle[k].cents > 0 ? AMBER : INK }}>{$(idle[k].cents)}</p><p className="text-[13px]" style={{ color: MUTED }}>untouched {l} · {idle[k].n} card{idle[k].n === 1 ? '' : 's'}</p></div>)}
           </div>
+          {(d.locations || []).length > 0 && <div className="space-y-3 p-5" style={card}>
+            <p className="text-[15px] font-semibold">Between your locations</p>
+            <p className="text-[13px]" style={{ color: MUTED }}>A card works at every location. The location that sold it holds the money; the one that did the work earned it. Settled up, this is what each owes the other.</p>
+            <div className="space-y-2">{d.locations.map((x: any) => <div key={`${x.from}-${x.to}`} className="flex items-center justify-between gap-3 rounded-2xl p-3" style={{ border: `1px solid ${LINE}` }}>
+              <span className="text-[14px]">{x.fromName} owes {x.toName}<span className="block text-[12px]" style={{ color: MUTED }}>{x.spends} card use{x.spends === 1 ? '' : 's'}</span></span><span className="text-[16px] font-semibold">{$(x.cents)}</span></div>)}</div>
+          </div>}
           {d.gifted && d.gifted.recipients > 0 && <div className="space-y-3 p-5" style={card}>
             <p className="text-[15px] font-semibold">New clients from gift cards</p>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{[[String(d.gifted.recipients), 'people used a gift someone gave them'], [String(d.gifted.newClients), 'were new to you'], [String(d.gifted.cameBack), `came back after (${d.gifted.laterVisits} visit${d.gifted.laterVisits === 1 ? '' : 's'})`], [$(d.gifted.laterSpendCents), 'spent on those later visits']].map(([n, l]) => <div key={l}><p className="text-[24px] font-normal tracking-[-0.03em]">{n}</p><p className="text-[13px]" style={{ color: MUTED }}>{l}</p></div>)}</div>

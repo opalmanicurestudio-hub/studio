@@ -49,6 +49,7 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
   purchaser?: { id?: string | null; name?: string | null } | null; recipient?: { id?: string | null; name?: string | null; phone?: string | null; email?: string | null } | null;
   message?: string | null; design?: string | null; line?: string | null; purchaserEmail?: string | null; orderId?: string | null;
   sendVia?: 'text' | 'email' | 'print' | 'code' | null; sendAt?: string | null; transactionId?: string | null; importId?: string | null; importedFrom?: string | null; createdAt?: string | null; lastUsedAt?: string | null;
+  locationId?: string | null; limits?: any;   // where it was sold (cards across locations) · advanced limits (lib/gift-limits)
 }) {
   const initial = Math.round(Number(o.amountCents) || 0); if (!(initial > 0) || initial > 500000) return { ok: false as const, error: 'Gift cards are from $1 to $5,000.' };
   let code = o.code ? String(o.code).trim().slice(0, 40) : newCode();
@@ -64,6 +65,7 @@ export async function issueGiftCard(db: any, tenantId: string, o: {
     recipientPhone: o.recipient?.phone || null, recipientEmail: o.recipient?.email || null,
     kind: o.service?.id ? 'service' : 'amount', serviceId: o.service?.id || null, serviceName: o.service?.name || null, ownerRenterId: o.ownerRenterId || null, ownerName: o.ownerRenterId ? o.ownerName || null : null, design: o.design || null, line: o.line ? String(o.line).slice(0, 30) : null, purchaserEmail: o.purchaserEmail || null, orderId: o.orderId || null, message: o.message ? String(o.message).slice(0, 400) : null,
     sendVia: o.sendVia || null, sendAt: o.sendAt || null, sentAt: null, transactionId: o.transactionId || null, importId: o.importId || null, importedFrom: o.importedFrom || null,
+    soldAtLocationId: o.locationId || null, ...(o.limits ? { limits: o.limits } : {}),
     expiresAt, ...(o.promo ? { promo: true, offerId: o.promo.offerId, offerName: o.promo.offerName, usableFrom: o.promo.usableFrom, forCardId: o.promo.forCardId || null } : {}), createdAt: o.createdAt || at, createdBy: o.by, lastUsedAt: o.lastUsedAt || null, holds: {},
     history: [{ at, type: o.source === 'import' ? 'import' : 'issue', cents: bal, balanceAfter: bal, by: o.by, ...(o.transactionId ? { transactionId: o.transactionId } : {}) }] };
   await ref.set(doc); if (doc.recipientId) void syncClientGift(db, tenantId, doc.recipientId).catch(() => {});
@@ -93,7 +95,7 @@ export async function releaseHold(db: any, tenantId: string, id: string, holdId:
 }
 
 /** Spend from a card (at checkout, inside the sale). Uses the hold made for this checkout first. */
-export async function spendGiftCard(db: any, tenantId: string, o: { id: string; cents: number; holdId?: string | null; by: string; transactionRef?: string | null; appointmentId?: string | null; clientId?: string | null }) {
+export async function spendGiftCard(db: any, tenantId: string, o: { id: string; cents: number; holdId?: string | null; by: string; transactionRef?: string | null; appointmentId?: string | null; clientId?: string | null; locationId?: string | null }) {
   const ref = db.doc(`${T(tenantId)}/giftCards/${o.id}`);
   const out: any = await spendTx(db, ref, o); if (out?.ok) void ref.get().then((d: any) => syncClientGift(db, tenantId, d.data()?.recipientId)).catch(() => {}); return out;
 }
@@ -106,7 +108,7 @@ async function spendTx(db: any, ref: any, o: any) {
     if (want > available(cur, o.holdId || null)) return { ok: false as const, error: `Only $${(available(cur, o.holdId || null) / 100).toFixed(2)} is left on gift card ${cur.code}.` };
     const bal = (Number(cur.balanceCents) || 0) - want; const holds = { ...(cur.holds || {}) }; if (o.holdId) delete holds[o.holdId];
     tx.update(ref, { balanceCents: bal, status: bal > 0 ? 'active' : 'used', lastUsedAt: now(), holds, recipientId: cur.recipientId || o.clientId || null,
-      history: [...(cur.history || []).slice(-80), { at: now(), type: 'spend', cents: -want, balanceAfter: bal, by: o.by, ...(o.transactionRef ? { ref: o.transactionRef } : {}), ...(o.appointmentId ? { appointmentId: o.appointmentId } : {}) }] });
+      history: [...(cur.history || []).slice(-80), { at: now(), type: 'spend', cents: -want, balanceAfter: bal, by: o.by, ...(o.transactionRef ? { ref: o.transactionRef } : {}), ...(o.appointmentId ? { appointmentId: o.appointmentId } : {}), ...(o.locationId ? { locationId: o.locationId } : {}) }] });
     return { ok: true as const, cents: want, balanceAfter: bal, code: cur.code };
   });
 }
@@ -131,7 +133,7 @@ async function adjustTx(db: any, ref: any, o: any) {
 /** What a client or the desk may see of a card (never the holds' details or history). */
 export function pub(g: any) {
   if (!g) return null;
-  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, kind: g.kind || 'amount', serviceId: g.serviceId || null, serviceName: g.serviceName || null, promo: g.promo === true, offerName: g.offerName || null, notes: Array.isArray(g.notes) ? g.notes.slice(0, 60) : null, givers: g.givers || null, usableFrom: g.usableFrom || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt };
+  return { id: g.id, code: g.code, initialCents: g.initialCents, balanceCents: g.balanceCents, availableCents: available(g), status: g.status, recipientName: g.recipientName || null, purchaserName: g.purchaserName || null, message: g.message || null, design: g.design || null, line: g.line || null, ownerRenterId: g.ownerRenterId || null, ownerName: g.ownerName || null, expiresAt: g.expiresAt || null, kind: g.kind || 'amount', serviceId: g.serviceId || null, serviceName: g.serviceName || null, promo: g.promo === true, offerName: g.offerName || null, notes: Array.isArray(g.notes) ? g.notes.slice(0, 60) : null, givers: g.givers || null, usableFrom: g.usableFrom || null, lastUsedAt: g.lastUsedAt || null, createdAt: g.createdAt, limits: g.limits || null, soldAtLocationId: g.soldAtLocationId || null };
 }
 
 /** Text or email the card to the person it's for (now, or on the day chosen — the cron sends those). */

@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     try {
       const { available, spendGiftCard, notifyGiftUse } = await import('@/lib/gift-cards');
       const snap = await db.collection(`${T}/giftCards`).where('recipientId', '==', clientId).get();
-      const cards = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })).filter((g: any) => g.status === 'active' && !g.ownerRenterId && g.kind !== 'service' && !g.promo && available(g) > 0 && !(g.expiresAt && Date.parse(g.expiresAt) < Date.now()))
+      const cards = snap.docs.map((d: any) => ({ id: d.id, ...d.data() })).filter((g: any) => g.status === 'active' && !g.ownerRenterId && g.kind !== 'service' && !g.promo && !((tenant as any)?.giftCardSettings?.advancedLimits === true && g.limits) && available(g) > 0 && !(g.expiresAt && Date.parse(g.expiresAt) < Date.now()))
         .sort((a: any, z: any) => String(a.expiresAt || '9999').localeCompare(String(z.expiresAt || '9999')));
       for (const g of cards) {
         const want = Math.min(available(g), cents - giftPaidCents); if (want <= 0) break;

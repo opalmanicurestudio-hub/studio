@@ -9,6 +9,8 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { giftCap, limitsOn, type BillLine } from '@/lib/gift-limits';
+import { homeLocation } from '@/lib/business-locations';
 import { saleStamp } from '@/lib/commission';
 import { withPay } from '@/lib/staff-pay-server';
 import { tuitionAccount, applyTuitionPayment } from '@/lib/tuition-desk';
@@ -241,6 +243,15 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
         if (i < 0) return `Gift card ${d.code} is for a ${d.serviceName || 'specific service'} — it isn’t on this bill.`;
         usedVisits.add(i); want = Math.round(num(calc0.visits[i].mainPrice) * 100); const { available } = await import('@/lib/gift-cards');
         if (want > available(d, g.holdId ? String(g.holdId) : null)) giftTopUps[String(g.id)] = want - available(d, g.holdId ? String(g.holdId) : null); }
+      // Advanced limits (lib/gift-limits): only when the business turned them on and this card has some.
+      if (d.limits && limitsOn(tenant)) { const lines: BillLine[] = [];
+        (calc0.visits || []).forEach((cv: any, k: number) => { const ap: any = visits[k]?.appointment || {}; const sid = visits[k]?.service?.id || null;
+          lines.push({ kind: 'service', cents: Math.round(num(cv.mainPrice) * 100), serviceId: sid, staffId: ap.staffId || null });
+          for (const x of cv.addOns || []) lines.push({ kind: 'service', cents: Math.round(num(x.price) * 100), serviceId: sid, staffId: ap.staffId || null }); });
+        for (const it of items || []) if (it.type === 'product') lines.push({ kind: 'product', cents: Math.round(num(it.price) * num(it.quantity) * 100) });
+        if (num(calc0.tip) > 0) lines.push({ kind: 'tip', cents: Math.round(num(calc0.tip) * 100) });
+        const lim = giftCap(d, { channel: 'desk', lines, hasDiscount: (Array.isArray(discounts) && discounts.length > 0) || !!redeemedOffer }, true);
+        if (lim.error) return lim.error; if (lim.cap != null) want = Math.min(want, lim.cap); }
       cardsIn.push({ id: String(g.id), code: d.code, wantCents: want, holdId: g.holdId ? String(g.holdId) : null, owner: d.ownerRenterId || null, ownerName: d.ownerName || null }); }
     const { planGiftUse } = await import('@/lib/gift-cards');
     const plan = planGiftUse({ cards: cardsIn, byRenter, studioLeft, salonForRenters }); if (plan.error) return plan.error;
@@ -537,11 +548,13 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       const cid = (w.data() as any).campaignId; if (cid) batch.set(db.doc(`${T}/campaigns/${cid}`), { offersRedeemed: FieldValue.increment(1), offerRevenueCents: FieldValue.increment(Math.round(calc.total * 100)) }, { merge: true }); }
     for (const v of visits) if (v.appointment.pendingDiscountCode) batch.set(db.doc(`${T}/appointments/${v.appointment.id}`), { pendingDiscountCode: FieldValue.delete(), discountCodeUsed: String(d.code) }, { merge: true });
   }
+  // Where this sale happened (cards across locations): the desk's location, else the visit's, else its provider's only one.
+  const saleLocation: string | null = (typeof b.locationId === 'string' && b.locationId.slice(0, 80)) || visits[0]?.appointment?.locationId || homeLocation(staff.find((x: any) => x.id === visits[0]?.appointment?.staffId)) || null;
   // Gift cards: take the money off each card now (each in its own safe step); put it all back if anything fails.
   const { spendGiftCard, adjustGiftCard } = await import('@/lib/gift-cards');
   const putBack = async () => { for (const g of giftUse.filter((x) => x.done)) await adjustGiftCard(db, tenantId, { id: g.id, kind: 'add', cents: g.cents, note: 'Checkout didn’t finish — put back', by: 'System' }).catch(() => {}); };
   for (const [gid, up] of Object.entries(giftTopUps)) if (giftUse.some((g) => g.id === gid)) await adjustGiftCard(db, tenantId, { id: gid, kind: 'add', cents: up, note: 'The service costs more now — the gift still covers it', by: 'Front desk' }).catch(() => {});
-  for (const g of giftUse) { const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: g.cents, holdId: g.holdId, by: auth.actor.name || 'Front desk', transactionRef: checkoutSessionId, appointmentId: apptIds[0] || null, clientId: visits[0] ? whoHad(visits[0]).id : clientId });
+  for (const g of giftUse) { const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: g.cents, holdId: g.holdId, by: auth.actor.name || 'Front desk', transactionRef: checkoutSessionId, appointmentId: apptIds[0] || null, clientId: visits[0] ? whoHad(visits[0]).id : clientId, locationId: saleLocation });
     if (!r.ok) { await putBack(); await failPending(r.error); return json({ ok: false, error: r.error }, 409); } g.done = true; }
   try { await batch.commit(); if (giftUse.length) { const { notifyGiftUse } = await import('@/lib/gift-cards'); for (const g of giftUse) void notifyGiftUse(db, tenantId, g.id, g.cents, req.nextUrl.origin).catch(() => {}); } }
   catch (e: any) { console.error('[checkout] save failed', e); await putBack(); await failPending(String(e?.message || e)); return json({ ok: false, error: 'Checkout didn’t save — nothing was recorded. Please try again.' }, 500); }
@@ -560,7 +573,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   for (const it of items.filter((x: any) => x.type === 'giftcard' && x.__gift)) {
     for (let q = 0; q < Math.max(1, num(it.quantity)); q++) {
       try { const { issueGiftCard, deliverGiftCard } = await import('@/lib/gift-cards'); const g = it.__gift;
-        const r: any = await issueGiftCard(db, tenantId, { amountCents: g.cents, by: auth.actor.name || 'Front desk', source: 'desk', purchaser: { id: clientId, name: client.name || null }, recipient: { id: g.recipientId, name: g.recipientName, phone: g.recipientPhone, email: g.recipientEmail }, message: g.message, design: g.design, line: g.line, sendVia: g.sendVia, sendAt: g.sendAt, transactionId: checkoutSessionId, ...(g.service && (await db.doc(`tenants/${tenantId}/services/${g.service.id}`).get()).exists ? { service: g.service } : {}) });
+        const r: any = await issueGiftCard(db, tenantId, { amountCents: g.cents, by: auth.actor.name || 'Front desk', source: 'desk', purchaser: { id: clientId, name: client.name || null }, recipient: { id: g.recipientId, name: g.recipientName, phone: g.recipientPhone, email: g.recipientEmail }, message: g.message, design: g.design, line: g.line, sendVia: g.sendVia, sendAt: g.sendAt, transactionId: checkoutSessionId, locationId: saleLocation, ...(g.service && (await db.doc(`tenants/${tenantId}/services/${g.service.id}`).get()).exists ? { service: g.service } : {}) });
         if (!r.ok) { warnings.push(`The gift card was paid for but not made: ${r.error} Make it from Money → Gift cards.`); continue; }
         let sent = false; if (['text', 'email'].includes(g.sendVia) && !g.sendAt) sent = (await deliverGiftCard(db, tenantId, tenant, r.card)).sent;
         if (['text', 'email'].includes(g.sendVia) && !g.sendAt && !sent) warnings.push(`Gift card ${r.card.code} was made, but it didn’t send — give them the code or resend it from Money → Gift cards.`);
