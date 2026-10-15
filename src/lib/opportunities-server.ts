@@ -826,8 +826,14 @@ export async function opportunityResults(db: any, t: string, now = Date.now(), t
   let cantText = 0; try { const cl = rows(await db.collection(`${T(t)}/clients`).get()); cantText = cl.filter((c: any) => !c.archived && (c.phone || c.phoneNumber) && c.smsMarketingOptIn !== true && !c.marketingOptOut && !c.smsOptOut).length; } catch { /* unknown */ }
   const expired = list.filter((o: any) => o.status === 'expired');
   const paidCents = byType.generated + byType.recovered + byType.influenced;
+  // When results start to show (lib/opportunities resultsTimeline): the first follow-up ever sent and the first paid result.
+  const allOpps = rows(await db.collection(`${T(t)}/opportunities`).where('createdAt', '>=', nowIso(now - 400 * DAY)).get().catch(() => ({ docs: [] }))).filter((o: any) => !o.renterId);
+  const firstContactAt = allOpps.map((o: any) => String(o.firstContactAt || o.autoSentAt || '')).filter(Boolean).sort()[0] || null;
+  const firstPaidAt = rows(await db.collection(`${T(t)}/results`).where('state', '==', 'paid').get().catch(() => ({ docs: [] }))).map((r: any) => String(r.startTime || '')).filter(Boolean).sort()[0] || null;
+  const { resultsTimeline } = await import('@/lib/opportunities');
+  const timeline = resultsTimeline({ firstContactAt, firstPaidAt, contacted: contacted.length, heldOut: held.length, windowDays: oppSettingsOf(tenant || {}).windows?.appointments || 14, now });
   return {
-    month, paidCents, paidLabel: dollars(paidCents), byType, bookedWaiting: booked.length, bookedCents: sum(booked, 'bookedCents'),
+    timeline, month, paidCents, paidLabel: dollars(paidCents), byType, bookedWaiting: booked.length, bookedCents: sum(booked, 'bookedCents'),
     stillPossibleCents: openL.reduce((s: number, o: any) => s + (Number(o.valueCents) || 0), 0), open: openL.length, done: real.filter((o: any) => o.status === 'done').length,
     refundedCents: sum(ledger.filter((r: any) => String(r.startTime || '').slice(0, 7) === month), 'refundedCents'),
     complaints: real.filter((o: any) => o.outcome === 'bad_experience').length, optOuts: real.filter((o: any) => o.outcome === 'stop').length,

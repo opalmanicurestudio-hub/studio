@@ -604,5 +604,12 @@ const ms = (v: any) => Date.parse(String(v || '')) || 0;
   await Srv.opportunitySweep(dbS2, 't1', (await dbS2.doc(T).get()).data(), Date.parse('2026-10-12T14:00:00-04:00'), { force: true, send: async (_d: any, _t: string, to: string, body: string) => { sent2.push({ to, body }); return { ok: true, via: 'sms' }; } });
   check('one text with her own referral link and the friend’s $20 gift', sent2.length === 1 && /\$20 off their first visit, from you: https:\/\/opal\.example\/ref\/t1\/lia-/.test(sent2[0]?.body || ''), sent2);
 
+  { const t0 = O.resultsTimeline({ firstContactAt: null, firstPaidAt: null, contacted: 0, heldOut: 0, now: NOW });
+    check('results notice: nothing sent yet → says results start once follow-ups go out', t0.stage === 'not_started');
+    const t1 = O.resultsTimeline({ firstContactAt: ago(5), firstPaidAt: null, contacted: 3, heldOut: 0, now: NOW });
+    check('…first texts 5 days ago → first paid results expected about 3 weeks after them', t1.stage === 'waiting_first' && /around/.test(t1.headline));
+    const t2 = O.resultsTimeline({ firstContactAt: ago(40), firstPaidAt: ago(20), contacted: 30, heldOut: 4, now: NOW });
+    check('…paid results in but too few left alone → the comparison needs longer', t2.stage === 'first_in' && t2.steps[2].when.includes('4 left alone'));
+    check('…after 3 months with enough in both groups → the notice goes away', O.resultsTimeline({ firstContactAt: ago(100), firstPaidAt: ago(80), contacted: 40, heldOut: 12, now: NOW }).stage === 'steady'); }
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed'); process.exit(failures ? 1 : 0);
 })();

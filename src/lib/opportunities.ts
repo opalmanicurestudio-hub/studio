@@ -765,3 +765,27 @@ export function pickedNumber(body: string, max: number): number | null {
 
 /** The studio's win-back reminders run through Opportunities while it's on (renters keep their own). */
 export const winbackInOpportunities = (tenant: any) => oppSettingsOf(tenant).on;
+
+// ── When results start to show (the notice on Opportunities → Results) ───────────────────────────────────────────────
+// Results only count money actually collected, after someone reached out and inside the tool's window (14 days for
+// appointments). So there's a natural wait: the first follow-ups go out, clients book, they come in and pay. Comparisons
+// with the left-alone group need enough people in both groups, which takes a few months for most businesses.
+export interface ResultsTimeline { stage: 'not_started' | 'waiting_first' | 'first_in' | 'comparing' | 'steady'; headline: string; detail: string; steps: { label: string; when: string; done: boolean }[] }
+export function resultsTimeline(x: { firstContactAt: string | null; firstPaidAt: string | null; contacted: number; heldOut: number; windowDays?: number; now?: number }): ResultsTimeline {
+  const now = x.now ?? Date.now(); const win = x.windowDays || 14; const D = 864e5;
+  const day = (t: number) => new Date(t).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  const need = 10; const compareReady = x.contacted >= need && x.heldOut >= need;
+  if (!x.firstContactAt) return { stage: 'not_started', headline: 'Results start once your first follow-ups go out', detail: 'Turn on at least one finder (Finders), and work the tasks or let the automatic texts go. Paid visits usually start showing about two weeks after that.',
+    steps: [{ label: 'First follow-ups go out', when: 'not yet', done: false }, { label: 'First paid results', when: 'about 2 weeks after', done: false }, { label: 'A fair comparison', when: 'about 3 months after', done: false }] };
+  const first = Date.parse(x.firstContactAt); const firstPaidBy = first + (win + 7) * D; const steadyAt = first + 90 * D;
+  const steps = [
+    { label: 'First follow-ups went out', when: day(first), done: true },
+    { label: 'First paid results', when: x.firstPaidAt ? day(Date.parse(x.firstPaidAt)) : `around ${day(firstPaidBy)}`, done: !!x.firstPaidAt },
+    { label: `A fair comparison (${need}+ reached and ${need}+ left alone)`, when: compareReady ? 'ready' : `now ${x.contacted} reached · ${x.heldOut} left alone`, done: compareReady },
+    { label: 'A steady month-to-month picture', when: now >= steadyAt ? 'ready' : `from about ${day(steadyAt)}`, done: now >= steadyAt },
+  ];
+  if (!x.firstPaidAt) return { stage: 'waiting_first', headline: `Expect your first paid results around ${day(firstPaidBy)}`, detail: `A follow-up counts once the client books, comes in and pays — within ${win} days of being reached. Bookings that are waiting show as "Booked, not paid yet".`, steps };
+  if (!compareReady) return { stage: 'first_in', headline: 'Results are coming in. The comparison needs a little longer', detail: `"What reaching out added" compares people who were reached with a few who were left alone on purpose. It needs ${need}+ in each group; until then, read the paid total as a start, not a verdict.`, steps };
+  if (now < steadyAt) return { stage: 'comparing', headline: `The comparison is ready. Expect a steadier picture from ${day(steadyAt)}`, detail: 'Early months swing a lot with only a few people. After about three months the numbers settle.', steps };
+  return { stage: 'steady', headline: '', detail: '', steps };
+}

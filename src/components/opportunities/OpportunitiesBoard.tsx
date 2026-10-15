@@ -161,6 +161,10 @@ function Results({ tenantId }: { tenantId: string }) {
   const monthName = (() => { try { return new Date(`${r.month}-15T12:00:00Z`).toLocaleDateString('en-US', { month: 'long' }); } catch { return 'This month'; } })();
   return (
     <div className="space-y-4">
+      {r.timeline && r.timeline.stage !== 'steady' && <div className="space-y-3 rounded-[18px] border p-4" style={{ borderColor: LINE, background: SOFT }}>
+        <div><p className="text-[15px] font-semibold">{r.timeline.headline}</p><p className="mt-0.5 text-[13.5px]" style={{ color: MUTED }}>{r.timeline.detail}</p></div>
+        <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{r.timeline.steps.map((st: any) => <li key={st.label} className="rounded-[14px] bg-card p-3"><p className="flex items-center gap-1.5 text-[13px] font-semibold"><span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: st.done ? GREEN : 'transparent', border: `2px solid ${st.done ? GREEN : LINE}` }} />{st.label}</p><p className="mt-0.5 text-[12.5px]" style={{ color: MUTED }}>{st.when}</p></li>)}</ol>
+      </div>}
       <p className="text-[13.5px]" style={{ color: MUTED }}>{monthName}: follow-up tasks, the waitlist and campaigns in one place. Only money actually collected counts, each visit is credited once, and refunds take it back.</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {tile('Paid', dollars(r.paidCents), 'visits paid after someone reached out', GREEN)}
