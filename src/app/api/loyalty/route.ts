@@ -15,7 +15,7 @@ const j = (b: any, status = 200) => NextResponse.json(b, { status, headers: { 'C
 
 export async function POST(req: NextRequest) {
   const b: any = await req.json().catch(() => ({})); const tenantId = String(b.tenantId || '').slice(0, 80); const action = String(b.action || '');
-  const mgr = ['settings', 'stats', 'adjust'].includes(action);
+  const mgr = ['settings', 'stats', 'adjust', 'dashboard'].includes(action);
   const g: any = await requireRole(req, tenantId, mgr ? 'manager' : 'staff'); if (g.deny) return g.deny;
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const tRef = db.doc(T); const tenant: any = (await tRef.get()).data() || {};
   const by = g.actor?.name || 'Staff';
@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
       return j({ ok: true, settings: next, terms: termsOf(next) }); }
     return j({ ok: true, settings: cur, terms: termsOf(cur) });
   }
+  if (action === 'dashboard') { const { loyaltyDashboard } = await import('@/lib/loyalty-server'); return j(await loyaltyDashboard(db, tenantId, tenant)); }
   if (action === 'stats') {
     const S = loyaltyOf(tenant);
     const members = (await db.collection(`${T}/clients`).where('loyalty.balance', '>', 0).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {});

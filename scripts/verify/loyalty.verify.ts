@@ -76,6 +76,13 @@ import { makeDb, check, failures } from './fake-db';
     const sw3 = await LS.automationSweep(db3, 't', T4, now + 40 * 864e5, async (_to, text) => { texts.push(text); return true; });
     check('…never without marketing consent', !texts.some((x) => /No/.test(x.split(',')[0])) && sw3.sent >= 0); }
 
+  // Phase 5: holdouts
+  { const n = Array.from({ length: 2000 }, (_, i) => L.heldOut(`c${i}`, 'unused', '2026-10', 10)).filter(Boolean).length;
+    check('about 10% are left alone, and the same client gets the same answer', n > 150 && n < 250 && L.heldOut('c7', 'unused', '2026-10', 10) === L.heldOut('c7', 'unused', '2026-10', 10));
+    const rows = [...Array.from({ length: 40 }, (_, i) => ({ held: false, cameBack: i < 16 })), ...Array.from({ length: 20 }, (_, i) => ({ held: true, cameBack: i < 5 }))];
+    const lf = L.liftOf(rows); check('what the message changed: 40% came back vs 25% left alone → +15 points', lf.enough && lf.lift === 15);
+    check('…and too few to say → it says so', !L.liftOf(rows.slice(0, 30)).enough && L.liftOf(rows.slice(0, 30)).lift === null); }
+
   // Checkout maths
   const { computeCheckout } = await import('../../src/lib/checkout-calc');
   const base: any = { tenant: { loyalty: { on: true } }, visits: [{ appointment: { id: 'a1', staffId: 's' }, service: { id: 'gel', price: 55 }, addOnServices: [] }], staff: [{ id: 's' }], redeemedOffer: null, waivedIds: [], items: [], fees: [], discounts: [], client: null, memberships: [], tip: 0, storeCredit: 0 };

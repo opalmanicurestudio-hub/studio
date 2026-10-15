@@ -4,6 +4,7 @@
 // in plain words as clients will read them. Saving a change to the rules makes a new version (lib/loyalty nextLoyalty).
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
+import { LoyaltyDashboard } from '@/components/loyalty/LoyaltyDashboard';
 import { useInventory } from '@/context/InventoryContext';
 import { EARN_LABEL, EXPIRY_CHOICES, termsOf, loyaltyOf, AUTO_TEXTS, windowWords, type EarnMode, type Reward } from '@/lib/loyalty';
 
@@ -44,6 +45,8 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
         {[[String(stats.members), 'members with points'], [String(stats.owedPoints), `${unit} still owed`], [money(stats.owedCents || 0), 'what they’d cost if all used'], [`${stats.usedCount} · ${money(stats.usedCostCents || 0)}`, 'rewards used, 30 days']].map(([n, l]) => (
           <div key={l} className="rounded-[18px] border p-4" style={{ borderColor: LINE }}><p className="text-[26px] font-light tracking-[-0.02em]">{n}</p><p className="text-[13px]" style={{ color: MUTED }}>{l}</p></div>))}
       </div>}
+
+      {s.on && <LoyaltyDashboard tenantId={tenantId} unit={unit} />}
 
       <div className="grid gap-5 md:grid-cols-2">
         <section className={`${card} space-y-4`} style={{ borderColor: LINE }}>
@@ -131,6 +134,7 @@ export function LoyaltySetup({ tenantId }: { tenantId: string }) {
             <div key={k} className="space-y-1.5 rounded-[14px] p-3" style={{ background: SOFT }}>
               <label className="flex items-center justify-between gap-2 text-[14px] font-semibold">{l}<input type="checkbox" checked={!!s.auto?.[k]} onChange={(e) => set({ auto: { ...(s.auto || {}), [k]: e.target.checked } })} /></label>
               <p className="text-[13px] leading-[1.5]" style={{ color: MUTED }}>“{preview}”</p></div>))}
+          <label className="flex items-center justify-between gap-2 text-[14px]"><span>Left alone for comparison<span className="block text-[12.5px]" style={{ color: MUTED }}>A comparable few don’t get each message, so you can see what it actually changed.</span></span><select value={s.auto?.holdoutPct ?? 10} onChange={(e) => set({ auto: { ...(s.auto || {}), holdoutPct: Number(e.target.value) } })} className="h-10 rounded-[10px] border bg-background px-2 text-[14px]" style={{ borderColor: LINE }}>{[0, 5, 10, 15, 20].map((p) => <option key={p} value={p}>{p ? `${p}%` : 'None'}</option>)}</select></label>
           <label className="flex items-center justify-between gap-2 text-[14px]">Most loyalty texts a month<input type="number" min={0} max={5000} value={s.auto?.monthlyTexts ?? 200} onChange={(e) => set({ auto: { ...(s.auto || {}), monthlyTexts: Number(e.target.value) } })} className="h-10 w-24 rounded-[10px] border bg-background px-2 text-[14px]" style={{ borderColor: LINE }} /></label>
           <div className="space-y-2 pt-2" style={{ borderTop: `1px solid ${LINE}` }}>
             <label className="flex items-center justify-between gap-2"><span><span className="block text-[15px] font-semibold">Rewards for open time</span><span className="block text-[13px]" style={{ color: MUTED }}>Bonus {unit} on chosen services in your quiet times. An empty slot doesn’t always need a discount: this asks nothing off the price.</span></span><input type="checkbox" checked={!!s.quiet?.on} onChange={(e) => set({ quiet: { ...(s.quiet || { windows: [] }), on: e.target.checked } })} /></label>

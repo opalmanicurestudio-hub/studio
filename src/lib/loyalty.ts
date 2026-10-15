@@ -21,7 +21,7 @@ export interface LoyaltySettings {
   /** Phase 4: tiers earned over a qualifying year, with a grace period before stepping down; milestones by visit count. */
   tiers: Tier[]; graceMonths: number; milestones: Milestone[];
   /** Phase 4: automatic messages — each off until switched on, with a monthly budget and one loyalty text a month at most. */
-  auto: { rewardReady: boolean; tierUp: boolean; unused: boolean; comeBack: boolean; monthlyTexts: number };
+  auto: { rewardReady: boolean; tierUp: boolean; unused: boolean; comeBack: boolean; monthlyTexts: number; holdoutPct: number };
   /** Phase 4: rewards for open time — bonus points on chosen services in quiet times (lib/loyalty quietBonus). */
   quiet: { on: boolean; windows: QuietWindow[] };
 }
@@ -48,7 +48,7 @@ export function loyaltyOf(tenant: any): LoyaltySettings {
     tiers: (Array.isArray(l.tiers) ? l.tiers : []).slice(0, 5).map((x: any) => ({ id: String(x?.id || rid()).slice(0, 40), name: String(x?.name || '').trim().slice(0, 30), points: Math.round(num(x?.points, 1, 1000000, 0)), multiplier: Math.round(num(x?.multiplier, 1, 3, 1) * 100) / 100, perks: (Array.isArray(x?.perks) ? x.perks : []).map((p: any) => String(p || '').trim().slice(0, 80)).filter(Boolean).slice(0, 5) })).filter((x: Tier) => x.name && x.points > 0).sort((a: Tier, b: Tier) => a.points - b.points),
     graceMonths: [0, 1, 2, 3, 6].includes(Number(l.graceMonths)) ? Number(l.graceMonths) : 3,
     milestones: (Array.isArray(l.milestones) ? l.milestones : []).slice(0, 8).map((m: any) => ({ visits: Math.round(num(m?.visits, 2, 500, 0)), points: Math.round(num(m?.points, 1, 10000, 0)) })).filter((m: Milestone) => m.visits && m.points).sort((a: Milestone, b: Milestone) => a.visits - b.visits),
-    auto: { rewardReady: l.auto?.rewardReady === true, tierUp: l.auto?.tierUp === true, unused: l.auto?.unused === true, comeBack: l.auto?.comeBack === true, monthlyTexts: Math.round(num(l.auto?.monthlyTexts, 0, 5000, 200)) },
+    auto: { rewardReady: l.auto?.rewardReady === true, tierUp: l.auto?.tierUp === true, unused: l.auto?.unused === true, comeBack: l.auto?.comeBack === true, monthlyTexts: Math.round(num(l.auto?.monthlyTexts, 0, 5000, 200)), holdoutPct: Math.round(num(l.auto?.holdoutPct, 0, 30, 10)) },
     quiet: { on: l.quiet?.on === true, windows: (Array.isArray(l.quiet?.windows) ? l.quiet.windows : []).slice(0, 6).map((w: any) => ({ id: String(w?.id || rid()).slice(0, 40), days: (Array.isArray(w?.days) ? w.days : []).map(Number).filter((d: number) => d >= 0 && d <= 6), from: /^\d{2}:\d{2}$/.test(String(w?.from)) ? String(w.from) : '13:00', to: /^\d{2}:\d{2}$/.test(String(w?.to)) ? String(w.to) : '16:00', serviceIds: ids(w?.serviceIds), bonus: Math.round(num(w?.bonus, 1, 1000, 25)), label: w?.label ? String(w.label).slice(0, 40) : undefined })).filter((w: QuietWindow) => w.days.length) } };
 }
 export function cleanReward(r: any): Reward | null {
@@ -163,3 +163,17 @@ export const AUTO_TEXTS = {
   unused: (o: { first: string; points: number; unit: string; business: string; reward?: string }) => `Hi ${o.first}, this is ${o.business}. A friendly note that you have ${o.points} ${o.unit} waiting${o.reward ? `, enough for ${o.reward}` : ''}. We would love to see you soon.`,
   comeBack: (o: { first: string; business: string; points: number; unit: string }) => `Hi ${o.first}, this is ${o.business}. It has been a while, and we hope you are well. Your ${o.points} ${o.unit} are still here whenever you would like to come in.`,
 };
+
+// ── Phase 5: holdouts — a comparable few don't get a message, so the result shows what the message actually changed ──
+/** Same client, same month, same answer: is this client in the left-alone group for this message? */
+export function heldOut(clientId: string, kind: string, month: string, pct: number): boolean {
+  if (!pct) return false; let h = 2166136261; for (const ch of `${clientId}|${kind}|${month}`) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 100) < pct;
+}
+/** Came back within `days` of the message (or of when it would have gone): sent vs left alone, and the difference.
+ *  Measured, not modelled; with fewer than 20 in either group it says so instead of claiming a result. */
+export function liftOf(rows: { held: boolean; cameBack: boolean }[]): { sent: number; sentBack: number; held: number; heldBack: number; lift: number | null; enough: boolean } {
+  const s = rows.filter((r) => !r.held), h = rows.filter((r) => r.held);
+  const sb = s.filter((r) => r.cameBack).length, hb = h.filter((r) => r.cameBack).length; const enough = s.length >= 20 && h.length >= 20;
+  return { sent: s.length, sentBack: sb, held: h.length, heldBack: hb, lift: enough ? Math.round(((sb / s.length) - (hb / h.length)) * 1000) / 10 : null, enough };
+}

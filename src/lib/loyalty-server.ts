@@ -145,11 +145,44 @@ export async function automationSweep(db: any, t: string, tenant: any, now = Dat
     if (!text && S.auto.unused && r.ready.length && sinceVisit >= 60 && sinceVisit < 120 && (!lo.toldUnusedAt || now - Date.parse(lo.toldUnusedAt) > 90 * 864e5)) { text = AUTO_TEXTS.unused({ first, points: bal, unit, business, reward: r.ready[r.ready.length - 1].name.charAt(0).toLowerCase() + r.ready[r.ready.length - 1].name.slice(1) }); mark = { toldUnusedAt: new Date(now).toISOString() }; }
     if (!text && S.auto.comeBack && sinceVisit >= 120 && sinceVisit < 365 && (!lo.toldComeBackAt || now - Date.parse(lo.toldComeBackAt) > 180 * 864e5)) { text = AUTO_TEXTS.comeBack({ first, business, points: bal, unit }); mark = { toldComeBackAt: new Date(now).toISOString() }; }
     if (!text) continue;
+    // The left-alone group (lib/loyalty heldOut): recorded as if sent, so the dashboard can compare who came back.
+    const kind = Object.keys(mark)[0] === 'toldTier' ? 'tierUp' : Object.keys(mark)[0] === 'toldReadyFor' ? 'rewardReady' : Object.keys(mark)[0] === 'toldUnusedAt' ? 'unused' : 'comeBack';
+    const { heldOut } = await import('@/lib/loyalty');
+    if (heldOut(d.id, kind, month, S.auto.holdoutPct)) { await db.collection(`tenants/${t}/loyaltyMessages`).doc().set({ clientId: d.id, kind, at: new Date(now).toISOString(), held: true });
+      await d.ref.set({ loyalty: { ...mark, lastToldAt: new Date(now).toISOString() } }, { merge: true }); continue; }
     if ((await budgetLeft(db, t, phone, 'loyalty' as any, now)) <= 0) continue;
     if (!(await doSend(phone, text))) continue;
     await spendBudget(db, t, phone, 'loyalty' as any, now); used++; sent++;
+    await db.collection(`tenants/${t}/loyaltyMessages`).doc().set({ clientId: d.id, kind, at: new Date(now).toISOString(), held: false });
     await d.ref.set({ loyalty: { ...mark, lastToldAt: new Date(now).toISOString() } }, { merge: true });
   }
   if (sent) await capRef.set({ [month]: used }, { merge: true });
   return { sent };
+}
+
+/** Phase 5: the loyalty dashboard. Measured results and estimates are labelled apart: "members visit more often" is not
+ *  "loyalty made them visit more often" — only the left-alone comparison speaks to what the messages changed. */
+export async function loyaltyDashboard(db: any, t: string, tenant: any, now = Date.now()) {
+  const { liftOf, worthCents } = await import('@/lib/loyalty'); const S = loyaltyOf(tenant); const T = `tenants/${t}`;
+  const since = (d: number) => new Date(now - d * 864e5).toISOString();
+  const ledger = (await db.collection(`${T}/loyaltyLedger`).where('at', '>=', since(365)).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {});
+  const clients = (await db.collection(`${T}/clients`).get().catch(() => ({ docs: [] }))).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((c: any) => !c.ownerRenterId && !c.archived);
+  const appts = (await db.collection(`${T}/appointments`).where('startTime', '>=', since(365)).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {}).filter((a: any) => a.status === 'completed' && a.clientId);
+  const members = new Set(ledger.filter((e: any) => e.type === 'earn').map((e: any) => String(e.clientId)));
+  const active90 = new Set(appts.filter((a: any) => a.startTime >= since(90)).map((a: any) => String(a.clientId)));
+  const memberActive = [...members].filter((c) => active90.has(c)).length;
+  // Visits per client over the year, members vs everyone else who came in (an association, not a cause).
+  const vc = new Map<string, number>(); for (const a of appts) vc.set(String(a.clientId), (vc.get(String(a.clientId)) || 0) + 1);
+  const avg = (ids: string[]) => (ids.length ? Math.round((ids.reduce((s, id) => s + (vc.get(id) || 0), 0) / ids.length) * 10) / 10 : null);
+  const visitors = [...vc.keys()]; const mem = visitors.filter((c) => members.has(c)); const non = visitors.filter((c) => !members.has(c));
+  const redeem = ledger.filter((e: any) => e.type === 'redeem' && e.at >= since(90));
+  const byReward = new Map<string, { name: string; used: number; costCents: number }>(); for (const e of redeem) { const k = String(e.rewardId || e.rewardName); const r = byReward.get(k) || { name: String(e.rewardName || 'Reward'), used: 0, costCents: 0 }; r.used++; r.costCents += Number(e.costCents) || 0; byReward.set(k, r); }
+  const owed = clients.reduce((s: number, c: any) => s + Math.max(0, Number(c.loyalty?.balance) || 0), 0);
+  const tiers = S.tiers.map((tr) => ({ name: tr.name, members: clients.filter((c: any) => c.loyalty?.tier?.id === tr.id).length }));
+  // Messages: who came back within 30 days of the message (or of when it would have gone), sent vs left alone.
+  const msgs = (await db.collection(`${T}/loyaltyMessages`).where('at', '>=', since(150)).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data() || {}).filter((m: any) => Date.parse(m.at) <= now - 30 * 864e5);
+  const back = (m: any) => appts.some((a: any) => String(a.clientId) === String(m.clientId) && Date.parse(a.startTime) > Date.parse(m.at) && Date.parse(a.startTime) <= Date.parse(m.at) + 30 * 864e5);
+  const kinds = ['rewardReady', 'tierUp', 'unused', 'comeBack'].map((k) => ({ kind: k, ...liftOf(msgs.filter((m: any) => m.kind === k).map((m: any) => ({ held: !!m.held, cameBack: back(m) }))) }));
+  return { ok: true, measured: { members: members.size, memberActive90: memberActive, rewardsUsed90: redeem.length, rewardCost90Cents: redeem.reduce((s: number, e: any) => s + (Number(e.costCents) || 0), 0), owedPoints: owed, owedCents: worthCents(S, owed), byReward: [...byReward.values()].sort((a, b) => b.used - a.used), tiers, messages: kinds },
+    association: { memberVisits: avg(mem), otherVisits: avg(non), note: 'Members already tend to be your regulars, so this shows a difference, not what loyalty caused.' } };
 }
