@@ -294,13 +294,13 @@ export const DayTimeline = ({
             }
         }
         for (const it of all) {
-            const key = it.groupBookingId
-                ? `party:${it.groupBookingId}`
+            const key = it.groupBookingId || it.groupId
+                ? `party:${it.groupBookingId || it.groupId}`
                 : it.multiProviderGroupId
                 ? `chain:${it.multiProviderGroupId}`
                 : null;
             if (!key) continue;
-            const g = groups.get(key) || { kind: (it.groupBookingId ? 'party' : 'chain') as 'party' | 'chain', ids: [] };
+            const g = groups.get(key) || { kind: (it.groupBookingId || it.groupId ? 'party' : 'chain') as 'party' | 'chain', ids: [] };
             g.ids.push(it.id);
             groups.set(key, g);
         }
@@ -555,6 +555,31 @@ export const DayTimeline = ({
 
     const gridStyle = { gridTemplateColumns: `repeat(${displayedColumns.length}, minmax(${isMobile ? '0' : '280px'}, 1fr))` };
 
+    // A GROUP, JOINED: one soft band behind a party's (or a multi-provider visit's) cards, from its first column to its
+    // last and over the time they share, so it reads as one booking instead of strangers in separate columns.
+    const groupBands = (() => {
+        const n = displayedColumns.length; if (n < 2) return [];
+        const by = new Map<string, { kind: 'party' | 'chain'; name: string | null; cols: Set<number>; start: number; end: number; ids: string[] }>();
+        displayedColumns.forEach((column: any, ci: number) => {
+            for (const it of (positionedItemsByColumn.get(column.id) || []) as any[]) {
+                if (it?.itemType && it.itemType !== 'appointment') continue;
+                const gid = it.groupBookingId || it.groupId || it.multiProviderGroupId; if (!gid || ['cancelled', 'canceled', 'no_show'].includes(String(it.status || ''))) continue;
+                const key = `${it.multiProviderGroupId && !it.groupBookingId && !it.groupId ? 'chain' : 'party'}:${gid}`;
+                const st = safeDate(it.startTime).getTime(), en = safeDate(it.endTime).getTime(); if (!Number.isFinite(st) || !Number.isFinite(en)) continue;
+                const g = by.get(key) || { kind: key.startsWith('chain') ? 'chain' : 'party', name: (it.groupName || null) as string | null, cols: new Set<number>(), start: st, end: en, ids: [] as string[] };
+                g.cols.add(ci); g.start = Math.min(g.start, st); g.end = Math.max(g.end, en); if (!g.ids.includes(it.id)) g.ids.push(it.id); if (!g.name && it.groupName) g.name = it.groupName;
+                by.set(key, g);
+            }
+        });
+        const dayStart = setHours(startOfDay(date), START_HOUR).getTime();
+        return Array.from(by.entries()).filter(([, g]) => g.cols.size > 1).map(([key, g]) => {
+            const lo = Math.min(...Array.from(g.cols)), hi = Math.max(...Array.from(g.cols));
+            const top = Math.max(0, (g.start - dayStart) / 60000 * PX_PER_MIN) - 6, height = Math.max(28, (g.end - g.start) / 60000 * PX_PER_MIN) + 12;
+            const label = g.kind === 'party' ? `${g.name ? `${g.name} · ` : ''}party of ${g.ids.length}` : `One visit · ${g.ids.length} providers`;
+            return { key, top, height, left: `calc(${(lo / n) * 100}% + 2px)`, width: `calc(${((hi - lo + 1) / n) * 100}% - 4px)`, label };
+        });
+    })();
+
     if (_MISSING_CARDS.length > 0) {
         return (
             <div className="m-4 p-4 rounded-xl border border-red-300 bg-red-50 text-sm text-red-800">
@@ -637,6 +662,11 @@ export const DayTimeline = ({
                     ))}
                 </div>
                 <div className="col-start-2 grid relative bg-card/30" style={gridStyle}>
+                    {groupBands.map((b) => (
+                        <div key={b.key} aria-hidden className="pointer-events-none absolute z-[3] rounded-2xl" style={{ top: `${b.top}px`, height: `${b.height}px`, left: b.left, width: b.width, background: 'color-mix(in srgb, var(--accent, hsl(var(--primary))) 7%, transparent)', border: '1.5px dashed color-mix(in srgb, var(--accent, hsl(var(--primary))) 45%, transparent)' }}>
+                            <span className="absolute -top-2.5 left-3 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: 'hsl(var(--card))', color: 'var(--accent, hsl(var(--primary)))', border: '1px solid color-mix(in srgb, var(--accent, hsl(var(--primary))) 35%, transparent)' }}>{b.label}</span>
+                        </div>
+                    ))}
                     {displayedColumns.map(column => (
                         <div key={column.id} className="relative border-r border-border"
                              onDragOver={(e) => { if (!dragRef.current || !onMoveAppointment) return; e.preventDefault(); const rect = e.currentTarget.getBoundingClientRect(); const y = e.clientY - rect.top - (dragRef.current.grabOffset || 0); const mins = Math.max(0, Math.round((y / PX_PER_MIN) / 5) * 5); setDrag({ id: dragRef.current.id, mins, columnId: column.id, top: mins * PX_PER_MIN }); }}
