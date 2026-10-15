@@ -92,6 +92,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 // or a walk-in gets attached to a record the studio cannot even see.
 const studioDoc = (snap: any) => (snap?.docs || []).find((d: any) => !(d.data() as any)?.ownerRenterId) || null;
 import { generateShortCode } from '@/lib/short-code';
+import { homeLocation } from '@/lib/business-locations';
 import { sendNotification } from '@/lib/notify';
 import { nanoid } from 'nanoid';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
@@ -2255,6 +2256,8 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
       // so the board can show `Maya - ready now` on a row sitting in
       // Waiting, and one tap moves her forward.
       status: 'waiting',
+      // Which location they walked into: the kiosk's door or the desk's chosen location, else their provider's only one.
+      locationId: str(body?.locationId, 80) || (seat.holder ? homeLocation(seat.holder) : null) || null,
       staffId: seat.holder ? String(seat.holder.id) : null,
       staffName: seat.holder ? str(seat.holder.name, 80) : null,
       notifiedAt: null,

@@ -496,6 +496,10 @@ export function LocationsSettingsTab() {
                   {!loc.isActive && <span className="rounded-full px-2 py-0.5 text-[11.5px] font-medium" style={{ background: 'var(--soft)' }}>Paused</span>}</p>
                 {(loc.address || loc.addressParts) && <p className="text-[13.5px] cf-muted">{formatLocationAddress(loc.addressParts) || loc.address}</p>}
                 <p className="text-[13px]">{loc.coordinates ? <span className="cf-muted">{moduleEnabled(selectedTenant, 'team') ? `Map pin set · staff clock in within ${r} m` : 'Map pin set'}</span> : <span className="font-medium text-amber-700">No map pin yet — tap Edit to add one</span>}</p>
+                {locations.length > 1 && tenantId && <p className="flex flex-wrap gap-x-3 gap-y-1 pt-1 text-[12.5px]">
+                  {([['Walk-in kiosk for this door', `/walk-in/${tenantId}?location=${loc.id}`], ['Time clock for this door', `/timeclock/${tenantId}?location=${loc.id}`]] as [string, string][]).map(([l, path]) => (
+                    <button key={path} type="button" className="underline underline-offset-4 cf-muted" onClick={() => { const url = `${window.location.origin}${path}`; navigator.clipboard?.writeText(url).catch(() => {}); setPageMsg(`Copied: ${url} — open it on the tablet at ${loc.name}.`); }}>{l}</button>))}
+                </p>}
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1.5">
                 <button type="button" onClick={() => openEdit(loc)} className="h-9 rounded-full px-4 text-[14px] font-medium" style={{ background: 'var(--soft)' }}>Edit</button>

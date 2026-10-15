@@ -47,6 +47,7 @@ import { LayoutGroup, motion } from 'framer-motion';
 import { format, isToday, parseISO } from 'date-fns';
 import { moduleEnabled } from '@/lib/modules';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
+import { businessLocations, worksAt, atLocation } from '@/lib/business-locations';
 import { DeskFrame, Btn, Seg, Pill, GuestCard, Empty, Panel, Drawer, Menu, Icon, Ring, LiveDot, Toggle, ThemeSwitch } from './kit';
 import { doc } from 'firebase/firestore';
 import { updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
@@ -85,7 +86,14 @@ const lateLabel = (m: number) => (m >= 90 ? `${Math.round(m / 60)} hr late` : `$
 export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; waitlist?: ReactNode; spaces?: ReactNode } }) {
   const tenant = e.selectedTenant;
   const accent = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || null;
-  const staffList: any[] = (e.staff || []).filter((s: any) => s.isActive !== false && !s.isStudent);
+  // Which location this desk is looking at (multi-location businesses; remembered per device). '' = every location.
+  const { locations: allLocations } = useInventory() as any;
+  const places = businessLocations(allLocations);
+  const [deskLoc, setDeskLoc] = useState<string>('');
+  useEffect(() => { try { const v = localStorage.getItem('cf.desk.location') || ''; if (v && places.some((p: any) => p.id === v)) setDeskLoc(v); } catch { /* per-device nicety */ } }, [places.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pickLoc = (v: string) => { setDeskLoc(v); try { localStorage.setItem('cf.desk.location', v); } catch { /* ignore */ } };
+  const loc = places.length > 1 ? deskLoc : '';
+  const staffList: any[] = (e.staff || []).filter((s: any) => s.isActive !== false && !s.isStudent && worksAt(s, loc));
   const solo = staffList.length <= 1;
   const recommended: View = 'day';
   const [view, setView] = useState<View>(recommended);
@@ -238,8 +246,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       const sid = w.staffId || w.assignedStaffId || null;
       out.push({ key: `w:${w.id}`, kind: 'walkin', walkIn: w, ...(mirror ? { appt: mirror } : {}), name: w.clientName || w.customerName || 'Walk-in', service: (w.serviceIds || []).map(svcName).filter(Boolean).join(' + ') || 'Walk-in', staffId: sid, staffName: staffName(sid), at: toDate(w.createdAt || w.checkInTime), stage: st === 'servicing' || st === 'in_service' ? 'service' : 'waiting', lateMin: 0 });
     }
-    return out.sort((x, y) => (x.at?.getTime() || 0) - (y.at?.getTime() || 0));
-  }, [e.appointmentsFromInventory, e.walkIns, e.services, e.staff, now]); // eslint-disable-line react-hooks/exhaustive-deps
+    return out.filter((g) => atLocation(g.walkIn || g.appt, e.staff || [], allLocations || [], loc)).sort((x, y) => (x.at?.getTime() || 0) - (y.at?.getTime() || 0));
+  }, [e.appointmentsFromInventory, e.walkIns, e.services, e.staff, now, loc, allLocations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = guests.filter((g) => g.stage !== 'done');
   const selectedGuest = sel ? guests.find((g) => g.key === sel) || null : null;
@@ -683,6 +691,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
           <div className="min-w-0"><p className="text-[22px] font-light tracking-tight sm:text-[26px]">Front desk <span className="tabular-nums" style={{ color: 'var(--muted)' }}>{format(now, 'h:mm a')}</span></p>
             <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{active.length} today{doneCount ? ` · ${doneCount} done` : ''} · ${Math.round(takings).toLocaleString()} taken{next ? ` · next: ${first(next.name)} at ${next.at ? format(next.at, 'h:mm a') : '—'}` : ''}{requests > 0 && <> · <a href="/appointments/requests" className="font-semibold underline underline-offset-2" style={{ color: 'var(--ink)' }}>{requests} request{requests === 1 ? '' : 's'} to answer</a></>}</p></div>
           <div className="flex flex-wrap items-center gap-2">
+            {places.length > 1 && <Menu label="Location" width={240} trigger={<><Icon name="home" size={16} />{loc ? (places.find((p: any) => p.id === loc)?.name || 'Location') : 'All locations'}</>}
+              items={[{ label: 'All locations', icon: loc ? 'grid' : 'check', onSelect: () => pickLoc('') }, ...places.map((p: any) => ({ label: p.name || 'Location', icon: loc === p.id ? 'check' : 'home', onSelect: () => pickLoc(p.id) }))]} />}
             {mode === 'desk' && !phone && <Seg label="View" value={shown} onChange={pickView} options={views} />}
             <Btn quiet={!opsCount.attention && !opsCount.decisions} onClick={() => setAttnOpen(true)} label={opsCount.decisions ? `Needs a decision, ${opsCount.decisions}` : `Needs attention${opsCount.attention ? `, ${opsCount.attention}` : ''}`}><Icon name="alert" size={16} />{phone ? (opsCount.decisions || opsCount.attention || null) : opsCount.decisions ? `Needs a decision · ${opsCount.decisions}` : `Needs attention${opsCount.attention ? ` · ${opsCount.attention}` : ''}`}</Btn>
             {mode === 'desk' && readyIds.length > 0 && <Btn onClick={() => setCheckoutOpen(true)}><Icon name="card" size={16} />Checkout · {readyIds.length}</Btn>}
@@ -769,7 +779,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={!!askFor} onClose={() => setAskFor(null)} title="Ask for help">{askFor && <AskForHelp tenantId={e.tenantId} context={askFor} onDone={() => setAskFor(null)} />}</Drawer>
       <Drawer accent={accent} open={payOpen} onClose={() => setPayOpen(false)} title="Take a payment">{payOpen && <TakePayment e={e} preselect={takeFor} onDone={() => { setPayOpen(false); setTakeFor(null); }} />}</Drawer>
       <Drawer accent={accent} open={rentOpen} onClose={() => setRentOpen(false)} title="Collect rent"><CollectRent tenantId={e.tenantId} onTake={(x) => { e.setSelectedClientId?.(x.clientId); e.addRentToCart?.({ renterId: x.renterId, name: x.name, amount: x.amount }); setRentOpen(false); setMode('desk'); setCheckoutOpen(true); }} /></Drawer>
-      <Drawer accent={accent} open={walkInOpen} onClose={() => setWalkInOpen(false)} title="Add a walk-in"><AddWalkIn tenantId={e.tenantId} tenant={tenant} services={e.services || []} staff={e.staff || []} onDone={() => setWalkInOpen(false)} /></Drawer>
+      <Drawer accent={accent} open={walkInOpen} onClose={() => setWalkInOpen(false)} title="Add a walk-in"><AddWalkIn tenantId={e.tenantId} tenant={tenant} services={e.services || []} staff={staffList} locationId={loc || null} onDone={() => setWalkInOpen(false)} /></Drawer>
       <Drawer accent={accent} open={screenOpen} onClose={() => setScreenOpen(false)} title="Client screen"><ClientScreenPanel tenantId={e.tenantId} /></Drawer>
       <Drawer accent={accent} open={attnOpen} onClose={() => setAttnOpen(false)} title="Needs attention">
         {attnOpen && leftOpen.length > 0 && <section aria-label="Left open from earlier days" className="mb-5 space-y-2"><p className="text-[16px] font-bold">Left open from earlier days · {leftOpen.length}</p><LeftOpen firestore={e.firestore} tenantId={e.tenantId} items={leftOpen} staff={e.staff || []} who={e.currentUser?.displayName || 'Front desk'} /></section>}

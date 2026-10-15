@@ -543,14 +543,16 @@ export default function WalkInKioskPage() {
     return () => clearTimeout(idleTimer.current);
   }, [step, name, phone, service, groupSize, guests, waitState, chosen, signature, answers, accepted, reset, doorName, doorNote, doorOrder, doorLast4, doorRenterId]);
 
+  // The door this kiosk stands at: set once when the tablet is set up (/walk-in/{business}?location={id}).
+  const [kioskLocation] = useState<string | null>(() => { try { return new URLSearchParams(window.location.search).get('location'); } catch { return null; } });
   const post = useCallback(async (payload: any) => {
     const res = await fetch('/api/walkins', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId, ...payload }),
+      body: JSON.stringify({ tenantId, ...(kioskLocation ? { locationId: kioskLocation } : {}), ...payload }),
     });
     return await res.json().catch(() => ({} as any));
-  }, [tenantId]);
+  }, [tenantId, kioskLocation]);
 
   // ── 1. The number ─────────────────────────────────────────────────────────
   //

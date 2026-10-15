@@ -70,8 +70,11 @@ import { useToast } from '@/hooks/use-toast';
 import { AppAccess } from '@/components/staff/AppAccess';
 import { useTenant } from '@/context/TenantContext';
 import { rolesFor, assignableRoles } from '@/lib/permissions';
+import { useInventory } from '@/context/InventoryContext';
+import { businessLocations } from '@/lib/business-locations';
 
 const editStaffSchema = z.object({
+  locationIds: z.array(z.string()).optional(),
   name: z.string().min(1, 'Name is required.'),
   email: z.string().email('A valid email is required.'),
   phone: z.string().optional(),
@@ -136,6 +139,26 @@ const SectionHeader = ({ icon: Icon, title, step }: { icon: any; title: string; 
     </div>
   </div>
 );
+
+/** Where they work — only when the business has more than one location. None ticked means every location. */
+function WorksAt() {
+  const { control } = useFormContext<EditStaffFormData>();
+  const { locations } = useInventory() as any;
+  const places = businessLocations(locations);
+  if (places.length < 2) return null;
+  return (
+    <div className="space-y-3 border-t border-dashed pt-4 text-left">
+      <div className="px-1"><Label className="text-[13px] font-semibold text-foreground">Works at</Label>
+        <p className="text-[12.5px] text-muted-foreground">Their bookings, walk-ins and floor show at these locations. None ticked means every location.</p></div>
+      <Controller name="locationIds" control={control} render={({ field }) => {
+        const val: string[] = Array.isArray(field.value) ? field.value : [];
+        return <div className="flex flex-wrap gap-2">{places.map((l: any) => { const on = val.includes(l.id);
+          return <button key={l.id} type="button" aria-pressed={on} onClick={() => field.onChange(on ? val.filter((x) => x !== l.id) : [...val, l.id])}
+            className={`h-10 rounded-full border px-4 text-[13.5px] font-semibold transition ${on ? 'border-foreground bg-foreground text-background' : 'border-border bg-card text-foreground'}`}>{l.name || 'Location'}</button>; })}</div>;
+      }} />
+    </div>
+  );
+}
 
 const EditStaffFormInternal = ({
   services,
@@ -446,6 +469,8 @@ const EditStaffFormInternal = ({
               </div>
             )}
           </div>
+
+          <WorksAt />
 
           <div className="space-y-4 pt-4 border-t border-dashed text-left">
             <WeeklyHoursEditor week={hoursWeek} onChange={onHoursChange}

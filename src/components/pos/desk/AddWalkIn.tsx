@@ -6,7 +6,7 @@ import { getAuth } from 'firebase/auth';
 import { printAppointmentTicket } from '@/lib/appointment-ticket';
 import { openVisit } from '@/lib/visit-client';
 
-export function AddWalkIn({ tenantId, tenant, services, staff, onDone }: { tenantId: string; tenant: any; services: any[]; staff: any[]; onDone?: () => void }) {
+export function AddWalkIn({ tenantId, tenant, services, staff, onDone, locationId = null }: { tenantId: string; tenant: any; services: any[]; staff: any[]; onDone?: () => void; locationId?: string | null }) {
   const svcs = (services || []).filter((x: any) => x && x.type !== 'addon' && !x.isAddon && x.isActive !== false && !x.archived);
   const [name, setName] = React.useState(''); const [phone, setPhone] = React.useState(''); const [serviceId, setServiceId] = React.useState('');
   const [pref, setPref] = React.useState(''); const [wait, setWait] = React.useState(false); const [note, setNote] = React.useState('');
@@ -17,7 +17,7 @@ export function AddWalkIn({ tenantId, tenant, services, staff, onDone }: { tenan
     setBusy(true); setErr(null);
     const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
     const r: any = await fetch('/api/walkins', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
-      body: JSON.stringify({ tenantId, source: 'desk', name: name.trim(), phone: phone.trim(), serviceId, ...(pref ? { preferredStaffId: pref, waitForPreferred: wait } : {}), note: note.trim() }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'We couldn’t reach the server.' }));
+      body: JSON.stringify({ tenantId, source: 'desk', ...(locationId ? { locationId } : {}), name: name.trim(), phone: phone.trim(), serviceId, ...(pref ? { preferredStaffId: pref, waitForPreferred: wait } : {}), note: note.trim() }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'We couldn’t reach the server.' }));
     setBusy(false);
     if (!r?.ok) { setErr(r?.error || (r?.needsForms ? 'This service needs forms signed first — add them at the kiosk or on their link.' : 'They couldn’t be added.')); return; }
     setRes(r);

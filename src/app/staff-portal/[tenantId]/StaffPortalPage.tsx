@@ -116,6 +116,7 @@ import {
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { businessLocations, worksAt, atLocation, homeLocation } from '@/lib/business-locations';
 import { useDoc } from '@/firebase/firestore/use-doc';
 import { PortalHousekeeping } from '@/components/staff/MyTurnovers';
 import { PortalDecisionBar } from '@/components/staff-portal/PortalDecisionBar';
@@ -4305,6 +4306,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: incomingSwapsRaw }                      = useCollection<any>(incomingSwapQ);
   const { data: pendingApprovalsRaw }                   = useCollection<any>(pendingApprovalQ);
   const { data: allStaff }                              = useCollection<any>(allStaffQ);
+  // Locations: the floor and the walk-in line show one location at a time when the business has more than one.
+  const locsQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/locations`), [firestore, tenantId]);
+  const { data: locsRaw } = useCollection<any>(locsQ);
+  const floorPlaces = businessLocations(locsRaw);
+  const [floorLocPick, setFloorLocPick] = useState<string | null>(null);
   const { data: services,     isLoading: svcsLoading }    = useCollection<any>(servicesQ);
   const { data: notifs }                                = useCollection<any>(notifsQ);
   const { data: activityLogs }                          = useCollection<any>(activityLogsQ);
@@ -4628,7 +4634,17 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
   // ── Walk-ins: only for businesses that take them, and only today's (yesterday's leftovers never keep the panel up) ──
   const todayLocalKey = localKey((portalTenant as any)?.timezone);
-  const todaysWalkIns = (allWalkInsRaw || []).filter((w: any) => { const v: any = w.checkInTime || w.createdAt; const t = v?.toDate ? v.toDate().getTime() : typeof v?.seconds === 'number' ? v.seconds * 1000 : Date.parse(String(v || '')); return !Number.isFinite(t) || localKey((portalTenant as any)?.timezone, t) === todayLocalKey; });
+  const floorLoc = floorPlaces.length > 1 ? (floorLocPick ?? (homeLocation(staffMember) || '')) : '';
+  const floorStaff = (allStaff || []).filter((p: any) => worksAt(p, floorLoc));
+  const floorAppts = (allTodayApptsRaw || []).filter((a: any) => atLocation(a, allStaff || [], locsRaw || [], floorLoc));
+  const floorWalkInsAll = (allWalkInsRaw || []).filter((w: any) => atLocation(w, allStaff || [], locsRaw || [], floorLoc));
+  const floorPicker = floorPlaces.length > 1 ? (
+    <div role="tablist" aria-label="Location" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+      {[{ id: '', name: 'All locations' }, ...floorPlaces].map((pl: any) => { const on = floorLoc === pl.id;
+        return <button key={pl.id || 'all'} type="button" role="tab" aria-selected={on} onClick={() => setFloorLocPick(pl.id)}
+          className={`h-9 shrink-0 rounded-full px-4 text-[13px] font-semibold ${on ? 'bg-foreground text-background' : 'bg-muted text-foreground'}`}>{pl.name || 'Location'}</button>; })}
+    </div>) : null;
+  const todaysWalkIns = floorWalkInsAll.filter((w: any) => { const v: any = w.checkInTime || w.createdAt; const t = v?.toDate ? v.toDate().getTime() : typeof v?.seconds === 'number' ? v.seconds * 1000 : Date.parse(String(v || '')); return !Number.isFinite(t) || localKey((portalTenant as any)?.timezone, t) === todayLocalKey; });
   const takesWalkIns = (portalTenant as any)?.walkInEnabled !== false || todaysWalkIns.length > 0;
   // ── Portal frame (bottom bar, Today's views) ──
   const [splashOn, setSplashOn] = useState(() => typeof window !== 'undefined' && shouldShowSplash(`cf_portal_splash_${tenantId}_${staffMember.id}`));
@@ -4739,7 +4755,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <div className="space-y-3">
               <button onClick={() => setViewingWalkIns(false)} className="text-[14px] font-semibold text-[#6d7075]">‹ Today</button>
               <h2 className="text-[22px] font-extrabold">Walk-ins</h2>
-              <WalkInLeaderboard allWalkIns={todaysWalkIns} allStaff={allStaff || []} allShifts={allShiftsRaw || []} services={services || []} tenantId={tenantId} firestore={firestore} currentStaffId={staffMember?.id} activityLogs={activityLogs || []} />
+              {floorPicker}
+              <WalkInLeaderboard allWalkIns={todaysWalkIns} allStaff={floorStaff} allShifts={allShiftsRaw || []} services={services || []} tenantId={tenantId} firestore={firestore} currentStaffId={staffMember?.id} activityLogs={activityLogs || []} />
             </div>
           )}
           {activeTab==='today' && !viewingWalkIns && (
@@ -4825,10 +4842,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                     </div>
                   ))}
                 {todayView === 'day' && <NextBanner appointments={allMyApts} services={services} />}
+                {(takesWalkIns || todayView === 'floor') && floorPicker}
                 {takesWalkIns && <WalkInLeaderboard
                   compact onOpen={() => setViewingWalkIns(true)}
                   allWalkIns={todaysWalkIns}
-                  allStaff={allStaff || []}
+                  allStaff={floorStaff}
                   allShifts={allShiftsRaw || []}
                   services={services || []}
                   tenantId={tenantId}
@@ -4843,9 +4861,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   services={services}
                   selectedDate={today}
                   onAptTap={apt => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
-                  allStaffApts={allTodayApptsRaw || []}
-                  allWalkIns={allWalkInsRaw || []}
-                  allStaff={allStaff || []}
+                  allStaffApts={floorAppts}
+                  allWalkIns={floorWalkInsAll}
+                  allStaff={floorStaff}
                   allStaffBlocks={staffBlocksRaw || []}
                   allEvents={allEventsRaw || []}
                   allShiftsForDay={allShiftsRaw || []}
