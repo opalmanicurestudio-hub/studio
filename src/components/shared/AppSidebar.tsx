@@ -102,6 +102,8 @@ const TEAM_FULL = [
   { href: '/team',       icon: Users,        label: 'Team'       },
   // Practice a shift: a playable salon shift that teaches the front desk and the floor (/practice).
   { href: '/practice', icon: Gamepad2, label: 'Practice a shift' },
+  // The free public pay calculator (/pay-calculator): pay per hour all in, next to government pay data.
+  { href: '/pay-calculator', icon: HandCoins, label: 'Pay calculator' },
 ];
 
 const TEAM_ADMIN = [
@@ -109,6 +111,8 @@ const TEAM_ADMIN = [
   { href: '/team',       icon: Users,        label: 'Team'       },
   // Practice a shift: a playable salon shift that teaches the front desk and the floor (/practice).
   { href: '/practice', icon: Gamepad2, label: 'Practice a shift' },
+  // The free public pay calculator (/pay-calculator): pay per hour all in, next to government pay data.
+  { href: '/pay-calculator', icon: HandCoins, label: 'Pay calculator' },
 ];
 
 // v28 — Ledger, Obligations (Bills), and Payday are now consolidated into
