@@ -17,6 +17,13 @@
 import { checkChange, chainAfterMove, hoursToDeadline } from '@/lib/change-rules';
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { NextRequest, NextResponse } from 'next/server';
+
+// The fee window counts from the ORIGINAL time (Booking policies → deadline), so moving twice can't dodge it.
+function rescheduleFeeFor(t: any, appt: any, service: any) {
+  const fee = Number(t.rescheduleFee || 0), windowH = Number(t.rescheduleFeeWindowHours || 0);
+  const inWindow = fee > 0 && windowH > 0 && hoursToDeadline(t, appt, service) < windowH;
+  return { fee, inWindow, feeWindowHours: windowH, feeDue: inWindow ? fee : 0 };
+}
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
@@ -99,7 +106,7 @@ export async function POST(req: NextRequest) {
 
   if (b.action === 'check') {
     const r = computeAvailability(input);
-    return NextResponse.json({ ok: true, times: r.times, reason: time ? explain(time) : null, duration, staffName: who?.name || null, policyNote: checkChange(t, appt, 'staff', service).staffNote });
+    return NextResponse.json({ ok: true, times: r.times, reason: time ? explain(time) : null, duration, staffName: who?.name || null, policyNote: checkChange(t, appt, 'staff', service).staffNote, ...rescheduleFeeFor(t, appt, service) });
   }
 
   if (b.action !== 'move' || !time) return NextResponse.json({ ok: false, error: 'Pick a time.' }, { status: 400 });
@@ -109,9 +116,7 @@ export async function POST(req: NextRequest) {
   }
   const start = wallToUtc(date, Number(time.slice(0, 2)), Number(time.slice(3, 5)), tz); const end = new Date(start.getTime() + duration * 60000);
   const nowIso = new Date().toISOString();
-  const fee = Number(t.rescheduleFee || 0), windowH = Number(t.rescheduleFeeWindowHours || 0);
-  // The fee window counts from the ORIGINAL time (Booking policies → deadline), so moving twice can't dodge it.
-  const inWindow = fee > 0 && windowH > 0 && hoursToDeadline(t, appt, service) < windowH;
+  const { fee, inWindow, feeWindowHours: windowH } = rescheduleFeeFor(t, appt, service);
   const rule = checkChange(t, appt, 'staff', service);   // staff are never blocked — but it's recorded
   // Who asked? 'studio' = our decision: no fee, not counted against the client, deadline starts fresh.
   const byStudio = b.initiatedBy === 'studio';

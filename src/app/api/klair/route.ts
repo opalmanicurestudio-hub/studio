@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     }
     if (b.action === 'confirm') {
       if (p.status !== 'pending' || ms(p.expiresAt) < now) return j({ ok: false, error: 'That’s no longer waiting. Ask again.' }, 409);
-      const r = await execute(p); await ref.set({ status: r.ok ? 'done' : 'failed', doneAt: new Date().toISOString(), result: r.text || r.error || null, ...(r.undo ? { undo: r.undo } : {}) }, { merge: true });
+      const r = await execute(p, b); await ref.set({ status: r.ok ? 'done' : 'failed', doneAt: new Date().toISOString(), result: r.text || r.error || null, ...(r.undo ? { undo: r.undo } : {}) }, { merge: true });
       return j(r.ok ? { ok: true, kind: 'done', id: ref.id, text: r.text, canUndo: !!r.undo, say: say('done', { name: p.who?.clientName || '' }) } : { ok: false, error: r.error || 'That didn’t work.' });
     }
     if (p.status !== 'done' || !p.undo || ms(p.doneAt) < now - 15 * 60000) return j({ ok: false, error: 'That can’t be undone now. Open the visit to change it.' }, 409);
@@ -144,10 +144,13 @@ export async function POST(req: NextRequest) {
       const chk = await call('/api/appointments/reschedule', { appointmentId: c.next.id, action: 'check', date: p.date, time: p.time });
       if (chk.reason) return { ok: true, kind: 'answer', who, text: `I can’t move ${first(c.clientName)} to ${when(toIso)}: ${chk.reason}${Array.isArray(chk.times) && chk.times.length ? ` Open that day: ${chk.times.slice(0, 4).join(', ')}.` : ''}` };
       const fromIso = c.next.startTime; const fp = wallParts(new Date(fromIso), tz);
-      const id = await save('move', { appointmentId: c.next.id, date: p.date, time: p.time }, { undo: null, back: { date: dayKey(new Date(fromIso), tz), time: `${String(fp.hour).padStart(2, '0')}:${String(fp.minute).padStart(2, '0')}` } });
+      const fee = Number(chk.feeDue) || 0; const feeTxt = `$${fee % 1 ? fee.toFixed(2) : fee}`;
+      const id = await save('move', { appointmentId: c.next.id, date: p.date, time: p.time, fee }, { undo: null, back: { date: dayKey(new Date(fromIso), tz), time: `${String(fp.hour).padStart(2, '0')}:${String(fp.minute).padStart(2, '0')}` } });
+      const feeRow = fee ? [{ k: 'Fee', v: `${feeTxt} reschedule fee. This is inside your ${chk.feeWindowHours}-hour window, so it goes on ${first(c.clientName)}’s balance.`, warn: true }] : [];
+      const choices = fee ? [{ label: `Move and charge ${feeTxt}`, fee: true, primary: true }, ...(actor.isManager ? [{ label: 'Move, waive the fee', fee: false }] : [])] : null;
       return { ok: true, kind: 'preview', id, who, sub: `${c.next.serviceName}${c.next.staffName ? ` with ${c.next.staffName}` : ''}${c.phoneLast4 ? `, phone ending ${c.phoneLast4}` : ''}`,
-        rows: [{ k: 'Now', v: when(fromIso), struck: true }, { k: 'Moves to', v: when(toIso), strong: true }, { k: `${first(c.clientName)} gets`, v: 'A text with the new time' }, ...(chk.policyNote ? [{ k: 'Note', v: String(chk.policyNote) }] : [])], confirmLabel: 'Move it',
-        say: say('preview', { name: c.clientName, change: `moving to ${formatShortDay(toIso, tz)} at ${formatTime(toIso, tz)}` }) };
+        rows: [{ k: 'Now', v: when(fromIso), struck: true }, { k: 'Moves to', v: when(toIso), strong: true }, ...feeRow, { k: `${first(c.clientName)} gets`, v: 'A text with the new time' }, ...(chk.policyNote ? [{ k: 'Note', v: String(chk.policyNote) }] : [])], confirmLabel: 'Move it', choices,
+        say: fee ? `${c.clientName}, moving to ${formatShortDay(toIso, tz)} at ${formatTime(toIso, tz)}. This one has a reschedule fee. Check the screen before you confirm.` : say('preview', { name: c.clientName, change: `moving to ${formatShortDay(toIso, tz)} at ${formatTime(toIso, tz)}` }) };
     }
     if (p.intent === 'confirm') {
       if (!c.next) return { ok: true, kind: 'answer', text: `${first(c.clientName)} has no visit coming up.` };
@@ -174,10 +177,13 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Doing it, through the app's own routes ──
-  async function execute(p: any): Promise<{ ok: boolean; text?: string; error?: string; undo?: any }> {
-    if (p.kind === 'move') { const r = await call('/api/appointments/reschedule', { appointmentId: p.payload.appointmentId, action: 'move', date: p.payload.date, time: p.payload.time });
+  async function execute(p: any, b: any = {}): Promise<{ ok: boolean; text?: string; error?: string; undo?: any }> {
+    if (p.kind === 'move') {
+      const fee = Number(p.payload.fee) || 0; const waive = fee > 0 && b.fee === false && actor.isManager;
+      const r = await call('/api/appointments/reschedule', { appointmentId: p.payload.appointmentId, action: 'move', date: p.payload.date, time: p.payload.time, ...(waive ? { applyFee: false } : {}) });
       if (r.ok === false || r.status >= 400) return { ok: false, error: r.error || 'The move didn’t go through.' };
-      return { ok: true, text: `Moved ${p.who?.clientName || 'the visit'}. ${first(p.who?.clientName)} has been texted the new time.`, undo: { path: '/api/appointments/reschedule', body: { appointmentId: p.payload.appointmentId, action: 'move', date: p.back.date, time: p.back.time, initiatedBy: 'studio', applyFee: false } } }; }
+      const feeLine = !fee ? '' : waive ? ' No fee was charged.' : ` The $${fee % 1 ? fee.toFixed(2) : fee} fee is on their balance. Undo moves the visit back but keeps the fee; remove it from the visit if you need to.`;
+      return { ok: true, text: `Moved ${p.who?.clientName || 'the visit'}. ${first(p.who?.clientName)} has been texted the new time.${feeLine}`, undo: { path: '/api/appointments/reschedule', body: { appointmentId: p.payload.appointmentId, action: 'move', date: p.back.date, time: p.back.time, initiatedBy: 'studio', applyFee: false } } }; }
     if (p.kind === 'late') { const r = await call('/api/appointments/provider-late', { staffId: p.payload.staffId, minutes: p.payload.minutes });
       if (r.ok === false || r.status >= 400) return { ok: false, error: r.error || 'That didn’t go through.' };
       return { ok: true, text: `Your next clients have been told you’re about ${p.payload.minutes} minutes behind.`, undo: { path: '/api/appointments/provider-late', body: { staffId: p.payload.staffId, minutes: 0 } } }; }
