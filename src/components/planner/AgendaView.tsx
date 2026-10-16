@@ -2,6 +2,7 @@
 // src/components/planner/AgendaView.tsx — THE DAY AS ONE LIST. Every visit in time order with the provider, the client,
 // the service and the state in words; sticky hour headers; gaps inside working hours as "Book here" rows; provider chips
 // to narrow it; arrow keys move, Enter opens. The selected row drives the side panel next to it.
+import { needsConfirm } from '@/lib/confirm-ask';
 import { startedAt, clockLabel } from '@/lib/visit-clock';
 import { pendingFormIds } from '@/lib/visit-requests';
 import { extraMinutesFor } from '@/lib/client-timing';
@@ -28,6 +29,7 @@ export function visitMarks(a: any, client: any, service: any): { label: string; 
   if (a.checkInStatus === 'on_my_way') out.push({ label: a.clientTrip?.etaMin ? `En route ~${a.clientTrip.etaMin} min` : 'En route', tone: 'info' });
   if (a.checkInStatus === 'arrived' && a.status !== 'servicing') out.push({ label: 'Here', tone: 'good' });
   if (pendingFormIds(a, service, c).length && !['completed', 'cancelled', 'declined'].includes(String(a.status))) out.push({ label: 'Form to sign', tone: 'alert' });
+  { const t0 = Date.parse(String(a.startTime || '')) || 0; if (needsConfirm(a) && t0 > Date.now() && t0 - Date.now() < 48 * 3600000) out.push({ label: 'Not confirmed', tone: 'info' }); }
   if (c.id && (c.totalVisits === 0 || c.visitCount === 0 || c.isNew === true)) out.push({ label: 'First visit', tone: 'info' });
   if (c.activeMembershipId) out.push({ label: 'Member', tone: 'info' });
   if (a.packageId || a.redeemedPackageId) out.push({ label: 'Package', tone: 'info' });

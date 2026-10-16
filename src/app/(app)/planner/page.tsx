@@ -29,6 +29,8 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking, useUser } from '@/firebase';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { arrivalFields, arrivalNotice } from '@/lib/check-in';
+import { unconfirmedOn } from '@/lib/confirm-ask';
+import { UnconfirmedSheet } from '@/components/planner/UnconfirmedSheet';
 import { PhoneHeader, NeedsYouLine, PhoneBottomBar, BookSheet, MoreSheet } from '@/components/planner/PhonePlanner';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
@@ -386,6 +388,7 @@ function PlannerPageContent() {
   useEffect(() => { if (!visitParam || openedVisitParam.current === visitParam || !appointments?.length) return; const a: any = appointments.find((x: any) => x.id === visitParam); if (!a) return;
     openedVisitParam.current = visitParam; try { setCurrentDate(safeDate(a.startTime)); } catch { /* fine */ } setSelectedAppointment(a); setIsDetailsOpen(true); }, [visitParam, appointments]);
   const [phoneView, setPhoneView] = useState<'now' | 'grid' | 'list' | 'week' | 'month'>(() => { try { const v = localStorage.getItem('cf_planner_phone_view'); if (v === 'now' || v === 'grid' || v === 'list' || v === 'week' || v === 'month') return v as any; } catch { /* fine */ } return 'now'; });
+  const [unconfOpen, setUnconfOpen] = useState(false);
   const [phoneBookOpen, setPhoneBookOpen] = useState(false); const [phoneMoreOpen, setPhoneMoreOpen] = useState(false);
   const choosePhoneView = (v: 'now' | 'grid' | 'list' | 'week' | 'month') => { setPhoneView(v); try { localStorage.setItem('cf_planner_phone_view', v); } catch { /* fine */ } };
   const [panelAppt, setPanelAppt] = useState<any | null>(null);
@@ -1443,9 +1446,13 @@ function PlannerPageContent() {
 
 
   const openBook = (mode: 'one' | 'group' | 'steps' | 'repeat' = 'one', preset: any = null) => { setBookPreset(preset); setAppointmentToRebook(null); setClientForNewApt(null); setBookGuests(null); setBookMode(mode); setIsAddAppointmentOpen(true); };
+  // Tomorrow's visits nobody has confirmed (lib/confirm-ask) — one line, a sheet to ask them.
+  const unconfirmedTomorrow = unconfirmedOn(appointments || [], addDays(startOfDay(new Date()), 1));
+  const unconfirmedItem = unconfirmedTomorrow.length ? [{ key: 'unconfirmed', label: `${unconfirmedTomorrow.length} visit${unconfirmedTomorrow.length === 1 ? '' : 's'} tomorrow not confirmed`, onClick: () => setUnconfOpen(true) }] : [];
   const needsYouOthers = [
     ...(leftOpenList.length ? [{ key: 'left-open', label: `${leftOpenList.length} visit${leftOpenList.length === 1 ? '' : 's'} left open from earlier days`, onClick: () => setLeftOpenSheet(true), tone: 'warn' as const }] : []),
     ...(can('money.view') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
+    ...unconfirmedItem,
   ];
   const phoneProviders = (allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false);
   const phoneDayView = isMobile && (phoneView === 'grid' || phoneView === 'list');
@@ -1499,6 +1506,7 @@ function PlannerPageContent() {
         onFigures={can('money.view') ? () => setIsKpiSheetOpen(true) : undefined}
         needsYou={[
           ...(leftOpenList.length ? [{ key: 'left-open', label: `${leftOpenList.length} visit${leftOpenList.length === 1 ? '' : 's'} left open from earlier days`, onClick: () => setLeftOpenSheet(true), tone: 'warn' as const }] : []),
+          ...unconfirmedItem,
           ...(awaitingUpcoming.length ? [{ key: 'awaiting', label: `${awaitingUpcoming.length} booking${awaitingUpcoming.length === 1 ? '' : 's'} awaiting your answer`, onClick: jumpToNextAwaiting, tone: 'warn' as const }] : []),
           ...(can('money.view') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
           ...(cancelledToday > 0 ? [{ key: 'cancelled', label: `${cancelledToday} cancelled today — ${showCancelled ? 'hide' : 'show'}`, onClick: revealCancelled }] : []),
@@ -1587,6 +1595,7 @@ function PlannerPageContent() {
             onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nextA: any) => setLateAsk(nextA)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onClose={() => setPanelAppt(null)} actions={visitActions} /></div>}
         </div>}
       </main>
+      {unconfOpen && tenantId && <UnconfirmedSheet tenantId={tenantId} visits={unconfirmedTomorrow} staff={allStaff || []} onClose={() => setUnconfOpen(false)} onOpenVisit={(a: any) => { setUnconfOpen(false); setSelectedAppointment(a); setIsDetailsOpen(true); }} />}
       {isMobile && <PhoneBottomBar view={phoneView} onView={choosePhoneView} onBook={() => setPhoneBookOpen(true)} onMore={() => setPhoneMoreOpen(true)} moreBadge={awaitingUpcoming.length + needsYouOthers.length} />}
       {isMobile && phoneBookOpen && <BookSheet onClose={() => setPhoneBookOpen(false)} onVisit={() => openBook()} onFind={() => setFindOpen(true)} onBlock={() => setIsAddEventOpen(true)}
         others={[['Group', () => openBook('group')], ['Repeat', () => openBook('repeat')], ['Several providers', () => openBook('steps')], ['Class', () => router.push('/events')]]} />}

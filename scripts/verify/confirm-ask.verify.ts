@@ -1,0 +1,22 @@
+// scripts/verify/confirm-ask.verify.ts — asking clients to confirm, and the one follow-up.
+import { needsConfirm, confirmLine, confirmLink, nudgeDue, nudgeText, unconfirmedOn } from '../../src/lib/confirm-ask';
+let bad = 0; const ok = (c: any, m: string, d?: any) => { if (!c) { bad++; console.error('FAIL', m, d === undefined ? '' : JSON.stringify(d)); } else console.log('  ✓', m); };
+const H = 3600000; const now = Date.parse('2026-10-16T14:00:00Z');
+ok(needsConfirm({ status: 'confirmed' }) && !needsConfirm({ status: 'confirmed', clientConfirmedAt: 'x' }) && !needsConfirm({ status: 'confirmed', checkInStatus: 'arrived' }), 'confirmed or here: not asked');
+ok(!needsConfirm({ status: 'requested' }) && !needsConfirm({ status: 'cancelled' }) && !needsConfirm({ status: 'confirmed', isRenterBooking: true }), 'requests, cancelled and renter clients are left alone');
+const link = confirmLink('https://x', 'tok'); ok(link === 'https://x/check-in/tok?do=confirm', 'one-tap link');
+ok(confirmLine(link, {}) === ' Please confirm here: https://x/check-in/tok?do=confirm (or reply YES).', 'reply YES when replies are answered');
+ok(!confirmLine(link, { bookingPolicies: { textAssist: false } }).includes('YES'), 'no "reply YES" when nobody reads replies automatically');
+const a = { status: 'confirmed', startTime: new Date(now + 20 * H).toISOString(), confirmAskedAt: new Date(now - 5 * H).toISOString() };
+ok(nudgeDue(a, {}, now), 'due 4 hours after the reminder by default');
+ok(!nudgeDue({ ...a, confirmAskedAt: new Date(now - 3 * H).toISOString() }, {}, now), 'not before then');
+ok(nudgeDue({ ...a, confirmAskedAt: new Date(now - 3 * H).toISOString() }, { clientNotify: { confirmNudgeAfterHours: 2 } }, now), 'the business picks the wait');
+ok(!nudgeDue({ ...a, confirmNudgedAt: 'x' }, {}, now), 'only once');
+ok(!nudgeDue({ ...a, startTime: new Date(now + 1 * H).toISOString() }, {}, now), 'not in the last 2 hours');
+ok(!nudgeDue(a, { clientNotify: { confirmNudge: false } }, now) && !nudgeDue(a, { clientNotify: { askConfirm: false } }, now), 'switches off');
+ok(!nudgeDue({ ...a, clientConfirmedAt: 'x' }, {}, now), 'not once confirmed');
+const t = nudgeText({ first: 'Sam', service: 'full set', when: 'tomorrow at 3:00 PM', studio: 'Opal', link, tenant: {} });
+ok(t.startsWith("Hi Sam, just checking you're still able to make your full set tomorrow at 3:00 PM.") && t.includes(link) && !/call us/i.test(t), 'the follow-up', t);
+const day = new Date(2026, 9, 17); const list = unconfirmedOn([{ id: '1', status: 'confirmed', startTime: new Date(2026, 9, 17, 10).toISOString() }, { id: '2', status: 'confirmed', clientConfirmedAt: 'x', startTime: new Date(2026, 9, 17, 11).toISOString() }, { id: '3', status: 'confirmed', startTime: new Date(2026, 9, 18, 10).toISOString() }], day);
+ok(list.map((x) => x.id).join() === '1', 'tomorrow’s unconfirmed only');
+console.log(bad ? `${bad} failed` : 'all good'); if (bad) process.exit(1);

@@ -20,6 +20,7 @@
 // to find that spot.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { needsConfirm } from '@/lib/confirm-ask';
 import { visitClock, startedAt } from '@/lib/visit-clock';
 import { pendingFormIds } from '@/lib/visit-requests';
 import { StepRibbon, useStepStatus } from '@/components/planner/StepTimeline';
@@ -336,6 +337,8 @@ export function AppointmentCard({
     if (c1.id && (c1.totalVisits === 0 || c1.visitCount === 0 || c1.isNew === true || (Array.isArray(c1.visitHistory) && c1.visitHistory.length === 0))) push('first', 'info', Sparkles, 'First visit');
     { const ex = Number(a1.clientExtraMinutes) || extraMinutesFor(c1, a1.serviceId); if (ex > 0) push('usual-time', 'info', Sparkles, `Usually +${ex} min`); }
     if (pendingFormIds(a1, service, c1).length && !['completed', 'cancelled', 'declined'].includes(String(appointment.status))) push('form', 'alert', FileImage, 'Form to sign');
+    // Not heard from yet, and the visit is within two days (lib/confirm-ask).
+    { const t0 = Date.parse(String(a1.startTime || '')) || 0; if (needsConfirm(a1) && t0 > Date.now() && t0 - Date.now() < 48 * 3600000) push('unconfirmed', 'info', Clock, 'Not confirmed'); }
     if (Array.isArray(a1.addOnIds) && a1.addOnIds.length) push('addons', 'info', Sparkles, a1.addOnIds.length === 1 ? '+1 add-on' : `+${a1.addOnIds.length} add-ons`);
     if ((Number(a1.partySize) || 0) > 1 || a1.groupId) push('group', 'info', Repeat, a1.partySize ? `Group of ${a1.partySize}` : 'Group');
     if (a1.renterStaffId || a1.renterServiceName || a1.isRenterBooking) push('renter', 'info', Award, 'Collected for renter');

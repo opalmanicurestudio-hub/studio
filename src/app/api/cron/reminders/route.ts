@@ -47,6 +47,8 @@ export const maxDuration = 300;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
+import { askOn, needsConfirm, confirmLine, confirmLink, nudgeDue, nudgeText } from '@/lib/confirm-ask';
+import { automationOn } from '@/lib/automation-switches';
 export async function GET(req: NextRequest) {
   // Same guard style as the nightly cron: Vercel Cron sends the secret.
   const auth = req.headers.get('authorization');
@@ -145,16 +147,40 @@ export async function GET(req: NextRequest) {
           const svcDoc: any = a.serviceId ? (((await db.doc(`tenants/${tid}/services/${a.serviceId}`).get()).data() as any) || {}) : {};
           const whereLine = placeLine(svcDoc, null, a, { timeZone: tdata.timezone || null, clientPhone: phone || null, businessPhone: tdata.phone || tdata.twilioPhoneNumber || null });
           const link = a.checkInToken && ownBase ? ` If you need to make a change, you can use your visit link: ${ownBase}/check-in/${a.checkInToken}` : '';
-          const text = `Hi ${String(a.clientName || '').trim().split(/\s+/)[0] || 'there'}, we're looking forward to your ${svcDoc.name || a.serviceName || 'appointment'}${a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''} ${when}.${whereLine ? ` ${whereLine}` : ''}${link}`;
+          const askOwn = askOn(tdata) && needsConfirm(a);
+          const text = `Hi ${String(a.clientName || '').trim().split(/\s+/)[0] || 'there'}, we're looking forward to your ${svcDoc.name || a.serviceName || 'appointment'}${a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''} ${when}.${whereLine ? ` ${whereLine}` : ''}${askOwn ? confirmLine(confirmLink(ownBase, a.checkInToken), tdata) : ''}${link}`;
           let ok = false;
           if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, text, { email, subject: 'Appointment reminder' }, { kind: 'appointment_reminder', appointmentId: d.id, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null })).ok;
           if (!ok && email.includes('@')) {
             const { sendNotification } = await import('@/lib/notify');
             ok = !!(await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: 'Appointment reminder', kind: 'appointment_reminder', text, appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
           }
-          if (ok) await d.ref.set({ reminderSentAt: new Date().toISOString(), reminderSentBy: 'own_timing' }, { merge: true });
+          if (ok) await d.ref.set({ reminderSentAt: new Date().toISOString(), reminderSentBy: 'own_timing', ...(askOwn ? { confirmAskedAt: new Date().toISOString() } : {}) }, { merge: true });
         }
       } catch (e) { console.error('[cron] own-timing reminders', tid, e); }
+      // ── ONE FOLLOW-UP FOR ANYONE WHO HASN'T CONFIRMED (lib/confirm-ask) ── every run, daytime only, once per visit.
+      try {
+        const lh = hourOfLocal(new Date());
+        if (lh >= 8 && lh <= 20 && automationOn(tdata, 'confirm-nudge')) {
+          const nowMs = Date.now(); const nb = linkOrigin(tdata, ''); const studio = tdata.name || tdata.businessName || 'us';
+          const asked = await db.collection(`tenants/${tid}/appointments`).where('confirmAskedAt', '>=', '').get();
+          const done = new Set<string>();
+          for (const d of asked.docs) {
+            const a: any = d.data(); if (!nudgeDue(a, tdata, nowMs)) continue;
+            const visitKey = a.groupBookingId || a.multiProviderGroupId || d.id; if (done.has(visitKey)) { await d.ref.set({ confirmNudgedAt: new Date().toISOString() }, { merge: true }); continue; }
+            const cl: any = a.clientId ? (((await db.doc(`tenants/${tid}/clients/${a.clientId}`).get()).data() as any) || {}) : {};
+            const phone = String(a.clientPhone || cl.phone || '').trim(), email = String(a.clientEmail || cl.email || '').trim();
+            const at = new Date(a.startTime); const sameDay = dayOfLocal(at) === dayOfLocal(new Date(nowMs));
+            const when = `${sameDay ? 'today' : dayOfLocal(at) === addDays(dayOfLocal(new Date(nowMs)), 1) ? 'tomorrow' : `on ${dayOf(at)}`} at ${timeOf(at)}`;
+            const text = nudgeText({ first: String(a.clientName || '').trim().split(/\s+/)[0] || 'there', service: a.serviceName || 'appointment', when, studio, link: confirmLink(nb, a.checkInToken), tenant: tdata });
+            let ok = false;
+            if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, text, { email, subject: 'Are you still able to make it?' }, { kind: 'confirm_nudge', appointmentId: d.id, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null })).ok;
+            if (!ok && email.includes('@')) ok = !!(await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: 'Are you still able to make it?', kind: 'confirm_nudge', text, appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
+            await d.ref.set({ confirmNudgedAt: new Date().toISOString(), confirmNudgeSent: ok }, { merge: true });   // one try, sent or not
+            done.add(visitKey);
+          }
+        }
+      } catch (e) { console.error('[cron] confirm nudges', tid, e); }
       const localHour = hourOfLocal(nowInstant);
       const atChosenHour = localHour === sendHour;
       const aDayStale = (Date.now() - lastRunMs) >= 20 * 3600000;
@@ -316,6 +342,9 @@ export async function GET(req: NextRequest) {
           const formsDue = b.items.some((i) => i.a.completionStatus && i.a.completionStatus !== 'completed');
           const depositDue = b.items.some((i) => i.a.status === 'pending_payment');
           const manage = link ? ` ${depositDue ? "Please note that we haven't received your deposit yet. You can pay it here" : formsDue ? 'Please complete your forms before you arrive' : 'For details, check-in or any changes, you can use your visit link'}: ${link}` : '';
+          // Ask them to confirm (lib/confirm-ask): one tap, or "reply YES".
+          const ask = askOn(tdata) && b.items.some((i) => needsConfirm(i.a));
+          const askPart = ask ? confirmLine(confirmLink(base, token), tdata) : '';
 
           let msg: string;
           if (b.items.length === 1) {
@@ -344,7 +373,7 @@ export async function GET(req: NextRequest) {
 
           let delivered = false;
           if (b.phone && smsConfigured()) {
-            const r = await sendTenantSms(db, tid, b.phone, msg, { email: b.email, subject: 'Appointment reminder' }, { kind: 'appointment_reminder', appointmentId: b.items[0]?.id || null, recipientType: 'client', recipientId: b.items[0]?.a?.clientId || null, recipientName: b.items[0]?.a?.clientName || null });
+            const r = await sendTenantSms(db, tid, b.phone, msg.replace(manage, '') + askPart + manage, { email: b.email, subject: 'Appointment reminder' }, { kind: 'appointment_reminder', appointmentId: b.items[0]?.id || null, recipientType: 'client', recipientId: b.items[0]?.a?.clientId || null, recipientName: b.items[0]?.a?.clientName || null });
             delivered = r.ok;
           }
           if (!delivered && b.email) {
@@ -353,11 +382,11 @@ export async function GET(req: NextRequest) {
             const graceRem = Number(tRem.lateArrivalGracePeriod || 0);
             const html = brandedEmailHtml({ studioName: tRem.name || tRem.businessName || 'Your studio', title: daysBefore === 0 ? 'Your appointment is today' : 'Your upcoming appointment',
               bodyLines: [msg.replace(manage, '').trim(),
-                ...(depositDue ? ["Please note that we haven't received your deposit yet. To keep this appointment time, please pay it using the button below."] : formsDue ? ['Please complete your forms before you arrive. It only takes a minute using the button below.'] : []),
+                ...(depositDue ? ["Please note that we haven't received your deposit yet. To keep this appointment time, please pay it using the button below."] : formsDue ? ['Please complete your forms before you arrive. It only takes a minute using the button below.'] : ask ? ['Please let us know you’re coming. It takes one tap using the button below.'] : []),
                 // Same policy wording as every other message (change/cancel + running late).
                 ...bookingPolicyLines(tRem).filter((l, i) => i === 0 || /running late/i.test(l)),
                 'Kind regards,', tRem.name || tRem.businessName || 'Your studio'],
-              cta: link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Complete my forms' : 'View my visit', url: link } : null });
+              cta: link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Complete my forms' : ask ? 'Confirm I’m coming' : 'View my visit', url: !depositDue && !formsDue && ask ? confirmLink(base, token) : link } : null });
             const r = await sendNotification(db, {
               tenantId: tid, channel: 'email', to: b.email,
               subject: daysBefore === 0 ? 'Your appointment today' : 'Appointment reminder',
@@ -372,7 +401,7 @@ export async function GET(req: NextRequest) {
             // was addressed from — otherwise the next hourly run finds the
             // siblings unstamped and texts the same person again.
             for (const i of b.items) {
-              try { await i.ref.set({ reminderSentAt: stampedAt }, { merge: true }); } catch { /* next */ }
+              try { await i.ref.set({ reminderSentAt: stampedAt, ...(ask && needsConfirm(i.a) ? { confirmAskedAt: stampedAt } : {}) }, { merge: true }); } catch { /* next */ }
             }
             sent += b.items.length;
           } else skipped += b.items.length;
