@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
   if (action === 'viewed') { // "client opened the link" — once, for the activity timeline
     const x = await fromCheckIn(db, token); if (!x) return bad('This link isn’t valid.', 404);
     if (!x.appt.completionLinkFirstViewedAt) await x.ref.set({ completionLinkFirstViewedAt: nowIso }, { merge: true });
+    if (b.by !== 'desk') { const { stampLinkView } = await import('@/lib/link-views'); await stampLinkView(x.ref, x.appt, 'visit'); }
     return NextResponse.json({ ok: true });
   }
 

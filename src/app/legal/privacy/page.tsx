@@ -254,11 +254,15 @@ export default function PlatformPrivacyPage() {
         </section>
 
         <section className="space-y-2">
-          <H>7. Email delivery tracking</H>
+          <H>7. Message delivery and link records</H>
           <P>
-            Service emails sent through the Services may record whether the message was delivered, opened, or
-            whether a link in it was clicked. This exists so a studio can confirm that a confirmation or reminder
-            actually arrived and can correct a mistyped address. It is not used to profile recipients or to target
+            Service emails and texts sent through the Services keep a record of the message, the address or number
+            it was sent to, and what the email or text provider reports back: whether it was delivered and, for
+            email, whether it was opened or a link in it was clicked. When a client opens one of their private
+            appointment links (for example, their visit link, aftercare, or a request for forms), the time it was
+            opened is recorded on that appointment, along with forms signed and policies agreed to there. This exists
+            so a studio can confirm that a confirmation, reminder or request actually arrived, keep a record of what
+            was agreed, and correct a mistyped address. It is not used to profile recipients or to target
             advertising, and it is visible only to the studio that sent the message.
           </P>
         </section>

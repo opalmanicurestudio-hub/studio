@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
   if (!v) return j({ ok: false, error: 'This link isn’t valid.' }, 404);
   const action = String(b.action || 'get');
   const by = b.d && String(b.d) === prepDeskKey(tenantId, appointmentId) ? 'desk' as const : 'client' as const;   // the desk filling it in over the phone
+  if (action === 'get') { const { stampLinkView } = await import('@/lib/link-views'); await stampLinkView(v.ref, v.a, 'before', { staff: by === 'desk' }); }
   if (action === 'get') return j({ ...(await prepInfo(db, tenantId, v)), desk: by === 'desk' });
   if (action === 'photo') {
     const n = Number(v.a.prepUploads || 0); if (n >= 3) return j({ ok: false, error: 'That’s the most photos we can take for one visit.' }, 400);

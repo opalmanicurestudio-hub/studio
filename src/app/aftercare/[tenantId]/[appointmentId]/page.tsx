@@ -18,11 +18,12 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
 const font = { fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif', color: INK, letterSpacing: '-0.01em' } as const;
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
 
-export default async function AftercarePage({ params, searchParams }: { params: Promise<{ tenantId: string; appointmentId: string }>; searchParams: Promise<{ k?: string; t?: string; c?: string; lang?: string }> }) {
+export default async function AftercarePage({ params, searchParams }: { params: Promise<{ tenantId: string; appointmentId: string }>; searchParams: Promise<{ k?: string; t?: string; c?: string; lang?: string; by?: string }> }) {
   const { tenantId, appointmentId } = await params; const sp = await searchParams;
   const db = getAdminDb(); const v = await feedbackVisit(db, tenantId, appointmentId, sp.k || null, sp.t || null);
   const shell = (body: React.ReactNode) => <div style={{ ...font, background: '#f7f7f8', minHeight: '100vh' }}><div style={{ maxWidth: 560, margin: '0 auto', padding: '28px 20px 60px' }}>{body}</div></div>;
   if (!v) return shell(<div style={{ paddingTop: 40 }}><p style={{ fontSize: 20 }}>This link isn’t valid.</p><p style={{ color: MUTED }}>Use the link in your message, or ask us for a new one.</p></div>);
+  { const { stampLinkView } = await import('@/lib/link-views'); await stampLinkView(v.ref, v.a, 'aftercare', { staff: (sp as any).by === 'desk' }); }
   const a = v.a; const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   const prov: any = a.staffId ? (await db.doc(`tenants/${tenantId}/staff/${a.staffId}`).get()).data() || null : null;
   const isRenterVisit = !!prov && (prov.isRenter === true || prov.role === 'renter');

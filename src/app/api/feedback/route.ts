@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams; const tenantId = String(q.get('tenantId') || ''); const id = String(q.get('id') || '');
   const db = getAdminDb(); const v = await feedbackVisit(db, tenantId, id, q.get('k'), q.get('t'));
   if (!v) return bad('This link isn’t valid any more.', 404);
+  { const { stampLinkView } = await import('@/lib/link-views'); await stampLinkView(v.ref, v.a, 'feedback', { staff: q.get('by') === 'desk' }); }
   return NextResponse.json(await feedbackInfo(db, tenantId, v), { headers: { 'Cache-Control': 'no-store' } });
 }
 

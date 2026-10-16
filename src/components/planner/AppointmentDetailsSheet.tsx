@@ -84,6 +84,7 @@ import { StoreCreditBadge } from '@/components/StoreCreditBadge';
 import { StoreCreditSection } from '@/components/appointments/StoreCreditSection';
 import { useStoreCredit } from '@/hooks/useStoreCredit';
 import { useDepositCredit } from '@/hooks/useDepositCredit';
+import { ContactProof } from '@/components/visit/ContactProof';
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
 
@@ -319,6 +320,12 @@ const buildTimelineEvents = (opts: {
   // glance whether a stalled request needs a nudge.
   if (appointment.lastRequirementsRequestedAt) push(appointment.lastRequirementsRequestedAt, Send, 'Requirements requested — link sent to client');
   if (appointment.completionLinkFirstViewedAt) push(appointment.completionLinkFirstViewedAt, ExternalLink, 'Client opened check-in link');
+  const LINK_NAME: Record<string, string> = { visit: 'visit link', before: 'Before your visit page', aftercare: 'aftercare page', feedback: 'How was your visit page' };
+  Object.entries(appointment.linkViews || {}).forEach(([k, v]: [string, any]) => {
+    if (k === 'visit' && appointment.completionLinkFirstViewedAt) return;
+    push(v?.first, ExternalLink, `Client opened their ${LINK_NAME[k] || 'link'}`, Number(v?.count) > 1 ? `${v.count} times` : undefined, 'good');
+  });
+  if (appointment.policyAcceptance?.acceptedAt) push(appointment.policyAcceptance.acceptedAt, FileSignature, 'Client agreed to the booking policy', appointment.policyAcceptance.policyVersion ? `Version ${appointment.policyAcceptance.policyVersion}` : undefined, 'good');
   if (appointment.completionConsentsAt) {
     const formNames = (appointment.signedForms || []).map((f: any) => f.formTitle).filter(Boolean);
     const fileLabels = (appointment.requirementFiles || []).map((f: any) => f.label).filter(Boolean);
@@ -3091,6 +3098,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               </span>
             </AccordionTrigger>
             <AccordionContent className="px-4 pb-4 pt-1 space-y-3">
+              <ContactProof appointment={appointment} messages={messages} studio={String((selectedTenant as any)?.name || (selectedTenant as any)?.businessName || 'Your business')} tz={(selectedTenant as any)?.timezone || (selectedTenant as any)?.timeZone} />
               {messages.length === 0 && (
                 <p className="text-[12px] font-bold text-muted-foreground opacity-40 text-center py-2">Nothing sent for this appointment yet</p>
               )}

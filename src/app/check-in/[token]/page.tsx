@@ -2540,11 +2540,13 @@ export default function CheckInPage() {
     // only ever writes once, no matter how many times the client re-opens
     // the same link. Fires unconditionally on mount (before any early
     // return) — same Rules-of-Hooks discipline as every other hook here.
+    const viewNoted = React.useRef(false);
     useEffect(() => {
         if (!firestore || !tenantId || !appointmentData?.id) return;
-        if (appointmentData.completionLinkFirstViewedAt) return; // already recorded
-        fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'viewed', token }) }).catch(() => {}); // best-effort
-    }, [firestore, tenantId, appointmentData?.id, appointmentData?.completionLinkFirstViewedAt]);
+        if (viewNoted.current) return; viewNoted.current = true;
+        const by = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('by') : null;
+        fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'viewed', token, by }) }).catch(() => {}); // best-effort
+    }, [firestore, tenantId, appointmentData?.id]);
 
     // Every visit-link action goes through /api/appt with this page's token.
     // This phone's id travels with every call (private things open only on a phone that has confirmed a code).
