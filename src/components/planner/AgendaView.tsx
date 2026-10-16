@@ -2,6 +2,7 @@
 // src/components/planner/AgendaView.tsx — THE DAY AS ONE LIST. Every visit in time order with the provider, the client,
 // the service and the state in words; sticky hour headers; gaps inside working hours as "Book here" rows; provider chips
 // to narrow it; arrow keys move, Enter opens. The selected row drives the side panel next to it.
+import { startedAt, clockLabel } from '@/lib/visit-clock';
 import { pendingFormIds } from '@/lib/visit-requests';
 import { extraMinutesFor } from '@/lib/client-timing';
 import * as React from 'react';
@@ -13,7 +14,7 @@ export const STATE_COLOR: Record<string, string> = { completed: 'var(--ok, #1580
 /** A clock that re-renders every `ms` — for live timers and "N min over". */
 export function useNow(ms = 1000) { const [, set] = React.useState(0); React.useEffect(() => { const t = setInterval(() => set((x) => x + 1), ms); return () => clearInterval(t); }, [ms]); return new Date(); }
 /** "12:04" elapsed since the visit started (hours shown past 60 minutes). */
-export function elapsedLabel(a: any): string | null { if (a.status !== 'servicing' || !a.actualStartTime) return null; const s = Math.max(0, Math.floor((Date.now() - safe(a.actualStartTime).getTime()) / 1000)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`; }
+export function elapsedLabel(a: any): string | null { const s = a?.status === 'servicing' ? startedAt(a) : 0; return s ? clockLabel((Date.now() - s) / 1000) : null; }
 /** The marks every view shows — the same list as the board's cards, from the visit's own data. */
 export function visitMarks(a: any, client: any, service: any): { label: string; tone: 'alert' | 'good' | 'info' }[] {
   const out: { label: string; tone: 'alert' | 'good' | 'info' }[] = []; const c = client || {};

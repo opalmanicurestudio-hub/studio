@@ -1,4 +1,5 @@
 'use client';
+import { visitClock, startedAt } from '@/lib/visit-clock';
 import { writePartHandoff } from '@/lib/part-handoff';
 import { startBlocker } from '@/lib/visit-requests';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -1014,21 +1015,12 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
   const st        = apt?.status || 'confirmed';
 
   useEffect(() => {
-    if (st !== 'servicing' || !apt?.actualStartTime) return;
-    const tick = () => {
-      const secs = differenceInSeconds(new Date(), safeDate(apt.actualStartTime));
-      const h = Math.floor(secs / 3600);
-      const m = Math.floor((secs % 3600) / 60);
-      const s = secs % 60;
-      setElapsed(h > 0
-        ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-        : `${m}:${String(s).padStart(2,'0')}`);
-      setIsOverTime(Math.floor(secs / 60) > svcDur);
-    };
+    if (st !== 'servicing' || !startedAt(apt)) return;
+    const tick = () => { const c = visitClock(apt, service, allServices || []); if (!c) return; setElapsed(c.label); setIsOverTime(c.over); };   // the one live clock (lib/visit-clock)
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [st, apt?.actualStartTime, svcDur]);
+  }, [st, apt, service, allServices]);
 
   // Early return AFTER all hooks
   if (!apt) return null;
@@ -4540,7 +4532,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       case 'start': {
         // The same readiness check as the planner: forms signed and any required deposit paid.
         const cSnap = apt?.clientId ? await getDoc(doc(firestore, `tenants/${tenantId}/clients`, apt.clientId)).catch(() => null) : null;
-        const blocked = startBlocker(apt, (services || []).find((s: any) => s.id === apt?.serviceId), cSnap?.exists() ? cSnap.data() : undefined);
+        const blocked = startBlocker(apt, (services || []).find((s: any) => s.id === apt?.serviceId), cSnap?.exists() ? cSnap.data() : undefined, undefined, portalTenant);
         if (blocked) { toast({ variant: 'destructive', title: 'Not ready to start', description: `${blocked}. Ask the front desk to sort it out.` }); return; }
         batch.update(aptRef,{ status:'servicing', actualStartTime:now });
         batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'busy', currentAppointmentId:aptId },{ merge:true });
@@ -4571,7 +4563,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     catch { toast({ variant:'destructive', title:'That didn’t save', description:'Check your connection and try again. If it keeps happening, tell your manager.' }); return; }
     const labels: Record<string,string> = { start:'Service Started ✓', checkout:'Sent to Checkout ✓', complete:'Marked Complete ✓', escalate:'Escalated to Manager ✓', noshow:'Marked No Show' };
     toast({ title: labels[action] || 'Updated' });
-  }, [firestore, tenantId, staffMember]);
+  }, [firestore, tenantId, staffMember, services, portalTenant, toast]);
 
   // ── Escalation handler ──
   const handleEscalate = useCallback(async (apt: any) => {

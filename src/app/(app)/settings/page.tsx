@@ -1,4 +1,5 @@
 'use client';
+import { READY_KEYS, READY_LABEL, READY_HELP, READY_DEFAULTS } from '@/lib/visit-readiness';
 import { US_STATES } from '@/lib/pay-extras';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
@@ -720,6 +721,14 @@ function SettingsPageImpl() {
                 <Row label="Minimum wage" help="Each workweek, everyone paid by commission, per service or by the hour must earn at least this for every hour on the clock (tips don’t count). Payday and payroll add a top-up when they don’t, and overtime on commission or per service pay is worked out from it. Use your state or city rate when it’s higher than the federal $7.25.">
                   {(() => { const pr: any = (tenantData as any).payRules || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } }));
                     return (<div className="flex flex-wrap items-center gap-2 text-[15px]">$<input type="number" min={0} step={0.01} value={pr.minimumWage ?? ''} placeholder="7.25" onChange={(e) => set({ minimumWage: Math.max(0, parseFloat(e.target.value) || 0) || null })} aria-label="Minimum wage per hour" className="h-11 w-24 rounded-xl border px-3 text-right" style={{ borderColor: 'hsl(var(--border))' }} /><span>an hour</span></div>); })()}
+                </Row>
+                <Row label="Before a visit" help="What has to be done before a visit can start. “Must be done” stops Start until it is; “Reminder” shows it on the visit without stopping anything. A service can choose differently (Services, Before a visit).">
+                  {(() => { const rd: any = (tenantData as any).readiness || {}; const set = (k: string, v: string) => setTenantData((prev: any) => ({ ...prev, readiness: { ...((prev as any).readiness || {}), [k]: v } })); const ipt = { borderColor: 'hsl(var(--border))' } as any;
+                    return (<div className="space-y-2 text-[15px]">{READY_KEYS.map((k) => (
+                      <div key={k} className="flex flex-wrap items-center justify-between gap-2"><span>{READY_LABEL[k]} <span className="text-[13px] cf-muted">{READY_HELP[k]}</span></span>
+                        <select value={rd[k] || READY_DEFAULTS[k]} onChange={(e) => set(k, e.target.value)} aria-label={READY_LABEL[k]} className="h-11 rounded-xl border px-3" style={ipt}>
+                          <option value="block">Must be done to start</option><option value="remind">Reminder only</option><option value="off">Off</option>
+                        </select></div>))}</div>); })()}
                 </Row>
                 <Row label="Your state, and tips" help="Some states let tips make up part of minimum wage (a “tip credit”): the business pays at least a lower cash wage and tips cover the rest. Alaska, California, Minnesota, Montana, Nevada, Oregon and Washington don’t allow it. Off unless you switch it on; check your state’s current cash wage.">
                   {(() => { const pr: any = (tenantData as any).payRules || {}; const tc: any = pr.tipCredit || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } })); const ipt = { borderColor: 'hsl(var(--border))' } as any;

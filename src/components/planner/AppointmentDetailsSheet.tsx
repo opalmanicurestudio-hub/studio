@@ -1,4 +1,5 @@
 'use client';
+import { visitClock, startedAt } from '@/lib/visit-clock';
 import { VisitCue } from '@/components/loyalty/VisitCue';
 import { logHealthOpen } from '@/lib/health-view-client';
 import { PrepSummary } from '@/components/staff-portal/PrepSummary';
@@ -1976,21 +1977,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   // ── Live session timer ──────────────────────────────────────────────────────
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
-    if (appointment?.status === 'servicing' && appointment.actualStartTime) {
-      const startTime = safeDate(appointment.actualStartTime);
-      const update = () => {
-        const diff = differenceInSeconds(new Date(), startTime);
-        const h = Math.floor(diff / 3600);
-        const m = Math.floor((diff % 3600) / 60);
-        const s = diff % 60;
-        setElapsedTime(h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`);
-        setIsRunningOver(Math.floor(diff / 60) > (service?.duration || 0));
-      };
+    if (appointment?.status === 'servicing' && startedAt(appointment)) {
+      const update = () => { const c = visitClock(appointment, service, allServices || []); if (!c) return; setElapsedTime(c.label); setIsRunningOver(c.over); };
       update();
       timer = setInterval(update, 1000);
     }
     return () => { if (timer) clearInterval(timer); };
-  }, [appointment?.status, appointment?.actualStartTime, service?.duration]);
+  }, [appointment, service, allServices]);
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {

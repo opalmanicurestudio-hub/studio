@@ -1076,7 +1076,7 @@ function PlannerPageContent() {
     const appointment = appointments.find(a => a.id === id);
     if (!appointment) return;
     // The same readiness check as the visit sheet, from every Start button (cards, the side panel, Now, the menu).
-    const blocked = startBlocker(appointment, (services || []).find((s: any) => s.id === appointment.serviceId), (clients || []).find((c: any) => c.id === appointment.clientId));
+    const blocked = startBlocker(appointment, (services || []).find((s: any) => s.id === appointment.serviceId), (clients || []).find((c: any) => c.id === appointment.clientId), undefined, selectedTenant);
     if (blocked) { toast({ variant: 'destructive', title: 'Not ready to start', description: `${blocked}. Open the visit to sort it out.` }); return; }
     const batch = writeBatch(firestore);
     batch.update(doc(firestore, 'tenants', tenantId, 'appointments', id), { status: 'servicing', actualStartTime: now });

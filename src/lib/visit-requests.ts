@@ -2,6 +2,8 @@
 // that carries the one visit link. Shared by the visit's "Send what's missing" / "Send to client" sheet and the send
 // route (api/notifications/send-completion-link). Also: where a visit stands — one readiness check every screen uses,
 // so a card, the planner sheet and the staff portal never disagree about forms, deposit or card.
+import { readinessOf } from './visit-readiness';
+
 export type RequestItem = 'forms' | 'photo_current' | 'inspo' | 'card' | 'deposit' | 'balance' | 'questions' | 'confirm' | 'photo_id' | 'emergency' | 'file';
 
 export const ITEM_WORDS: Record<RequestItem, { ask: string; label: string }> = {
@@ -46,14 +48,11 @@ export function pendingFormIds(apt: any, service: any, client?: any, forms?: any
   return [...need].filter((id) => !signedHere.has(id) && (everyTime(id) || !signedBefore.has(id)));
 }
 export const intakeComplete = (apt: any) => ['complete', 'completed'].includes(String(apt?.completionStatus || ''));
-/** What stops this visit starting, in plain words; null = ready. Deposits and forms block; a card never does. */
-export function startBlocker(apt: any, service: any, client?: any, forms?: any[]): string | null {
+/** What stops this visit starting, in plain words; null = ready. The rules are the business's (lib/readiness:
+ *  Settings → Before a visit, and per service); this adds the visit's own state (finished, waiting to pay, a request). */
+export function startBlocker(apt: any, service: any, client?: any, forms?: any[], tenant?: any): string | null {
   if (!apt) return null;
   const st = String(apt.status || '');
   if (['completed', 'cancelled', 'no_show', 'no-show', 'in_progress', 'in-progress', 'servicing', 'ready_for_checkout', 'checked_out', 'paid', 'requested', 'declined', 'expired'].includes(st)) return st === 'requested' ? 'Accept the booking first' : 'This visit can’t be started';
-  // A deposit only blocks when the booking marked it required (readinessFlags.depositRequired), as the visit sheet does.
-  const depositDue = !!apt.readinessFlags?.depositRequired && Number(apt.depositAmountCents || 0) > 0 && !['paid', 'waived', 'credited'].includes(String(apt.depositStatus || ''));
-  if (depositDue) return 'Deposit not paid';
-  if (pendingFormIds(apt, service, client, forms).length) return 'Form not signed';
-  return null;
+  return readinessOf(apt, service, client, tenant, forms).blocker;
 }

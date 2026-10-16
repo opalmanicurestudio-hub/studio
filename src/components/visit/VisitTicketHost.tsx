@@ -39,7 +39,7 @@ export function VisitTicketHost() {
       client={(clients || []).find((c: any) => c.id === appt.clientId) || null} service={(services || []).find((s: any) => s.id === appt.serviceId) || null}
       tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []}
       onStartService={(aid: string) => { if (!firestore || !tenantId) return; const a: any = (appointments || []).find((x: any) => x.id === aid); if (!a) return;
-        if (startBlocker(a, (services || []).find((s: any) => s.id === a.serviceId), (clients || []).find((c: any) => c.id === a.clientId))) return;   // the sheet shows why
+        if (startBlocker(a, (services || []).find((s: any) => s.id === a.serviceId), (clients || []).find((c: any) => c.id === a.clientId), undefined, selectedTenant)) return;   // the sheet shows why
         const now = new Date().toISOString(); const b = writeBatch(firestore);
         b.update(doc(firestore, 'tenants', tenantId, 'appointments', aid), { status: 'servicing', actualStartTime: now }); if (a.checkInToken) b.set(doc(firestore, 'appointmentCheckIns', a.checkInToken), { status: 'servicing', tenantId }, { merge: true });
         if (a.staffId) b.set(doc(firestore, 'tenants', tenantId, 'staff', a.staffId), { status: 'busy' }, { merge: true }); void b.commit(); }}

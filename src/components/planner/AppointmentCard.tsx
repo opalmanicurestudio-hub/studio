@@ -20,6 +20,7 @@
 // to find that spot.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { visitClock, startedAt } from '@/lib/visit-clock';
 import { pendingFormIds } from '@/lib/visit-requests';
 import { StepRibbon, useStepStatus } from '@/components/planner/StepTimeline';
 import { extraMinutesFor } from '@/lib/client-timing';
@@ -116,18 +117,11 @@ export function AppointmentCard({
 
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
-    if (appointment.status === 'servicing' && appointment.actualStartTime) {
-      const startTime = safeDate(appointment.actualStartTime);
+    if (appointment.status === 'servicing' && startedAt(appointment)) {
+      // The one live clock (lib/visit-clock): service + add-ons + the client's usual extra time + any step extra.
       const updateTimer = () => {
-        const now = new Date();
-        const diff = differenceInSeconds(now, startTime);
-        const mins = Math.floor(diff / 60);
-        const hours = Math.floor(mins / 60);
-        const displayMins = mins % 60;
-        const displaySecs = diff % 60;
-        setElapsedTime(hours > 0 ? `${hours}:${String(displayMins).padStart(2, '0')}:${String(displaySecs).padStart(2, '0')}` : `${displayMins}:${String(displaySecs).padStart(2, '0')}`);
-        const booked = (service?.duration ?? 0) + ((appointment as any).addOnIds || []).reduce((n: number, id: string) => n + (Number((allServices || []).find((x: any) => x.id === id)?.duration) || 0), 0);   // the service plus its add-ons
-        setOverMinutes(booked > 0 ? Math.max(0, mins - booked) : 0); setIsRunningOver(booked > 0 && mins > booked);
+        const c = visitClock(appointment, service, allServices || []); if (!c) return;
+        setElapsedTime(c.label); setOverMinutes(c.overMinutes); setIsRunningOver(c.over);
       };
       updateTimer();
       timer = setInterval(updateTimer, 1000);
@@ -467,8 +461,8 @@ export function AppointmentCard({
                     )}
                 </div>
                 <div className="flex items-baseline gap-2 mb-1">
-                  {tier === 'compact' && <span className="shrink-0 tabular-nums font-[700] leading-none text-[11px] sm:text-[12px] text-muted-foreground">
-                    {format(safeDate(appointment.startTime), 'h:mm')}
+                  {tier === 'compact' && <span className={cn("shrink-0 tabular-nums font-[700] leading-none text-[11px] sm:text-[12px]", appointment.status === 'servicing' ? (isRunningOver ? 'text-red-600' : 'text-primary') : 'text-muted-foreground')}>
+                    {appointment.status === 'servicing' && elapsedTime ? elapsedTime : format(safeDate(appointment.startTime), 'h:mm')}
                   </span>}
                   <p className="font-[800] tracking-[-0.01em] text-[14px] sm:text-[15px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
                   {ticket !== null && tier !== 'compact' && appointment.status !== 'servicing' && (

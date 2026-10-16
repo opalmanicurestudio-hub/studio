@@ -54,6 +54,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { READY_KEYS, READY_LABEL, type ReadyRule } from '@/lib/visit-readiness';
 
 const schema = z.object({
   id: z.string().optional(),
@@ -498,6 +499,11 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
   // ── How it's delivered (service blueprint) — phases + requirements; the timing fields are derived from it on save.
   const [bpOn, setBpOn] = useState<boolean>(!!(service as any)?.blueprint?.phases?.length);
+  // Before a visit, for this service only (blank = the business's setting): what must be done to start, and whether a
+  // photo or a saved card is asked for (lib/visit-readiness).
+  const [ready, setReady] = useState<Record<string, ReadyRule | ''>>(() => ({ ...((service as any)?.readiness || {}) }));
+  const [needPhoto, setNeedPhoto] = useState<boolean>(!!(service as any)?.requiresPhoto);
+  const [needCard, setNeedCard] = useState<boolean>(!!(service as any)?.requiresCard);
   const [bpPhases, setBpPhases] = useState<Phase[]>(() => (service as any)?.blueprint?.phases?.length ? (service as any).blueprint.phases : phasesFromService(service || {}));
   const [bpReqs, setBpReqs] = useState<Requirement[]>(() => (service as any)?.blueprint?.requirements || []);
   const bpT = deriveTimings(bpPhases);
@@ -531,6 +537,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       type: data.isAddon ? 'addon' : 'service',
       price: finalPrice,
       // The return plan (Book your next visit) — blanks mean "the same service" / "no change", never undefined.
+      readiness: Object.fromEntries(Object.entries(ready).filter(([, v]) => v === 'block' || v === 'remind' || v === 'off')), requiresPhoto: needPhoto, requiresCard: needCard,
       returnServiceId: data.returnServiceId || null, lateServiceId: data.lateServiceId || null,
       returnMinWeeks: Math.max(0, Math.min(52, Number(data.returnMinWeeks) || 0)), returnMaxWeeks: Math.max(0, Math.min(52, Number(data.returnMaxWeeks) || 0)),
       // Blueprint on → its phases decide duration and the set-up / clean-up buffers (one source of truth for booking).
@@ -1024,6 +1031,19 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   <span className="font-bold text-[12px] text-foreground/80 flex-1 truncate">{(item as any).title || item.name || 'Untitled form'}</span>
                 )}
               />
+              <SectionLabel>Before a visit</SectionLabel>
+              <div className="space-y-2 rounded-2xl border p-3 text-[14px]">
+                <label className="flex items-center gap-2"><input type="checkbox" checked={needPhoto} onChange={(e) => setNeedPhoto(e.target.checked)} className="h-4 w-4" />Ask the client for a photo before the visit</label>
+                <label className="flex items-center gap-2"><input type="checkbox" checked={needCard} onChange={(e) => setNeedCard(e.target.checked)} className="h-4 w-4" />Ask for a card on file</label>
+                <div className="pt-1 text-[13px] text-muted-foreground">What must be done to start, for this service. Blank uses your business setting (Settings, Before a visit).</div>
+                {READY_KEYS.map((k) => (
+                  <div key={k} className="flex items-center justify-between gap-3">
+                    <span>{READY_LABEL[k]}</span>
+                    <select value={ready[k] || ''} onChange={(e) => setReady((x) => ({ ...x, [k]: e.target.value as any }))} aria-label={READY_LABEL[k]} className="h-10 rounded-xl border bg-background px-2 text-[13.5px]">
+                      <option value="">Business setting</option><option value="block">Must be done to start</option><option value="remind">Reminder only</option><option value="off">Off</option>
+                    </select>
+                  </div>))}
+              </div>
             </section>
 
             {showAll && <Separator />}
