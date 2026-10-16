@@ -45,13 +45,23 @@ export interface LiveTiming { steps: LiveStep[]; index: number; state: 'before' 
 export function liveTiming(steps: Step[], appt: any, now = Date.now()): LiveTiming | null {
   const startMs = clientStartMs(appt); if (!steps.length || !startMs) return null;
   const bookedMs = ms(appt?.startTime) || startMs;
-  const starts: Record<string, any> = appt?.stepStarts || {}; const extras: Record<string, any> = appt?.stepExtra || {};
+  const starts: Record<string, any> = { ...(appt?.stepStarts || {}) }; const extras: Record<string, any> = appt?.stepExtra || {};
   const at = (i: number) => ms(starts[String(i)]);
   const finished = ['completed', 'checked_out'].includes(String(appt?.status)) ? ms(appt?.actualEndTime) || ms(appt?.completedAt) : 0;
   const live = !finished && (['servicing', 'in_service'].includes(String(appt?.status)) || !!appt?.actualStartTime);
   const client = steps.map((s, i) => i).filter((i) => steps[i].kind !== 'setup' && steps[i].kind !== 'turnover');
   const lastClient = client[client.length - 1] ?? steps.length - 1;
-  const logged = client.filter((i) => at(i) > 0); const recorded = logged.length > 0;
+  let logged = client.filter((i) => at(i) > 0); const recorded = logged.length > 0;
+  // Moving on by itself: once a tapped step has run its time and the next step is processing (the client sits, the
+  // provider is free), the visit moves into processing without a tap. Leaving processing still waits for the provider
+  // (a reminder fires when it's done — stepAlert below).
+  if (recorded && !finished) {
+    let k = Math.max(...logged);
+    for (;;) { const nx = client[client.indexOf(k) + 1]; if (nx === undefined || steps[nx].kind !== 'processing') break;
+      const ends = at(k) + (steps[k].minutes + Math.max(0, Math.round(Number(extras[String(k)]) || 0))) * 60000; if ((now) < ends) break;
+      starts[String(nx)] = new Date(ends).toISOString(); k = nx; }
+    logged = client.filter((i) => at(i) > 0);
+  }
   // Which step is happening now
   let cur = -1;
   if (live || finished) {
@@ -78,4 +88,24 @@ export function liveTiming(steps: Step[], appt: any, now = Date.now()): LiveTimi
   const state: LiveTiming['state'] = finished || (live && now >= last) ? 'after' : !live ? 'before' : 'during';
   const ci = cur >= 0 ? cur : -1; const leftMin = ci >= 0 && state === 'during' ? Math.max(0, Math.ceil((out[ci].toMs - now) / 60000)) : 0;
   return { steps: out, index: ci, state, leftMin, pct: Math.min(100, Math.max(0, ((Math.min(now, last) - first) / span) * 100)), delayMin: Math.round((clientEndMs - plannedClientEndMs) / 60000), clientEndMs, freeMs, plannedClientEndMs, recorded };
+}
+
+/** What the provider should be told now, if anything: processing has finished (time to come back), or it ends within a
+ *  minute. One alert per step: the key is stable so a reminder fires once. */
+export function stepAlert(steps: Step[], appt: any, now = Date.now()): { key: string; kind: 'processing_done' | 'processing_ending'; label: string; nextLabel: string | null; nextIndex: number | null; overMin: number } | null {
+  if (String(appt?.status) !== 'servicing') return null;
+  const lt = liveTiming(steps, appt, now); if (!lt || lt.index < 0 || lt.state !== 'during') return null;
+  const s = lt.steps[lt.index];
+  if (s.kind !== 'processing') {
+    // Untapped visits follow the clock, so the step after processing has already begun: still say so, for 10 minutes.
+    const p = lt.index - 1; const prev = lt.steps[p];
+    if (!lt.recorded && prev?.kind === 'processing' && now - s.fromMs < 10 * 60000) return { key: `${appt?.id}:${p}:${prev.extra}:done`, kind: 'processing_done', label: prev.label, nextLabel: s.label, nextIndex: null, overMin: 0 };
+    return null;
+  }
+  const ends = s.fromMs + (s.minutes + s.extra) * 60000; const left = ends - now;
+  const nextIndex = lt.steps.findIndex((x, i) => i > lt.index && x.kind !== 'turnover' && x.kind !== 'setup');
+  const base = { label: s.label, nextLabel: nextIndex >= 0 ? lt.steps[nextIndex].label : null, nextIndex: nextIndex >= 0 ? nextIndex : null };
+  if (left <= 0) return { key: `${appt?.id}:${lt.index}:${s.extra}:done`, kind: 'processing_done', ...base, overMin: Math.floor(-left / 60000) };
+  if (left <= 60000) return { key: `${appt?.id}:${lt.index}:${s.extra}:ending`, kind: 'processing_ending', ...base, overMin: 0 };
+  return null;
 }
