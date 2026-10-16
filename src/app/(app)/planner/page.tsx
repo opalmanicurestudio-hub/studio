@@ -101,6 +101,9 @@ function PlannerPageContent() {
   const viewParam = searchParams.get('view');
 
   const isMobile = useIsMobile();
+  // Wide enough to keep a visit open beside the board instead of covering it.
+  const [wideScreen, setWideScreen] = useState(false);
+  useEffect(() => { const m = window.matchMedia('(min-width: 1180px)'); const f = () => setWideScreen(m.matches); f(); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, []);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
 
   const { user: currentUser } = useUser();
@@ -477,9 +480,20 @@ function PlannerPageContent() {
     return real;
   }, [allStaff, role, currentUser]);
 
+  // Columns you've hidden on this computer (the "4 of 5 people" picker). Phones show one column at a time instead.
+  const [hiddenCols, setHiddenCols] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('cf_planner_hidden_cols') || '[]'); } catch { return []; } });
+  const [colPickOpen, setColPickOpen] = useState(false);
+  const toggleCol = (id: string) => setHiddenCols((h) => { const n = h.includes(id) ? h.filter((x) => x !== id) : [...h, id]; try { localStorage.setItem('cf_planner_hidden_cols', JSON.stringify(n)); } catch { /* fine */ } return n; });
+  // Who gets a column: people who work here and are active. A renter, or someone switched off, only when they have a
+  // visit on this day.
+  const staffColumns = useMemo(() => {
+    const busy = new Set((appointments || []).filter((a: any) => { try { return isSameDay(safeDate(a.startTime), currentDate) && !['cancelled', 'declined'].includes(String(a.status)); } catch { return false; } }).map((a: any) => a.staffId));
+    return (staff || []).filter((st: any) => (st.role !== 'renter' && st.active !== false) || busy.has(st.id));
+  }, [staff, appointments, currentDate]);
+
   const columns = useMemo(() => {
     let cols: any[] = activeView === 'staff'
-      ? (staff || [])
+      ? staffColumns.filter((st: any) => isMobile || !hiddenCols.includes(st.id))
       : activeView === 'booths'
         // Only spaces that can actually hold a booking. A column nobody can be
         // put in is noise on the busiest screen in the building.
@@ -487,7 +501,7 @@ function PlannerPageContent() {
         : (resourcesData || []);
     if (can('bookings.all')) cols = [{ id: 'business', name: 'Studio', isBusiness: true }, ...cols];
     return cols;
-  }, [activeView, staff, resourcesData, boothsData, role]);
+  }, [activeView, staffColumns, hiddenCols, isMobile, resourcesData, boothsData, role]);
 
   useEffect(() => {
     if (columns.length > 0 && !mobileSelectedColumnId) setMobileSelectedColumnId(columns[0].id);
@@ -512,6 +526,7 @@ function PlannerPageContent() {
     const map = new Map<string, (Appointment | Event | any)[]>();
     (columns || []).forEach(c => map.set(c.id, []));
     const targetDateStart = startOfDay(currentDate);
+    const dayAppointmentsForCols = (appointments || []).filter((a: any) => isSameDay(safeDate(a.startTime), targetDateStart) && !isDeadAppointment(a));
 
     appointments?.filter(a => isSameDay(safeDate(a.startTime), targetDateStart))
       .filter(a => showCancelled || !isDeadAppointment(a))
@@ -797,9 +812,9 @@ function PlannerPageContent() {
 
     // Maintenance blocks propagate exactly like global blocked events: the
     // Studio lane gets the primary item, the matching resource column gets
-    // it in resources view, and every staff column gets a secondary copy —
-    // staff see "Out of service — Station 3" on THEIR planner, not just
-    // the owner's, so nobody plans a day around a space they can't occupy.
+    // it in resources view, and in the staff view the people booked at that
+    // station today get a secondary copy, so nobody plans a day around a space
+    // they can't use, without repeating it down every column.
     maintenanceToday.forEach((mi) => {
         const start = new Date(targetDateStart); start.setHours(9, 0, 0, 0);
         const end = new Date(targetDateStart); end.setHours(17, 0, 0, 0);
@@ -821,9 +836,11 @@ function PlannerPageContent() {
         if (activeView === 'booths' && mi.resourceId && map.has(mi.resourceId)) {
             map.get(mi.resourceId)!.push({ ...base, isSecondary: true });
         }
-        if (activeView === 'staff') {
+        // In the staff view, only the people booked at that station today get the copy, not everyone.
+        if (activeView === 'staff' && mi.resourceId) {
+            const atIt = new Set(dayAppointmentsForCols.filter((a: any) => a.resourceId === mi.resourceId || a.stationId === mi.resourceId).map((a: any) => a.staffId));
             columns.forEach(col => {
-                if (col.id !== 'business' && map.has(col.id)) map.get(col.id)!.push({ ...base, isSecondary: true });
+                if (col.id !== 'business' && atIt.has(col.id) && map.has(col.id)) map.get(col.id)!.push({ ...base, isSecondary: true });
             });
         }
     });
@@ -1503,7 +1520,17 @@ function PlannerPageContent() {
           [density === 'compact' ? 'Roomy cards' : 'Compact cards', () => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })],
         ]}
         onFindTime={() => setFindOpen(true)}
-        viewControls={<><span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda', 'week', 'month'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span></>} />}
+        viewControls={<><span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda', 'week', 'month'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span>
+          {plannerView === 'board' && ((resourcesData || []).length > 0 || (boothsData || []).length > 0) && <span className="hidden gap-1 rounded-full p-0.5 sm:inline-flex" style={{ background: 'var(--soft)' }} role="tablist" aria-label="Board by">{([['staff', 'People'], ...((resourcesData || []).length ? [['resources', 'Rooms']] : []), ...((boothsData || []).length ? [['booths', 'Booths']] : [])] as [typeof activeView, string][]).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={activeView === v} onClick={() => setActiveView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={activeView === v ? { background: 'var(--ink)', color: 'var(--paper)' } : {}}>{l}</button>)}</span>}
+          {plannerView === 'board' && activeView === 'staff' && staffColumns.length > 1 && <span className="relative hidden sm:inline-block">
+            <button type="button" onClick={() => setColPickOpen((v) => !v)} aria-expanded={colPickOpen} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{staffColumns.filter((st: any) => !hiddenCols.includes(st.id)).length} of {staffColumns.length} people ▾</button>
+            {colPickOpen && <><div className="fixed inset-0 z-30" onClick={() => setColPickOpen(false)} /><div role="menu" aria-label="Who shows on the board" className="absolute right-0 z-40 mt-2 w-64 overflow-hidden rounded-2xl py-1 text-[14px]" style={{ background: 'var(--card)', border: '1px solid var(--line)', boxShadow: '0 12px 30px rgba(0,0,0,.12)' }}>
+              <p className="px-4 pb-1 pt-2 text-[12px]" style={{ color: 'var(--muted)' }}>Show on the board · this computer</p>
+              {staffColumns.map((st: any) => { const on = !hiddenCols.includes(st.id); const n = dayAppointments.filter((a: any) => a.staffId === st.id && !['cancelled', 'declined'].includes(String(a.status))).length;
+                return <button key={st.id} type="button" role="menuitemcheckbox" aria-checked={on} onClick={() => toggleCol(st.id)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-black/5"><span className="flex h-5 w-5 items-center justify-center rounded-md border text-[12px]" style={on ? { background: 'var(--ink)', borderColor: 'var(--ink)', color: 'var(--paper)' } : { borderColor: 'var(--line)' }}>{on ? '✓' : ''}</span><span className="min-w-0 flex-1 truncate">{st.name}</span><span className="text-[12px]" style={{ color: 'var(--muted)' }}>{n ? `${n} visit${n === 1 ? '' : 's'}` : 'none today'}</span></button>; })}
+              {hiddenCols.length > 0 && <button type="button" onClick={() => { setHiddenCols([]); try { localStorage.removeItem('cf_planner_hidden_cols'); } catch { /* fine */ } }} className="w-full border-t px-4 py-2.5 text-left text-[13px] font-semibold" style={{ borderColor: 'var(--line)' }}>Show everyone</button>}
+            </div></>}
+          </span>}</>} />}
       <main className="flex-1 flex flex-col min-h-0 bg-muted/50" style={isMobile ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom))' } : undefined}>
         {isMobile && phoneView === 'now' && <NowFirst appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
           onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => openBook()}
@@ -1527,7 +1554,7 @@ function PlannerPageContent() {
             <p className="text-[17px] font-semibold">How far behind?</p><p className="text-[14px]" style={{ color: 'var(--muted)' }}>Everyone affected today is told and can keep their time, move, or cancel without a fee.</p>
             <div className="flex flex-wrap gap-2">{[10, 15, 20, 30, 45].map((m) => <button key={m} type="button" onClick={() => void tellLate(m)} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>{m} min</button>)}<button type="button" onClick={() => setLateAsk(null)} className="h-11 rounded-full px-4 text-[14px]" style={{ color: 'var(--muted)' }}>Cancel</button></div>
           </div></div>}
-        {(isMobile ? phoneView === 'grid' : plannerView === 'board') && <DayTimeline
+        {(isMobile ? phoneView === 'grid' : plannerView === 'board') && <div className="flex min-h-0 flex-1"><div className="flex min-h-0 min-w-0 flex-1 flex-col"><DayTimeline
           date={currentDate} columns={columns} itemsByColumn={itemsByColumn}
           startHour={prefs.startHour} colourBy={prefs.colourBy} tenant={selectedTenant}
           density={density} onBookAt={(columnId: string, when: Date) => { setBookPreset({ date: when, time: format(when, 'HH:mm'), staffId: columns.find((c: any) => c.id === columnId && 'role' in c) ? columnId : undefined }); setIsAddAppointmentOpen(true); }}
@@ -1548,13 +1575,16 @@ function PlannerPageContent() {
           onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }}
           onDeleteEvent={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'events', id))}
           onDeleteAppointmentFromDB={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
-          onViewDetails={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
+          onViewDetails={a => { if (wideScreen && !isMobile) setPanelAppt(a); else { setSelectedAppointment(a); setIsDetailsOpen(true); } }}
           onApproveRequest={handleApproveRequest} onDeclineRequest={handleDeclineRequest}
           onReportIssue={(a: any) => setIssueFor(a)} canDeclineDirectly={myAuthority === 'full'}
           onResolveIssue={(a: any) => setResolveFor(a)} canResolveIssues={isManagerHere}
           focusId={focusId} onFocusSettled={() => setFocusId(null)}
           walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
-        />}
+        /></div>
+          {wideScreen && !isMobile && panelAppt && <div className="w-[380px] shrink-0 overflow-y-auto border-l p-3" style={{ borderColor: 'var(--line)' }}><VisitPanel appointment={dayAppointments.find((a: any) => a.id === panelAppt.id) || panelAppt} appointments={appointments || []} clients={clients || []} services={services || []} staff={allStaff || []}
+            onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nextA: any) => setLateAsk(nextA)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onClose={() => setPanelAppt(null)} actions={visitActions} /></div>}
+        </div>}
       </main>
       {isMobile && <PhoneBottomBar view={phoneView} onView={choosePhoneView} onBook={() => setPhoneBookOpen(true)} onMore={() => setPhoneMoreOpen(true)} moreBadge={awaitingUpcoming.length + needsYouOthers.length} />}
       {isMobile && phoneBookOpen && <BookSheet onClose={() => setPhoneBookOpen(false)} onVisit={() => openBook()} onFind={() => setFindOpen(true)} onBlock={() => setIsAddEventOpen(true)}
@@ -1567,6 +1597,7 @@ function PlannerPageContent() {
           ['Scan check-in', () => setIsScannerOpen(true)],
           ...(can('money.view') ? [['This week', () => setIsKpiSheetOpen(true)] as [string, () => void], ...(billInstancesWithDefinitions.length ? [[`Bills due · ${billInstancesWithDefinitions.length}`, () => setIsBillsSheetOpen(true)] as [string, () => void]] : [])] : []),
           ['Month', () => choosePhoneView('month')],
+          ...((resourcesData || []).length ? [[activeView === 'resources' ? 'Day by people' : 'Day by rooms', () => { setActiveView(activeView === 'resources' ? 'staff' : 'resources'); setMobileSelectedColumnId(''); choosePhoneView('grid'); }] as [string, () => void]] : []),
           ['View settings', () => setPrefsOpen(true)],
         ]} />}
 
