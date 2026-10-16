@@ -2,6 +2,7 @@
 import { ReadyCard, ChairCard, AfterCard, SendToClient } from '@/components/visit/VisitFlow';
 import { MidServiceAddOnSheet } from '@/components/visit/AddOnSheet';
 import { visitClock, startedAt } from '@/lib/visit-clock';
+import { swapShare, swapAssist } from '@/lib/swap-credit';
 import { VisitCue } from '@/components/loyalty/VisitCue';
 import { logHealthOpen } from '@/lib/health-view-client';
 import { PrepSummary } from '@/components/staff-portal/PrepSummary';
@@ -1365,14 +1366,17 @@ const MidServiceHandoffDialog = ({
   const [selectedStaffId, setSelectedStaffId] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // The lead changing part-way: the one who started keeps a share for the time they worked (lib/swap-credit).
+  const [sharePct, setSharePct] = useState(0);
 
   useEffect(() => {
     if (open) {
       setSelectedServiceId(service?.id || '');
       setSelectedStaffId('');
       setReason('');
+      setSharePct(swapShare(appointment, service, [service, ...(currentAddOns || [])]));
     }
-  }, [open, service?.id]);
+  }, [open, service?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const assignableServices = useMemo(() => {
     if (!appointment || !service) return [];
@@ -1412,6 +1416,9 @@ const MidServiceHandoffDialog = ({
       const updates: any = { providerAssignments: arrayUnion(logEntry) };
       if (selectedTarget.isLead) {
         updates.staffId = selectedStaffId;
+        const sw = swapAssist(appointment, selectedTarget.currentStaffId, selectedStaffId, sharePct);
+        if (sw.assist) { updates.assist = sw.assist; logEntry.creditShare = sw.assist.pct; updates.providerAssignments = arrayUnion(logEntry); }
+        else if (!sw.keepExisting && appointment.assist?.staffId === selectedStaffId) updates.assist = deleteField();
       } else {
         const newOverrides = { ...(appointment.checkoutState?.serviceStaffOverrides || {}) };
         newOverrides[selectedServiceId] = selectedStaffId;
@@ -1489,6 +1496,16 @@ const MidServiceHandoffDialog = ({
               )}
             </div>
           </div>
+
+          {selectedTarget?.isLead && selectedStaffId && (() => { const prevName = staffName(selectedTarget.currentStaffId, staff); const nextName = staffName(selectedStaffId, staff);
+            const other = appointment?.assist?.staffId && appointment.assist.staffId !== selectedTarget.currentStaffId && appointment.assist.staffId !== selectedStaffId;
+            return (
+            <div className="space-y-2 rounded-xl border p-3">
+              <Label className="text-[12px] font-semibold text-muted-foreground">Sharing the credit</Label>
+              {other ? <p className="text-[12px] text-muted-foreground">{staffName(appointment.assist.staffId, staff)} already shares this visit. Change that under “Assisted by” if {prevName} should share instead.</p> : <>
+                <div className="flex items-center gap-3"><input type="range" min={0} max={95} step={5} value={sharePct} onChange={(e) => setSharePct(Number(e.target.value))} className="flex-1" aria-label={`${prevName}'s share`} /><span className="w-10 text-right text-[13px] font-semibold tabular-nums">{sharePct}%</span></div>
+                <p className="text-[12px] text-muted-foreground">{sharePct > 0 ? `${prevName} keeps ${sharePct}% of the service’s commission for the time they worked; ${nextName} gets ${100 - sharePct}%.` : `${nextName} gets all of it.`}</p></>}
+            </div>); })()}
 
           <div className="space-y-2">
             <Label className="text-[12px] font-semibold text-muted-foreground">Reason (optional)</Label>
