@@ -1,4 +1,5 @@
 'use client';
+import { writePartHandoff } from '@/lib/part-handoff';
 import { startBlocker } from '@/lib/visit-requests';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
@@ -5227,19 +5228,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           onSendToFrontDesk={(aptId, checkoutState) => {
             if (!firestore || !tenantId) return;
             const batch = writeBatch(firestore);
-            // The checkout note is ALSO promoted to a permanent top-level field.
-            // checkoutState is rewritten wholesale on every hand-off, so a note
-            // that only lived in there would not survive. serviceNotes is what
-            // the appointment drawer reads and lets you edit later.
-            const reviewNote = typeof (checkoutState as any)?.reviewNotes === 'string'
-              ? (checkoutState as any).reviewNotes.trim() : '';
-            batch.update(doc(firestore, `tenants/${tenantId}/appointments`, aptId), {
-              checkoutState: JSON.parse(JSON.stringify(checkoutState)),
-              handoffs: arrayUnion(JSON.parse(JSON.stringify(handoffEntry(reviewApt, checkoutState)))),   // who handed to whom, when
-              ...(reviewNote ? { serviceNotes: reviewNote, serviceNotesRecordedAt: new Date().toISOString() } : {}),
-            });
+            // The same hand-off as the planner and the desk (lib/part-handoff).
+            const { allDone } = writePartHandoff(batch, firestore, tenantId, reviewApt, checkoutState);
             batch.commit()
-              .then(() => toast({ title: 'Handed off to front desk ✓' }))
+              .then(() => toast({ title: allDone ? 'Sent to the front desk' : 'Handed on' }))
               .catch(() => toast({ variant: 'destructive', title: 'Handoff FAILED', description: 'The front desk did not receive this checkout — reopen and send again.' }));
             setReviewApt(null); setReviewSvc(null);
           }}

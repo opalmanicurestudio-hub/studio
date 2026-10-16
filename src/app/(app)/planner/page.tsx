@@ -1,5 +1,6 @@
 'use client';
 
+import { writePartHandoff } from '@/lib/part-handoff';
 import { startBlocker } from '@/lib/visit-requests';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { FindATime } from '@/components/planner/FindATime';
@@ -977,7 +978,7 @@ function PlannerPageContent() {
     const batch = writeBatch(firestore);
 
     batch.update(appointmentRef, sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount, cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') }));
-    if (selectedAppointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }));
+    if (selectedAppointment.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }), { merge: true });
     if (selectedAppointment.checkInToken) batch.set(doc(firestore, 'tenants', tenantId, 'appointmentCheckIns', selectedAppointment.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }), { merge: true });
 
     // ── SIBLINGS OF THE SAME VISIT ──────────────────────────────────────────
@@ -1079,7 +1080,7 @@ function PlannerPageContent() {
     if (blocked) { toast({ variant: 'destructive', title: 'Not ready to start', description: `${blocked}. Open the visit to sort it out.` }); return; }
     const batch = writeBatch(firestore);
     batch.update(doc(firestore, 'tenants', tenantId, 'appointments', id), { status: 'servicing', actualStartTime: now });
-    if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
+    if (appointment.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId }, { merge: true });
     if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
     batch.commit();
   };
@@ -1194,7 +1195,7 @@ function PlannerPageContent() {
     if (!selectedAppointment || !firestore || !tenantId) return;
     const batch = writeBatch(firestore);
     batch.update(doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id), { status: 'confirmed', checkInStatus: 'pending', overrideReason: reason, overriddenBy: staffId, cancellationReason: deleteField() as any, cancellationFeeApplied: 0 });
-    if (selectedAppointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), { status: 'confirmed', checkInStatus: 'pending', tenantId });
+    if (selectedAppointment.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), { status: 'confirmed', checkInStatus: 'pending', tenantId }, { merge: true });
     try {
         await batch.commit();
         setIsOverrideOpen(false);
@@ -1209,51 +1210,16 @@ function PlannerPageContent() {
     if (!firestore || !tenantId) return;
     const apt = (appointments || []).find(a => a.id === appointmentId);
     if (!apt) return;
-    const allPartIds = [apt.serviceId, ...(apt.addOnIds || [])];
-    const completedIds = checkoutState.completedServiceIds || [];
-    const allComplete = completedIds.length >= allPartIds.length;
     const batch = writeBatch(firestore);
-    const sanitizedCheckoutState = sanitizeForFirestore(checkoutState);
-    const handoff = sanitizeForFirestore(handoffEntry(apt, checkoutState));   // kept: checkoutState is rewritten at every hand-off
-
-    // Promote the technician's checkout note to a PERMANENT field on the
-    // appointment. It is also kept inside checkoutState for the checkout screen,
-    // but checkoutState gets rewritten wholesale on every hand-off, so anything
-    // that needs to survive has to live at the top level. This is the field the
-    // appointment drawer reads and lets you edit afterwards.
-    const reviewNote = typeof checkoutState.reviewNotes === 'string' ? checkoutState.reviewNotes.trim() : '';
-    const notePromotion = reviewNote
-      ? { serviceNotes: reviewNote, serviceNotesRecordedAt: new Date().toISOString() }
-      : {};
-
-    if (checkoutState.saveAsCustomFormula && checkoutState.customFormulaName && apt.clientId) {
-        const newFormula: CustomFormula = { id: nanoid(), name: checkoutState.customFormulaName, date: new Date().toISOString(), items: checkoutState.formula || [], notes: checkoutState.reviewNotes };
+    const cs: any = checkoutState;
+    if (cs.saveAsCustomFormula && cs.customFormulaName && apt.clientId) {
+        const newFormula: CustomFormula = { id: nanoid(), name: cs.customFormulaName, date: new Date().toISOString(), items: cs.formula || [], notes: cs.reviewNotes };
         batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { customFormulas: arrayUnion(sanitizeForFirestore(newFormula)) });
     }
-
-    if (allComplete) {
-        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), sanitizeForFirestore({ handoffs: arrayUnion(handoff), status: 'ready_for_checkout', checkoutState: sanitizedCheckoutState, actualEndTime: new Date().toISOString(), ...notePromotion }));
-        if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'ready_for_checkout', tenantId }));
-        const involvedIds = new Set<string>();
-        if (apt.staffId) involvedIds.add(apt.staffId);
-        if (checkoutState.serviceStaffOverrides) Object.values(checkoutState.serviceStaffOverrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
-        involvedIds.forEach(sid => batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }));
-    } else {
-        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { ...sanitizeForFirestore({ checkoutState: sanitizedCheckoutState, ...notePromotion }), handoffs: arrayUnion(handoff) });
-        const overrides = checkoutState.serviceStaffOverrides || {};
-        const involvedStaffIdsSet = new Set<string>();
-        if (apt.staffId) involvedStaffIdsSet.add(apt.staffId);
-        Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedStaffIdsSet.add(id); });
-        involvedStaffIdsSet.forEach(sid => {
-            const hasRemainingParts = allPartIds.some(pid => { if (completedIds.includes(pid)) return false; return (overrides[pid] === sid || (pid === apt.serviceId && apt.staffId === sid && !overrides[pid])); });
-            if (!hasRemainingParts) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true });
-        });
-        const nextPartId = allPartIds.find(id => !completedIds.includes(id) && !(checkoutState.concurrentServiceIds || []).includes(id));
-        const nextStaffId = overrides[nextPartId || ''] || (nextPartId === apt.serviceId ? apt.staffId : null);
-        if (nextStaffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', nextStaffId), { status: 'busy' }, { merge: true });
-    }
-
-    batch.commit().then(() => { toast({ title: allComplete ? "Service Finished" : "Part Completed", description: allComplete ? "Ready for checkout." : "Hand-off confirmed." }); setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); });
+    // One hand-off for every screen (lib/part-handoff): log, note, who's busy or free, ready to pay only when all parts are done.
+    const { allDone } = writePartHandoff(batch, firestore, tenantId, apt, checkoutState);
+    batch.commit().then(() => { toast({ title: allDone ? "Service Finished" : "Part Completed", description: allDone ? "Ready for checkout." : "Hand-off confirmed." }); setIsTechnicianReviewOpen(false); setIsDetailsOpen(false); })
+      .catch(() => toast({ variant: 'destructive', title: 'Hand-off not saved', description: 'Try again.' }));
   };
 
   const cancelledToday = useMemo(

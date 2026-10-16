@@ -137,7 +137,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   };
   useEffect(() => registerVisitActions({ checkout: (id) => actRef.current.checkout(id), cancel: (id) => actRef.current.cancel(id), details: (id) => actRef.current.details(id), bookNext: (id, c, sv) => actRef.current.bookNext(id, c, sv) }), []);
   // Opened from another page ("Take payment" on a ticket elsewhere) → /pos?checkout=<visit>
-  useEffect(() => { try { const q = new URLSearchParams(window.location.search); const id = q.get('checkout'); const vid = q.get('visit');
+  useEffect(() => { try { const q = new URLSearchParams(window.location.search); const id = q.get('checkout') || q.get('checkout_id'); const vid = q.get('visit');
     if (id) { const withTab = q.get('tab') === '1'; window.history.replaceState(null, '', window.location.pathname);
       // A table's tab (Host Stand → Check out): wait for the visit to load, then put it and its tab lines in checkout.
       let tries = 0; let t: any = null;

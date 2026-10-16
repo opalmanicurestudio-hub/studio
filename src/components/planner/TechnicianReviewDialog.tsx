@@ -368,9 +368,13 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     
     // Booked time = the service plus its add-ons (an add-on that took its own time isn't "over").
     const addOnMinutes = ((appointment as any)?.addOnIds || []).reduce((n: number, id: string) => n + (Number((allServices || []).find((x: any) => x.id === id)?.duration) || 0), 0);
-    const targetDuration = (service.duration || 60) + addOnMinutes;
+    // The client's usual extra time is booked time too (and may already carry a charge they agreed to when booking):
+    // keep that charge, and only time beyond it counts as over.
+    const ax: any = appointment || {}; const agreedMinutes = Number(ax.checkoutState?.extraTimeMinutes) || Number(ax.clientExtraMinutes) || 0;
+    const agreedCharge = safeNumber(ax.checkoutState?.adjustments?.timeOverage);
+    const targetDuration = (service.duration || 60) + addOnMinutes + agreedMinutes;
     const timeOverageMinutes = Math.max(0, actualDuration - targetDuration);
-    const timeOverage = (timeOverageMinutes / 60) * tmhr;
+    const timeOverage = agreedCharge + (timeOverageMinutes / 60) * tmhr;
     
     const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
     const standardCost = service.products?.reduce((acc, p) => {
@@ -454,8 +458,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             materialOverage: adjustmentBreakdown.materialOverage
         },
         saveAsCustomFormula,
-        customFormulaName: saveAsCustomFormula ? customFormulaName : undefined
-    };
+        customFormulaName: saveAsCustomFormula ? customFormulaName : undefined,
+        ...((appointment as any).checkoutState?.extraTimeMinutes ? { extraTimeMinutes: (appointment as any).checkoutState.extraTimeMinutes, extraTimeReason: (appointment as any).checkoutState.extraTimeReason } : {}),
+    } as any;
 
     if (isLastProvider) {
         if (finishing) return;

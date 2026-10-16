@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { writePartHandoff } from '@/lib/part-handoff';
 import { addOnIdsOf } from '@/lib/prep-checkout';
 import { rateFor, payForService } from '@/lib/commission';
 import { openVisit } from '@/lib/visit-client';
@@ -785,19 +786,19 @@ export function usePosEngine() {
   const handleSendToFrontDesk = useCallback(async (id: string, state: any) => {
     if (!firestore || !tenantId) return;
     const apt = (appointmentsFromInventory || []).find(a => a.id === id);
+    if (!apt) return;
     const nowISO = new Date().toISOString();
     const batch = writeBatch(firestore);
-    batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id),
-      sanitizeForFirestore({ status: 'ready_for_checkout', checkoutState: state, actualEndTime: nowISO }));
-    if (apt?.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId),
-      { status: 'available', lastWalkInCompletedAt: nowISO });
+    // The review only calls this for a part that isn't the last one: hand it on (lib/part-handoff), don't send the whole
+    // visit to checkout. The walk-in row only closes when every part is done.
+    const { allDone } = writePartHandoff(batch, firestore, tenantId, apt, state, { freeStatus: 'available' });
     const walkInId = id.startsWith('apt-walkin-') ? id.replace('apt-walkin-', '') : null;
-    if (walkInId && (walkIns || []).some((w: any) => w.id === walkInId)) {
+    if (allDone && walkInId && (walkIns || []).some((w: any) => w.id === walkInId)) {
       batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId),
         sanitizeForFirestore({ status: 'completed', completedAt: nowISO, serviceEndTime: nowISO }));
     }
     await batch.commit();
-    logVisit(id, 'Finished — sent to the front desk');
+    logVisit(id, allDone ? 'Finished — sent to the front desk' : 'Part done — handed on');
     setIsTechnicianReviewOpen(false);
   }, [firestore, tenantId, appointmentsFromInventory, walkIns]); // eslint-disable-line react-hooks/exhaustive-deps
 

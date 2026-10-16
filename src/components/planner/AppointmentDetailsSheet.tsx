@@ -1969,7 +1969,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   // `const` bindings are in the temporal dead zone until their own
   // declaration line runs, and that effect's deps array was evaluated before
   // this line was ever reached.
-  const canStart = !!appointment && !['servicing', 'completed', 'cancelled'].includes(appointment.status);
+  const canStart = !!appointment && !['servicing', 'ready_for_checkout', 'completed', 'cancelled', 'no_show', 'declined', 'requested'].includes(appointment.status);
   const canFinish = !!appointment && appointment.status === 'servicing';
   const startDisabled = !!(complianceInfo.healthPendingForms.length > 0 || complianceInfo.otherPendingForms.length > 0 || depositActuallyMissing);
 

@@ -50,7 +50,7 @@ export const intakeComplete = (apt: any) => ['complete', 'completed'].includes(S
 export function startBlocker(apt: any, service: any, client?: any, forms?: any[]): string | null {
   if (!apt) return null;
   const st = String(apt.status || '');
-  if (['completed', 'cancelled', 'no_show', 'no-show', 'in_progress', 'in-progress', 'requested', 'declined'].includes(st)) return st === 'requested' ? 'Accept the booking first' : 'This visit can’t be started';
+  if (['completed', 'cancelled', 'no_show', 'no-show', 'in_progress', 'in-progress', 'servicing', 'ready_for_checkout', 'checked_out', 'paid', 'requested', 'declined', 'expired'].includes(st)) return st === 'requested' ? 'Accept the booking first' : 'This visit can’t be started';
   // A deposit only blocks when the booking marked it required (readinessFlags.depositRequired), as the visit sheet does.
   const depositDue = !!apt.readinessFlags?.depositRequired && Number(apt.depositAmountCents || 0) > 0 && !['paid', 'waived', 'credited'].includes(String(apt.depositStatus || ''));
   if (depositDue) return 'Deposit not paid';

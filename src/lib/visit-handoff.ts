@@ -32,6 +32,7 @@ export async function finishVisit(db: any, tenantId: string, actor: RequestActor
     const r = db.collection(`${T}/stockCorrections`).doc();
     batch.set(r, { id: r.id, productId, date: now, change, unit, reason, appointmentId: aptId, by: actor.staffId });
   };
+  const used: any[] = [];
   for (const item of formula) {
     const p = inv.get(String(item?.id)); const q = num(item?.quantity); if (!p || q <= 0) continue;
     const ref = db.doc(`${T}/inventory/${item.id}`); let unit = p.unit || 'units';
@@ -45,7 +46,11 @@ export async function finishVisit(db: any, tenantId: string, actor: RequestActor
       batch.update(ref, { totalStock: stock, partialContainerSize: size });
     } else batch.update(ref, { totalStock: FieldValue.increment(-q) });
     correction(item.id, -q, unit, `Service Formula: ${label}`);
+    used.push({ productId: String(item.id), name: String(p.name || item.name || 'Product'), unit, expected: q, deducted: q });
   }
+  // What the provider recorded is what the visit used: checkout's own usage step (lib/usage recordVisitUsage) then sees
+  // this visit as already recorded and doesn't take the recipe off stock a second time.
+  if (used.length) batch.set(db.doc(`${T}/usage/${aptId}`), { visitId: aptId, clientName: apt.clientName || null, staffId: apt.staffId || null, lines: used, recordedAt: now, updatedAt: now, shortfalls: 0, source: 'review' });
   for (const a of amenities) {
     const p = inv.get(String(a?.id)); if (!p) continue;
     batch.update(db.doc(`${T}/inventory/${a.id}`), { totalStock: FieldValue.increment(-1) });
