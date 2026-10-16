@@ -5,9 +5,10 @@
 // the address after the # (which browsers never send to a server). English, Spanish and Vietnamese. US rules.
 // ?brand=opal shows the Opal Nail Academy version. "Reduce motion" and printing get a still page.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Briefcase, Store, Scale, Clock, Lock, Sparkles, ArrowRight, ArrowLeft, Check, Link2, Printer, Compass, HelpCircle } from 'lucide-react';
+import { Briefcase, Store, Scale, Clock, Lock, Sparkles, ArrowRight, ArrowLeft, Check, Link2, Printer, Compass, HelpCircle, Minus, Plus, Search, X, ChevronDown } from 'lucide-react';
 import { blank, compute, decodeState, encodeState, hoursOf, type CalcState, type Mode, type PayType, type Result } from '@/lib/pay-calc';
-import { LANGS, tr, OCC_TITLES, CONTRACTOR_Q, type Lang, type Key } from '@/lib/pay-calc-i18n';
+import { LANGS, tr, OCC_TITLES, CONTRACTOR_Q, JOB_HINT, type Lang, type Key } from '@/lib/pay-calc-i18n';
+import { STATE_MIN_WAGE, minWageFor } from '@/lib/state-wages';
 import { OCCUPATIONS, WAGE_SOURCE } from '@/lib/wage-data';
 import { CONTRACTOR_QUESTIONS, US_STATES, TAX_YEAR, type Filing } from '@/lib/pay-extras';
 import { planLabel, type Plan } from '@/lib/pay-clarity';
@@ -46,6 +47,8 @@ const CSS = `
 @keyframes pcPulse{70%{box-shadow:0 0 0 10px rgba(127,209,165,0)}100%{box-shadow:0 0 0 0 rgba(127,209,165,0)}}
 .pc-opt{transition:border-color .25s,background .25s,transform .3s cubic-bezier(.22,1,.36,1),box-shadow .3s}
 .pc-opt:hover{transform:translateY(-2px)}
+.pc-day{transition:background .25s,color .25s,transform .3s cubic-bezier(.22,1.4,.36,1)}.pc-day:hover{transform:translateY(-2px)}.pc-day[aria-pressed=true]{transform:scale(1.06)}
+.pc-cap{display:block}.pc-cap::first-letter{text-transform:uppercase}
 .pc-opt[aria-pressed=true]{border-color:${INK}!important;background:#fff!important;box-shadow:0 18px 40px -28px rgba(22,23,26,.55)}
 .pc-radio{width:22px;height:22px;border-radius:50%;border:1.5px solid #c9cace;display:grid;place-items:center;flex-shrink:0;transition:all .3s cubic-bezier(.22,1.4,.36,1)}
 .pc-opt[aria-pressed=true] .pc-radio{background:${INK};border-color:${INK};transform:scale(1.08)}
@@ -95,45 +98,43 @@ function CountUp({ v, fmt, dur = 1200 }: { v: number | null | undefined; fmt: (n
 }
 
 type Field = { k: string; label: Key; unit?: '$' | '%' | 'h' | 'min' | 'n'; where?: Key; help?: 'sales' | 'tips'; bool?: boolean };
-type Step = { id: string; q: Key; sub?: Key; where?: Key; fields?: Field[]; custom?: 'payType' | 'hours' | 'work' | 'contractor' | 'offerType' };
+type Step = { id: string; q: Key; sub?: Key; where?: Key; fields?: Field[]; more?: Field[]; custom?: 'how' | 'hours' | 'offerType' };
 
 const get = (s: any, path: string) => path.split('.').reduce((o, k) => (o ? o[k] : undefined), s);
 const set = (s: CalcState, path: string, v: any): CalcState => { const c: any = structuredClone(s); const ks = path.split('.'); let o = c; for (const k of ks.slice(0, -1)) o = o[k]; o[ks[ks.length - 1]] = v; return c; };
+const COMMISH: PayType[] = ['commission', 'hourly_commission', 'greater_of', 'draw', 'split'];
 
 function payFields(t: PayType, prefix = ''): Field[] {
   const f = (k: string, label: Key, unit: Field['unit'], extra: Partial<Field> = {}): Field => ({ k: prefix + k, label, unit, ...extra });
-  const sales = prefix ? [] : [f('sales', 'salesLabel', '$', { where: 'salesWhere', help: 'sales' })];
+  const sales = prefix ? [] : [f('sales', 'salesWeek', '$', { where: 'salesWhere', help: 'sales' })];
   switch (t) {
     case 'hourly': case 'tips': return [f('rate', 'rateLabel', '$')];
-    case 'commission': return [f('pct', 'pctLabel', '%'), f('retailPct', 'retailPctLabel', '%'), ...sales];
+    case 'commission': return [f('pct', 'pctLabel', '%'), ...sales];
     case 'hourly_commission': return [f('rate', 'rateLabel', '$'), f('pct', 'pctLabel', '%'), ...sales];
     case 'greater_of': return [f('rate', 'rateLabel', '$'), f('pct', 'pctLabel', '%'), ...sales];
     case 'salary': return [f('salary', 'salaryLabel', '$')];
-    case 'split': return [f('rate', 'deskRateLabel', '$'), f('deskPerWeek', 'deskHoursLabel', 'h'), f('pct', 'pctLabel', '%'), f('retailPct', 'retailPctLabel', '%'), ...sales];
+    case 'split': return [f('rate', 'deskRateLabel', '$'), f('deskPerWeek', 'deskHoursLabel', 'h'), f('pct', 'pctLabel', '%'), ...sales];
     case 'draw': return [f('pct', 'pctLabel', '%'), f('drawPerWeek', 'drawLabel', '$'), ...(prefix ? [] : [f('drawBack', 'drawBack', 'n', { bool: true })]), ...sales];
   }
 }
+/** Three questions to a first answer; everything else is on the answer page ("Make it more accurate"). */
 function stepsFor(s: CalcState): Step[] {
-  const hours: Step = { id: 'hours', q: 'qHours', sub: 'qHoursSub', where: 'qHoursWhere', custom: 'hours' };
-  const work: Step = { id: 'work', q: 'qWork', sub: 'workSub', custom: 'work' };
-  const time: Step = { id: 'time', q: 'qTime', fields: [{ k: 'commuteMin', label: 'commuteLabel', unit: 'min' }, { k: 'offClockMonthly', label: 'offClockLabel', unit: 'h', where: 'offClockSub' }] };
+  const hours: Step = { id: 'hours', q: 'qHoursWeek', sub: 'qHoursSub', custom: 'hours' };
+  const tips: Field = { k: 'tips', label: 'tipsWeek', unit: '$', help: 'tips', where: 'tipsWhere' };
   if (s.mode === 'self') return [hours,
-    { id: 'selfSales', q: 'qSelfSales', fields: [{ k: 'sales', label: 'selfSalesLabel', unit: '$', help: 'sales', where: 'salesWhere' }, { k: 'tips', label: 'qTips', unit: '$', help: 'tips', where: 'tipsWhere' }] },
-    { id: 'selfCosts', q: 'qSelfCosts', fields: [{ k: 'self.spacePerWeek', label: 'spaceLabel', unit: '$' }, { k: 'self.suppliesPct', label: 'suppliesLabel', unit: '%' }, { k: 'self.cardPct', label: 'cardLabel', unit: '%' }, { k: 'self.otherMonthly', label: 'otherLabel', unit: '$' }, { k: 'self.unpaidWeeks', label: 'unpaidLabel', unit: 'n' }] },
-    work, time];
-  const commish = ['commission', 'hourly_commission', 'greater_of', 'draw', 'split'].includes(s.payType);
+    { id: 'selfSales', q: 'qPayWeek', sub: 'qPayWeekSub', fields: [{ k: 'sales', label: 'selfSalesWeek', unit: '$', help: 'sales', where: 'salesWhere' }, tips] },
+    { id: 'selfCosts', q: 'qSelfCosts', fields: [{ k: 'self.spacePerWeek', label: 'spaceLabel', unit: '$' }, { k: 'self.suppliesPct', label: 'suppliesLabel', unit: '%' }, { k: 'self.otherMonthly', label: 'otherLabel', unit: '$' }],
+      more: [{ k: 'self.cardPct', label: 'cardLabel', unit: '%' }, { k: 'self.unpaidWeeks', label: 'unpaidLabel', unit: 'n' }] }];
+  const commish = COMMISH.includes(s.payType);
   const list: Step[] = [
-    { id: 'payType', q: 'qPayType', sub: 'qPayTypeSub', custom: 'payType' }, hours,
-    { id: 'pay', q: 'qPay', fields: [...payFields(s.payType), { k: 'paid', label: 'paidLabel', unit: '$', where: 'paidWhere' }, { k: 'bonus', label: 'bonusLabel', unit: '$' }] },
-    { id: 'tips', q: 'qTips', sub: 'qTipsSub', where: 'tipsWhere', fields: [{ k: 'tips', label: 'qTips', unit: '$', help: 'tips' }] },
+    { id: 'how', q: 'qPayType', custom: 'how' }, hours,
+    { id: 'pay', q: 'qPayWeek', sub: 'qPayWeekSub', fields: [...payFields(s.payType), ...(s.payType === 'salary' ? [] : [tips])],
+      more: [...(commish ? [{ k: 'retailPct', label: 'retailPctLabel', unit: '%' } as Field, { k: 'retailSales', label: 'retailWeek', unit: '$' } as Field] : []), { k: 'paid', label: 'paidWeek', unit: '$', where: 'paidWhere' }, { k: 'bonus', label: 'bonusWeek', unit: '$' }, ...(s.payType === 'salary' ? [tips] : []), ...(commish ? [{ k: 'clawback', label: 'clawbackWeek', unit: '$' } as Field] : [])] },
   ];
   if (s.mode === 'offer') list.push({ id: 'offer', q: 'qOffer', sub: 'offerSub', custom: 'offerType' });
-  list.push(work,
-    { id: 'costs', q: 'qCosts', sub: 'qCostsSub', fields: [{ k: 'costsMonthly', label: 'costsMonthly', unit: '$' }, ...(commish ? [{ k: 'clawback', label: 'clawbackLabel', unit: '$' } as Field] : [])] },
-    { id: 'benefits', q: 'qBenefits', where: 'benefitsWhere', fields: [{ k: 'ptoDays', label: 'ptoLabel', unit: 'n' }, { k: 'healthMonthly', label: 'healthLabel', unit: '$' }, { k: 'matchPct', label: 'matchLabel', unit: '%' }] },
-    time, { id: 'contractor', q: 'qContractor', custom: 'contractor' });
   return list;
 }
+
 
 const card: CSSProperties = { padding: 22, display: 'flex', flexDirection: 'column', gap: 10 };
 const In = ({ d = 0, children, className = '', style }: { d?: number; children: ReactNode; className?: string; style?: CSSProperties }) => <div className={`pc-in ${className}`} style={{ ['--d' as any]: `${d}s`, ...style }}>{children}</div>;
@@ -151,9 +152,9 @@ function Num({ value, onChange, unit, ariaLabel, big }: { value: number | null; 
     </div>);
 }
 
-function Helper({ kind, weeks, dpw, lang, t, onUse }: { kind: 'sales' | 'tips'; weeks: number; dpw: number; lang: Lang; t: T; onUse: (v: number) => void }) {
+function Helper({ kind, dpw, lang, t, onUse }: { kind: 'sales' | 'tips'; dpw: number; lang: Lang; t: T; onUse: (v: number) => void }) {
   const [a, setA] = useState<number | null>(null); const [b, setB] = useState<number | null>(null);
-  const total = kind === 'sales' ? (a || 0) * (b || 0) * weeks : (a || 0) * dpw * weeks;
+  const total = kind === 'sales' ? (a || 0) * (b || 0) : (a || 0) * dpw;
   const L = { en: kind === 'sales' ? ['Customers a week', 'Average sale'] : ['Tips on a usual day', ''], es: kind === 'sales' ? ['Clientes a la semana', 'Venta promedio'] : ['Propinas en un día normal', ''], vi: kind === 'sales' ? ['Số khách mỗi tuần', 'Trung bình mỗi khách'] : ['Tip một ngày bình thường', ''] }[lang];
   return (
     <In className="" style={{ background: 'rgba(245,245,247,.85)', borderRadius: 18, padding: 14, display: 'grid', gap: 10 }}>
@@ -168,10 +169,98 @@ function Helper({ kind, weeks, dpw, lang, t, onUse }: { kind: 'sales' | 'tips'; 
     </In>);
 }
 
+const norm = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+/** Line of work (searchable) and state; picking a state fills in its minimum wage. */
+function AboutWork({ s, setS, t, occTitle, title = true }: { s: CalcState; setS: (f: (x: CalcState) => CalcState) => void; t: T; occTitle: (soc: string) => string; title?: boolean }) {
+  const [q, setQ] = useState('');
+  const matches = useMemo(() => { const n = norm(q.trim()); if (!n) return []; return OCCUPATIONS.map((o) => ({ soc: o.soc, title: occTitle(o.soc) })).filter((o) => norm(o.title).includes(n) || n.split(/\s+/).every((w) => norm(o.title).includes(w))).slice(0, 6); }, [q, occTitle]);
+  const st = s.state; const sw = st ? STATE_MIN_WAGE[st] : null; const stName = US_STATES.find(([k]) => k === st)?.[1] || st;
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {title && <div style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: MUTED }}>{t('aboutWork')}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+        <div style={{ position: 'relative' }}>
+          {s.soc ? (
+            <div className="pc-field" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 15 }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{occTitle(s.soc)}</span>
+              <button type="button" aria-label="Clear" onClick={() => setS((x) => ({ ...x, soc: '' }))} style={{ border: 0, background: 'none', cursor: 'pointer', color: MUTED, display: 'grid', placeItems: 'center' }}><X size={16} /></button>
+            </div>
+          ) : (<>
+            <Search size={16} style={{ position: 'absolute', left: 16, top: 19, color: MUTED }} />
+            <input className="pc-field" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('searchJob')} aria-label={t('searchJob')} style={{ paddingLeft: 42, fontSize: 15 }} />
+            {q.trim() && (
+              <div className="pc-glass pc-in" style={{ position: 'absolute', left: 0, right: 0, top: 58, zIndex: 5, padding: 6, borderRadius: 18, display: 'grid', gap: 2, background: 'rgba(255,255,255,.96)' }}>
+                {matches.length ? matches.map((m) => <button key={m.soc} type="button" onClick={() => { setS((x) => ({ ...x, soc: m.soc })); setQ(''); }} style={{ textAlign: 'left', border: 0, background: 'none', padding: '10px 12px', borderRadius: 12, font: 'inherit', fontSize: 14.5, cursor: 'pointer', color: INK }} onMouseEnter={(e) => (e.currentTarget.style.background = SOFT)} onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}>{m.title}</button>)
+                  : <div style={{ padding: '10px 12px', fontSize: 13.5, color: MUTED }}>{t('noMatch')}</div>}
+              </div>)}
+          </>)}
+        </div>
+        <select className="pc-field" aria-label={t('stateLabel')} value={st} style={{ fontSize: 15, color: st ? INK : MUTED }} onChange={(e) => { const v = e.target.value; setS((x) => ({ ...x, state: v, minWage: v ? minWageFor(v) : x.minWage })); }}>
+          <option value="">{t('stateLabel')}</option>{US_STATES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </div>
+      {st && s.mode !== 'self' && <div style={{ fontSize: 13, color: MUTED }}>{t('minWageIn', { s: stName, v: hr(s.minWage) })} {sw?.note || ''}</div>}
+    </div>);
+}
+
+const TIME_TYPES: PayType[] = ['hourly', 'salary', 'tips', 'hourly_commission', 'greater_of', 'split'];
+const SHARE_TYPES: PayType[] = ['commission', 'draw', 'hourly_commission', 'greater_of', 'split'];
+/** How you're paid, as two yes/no questions; the rarer setups only appear when they fit. */
+function HowPaid({ s, up, t, picked, setPicked }: { s: CalcState; up: (k: string, v: any) => void; t: T; picked: { time: boolean | null; share: boolean | null }; setPicked: (p: { time: boolean | null; share: boolean | null }) => void }) {
+  const label: Record<PayType, string> = { hourly: t('ptHourly'), salary: t('ptSalary'), tips: t('ptTips'), commission: t('ptJustCommission'), draw: t('ptDraw'), hourly_commission: t('ptHourlyCommission'), greater_of: t('ptGreater'), split: t('ptSplit') };
+  const { time, share } = picked;
+  const opts: PayType[] | null = time === null || share === null ? null : time && share ? ['hourly_commission', 'split', 'greater_of'] : time ? ['hourly', 'salary', 'tips'] : share ? ['commission', 'draw'] : ['hourly', 'commission', 'hourly_commission', 'split', 'greater_of', 'salary', 'draw', 'tips'];
+  const answer = (k: 'time' | 'share', v: boolean) => { const p = { ...picked, [k]: v }; setPicked(p);
+    if (p.time !== null && p.share !== null) { const o: PayType[] = p.time && p.share ? ['hourly_commission', 'split', 'greater_of'] : p.time ? ['hourly', 'salary', 'tips'] : p.share ? ['commission', 'draw'] : []; if (o.length && !o.includes(s.payType)) up('payType', o[0]); } };
+  const yn = (k: 'time' | 'share', q: Key) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '14px 0', borderTop: `1px solid rgba(22,23,26,.07)` }}>
+      <span style={{ fontSize: 16, fontWeight: 500, flex: '1 1 260px', lineHeight: 1.4 }}>{t(q)}</span>
+      <span style={{ display: 'flex', gap: 4, background: 'rgba(22,23,26,.05)', borderRadius: 999, padding: 4 }}>
+        {([true, false] as const).map((v) => <button key={String(v)} type="button" aria-pressed={picked[k] === v} onClick={() => answer(k, v)} style={{ border: 0, borderRadius: 999, height: 40, minWidth: 64, padding: '0 18px', font: 'inherit', fontSize: 14.5, fontWeight: 600, cursor: 'pointer', transition: 'all .25s', background: picked[k] === v ? INK : 'transparent', color: picked[k] === v ? '#fff' : MUTED }}>{v ? t('yes') : t('no')}</button>)}
+      </span>
+    </div>);
+  return (
+    <div style={{ display: 'grid', gap: 0 }}>
+      {yn('time', 'qHasTime')}{yn('share', 'qHasShare')}
+      {opts && (
+        <div className="pc-in" style={{ display: 'grid', gap: 10, paddingTop: 14, borderTop: `1px solid rgba(22,23,26,.07)` }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: MUTED }}>{opts.length > 3 ? t('ptSomethingElse') : t('whichOne')}</div>
+          <Choice value={s.payType} options={opts.map((k) => [k, label[k]] as [PayType, string])} onPick={(v) => up('payType', v)} />
+        </div>)}
+    </div>);
+}
+
+/** Days as taps, hours as a stepper: most people never open the keyboard. */
+function HoursPicker({ s, up, t }: { s: CalcState; up: (k: string, v: any) => void; t: T }) {
+  const d = Number(s.daysPerWeek) || 0, h = Number(s.hoursPerDay) || 0; const step = (v: number) => up('hoursPerDay', Math.max(0, Math.min(16, Math.round((h + v) * 2) / 2)));
+  return (
+    <div style={{ display: 'grid', gap: 18 }}>
+      <div style={{ display: 'grid', gap: 8 }}>
+        <div className="pc-cap" style={{ fontSize: 14, fontWeight: 600 }}>{t('daysAWeek')}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 6 }}>
+          {[1, 2, 3, 4, 5, 6, 7].map((n) => <button key={n} type="button" aria-pressed={d === n} onClick={() => up('daysPerWeek', n)} className="pc-day" style={{ height: 52, borderRadius: 16, border: `1px solid rgba(22,23,26,.1)`, background: d === n ? INK : 'rgba(255,255,255,.7)', color: d === n ? '#fff' : INK, font: 'inherit', fontSize: 18, fontWeight: 600, cursor: 'pointer' }}>{n}</button>)}
+        </div>
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        <div className="pc-cap" style={{ fontSize: 14, fontWeight: 600 }}>{t('hoursADay')}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button type="button" aria-label="-" onClick={() => step(-0.5)} className="pc-btn light" style={{ width: 54, height: 54, padding: 0, justifyContent: 'center' }}><Minus size={20} /></button>
+          <div style={{ width: 110 }}><Num value={s.hoursPerDay} onChange={(v) => up('hoursPerDay', v === null ? null : Math.min(24, v))} unit="n" ariaLabel={t('hoursADay')} /></div>
+          <button type="button" aria-label="+" onClick={() => step(0.5)} className="pc-btn light" style={{ width: 54, height: 54, padding: 0, justifyContent: 'center' }}><Plus size={20} /></button>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 'clamp(40px, 6vw, 56px)', fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 1 }}><CountUp v={d * h} fmt={(n) => (Math.round(n * 2) / 2).toLocaleString('en-US')} dur={500} /></span>
+        <span style={{ fontSize: 16, color: MUTED }}>{t('hoursWeekTotal', { h: '' }).replace(/^=\s*/, '').trim()}</span>
+      </div>
+    </div>);
+}
+
 export default function PayCalculator() {
   const [lang, setLang] = useState<Lang>('en'); const [brand, setBrand] = useState<'' | 'opal'>('');
   const [s, setS] = useState<CalcState>(blank('job')); const [screen, setScreen] = useState<'start' | 'step' | 'result'>('start'); const [i, setI] = useState(0);
   const [help, setHelp] = useState<string | null>(null); const [copied, setCopied] = useState(false); const [dir, setDir] = useState(1);
+  const [picked, setPicked] = useState<{ time: boolean | null; share: boolean | null }>({ time: null, share: null });
   const t: T = (k, v) => tr(lang, k, v);
 
   useEffect(() => {
@@ -188,10 +277,10 @@ export default function PayCalculator() {
   const r: Result | null = useMemo(() => (screen === 'result' ? compute(s) : null), [s, screen]);
   const up = (path: string, v: any) => setS((x) => set(x, path, v));
   const top = () => { try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { window.scrollTo(0, 0); } };
-  const begin = (m: Mode) => { setS((x) => ({ ...blank(m), soc: x.soc, state: x.state, minWage: x.minWage })); setI(0); setDir(1); setScreen('step'); top(); };
+  const begin = (m: Mode) => { setS((x) => ({ ...blank(m), soc: x.soc, state: x.state, minWage: x.minWage })); setPicked({ time: null, share: null }); setI(0); setDir(1); setScreen('step'); top(); };
   const go = (n: number) => { setHelp(null); setDir(n >= i ? 1 : -1); if (n >= steps.length) { setScreen('result'); top(); return; } if (n < 0) { setScreen('start'); return; } setI(n); top(); };
   const isEst = s.est.includes(step?.id); const toggleEst = () => setS((x) => ({ ...x, est: isEst ? x.est.filter((e) => e !== step.id) : [...x.est, step.id] }));
-  const dunno = () => { for (const f of step.fields || []) if (!f.bool && f.k !== 'self.cardPct') up(f.k, null); go(i + 1); };
+  const dunno = () => { for (const f of [...(step.fields || []), ...(step.more || [])]) if (!f.bool && f.k !== 'self.cardPct') up(f.k, null); go(i + 1); };
   const copyLink = async () => { const url = `${location.origin}${location.pathname}${brand ? '?brand=opal' : ''}#s=${encodeState(s)}&l=${lang}`; try { await navigator.clipboard.writeText(url); } catch { window.prompt('', url); } setCopied(true); setTimeout(() => setCopied(false), 2500); };
   const occTitle = (soc: string) => (lang === 'en' ? OCCUPATIONS.find((o) => o.soc === soc)?.title : OCC_TITLES[lang][soc]) || soc;
   const est = (id: string) => (s.est.includes(id) ? <span style={{ fontSize: 11.5, color: AMBER, fontWeight: 600, marginLeft: 6 }}>{t('estMark')}</span> : null);
@@ -237,7 +326,7 @@ export default function PayCalculator() {
                   <h1 className="pc-h1" style={{ fontSize: 'clamp(28px, 4.4vw, 40px)' }}>{t(step.q)}</h1>
                   {step.sub && <p style={{ margin: '10px 0 0', fontSize: 15.5, color: MUTED, lineHeight: 1.55, maxWidth: 560 }}>{t(step.sub)}</p>}
                 </div>
-                <StepBody step={step} s={s} up={up} t={t} lang={lang} help={help} setHelp={setHelp} occTitle={occTitle} />
+                <StepBody step={step} s={s} up={up} setS={setS} t={t} lang={lang} help={help} setHelp={setHelp} occTitle={occTitle} picked={picked} setPicked={setPicked} />
                 {step.where && <details style={{ background: 'rgba(245,245,247,.8)', borderRadius: 16, padding: '13px 16px', fontSize: 14 }}><summary style={{ cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, listStyle: 'none' }}><Compass size={16} />{t('whereFind')}</summary><div style={{ marginTop: 8, color: MUTED, lineHeight: 1.55 }}>{t(step.where)}</div></details>}
                 {(step.fields || step.custom === 'hours') && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -245,10 +334,10 @@ export default function PayCalculator() {
                     {step.fields && <button type="button" onClick={dunno} className="pc-btn light" style={{ height: 38, fontSize: 13.5, padding: '0 14px' }}><HelpCircle size={14} />{t('idk')}</button>}
                   </div>)}
               </div>
-              <div className="pc-live-m pc-dark pc-sheen" style={{ padding: '14px 18px', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              {liveHr !== null && <div className="pc-live-m pc-dark pc-sheen pc-in" style={{ padding: '14px 18px', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#c9cace', position: 'relative' }}><span className="pc-dot" />{t('live')}</span>
-                <span style={{ fontSize: 24, fontWeight: 300, position: 'relative' }}>{liveHr !== null ? <CountUp v={liveHr} fmt={hr} dur={600} /> : '—'}</span>
-              </div>
+                <span style={{ fontSize: 24, fontWeight: 300, position: 'relative' }}><CountUp v={liveHr} fmt={hr} dur={600} /></span>
+              </div>}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                 <button type="button" onClick={() => go(i - 1)} className="pc-btn light"><ArrowLeft size={16} />{t('back')}</button>
                 {i >= 2 && i < steps.length - 1 && <button type="button" onClick={() => go(steps.length)} style={{ border: 0, background: 'none', font: 'inherit', fontSize: 14, fontWeight: 600, color: INK, textDecoration: 'underline', textUnderlineOffset: 4, cursor: 'pointer', padding: '0 4px', textAlign: 'center' }}>{t('seeSoFar')}</button>}
@@ -266,7 +355,7 @@ export default function PayCalculator() {
                   <div style={{ fontSize: 13, color: '#c9cace' }}>{t('paidMonth', { v: money(live.monthBIT) })}</div>
                   {live.market && <LiveRange r={live} head={liveHr} t={t} />}
                 </div>) : <div style={{ position: 'relative', fontSize: 15, color: '#c9cace', lineHeight: 1.5 }}>{t('liveEmpty')}</div>}
-                <div style={{ position: 'relative', fontSize: 12.5, color: '#9a9ca3', marginTop: 6 }}>{t('equalsHours', { h: hoursOf(s).toLocaleString('en-US'), w: s.weeks })}</div>
+                <div style={{ position: 'relative', fontSize: 12.5, color: '#9a9ca3', marginTop: 6 }}>{t('hoursWeekTotal', { h: ((Number(s.daysPerWeek) || 0) * (Number(s.hoursPerDay) || 0)).toLocaleString('en-US') })}</div>
               </div>
             </aside>
           </div>)}
@@ -368,53 +457,43 @@ function FieldRow({ f, s, up, t, lang, help, setHelp, big }: { f: Field; s: Calc
   if (f.bool) return (
     <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 15 }}><input type="checkbox" checked={!!get(s, f.k)} onChange={(e) => up(f.k, e.target.checked)} style={{ width: 20, height: 20, accentColor: INK }} />{t(f.label)}</label>);
   return (
-    <div style={{ display: 'grid', gap: 7 }}>
+    <div style={{ display: 'grid', gap: 7, alignContent: 'start' }}>
       <label style={{ fontSize: 14, fontWeight: 600 }}>{t(f.label)}</label>
       <Num value={get(s, f.k) ?? null} onChange={(v) => up(f.k, v)} unit={f.unit} ariaLabel={t(f.label)} big={big} />
       {f.where && <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5 }}>{t(f.where)}</div>}
-      {f.help && (help === f.k ? <Helper kind={f.help} weeks={s.weeks} dpw={Number(s.daysPerWeek) || 5} lang={lang} t={t} onUse={(v) => { up(f.k, v); setHelp(null); }} />
+      {f.help && (help === f.k ? <Helper kind={f.help} dpw={Number(s.daysPerWeek) || 5} lang={lang} t={t} onUse={(v) => { up(f.k, v); setHelp(null); }} />
         : <button type="button" onClick={() => setHelp(f.k)} style={{ justifySelf: 'start', border: 0, background: 'none', padding: 0, font: 'inherit', fontSize: 13.5, fontWeight: 600, color: GREEN, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Sparkles size={14} />{t('helpMe')}</button>)}
     </div>);
 }
 
-function StepBody({ step, s, up, t, lang, help, setHelp, occTitle }: { step: Step; s: CalcState; up: (k: string, v: any) => void; t: T; lang: Lang; help: string | null; setHelp: (v: string | null) => void; occTitle: (soc: string) => string }) {
-  const types: [PayType, string][] = [['hourly', t('ptHourly')], ['commission', t('ptCommission')], ['hourly_commission', t('ptHourlyCommission')], ['split', t('ptSplit')], ['greater_of', t('ptGreater')], ['salary', t('ptSalary')], ['draw', t('ptDraw')], ['tips', t('ptTips')]];
+function StepBody({ step, s, up, setS, t, lang, help, setHelp, occTitle, picked, setPicked }: { step: Step; s: CalcState; up: (k: string, v: any) => void; setS: (f: (x: CalcState) => CalcState) => void; t: T; lang: Lang; help: string | null; setHelp: (v: string | null) => void; occTitle: (soc: string) => string; picked: { time: boolean | null; share: boolean | null }; setPicked: (p: { time: boolean | null; share: boolean | null }) => void }) {
+  const types: [PayType, string][] = [['hourly', t('ptHourly')], ['commission', t('ptCommission')], ['hourly_commission', t('ptHourlyCommission')], ['split', t('ptSplit')], ['greater_of', t('ptGreater')], ['salary', t('ptSalary')], ['draw', t('ptDraw')]];
   const fr = (f: Field, big?: boolean) => <FieldRow key={f.k} f={f} s={s} up={up} t={t} lang={lang} help={help} setHelp={setHelp} big={big} />;
-  if (step.custom === 'payType') return <Choice value={s.payType} options={types} onPick={(v) => up('payType', v)} />;
+  const about = <div style={{ background: 'rgba(245,245,247,.7)', borderRadius: 20, padding: 14 }}><AboutWork s={s} setS={setS} t={t} occTitle={occTitle} /></div>;
+  if (step.custom === 'how') return <div style={{ display: 'grid', gap: 18 }}>{about}<HowPaid s={s} up={up} t={t} picked={picked} setPicked={setPicked} /></div>;
+  if (step.custom === 'hours') return <div style={{ display: 'grid', gap: 18 }}>{s.mode === 'self' && about}<HoursPicker s={s} up={up} t={t} /></div>;
   if (step.custom === 'offerType') return (
     <div style={{ display: 'grid', gap: 16 }}>
-      <Choice value={s.offer.payType} options={types.filter(([k]) => k !== 'tips') as any} onPick={(v) => up('offer.payType', v)} />
+      <Choice value={s.offer.payType} options={types as any} onPick={(v) => up('offer.payType', v)} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>{payFields(s.offer.payType, 'offer.').map((f) => fr(f))}</div>
-      <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4 }}>{t('qBenefits')}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-        {([['offer.ptoDays', 'ptoLabel', 'n'], ['offer.healthMonthly', 'healthLabel', '$'], ['offer.matchPct', 'matchLabel', '%'], ['offer.suppliesMonthly', 'costsMonthly', '$'], ['offer.commuteMin', 'commuteLabel', 'min']] as [string, Key, Field['unit']][]).map(([k, l, u]) => fr({ k, label: l, unit: u }))}
-      </div>
+      <details style={{ borderTop: `1px solid rgba(22,23,26,.07)`, paddingTop: 12 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, listStyle: 'none' }}><ChevronDown size={16} />{t('qBenefits')}</summary>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 12 }}>
+          {([['offer.ptoDays', 'ptoLabel', 'n'], ['offer.healthMonthly', 'healthLabel', '$'], ['offer.matchPct', 'matchLabel', '%'], ['offer.suppliesMonthly', 'costsMonthly', '$'], ['offer.commuteMin', 'commuteLabel', 'min']] as [string, Key, Field['unit']][]).map(([k, l, u]) => fr({ k, label: l, unit: u }))}
+        </div>
+      </details>
     </div>);
-  if (step.custom === 'hours') return (
-    <div style={{ display: 'grid', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
-        <label style={{ fontSize: 13, color: MUTED, display: 'grid', gap: 6 }}>{t('daysAWeek')}<Num value={s.daysPerWeek} onChange={(v) => up('daysPerWeek', v === null ? null : Math.min(7, v))} unit="n" ariaLabel={t('daysAWeek')} /></label>
-        <label style={{ fontSize: 13, color: MUTED, display: 'grid', gap: 6 }}>{t('hoursADay')}<Num value={s.hoursPerDay} onChange={(v) => up('hoursPerDay', v === null ? null : Math.min(24, v))} unit="n" ariaLabel={t('hoursADay')} /></label>
-        <label style={{ fontSize: 13, color: MUTED, display: 'grid', gap: 6 }}>{t('weeksLabel')}
-          <select className="pc-field" value={s.weeks} onChange={(e) => up('weeks', Number(e.target.value))}>{[1, 2, 4, 8, 12, 26, 52].map((w) => <option key={w} value={w}>{w}</option>)}</select></label>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 'clamp(40px, 6vw, 56px)', fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 1 }}><CountUp v={hoursOf(s)} fmt={(n) => Math.round(n).toLocaleString('en-US')} dur={600} /></span>
-        <span style={{ fontSize: 16, color: MUTED }}>{t('equalsHours', { h: '', w: s.weeks }).replace(/^=\s*/, '')}</span>
-      </div>
+  const fs = step.fields || []; const hint = step.id === 'pay' && s.soc ? JOB_HINT[s.soc] : null;
+  return (
+    <div style={{ display: 'grid', gap: 18 }}>
+      {hint && <div className="pc-in" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 14, lineHeight: 1.5, background: 'rgba(127,209,165,.14)', borderRadius: 16, padding: '12px 14px' }}><Sparkles size={16} style={{ color: GREEN, flexShrink: 0, marginTop: 2 }} />{t(hint)}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: fs.length === 1 ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>{fs.map((f) => fr(f, fs.length === 1))}</div>
+      {step.more && step.more.length > 0 && (
+        <details style={{ borderTop: `1px solid rgba(22,23,26,.07)`, paddingTop: 12 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 14.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, listStyle: 'none', color: MUTED }}><ChevronDown size={16} />{t('moreDetail')}</summary>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18, marginTop: 14 }}>{step.more.map((f) => fr(f))}</div>
+        </details>)}
     </div>);
-  if (step.custom === 'work') return (
-    <div style={{ display: 'grid', gap: 16 }}>
-      <select className="pc-field" aria-label={t('qWork')} value={s.soc} onChange={(e) => up('soc', e.target.value)}>
-        <option value="">—</option>{[...OCCUPATIONS].map((o) => [o.soc, occTitle(o.soc)] as const).sort((a, b) => a[1].localeCompare(b[1])).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-      </select>
-      <label style={{ fontSize: 14, fontWeight: 600, display: 'grid', gap: 7 }}>{t('stateLabel')}
-        <select className="pc-field" value={s.state} onChange={(e) => up('state', e.target.value)}><option value="">—</option>{US_STATES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-      {s.mode !== 'self' && fr({ k: 'minWage', label: 'minWageLabel', unit: '$', where: 'minWageWhere' })}
-    </div>);
-  if (step.custom === 'contractor') return <Choice value={s.contractor === null ? '' : s.contractor ? 'y' : 'n'} options={[['y', t('yes')], ['n', t('no')]]} onPick={(v) => up('contractor', v === 'y')} />;
-  const fs = step.fields || []; const single = fs.length === 1;
-  return <div style={{ display: 'grid', gridTemplateColumns: single ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))', gap: 18 }}>{fs.map((f) => fr(f, single))}</div>;
 }
 
 function planName(p: Plan, t: T, lang: Lang) {
@@ -447,7 +526,7 @@ function Answer({ s, r, t, lang, up, setS, est, occTitle, copyLink, copied, chan
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <In d={0} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
-        <div><div style={{ fontSize: 13, color: MUTED }}>{t('answer')} · {t('equalsHours', { h: r.hours.toLocaleString('en-US'), w: s.weeks }).replace(/^= /, '')}{est('hours')}</div>
+        <div><div style={{ fontSize: 13, color: MUTED }}>{t('answer')} · {s.per === 'week' ? t('hoursWeek', { h: ((Number(s.daysPerWeek) || 0) * (Number(s.hoursPerDay) || 0)).toLocaleString('en-US') }) : t('equalsHours', { h: r.hours.toLocaleString('en-US'), w: s.weeks }).replace(/^= /, '')}{est('hours')}</div>
           <h1 className="pc-h1" style={{ fontSize: 'clamp(32px, 5.4vw, 54px)', marginTop: 6 }}>{t('answerTitle', { v: hr(head) })}</h1></div>
         <button type="button" onClick={change} className="pc-btn light pc-noprint"><ArrowLeft size={16} />{t('change')}</button>
       </In>
@@ -470,7 +549,7 @@ function Answer({ s, r, t, lang, up, setS, est, occTitle, copyLink, copied, chan
             </div>
           </In>))}
       </div>
-      {s.weeks < 8 && <In d={0.4}><div style={{ fontSize: 13.5, color: MUTED, display: 'flex', alignItems: 'center', gap: 8 }}><Clock size={14} />{t('seasonal')}</div></In>}
+      {s.per === 'period' && s.weeks < 8 && <In d={0.4}><div style={{ fontSize: 13.5, color: MUTED, display: 'flex', alignItems: 'center', gap: 8 }}><Clock size={14} />{t('seasonal')}</div></In>}
 
       {s.mode === 'offer' && r.offer && (
         <div className="pc-2">
@@ -484,6 +563,8 @@ function Answer({ s, r, t, lang, up, setS, est, occTitle, copyLink, copied, chan
           </In>
           {r.offer.crossOver !== null && <In d={0.4}><div className="pc-glass" style={card}><div style={{ fontSize: 16, lineHeight: 1.5 }}>{t('crossOver', { v: money(r.offer.crossOver) })}</div></div></In>}
         </div>)}
+
+      <In d={0.3} className="pc-noprint"><MoreAccurate s={s} up={up} setS={setS} t={t} lang={lang} occTitle={occTitle} /></In>
 
       <In d={0.35}>
         <div className="pc-glass" style={{ ...card, gap: 14 }}>
@@ -574,5 +655,37 @@ function Answer({ s, r, t, lang, up, setS, est, occTitle, copyLink, copied, chan
             <div style={{ fontSize: 12.5, color: MUTED }}>{t('leanWhy')} {t('askNote')}</div>
           </div>
         </In>)}
+    </div>);
+}
+
+/** Optional extras on the answer page: each card opens in place and the answer above updates as it's filled in. */
+function MoreAccurate({ s, up, setS, t, lang, occTitle }: { s: CalcState; up: (k: string, v: any) => void; setS: (f: (x: CalcState) => CalcState) => void; t: T; lang: Lang; occTitle: (soc: string) => string }) {
+  const [open, setOpen] = useState<string | null>(null); const [help, setHelp] = useState<string | null>(null);
+  const n = (v: any) => Number(v) > 0; const self = s.mode === 'self';
+  const fr = (f: Field) => <FieldRow key={f.k} f={f} s={s} up={up} t={t} lang={lang} help={help} setHelp={setHelp} />;
+  const grid = (fs: Field[]) => <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>{fs.map(fr)}</div>;
+  const cards: { id: string; title: Key; sub: Key; has: boolean; body: ReactNode; icon: typeof Briefcase }[] = [
+    { id: 'work', title: 'cardWork', sub: 'cardWorkSub', has: !!(s.soc && s.state), icon: Compass,
+      body: <div style={{ display: 'grid', gap: 14 }}><AboutWork s={s} setS={setS} t={t} occTitle={occTitle} title={false} />{!self && s.state && grid([{ k: 'minWage', label: 'minWageLabel', unit: '$' }])}</div> },
+    ...(!self ? [{ id: 'costs', title: 'cardCosts' as Key, sub: 'cardCostsSub' as Key, has: n(s.costsMonthly), icon: Store, body: grid([{ k: 'costsMonthly', label: 'costsMonthly', unit: '$' }]) },
+      { id: 'benefits', title: 'cardBenefits' as Key, sub: 'cardBenefitsSub' as Key, has: n(s.ptoDays) || n(s.healthMonthly) || n(s.matchPct), icon: Sparkles, body: grid([{ k: 'ptoDays', label: 'ptoLabel', unit: 'n' }, { k: 'healthMonthly', label: 'healthLabel', unit: '$' }, { k: 'matchPct', label: 'matchLabel', unit: '%' }]) }] : []),
+    { id: 'time', title: 'cardTime', sub: 'cardTimeSub', has: n(s.commuteMin) || n(s.offClockMonthly), icon: Clock, body: grid([{ k: 'commuteMin', label: 'commuteLabel', unit: 'min' }, { k: 'offClockMonthly', label: 'offClockLabel', unit: 'h', where: 'offClockSub' }]) },
+    ...(!self ? [{ id: 'detail', title: 'cardDetail' as Key, sub: 'cardDetailSub' as Key, has: n(s.paid) || n(s.bonus), icon: Briefcase, body: grid([{ k: 'paid', label: 'paidWeek', unit: '$', where: 'paidWhere' }, { k: 'bonus', label: 'bonusWeek', unit: '$' }]) },
+      { id: 'contractor', title: 'cardContractor' as Key, sub: 'cardContractorSub' as Key, has: s.contractor !== null, icon: Scale,
+        body: <Choice value={s.contractor === null ? '' : s.contractor ? 'y' : 'n'} options={[['y', t('yes')], ['n', t('no')]]} onPick={(v) => up('contractor', v === 'y')} /> }] : []),
+  ];
+  return (
+    <div className="pc-glass" style={{ ...card, gap: 4 }}>
+      <div style={{ fontSize: 17, fontWeight: 600 }}>{t('moreAccurate')}</div>
+      <div style={{ fontSize: 13.5, color: MUTED, marginBottom: 8 }}>{t('moreAccurateSub')}</div>
+      {cards.map((c) => { const isOpen = open === c.id; const Icon = c.icon; return (
+        <div key={c.id} style={{ borderTop: `1px solid rgba(22,23,26,.07)` }}>
+          <button type="button" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : c.id)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '14px 2px', border: 0, background: 'none', font: 'inherit', color: INK, cursor: 'pointer', textAlign: 'left' }}>
+            <span style={{ width: 38, height: 38, borderRadius: 12, display: 'grid', placeItems: 'center', flexShrink: 0, background: c.has ? 'rgba(127,209,165,.22)' : SOFT, color: c.has ? GREEN : INK, transition: 'all .3s' }}>{c.has ? <Check size={18} strokeWidth={2.4} /> : <Icon size={18} strokeWidth={1.6} />}</span>
+            <span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: 15.5, fontWeight: 600 }}>{t(c.title)}</span><span style={{ display: 'block', fontSize: 13, color: MUTED, marginTop: 2 }}>{c.has ? t('added') : t(c.sub)}</span></span>
+            <ChevronDown size={18} style={{ color: MUTED, transition: 'transform .35s cubic-bezier(.22,1,.36,1)', transform: isOpen ? 'rotate(180deg)' : 'none', flexShrink: 0 }} />
+          </button>
+          {isOpen && <div className="pc-in" style={{ padding: '2px 2px 18px' }}>{c.body}</div>}
+        </div>); })}
     </div>);
 }

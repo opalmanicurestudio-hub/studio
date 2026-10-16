@@ -2,6 +2,8 @@
 // nothing here is sent or stored. The state packs into the address (#s=…) so a "private link" carries the numbers
 // itself. Uses the same engine as the in-app pay pages (lib/pay-clarity, lib/pay-extras) and the yearly government
 // pay data (lib/wage-data). US rules. Estimates, not tax or legal advice.
+// Money amounts are for "a usual week" (per: 'week'); links made before that hold totals for the whole stretch
+// (per: 'period') and still read the same.
 import { planPay, breakEvenSales, FICA, type Plan, type Basis } from './pay-clarity';
 import { allIn, takeHome, contractorLean, NO_TIP_CREDIT, FEDERAL_CASH_WAGE, type Filing } from './pay-extras';
 import { wageRange } from './wage-data';
@@ -15,7 +17,7 @@ export type PayType = 'hourly' | 'commission' | 'hourly_commission' | 'greater_o
 export type OfferPay = { payType: Exclude<PayType, 'tips'>; rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek: number | null; deskPerWeek?: number | null;
   ptoDays: number | null; healthMonthly: number | null; matchPct: number | null; suppliesMonthly: number | null; commuteMin: number | null };
 export type CalcState = {
-  v: 1; mode: Mode; payType: PayType;
+  v: 1; mode: Mode; payType: PayType; per: 'week' | 'period';
   weeks: number; daysPerWeek: number | null; hoursPerDay: number | null;
   rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek: number | null; drawBack: boolean; deskPerWeek: number | null;
   sales: number | null; retailSales: number | null; paid: number | null; bonus: number | null; tips: number | null;
@@ -30,7 +32,7 @@ export type CalcState = {
 };
 
 export function blank(mode: Mode = 'job'): CalcState {
-  return { v: 1, mode, payType: mode === 'self' ? 'commission' : 'hourly', weeks: 4, daysPerWeek: 5, hoursPerDay: 8,
+  return { v: 1, mode, payType: mode === 'self' ? 'commission' : 'hourly', per: 'week', weeks: 4, daysPerWeek: 5, hoursPerDay: 8,
     rate: null, pct: null, retailPct: null, salary: null, drawPerWeek: null, drawBack: true, deskPerWeek: null,
     sales: null, retailSales: null, paid: null, bonus: null, tips: null, costsMonthly: null, clawback: null,
     ptoDays: null, healthMonthly: null, matchPct: null, commuteMin: null, offClockMonthly: null,
@@ -51,12 +53,14 @@ export function decodeState(code: string): CalcState | null {
   try {
     const bin = unb64(code.replace(/-/g, '+').replace(/_/g, '/')); const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
     const x = JSON.parse(new TextDecoder().decode(bytes)); if (!x || x.v !== 1 || !['job', 'self', 'offer'].includes(x.mode)) return null;
-    const d = blank(x.mode); return { ...d, ...x, self: { ...d.self, ...(x.self || {}) }, offer: { ...d.offer, ...(x.offer || {}) }, tax: { ...d.tax, ...(x.tax || {}) }, cq: x.cq || {}, est: Array.isArray(x.est) ? x.est.slice(0, 40) : [] };
+    const d = blank(x.mode); return { ...d, per: 'period', ...x, self: { ...d.self, ...(x.self || {}) }, offer: { ...d.offer, ...(x.offer || {}) }, tax: { ...d.tax, ...(x.tax || {}) }, cq: x.cq || {}, est: Array.isArray(x.est) ? x.est.slice(0, 40) : [] };
   } catch { return null; }
 }
 
 // ── The math ────────────────────────────────────────────────────────────────────────────────────────────────────
 export const hoursOf = (s: CalcState) => r2(Math.max(0, num(s.weeks)) * Math.max(0, num(s.daysPerWeek)) * Math.max(0, num(s.hoursPerDay)));
+/** A money amount as entered, over the whole stretch: a usual week's figure times the weeks. */
+const amt = (s: CalcState, v: any) => num(v) * (s.per === 'week' ? Math.max(1, num(s.weeks)) : 1);
 const tipCreditFor = (s: CalcState) => (s.payType === 'tips' && s.state && !NO_TIP_CREDIT.includes(s.state) ? { cashWage: num(s.rate) || FEDERAL_CASH_WAGE } : null);
 
 export function planFor(t: PayType | OfferPay['payType'], x: { rate: number | null; pct: number | null; retailPct: number | null; salary: number | null; drawPerWeek?: number | null; drawBack?: boolean; deskPerWeek?: number | null }, id = 'now'): Plan {
@@ -71,8 +75,8 @@ export function planFor(t: PayType | OfferPay['payType'], x: { rate: number | nu
 }
 export function basisOf(s: CalcState, currentGross = 0): Basis {
   const days = Math.max(7, Math.round(num(s.weeks) * 7));
-  return { hours: hoursOf(s), serviceSales: num(s.sales), retailSales: num(s.retailSales), tips: num(s.tips), otherPay: num(s.bonus), days, currentGross,
-    minimumWage: num(s.minWage) || undefined, tipCredit: tipCreditFor(s), daysPerWeek: num(s.daysPerWeek) || 5, clawback: num(s.clawback) || undefined };
+  return { hours: hoursOf(s), serviceSales: amt(s, s.sales), retailSales: amt(s, s.retailSales), tips: amt(s, s.tips), otherPay: amt(s, s.bonus), days, currentGross,
+    minimumWage: num(s.minWage) || undefined, tipCredit: tipCreditFor(s), daysPerWeek: num(s.daysPerWeek) || 5, clawback: amt(s, s.clawback) || undefined };
 }
 const monthly = (v: number, days: number) => r2(v * (MONTH_DAYS / days));
 /** A plan's month, all in: before income tax, plus benefits, less what you pay for yourself. */
@@ -88,7 +92,7 @@ export function compute(s: CalcState) {
   // How they're paid now: from what they were actually paid when they know it, otherwise worked out from the pay plan.
   const derived = planFor(s.payType, s, 'now'); let nowPlan: Plan; let basis: Basis;
   if (s.mode === 'self') { nowPlan = selfPlan; basis = base; }
-  else if (s.paid !== null && s.paid > 0) { basis = basisOf(s, num(s.paid) + num(s.bonus) + num(s.tips)); nowPlan = { id: 'now', kind: 'current', perks: nowPerks }; }
+  else if (s.paid !== null && s.paid > 0) { basis = basisOf(s, amt(s, s.paid) + amt(s, s.bonus) + amt(s, s.tips)); nowPlan = { id: 'now', kind: 'current', perks: nowPerks }; }
   else { basis = base; nowPlan = { ...derived, perks: nowPerks }; }
   const now = planPay(nowPlan, basis);
   const selfCosts = s.mode === 'self' ? r2(-now.lines.filter((l) => l.amount < 0 && l.label !== 'Self-employment tax').reduce((a, l) => a + l.amount, 0)) : 0;
@@ -130,7 +134,7 @@ export function compute(s: CalcState) {
     if (nowCommish && salesKnown) {
       const nowP = { ...(s.paid !== null && s.paid > 0 ? derived : nowRow.plan), perks: nowPerks };
       const at = (x: number) => { const b2 = { ...basis, serviceSales: x, currentGross: 0 }; return allInMonth(nowP, b2).month - allInMonth(offerRow.plan, b2).month; };
-      let lo = 0, hi = Math.max(2000, num(s.sales) * 6);
+      let lo = 0, hi = Math.max(2000, basis.serviceSales * 6);
       if (at(lo) < 0 && at(hi) > 0) { for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (at(m) > 0) hi = m; else lo = m; } crossOver = Math.round(((lo + hi) / 2) * (MONTH_DAYS / days) / 50) * 50; }
     }
     offer = { nowMonth: nowRow.month, offerMonth: offerRow.month, diff: r2(offerRow.month - nowRow.month), payDiff: r2(offPay - nowPay), nowHr: nowRow.perHourAllIn, offerHr: offerRow.perHourAllIn, crossOver };
@@ -141,7 +145,7 @@ export function compute(s: CalcState) {
   if (s.mode !== 'self' && hours > 0 && num(s.minWage) > 0 && perHourNoTips !== null) {
     // The plan's own figure, before any top-up payroll would have to add (that top-up is the thing worth asking about).
     const own = r2((payNoTips - now.toppedUp) / hours); const tc = tipCreditFor(s);
-    const under = now.toppedUp > 0.005 || (tc ? own < tc.cashWage - 0.005 || (own * hours + num(s.tips)) / hours < num(s.minWage) - 0.005 : own < num(s.minWage) - 0.005);
+    const under = now.toppedUp > 0.005 || (tc ? own < tc.cashWage - 0.005 || (own * hours + amt(s, s.tips)) / hours < num(s.minWage) - 0.005 : own < num(s.minWage) - 0.005);
     if (under) asks.push({ k: 'askMin', v: own });
   }
   if (num(s.offClockMonthly) > 0) asks.push({ k: 'askOffClock', h: Math.round(num(s.offClockMonthly)) });
