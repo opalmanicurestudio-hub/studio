@@ -30,6 +30,9 @@ import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking,
 import { useIsMobile } from '@/hooks/use-mobile';
 import { arrivalFields, arrivalNotice } from '@/lib/check-in';
 import { unconfirmedOn } from '@/lib/confirm-ask';
+import { weekNumbers, billsLine } from '@/lib/week-numbers';
+import { ThisWeekSheet } from '@/components/planner/ThisWeekSheet';
+import { dayInfo } from '@/components/planner/PlannerHeader';
 import { UnconfirmedSheet } from '@/components/planner/UnconfirmedSheet';
 import { PhoneHeader, NeedsYouLine, PhoneBottomBar, BookSheet, MoreSheet } from '@/components/planner/PhonePlanner';
 import { DayTimeline } from '@/components/planner/DayTimeline';
@@ -562,10 +565,7 @@ function PlannerPageContent() {
     }
 
     if (map.has('business')) {
-        billInstances?.filter(i => isSameDay(safeDate(i.dueDate), targetDateStart)).forEach(i => {
-            const def = (billDefinitions || []).find(d => d.id === i.billDefinitionId);
-            map.get('business')!.push({ ...i, definition: def, itemType: 'bill' } as any);
-        });
+        // Bills are not on the schedule: they live in "needs you" (for people who can see money) and on the Bills page.
 
         studioEventsToday.forEach(se => {
             let startTime: string;
@@ -903,18 +903,11 @@ function PlannerPageContent() {
     return { booked, net, bookedMinutes, availableMinutes };
   }, [showProfitability, appointments, services, allStaff, inventory, selectedTenant, currentDate, columns]);
 
-  const kpis = useMemo(() => {
-    if (!transactions || !appointments || !services || !selectedTenant) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
-    const start = startOfWeek(currentDate);
-    const end = endOfDay(addDays(start, 6));
-    const weeklyTransactions = transactions.filter(t => { const d = safeDate(t.date); return d >= start && d <= end; });
-    const revenue = weeklyTransactions.filter(t => t.type === 'income' && (t.category === 'Service Revenue' || t.category === 'Retail')).reduce((acc, t) => acc + t.amount, 0);
-    const absorbed = weeklyTransactions.filter(t => t.type === 'expense' && t.category === 'Discounts').reduce((acc, t) => acc + t.amount, 0);
-    const waivedTotal = (appointments || []).filter(a => { const d = safeDate(a.startTime); return d >= start && d <= end && a.cancellationFeeWaived; }).reduce((acc, a) => acc + (a.cancellationFeeApplied || 0), 0);
-    const projected = (appointments || []).filter(a => { const d = safeDate(a.startTime); return d >= start && d <= end && (a.status === 'confirmed' || a.status === 'deposit_pending'); }).reduce((acc, a) => { const svc = services.find(s => s.id === a.serviceId); return acc + (svc?.price || 0); }, 0);
-    const weeklyBreakEven = ((selectedTenant.tmhr || 50) * 160 / 30.44) * 7;
-    return { weeklyRevenue: revenue, projectedRevenue: projected, weeklyBreakEven, weeklyNetProfit: revenue - weeklyBreakEven, absorbedCosts: absorbed + waivedTotal };
-  }, [transactions, appointments, services, currentDate, selectedTenant]);
+  // "This week" (lib/week-numbers): taken, still booked, goal, last week at this point, and the week's share of the bills.
+  const weekNums = useMemo(() => {
+    const ws = startOfWeek(currentDate); const openDays = Array.from({ length: 7 }, (_, k) => dayInfo(addDays(ws, k), appointments || [], (allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false))).filter((d) => !d.closed).length;
+    return weekNumbers({ weekStart: ws, transactions: transactions || [], appointments: appointments || [], services: services || [], billDefinitions: billDefinitions || [], tenant: selectedTenant, openDays });
+  }, [transactions, appointments, services, billDefinitions, currentDate, selectedTenant, allStaff]);
 
   // ── Visits from earlier days that were never finished — closed overnight, settled here (components/ops/LeftOpen) ──
   const leftOpenList = useLeftOpen(firestore, tenantId);
@@ -1451,7 +1444,7 @@ function PlannerPageContent() {
   const unconfirmedItem = unconfirmedTomorrow.length ? [{ key: 'unconfirmed', label: `${unconfirmedTomorrow.length} visit${unconfirmedTomorrow.length === 1 ? '' : 's'} tomorrow not confirmed`, onClick: () => setUnconfOpen(true) }] : [];
   const needsYouOthers = [
     ...(leftOpenList.length ? [{ key: 'left-open', label: `${leftOpenList.length} visit${leftOpenList.length === 1 ? '' : 's'} left open from earlier days`, onClick: () => setLeftOpenSheet(true), tone: 'warn' as const }] : []),
-    ...(can('money.view') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
+    ...(can('money.view') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: billsLine(billInstancesWithDefinitions) || 'Bills due', onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
     ...unconfirmedItem,
   ];
   const phoneProviders = (allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false);
@@ -1508,7 +1501,7 @@ function PlannerPageContent() {
           ...(leftOpenList.length ? [{ key: 'left-open', label: `${leftOpenList.length} visit${leftOpenList.length === 1 ? '' : 's'} left open from earlier days`, onClick: () => setLeftOpenSheet(true), tone: 'warn' as const }] : []),
           ...unconfirmedItem,
           ...(awaitingUpcoming.length ? [{ key: 'awaiting', label: `${awaitingUpcoming.length} booking${awaitingUpcoming.length === 1 ? '' : 's'} awaiting your answer`, onClick: jumpToNextAwaiting, tone: 'warn' as const }] : []),
-          ...(can('money.view') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
+          ...(can('money.view') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: billsLine(billInstancesWithDefinitions) || 'Bills due', onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
           ...(cancelledToday > 0 ? [{ key: 'cancelled', label: `${cancelledToday} cancelled today — ${showCancelled ? 'hide' : 'show'}`, onClick: revealCancelled }] : []),
           ...studioEventsToday.map((se: any) => ({ key: `ev-${se.id}`, label: `${se.status === 'active' ? 'Live now · ' : ''}${se.title || se.name || 'Event'}${se.time ? ` · ${se.time}` : ''}`, onClick: () => router.push(`/events/${se.id}/manifest`) })),
         ]}
@@ -1524,7 +1517,7 @@ function PlannerPageContent() {
         ]}
         onScan={() => setIsScannerOpen(true)} onWaitlist={() => setIsWaitlistSheetOpen(true)} waitlistCount={openWaitlistCount}
         moreItems={[
-          ...(can('money.view') ? [['Weekly numbers', () => setIsKpiSheetOpen(true)] as [string, () => void], [`Bills due${billInstancesWithDefinitions.length ? ` · ${billInstancesWithDefinitions.length}` : ''}`, () => setIsBillsSheetOpen(true)] as [string, () => void]] : []),
+          ...(can('money.view') ? [['This week', () => setIsKpiSheetOpen(true)] as [string, () => void], [`Bills due${billInstancesWithDefinitions.length ? ` · ${billInstancesWithDefinitions.length}` : ''}`, () => setIsBillsSheetOpen(true)] as [string, () => void]] : []),
           ['Find a time', () => setFindOpen(true)], ['Waiting list', () => setIsWaitlistSheetOpen(true)], ['Scan check-in code', () => setIsScannerOpen(true)], ['View settings', () => setPrefsOpen(true)],
           [density === 'compact' ? 'Roomy cards' : 'Compact cards', () => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })],
         ]}
@@ -1738,7 +1731,7 @@ function PlannerPageContent() {
       />
 
       <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={billInstancesWithDefinitions} isMobile={isMobile || false} onLogPaymentClick={(instance: any) => { setSelectedBill(instance); setIsBillsSheetOpen(false); }} />
-      <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={kpis} isMobile={isMobile || false} />
+      {isKpiSheetOpen && can('money.view') && <ThisWeekSheet n={weekNums} label={`${format(startOfWeek(currentDate), 'MMM d')} – ${format(addDays(startOfWeek(currentDate), 6), 'MMM d')}`} onClose={() => setIsKpiSheetOpen(false)} />}
       <WaitlistSheet
         open={isWaitlistSheetOpen}
         onOpenChange={setIsWaitlistSheetOpen}
