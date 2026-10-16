@@ -42,7 +42,7 @@ export function DocBlocks({ sections, renderChecklist, gap = 16 }: { sections: a
         <Images urls={sec.images} />{sec.timerMin ? <span className="inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-semibold" style={{ background: '#e3efed', color: '#2f6f6a' }}><Ico d={IC.clock} s={14} c="#2f6f6a" />Timer · {sec.timerMin} min</span> : null}</div></div>; }
       if (t === 'normal' || t === 'callus') { const call = t === 'callus'; const fg = call ? '#7a1d14' : '#1f5a3a';
         return <div key={sec.id} className="rounded-[16px] p-3.5" style={{ background: call ? '#fdecec' : '#e9f3ed', color: fg }}>
-          <p className="pb-1 text-[15px] font-bold">{sec.heading || (call ? 'Call us if' : 'What’s normal')}</p>
+          <p className="pb-1 text-[15px] font-bold">{sec.heading || (call ? 'Let us know if' : 'What’s normal')}</p>
           {lines(sec).map((it, i) => <div key={i} className="flex gap-2.5 py-1 text-[14.5px] leading-snug"><span className="w-3 shrink-0 font-bold">{call ? '!' : <Ico d={IC.check} s={14} c={fg} w={2.4} />}</span><span>{it}</span></div>)}</div>; }
       if (t === 'warning' || t === 'tip') return <Callout key={sec.id} kind={t} heading={sec.heading} body={sec.body} />;
       if (t === 'photo') return <figure key={sec.id} className="space-y-1.5">{sec.heading && <p className="text-[15px] font-semibold">{sec.heading}</p>}<Images urls={sec.images} big />{sec.body && <figcaption className="text-[13px]" style={{ color: MUTED }}>{sec.body}</figcaption>}</figure>;

@@ -2585,7 +2585,7 @@ export default function CheckInPage() {
         else if (act === 'reschedule') setShowRescheduleFlow(true);
         else if (act === 'message') setShowMessages(true);
         else if (act === 'late') setOpenLate(true);
-        else if (act === 'confirm') void apptApi({ action: 'confirm' }).then((r) => setConfirmNote(r?.ok ? { ok: true, text: 'Thank you, you’re confirmed. We look forward to seeing you.' } : { ok: false, text: r?.error || 'We couldn’t confirm your appointment here. Please give us a call.' }));
+        else if (act === 'confirm') void apptApi({ action: 'confirm' }).then((r) => setConfirmNote(r?.ok ? { ok: true, text: 'Thank you, you’re confirmed. We look forward to seeing you.' } : { ok: false, text: r?.error || 'We couldn’t confirm your appointment just now. Please try again in a moment, or reply to our text.' }));
     }, [apptReady, verifyFirst, revoked]); // eslint-disable-line react-hooks/exhaustive-deps
     const confirmCard = confirmNote ? (
         <VisitCard tone={confirmNote.ok ? 'ok' : 'warn'}>

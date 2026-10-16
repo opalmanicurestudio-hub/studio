@@ -281,7 +281,7 @@ export async function POST(req: NextRequest) {
     const serviceName = str(entry.serviceName, 80);
     const custom = str(body?.message, 300).trim();
     const text = custom
-      || `Hi ${firstName} — a spot just opened up${serviceName ? ` for your ${serviceName}` : ''} at ${studioName}. Reply or give us a call and we'll get you in.`;
+      || `Hi ${firstName} — a spot just opened up${serviceName ? ` for your ${serviceName}` : ''} at ${studioName}. Reply to this message and we'll get you in.`;
 
     const results: { channel: string; ok: boolean; status: string }[] = [];
     if (phone) {

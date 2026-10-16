@@ -24,7 +24,7 @@ const area = 'w-full rounded-[12px] border bg-card px-3 py-2.5 text-[14.5px] lea
 const PH: Record<string, [string, string]> = {
   text: ['Heading', 'Write it the way you’d explain it to a new person.'], step: ['What to do', 'How to do it, in a sentence or two.'],
   checklist: ['Checklist name', 'One item per line\nLights off\nAutoclave ran'], warning: ['What must not happen', 'Why, and what to do instead.'],
-  tip: ['A helpful extra', 'The trick that makes it easier.'], normal: ['What’s normal', 'One per line\nA little warmth for a few hours\nCuticles a bit dry the next day'], callus: ['Call us if', 'One per line\nRedness or swelling past tomorrow\nLifting before day 7'], photo: ['Title (optional)', 'Caption'], video: ['Title (optional)', 'What it shows'],
+  tip: ['A helpful extra', 'The trick that makes it easier.'], normal: ['What’s normal', 'One per line\nA little warmth for a few hours\nCuticles a bit dry the next day'], callus: ['Let us know if', 'One per line\nRedness or swelling past tomorrow\nLifting before day 7'], photo: ['Title (optional)', 'Caption'], video: ['Title (optional)', 'What it shows'],
 };
 const ADD_ICON: Record<string, string> = { normal: IC.check, callus: IC.warn,  step: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>', checklist: IC.check, warning: IC.warn, tip: IC.tip, photo: IC.cam, video: IC.play, text: '<path d="M5 6h14M5 12h14M5 18h9"/>' };
 

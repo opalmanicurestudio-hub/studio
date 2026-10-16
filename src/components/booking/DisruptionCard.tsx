@@ -27,7 +27,7 @@ export function DisruptionCard({ disruption, hasDeposit, onReschedule, onCancel 
   const why = disruption.reasonLabel || (disruption.kind === 'callout' ? "your provider can't make it" : 'the studio has had to close unexpectedly');
   const whyLower = /^(Your|The|For|Because)\b/.test(why) ? why.charAt(0).toLowerCase() + why.slice(1) : why;   // never lowercase a name
   const run = async (key: string, f: () => Promise<any>, ok: (d: any) => string) => { setBusy(key); setErr(null); const d = await f().catch(() => null); setBusy(null);
-    if (d?.ok) setMsg(ok(d)); else setErr(d?.error || "That didn't go through. Please try again, or give us a call."); };
+    if (d?.ok) setMsg(ok(d)); else setErr(d?.error || "That didn't go through. Please try again in a moment, or reply to our message."); };
   const depLine = (d: any) => (d.deposit === 'refund' ? " We'll refund your deposit to your card." : d.deposit === 'credit' ? " We've saved your deposit as credit for your next visit." : '');
   const go = (dep: 'refund' | 'credit' | 'keep' | null, lineUp = false) => run(lineUp ? 'waitlist' : dep || 'cancel', () => onCancel(dep, lineUp ? { choice: 'waitlist' } : undefined), (d) =>
     dep === 'keep' ? "Thank you. We'll keep your time, do everything that fits, and book the rest for you."
