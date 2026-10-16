@@ -2,6 +2,7 @@
 // src/components/planner/AgendaView.tsx — THE DAY AS ONE LIST. Every visit in time order with the provider, the client,
 // the service and the state in words; sticky hour headers; gaps inside working hours as "Book here" rows; provider chips
 // to narrow it; arrow keys move, Enter opens. The selected row drives the side panel next to it.
+import { pendingFormIds } from '@/lib/visit-requests';
 import { extraMinutesFor } from '@/lib/client-timing';
 import * as React from 'react';
 import { format, differenceInMinutes, isToday, startOfDay } from 'date-fns';
@@ -25,8 +26,7 @@ export function visitMarks(a: any, client: any, service: any): { label: string; 
   if (a.checkInStatus === 'running_late') out.push({ label: a.lateTimeMinutes ? `Late +${a.lateTimeMinutes}` : 'Running late', tone: 'alert' });
   if (a.checkInStatus === 'on_my_way') out.push({ label: a.clientTrip?.etaMin ? `En route ~${a.clientTrip.etaMin} min` : 'En route', tone: 'info' });
   if (a.checkInStatus === 'arrived' && a.status !== 'servicing') out.push({ label: 'Here', tone: 'good' });
-  const need: string[] = [...((service as any)?.requiredFormIds || []), ...(a.requiredFormIds || [])]; const signed = new Set((a.signedForms || []).map((f: any) => f.formId));
-  if (need.length && need.some((id) => !signed.has(id)) && !['completed', 'cancelled', 'declined'].includes(String(a.status))) out.push({ label: 'Form to sign', tone: 'alert' });
+  if (pendingFormIds(a, service, c).length && !['completed', 'cancelled', 'declined'].includes(String(a.status))) out.push({ label: 'Form to sign', tone: 'alert' });
   if (c.id && (c.totalVisits === 0 || c.visitCount === 0 || c.isNew === true)) out.push({ label: 'First visit', tone: 'info' });
   if (c.activeMembershipId) out.push({ label: 'Member', tone: 'info' });
   if (a.packageId || a.redeemedPackageId) out.push({ label: 'Package', tone: 'info' });

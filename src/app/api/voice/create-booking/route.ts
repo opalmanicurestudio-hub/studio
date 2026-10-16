@@ -472,8 +472,9 @@ export async function createBooking(
     try {
       const res = await fetch(`${appUrl}/api/notifications/send-completion-link`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-cf-internal': process.env.CRON_SECRET || '' },
         body: JSON.stringify({
+          tenantId, appointmentId: aptId, reason: 'booking',
           link,
           clientName,
           clientEmail,

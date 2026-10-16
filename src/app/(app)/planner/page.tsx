@@ -1,5 +1,6 @@
 'use client';
 
+import { startBlocker } from '@/lib/visit-requests';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
 import { FindATime } from '@/components/planner/FindATime';
 import { MonthView, WeekView } from '@/components/planner/RangeViews';
@@ -1066,11 +1067,16 @@ function PlannerPageContent() {
     setIsDetailsOpen(false);
   };
 
-  const handleStartService = (id: string) => {
-    if (!firestore || !tenantId || !appointments) return;
+  // Takes a visit or its id: cards pass the visit, the sheet and panels pass the id.
+  const handleStartService = (x: string | { id: string }) => {
+    const id = typeof x === 'string' ? x : x?.id;
+    if (!firestore || !tenantId || !appointments || !id) return;
     const now = new Date().toISOString();
     const appointment = appointments.find(a => a.id === id);
     if (!appointment) return;
+    // The same readiness check as the visit sheet, from every Start button (cards, the side panel, Now, the menu).
+    const blocked = startBlocker(appointment, (services || []).find((s: any) => s.id === appointment.serviceId), (clients || []).find((c: any) => c.id === appointment.clientId));
+    if (blocked) { toast({ variant: 'destructive', title: 'Not ready to start', description: `${blocked}. Open the visit to sort it out.` }); return; }
     const batch = writeBatch(firestore);
     batch.update(doc(firestore, 'tenants', tenantId, 'appointments', id), { status: 'servicing', actualStartTime: now });
     if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });

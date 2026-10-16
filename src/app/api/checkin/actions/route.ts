@@ -98,6 +98,10 @@ export async function POST(req: NextRequest) {
     const clientPatch: any = {};
     if (clientId) {
       const guardians = b.guardianByForm && typeof b.guardianByForm === 'object' ? b.guardianByForm : {};
+      // Also onto the client record (signedForms map), which every screen can read without loading each signature:
+      // a form that must be signed every visit is marked so, so a later visit still asks for it.
+      const everyVisit = new Set<string>(); try { const fs = await Promise.all(signedForms.map((f: any) => db.doc(`tenants/${tenantId}/consentForms/${f.formId}`).get())); fs.forEach((d: any) => { if (d.exists && d.data()?.requiresEveryAppointment) everyVisit.add(d.id); }); } catch { /* treat as sign-once */ }
+      if (signedForms.length) clientPatch.signedForms = Object.fromEntries(signedForms.map((f: any) => [f.formId, { signedAt: nowIso, formTitle: f.formTitle || null, source: 'client_self_service', appointmentId: apptId, ...(everyVisit.has(f.formId) ? { everyVisit: true } : {}) }]));
       for (const f of signedForms) {
         const g = guardians[f.formId];
         batch.set(db.doc(`tenants/${tenantId}/clients/${clientId}/signedConsents/${f.formId}`), { formId: f.formId, formTitle: f.formTitle, signedAt: nowIso, formData: f.formData, source: 'client_self_service', appointmentId: apptId,

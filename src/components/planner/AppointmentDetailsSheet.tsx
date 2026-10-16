@@ -1654,6 +1654,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [reqLink, setReqLink] = useState<string | null>(null);
   const [reqSending, setReqSending] = useState(false);
   const [reqCopied, setReqCopied] = useState(false);
+  // A new visit starts with a clean request composer: never the last client's link or ticks.
+  useEffect(() => { setReqLink(null); setReqCopied(false); setIsRequestOpen(false); setRequestPhotos(false); setSelectedExtraFormIds([]); setCustomFileLabel(''); setRequestPhotoId(false); setPersistCustomFile(false); setRequestMarketingConsent(false); setRequestEmergencyContact(false); setRequestAcknowledgment(false); }, [initialAppointment?.id]);
   const [isCollectingDeposit, setIsCollectingDeposit] = useState(false);
   const [isProcessingRefund, setIsProcessingRefund] = useState(false);
   const [isSendingSMS, setIsSendingSMS] = useState(false);
@@ -1874,7 +1876,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const complianceInfo = useMemo(() => {
     if (!service || !consentForms) return { requiredForms: [], pendingForms: [], healthPendingForms: [], otherPendingForms: [], allCertified: true };
-    const requiredIds = service?.requiredFormIds || [];
+    // The service's forms plus any added to this visit (the same list the cards use: lib/visit-requests).
+    const requiredIds = Array.from(new Set([...(service?.requiredFormIds || []), ...(((appointment as any)?.requiredFormIds || []) as string[])]));
     const requiredForms = (consentForms || []).filter(f => requiredIds.includes(f.id));
     const aptSignedIds = (appointment?.signedForms || []).map((f: any) => f.formId);
     // v2 — per-form override: `requiresEveryAppointment` (optional, defaults
@@ -1886,7 +1889,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const isFormSatisfied = (formId: string, requiresEveryAppointment?: boolean) => {
       if (aptSignedIds.includes(formId)) return true; // always satisfied if signed for this visit
       if (requiresEveryAppointment) return false; // history doesn't count — must re-sign
-      return !!signedConsents?.some(sc => sc.formId === formId);
+      return !!signedConsents?.some(sc => sc.formId === formId) || !!(client as any)?.signedForms?.[formId];
     };
     const pendingForms = requiredForms.filter(rf => !isFormSatisfied(rf.id, (rf as any).requiresEveryAppointment));
     const healthPendingForms = pendingForms.filter(f => f.category === 'Intake');
@@ -1901,7 +1904,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       isSatisfied: isFormSatisfied(f.id, (f as any).requiresEveryAppointment),
     }));
     return { requiredForms, pendingForms, healthPendingForms, otherPendingForms, allCertified: pendingForms.length === 0, allFormsWithStatus };
-  }, [service, consentForms, signedConsents, appointment?.signedForms]);
+  }, [service, consentForms, signedConsents, appointment?.signedForms, (appointment as any)?.requiredFormIds, client]);
 
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
   const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(appointment?.clientId, client?.email, tenantId, true);
@@ -2131,7 +2134,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const handleSendRequirements = async () => {
     if (!firestore || !tenantId || !appointment?.id || !service) return;
-    if (!client?.email) { toast({ variant: 'destructive', title: 'Email needed', description: 'Add an email to this client first.' }); return; }
+    if (!client?.email && !client?.phone) { toast({ variant: 'destructive', title: 'Phone or email needed', description: 'Add a phone number or email to this client first.' }); return; }
     if (!appointment.checkInToken) { toast({ variant: 'destructive', title: 'Missing check-in token', description: 'This appointment has no check-in link to attach requirements to.' }); return; }
     setReqSending(true);
     try {
@@ -2233,13 +2236,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       await batch.commit();
       const link = `${window.location.origin}/check-in/${token}`;
       setReqLink(link);
-      try {
-        await fetch('/api/notifications/send-completion-link', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ link, clientName: client.name, clientEmail: client.email, clientPhone: client.phone, studioName: selectedTenant?.name }),
-        });
-      } catch {}
-      toast({ title: 'Requirements sent', description: 'Secure link generated and sent to the client.' });
+      // Sent by the server, which builds the link from this visit and says what actually went out.
+      const items = [...(requiredFormIds.length ? ['forms'] : []), ...(requestPhotos ? ['inspo'] : []), ...(requestPhotoId ? ['photo_id'] : []), ...(customFileLabel.trim() ? ['file'] : []), ...(depositCents > 0 ? ['deposit'] : []), ...(!hasUsableCard ? ['card'] : []), ...(requestEmergencyContact ? ['emergency'] : [])];
+      const out = await fetch('/api/notifications/send-completion-link', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, appointmentId: appointment.id, items, reason: 'requirements' }) }).then((x) => x.json()).catch(() => ({ ok: false, reason: 'No connection. The link is saved; copy it below to send it yourself.' }));
+      if (out.ok) toast({ title: 'Sent', description: `${out.smsSent ? 'Texted' : 'Emailed'} to ${client.name || 'the client'}.` });
+      else toast({ variant: 'destructive', title: 'Not sent', description: `${out.reason || 'It could not be sent.'} The link is ready below to copy.` });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not send', description: e?.message || 'Unknown error' });
     } finally { setReqSending(false); }
@@ -2756,8 +2758,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Requirements & Intake</h3>
-            <Badge className={cn('text-[12px] font-semibold h-5 px-2 border-none text-white shadow-sm', appointment.completionStatus === 'complete' ? 'bg-green-500' : appointment.completionStatus === 'pending' ? 'bg-amber-500' : 'bg-slate-400')}>
-              {appointment.completionStatus === 'complete' ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Complete</> : appointment.completionStatus === 'pending' ? <><Clock className="w-2 h-2 mr-1" /> Awaiting Client</> : 'None Requested'}
+            <Badge className={cn('text-[12px] font-semibold h-5 px-2 border-none text-white shadow-sm', ['complete', 'completed'].includes(String(appointment.completionStatus)) ? 'bg-green-500' : appointment.completionStatus === 'pending' ? 'bg-amber-500' : 'bg-slate-400')}>
+              {['complete', 'completed'].includes(String(appointment.completionStatus)) ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Complete</> : appointment.completionStatus === 'pending' ? <><Clock className="w-2 h-2 mr-1" /> Awaiting Client</> : 'None Requested'}
             </Badge>
           </div>
 
@@ -2933,7 +2935,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     {reqCopied ? 'Copied' : 'Copy'}
                   </Button>
                 </div>
-                <p className="text-[12px] font-semibold text-green-600 tracking-tight">Sent to {client.name} · valid 7 days</p>
+                <p className="text-[12px] font-semibold text-muted-foreground tracking-tight">{client.name}’s visit link, ready to copy</p>
               </div>
             )}
           </div>

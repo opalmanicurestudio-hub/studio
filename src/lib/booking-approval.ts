@@ -82,14 +82,15 @@ export function acceptConsequenceLabel(apt: any, client?: any): string | null {
     : `Accepting sends a $${(cents / 100).toFixed(0)} pay link`;
 }
 
-async function sendCompletionLink(apt: ApprovableAppointment, studioName?: string | null): Promise<boolean> {
+async function sendCompletionLink(tenantId: string, apt: ApprovableAppointment, studioName?: string | null): Promise<boolean> {
   const link = apt.voiceMeta?.link;
-  if (!link) return false;
+  if (!link) return false;   // only phone and voice bookings carry a link to send; a normal accept sends its own message
   try {
-    await fetch('/api/notifications/send-completion-link', {
+    const r = await fetch('/api/notifications/send-completion-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        tenantId, appointmentId: apt.id, reason: 'booking',
         link,
         clientName: apt.clientName,
         clientEmail: apt.voiceMeta?.clientEmail || '',
@@ -97,7 +98,8 @@ async function sendCompletionLink(apt: ApprovableAppointment, studioName?: strin
         studioName: studioName || undefined,
       }),
     });
-    return true;
+    const o: any = await r.json().catch(() => null);
+    return !!o?.ok;
   } catch {
     return false;
   }
@@ -163,7 +165,7 @@ async function approveVoiceBooking(
   actorStaffId?: string | null,
   studioName?: string | null,
 ): Promise<ApprovalResult> {
-  const sentLink = await sendCompletionLink(apt, studioName);
+  const sentLink = await sendCompletionLink(tenantId, apt, studioName);
   try {
     const batch = writeBatch(firestore);
     batch.set(
@@ -769,7 +771,7 @@ export async function approveBooking(
   if (channel === 'request') {
     const res = await decideViaRoute(tenantId, apt, 'accept', staffName || studioName);
     if (res.ok) {
-      await sendCompletionLink(apt, studioName);
+      await sendCompletionLink(tenantId, apt, studioName);
       if (firestore && apt.staffId && String(apt.staffId) !== String(actorStaffId || '')) {
         await notifyStaff(firestore, tenantId, [{
           userId: String(apt.staffId),

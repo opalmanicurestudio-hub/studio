@@ -1,4 +1,5 @@
 'use client';
+import { startBlocker } from '@/lib/visit-requests';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
 import { biz, bizNow, bizKey, bizDayStart, setBizZone } from '@/lib/biz-clock';
@@ -4535,10 +4536,14 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     const batch = writeBatch(firestore);
     const aptRef = doc(firestore,`tenants/${tenantId}/appointments`,aptId);
     switch (action) {
-      case 'start':
+      case 'start': {
+        // The same readiness check as the planner: forms signed and any required deposit paid.
+        const cSnap = apt?.clientId ? await getDoc(doc(firestore, `tenants/${tenantId}/clients`, apt.clientId)).catch(() => null) : null;
+        const blocked = startBlocker(apt, (services || []).find((s: any) => s.id === apt?.serviceId), cSnap?.exists() ? cSnap.data() : undefined);
+        if (blocked) { toast({ variant: 'destructive', title: 'Not ready to start', description: `${blocked}. Ask the front desk to sort it out.` }); return; }
         batch.update(aptRef,{ status:'servicing', actualStartTime:now });
         batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'busy', currentAppointmentId:aptId },{ merge:true });
-        break;
+        break; }
       case 'checkout':
         batch.update(aptRef,{ status:'ready_for_checkout', actualEndTime:now });
         batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'idle' },{ merge:true });

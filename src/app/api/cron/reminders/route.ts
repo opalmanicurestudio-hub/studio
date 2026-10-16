@@ -147,7 +147,7 @@ export async function GET(req: NextRequest) {
           const link = a.checkInToken && ownBase ? ` If you need to make a change, you can use your visit link: ${ownBase}/check-in/${a.checkInToken}` : '';
           const text = `Hi ${String(a.clientName || '').trim().split(/\s+/)[0] || 'there'}, we're looking forward to your ${svcDoc.name || a.serviceName || 'appointment'}${a.staffName ? ` with ${String(a.staffName).split(' ')[0]}` : ''} ${when}.${whereLine ? ` ${whereLine}` : ''}${link}`;
           let ok = false;
-          if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, text, { email, subject: 'Appointment reminder' })).ok;
+          if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, text, { email, subject: 'Appointment reminder' }, { kind: 'appointment_reminder', appointmentId: d.id, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null })).ok;
           if (!ok && email.includes('@')) {
             const { sendNotification } = await import('@/lib/notify');
             ok = !!(await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: 'Appointment reminder', kind: 'appointment_reminder', text, appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
@@ -344,7 +344,7 @@ export async function GET(req: NextRequest) {
 
           let delivered = false;
           if (b.phone && smsConfigured()) {
-            const r = await sendTenantSms(db, tid, b.phone, msg, { email: b.email, subject: 'Appointment reminder' });
+            const r = await sendTenantSms(db, tid, b.phone, msg, { email: b.email, subject: 'Appointment reminder' }, { kind: 'appointment_reminder', appointmentId: b.items[0]?.id || null, recipientType: 'client', recipientId: b.items[0]?.a?.clientId || null, recipientName: b.items[0]?.a?.clientName || null });
             delivered = r.ok;
           }
           if (!delivered && b.email) {

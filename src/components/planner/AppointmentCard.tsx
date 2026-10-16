@@ -20,6 +20,7 @@
 // to find that spot.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { pendingFormIds } from '@/lib/visit-requests';
 import { StepRibbon, useStepStatus } from '@/components/planner/StepTimeline';
 import { extraMinutesFor } from '@/lib/client-timing';
 import { opsStatus } from '@/lib/appointment-ops';
@@ -340,8 +341,7 @@ export function AppointmentCard({
     if (a1.fixBrief || a1.isRedo) push('fix', a1.fixBrief?.safety ? 'alert' : 'info', Sparkles, a1.fixBrief?.handover ? 'Fix · read the case' : 'Free fix');
     if (c1.id && (c1.totalVisits === 0 || c1.visitCount === 0 || c1.isNew === true || (Array.isArray(c1.visitHistory) && c1.visitHistory.length === 0))) push('first', 'info', Sparkles, 'First visit');
     { const ex = Number(a1.clientExtraMinutes) || extraMinutesFor(c1, a1.serviceId); if (ex > 0) push('usual-time', 'info', Sparkles, `Usually +${ex} min`); }
-    const need: string[] = [...((service as any)?.requiredFormIds || []), ...(a1.requiredFormIds || [])]; const signed = new Set((a1.signedForms || []).map((f: any) => f.formId));
-    if (need.length && need.some((id) => !signed.has(id)) && !['completed', 'cancelled', 'declined'].includes(String(appointment.status))) push('form', 'alert', FileImage, 'Form to sign');
+    if (pendingFormIds(a1, service, c1).length && !['completed', 'cancelled', 'declined'].includes(String(appointment.status))) push('form', 'alert', FileImage, 'Form to sign');
     if (Array.isArray(a1.addOnIds) && a1.addOnIds.length) push('addons', 'info', Sparkles, a1.addOnIds.length === 1 ? '+1 add-on' : `+${a1.addOnIds.length} add-ons`);
     if ((Number(a1.partySize) || 0) > 1 || a1.groupId) push('group', 'info', Repeat, a1.partySize ? `Group of ${a1.partySize}` : 'Group');
     if (a1.renterStaffId || a1.renterServiceName || a1.isRenterBooking) push('renter', 'info', Award, 'Collected for renter');
@@ -537,7 +537,7 @@ export function AppointmentCard({
                     {typeof onPrintTicket === 'function' && (
                       <DropdownMenuItem onSelect={() => { onPrintTicket(appointment); }} className="font-bold text-[12px]"><FileText className="mr-2 h-3.5 w-3.5" /> Print Ticket</DropdownMenuItem>
                     )}
-                    {typeof onStartService === 'function' && appointment.status !== 'servicing' && appointment.status !== 'ready_for_checkout' && (
+                    {typeof onStartService === 'function' && !['servicing', 'ready_for_checkout', 'completed', 'cancelled', 'no_show', 'declined', 'requested'].includes(String(appointment.status)) && (
                       <DropdownMenuItem onSelect={() => { onStartService(appointment); }} className="font-bold text-[12px] text-primary"><Clock className="mr-2 h-3.5 w-3.5" /> Start Session</DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />

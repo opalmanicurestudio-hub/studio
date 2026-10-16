@@ -439,8 +439,9 @@ export async function POST(req: NextRequest) {
               const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
               await fetch(`${appUrl}/api/notifications/send-completion-link`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-cf-internal': process.env.CRON_SECRET || '' },
                 body: JSON.stringify({
+                  tenantId, appointmentId: appointment.id, reason: 'fee',
                   link: `${appUrl}/check-in/${appointment.checkInToken}`,
                   clientName: clientDocForGate?.name || appointment.clientName,
                   clientEmail: clientDocForGate?.email,
