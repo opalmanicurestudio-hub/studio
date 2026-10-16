@@ -22,7 +22,8 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: ['/shop/', '/book/'],
+        // The assistant feed (/api/agents/…) and the guides (/llms.txt, /book/{id}/llms.txt) are public on purpose.
+        allow: ['/shop/', '/book/', '/api/agents/', '/llms.txt'],
         disallow: [
           '/api/',
           '/print/',

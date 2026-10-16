@@ -4,7 +4,10 @@
 import * as React from 'react';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { SettingsPage, Section, Row } from '@/components/settings/settings-ui';
+import { SettingsPage, Section, Row, Toggle } from '@/components/settings/settings-ui';
+import { useFirebase } from '@/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
+import { agentPolicy, assistantAddon } from '@/lib/agent-access';
 import { bookingLink } from '@/lib/share-links';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -17,7 +20,7 @@ function Snippet({ code, label }: { code: string; label: string }) {
 }
 
 export default function EmbedsPage() {
-  const { selectedTenant } = useTenant(); const { services } = useInventory(); const tenantId = selectedTenant?.id || '';
+  const { selectedTenant } = useTenant(); const { services } = useInventory(); const tenantId = selectedTenant?.id || ''; const { firestore } = useFirebase() as any;
   const appOrigin = typeof window !== 'undefined' ? window.location.origin : ''; const bookOrigin = (selectedTenant as any)?.publicOrigin || appOrigin;
   const [theme, setTheme] = React.useState<'light' | 'dark'>('light'); const [layout, setLayout] = React.useState<'list' | 'cards'>('list'); const [cats, setCats] = React.useState<string[]>([]); const [svc, setSvc] = React.useState('');
   const categories = React.useMemo(() => Array.from(new Set((services || []).filter((s: any) => s.status !== 'archived' && !s.isPrivate && s.type !== 'addon').map((s: any) => String(s.category || 'Services')))).sort(), [services]);
@@ -47,6 +50,15 @@ export default function EmbedsPage() {
         <Row label="Categories" help="None selected = all of them."><div className="flex flex-wrap gap-2">{categories.map((c) => <button key={c} type="button" aria-pressed={cats.includes(c)} onClick={() => setCats((x) => (x.includes(c) ? x.filter((y) => y !== c) : [...x, c]))} className="h-9 rounded-full px-4 text-[13px] font-semibold" style={cats.includes(c) ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)' }}>{c}</button>)}</div></Row>
         <Snippet code={menu} label="menu code" />
         <Row label="Preview" help="How it will look on a plain page. Your site’s fonts and colours apply on your site."><iframe ref={previewRef} title="Menu preview" className="h-96 w-full rounded-2xl border" style={{ borderColor: 'var(--line)' }} /></Row>
+      </Section>
+      <Section id="assistants" title="AI assistants" help="More people ask an assistant to find and book things for them. These let an assistant read your menu and open times, the same facts as your booking page, so it can point clients to you.">
+        {(() => { const t: any = selectedTenant || {}; const p = agentPolicy(t); const addon = assistantAddon(t);
+          const save = (k: string, v: any) => { if (!firestore || !tenantId) return; void updateDoc(doc(firestore, 'tenants', tenantId), { [`agents.${k}`]: v }).catch(() => {}); };
+          return (<>
+            <Row label="Let assistants see my menu and open times" help="Free. Services, prices, lengths, team and policies, plus real open times. Never who else is booked or anything about your clients."><Toggle checked={p.menu} onChange={(v) => save('menu', v)} label="Let assistants see my menu and open times" /></Row>
+            <Row label="Let assistants hold a time for a client" help={addon ? `The client gets one text to confirm it themselves; the time is held for ${p.holdMinutes} minutes and nothing is booked or charged until they do. Consultation, request-only and members-only services are never held.` : 'Part of the ClarityFlow Assistant add-on.'}><Toggle checked={p.holds} disabled={!addon || !p.menu} onChange={(v) => save('holds', v)} label="Let assistants hold a time for a client" /></Row>
+            <Row label="Where assistants look" help="Share these if someone asks how assistants can book with you."><div className="space-y-1 text-[14px]"><code className="block break-all">{`${appOrigin}/book/${tenantId}/llms.txt`}</code><code className="block break-all">{`${appOrigin}/api/agents/${tenantId}`}</code></div></Row>
+          </>); })()}
       </Section>
       <Section title="Good to know">
         <ul className="list-disc space-y-1 pl-5 text-[14px]">
