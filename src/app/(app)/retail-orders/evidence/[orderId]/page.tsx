@@ -1,5 +1,6 @@
 'use client';
 
+import { openPrint } from '@/lib/open-print';
 import { collection, doc, onSnapshot, orderBy, query, type Firestore } from 'firebase/firestore';
 import {
   ArrowLeft, Camera, Check, ClipboardList, Loader, Package, Printer, Scale,
@@ -193,13 +194,11 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
         </Button>
         <h1 className="text-xl font-black uppercase tracking-tighter">Evidence record</h1>
         <Button
-          asChild
           variant="outline"
           className="ml-auto h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+          onClick={async () => { const e = await openPrint(String(tenantId), `evidence:${orderId}`, `/print/evidence/${tenantId}/${orderId}`); if (e) window.alert(e); }}
         >
-          <a href={`/print/evidence/${tenantId}/${orderId}`} target="_blank" rel="noreferrer">
-            <Printer className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />Print / export
-          </a>
+          <Printer className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />Print / export
         </Button>
       </div>
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { reservedByOpenReturns } from '@/lib/return-reserve';
 import {
   Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
 } from 'firebase/firestore';
@@ -85,10 +86,12 @@ export async function openReturn(
   }
 
   const lines: ReturnLine[] = [];
+  let openReturns: any[] = [];
+  try { openReturns = (await getDocs(query(returnCol(fs, tenantId), where('orderId', '==', order.id), limit(50)))).docs.map((d) => d.data()); } catch { /* none counted */ }
   for (const sel of selections.filter((s) => s.qty > 0)) {
     const orig = order.lines.find((l) => l.lineId === sel.lineId);
     if (!orig) return { ok: false, message: 'Line not found on the order.' };
-    const returnable = orig.qtyOrdered - orig.qtyShorted - orig.qtyReturned;
+    const returnable = Math.max(0, (Number(orig.qtyOrdered) || 0) - (Number(orig.qtyShorted) || 0) - (Number(orig.qtyReturned) || 0) - reservedByOpenReturns(openReturns, orig.lineId));
     if (sel.qty > returnable) {
       return { ok: false, message: `Only ${returnable} of ${orig.name} can still be returned.` };
     }

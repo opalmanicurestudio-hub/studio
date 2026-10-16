@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffActor } from '@/lib/staff-auth';
 
 // ─── /api/retail/support-draft/route.ts ───────────────────────────────────────
 // POST { tenantId, ticketId } → { draft }
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest) {
   const tenantId = String(body.tenantId || '').trim();
   const ticketId = String(body.ticketId || '').trim();
   if (!tenantId || !ticketId) return NextResponse.json({ error: 'Missing ticket' }, { status: 400 });
+  const auth = await verifyStaffActor(req, tenantId);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const db = getAdminDb();
   const ticketSnap = await db.collection(`tenants/${tenantId}/retailSupport`).doc(ticketId).get();

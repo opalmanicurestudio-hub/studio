@@ -1,3 +1,4 @@
+import { checkPrintKey } from '@/lib/print-key';
 /**
  * /print/evidence/[tenantId]/[orderId] — the order-integrity record as a
  * DOCUMENT.
@@ -95,10 +96,14 @@ const metaLine = (e: any): string => {
 
 export default async function PrintEvidencePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ tenantId: string; orderId: string }>;
+  searchParams: Promise<{ k?: string; x?: string }>;
 }) {
   const { tenantId, orderId } = await params;
+  const { k, x } = await searchParams;
+  if (!checkPrintKey(tenantId, `evidence:${orderId}`, k, x)) return <p style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>This link has expired. Open the evidence page again and tap Print.</p>;
   const db = getAdminDb();
 
   const [tenantSnap, orderSnap, eventsSnap] = await Promise.all([

@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 import {
   addDoc, collection, doc, onSnapshot, query, updateDoc, where, type Firestore,
@@ -113,7 +114,7 @@ export default function RetailSupportPage() {
     try {
       const res = await fetch('/api/retail/support-draft', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, ticketId: t.id }),
       });
       const data = await res.json();
@@ -133,7 +134,7 @@ export default function RetailSupportPage() {
     try {
       const res = await fetch('/api/retail/support-reply', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, ticketId: t.id, reply, resolve: alsoResolve, staffName }),
       });
       const data = await res.json();

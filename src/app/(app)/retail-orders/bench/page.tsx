@@ -1,5 +1,6 @@
 'use client';
 
+import { useFulfilmentPerms } from '@/hooks/use-fulfilment-perms';
 import { type Firestore, collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, Loader, PackageCheck, ScanLine, WifiOff,
@@ -69,10 +70,7 @@ export default function PackBenchPage() {
     () => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Staff' }),
     [user]
   );
-  const perms = useMemo(() => {
-    const staff = (selectedTenant as any)?.staffMember || { role: (selectedTenant as any)?.role || 'staff' };
-    return permissionsFor(staff);
-  }, [selectedTenant]);
+  const perms = useFulfilmentPerms();
   const policy = useMemo(
     () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),
     [selectedTenant]

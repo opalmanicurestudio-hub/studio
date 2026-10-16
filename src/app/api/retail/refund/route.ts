@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
 import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
+import { verifyStaffActor } from '@/lib/staff-auth';
 
 // ─── /api/retail/refund ───────────────────────────────────────────────────────
 // POST { tenantId, orderId, qrToken }
@@ -69,19 +70,41 @@ export async function POST(req: NextRequest) {
   if (String(order.qrToken || '') !== qrToken) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
+  // Money leaves only for a signed-in team member allowed to refund. The order's own token is not enough:
+  // it is printed on the customer's QR code and tracking link.
+  const auth = await verifyStaffActor(req, tenantId);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!auth.actor.caps?.includes('checkout.refund')) return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
+  const actor = auth.actor;
   if (!tenant.stripeAccountId) {
     return NextResponse.json({ error: 'This shop has no connected Stripe account.' }, { status: 400 });
-  }
-
-  const cents = Number(order.pendingRefundCents) || 0;
-  if (cents <= 0) {
-    return NextResponse.json({ error: 'No refund is pending on this order.' }, { status: 409 });
   }
   const piId = String(order.stripePaymentIntentId || '').trim();
   if (!piId) {
     return NextResponse.json({
       error: 'No Stripe payment is on file for this order (it may predate payment tracking, or was paid another way). Refund it in the Stripe dashboard, then tap "Mark done manually".',
     }, { status: 422 });
+  }
+
+  // Claim the pending amount in a transaction, so two taps (or a claim approved at the same moment) can't
+  // double-send or erase each other. Each refund gets its own sequence number, which is also Stripe's
+  // duplicate-protection key: a retry of THIS refund replays it, a later refund of the same amount is new.
+  const oRef = orderSnap.ref;
+  let cents = 0; let seq = 0;
+  try {
+    await db.runTransaction(async (tx: any) => {
+      const cur = (await tx.get(oRef)).data() || {};
+      const lock = cur.refundInFlight;
+      if (lock && Date.parse(lock.at || '') > Date.now() - 2 * 60000) throw new Error('busy');
+      cents = Number(cur.pendingRefundCents) || 0;
+      if (cents <= 0) throw new Error('none');
+      seq = (Number(cur.refundSeq) || 0) + 1;
+      tx.update(oRef, { refundInFlight: { cents, seq, at: new Date().toISOString(), by: actor.uid } });
+    });
+  } catch (e: any) {
+    if (e?.message === 'busy') return NextResponse.json({ error: 'A refund on this order is already being sent. Give it a moment.' }, { status: 409 });
+    if (e?.message === 'none') return NextResponse.json({ error: 'No refund is pending on this order.' }, { status: 409 });
+    return NextResponse.json({ error: 'Couldn’t start the refund. Try again.' }, { status: 500 });
   }
 
   // ── The refund itself ──────────────────────────────────────────────────────
@@ -93,49 +116,52 @@ export async function POST(req: NextRequest) {
         payment_intent: piId,
         amount: cents,
         reason: 'requested_by_customer',
-        metadata: { tenantId, retailOrderId: orderId, source: 'clarityflow_board' },
+        metadata: { tenantId, retailOrderId: orderId, source: 'clarityflow_board', seq: String(seq) },
       },
       {
         stripeAccount: tenant.stripeAccountId,
-        idempotencyKey: `retail-refund-${orderId}-${cents}`,
+        idempotencyKey: `retail-refund-${orderId}-${seq}`,
       },
     );
     refundId = String(refund.id || '');
   } catch (e: any) {
+    try { await oRef.update({ refundInFlight: null }); } catch { /* the lock expires on its own */ }
     const msg = e?.raw?.message || e?.message || 'Stripe refused the refund.';
     return NextResponse.json({ error: `Stripe: ${msg}` }, { status: 502 });
   }
 
-  // ── Closure — identical shape to the board's manual markRefundExecuted ────
+  // ── Closure — same shape as the board's manual markRefundExecuted, in a transaction: only what was sent
+  // comes off the pending amount, so anything queued meanwhile stays queued.
   const now = new Date().toISOString();
-  const oRef = orderSnap.ref;
   const evRef = oRef.collection('events').doc();
   const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-  const batch = db.batch();
-  batch.update(oRef, {
-    pendingRefundCents: 0,
-    refundedCents: (Number(order.refundedCents) || 0) + cents,
-    lastStripeRefundId: refundId,
+  await db.runTransaction(async (tx: any) => {
+    const cur = (await tx.get(oRef)).data() || {};
+    tx.update(oRef, {
+      pendingRefundCents: Math.max(0, (Number(cur.pendingRefundCents) || 0) - cents),
+      refundedCents: (Number(cur.refundedCents) || 0) + cents,
+      refundSeq: seq, refundInFlight: null,
+      lastStripeRefundId: refundId,
+    });
+    tx.set(evRef, {
+      id: evRef.id, type: 'refund_issued', at: now,
+      actorId: actor.uid, actorName: actor.name,
+      meta: {
+        amountCents: cents,
+        scope: cents >= (Number(order.totalCents) || 0) ? 'full' : 'partial',
+        refundId,
+        text: `Refund sent through Stripe by ${actor.name} (${refundId})`,
+      },
+    });
+    tx.set(txnRef, {
+      id: txnRef.id, date: now,
+      description: `Refund sent through Stripe — Order #${order.orderNumber} · ${refundId}`,
+      clientOrVendor: order.customerName || 'Guest',
+      type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
+      amount: cents / 100, paymentMethod: 'Card (Online)', hasReceipt: true,
+      retailOrderId: orderId, tenantId,
+    });
   });
-  batch.set(evRef, {
-    id: evRef.id, type: 'refund_issued', at: now,
-    actorId: 'stripe', actorName: 'Stripe (auto)',
-    meta: {
-      amountCents: cents,
-      scope: cents >= (Number(order.totalCents) || 0) ? 'full' : 'partial',
-      refundId,
-      text: `Refund executed through Stripe automatically (${refundId})`,
-    },
-  });
-  batch.set(txnRef, {
-    id: txnRef.id, date: now,
-    description: `Refund executed (Stripe auto) — Order #${order.orderNumber} · ${refundId}`,
-    clientOrVendor: order.customerName || 'Guest',
-    type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
-    amount: cents / 100, paymentMethod: 'Card (Online)', hasReceipt: true,
-    retailOrderId: orderId, tenantId,
-  });
-  await batch.commit();
   // Loyalty: a refund takes back the points those products earned (lib/loyalty-server).
   try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: `order_${orderId}`, refundCents: cents, refundId, by: 'Refund' }); } catch { /* best effort */ }
 

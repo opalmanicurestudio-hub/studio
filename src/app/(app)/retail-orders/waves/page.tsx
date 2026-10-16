@@ -1,5 +1,6 @@
 'use client';
 
+import { useFulfilmentPerms } from '@/hooks/use-fulfilment-perms';
 import { type Firestore, collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { ArrowLeft, Check, Loader, Printer, ScanLine, Waves as WavesIcon } from 'lucide-react';
 import Link from 'next/link';
@@ -53,10 +54,7 @@ export default function WavesPage() {
     () => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Staff' }),
     [user]
   );
-  const perms = useMemo(() => {
-    const staff = (selectedTenant as any)?.staffMember || { role: (selectedTenant as any)?.role || 'staff' };
-    return permissionsFor(staff);
-  }, [selectedTenant]);
+  const perms = useFulfilmentPerms();
 
   useEffect(() => {
     if (!firestore || !tenantId) return;

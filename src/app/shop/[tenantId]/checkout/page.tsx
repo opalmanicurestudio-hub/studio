@@ -110,6 +110,7 @@ export default function CheckoutPage() {
   const [creditLimit, setCreditLimit] = useState('');
   const [acctEmail, setAcctEmail] = useState('');
   const [acctCreditCents, setAcctCreditCents] = useState<number | null>(null);
+  const [acctSess, setAcctSess] = useState<{ e: string; x: number; s: string } | null>(null);
 
   /* THE BOX EARNS ITS PLACE. Store credit only shows for people who have
    * PROVEN credit: the signed account session (magic link) unlocks a
@@ -129,7 +130,7 @@ export default function CheckoutPage() {
       }
     } catch { sess = null; }
     if (!sess) { setAcctCreditCents(null); return; }
-    setAcctEmail(String(sess.e));
+    setAcctEmail(String(sess.e)); setAcctSess({ e: String(sess.e), x: Number(sess.x), s: String(sess.s) });
     setEmail((cur) => cur || String(sess.e));
     fetch(`/api/retail/account/credit?tenantId=${encodeURIComponent(tenantId)}&e=${encodeURIComponent(sess.e)}&x=${sess.x}&s=${encodeURIComponent(sess.s)}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -359,6 +360,7 @@ export default function CheckoutPage() {
           pickupAt: !digitalOnlyCart && method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
           method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
+          creditSession: applyCredit ? acctSess : undefined,
           giftCode: giftCode.trim() || undefined,
           storeCreditCapCents: applyCredit && creditMode === 'limit' && Number(creditLimit) > 0
             ? Math.round(Number(creditLimit) * 100)

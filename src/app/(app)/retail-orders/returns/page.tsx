@@ -1,5 +1,6 @@
 'use client';
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { collection, doc, getDoc, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import {
   ArrowLeft, Check, Loader, PackageX, QrCode, RotateCcw, ScanLine, Undo2,
@@ -206,7 +207,7 @@ export default function RetailReturnsPage() {
     if (!fin.ok || autoBelow <= 0 || cents <= 0 || cents > autoBelow) return;
     try {
       const r = await fetch('/api/retail/refund', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, orderId, qrToken: fin.orderQrToken || '' }),
       });
       const d = await r.json().catch(() => ({}));

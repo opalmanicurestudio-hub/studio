@@ -169,7 +169,8 @@ export default function OrderStatusPage() {
       if (!res.ok) throw new Error(data.error || 'Order not found');
       setOrder(data.order);
       if (data.help) setHelpElig(data.help);
-      if (Array.isArray(data.support)) setSupportThread(data.support);
+      const thread = Array.isArray(data.support) ? data.support : data.order?.support;
+      if (Array.isArray(thread)) setSupportThread(thread);
       setShopGeo(data.shopGeo || null);
       // Remember this order on THIS phone, so scanning a spot sign in the car
       // park can check the right person in without typing. Stored locally and

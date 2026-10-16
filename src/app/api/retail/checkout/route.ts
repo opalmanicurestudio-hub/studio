@@ -6,6 +6,7 @@ import {
   stripeCustomText, validateAddress,
 } from '@/lib/address-validation';
 import Stripe from 'stripe';
+import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { nanoid } from 'nanoid';
 import { makeQrToken, sendOrderConfirmation } from '@/lib/retail-webhook';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
@@ -617,7 +618,13 @@ async function handleCheckout(req: NextRequest) {
   // zero-charge orders are a later round, said plainly.
   let creditCoupon: string | null = null;
   let creditAppliedCents = 0;
-  if (body.applyStoreCredit === true && customerEmail) {
+  // Credit is spent only by someone who has proven the email is theirs (the signed account session the
+  // checkout page already holds). Typing someone else's email is not enough.
+  const cs = (body as any).creditSession || {};
+  const creditProven = body.applyStoreCredit === true && !!customerEmail
+    && verifyAccountToken(tenantId, normalizeEmail(String(cs.e || '')), Number(cs.x), String(cs.s || '')).ok
+    && normalizeEmail(String(cs.e || '')) === normalizeEmail(String(customerEmail));
+  if (creditProven) {
     try {
       const credSnap = await db.collection(`tenants/${tenantId}/depositCredits`)
         .where('clientEmail', '==', customerEmail)

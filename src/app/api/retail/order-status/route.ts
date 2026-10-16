@@ -236,6 +236,7 @@ export async function GET(req: NextRequest) {
         qtyShorted: l.qtyShorted || 0,
         unitPriceCents: l.unitPriceCents,
         status: l.status,
+        digital: l.digital === true,
       })),
       subtotalCents: order.subtotalCents || 0,
       taxCents: order.taxCents || 0,

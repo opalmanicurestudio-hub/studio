@@ -1,3 +1,4 @@
+import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
@@ -292,6 +293,7 @@ export async function POST(req: NextRequest) {
     }
 
     const lines: any[] = [];
+    let openReturns: any[] | null = null;
     for (const sel of selections) {
       const qty = Math.floor(Number(sel.qty) || 0);
       if (qty <= 0) continue;
@@ -306,7 +308,8 @@ export async function POST(req: NextRequest) {
           error: `${orig.name} is a digital item, so there is nothing to send back. Please use \u201cReport a problem\u201d and our team will arrange a refund with you directly.`,
         }, { status: 409 });
       }
-      const returnable = (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0);
+      if (openReturns === null) { try { openReturns = (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(50).get()).docs.map((d: any) => d.data()); } catch { openReturns = []; } }
+      const returnable = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - reservedByOpenReturns(openReturns || [], orig.lineId));
       if (qty > returnable) {
         return NextResponse.json({ error: `Only ${returnable} of ${orig.name} can still be returned.` }, { status: 400 });
       }

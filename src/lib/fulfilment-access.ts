@@ -59,6 +59,7 @@ export function permissionsFor(staff: { role?: StaffRole; fulfilmentRole?: strin
   switch (String(staff.role || '').toLowerCase()) {
     case 'owner':
     case 'admin':
+    case 'manager':
       return PRESETS.manager;
     case 'staff':
       return PRESETS.packer;

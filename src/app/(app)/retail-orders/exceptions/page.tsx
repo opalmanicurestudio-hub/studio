@@ -11,6 +11,7 @@
 // Recovery actions are the owner's/manager's call (the database rule is the
 // enforcement; the UI mirror keeps the refusal friendly).
 
+import { openPrint } from '@/lib/open-print';
 import { collection, onSnapshot, type Firestore } from 'firebase/firestore';
 import { ArrowLeft, ChartColumn, Clock, Copy, ExternalLink, FileStack, Loader, Printer, Shield, ShieldOff, ShieldQuestion, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
@@ -138,10 +139,9 @@ export default function InventoryExceptionsPage() {
               Nothing disappears as an adjustment · recoveries offset, never erase
             </p>
           </div>
-          <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-            <a href={`/print/loss-recovery/${tenantId}?month=${monthKey}`} target="_blank" rel="noreferrer">
-              <Printer className="mr-1.5 h-3.5 w-3.5" /> Register
-            </a>
+          <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"
+            onClick={async () => { const e = await openPrint(String(tenantId), 'loss-recovery', `/print/loss-recovery/${tenantId}?month=${monthKey}`); if (e) toast({ variant: 'destructive', title: e }); }}>
+            <Printer className="mr-1.5 h-3.5 w-3.5" /> Register
           </Button>
           {isMgr && (
             <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"

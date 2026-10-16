@@ -1,5 +1,6 @@
 'use client';
 
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { arrayUnion, collection, doc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { AlertTriangle, Car, Check, ClipboardList, FileText, History, Loader, Package, PackageCheck, PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, Scale, ScanLine, Settings, Ship, Store, TriangleAlert, Truck, X, Zap } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -857,8 +858,9 @@ export default function RetailFulfillmentBoard() {
                        * promised amount through Stripe on the connected account
                        * and performs the same closure "Mark done" performs — a
                        * failure writes nothing and the banner keeps the debt. */
+                      if (!window.confirm(`Refund ${fmt(o.pendingRefundCents || 0)} to ${o.customerName || 'the customer'} for order #${o.orderNumber}? This sends the money through Stripe now.`)) return { ok: false, message: 'Nothing was refunded.' };
                       const res = await fetch('/api/retail/refund', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
                         body: JSON.stringify({ tenantId, orderId: o.id, qrToken: (o as any).qrToken || '' }),
                       });
                       const data = await res.json().catch(() => ({}));
@@ -1228,7 +1230,7 @@ export default function RetailFulfillmentBoard() {
                     <Button
                       onClick={() => {
                         setShipTarget(o);
-                        setShipCarrier(''); setShipNumber(''); setShipUrl('');
+                        setShipCarrier(String((o as any).carrier || '')); setShipNumber(String((o as any).trackingNumber || '')); setShipUrl(String((o as any).trackingUrl || ''));
                         setRates([]); setLabelUrl((o as any).labelUrl || '');
                         const known = (o.lines || []).reduce((sum: number, l: any) => {
                           const w = Number((inventory || []).find((i: any) => i.id === l.productId)?.weightOz) || 0;

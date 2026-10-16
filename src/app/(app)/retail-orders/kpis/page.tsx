@@ -1,5 +1,6 @@
 'use client';
 
+import { useFulfilmentPerms } from '@/hooks/use-fulfilment-perms';
 import {
   type Firestore, collection, getDocs, limit, orderBy, query, where,
 } from 'firebase/firestore';
@@ -44,10 +45,7 @@ export default function FulfilmentKpisPage() {
   const [orderCount, setOrderCount] = useState(0);
   const [waves, setWaves] = useState<Wave[]>([]);
 
-  const perms = useMemo(() => {
-    const staff = (selectedTenant as any)?.staffMember || { role: (selectedTenant as any)?.role || 'staff' };
-    return permissionsFor(staff);
-  }, [selectedTenant]);
+  const perms = useFulfilmentPerms();
 
   const policy = useMemo(
     () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),

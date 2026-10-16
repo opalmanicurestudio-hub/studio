@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
+import { verifyStaffActor } from '@/lib/staff-auth';
 
 // ─── /api/retail/support-reply/route.ts ───────────────────────────────────────
 // POST { tenantId, ticketId, reply, resolve? , staffName? }
@@ -40,11 +41,13 @@ export async function POST(req: NextRequest) {
   /* FIRST NAME ONLY, enforced here — not left to whoever typed the reply.
    * This email reaches a stranger's inbox; the staffer's surname doesn't
    * belong there, and no client-side mistake can leak it past this line. */
-  const staffName = (String(body.staffName || 'The shop').trim().split(/\s+/)[0] || 'The shop').slice(0, 40);
-
   if (!tenantId || !ticketId || !reply) {
     return NextResponse.json({ error: 'A reply is required' }, { status: 400 });
   }
+  // Only a signed-in team member can write to a customer in the shop's name.
+  const auth = await verifyStaffActor(req, tenantId);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const staffName = (String(auth.actor.name || body.staffName || 'The shop').trim().split(/\s+/)[0] || 'The shop').slice(0, 40);
 
   const db = getAdminDb();
   const ticketRef = db.collection(`tenants/${tenantId}/retailSupport`).doc(ticketId);

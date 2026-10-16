@@ -1,3 +1,4 @@
+import { checkPrintKey } from '@/lib/print-key';
 /**
  * /print/loss-recovery/[tenantId]?month=YYYY-MM — the Loss & Recovery
  * REGISTER as a letter document: every inventory exception for the month
@@ -49,10 +50,11 @@ export default async function PrintLossRecoveryPage({
   searchParams,
 }: {
   params: Promise<{ tenantId: string }>;
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; k?: string; x?: string }>;
 }) {
   const { tenantId } = await params;
-  const { month } = await searchParams;
+  const { month, k, x } = await searchParams;
+  if (!checkPrintKey(tenantId, 'loss-recovery', k, x)) return <p style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>This link has expired. Open the register again from Loss &amp; recovery.</p>;
   const key = /^\d{4}-\d{2}$/.test(String(month || '')) ? String(month) : (() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;

@@ -880,9 +880,10 @@ export async function markShipped(
       txn.update(oRef, {
         stage: 'shipped',
         completedAt: new Date().toISOString(),
-        trackingNumber: tracking.number || null,
-        trackingUrl: tracking.url || null,
-        carrier: tracking.carrier || null,
+        // A label bought earlier (bulk or a reopened dialog) keeps its tracking when nothing new was typed.
+        trackingNumber: tracking.number || order.trackingNumber || null,
+        trackingUrl: tracking.url || order.trackingUrl || null,
+        carrier: tracking.carrier || order.carrier || null,
       });
       if (tracking.number) {
         txn.set(doc(collection(oRef, 'events')), evPayload('label_generated', actor, {
