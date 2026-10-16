@@ -11,6 +11,7 @@
 //   Pay    only when a deposit is due — the secure card form
 //   Done   the server's own words · who/when/where · calendar · directions
 
+import { holdParam } from '@/lib/agent-hold-param';
 import { ConfirmNumberCard } from '@/components/visit/VerifyCard';
 import { PartyBuilder } from '@/components/booking/PartyBuilder';
 import { bookingPolicyLines } from '@/lib/policy-copy';
@@ -57,7 +58,7 @@ export function StudioFlow({ c }: { c: any }) {
     const from = monthOpen ? startOfMonth(cursor) : c.weekStart; const start = from < today0 ? today0 : from;
     const k = `${c.selectedStaffId}|${c.selectedTierId}|${service?.id}|${format(start, 'yyyy-MM-dd')}`;
     if (!c.tenantId || !service?.id || loadedRef.current.has(k)) return; loadedRef.current.add(k);
-    fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: c.tenantId, action: 'days', from: format(start, 'yyyy-MM-dd'), days: 35, serviceId: service.id, staffId: c.selectedStaffId, tierId: c.selectedTierId !== 'any' ? c.selectedTierId : undefined, providerId: c.providerId || undefined }) })
+    fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: c.tenantId, action: 'days', from: format(start, 'yyyy-MM-dd'), days: 35, serviceId: service.id, staffId: c.selectedStaffId, tierId: c.selectedTierId !== 'any' ? c.selectedTierId : undefined, providerId: c.providerId || undefined, holdId: holdParam() || undefined }) })
       .then((r) => r.json()).then((d) => { if (d?.ok) setCounts((p) => ({ ...p, ...Object.fromEntries((d.days || []).map((x: any) => [`${c.selectedStaffId}|${x.date}`, x.count])) })); }).catch(() => { /* dots are a nicety */ });
   }, [c.weekStart, cursor, monthOpen, c.selectedStaffId, c.selectedTierId, service?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const countFor = (d: Date): number | undefined => counts[`${c.selectedStaffId}|${format(d, 'yyyy-MM-dd')}`];

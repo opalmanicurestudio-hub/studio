@@ -4,6 +4,7 @@
 // engine the booking route verifies with. The browser never sees anyone
 // else's appointments, shifts or days off — only which times are open.
 // Returns the same fields the booking sheet used from useSmartAvailability.
+import { holdParam } from '@/lib/agent-hold-param';
 import { useEffect, useRef, useState } from 'react';
 
 export interface ServerAvailability { times: string[]; hotTimes: string[]; addOnUpsells: any[]; selectedSlotGap: number; warnings: string[]; staffByTime: Record<string, string[]>; loading: boolean }
@@ -18,7 +19,7 @@ export function useServerAvailability(p: { tenantId?: string | null; date: strin
     const my = ++seq.current; const ctrl = new AbortController();
     setOut((o) => ({ ...o, loading: true }));
     fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
-      body: JSON.stringify({ tenantId: p.tenantId, action: 'availability', date: p.date, serviceId: p.serviceId, extraMinutes: p.extraMinutes || 0, staffId: p.staffId || 'any', tierId: p.tierId, providerId: p.providerId || undefined, addOnIds: p.addOnIds || [] }) })
+      body: JSON.stringify({ tenantId: p.tenantId, action: 'availability', date: p.date, serviceId: p.serviceId, extraMinutes: p.extraMinutes || 0, staffId: p.staffId || 'any', tierId: p.tierId, providerId: p.providerId || undefined, addOnIds: p.addOnIds || [], holdId: holdParam() || undefined }) })
       .then((r) => r.json()).then((d) => {
         if (my !== seq.current) return; // a newer request (the client tapped again) wins
         setOut(d?.ok ? { times: d.times || [], hotTimes: d.hotTimes || [], addOnUpsells: d.addOnUpsells || [], selectedSlotGap: d.bestGapMinutes || 0, warnings: d.warnings || [], staffByTime: d.staffByTime || {}, loading: false }
@@ -34,7 +35,7 @@ export function useServerAvailability(p: { tenantId?: string | null; date: strin
 /** "Any available": which provider the server would give this time to. */
 export async function pickProvider(p: { tenantId: string; date: string; time: string; serviceId: string; tierId?: string; providerId?: string | null; addOnIds?: string[] }) {
   try {
-    const r = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...p, action: 'pick', staffId: 'any' }) });
+    const r = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...p, action: 'pick', staffId: 'any', holdId: holdParam() || undefined }) });
     const d = await r.json(); return d?.ok && d.staffId ? { ok: true as const, staffId: String(d.staffId) } : { ok: false as const, error: d?.error || 'No professionals are available for this time. Please pick another.' };
   } catch { return { ok: false as const, error: 'Couldn’t reach the booking system — check your connection and try again.' }; }
 }

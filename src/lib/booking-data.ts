@@ -7,7 +7,7 @@ import { tenantTimeZone, todayIn, tzOffsetMs, wallToUtc } from '@/lib/tenant-tim
 
 export const FALLBACK_HOURS = { start: '08:00', end: '20:00' }; // same default as the browser hook (useSmartAvailability)
 
-export async function loadBookingData(db: any, T: string) {
+export async function loadBookingData(db: any, T: string, opts: { exceptHoldId?: string | null } = {}) {
   const tSnap = await db.doc(T).get();
   if (!tSnap.exists) return null;
   const t = tSnap.data() as any;
@@ -31,7 +31,11 @@ export async function loadBookingData(db: any, T: string) {
     safe(db.collection(`${T}/events`).where('startTime', '>=', eventsFromDay).get()),
     safe(db.collection(`${T}/renterServices`).get()),
   ]);
-  return { t, fromDay, eventsFromDay, sv, st, se, ap, sp, pt, cf, sh, sb, dof, rs, tk, mp, ce, rsv };
+  // Times held by an assistant for a client to confirm (lib/agent-holds) are busy for everyone else.
+  const { liveHolds, holdsAsBusy, asDocs } = await import('@/lib/agent-holds');
+  const held = holdsAsBusy(await liveHolds(db, T), opts.exceptHoldId || null);
+  const apAll = held.length ? { docs: [...(ap?.docs || []), ...asDocs(held)] } : ap;
+  return { t, fromDay, eventsFromDay, sv, st, se, ap: apAll, sp, pt, cf, sh, sb, dof, rs, tk, mp, ce, rsv };
 }
 
 

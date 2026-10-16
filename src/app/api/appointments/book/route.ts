@@ -489,6 +489,15 @@ export async function POST(req: NextRequest) {
      */
     const inStudio = !!trust && IN_STUDIO_SOURCES.includes(source.toLowerCase());
 
+    // ── Times held by an assistant (lib/agent-holds): busy for everyone but the client it was held for. ──
+    const { liveHolds, holdsAsBusy } = await import('@/lib/agent-holds');
+    let ownHold: any = null;
+    if (typeof body.holdId === 'string' && typeof body.holdKey === 'string') {
+      try { const h = (await db.doc(`tenants/${tenantId}/agentHolds/${body.holdId.slice(0, 40)}`).get()); const hd: any = h.exists ? h.data() : null;
+        if (hd && hd.key === body.holdKey && hd.status === 'held') ownHold = { id: h.id, ...hd }; } catch { /* booked as a normal booking */ }
+    }
+    const heldRows = holdsAsBusy(await liveHolds(db, `tenants/${tenantId}`), ownHold?.id || null);
+
     // ── The race-proof core: check + write in ONE transaction ──
     const aptsRef = db.collection(`tenants/${tenantId}/appointments`);
 
@@ -512,6 +521,7 @@ export async function POST(req: NextRequest) {
           createdAt: toLocalIso(a.createdAt) ?? a.createdAt,
         });
       }
+      for (const h of heldRows) { const s = toLocalIso(h.startTime); if (s) liveAppointments.push({ ...h, startTime: s, endTime: toLocalIso(h.endTime) ?? s }); }
 
       // v12 — FLEXIBLE mode (the walk-in "auto-turn"): when the requested time
       // doesn't work, search forward in 15-min steps for the EARLIEST opening
@@ -889,6 +899,8 @@ export async function POST(req: NextRequest) {
           ? { status: 'confirmed', depositStatus: 'scheduled', depositDueAt: new Date(Math.max(depScheduledMs, Date.now() + 3600000)).toISOString(), paymentDueAt: null }
           : { status: 'confirmed', depositStatus: 'covered', depositCoveredBy: String(body.depositCoveredBy || 'series').slice(0, 64), paymentDueAt: null });
       }
+      if (ownHold) { payload.bookedVia = 'assistant'; payload.agentHoldId = ownHold.id;
+        tx.set(db.doc(`tenants/${tenantId}/agentHolds/${ownHold.id}`), { status: 'booked', appointmentId: aptId, bookedAt: nowIso }, { merge: true }); }
       tx.set(aptsRef.doc(aptId), payload);
       // The copies are readable with the visit token — only the visit-link-safe fields go there.
       tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`), publicVisitCopy(payload));

@@ -182,6 +182,8 @@ interface BookingSheetProps {
   lockedStaffId?: string;
   /** Client details to start the form with — a returning client rescheduling from their email. */
   prefillClient?: { clientName?: string | null; clientEmail?: string | null; clientPhone?: string | null } | null;
+  /** A time already chosen (a time an assistant held for this client): opens straight on the details step. */
+  initialSlot?: { date: string; time: string; staffId?: string | null } | null;
   /** The business — from the page's web address (sturdier than the loaded record). */
   tenantId?: string;
   /** Studio design: three simple steps — When (who + time), You (details, forms,
@@ -249,7 +251,7 @@ const STEP_TITLES: Record<string, string> = {
 };
 
 export const BookingSheet: React.FC<BookingSheetProps> = ({
-  open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId, prefillClient,
+  open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId, prefillClient, initialSlot = null,
   appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm, tenantId: tenantIdProp, simple = false, rescheduleOf = null,
   shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
   bookingOutcome,
@@ -572,8 +574,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       setBookedStaffId(null); setInspirationPhotoUrl('');
       setDepositClientSecret(null); setDepositStripeAccountId(null);
       setDepositLoading(false); setDepositError(null);
+      if (initialSlot && /^\d{4}-\d{2}-\d{2}$/.test(initialSlot.date)) { const [y, m, d] = initialSlot.date.split('-').map(Number);
+        setSelectedStaffId(lockedStaffId || initialSlot.staffId || 'any'); setDate(new Date(y, m - 1, d)); setSelectedTime(initialSlot.time); setCurrentStepIndex(Math.max(0, steps.indexOf('details'))); }
     }
-  }, [open, initialStaffId, lockedStaffId, methods]);
+  }, [open, initialStaffId, lockedStaffId, methods, initialSlot]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Shared booking-payload builder ──────────────────────────────────────────
   const resolveBookingPayload = useCallback(():

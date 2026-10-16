@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     const [ps, ms] = await Promise.all([db.collection(`${T}/renterPackages`).where('staffId', '==', providerId).get().catch(() => ({ docs: [] })), db.collection(`${T}/renterMemberships`).where('staffId', '==', providerId).get().catch(() => ({ docs: [] }))]);
     return NextResponse.json({ ok: true, packages: rows(ps, (x) => drop(x, GENERAL_DROP)), memberships: rows(ms, (x) => drop(x, GENERAL_DROP)) }, { headers: { 'Cache-Control': 'no-store' } });
   }
-  const loaded = await loadBookingData(db, T);
+  const loaded = await loadBookingData(db, T, { exceptHoldId: typeof b?.holdId === 'string' ? b.holdId.slice(0, 40) : null });   // the client's own held time stays open to them
   if (!loaded) return NextResponse.json({ ok: false, error: 'Unknown business.' }, { status: 404 });
   const { t, fromDay, eventsFromDay, sv, st, se, ap, sp, pt, cf, sh, sb, dof, rs, tk, mp, ce, rsv } = loaded;
 

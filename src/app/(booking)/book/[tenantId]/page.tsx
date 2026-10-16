@@ -327,6 +327,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     window.addEventListener('cf-book', h);
     return () => window.removeEventListener('cf-book', h);
   }, [services]);
+  // ?hold=…&k=… — a time an assistant held for this client (lib/agent-holds): open straight on it, details filled in.
+  const [agentHold, setAgentHold] = useState<{ id: string; key: string; live: boolean; date: string; time: string; staffId: string | null; expiresAt: string; client: { name: string; phone: string; email: string } } | null>(null);
+  useEffect(() => { if (!tenantId) return; try { const q = new URLSearchParams(window.location.search); const id = q.get('hold') || '', k = q.get('k') || ''; if (!id || !k) return;
+    fetch(`/api/agents/${encodeURIComponent(tenantId)}/hold?id=${encodeURIComponent(id)}&k=${encodeURIComponent(k)}`).then((x) => x.json()).then((h) => { if (h?.ok) setAgentHold({ id, key: k, live: !!h.live, date: h.date, time: h.time, staffId: h.staffId || null, expiresAt: h.expiresAt, client: h.client || {} }); }).catch(() => {}); } catch { /* no hold */ } }, [tenantId]);
   // A link to one service (e.g. the school website's clinic menu:
   // /book/{t}?service={id}) opens the booking sheet for it — once.
   const openedServiceLink = useRef(false);
@@ -553,6 +557,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           body: JSON.stringify({
             tenantId,
             source: 'booking-page',
+            ...(agentHold?.live ? { holdId: agentHold.id, holdKey: agentHold.key } : {}),
             channel: channelFrom(new URLSearchParams(window.location.search).get('src')),   // where the link lived (website, instagram, google, qr…)
             ...(campaignRef ? { campaignId: campaignRef.campaignId, promoCode: campaignRef.code } : {}),
             ...(oppRef ? { opportunityId: oppRef } : {}),
@@ -660,13 +665,15 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       <div className={`w-full min-h-dvh overflow-x-hidden ${flowStudio ? 'pub-flow' : ''}`}
            style={flowStudio ? { background: '#faf8f5', ['--accent' as any]: resolvedStyle.accentColor } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
         {flowStudio && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
+        {agentHold && <p role="status" className="mx-auto max-w-xl px-4 pt-4 text-[14px]" style={{ color: '#6d7075' }}>{agentHold.live ? `We’re holding this time for you until ${new Date(agentHold.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. Check your details and confirm to book it.` : 'The time your assistant held has been released. Please pick a time below.'}</p>}
         <BookingSheet
           tenantId={tenantId}
           initialStaffId={studioStaffId}
           rescheduleOf={reschedule ? { serviceName: reschedule.serviceName, startTime: reschedule.startTime } : null}
           simple={flowStudio}
           lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
-          prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : null}
+          prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : agentHold ? { clientName: agentHold.client.name, clientEmail: agentHold.client.email, clientPhone: agentHold.client.phone } : null}
+          initialSlot={agentHold?.live ? { date: agentHold.date, time: agentHold.time, staffId: agentHold.staffId } : null}
           open
           onOpenChange={o => { if (!o) { setDialogOpen(false); setDialogService(null); setStudioStaffId(undefined); } }}
           service={dialogService}

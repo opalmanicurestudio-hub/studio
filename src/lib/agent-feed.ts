@@ -44,7 +44,7 @@ export async function businessFeed(db: any, tenantId: string, origin: string) {
     howToBook: {
       openTimes: `${api}/open-times?service={serviceId}&provider={providerId|any}&from={YYYY-MM-DD}&days={1-14}`,
       book: pol.holds
-        ? { kind: 'hold', url: `${api}/hold`, note: `POST the client's name, mobile number, service and time. The time is held for ${pol.holdMinutes} minutes and the client gets one text to confirm it themselves; nothing is booked or charged until they do.` }
+        ? { kind: 'hold', url: `${api}/hold`, body: { serviceId: '<id>', providerId: '<id or any>', date: 'YYYY-MM-DD', time: 'HH:mm (business local time, from open times)', client: { name: '<full name>', phone: '<mobile>', email: '<optional>' } }, note: `POST JSON with the client's name, mobile number, service and a time from open times. The time is held for ${pol.holdMinutes} minutes and the client gets one text to confirm it themselves; nothing is booked or charged until they do.` }
         : { kind: 'link', url: base, note: 'Send the client this booking link (add ?service={serviceId}); they choose the time and confirm it themselves.' },
       rules: ['Only the client can confirm, change or cancel their own booking (their visit link does all three).', 'Do not invent prices, times or policies: use the answers here.', 'Each answer has a code and a message; read the code, show the message.'],
     },
