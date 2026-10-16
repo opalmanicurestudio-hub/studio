@@ -9,7 +9,9 @@ import { stateOf, visitMarks, MARK_COLOR, elapsedLabel, useNow } from '@/compone
 
 const safe = (v: any) => (v instanceof Date ? v : new Date(v?.toDate ? v.toDate() : v));
 const money = (n: number) => `$${Math.round(Number(n) || 0)}`;
-export function NowFirst({ appointments, clients, services, staff, providerFilter, onProviderFilter, onStart, onFinish, onToDesk, onRunningLate, onOpen, onBook, onApprove, onDecline, canDecline = true }: {
+export function NowFirst({ appointments, clients, services, staff, providerFilter, onProviderFilter, onStart, onFinish, onToDesk, onRunningLate, onOpen, onBook, onApprove, onDecline, canDecline = true, bare = false, onBookAt }: {
+  /** Under the phone header: no count, chips or requests here (the header and Needs you carry them). */
+  bare?: boolean; onBookAt?: (staffId: string, when: Date) => void;
   onApprove?: (a: any) => void; onDecline?: (a: any) => void; canDecline?: boolean;
   appointments: any[]; clients: any[]; services: any[]; staff: any[]; providerFilter: string; onProviderFilter: (id: string) => void;
   onStart: (a: any) => void; onFinish: (a: any) => void; onToDesk: (a: any) => void; onRunningLate: (next: any) => void; onOpen: (a: any) => void; onBook: () => void;
@@ -29,6 +31,10 @@ export function NowFirst({ appointments, clients, services, staff, providerFilte
   const svc = (a: any) => services.find((s) => s.id === a.serviceId);
   const prov = (a: any) => staff.find((s) => s.id === a.staffId);
   const nextAfter = (a: any) => upNext.find((x) => x.staffId === a.staffId && safe(x.startTime) >= safe(a.startTime));
+  // A gap of 30 minutes or more before a visit, after that provider's previous one today, and still ahead of now.
+  const gapBefore = (a: any) => { const prev = mine.filter((x) => x.staffId === a.staffId && x.id !== a.id && safe(x.endTime || x.startTime) <= safe(a.startTime)).sort((x, y) => safe(y.endTime || y.startTime).getTime() - safe(x.endTime || x.startTime).getTime())[0];
+    if (!prev) return null; const step = 5 * 60000; const from = new Date(Math.ceil(Math.max(safe(prev.endTime || prev.startTime).getTime(), Date.now()) / step) * step); const minutes = Math.floor((safe(a.startTime).getTime() - from.getTime()) / 60000);
+    return minutes >= 30 ? { at: from, minutes } : null; };
   const booked = mine.reduce((n, a) => n + (Number(a.price ?? svc(a)?.price) || 0), 0);
   const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
   const row = (a: any) => { const st = stateOf(a, svc(a)); return (
@@ -40,13 +46,13 @@ export function NowFirst({ appointments, clients, services, staff, providerFilte
   const card = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-end justify-between gap-3 px-4 pb-2 pt-1">
+      {!bare && <><div className="flex items-end justify-between gap-3 px-4 pb-2 pt-1">
         <p className="text-[13px]" style={muted}>{mine.length} visit{mine.length === 1 ? '' : 's'}{booked ? ` · ${money(booked)} booked` : ''}</p>
         <button type="button" onClick={onBook} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>+ Book</button>
       </div>
-      <div className="flex gap-1.5 overflow-x-auto px-4 pb-2">{[{ id: 'all', name: 'Everyone' }, ...staff].map((s: any) => <button key={s.id} type="button" aria-pressed={providerFilter === s.id} onClick={() => onProviderFilter(s.id)} className="h-9 shrink-0 rounded-full px-3 text-[13px] font-semibold" style={providerFilter === s.id ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{s.name}</button>)}</div>
+      <div className="flex gap-1.5 overflow-x-auto px-4 pb-2">{[{ id: 'all', name: 'Everyone' }, ...staff].map((s: any) => <button key={s.id} type="button" aria-pressed={providerFilter === s.id} onClick={() => onProviderFilter(s.id)} className="h-9 shrink-0 rounded-full px-3 text-[13px] font-semibold" style={providerFilter === s.id ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{s.name}</button>)}</div></>}
       <div className="min-h-0 flex-1 space-y-3 overflow-auto px-3 pb-28">
-        {requests.length > 0 && <section className="overflow-hidden rounded-3xl" style={{ ...card, borderLeft: '5px solid var(--warn, #b45309)' }} aria-label="Needs an answer">
+        {!bare && requests.length > 0 && <section className="overflow-hidden rounded-3xl" style={{ ...card, borderLeft: '5px solid var(--warn, #b45309)' }} aria-label="Needs an answer">
           <h2 className="px-4 pb-1 pt-3 text-[12px] font-semibold" style={{ color: 'var(--warn, #b45309)' }}>Needs an answer · {requests.length}</h2>
           {requests.map((a) => (<div key={a.id} className="border-t px-4 py-3" style={{ borderColor: 'var(--line)' }}>
             <button type="button" onClick={() => onOpen(a)} className="block w-full text-left text-[14px]"><b>{name(a)}</b> · {svc(a)?.name || 'Service'}<br /><span className="text-[12px]" style={muted}>{format(safe(a.startTime), 'EEE h:mm a')}{prov(a) ? ` · ${prov(a).name}` : ''}</span></button>
@@ -70,9 +76,9 @@ export function NowFirst({ appointments, clients, services, staff, providerFilte
               </div>
             </section>); })()
           : open.length || requests.length ? null : <p className="px-2 pt-6 text-center text-[15px]" style={muted}>{done.length ? 'All done for the day.' : 'Nothing booked yet.'}</p>}
-        {upNext.length > 0 && <section className="overflow-hidden rounded-3xl" style={card} aria-label="Up next"><h2 className="px-4 pb-1 pt-3 text-[12px] font-semibold" style={muted}>Up next · {upNext.length}</h2>{upNext.map(row)}</section>}
+        {upNext.length > 0 && <section className="overflow-hidden rounded-3xl" style={card} aria-label="Up next"><h2 className="px-4 pb-1 pt-3 text-[12px] font-semibold" style={muted}>Up next · {upNext.length}</h2>{upNext.map((a) => { const g = gapBefore(a); return <React.Fragment key={a.id}>{g && <div className="grid min-h-[52px] grid-cols-[52px_5px_minmax(0,1fr)_auto] items-center gap-3 border-t px-4 py-2 text-[14px]" style={{ borderColor: 'var(--line)' }}><span style={muted}>{format(g.at, 'h:mm')}</span><span className="h-7 w-[5px] rounded-full border border-dashed" style={{ borderColor: 'hsl(var(--border))' }} /><span className="min-w-0" style={muted}>Open · {g.minutes} min<br /><span className="text-[12px]">{prov(a)?.name ? `${String(prov(a).name).split(' ')[0]} is free` : 'Free'}</span></span>{onBookAt && <button type="button" onClick={() => onBookAt(a.staffId, g.at)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>Book</button>}</div>}{row(a)}</React.Fragment>; })}</section>}
         {done.length > 0 && <section className="overflow-hidden rounded-3xl" style={{ ...card, opacity: 0.9 }} aria-label="Done">
-          <button type="button" aria-expanded={showDone} onClick={() => setShowDone((v) => !v)} className="flex w-full items-center justify-between px-4 py-3 text-[13px] font-semibold" style={muted}><span>Done · {done.length}</span><span>{showDone ? 'Hide' : 'Show'}</span></button>
+          <button type="button" aria-expanded={showDone} onClick={() => setShowDone((v) => !v)} className="flex w-full items-center justify-between px-4 py-3 text-[13px] font-semibold" style={muted}><span>Done today · {done.length}</span><span>{showDone ? 'Hide' : 'Show'}</span></button>
           {showDone && done.map(row)}</section>}
       </div>
     </div>);

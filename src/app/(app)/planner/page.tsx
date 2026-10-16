@@ -28,6 +28,7 @@ import { AddEventDialog } from '@/components/planner/EventsDialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking, useUser } from '@/firebase';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { PhoneHeader, NeedsYouLine, PhoneBottomBar, BookSheet, MoreSheet } from '@/components/planner/PhonePlanner';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
 import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
@@ -381,6 +382,7 @@ function PlannerPageContent() {
   useEffect(() => { if (!visitParam || openedVisitParam.current === visitParam || !appointments?.length) return; const a: any = appointments.find((x: any) => x.id === visitParam); if (!a) return;
     openedVisitParam.current = visitParam; try { setCurrentDate(safeDate(a.startTime)); } catch { /* fine */ } setSelectedAppointment(a); setIsDetailsOpen(true); }, [visitParam, appointments]);
   const [phoneView, setPhoneView] = useState<'now' | 'grid' | 'list' | 'week' | 'month'>(() => { try { const v = localStorage.getItem('cf_planner_phone_view'); if (v === 'now' || v === 'grid' || v === 'list' || v === 'week' || v === 'month') return v as any; } catch { /* fine */ } return 'now'; });
+  const [phoneBookOpen, setPhoneBookOpen] = useState(false); const [phoneMoreOpen, setPhoneMoreOpen] = useState(false);
   const choosePhoneView = (v: 'now' | 'grid' | 'list' | 'week' | 'month') => { setPhoneView(v); try { localStorage.setItem('cf_planner_phone_view', v); } catch { /* fine */ } };
   const [panelAppt, setPanelAppt] = useState<any | null>(null);
   const [lateAsk, setLateAsk] = useState<any | null>(null);
@@ -437,7 +439,9 @@ function PlannerPageContent() {
 
   const onMobileColumnChange = useCallback((id: string) => {
     setMobileSelectedColumnId(id);
-  }, []);
+    // One "whose day" on a phone: moving the day grid to a provider moves Now and the list too.
+    setAgendaProvider((prev) => ((allStaff || []).some((st: any) => st.id === id) ? id : prev));
+  }, [allStaff]);
 
   const { data: scheduleProfilesData } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]));
   const { data: resourcesData } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
@@ -1420,6 +1424,14 @@ function PlannerPageContent() {
 
 
 
+  const openBook = (mode: 'one' | 'group' | 'steps' | 'repeat' = 'one', preset: any = null) => { setBookPreset(preset); setAppointmentToRebook(null); setClientForNewApt(null); setBookGuests(null); setBookMode(mode); setIsAddAppointmentOpen(true); };
+  const needsYouOthers = [
+    ...(leftOpenList.length ? [{ key: 'left-open', label: `${leftOpenList.length} visit${leftOpenList.length === 1 ? '' : 's'} left open from earlier days`, onClick: () => setLeftOpenSheet(true), tone: 'warn' as const }] : []),
+    ...(can('money.view') && billInstancesWithDefinitions.length ? [{ key: 'bills', label: `${billInstancesWithDefinitions.length} bill${billInstancesWithDefinitions.length === 1 ? '' : 's'} due`, onClick: () => setIsBillsSheetOpen(true), tone: 'warn' as const }] : []),
+  ];
+  const phoneProviders = (allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false);
+  const phoneDayView = isMobile && (phoneView === 'grid' || phoneView === 'list');
+
   return (
     <div className="cf-settings cf-legacy flex h-[100dvh] w-full flex-col overflow-hidden" style={{ background: 'var(--paper)' }}>
       <SettingsStyle />
@@ -1455,7 +1467,15 @@ function PlannerPageContent() {
       {findOpen && tenantId && <FindATime tenantId={tenantId} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} from={currentDate < new Date() ? new Date() : currentDate} isMobile={isMobile} onClose={() => setFindOpen(false)}
         onBookGroup={(x) => { setFindOpen(false); setCurrentDate(x.date); const [lead, ...rest] = x.people; setBookPreset({ date: x.date, time: x.time, staffId: lead.staffId, serviceId: lead.serviceId }); setBookGuests(rest); setBookMode('group'); setAppointmentToRebook(null); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
         onBook={(x) => { setFindOpen(false); setCurrentDate(x.date); setBookPreset({ date: x.date, time: x.time, staffId: x.staffId, serviceId: x.serviceId }); setAppointmentToRebook(null); setClientForNewApt(null); setIsAddAppointmentOpen(true); }} />}
-      <PlannerHeader date={currentDate} onDate={(d: Date) => setCurrentDate(d)} isMobile={isMobile}
+      {isMobile ? <>
+        <PhoneHeader date={currentDate} onDate={(d: Date) => setCurrentDate(d)} appointments={appointments || []} staff={phoneProviders} events={studioEventsRaw || []} onFindTime={() => setFindOpen(true)}
+          visits={dayAppointments.filter((a: any) => !['cancelled', 'declined'].includes(String(a.status)) && (agendaProvider === 'all' || a.staffId === agendaProvider)).length}
+          booked={can('money.view') && dayPulse ? dayPulse.booked : null}
+          providers={phoneProviders} provider={phoneView === 'grid' && agendaProvider === 'all' && phoneProviders.some((st: any) => st.id === mobileSelectedColumnId) ? mobileSelectedColumnId : agendaProvider}
+          onProvider={(id: string) => { setAgendaProvider(id); if (id !== 'all' && columns.some((c: any) => c.id === id)) setMobileSelectedColumnId(id); }}
+          dayToggle={phoneDayView ? <button type="button" onClick={() => choosePhoneView(phoneView === 'grid' ? 'list' : 'grid')} aria-label={phoneView === 'grid' ? 'Show the day as a list' : 'Show the day as a grid'} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>{phoneView === 'grid' ? 'List' : 'Grid'}</button> : null} />
+        <NeedsYouLine requests={awaitingUpcoming.length} others={needsYouOthers} onOpen={() => setPhoneMoreOpen(true)} />
+      </> : <PlannerHeader date={currentDate} onDate={(d: Date) => setCurrentDate(d)} isMobile={isMobile}
         appointments={appointments || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []}
         figures={{ visits: dayAppointments.filter((a: any) => !['cancelled', 'declined'].includes(String(a.status))).length, booked: dayPulse ? dayPulse.booked : null, goal: Number((selectedTenant as any)?.dailyGoal) || null }}
         onFigures={can('money.view') ? () => setIsKpiSheetOpen(true) : undefined}
@@ -1483,12 +1503,12 @@ function PlannerPageContent() {
           [density === 'compact' ? 'Roomy cards' : 'Compact cards', () => setDensity((d) => { const n = d === 'compact' ? 'roomy' : 'compact'; try { localStorage.setItem('cf_planner_density', n); } catch { /* fine */ } return n; })],
         ]}
         onFindTime={() => setFindOpen(true)}
-        viewControls={<><span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda', 'week', 'month'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span></>} />
-      <main className="flex-1 flex flex-col min-h-0 bg-muted/50">
-        {isMobile && <div className="flex gap-1 px-3 pt-2" role="tablist" aria-label="View">{([['now', 'Now'], ['grid', 'Grid'], ['list', 'List'], ['week', 'Week'], ['month', 'Month']] as const).map(([v, l]) => <button key={v} type="button" role="tab" aria-selected={phoneView === v} onClick={() => choosePhoneView(v)} className="h-9 flex-1 rounded-full text-[13px] font-semibold" style={phoneView === v ? { background: 'var(--ink)', color: '#fff' } : { background: 'var(--soft)' }}>{l}</button>)}</div>}
+        viewControls={<><span className="hidden sm:inline-flex gap-1 rounded-full p-0.5" style={{ background: 'var(--soft)' }} role="tablist" aria-label="View">{(['board', 'agenda', 'week', 'month'] as const).map((v) => <button key={v} type="button" role="tab" aria-selected={plannerView === v} onClick={() => choosePlannerView(v)} className="h-8 rounded-full px-3 text-[13px] font-semibold capitalize" style={plannerView === v ? { background: 'var(--ink)', color: '#fff' } : {}}>{v}</button>)}</span></>} />}
+      <main className="flex-1 flex flex-col min-h-0 bg-muted/50" style={isMobile ? { paddingBottom: 'calc(56px + env(safe-area-inset-bottom))' } : undefined}>
         {isMobile && phoneView === 'now' && <NowFirst appointments={dayAppointments} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} providerFilter={agendaProvider} onProviderFilter={setAgendaProvider}
-          onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => { setBookPreset(null); setIsAddAppointmentOpen(true); }}
-          onApprove={visitActions.onApprove} onDecline={visitActions.onDecline} canDecline={visitActions.canDecline} />}
+          onStart={(a: any) => handleStartService(a.id)} onFinish={(a: any) => handleFinishService(a)} onToDesk={(a: any) => router.push(`/pos?checkout_id=${a.id}`)} onRunningLate={(nx: any) => setLateAsk(nx)} onOpen={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onBook={() => openBook()}
+          onApprove={visitActions.onApprove} onDecline={visitActions.onDecline} canDecline={visitActions.canDecline} bare
+          onBookAt={(staffId: string, when: Date) => openBook('one', { date: when, time: format(when, 'HH:mm'), staffId })} />}
         {(isMobile ? phoneView === 'month' : plannerView === 'month') && <MonthView date={currentDate} appointments={appointments || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []} blocks={staffBlocksRaw || []}
           showMoney={!!showProfitability} goal={Number((selectedTenant as any)?.dailyGoal) || null} isMobile={isMobile} onMonth={(d: Date) => setCurrentDate(d)} onOpenDay={(d: Date) => { setCurrentDate(d); if (isMobile) choosePhoneView('now'); else choosePlannerView('board'); }} />}
         {(isMobile ? phoneView === 'week' : plannerView === 'week') && <WeekView date={currentDate} appointments={appointments || []} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)} events={studioEventsRaw || []} blocks={staffBlocksRaw || []}
@@ -1536,6 +1556,19 @@ function PlannerPageContent() {
           walkIns={walkIns} clients={clients} services={services} resources={resourcesData || []}
         />}
       </main>
+      {isMobile && <PhoneBottomBar view={phoneView} onView={choosePhoneView} onBook={() => setPhoneBookOpen(true)} onMore={() => setPhoneMoreOpen(true)} moreBadge={awaitingUpcoming.length + needsYouOthers.length} />}
+      {isMobile && phoneBookOpen && <BookSheet onClose={() => setPhoneBookOpen(false)} onVisit={() => openBook()} onFind={() => setFindOpen(true)} onBlock={() => setIsAddEventOpen(true)}
+        others={[['Group', () => openBook('group')], ['Repeat', () => openBook('repeat')], ['Several providers', () => openBook('steps')], ['Class', () => router.push('/events')]]} />}
+      {isMobile && phoneMoreOpen && <MoreSheet onClose={() => setPhoneMoreOpen(false)} requests={awaitingUpcoming} staff={allStaff || []}
+        onOpenVisit={(a: any) => { setSelectedAppointment(a); setIsDetailsOpen(true); }} onApprove={visitActions.onApprove} onDecline={visitActions.onDecline} canDecline={visitActions.canDecline}
+        others={[...needsYouOthers, ...(cancelledToday > 0 ? [{ key: 'cancelled', label: `${cancelledToday} cancelled today, ${showCancelled ? 'hide' : 'show'}`, onClick: revealCancelled }] : []), ...studioEventsToday.map((se: any) => ({ key: `ev-${se.id}`, label: `${se.status === 'active' ? 'Live now · ' : ''}${se.title || se.name || 'Event'}${se.time ? ` · ${se.time}` : ''}`, onClick: () => router.push(`/events/${se.id}/manifest`) }))]}
+        items={[
+          [`Waiting list${openWaitlistCount ? ` · ${openWaitlistCount}` : ''}`, () => setIsWaitlistSheetOpen(true)],
+          ['Scan check-in', () => setIsScannerOpen(true)],
+          ...(can('money.view') ? [['This week', () => setIsKpiSheetOpen(true)] as [string, () => void], ...(billInstancesWithDefinitions.length ? [[`Bills due · ${billInstancesWithDefinitions.length}`, () => setIsBillsSheetOpen(true)] as [string, () => void]] : [])] : []),
+          ['Month', () => choosePhoneView('month')],
+          ['View settings', () => setPrefsOpen(true)],
+        ]} />}
 
       <DebugErrorBoundary>
         <AppointmentDetailsSheet
