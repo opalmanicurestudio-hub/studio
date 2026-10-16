@@ -23,10 +23,15 @@ function chime() {
 }
 
 export function StepReminder() {
-  const { appointments, services } = useInventory() as any; const { selectedTenant } = useTenant() as any; const { firestore } = useFirebase() as any; const { user } = useUser() as any;
+  const { appointments, services } = useInventory() as any; const { selectedTenant } = useTenant() as any; const { user } = useUser() as any;
+  return <StepReminderView appointments={appointments || []} services={services || []} uid={user?.uid} tenantId={selectedTenant?.id} />;
+}
+
+/** The same reminder with its data passed in (the staff portal has its own). */
+export function StepReminderView({ appointments, services, uid, tenantId }: { appointments: any[]; services: any[]; uid?: string | null; tenantId?: string | null }) {
+  const { firestore } = useFirebase() as any;
   const [now, setNow] = React.useState(() => Date.now()); const [shown, setShown] = React.useState<any[]>([]); const [busy, setBusy] = React.useState<string | null>(null);
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(t); }, []);
-  const uid = user?.uid; const tenantId = selectedTenant?.id;
   const mine = React.useMemo(() => (appointments || []).filter((a: any) => a?.status === 'servicing' && uid && (a.staffId === uid || Object.values(a.checkoutState?.serviceStaffOverrides || {}).includes(uid))), [appointments, uid]);
   React.useEffect(() => {
     if (!mine.length) { setShown([]); return; }

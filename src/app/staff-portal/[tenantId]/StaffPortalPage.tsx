@@ -139,7 +139,9 @@ import { isSoloTeam } from '@/lib/solo';
 import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-portal/PortalChrome';
 import { brandAccent, brandLogo } from '@/lib/brand-accent';
 import { can, isManagerRole } from '@/lib/permissions';
-import { StepEdge } from '@/components/planner/StepTimeline';
+import { StepEdge, StepTimeline } from '@/components/planner/StepTimeline';
+import { ChairCard } from '@/components/visit/VisitFlow';
+import { StepReminderView } from '@/components/visit/StepReminder';
 import { Star, Languages, Forward, ArrowLeftRight } from 'lucide-react';
 import { CHAT_LANGUAGES } from '@/lib/chat-languages';
 import { PasskeySetup } from '@/components/staff-portal/Passkey';
@@ -538,8 +540,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
   onEscalate: (apt: any) => void;
 }) {
   // ── ALL hooks must come before any early return ──
-  const [elapsed, setElapsed]       = useState('');
-  const [isOverTime, setIsOverTime] = useState(false);
   const [showAddOn, setShowAddOn]   = useState(false);
 
   const start     = apt ? safeDate(apt.startTime) : new Date();
@@ -550,13 +550,6 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
   const end       = addMinutes(start, totalDur);
   const st        = apt?.status || 'confirmed';
 
-  useEffect(() => {
-    if (st !== 'servicing' || !startedAt(apt)) return;
-    const tick = () => { const c = visitClock(apt, service, allServices || []); if (!c) return; setElapsed(c.label); setIsOverTime(c.over); };   // the one live clock (lib/visit-clock)
-    tick();
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
-  }, [st, apt, service, allServices]);
 
   // Early return AFTER all hooks
   if (!apt) return null;
@@ -604,17 +597,8 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
             </Badge>
           </div>
 
-          {st === 'servicing' && elapsed && (
-            <div className={cn('rounded-2xl border-4 text-center py-3 transition-all',
-              isOverTime ? 'bg-destructive/5 border-destructive/30 animate-pulse' : 'bg-primary/5 border-primary/20')}>
-              <p className="text-[11px] font-semibold opacity-60 mb-0.5">
-                {isOverTime ? '⚠ Running Over' : 'Live Session Time'}
-              </p>
-              <p className={cn('font-semibold font-mono text-3xl tracking-tighter', isOverTime ? 'text-destructive' : 'text-primary')}>
-                {elapsed}
-              </p>
-            </div>
-          )}
+          {st === 'servicing' && <ChairCard appointment={apt} service={service} allServices={allServices || []} client={{ name: apt.clientName }} onAddOn={() => setShowAddOn(true)} />}
+          {st === 'servicing' && service && <StepTimeline service={service} appointment={apt} extraMinutes={Number(apt.clientExtraMinutes) || 0} tenantId={tenantId} />}
 
           {apt.notes && (
             <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-100">
@@ -714,25 +698,14 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
 
 // ─── LIVE TIMER BADGE ─────────────────────────────────────────────────────────
 // Ticking timer shown on appointment blocks when status is 'servicing'
-function LiveTimerBadge({ startTime, duration }: { startTime: any; duration: number }) {
-  const [elapsed, setElapsed]       = useState('');
-  const [isOver, setIsOver]         = useState(false);
-  useEffect(() => {
-    const tick = () => {
-      const secs = differenceInSeconds(new Date(), safeDate(startTime));
-      const h = Math.floor(secs / 3600);
-      const m = Math.floor((secs % 3600) / 60);
-      const s = secs % 60;
-      setElapsed(h > 0 ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`);
-      setIsOver(Math.floor(secs / 60) > duration);
-    };
-    tick();
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
-  }, [startTime, duration]);
+function LiveTimerBadge({ apt, duration }: { apt: any; duration: number }) {
+  // The one live clock (lib/visit-clock): the service plus add-ons, the client's usual extra time and any "+5 min".
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);
+  const c = visitClock(apt, { duration }, []); if (!c) return null;
   return (
-    <div className={cn('flex items-center justify-center rounded-xl py-1 mt-0.5', isOver ? 'bg-destructive/10' : 'bg-primary/10')}>
-      <p className={cn('font-semibold font-mono text-sm tracking-tighter', isOver ? 'text-destructive' : 'text-primary')}>{elapsed}</p>
+    <div className={cn('flex items-center justify-center rounded-xl py-1 mt-0.5', c.over ? 'bg-amber-100' : 'bg-primary/10')}>
+      <p className={cn('font-semibold font-mono text-sm tracking-tighter', c.over ? 'text-amber-700' : 'text-primary')}>{c.label}</p>
     </div>
   );
 }
@@ -1251,7 +1224,7 @@ function DayTimeline({
                         </div>
                       )}
                       {isAddOnTech && <span className="text-[11px] font-semibold bg-[#f5f5f7] text-[#16171a] rounded-md px-1.5 py-0.5 w-fit ml-3">ADD-ON</span>}
-                      {st === 'servicing' && apt.actualStartTime && <LiveTimerBadge startTime={apt.actualStartTime} duration={svcDur} />}
+                      {st === 'servicing' && apt.actualStartTime && <LiveTimerBadge apt={apt} duration={svcDur} />}
                       <div className="flex items-center justify-between mt-auto pl-3">
                         <span className="text-[11px] font-semibold text-muted-foreground opacity-50">{statusTxt[st] || st}</span>
                         <span className="flex items-center gap-0.5 text-[11px] font-semibold text-primary bg-primary/10 rounded-lg px-1.5 py-0.5">
@@ -1632,7 +1605,7 @@ if (!allStaff) return null;
                                   )}
                                   {isEsc && <span className="text-[6px] font-semibold bg-destructive text-white rounded px-1 w-fit ml-2.5 animate-pulse">ESC</span>}
                                   {st === 'servicing' && item.actualStartTime && (
-                                    <LiveTimerBadge startTime={item.actualStartTime} duration={dur} />
+                                    <LiveTimerBadge apt={item} duration={dur} />
                                   )}
                                 </>
                               )}
@@ -4077,10 +4050,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         batch.update(aptRef,{ status:'ready_for_checkout', actualEndTime:now });
         batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'idle' },{ merge:true });
         break;
-      case 'complete':
-        batch.update(aptRef,{ status:'completed', completedAt:now });
-        batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'available' },{ merge:true });
-        break;
       case 'escalate': {
         batch.update(aptRef,{ escalatedAt:now, escalatedBy:staffMember.id });
         const mgrs = await getDocs(query(collection(firestore,`tenants/${tenantId}/staff`),where('role','in',['owner','admin','manager'])));
@@ -4093,11 +4062,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         break;
     }
     // The check-in screen's copy of the visit follows, so the front desk and the client's screen agree.
-    const mirror: Record<string,string> = { start:'servicing', checkout:'ready_for_checkout', complete:'completed', noshow:'no_show' };
+    const mirror: Record<string,string> = { start:'servicing', checkout:'ready_for_checkout', noshow:'no_show' };
     if (apt?.checkInToken && mirror[action]) batch.set(doc(firestore,'appointmentCheckIns',apt.checkInToken),{ status:mirror[action], tenantId },{ merge:true });
     try { await batch.commit(); }
     catch { toast({ variant:'destructive', title:'That didn’t save', description:'Check your connection and try again. If it keeps happening, tell your manager.' }); return; }
-    const labels: Record<string,string> = { start:'Service Started ✓', checkout:'Sent to Checkout ✓', complete:'Marked Complete ✓', escalate:'Escalated to Manager ✓', noshow:'Marked No Show' };
+    const labels: Record<string,string> = { start:'Service Started ✓', checkout:'Sent to Checkout ✓', escalate:'Escalated to Manager ✓', noshow:'Marked No Show' };
     toast({ title: labels[action] || 'Updated' });
   }, [firestore, tenantId, staffMember, services, portalTenant, toast]);
 
@@ -4284,6 +4253,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
   return (
     <div className="cf-portal min-h-screen bg-white text-[#16171a] flex flex-col max-w-lg mx-auto pb-28">
+      {!isRenter && <StepReminderView appointments={todaysMine} services={services || []} uid={staffMember.id} tenantId={tenantId} />}
       {splashOn && <PortalSplash name={staffMember.name || ''} business={(portalTenant as any)?.name || ''} logo={brandLogo(portalTenant)} accent={accentColor} visits={todaysMine} loading={apptsLoading} isRenter={isRenter} onDone={() => setSplashOn(false)} />}
 
       <header className="bg-white px-5 pt-6 pb-3 space-y-3 shrink-0">
