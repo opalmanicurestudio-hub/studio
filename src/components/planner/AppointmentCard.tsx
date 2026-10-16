@@ -285,8 +285,8 @@ export function AppointmentCard({
   const CHIP_TONES: Record<string, string> = {
     alert: 'bg-[#FBEAE8] text-[#B42318]',
     live: 'bg-foreground text-background',
-    good: 'bg-[#E3F3E7] text-[#1F6B3A]',
-    info: 'bg-[#F1ECE5] text-[#4A453E]',
+    good: 'bg-[#e8f3ec] text-[#1f7a4d]',
+    info: 'bg-[#f5f5f7] text-[#6d7075]',
   };
   // The card's header words: what is happening with this visit right now, in one short phrase.
   const stepStatus = useStepStatus(service, appointment);
@@ -355,9 +355,9 @@ export function AppointmentCard({
 
 
   const head: { text: string; color: string } = (() => {
-    const RED = '#B42318', INK = '#17181A', GREEN = '#1F6B3A', BLUE = '#164A86', MUTED = '#6A655D';
+    const RED = '#B42318', INK = '#16171a', GREEN = '#1f7a4d', BLUE = '#164A86', MUTED = '#6d7075', AMBER = '#b45309';
     if (pushedMin > 0) return { text: `Starts +${pushedMin}`, color: RED };
-    if (appointment.status === 'servicing') return stepStatus ? { text: stepStatus.text, color: stepStatus.tone === 'red' ? RED : INK } : isRunningOver ? { text: `${overMinutes} min over`, color: RED } : { text: elapsedTime ? `In the chair · ${elapsedTime}` : 'In the chair', color: INK };
+    if (appointment.status === 'servicing') return stepStatus ? { text: stepStatus.text, color: stepStatus.tone === 'red' ? AMBER : INK } : isRunningOver ? { text: `${overMinutes} min over`, color: AMBER } : { text: elapsedTime ? `In the chair · ${elapsedTime}` : 'In the chair', color: INK };
     if (appointment.checkInStatus === 'arrived') return { text: 'Here', color: GREEN };
     if (appointment.checkInStatus === 'running_late') return { text: estimatedArrival ? `Late · ~${estimatedArrival}` : 'Running late', color: RED };
     if (appointment.checkInStatus === 'on_my_way') return { text: estimatedArrival ? `On the way · ~${estimatedArrival}` : 'On the way', color: BLUE };
@@ -381,7 +381,7 @@ export function AppointmentCard({
       ? 'compact'
       : 'medium';
 
-  const chipCap = tier === 'full' ? 3 : 2;
+  const chipCap = tier === 'full' ? 2 : 1;   // calmer cards: the header says what's happening; a chip or two says why
 
   const openDetails = () => onViewDetails(appointment);
 
@@ -409,8 +409,8 @@ export function AppointmentCard({
       <div style={{ height: `${(safeDuration / totalDuration) * 100}%` }} className="flex-1 min-h-0 overflow-hidden">
         <Card 
           className={cn(
-            'px-2 py-1.5 sm:px-3 sm:py-2.5 border w-full h-full flex flex-col gap-1 sm:gap-1.5 transition-shadow duration-300 relative rounded-[16px] overflow-hidden bg-card border-border shadow-[0_10px_24px_-18px_rgba(23,24,26,0.45)] hover:shadow-[0_16px_32px_-16px_rgba(23,24,26,0.5)]',
-            (isRunningOver || appointment.isEscalated) && 'border-[#F0C9C4] shadow-[0_12px_28px_-16px_rgba(180,35,24,0.65)]',
+            'px-2 py-1.5 sm:px-3 sm:py-2.5 border w-full h-full flex flex-col gap-1 sm:gap-1.5 transition-shadow duration-300 relative rounded-[14px] overflow-hidden bg-card border-border shadow-none hover:shadow-[0_8px_22px_-14px_rgba(22,23,26,0.35)]',
+            (isRunningOver || appointment.isEscalated) && 'border-[#f2d3b0]',
             pushedMin > 0 && 'border-dashed border-[#D9A39C]',
             ['completed', 'cancelled', 'no_show', 'declined'].includes(String(appointment.status)) && 'opacity-70',
             awaitingDecision && 'bg-[repeating-linear-gradient(-45deg,transparent,transparent_5px,rgba(22,23,26,0.06)_5px,rgba(22,23,26,0.06)_7px)]',
@@ -426,8 +426,8 @@ export function AppointmentCard({
           }}
         >
           {tier !== 'compact' && (
-            <div className="flex min-w-0 items-center gap-2 text-[11px] sm:text-[12px] font-[700] tabular-nums leading-none text-muted-foreground">
-              <span className="flex shrink-0 items-center gap-1.5">{edgeColor && <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: edgeColor }} />}{pushedMin > 0 ? <><s className="text-[#A39D93]">{format(safeDate(appointment.startTime), 'h:mm')}</s><span className="text-[#B42318]">~{format(new Date(expMs0), 'h:mm')}</span></> : format(safeDate(appointment.startTime), 'h:mm')}</span>
+            <div className="flex min-w-0 items-center gap-2 text-[11px] sm:text-[12px] font-[500] tabular-nums leading-none text-muted-foreground">
+              <span className="flex shrink-0 items-center gap-1.5">{edgeColor && <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: edgeColor }} />}{pushedMin > 0 ? <><s className="text-[#6d7075]">{format(safeDate(appointment.startTime), 'h:mm')}</s><span className="text-[#B42318]">~{format(new Date(expMs0), 'h:mm')}</span></> : format(safeDate(appointment.startTime), 'h:mm')}</span>
               <span className="min-w-0 flex-1 truncate text-center" style={{ color: head.color }}>{head.text}</span>
               <span className="shrink-0">{format(addMinutes(pushedMin > 0 ? new Date(expMs0) : safeDate(appointment.startTime), safeDuration), 'h:mm')}</span>
             </div>)}
@@ -455,16 +455,16 @@ export function AppointmentCard({
                       );
                     })}
                     {chips.filter((c) => !headKeys.has(c.key)).length > chipCap && (
-                      <span className="inline-flex shrink-0 items-center rounded-full px-2 h-5 text-[11px] sm:text-[12px] font-[600] bg-[#F1ECE5] text-[#4A453E]">
+                      <span className="inline-flex shrink-0 items-center rounded-full px-2 h-5 text-[11px] sm:text-[12px] font-[600] bg-[#f5f5f7] text-[#6d7075]">
                         +{chips.filter((c) => !headKeys.has(c.key)).length - chipCap}
                       </span>
                     )}
                 </div>
                 <div className="flex items-baseline gap-2 mb-1">
-                  {tier === 'compact' && <span className={cn("shrink-0 tabular-nums font-[700] leading-none text-[11px] sm:text-[12px]", appointment.status === 'servicing' ? (isRunningOver ? 'text-red-600' : 'text-primary') : 'text-muted-foreground')}>
+                  {tier === 'compact' && <span className={cn("shrink-0 tabular-nums font-[700] leading-none text-[11px] sm:text-[12px]", appointment.status === 'servicing' ? (isRunningOver ? 'text-amber-700' : 'text-primary') : 'text-muted-foreground')}>
                     {appointment.status === 'servicing' && elapsedTime ? elapsedTime : format(safeDate(appointment.startTime), 'h:mm')}
                   </span>}
-                  <p className="font-[800] tracking-[-0.01em] text-[14px] sm:text-[15px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
+                  <p className="font-[600] tracking-[-0.01em] text-[14px] sm:text-[15px] text-foreground truncate leading-none flex-1 min-w-0">{client.name}</p>
                   {ticket !== null && tier !== 'compact' && appointment.status !== 'servicing' && (
                     <span className={cn(
                       'shrink-0 tabular-nums font-semibold tracking-tight leading-none text-[12px] sm:text-[13px]',
