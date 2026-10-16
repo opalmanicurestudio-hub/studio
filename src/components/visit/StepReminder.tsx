@@ -49,7 +49,7 @@ export function StepReminderView({ appointments, services, uid, tenantId }: { ap
   const goNext = async (x: any) => { if (!firestore || !tenantId || x.nextIndex == null) return; setBusy(x.key);
     try { await updateDoc(doc(firestore, 'tenants', tenantId, 'appointments', x.a.id), { [`stepStarts.${x.nextIndex}`]: new Date().toISOString(), timingUpdatedAt: new Date().toISOString() }); dismiss(x.key); } catch { /* stays up */ } setBusy(null); };
   return (
-    <div className="pointer-events-none fixed inset-x-3 z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-5" style={{ bottom: 'calc(72px + env(safe-area-inset-bottom))' }} aria-live="polite">
+    <div className="pointer-events-none fixed inset-x-3 z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-5" style={{ bottom: 'calc(150px + env(safe-area-inset-bottom))' }} aria-live="polite">
       {shown.map((x) => { const first = String(x.a.clientName || 'Your client').split(' ')[0];
         return (
           <div key={x.key} role="status" className="pointer-events-auto w-full max-w-sm rounded-2xl p-4" style={{ background: '#16171a', color: '#fff', boxShadow: '0 16px 40px rgba(0,0,0,.25)', fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }}>

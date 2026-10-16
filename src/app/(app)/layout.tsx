@@ -1,6 +1,7 @@
 'use client';
 import { VisitTicketHost } from '@/components/visit/VisitTicketHost';
 import { StepReminder } from '@/components/visit/StepReminder';
+import { KlairHost } from '@/components/klair/Klair';
 import { StudioTheme } from '@/components/shared/StudioTheme';
 import { StaffPayOverlay } from '@/components/shared/StaffPayOverlay';
 import { IdleSignOut } from '@/components/shared/IdleSignOut';
@@ -100,6 +101,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <HelpDesk />
             <VisitTicketHost />
             <StepReminder />
+            <KlairHost />
           </SidebarProvider>
         </LocationProvider>
       </TenantProvider>

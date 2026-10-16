@@ -3,6 +3,8 @@ import { ReadyCard, ChairCard, AfterCard, SendToClient } from '@/components/visi
 import { MidServiceAddOnSheet } from '@/components/visit/AddOnSheet';
 import { visitClock, startedAt } from '@/lib/visit-clock';
 import { swapShare, swapAssist } from '@/lib/swap-credit';
+import { klairSettings } from '@/lib/klair';
+import { openKlair } from '@/components/klair/Klair';
 import { VisitCue } from '@/components/loyalty/VisitCue';
 import { logHealthOpen } from '@/lib/health-view-client';
 import { PrepSummary } from '@/components/staff-portal/PrepSummary';
@@ -2500,6 +2502,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     <ScrollArea className="flex-1 overflow-y-auto">
       <div className="space-y-5 p-4 md:p-6 pb-6">
         <div hidden={visitTab !== 'now'} className="space-y-5">
+        {klairSettings(selectedTenant).on && !['cancelled', 'declined'].includes(String(appointment?.status || '')) && (
+          <button type="button" onClick={() => { onOpenChange(false); openKlair({ appointmentId: appointment.id, clientName: client?.name || appointment.clientName || 'this client' }); }}
+            className="flex h-12 w-full items-center gap-3 rounded-2xl px-4 text-left text-[14.5px]" style={{ background: '#000', color: '#e6e7ea' }}>
+            <span aria-hidden className="inline-flex items-center gap-[3px]">{[8, 14, 20, 12, 6].map((h, i) => <i key={i} style={{ display: 'block', width: 3, height: h, borderRadius: 2, background: '#7fd1a5' }} />)}</span>
+            Ask {klairSettings(selectedTenant).name} about {String(client?.name || appointment?.clientName || 'this visit').split(' ')[0]}
+          </button>)}
         <LateBanner appointment={appointment} tenantId={tenantId} onCancel={onCancel ? (id: string, w: boolean) => { onOpenChange(false); onCancel(id, w); } : undefined} />
         {tenantId && appointment?.clientId && !['cancelled', 'no_show'].includes(String(appointment?.status || '')) && <VisitCue tenantId={tenantId} clientId={appointment.clientId} />}
         {tenantId && <OnlineLinkCard appointment={appointment} tenantId={tenantId} service={(allServices || []).find((x: any) => x.id === appointment?.serviceId)} />}

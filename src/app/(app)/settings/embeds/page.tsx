@@ -8,6 +8,7 @@ import { SettingsPage, Section, Row, Toggle } from '@/components/settings/settin
 import { useFirebase } from '@/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { agentPolicy, assistantAddon } from '@/lib/agent-access';
+import { klairSettings } from '@/lib/klair';
 import { bookingLink } from '@/lib/share-links';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -57,6 +58,14 @@ export default function EmbedsPage() {
           return (<>
             <Row label="Let assistants see my menu and open times" help="Free. Services, prices, lengths, team and policies, plus real open times. Never who else is booked or anything about your clients."><Toggle checked={p.menu} onChange={(v) => save('menu', v)} label="Let assistants see my menu and open times" /></Row>
             <Row label="Let assistants hold a time for a client" help={addon ? `The client gets one text to confirm it themselves; the time is held for ${p.holdMinutes} minutes and nothing is booked or charged until they do. Consultation, request-only and members-only services are never held.` : 'Part of the ClarityFlow Assistant add-on.'}><Toggle checked={p.holds} disabled={!addon || !p.menu} onChange={(v) => save('holds', v)} label="Let assistants hold a time for a client" /></Row>
+            <Row label={`Your own assistant: ${klairSettings(t).name}`} help={addon ? 'Talk or type to her from any screen: move visits, ask clients to confirm, send links, book again. Money always waits for your OK.' : 'Part of the ClarityFlow Assistant add-on.'}><Toggle checked={klairSettings(t).on} disabled={!addon} onChange={(v) => { if (!firestore || !tenantId) return; void updateDoc(doc(firestore, 'tenants', tenantId), { 'klair.enabled': v }).catch(() => {}); }} label="Turn the assistant on" /></Row>
+            {addon && <>
+              <Row label="Her name" help="Call her anything. She listens for this name too."><input defaultValue={klairSettings(t).name} maxLength={24} onBlur={(e) => { const v = e.target.value.trim(); if (firestore && tenantId) void updateDoc(doc(firestore, 'tenants', tenantId), { 'klair.name': v || null }).catch(() => {}); }} aria-label="Assistant name" className="h-11 w-48 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line)' }} /></Row>
+              <Row label="Her voice" help="Used for short spoken replies when someone talks to her."><span className="flex flex-wrap items-center gap-2">
+                <select defaultValue={klairSettings(t).voice} onChange={(e) => { if (firestore && tenantId) void updateDoc(doc(firestore, 'tenants', tenantId), { 'klair.voice': e.target.value }).catch(() => {}); }} aria-label="Assistant voice" className="h-11 rounded-xl border px-3 text-[15px]" style={{ borderColor: 'var(--line)' }}><option value="warm">Warm</option><option value="bright">Bright</option><option value="calm">Calm</option></select>
+                <button type="button" onClick={() => { try { const u = new SpeechSynthesisUtterance(`Hi, I'm ${klairSettings(t).name}. Sam Patel, moving to Thursday at 3. Shall I?`); window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); } catch { /* no voice */ } }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Hear her</button></span></Row>
+              <Row label="Speak replies" help="Off: she answers on screen only. She never says money amounts or private notes out loud."><Toggle checked={klairSettings(t).speak} onChange={(v) => { if (firestore && tenantId) void updateDoc(doc(firestore, 'tenants', tenantId), { 'klair.speak': v }).catch(() => {}); }} label="Speak replies" /></Row>
+            </>}
             <Row label="Where assistants look" help="Share these if someone asks how assistants can book with you."><div className="space-y-1 text-[14px]"><code className="block break-all">{`${appOrigin}/book/${tenantId}/llms.txt`}</code><code className="block break-all">{`${appOrigin}/api/agents/${tenantId}`}</code></div></Row>
           </>); })()}
       </Section>
