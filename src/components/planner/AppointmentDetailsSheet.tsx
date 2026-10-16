@@ -1,4 +1,6 @@
 'use client';
+import { ReadyCard, ChairCard, AfterCard, SendToClient } from '@/components/visit/VisitFlow';
+import { MidServiceAddOnSheet } from '@/components/visit/AddOnSheet';
 import { visitClock, startedAt } from '@/lib/visit-clock';
 import { VisitCue } from '@/components/loyalty/VisitCue';
 import { logHealthOpen } from '@/lib/health-view-client';
@@ -1270,8 +1272,8 @@ const CompletionReceipt = ({ appointment, transactions, staff, providers }: { ap
 };
 
 // ─── Readiness banner ──────────────────────────────────────────────────────────
-export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposit, isLoadingDeposit, cardSecured }: {
-  appointment: any; client: any;
+export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposit, isLoadingDeposit, cardSecured, skipChecklist }: {
+  appointment: any; client: any; skipChecklist?: boolean;   // the visit's checklist (components/visit/VisitFlow ReadyCard) covers forms, deposit and card
   complianceInfo: { healthPendingForms: ConsentForm[]; otherPendingForms: ConsentForm[]; allCertified: boolean };
   hasDeposit: boolean; isLoadingDeposit: boolean; cardSecured: boolean;
 }) => {
@@ -1280,10 +1282,10 @@ export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposi
   const hasDispute = client?.hasOpenDispute === true;
   const hasAllergy = !!(client?.allergyNotes || client?.medicalNotes);
   const outstandingBalance = safeNumber(client?.outstandingBalance);
-  const depositRequiredButMissing = !!flags.depositRequired && !hasDeposit && !isLoadingDeposit;
-  const healthFormsPending = complianceInfo.healthPendingForms.length > 0;
-  const otherFormsPending = complianceInfo.otherPendingForms.length > 0;
-  const cardActuallyMissing = !!flags.cardRequired && !cardSecured;
+  const depositRequiredButMissing = !skipChecklist && !!flags.depositRequired && !hasDeposit && !isLoadingDeposit;
+  const healthFormsPending = !skipChecklist && complianceInfo.healthPendingForms.length > 0;
+  const otherFormsPending = !skipChecklist && complianceInfo.otherPendingForms.length > 0;
+  const cardActuallyMissing = !skipChecklist && !!flags.cardRequired && !cardSecured;
 
   // No-show history warning
   const noShowCount = safeNumber(client?.noShowCount);
@@ -1312,6 +1314,7 @@ export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposi
   }
 
   if (blockers.length === 0) {
+    if (skipChecklist) return null;
     return (
       <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-green-50 border border-green-200">
         <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
@@ -1655,6 +1658,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [reqLink, setReqLink] = useState<string | null>(null);
   const [reqSending, setReqSending] = useState(false);
   const [reqCopied, setReqCopied] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false); const [addOnOpen, setAddOnOpen] = useState(false);
   // A new visit starts with a clean request composer: never the last client's link or ticks.
   useEffect(() => { setReqLink(null); setReqCopied(false); setIsRequestOpen(false); setRequestPhotos(false); setSelectedExtraFormIds([]); setCustomFileLabel(''); setRequestPhotoId(false); setPersistCustomFile(false); setRequestMarketingConsent(false); setRequestEmergencyContact(false); setRequestAcknowledgment(false); }, [initialAppointment?.id]);
   const [isCollectingDeposit, setIsCollectingDeposit] = useState(false);
@@ -2125,7 +2129,27 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     } finally { setIsSendingSMS(false); }
   };
 
-  const handleSendRequirements = async () => {
+  // After-visit and day-of links from the "Send to client" sheet (api/visits/send-client), and "we're running late"
+  // (the same notice as the planner's, to this provider's next clients).
+  const sendKind = async (kind: 'aftercare' | 'review' | 'rebook' | 'visit_link') => {
+    if (!tenantId || !appointment?.id) return;
+    const out: any = await fetch('/api/visits/send-client', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId: appointment.id, kind }) }).then((x) => x.json()).catch(() => ({ ok: false, reason: 'No connection. Try again.' }));
+    const what = { aftercare: 'Aftercare', review: '“How was your visit?”', rebook: 'Booking link', visit_link: 'Visit link' }[kind];
+    toast(out.ok ? { title: `${what} sent`, description: `${out.via === 'sms' ? 'Texted' : 'Emailed'} to ${client?.name || 'the client'}.` } : { variant: 'destructive', title: 'Not sent', description: out.reason || out.error || 'Try again.' });
+  };
+  const runningLate = async (minutes: number) => {
+    if (!tenantId || !appointment?.staffId) return;
+    const r2: any = await fetch('/api/appointments/provider-late', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, staffId: appointment.staffId, minutes }) }).then((x) => x.json()).catch(() => null);
+    toast(r2?.ok ? { title: `Told ${r2.affected ?? r2.notified ?? 'the'} client${(r2.affected ?? r2.notified) === 1 ? '' : 's'} you’re running ${minutes} min late` } : { variant: 'destructive', title: r2?.error || 'Couldn’t send that' });
+  };
+  // Afterwards: their next booked visit, and when the service says to come back (return plan) as a suggestion.
+  const nextVisitForClient = useMemo(() => { if (!appointment?.clientId) return null; const t0 = Date.parse(String(appointment.startTime || '')) || Date.now();
+    return (allAppointments || []).filter((x: any) => x.clientId === appointment.clientId && x.id !== appointment.id && !['cancelled', 'declined', 'no_show', 'expired'].includes(String(x.status)) && (Date.parse(String(x.startTime || '')) || 0) > t0)
+      .sort((a: any, b: any) => String(a.startTime).localeCompare(String(b.startTime)))[0] || null; }, [allAppointments, appointment?.clientId, appointment?.id, appointment?.startTime]);
+  const suggestNextLabel = useMemo(() => { const w = Number((service as any)?.returnMinWeeks) || Number((service as any)?.rebookWeeks) || 0; const t0 = Date.parse(String(appointment?.startTime || '')); if (!w || !t0) return null;
+    return new Date(t0 + w * 7 * 864e5).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }, [service, appointment?.startTime]);
+
+  const handleSendRequirements = async (preset?: { currentPhoto?: boolean; inspo?: boolean }) => {
     if (!firestore || !tenantId || !appointment?.id || !service) return;
     if (!client?.email && !client?.phone) { toast({ variant: 'destructive', title: 'Phone or email needed', description: 'Add a phone number or email to this client first.' }); return; }
     if (!appointment.checkInToken) { toast({ variant: 'destructive', title: 'Missing check-in token', description: 'This appointment has no check-in link to attach requirements to.' }); return; }
@@ -2161,7 +2185,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       const requiredFormIds = Array.from(new Set([...pendingDefaultFormIds, ...selectedExtraFormIds]));
       const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
       const fileRequirements: any[] = [];
-      if (requestPhotos) {
+      if (preset?.currentPhoto) fileRequirements.push({ id: 'current_photo', type: 'file_upload', label: 'A photo of how things look now', required: true, prompt: 'Add a photo of how things look now', minCount: 1, maxCount: 4, acceptedTypes: ['image/*'] });
+      if (requestPhotos || preset?.inspo) {
         fileRequirements.push({ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] });
       }
       // v4 — Photo ID preset. persistToProfile: true so this saves onto the
@@ -2230,7 +2255,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       const link = `${window.location.origin}/check-in/${token}`;
       setReqLink(link);
       // Sent by the server, which builds the link from this visit and says what actually went out.
-      const items = [...(requiredFormIds.length ? ['forms'] : []), ...(requestPhotos ? ['inspo'] : []), ...(requestPhotoId ? ['photo_id'] : []), ...(customFileLabel.trim() ? ['file'] : []), ...(depositCents > 0 ? ['deposit'] : []), ...(!hasUsableCard ? ['card'] : []), ...(requestEmergencyContact ? ['emergency'] : [])];
+      const items = [...(requiredFormIds.length ? ['forms'] : []), ...(preset?.currentPhoto ? ['photo_current'] : []), ...(requestPhotos || preset?.inspo ? ['inspo'] : []), ...(requestPhotoId ? ['photo_id'] : []), ...(customFileLabel.trim() ? ['file'] : []), ...(depositCents > 0 ? ['deposit'] : []), ...(!hasUsableCard ? ['card'] : []), ...(requestEmergencyContact ? ['emergency'] : [])];
       const out = await fetch('/api/notifications/send-completion-link', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, appointmentId: appointment.id, items, reason: 'requirements' }) }).then((x) => x.json()).catch(() => ({ ok: false, reason: 'No connection. The link is saved; copy it below to send it yourself.' }));
       if (out.ok) toast({ title: 'Sent', description: `${out.smsSent ? 'Texted' : 'Emailed'} to ${client.name || 'the client'}.` });
@@ -2476,15 +2501,26 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
+        {appointment.status === 'servicing' && <div className="space-y-2">
+          <ChairCard appointment={appointment} service={service} allServices={allServices || []} client={client} onAddOn={() => setAddOnOpen(true)} />
+          <button type="button" onClick={() => setIsHandoffOpen(true)} className="text-[13.5px] font-semibold underline underline-offset-4">Hand off to someone else</button>
+        </div>}
         {isCancelled
           ? <CancellationRecord appointment={appointment} transactions={transactions} staff={staff || []} cancellationEvent={cancellationEvent} depositDecision={latestDepositDecision} onProcessRefund={handleProcessPendingRefund} onKeepAsCredit={handleKeepAsCredit} isProcessingRefund={isProcessingRefund} />
           : isCompleted
-            ? <CompletionReceipt appointment={appointment} transactions={transactions} staff={staff || []} providers={providers} />
+            ? <div className="space-y-3">
+                <CompletionReceipt appointment={appointment} transactions={transactions} staff={staff || []} providers={providers} />
+                <AfterCard appointment={appointment} nextVisit={nextVisitForClient} suggestDate={suggestNextLabel} onBookNext={() => onBookNewForClient?.(client)} onSend={(k) => { void sendKind(k); }} />
+              </div>
             : isAwaitingApproval(appointment)
               // A waiting request gets its answer here — not "ready to start".
               ? <RequestDecisionPanel appointment={appointment} firestore={firestore} tenantId={String(selectedTenant?.id || appointment?.tenantId || '')}
                   actorUid={currentUser?.uid || null} actorName={String(currentUser?.displayName || currentUser?.email || selectedTenant?.name || 'The studio')} studioName={selectedTenant?.name || null} />
-              : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured} />}
+              : <div className="space-y-3">
+                  {appointment.status !== 'servicing' && appointment.status !== 'ready_for_checkout' && <ReadyCard appointment={appointment} service={service} client={client} tenant={selectedTenant} forms={consentForms || []} sending={reqSending}
+                    onSendMissing={(items) => { void handleSendRequirements({ currentPhoto: items.includes('photo_current'), inspo: items.includes('inspo') }); }} onOpenSend={() => setSendOpen(true)} />}
+                  <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured} skipChecklist />
+                </div>}
           {(appointment as any)?.fixBrief && (() => { const f: any = (appointment as any).fixBrief; return (
             <div className="space-y-1 rounded-2xl border p-3 text-[14px]" style={{ borderColor: 'var(--line)' }}>
               <p className="text-[12px] tracking-[0.1em] text-muted-foreground">making it right{f.number ? ` · ${String(f.number).toLowerCase()}` : ''}</p>
@@ -2504,20 +2540,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
-        {appointment.status === 'servicing' && elapsedTime && (
-          <div className={cn('rounded-2xl border-4 text-center p-4 transition-all', isRunningOver ? 'bg-destructive/5 border-destructive animate-pulse' : 'bg-primary/5 border-primary/20')}>
-            <p className="text-[12px] font-semibold text-primary mb-1">Live Session Time</p>
-            <p className={cn('font-semibold font-mono  text-4xl', isRunningOver ? 'text-destructive' : 'text-primary')}>{elapsedTime}</p>
-            {isRunningOver && <p className="text-[12px] font-semibold text-destructive/60 mt-1">Running over by {Math.floor(differenceInSeconds(new Date(), safeDate(appointment.actualStartTime)) / 60) - (service?.duration || 0)}m</p>}
-            <button
-              onClick={() => setIsHandoffOpen(true)}
-              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-primary/20 bg-card/60 hover:bg-card hover:border-primary/40 transition-all"
-            >
-              <Repeat2 className="w-3 h-3 text-primary/60" />
-              <span className="text-[12px] font-semibold text-primary/60">Client wants a different artist? Hand off now</span>
-            </button>
-          </div>
-        )}
 
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
@@ -2915,7 +2937,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     )}
                   </div>
 
-                  <Button onClick={handleSendRequirements} disabled={reqSending} className="w-full h-11 rounded-xl font-semibold text-[12px] shadow-lg shadow-primary/20">
+                  <Button onClick={() => { void handleSendRequirements(); }} disabled={reqSending} className="w-full h-11 rounded-xl font-semibold text-[12px] shadow-lg shadow-primary/20">
                     {reqSending ? <Loader className="w-4 h-4 animate-spin" /> : 'Generate & Send Link'}
                   </Button>
                 </div>
@@ -3460,6 +3482,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         onRescheduled={() => onOpenChange(false)}
       />
 
+      <SendToClient open={sendOpen} onClose={() => setSendOpen(false)} appointment={appointment} service={service} client={client} tenant={selectedTenant} forms={consentForms || []}
+        onSendRequests={async (items) => { await handleSendRequirements({ currentPhoto: items.includes('photo_current'), inspo: items.includes('inspo') }); setSendOpen(false); }}
+        onSendKind={sendKind} onRunningLate={runningLate} />
+      {addOnOpen && firestore && tenantId && <MidServiceAddOnSheet apt={appointment} service={service} allServices={allServices || []} allStaff={staff || []} allShifts={[]} tenantId={tenantId} firestore={firestore} currentStaffId={appointment.staffId} onClose={() => setAddOnOpen(false)} />}
       <MidServiceHandoffDialog
         open={isHandoffOpen}
         onOpenChange={setIsHandoffOpen}

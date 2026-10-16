@@ -3,7 +3,7 @@
 // thing: the hand-off in the visit's log, the review note kept on the visit, who is busy or free afterwards, and only
 // when every part is done does the visit go to "ready to pay". (The last provider's finish goes through the server:
 // lib/visit-handoff finishVisit.)
-import { doc, arrayUnion } from 'firebase/firestore';
+import { doc, arrayUnion, collection } from 'firebase/firestore';
 import { handoffEntry } from '@/lib/handoff-log';
 
 const clean = (x: any) => JSON.parse(JSON.stringify(x ?? null));
@@ -30,6 +30,12 @@ export function writePartHandoff(batch: any, firestore: any, tenantId: string, a
   involved.forEach((sid) => { const left = partIds.some((pid) => !done.includes(pid) && providerOf(pid) === sid); if (!left) batch.set(doc(firestore, `${T}/staff`, sid), { status: free }, { merge: true }); });
   const nextPart = partIds.find((id) => !done.includes(id) && !(checkoutState?.concurrentServiceIds || []).includes(id));
   const nextStaffId = nextPart ? providerOf(nextPart) : null;
-  if (nextStaffId) batch.set(doc(firestore, `${T}/staff`, nextStaffId), { status: 'busy' }, { merge: true });
+  if (nextStaffId) {
+    batch.set(doc(firestore, `${T}/staff`, nextStaffId), { status: 'busy' }, { merge: true });
+    // Tell them it's their turn, with the note that was left for them.
+    const partName = (Array.isArray(checkoutState?.addOnServices) ? checkoutState.addOnServices.find((x: any) => x?.id === nextPart)?.name : null) || (nextPart === apt.serviceId ? apt.serviceName : null) || 'the next part';
+    const nRef = doc(collection(firestore, `${T}/notifications`));
+    batch.set(nRef, clean({ id: nRef.id, userId: nextStaffId, type: 'handoff', priority: 'high', message: `Your turn: ${apt.clientName || 'your client'}, ${String(partName).toLowerCase()}.${note ? ` Note: ${note}` : ''}`, link: `/planner?visit=${apt.id}`, appointmentId: apt.id, createdAt: now, read: false }));
+  }
   return { allDone, nextStaffId };
 }

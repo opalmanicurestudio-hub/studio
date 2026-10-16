@@ -41,7 +41,9 @@ export function readinessOf(apt: any, service: any, client?: any, tenant?: any, 
   const requested: string[] = Array.isArray(apt.requestedItems) ? apt.requestedItems : [];
   const add = (key: ReadyKey, applies: boolean, done: boolean, doneText: string, request?: RequestItem) => {
     const rule = rules[key]; if (rule === 'off' || !applies) return;
-    items.push({ key, label: key === 'deposit' && apt.depositAmountCents ? `Deposit $${(Number(apt.depositAmountCents) / 100).toFixed(0)}` : READY_LABEL[key], rule, state: done ? 'done' : apt.lastRequirementsRequestedAt && request && requested.includes(request) ? 'waiting' : 'missing', detail: done ? doneText : asked, request });
+    // Asked for: in the last request (requestedItems); older requests didn't record items, so any request counts for forms.
+    const wasAsked = !!apt.lastRequirementsRequestedAt && !!request && (requested.includes(request) || (!requested.length && request === 'forms'));
+    items.push({ key, label: key === 'deposit' && apt.depositAmountCents ? `Deposit $${(Number(apt.depositAmountCents) / 100).toFixed(0)}` : READY_LABEL[key], rule, state: done ? 'done' : wasAsked ? 'waiting' : 'missing', detail: done ? doneText : wasAsked ? asked : 'not asked yet', request });
   };
   add('confirmed', true, !!apt.clientConfirmedAt || ['checked_in'].includes(String(apt.status)) || apt.checkInStatus === 'arrived', apt.clientConfirmedAt ? `${apt.clientConfirmedVia === 'sms' ? 'by text' : 'yes'}, ${day(apt.clientConfirmedAt)}` : 'they’re here', 'confirm');
   add('deposit', Number(apt.depositAmountCents || 0) > 0, PAID.includes(String(apt.depositStatus || '')), apt.depositStatus === 'paid' ? `paid${apt.depositPaidAt ? ` ${day(apt.depositPaidAt)}` : ''}` : String(apt.depositStatus || ''), 'deposit');
