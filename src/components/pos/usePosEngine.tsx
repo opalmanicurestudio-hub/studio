@@ -9,6 +9,7 @@
 
 
 import { writePartHandoff } from '@/lib/part-handoff';
+import { arrivalFields } from '@/lib/check-in';
 import { addOnIdsOf } from '@/lib/prep-checkout';
 import { rateFor, payForService } from '@/lib/commission';
 import { openVisit } from '@/lib/visit-client';
@@ -1248,7 +1249,7 @@ export function usePosEngine() {
     const isWalkIn = !!pendingCheckInItem.serviceIds;
     const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', pendingCheckInItem.id) : doc(firestore, 'tenants', tenantId, 'appointments', pendingCheckInItem.id);
     const batch = writeBatch(firestore);
-    const updates: any = { serviceId: data.serviceId, addOnIds: data.addOnIds, checkInStatus: 'arrived', checkInStatusTimestamp: new Date().toISOString(), notes: data.notes };
+    const updates: any = { serviceId: data.serviceId, addOnIds: data.addOnIds, ...(isWalkIn ? { checkInStatus: 'arrived', checkInStatusTimestamp: new Date().toISOString() } : arrivalFields(pendingCheckInItem, 'front desk')), notes: data.notes };
     if (data.accommodations?.length) updates.sensoryNeeds = data.accommodations.join(', ');
     if (data.mustFinishBy) updates.mustFinishBy = data.mustFinishBy;
     batch.update(docRef, sanitizeForFirestore(updates));

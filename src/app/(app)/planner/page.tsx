@@ -28,6 +28,7 @@ import { AddEventDialog } from '@/components/planner/EventsDialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useFirebase, useCollection, useMemoFirebase, deleteDocumentNonBlocking, setDocumentNonBlocking, updateDocumentNonBlocking, useUser } from '@/firebase';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { arrivalFields, arrivalNotice } from '@/lib/check-in';
 import { PhoneHeader, NeedsYouLine, PhoneBottomBar, BookSheet, MoreSheet } from '@/components/planner/PhonePlanner';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
@@ -1191,18 +1192,18 @@ function PlannerPageContent() {
     const apt = (appointments || []).find((a: any) => a?.id === aptArg.id) || aptArg;
     const now = new Date().toISOString();
     const batch = writeBatch(firestore);
-    batch.update(doc(firestore, 'tenants', tenantId, 'appointments', apt.id), {
-      checkInStatus: 'arrived',
-      checkInStatusTimestamp: now,
-      checkedInAt: now,
-    });
+    const fields = arrivalFields(apt, 'planner', now);
+    batch.update(doc(firestore, 'tenants', tenantId, 'appointments', apt.id), fields);
     if (apt.checkInToken) {
-      batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { checkInStatus: 'arrived', checkInStatusTimestamp: now, checkedInAt: now, tenantId }, { merge: true });
+      batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...fields, tenantId }, { merge: true });
     }
+    // Tell the provider, unless they checked the client in themselves.
+    const notice = arrivalNotice(apt, { byUserId: currentUser?.uid, timeZone: (selectedTenant as any)?.timezone, serviceName: (services || []).find((s: any) => s.id === apt.serviceId)?.name });
+    if (notice) { const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`)); batch.set(nRef, { id: nRef.id, ...notice, createdAt: now }); }
     batch.commit()
       .then(() => toast({ title: 'Checked in', description: `${(clients || []).find((c: any) => c.id === apt.clientId)?.name || 'Guest'} is marked as arrived.` }))
       .catch(() => toast({ variant: 'destructive', title: 'Check-in failed', description: 'The arrival was not saved. Try again.' }));
-  }, [firestore, tenantId, appointments, clients, toast]);
+  }, [firestore, tenantId, appointments, clients, toast, currentUser, selectedTenant, services]);
 
   const handleUpdateAppointment = (apt: Appointment) => {
     if (!firestore || !tenantId) return;

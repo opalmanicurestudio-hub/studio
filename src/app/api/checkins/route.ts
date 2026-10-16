@@ -17,6 +17,7 @@
 // GET  ?tenantId=&token= — read one check-in (kiosk status screens).
 
 import { resolvePolicy } from '@/lib/booking-policies';
+import { arrivalFields } from '@/lib/check-in';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
@@ -184,7 +185,7 @@ export async function POST(req: NextRequest) {
       if (!done) await aRef.set({
         checkInStatus: st, clientCheckInStatus: st, clientStatusAt: nowIso, checkInStatusTimestamp: nowIso,
         ...(st === 'running_late' ? { lateTimeMinutes: mins, clientLateMinutes: mins, clientEtaAt: etaAt, etaAt, clientLateNote: clean.lateNote || null, lateReply: null } : {}),
-        ...(st === 'arrived' ? { clientTrip: null, arrivedAt: nowIso } : {}),
+        ...(st === 'arrived' ? { clientTrip: null, ...arrivalFields(appt, 'client link', nowIso) } : {}),
       }, { merge: true });
       else if (st === 'arrived') await aRef.set({ clientTrip: null }, { merge: true });
       reply = { graceMinutes: grace, withinGrace: st !== 'running_late' || mins <= grace, lateFee: Number(P.late.fee.value) || 0 };

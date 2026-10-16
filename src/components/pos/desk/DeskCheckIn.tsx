@@ -20,6 +20,7 @@ import { writeBatch, doc, collection } from 'firebase/firestore';
 import { logAuditClient } from '@/lib/audit-client';
 import { Drawer, Btn, Pill, Seg } from './kit';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
+import { arrivalFields } from '@/lib/check-in';
 
 const toDate = (v: any): Date | null => { if (!v) return null; try { const d = v?.toDate ? v.toDate() : v instanceof Date ? v : typeof v === 'string' ? parseISO(v) : new Date(v); return isNaN(d.getTime()) ? null : d; } catch { return null; } };
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -74,7 +75,7 @@ export function DeskCheckIn({ e, accent }: { e: any; accent?: string | null }) {
     setBusy(true); setErr('');
     const nowIso = new Date().toISOString();
     const visitContact = changed && saveTo === 'visit' ? clean({ name: c.name, phone: c.phone, email: c.email, channel: c.channel, language: c.language }) : undefined;
-    const updates: any = clean({ checkInStatus: 'arrived', checkInStatusTimestamp: nowIso, arrivalOffsetMinutes: at ? offset : undefined, arrivalNote: note.trim() || undefined,
+    const updates: any = clean({ ...(isWalkIn ? { checkInStatus: 'arrived', checkInStatusTimestamp: nowIso } : arrivalFields(item, 'front desk', nowIso)), arrivalOffsetMinutes: at ? offset : undefined, arrivalNote: note.trim() || undefined,
       sensoryNeeds: needs.trim() || undefined, visitContact, checkedInVia: 'front desk' });
     try {
       const b = writeBatch(e.firestore);
