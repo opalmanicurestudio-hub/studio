@@ -22,6 +22,9 @@ import { PackMode } from './PackMode';
 import { MissingSheet } from './MissingSheet';
 import { ShipSheet } from './ShipSheet';
 import { HandoverSheet } from './HandoverSheet';
+import { SelectBar } from './SelectBar';
+import { ShipToday } from './ShipToday';
+import { bringingOut } from '@/lib/orders-flow';
 
 const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
 
@@ -54,6 +57,9 @@ export function OrdersApp() {
   const [handId, setHandId] = React.useState<string | null>(null);
   const [needsOpen, setNeedsOpen] = React.useState(false);
   const [toast, setToast] = React.useState('');
+  const [selecting, setSelecting] = React.useState(false);
+  const [picked, setPicked] = React.useState<Set<string>>(() => new Set());
+  const [shipToday, setShipToday] = React.useState(false);
   const [now, setNow] = React.useState(() => Date.now());
 
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
@@ -110,6 +116,14 @@ export function OrdersApp() {
     }
   }, [orders, now, tenantId]);
 
+  const endSelect = React.useCallback(() => { setSelecting(false); setPicked(new Set()); }, []);
+  React.useEffect(() => { endSelect(); }, [tab, endSelect]);
+  React.useEffect(() => { if (!selecting) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') endSelect(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [selecting, endSelect]);
+  const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const pickedOrders = React.useMemo(() => [...picked].map((id) => byId.get(id)).filter(Boolean) as any[], [picked, byId]);
+  const shipPacked = orders.filter((o) => o.method === 'ship' && o.stage === 'packed' && !o.holdForReview);
+  const outside = tab === 'ready' && !q ? orders.filter((o) => o.stage === 'arrived') : [];
+
   const open = openId ? byId.get(openId) || null : null;
   const packing = packId ? byId.get(packId) || null : null;
   React.useEffect(() => { if (packId && packing && !['paid', 'picking', 'packed'].includes(packing.stage)) setPackId(null); }, [packId, packing]);
@@ -127,7 +141,11 @@ export function OrdersApp() {
   const row = (o: any) => {
     const d = dueLine(o, rs, now);
     const extra = o.stage === 'picking' && o.claimedByName ? `${o.claimedBy === actor.id ? 'You’re' : `${firstName(o.claimedByName)} is`} packing` : o.holdForReview ? 'Held for review' : o.stage === 'cancelled' ? 'Cancelled' : '';
-    return <ListRow key={o.id} onClick={() => setOpenId(o.id)} active={wide && openId === o.id} lead={<Initials name={o.customerName} />}
+    const on = picked.has(o.id);
+    const lead = selecting
+      ? <span key={on ? 'on' : 'off'} className={`${on ? 'cf-anim-pop ' : ''}grid h-11 w-11 shrink-0 place-items-center`}><span className="grid h-6 w-6 place-items-center rounded-full border-2" style={on ? { background: C.ink, borderColor: C.ink } : { borderColor: '#c7c8cc' }}>{on ? Ic.check : null}</span></span>
+      : <Initials name={o.customerName} />;
+    return <ListRow key={o.id} onClick={() => (selecting ? toggle(o.id) : setOpenId(o.id))} active={selecting ? on : wide && openId === o.id} lead={lead}
       title={o.customerName || 'Customer'} detail={[methodLabel(o.method), `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`, extra].filter(Boolean).join(' · ')}
       trail={<span className="shrink-0 text-[14px]" style={d.late ? { color: C.warn, fontWeight: 600 } : muted}>{tab === 'done' ? (o.stage === 'cancelled' ? 'Cancelled' : o.stage === 'shipped' ? 'Shipped' : 'Done') : d.text}</span>} />;
   };
@@ -142,19 +160,28 @@ export function OrdersApp() {
           <div className="mt-1 flex items-start justify-between gap-2"><div><p className="m-0 text-[22px] font-light">{nextUp.customerName}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{methodLabel(nextUp.method)} · {itemCount(nextUp)} item{itemCount(nextUp) === 1 ? "" : "s"}</p></div><span className="text-[14px] font-semibold" style={dueLine(nextUp, rs, now).late ? { color: C.warn } : muted}>{dueLine(nextUp, rs, now).text}</span></div>
           <Btn kind="primary" className="mt-3 w-full" onClick={() => void beginPack(nextUp)}>Start packing</Btn>
         </div>)}
+      {selecting && <div className="flex items-center justify-between px-4 pb-1 pt-3"><span className="text-[13px] font-semibold" style={muted}>{picked.size ? `${picked.size} of ${list.length}` : 'Tap orders to pick them'}</span><button type="button" onClick={() => setPicked(picked.size === list.length ? new Set() : new Set(list.map((o) => o.id)))} className="h-11 text-[15px] font-semibold">{picked.size === list.length ? 'Clear' : `Select all ${list.length}`}</button></div>}
+      {!selecting && outside.length > 0 && <div className="px-4 pt-3"><p className="m-0 pb-2 text-[13px] font-semibold" style={muted}>Outside now</p><div className="grid gap-2.5 lg:grid-cols-2">{outside.map((o) => <Arrival key={o.id} o={o} now={now} onOut={async () => { const r = await bringingOut(fs, tenantId, o, actor); feel(r.ok); setToast(r.ok ? `${firstName(o.customerName)} knows you’re on the way.` : r.message); }} onHand={() => setHandId(o.id)} />)}</div></div>}
+      {!selecting && tab === 'ready' && !q && shipPacked.length > 0 && perms.canShip && (
+        <button type="button" onClick={() => setShipToday(true)} className="cf-press mx-4 mt-3 flex min-h-[64px] w-[calc(100%-2rem)] items-center gap-3 rounded-2xl px-4 text-left" style={{ background: C.soft }}>
+          <span className="min-w-0 flex-1"><span className="block text-[17px] font-semibold tracking-[-0.01em]">Ship today</span><span className="block text-[14px]" style={muted}>{(() => { const nl = shipPacked.filter((o) => !o.trackingNumber && !o.labelUrl).length; return nl ? `${nl} need${nl === 1 ? 's' : ''} a label · ${shipPacked.length - nl} labelled` : `${shipPacked.length} labelled, ready to hand over`; })()}</span></span>
+          <span style={muted}>{Ic.chev}</span>
+        </button>)}
       {tab === 'pack' && !nextUp && <p className="m-0 px-4 pb-1 pt-4 text-[13px] font-semibold" style={muted}>Due first</p>}
       {nextUp && list.length > 1 && <p className="m-0 px-4 pb-1 pt-4 text-[13px] font-semibold" style={muted}>After this</p>}
-      {list.filter((o) => o.id !== nextUp?.id).map(row)}
+      {(outside.length && !selecting ? list.filter((o) => o.stage !== 'arrived') : list).filter((o) => o.id !== nextUp?.id).map(row)}
     </>);
 
   const header = (
     <div className="px-4 pt-3">
       <div className="flex items-center justify-end gap-2 lg:hidden">
+        {tab !== 'done' && list.length > 0 && <button type="button" onClick={() => (selecting ? endSelect() : setSelecting(true))} className="h-11 px-2 text-[17px] font-semibold">{selecting ? 'Done' : 'Select'}</button>}
         <IconBtn label="Search orders" onClick={() => setSearching((s) => !s)}>{Ic.search}</IconBtn>
       </div>
       <LargeTitle title="Orders" sub={`${counts.pack} to pack · ${counts.ready} ready`} right={wide ? <div className="flex items-center gap-2">
         <label className="flex h-11 w-72 items-center gap-2 rounded-full border px-4" style={{ borderColor: C.line }}><span style={muted}>{Ic.search}</span><input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>
-        {perms.canPick && <Btn kind="primary" onClick={packNext}>Pack the next order</Btn>}
+        {tab !== 'done' && list.length > 0 && <Btn kind="soft" onClick={() => (selecting ? endSelect() : setSelecting(true))}>{selecting ? 'Done' : 'Select'}</Btn>}
+        {perms.canPick && !selecting && <Btn kind="primary" onClick={packNext}>Pack the next order</Btn>}
       </div> : undefined} />
       {searching && !wide && <label className="mt-3 flex h-11 items-center gap-2 rounded-full px-4" style={{ background: C.soft }}><span style={muted}>{Ic.search}</span><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>}
       {needs.length > 0 && (
@@ -179,7 +206,7 @@ export function OrdersApp() {
       ) : (
         <div className="pb-48">{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
       )}
-      {!wide && !open && <PhoneShopBar onPackNext={perms.canPick && tab === 'pack' && !nextUp ? packNext : undefined} problems={needs.filter((n) => n.kind === 'refund').length} />}
+      {!wide && !open && !selecting && <PhoneShopBar onPackNext={perms.canPick && tab === 'pack' && !nextUp ? packNext : undefined} problems={needs.filter((n) => n.kind === 'refund').length} />}
       {!wide && panel}
 
       {packing && <PackMode fs={fs} tenantId={tenantId} order={packing} all={orders} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor} batch={batches.find((b) => b.id === packing.batchId) || null}
@@ -188,11 +215,30 @@ export function OrdersApp() {
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} shelf={shelfFor.get(missing.line.productId)} actor={actor} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); setToast(m); }} />}
       {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={inventory || []} rs={rs} actor={actor} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); setToast(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
+      {selecting && <SelectBar fs={fs} tenantId={tenantId} picked={pickedOrders} actor={actor} rs={rs} perms={perms} onDone={endSelect} onToast={setToast} />}
+      {shipToday && <ShipToday fs={fs} tenantId={tenantId} orders={orders} actor={actor} rs={rs} onClose={() => setShipToday(false)} onToast={setToast} />}
       {needsOpen && (
         <Sheet title={`${needs.length} need you`} onClose={() => setNeedsOpen(false)} closeLabel="Done">
           <div className="mt-1">{needs.map((n) => <ListRow key={n.key} onClick={() => { setNeedsOpen(false); setOpenId(n.orderId); }} title={n.text} detail={byId.get(n.orderId)?.customerName} trail={<span style={muted}>{Ic.chev}</span>} />)}</div>
         </Sheet>)}
-      {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={wide ? 32 : 150} />}
+      {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={wide ? (selecting ? 100 : 32) : selecting ? 168 : 150} />}
+    </div>);
+}
+
+function Arrival({ o, now, onOut, onHand }: { o: any; now: number; onOut: () => Promise<void>; onHand: () => void }) {
+  const [busy, setBusy] = React.useState(false);
+  const mins = curbsideWaitMinutes(o, new Date(now)) ?? 0;
+  const out = !!o.curbside?.bringingOutAt;
+  return (
+    <div className="cf-anim-rise rounded-2xl border-2 p-4" style={{ borderColor: mins >= 5 && !out ? C.warn : C.ink }}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0"><p className="m-0 truncate text-[22px] font-light">{o.customerName || 'Customer'}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{[o.curbside?.spotOrVehicle, o.shelfSlot ? `Shelf ${o.shelfSlot}` : '', `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</p></div>
+        <span className={`shrink-0 text-[14px] font-semibold${mins >= 5 && !out ? ' cf-anim-pulse rounded-full px-2' : ''}`} style={{ color: out ? C.ok : mins >= 5 ? C.warn : C.muted }}>{out ? 'On the way' : mins < 1 ? 'Just now' : `${mins} min`}</span>
+      </div>
+      <div className="mt-3 flex gap-2">
+        {!out && <Btn kind="primary" className="flex-1" disabled={busy} onClick={async () => { setBusy(true); await onOut(); setBusy(false); }}>{busy ? 'Telling them…' : 'Bringing it out'}</Btn>}
+        <Btn kind={out ? 'primary' : 'soft'} className="flex-1" onClick={onHand}>Hand over</Btn>
+      </div>
     </div>);
 }
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { openPrint } from '@/lib/open-print';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { arrayUnion, collection, doc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { AlertTriangle, Car, Check, ClipboardList, FileText, History, Loader, Package, PackageCheck, PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, Scale, ScanLine, Settings, Ship, Store, TriangleAlert, Truck, X, Zap } from 'lucide-react';
@@ -206,7 +207,7 @@ export default function RetailFulfillmentBoard() {
       toast({ title: 'Labels bought', description: data.message });
       const okIds = (data.results || []).filter((r: any) => r.ok && r.labelUrl).map((r: any) => r.orderId);
       if (okIds.length > 0) {
-        window.open(`/print/labels/${tenantId}?ids=${okIds.join(',')}`, '_blank');
+        void openPrint(tenantId, 'orders', `/print/labels/${tenantId}?ids=${okIds.join(',')}`);
       }
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Bulk labels failed', description: e?.message });

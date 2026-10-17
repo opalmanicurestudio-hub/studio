@@ -1,3 +1,5 @@
+import { checkPrintKey } from '@/lib/print-key';
+
 /**
  * /print/labels/[tenantId]?ids=orderId,orderId,… — the label STACK.
  *
@@ -31,10 +33,13 @@ export default async function PrintLabelsPage({
   searchParams,
 }: {
   params: Promise<{ tenantId: string }>;
-  searchParams: Promise<{ ids?: string }>;
+  searchParams: Promise<{ ids?: string; k?: string; x?: string }>;
 }) {
   const { tenantId } = await params;
-  const { ids } = await searchParams;
+  const { ids, k, x } = await searchParams;
+  if (!checkPrintKey(tenantId, 'orders', k, x)) {
+    return <p style={{ fontFamily: 'sans-serif', padding: 40 }}>This print link has expired. Go back to Orders and print again.</p>;
+  }
   const orderIds = String(ids || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 30);
 
   if (orderIds.length === 0) {
