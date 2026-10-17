@@ -1,3 +1,4 @@
+import { cardRefundableCents } from '@/lib/retail-money';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
@@ -118,9 +119,10 @@ export async function POST(req: NextRequest) {
           };
         }
 
-        // Reads before writes: reservation release per product (paid only).
+        // Reads before writes: release the stock held for this order. It's held from payment until handoff or
+        // shipping, so a late order cancelled while being packed releases it too.
         const releases = new Map<string, number>();
-        if (order.stage === 'paid') {
+        if (['paid', 'picking', 'packed', 'ready', 'arrived'].includes(order.stage)) {
           for (const l of order.lines || []) {
             const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
             if (open > 0) releases.set(l.productId, (releases.get(l.productId) || 0) + open);
@@ -138,9 +140,9 @@ export async function POST(req: NextRequest) {
           txn.update(ref, { stockReserved: Math.max(0, (Number(item.stockReserved) || 0) - qty) });
         }
 
-        const pending = order.stage === 'paid'
-          ? Math.max(0, (order.totalCents || 0) - (order.refundedCents || 0))
-          : 0;
+        // Whatever stage it was cancelled from, the card gets back what it paid (never more: credit and gift cards
+        // lowered the charge).
+        const pending = cardRefundableCents(order);
 
         txn.update(orderRef, {
           stage: 'cancelled',
@@ -172,8 +174,8 @@ export async function POST(req: NextRequest) {
       if (result.pending > 0 && autoBelowC > 0 && result.pending <= autoBelowC) {
         try {
           const rr = await fetch(`${req.nextUrl.origin}/api/retail/refund`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tenantId, orderId, qrToken }),
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET || '') },
+            body: JSON.stringify({ tenantId, orderId, qrToken, reason: 'customer_cancel' }),
           });
           refundedNow = rr.ok;
         } catch { /* stays queued on the board */ }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffActor } from '@/lib/staff-auth';
 
 import {
   insurableValueCents, protectionFor, protectionPolicy, shippoExtra,
@@ -92,6 +93,10 @@ export async function POST(req: NextRequest) {
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
 
   if (order.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+  // Labels spend the shop's postage money: a signed-in team member only. The order's token alone is not enough;
+  // it is on the customer's QR code and order link.
+  const auth = await verifyStaffActor(req, tenantId);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
   if (!apiKey) {
@@ -201,7 +206,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // purchase
+    // purchase: never a second label over one that is still live (it could never be voided afterwards).
+    if (order.shippoTransactionId && order.labelUrl) return NextResponse.json({ error: 'This order already has a label. Void it first to buy a new one.' }, { status: 409 });
+    if (['cancelled', 'completed'].includes(String(order.stage))) return NextResponse.json({ error: `This order is ${order.stage}.` }, { status: 409 });
     const rateId = String(body.rateId || '').trim();
     if (!rateId) return NextResponse.json({ error: 'rateId is required' }, { status: 400 });
 

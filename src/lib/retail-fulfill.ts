@@ -1,5 +1,6 @@
 'use client';
 
+import { cardRefundableCents } from '@/lib/retail-money';
 import {
   Firestore, collection, doc, getDoc, getDocs, limit, query, runTransaction, where,
 } from 'firebase/firestore';
@@ -61,7 +62,7 @@ export async function claimNextBatch(
   const snap = await getDocs(query(orderCol(fs, tenantId), where('stage', '==', 'paid')));
   const candidates = snap.docs
     .map((d: any) => ({ ...(d.data() as RetailOrder), id: d.id as string }))
-    .filter((o: RetailOrder & { id: string }) => !o.batchId && o.holdUntilRestock !== true)
+    .filter((o: RetailOrder & { id: string }) => !o.batchId && !(o as any).waveId && o.holdUntilRestock !== true)   // a wave order is already in someone's tote
     .sort((a: RetailOrder, b: RetailOrder) => queuePriority(a) - queuePriority(b));
 
   if (candidates.length === 0) return { error: 'The queue is empty. There are no orders to pick.' };
@@ -831,9 +832,7 @@ export async function cancelOrder(
       }
 
       const paidSomething = order.stage !== 'placed';
-      const pending = paidSomething
-        ? Math.max(0, (order.totalCents || 0) - (order.refundedCents || 0))
-        : 0;
+      const pending = paidSomething ? cardRefundableCents(order) : 0;
 
       txn.update(orderRef, JSON.parse(JSON.stringify({
         stage: 'cancelled',

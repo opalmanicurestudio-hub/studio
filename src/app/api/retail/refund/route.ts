@@ -72,10 +72,21 @@ export async function POST(req: NextRequest) {
   }
   // Money leaves only for a signed-in team member allowed to refund. The order's own token is not enough:
   // it is printed on the customer's QR code and tracking link.
-  const auth = await verifyStaffActor(req, tenantId);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (!auth.actor.caps?.includes('checkout.refund')) return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
-  const actor = auth.actor;
+  // One exception to the staff rule: the shop's own server, refunding a customer's self-serve cancellation under the
+  // shop's "refund automatically below $X" policy. It proves itself with the server secret and is re-checked here.
+  const internal = !!process.env.CRON_SECRET && req.headers.get('x-internal-key') === process.env.CRON_SECRET && body.reason === 'customer_cancel';
+  let actor: { uid: string; name: string };
+  if (internal) {
+    const autoBelow = Math.max(0, Number(tenant.retailSettings?.policies?.refundAutoBelowCents) || 0);
+    const pendingNow = Number(order.pendingRefundCents) || 0;
+    if (order.stage !== 'cancelled' || autoBelow <= 0 || pendingNow <= 0 || pendingNow > autoBelow) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
+    actor = { uid: 'customer', name: 'Customer cancellation (automatic)' };
+  } else {
+    const auth = await verifyStaffActor(req, tenantId);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    if (!auth.actor.caps?.includes('checkout.refund')) return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
+    actor = auth.actor;
+  }
   if (!tenant.stripeAccountId) {
     return NextResponse.json({ error: 'This shop has no connected Stripe account.' }, { status: 400 });
   }

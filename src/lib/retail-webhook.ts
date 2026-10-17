@@ -145,7 +145,11 @@ export async function handleRetailOrderPaid(
   const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
   let assignedNumber: number | null = null;
 
+  // Did THIS call flip the order to paid? Set only by the attempt that commits (a retried attempt resets it), so
+  // when the payment webhook, the payment cron and the customer's order page race, exactly one runs the side effects.
+  let won = false;
   await db.runTransaction(async (txn: any) => {
+    won = false;
     const freshSnap = await txn.get(orderRef);
     if (!freshSnap.exists || freshSnap.data().stage !== 'placed') return;
     const fresh = freshSnap.data();
@@ -167,12 +171,15 @@ export async function handleRetailOrderPaid(
       : ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
     txn.set(counterRef, { value: assignedNumber }, { merge: true });
 
+    // Two lines can be the same shelf item (one product, different options): add up, don't overwrite.
+    const addedReserved = new Map<string, number>(); const addedPreorder = new Map<string, number>();
     itemSnaps.forEach((snap: any, i: number) => {
       if (!snap.exists) {
         console.warn(`[connect-webhook] inventory item ${fresh.lines[i].productId} missing — reservation skipped`);
         return;
       }
-      const current = snap.data().stockReserved ?? 0;
+      const pid = String(fresh.lines[i].productId);
+      const current = (snap.data().stockReserved ?? 0) + (addedReserved.get(pid) || 0);
       if (fresh.lines[i].digital === true) return;
       // Pre-orders consume RUN SLOTS, not shelf stock (reserving stock that
       // doesn't exist yet would understate what everyone else can buy). The
@@ -180,11 +187,13 @@ export async function handleRetailOrderPaid(
       // paying at once can't both take the last one.
       if (fresh.lines[i].preorder === true) {
         const d = snap.data() as any;
-        const sold = Math.max(0, Math.floor(Number(d.preorderSold) || 0));
+        const sold = Math.max(0, Math.floor(Number(d.preorderSold) || 0)) + (addedPreorder.get(pid) || 0);
         txn.update(itemRefs[i], { preorderSold: sold + fresh.lines[i].qtyOrdered });
+        addedPreorder.set(pid, (addedPreorder.get(pid) || 0) + fresh.lines[i].qtyOrdered);
         return;
       }
       txn.update(itemRefs[i], { stockReserved: current + fresh.lines[i].qtyOrdered });
+      addedReserved.set(pid, (addedReserved.get(pid) || 0) + fresh.lines[i].qtyOrdered);
       // A hold that is never released hides stock from everyone forever, with
       // no symptom but a count that looks wrong. Recording both halves — the
       // hold here, the release at fulfilment — makes a leak findable.
@@ -214,17 +223,16 @@ export async function handleRetailOrderPaid(
       } : {}),
       stage: 'paid',
       paidAt: now,
+      ...(sessionTotalCents != null ? { chargedCents: sessionTotalCents } : {}),
       qrToken,
       clientId: clientId || fresh.clientId || null,
       stripePaymentIntentId: piId,
       stripeCheckoutSessionId: session.id,
     });
+    won = true;
   });
-
-  // Re-read to confirm the transition actually happened (a racing retry may
-  // have won); if we didn't flip it, skip the side effects too.
+  if (!won) return;
   const confirmed = await orderRef.get();
-  if (confirmed.data()?.qrToken !== qrToken) return;
 
   // Everything below (income transaction description, confirmation email) read
   // the PRE-transaction snapshot, whose orderNumber is still null on a draft.

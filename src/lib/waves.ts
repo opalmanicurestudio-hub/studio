@@ -539,13 +539,30 @@ export async function saveToteDeal(
 
 /** Wave moves to the bench once the shelves have been walked. */
 export async function setWaveStatus(
-  fs: Firestore, tenantId: string, waveId: string, status: Wave['status']
+  fs: Firestore, tenantId: string, waveId: string, status: Wave['status'], actor?: { id: string; name: string }
 ): Promise<void> {
   await runTransaction(fs, async (txn) => {
     const ref = doc(waveCol(fs, tenantId), waveId);
     const snap = await txn.get(ref);
     if (!snap.exists()) return;
+    const wave = snap.data() as any;
+    const orderRefs = (wave.orders || []).map((w: any) => doc(fs, `tenants/${tenantId}/retailOrders`, String(w.orderId)));
+    const orderSnaps = await Promise.all(orderRefs.map((r: any) => txn.get(r)));
     txn.update(ref, { status });
+    const who = actor || { id: 'staff', name: 'Team' };
+    orderSnaps.forEach((os: any, i: number) => {
+      if (!os.exists()) return;
+      const o = os.data() as any;
+      // Picking done: the wave's orders move on to packing, so the bench can scan them into boxes.
+      if (status === 'packing' && o.stage === 'paid' && o.waveId === waveId) {
+        txn.update(orderRefs[i], { stage: 'picking', claimedBy: who.id, claimedByName: who.name });
+        txn.set(doc(collection(orderRefs[i], 'events')), JSON.parse(JSON.stringify({ id: `ev-${nanoid(10)}`, ...buildEvent('note', who.id, who.name, { kind: 'wave_to_packing', waveId, text: `Picked with ${wave.name || 'the wave'}, ready to pack` }) })));
+      }
+      // Wave closed or cancelled with an order never started: free it to be picked again.
+      if ((status === 'done' || status === 'cancelled') && o.stage === 'paid' && o.waveId === waveId) {
+        txn.update(orderRefs[i], { waveId: null, waveTote: null });
+      }
+    });
   });
 }
 

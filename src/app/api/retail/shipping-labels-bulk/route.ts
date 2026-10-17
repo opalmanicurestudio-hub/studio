@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyStaffActor } from '@/lib/staff-auth';
 
 import {
   insurableValueCents, protectionFor, protectionPolicy, shippoExtra,
@@ -74,6 +75,9 @@ export async function POST(req: NextRequest) {
     boxWeightOz: Math.max(0, Number(pd.boxWeightOz) || 3),
   };
 
+  const auth = await verifyStaffActor(req, tenantId);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
   const db = getAdminDb();
   const tenantSnap = await db.collection('tenants').doc(tenantId).get();
   if (!tenantSnap.exists) return NextResponse.json({ error: 'Shop not found' }, { status: 404 });
@@ -129,7 +133,7 @@ export async function POST(req: NextRequest) {
       const addressTo = {
         name: cust.name || order.customerName || 'Customer',
         street1: cust.line1, street2: cust.line2 || '',
-        city: cust.city, state: cust.state, zip: cust.zip, country: 'US',
+        city: cust.city, state: cust.state, zip: cust.postalCode || cust.zip, country: cust.country || 'US',
         phone: order.customerPhone || '', email: order.customerEmail || '',
       };
 

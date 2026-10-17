@@ -1,4 +1,5 @@
 'use client';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 import {
   collection, doc, getDoc, getDocs, limit, orderBy, query, startAfter, where, type Firestore,
@@ -382,7 +383,7 @@ export default function RetailOrderHistoryPage() {
                         try {
                           const res = await fetch('/api/retail/delay-notice', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
                             body: JSON.stringify({ tenantId, orderId: detail.id, revisedDate, note }),
                           });
                           const data = await res.json();

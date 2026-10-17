@@ -192,7 +192,7 @@ export default function RetailFulfillmentBoard() {
     try {
       const pr = packagingPresets[0];
       const res = await fetch('/api/retail/shipping-labels-bulk', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({
           tenantId,
           orders: packedShipOrders.map((o: any) => ({ orderId: o.id, qrToken: o.qrToken || '' })),
@@ -466,7 +466,7 @@ export default function RetailFulfillmentBoard() {
     try {
       const res = await fetch('/api/retail/shipping-label', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({
           tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '',
           action: 'rates',
@@ -503,7 +503,7 @@ export default function RetailFulfillmentBoard() {
     try {
       const res = await fetch('/api/retail/shipping-label', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '', action: 'purchase', rateId }),
       });
       const data = await res.json();
@@ -1467,7 +1467,7 @@ export default function RetailFulfillmentBoard() {
                     try {
                       const res = await fetch('/api/retail/shipping-label', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
                         body: JSON.stringify({ tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '', action: 'void' }),
                       });
                       const data = await res.json();

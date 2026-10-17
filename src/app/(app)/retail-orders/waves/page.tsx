@@ -289,7 +289,7 @@ export default function WavesPage() {
       const resid = toteResiduals(rows, after);
       const allDone = Object.values(resid).every((byPid) => Object.values(byPid).every((n) => n <= 0));
       if (allDone) {
-        void setWaveStatus(firestore as Firestore, tenantId, active.id, 'packing');
+        void setWaveStatus(firestore as Firestore, tenantId, active.id, 'packing', actor);
         toast({ title: 'Wave picked — moving to the bench', description: 'Every tote has everything it needs. Grab the bins and the slip stack.' });
       } else {
         toast({ title: `Tote ${res.tote} is complete`, description: 'Everything that bin needs is in it.' });
@@ -688,7 +688,7 @@ export default function WavesPage() {
               <div className="flex gap-2 print:hidden">
                 <Button
                   variant="outline"
-                  onClick={() => firestore && setWaveStatus(firestore as Firestore, tenantId, active.id, active.status === 'picking' ? 'packing' : 'done')}
+                  onClick={() => firestore && setWaveStatus(firestore as Firestore, tenantId, active.id, active.status === 'picking' ? 'packing' : 'done', actor)}
                   className="h-12 flex-1 rounded-2xl border-2 text-[11px] font-black uppercase tracking-widest"
                 >
                   {active.status === 'picking' ? 'Shelves walked — move to the bench' : 'Close this wave'}

@@ -169,22 +169,25 @@ async function handleCheckout(req: NextRequest) {
     return !!(a?.name && a?.line1 && a?.city && a?.state && a?.postalCode && a?.country);
   })();
 
-  // Merge duplicate cart rows for the same product
-  const qtyByProduct = new Map<string, number>();
-  // Chosen options travel with the cart line; the server re-prices them from
-  // the item document, so what the client sends is a selection, never a price.
-  const selectionsByProduct = new Map<string, Record<string, string>>();
+  // Merge duplicate cart rows for the same product AND the same chosen options. A 15 ml and a 30 ml of one product
+  // stay two lines (each priced, stock-checked and held as itself). Chosen options travel with the cart line; the
+  // server re-prices them from the item document, so what the client sends is a selection, never a price.
+  const stableSel = (sel: any) => (sel && typeof sel === 'object') ? JSON.stringify(Object.keys(sel).sort().map((k) => [k, String(sel[k])])) : '';
+  const cartEntries: { productId: string; qty: number; selections?: Record<string, string> }[] = [];
+  const entryByKey = new Map<string, number>();
   for (const it of rawItems) {
     const id = String(it.productId || '').trim();
     const qty = Math.floor(Number(it.qty) || 0);
     if (!id || qty <= 0) {
       return NextResponse.json({ error: 'Each item needs a productId and positive qty' }, { status: 400 });
     }
-    qtyByProduct.set(id, (qtyByProduct.get(id) ?? 0) + qty);
-    if (it.selections && typeof it.selections === 'object' && !selectionsByProduct.has(id)) {
-      selectionsByProduct.set(id, it.selections as Record<string, string>);
-    }
+    const sel = it.selections && typeof it.selections === 'object' ? it.selections as Record<string, string> : undefined;
+    const key = `${id}|${stableSel(sel)}`;
+    const at = entryByKey.get(key);
+    if (at != null) cartEntries[at].qty += qty;
+    else { entryByKey.set(key, cartEntries.length); cartEntries.push({ productId: id, qty, selections: sel }); }
   }
+  if (cartEntries.length > 60) return NextResponse.json({ error: 'That cart is too large for one order.' }, { status: 400 });
 
   const db = getAdminDb();
 
@@ -234,15 +237,16 @@ async function handleCheckout(req: NextRequest) {
   }
 
   // ── Load & validate every item against live inventory ────────────────────
-  const productIds = [...qtyByProduct.keys()];
+  const productIds = cartEntries.map((e) => e.productId);
   const itemSnaps = await Promise.all(
     productIds.map((id) => db.collection(`tenants/${tenantId}/inventory`).doc(id).get())
   );
 
   const lines: OrderLine[] = [];
+  const neededByItem = new Map<string, number>();   // two lines can draw on the same shelf item
   for (let i = 0; i < productIds.length; i++) {
     const snap = itemSnaps[i];
-    const qty = qtyByProduct.get(productIds[i])!;
+    const qty = cartEntries[i].qty;
     if (!snap.exists) {
       return NextResponse.json({ error: `Item ${productIds[i]} is no longer available` }, { status: 409 });
     }
@@ -254,7 +258,7 @@ async function handleCheckout(req: NextRequest) {
     // parent supplies the name and the photos and nothing else. Resolving it
     // HERE means every check below — stock, reservation, pre-order, digital —
     // applies to the thing actually being sold.
-    const variantId = resolveVariantProductId(item.optionGroups, selectionsByProduct.get(productIds[i]));
+    const variantId = resolveVariantProductId(item.optionGroups, cartEntries[i].selections);
     if (variantId && variantId !== item.id) {
       const vSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(variantId).get();
       if (!vSnap.exists) {
@@ -279,13 +283,14 @@ async function handleCheckout(req: NextRequest) {
     // Pre-order items are SOLD before stock exists — that's the point. The
     // promise they carry is what makes it legitimate, and it's enforced by
     // the clock below rather than by pretending the shelf is full.
-    if (item.digital !== true && item.preorder !== true && sellableStock(item) < qty && item.allowBackorder !== true) {
+    const needed = (neededByItem.get(item.id) || 0) + qty; neededByItem.set(item.id, needed);
+    if (item.digital !== true && item.preorder !== true && sellableStock(item) < needed && item.allowBackorder !== true) {
       return NextResponse.json(
         { error: `Only ${Math.max(0, sellableStock(item))} of ${item.name} left`, productId: item.id },
         { status: 409 }
       );
     }
-    const opts = resolveOptions(item.optionGroups, selectionsByProduct.get(productIds[i]));
+    const opts = resolveOptions(item.optionGroups, cartEntries[i].selections);
     const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier, opts);
     if (priceTier === 'wholesale' && wsDiscount > 0) {
       line.unitPriceCents = discountedCents(line.unitPriceCents, wsDiscount);
@@ -338,10 +343,9 @@ async function handleCheckout(req: NextRequest) {
   }
 
   if (priceTier === 'wholesale') {
-    const entries = productIds.map((id, i) => ({
-      item: { id: itemSnaps[i].id, ...itemSnaps[i].data() } as SellableItem,
-      qty: qtyByProduct.get(id)!,
-    }));
+    const byProduct = new Map<string, { item: SellableItem; qty: number }>();
+    productIds.forEach((id, i) => { const cur = byProduct.get(id); if (cur) cur.qty += cartEntries[i].qty; else byProduct.set(id, { item: { id: itemSnaps[i].id, ...itemSnaps[i].data() } as SellableItem, qty: cartEntries[i].qty }); });
+    const entries = [...byProduct.values()];
     const minCheck = checkWholesaleMinimums(entries);
     if (!minCheck.ok) return NextResponse.json({ error: minCheck.reason }, { status: 400 });
   }
