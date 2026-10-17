@@ -90,6 +90,11 @@ export function PoliciesScreen() {
           <Row label="Staff can give store credit up to" note="Managers have no limit." last><NumberField label="Staff credit limit" prefix="$" value={dollars(rs.staffCreditCapCents ?? 2500)} disabled={!canEdit} onSave={(n) => void save('retailSettings.staffCreditCapCents', Math.round(n * 100), 'Credit limit')} /></Row>
         </Group>
 
+        <Group title="Orders that look risky" foot="A held order is paid but isn’t packed until a manager releases it. The customer isn’t told. Pickup orders are only held when Stripe itself flags the payment.">
+          <Row label="Hold them for review" note="When Stripe flags the payment, or two warning signs line up."><Toggle label="Hold risky orders" on={pol.fraudHold !== 'off'} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.fraudHold', v ? 'auto' : 'off', 'Risk check')} /></Row>
+          <Row label="A first order over" note="Counts as one warning sign when it’s shipped." last><NumberField label="Large first order" prefix="$" value={dollars(pol.fraudBigFirstOrderCents ?? 30000)} disabled={!canEdit || pol.fraudHold === 'off'} onSave={(n) => void save('retailSettings.policies.fraudBigFirstOrderCents', Math.round(n * 100), 'First order limit')} /></Row>
+        </Group>
+
         <Group title="What customers read" foot="Shown at checkout, on the card in every box, and in the record if a payment is disputed. Each order keeps the wording it was placed under.">
           <textarea aria-label="Return policy wording" value={wording} disabled={!canEdit} onChange={(e) => setWording(e.target.value.slice(0, 1200))} onBlur={() => { if (wording.trim() !== String(rs.returnPolicyText || '').trim()) void save('retailSettings.returnPolicyText', wording.trim(), 'Wording'); }}
             placeholder="Leave blank and it’s written from the settings above." rows={4} className="block w-full resize-y border-0 bg-transparent px-4 py-3 text-[17px] outline-none ring-0 focus:ring-0" />

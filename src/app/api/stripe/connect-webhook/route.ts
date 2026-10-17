@@ -1053,8 +1053,24 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      default:
+      default: {
+        // An ID check asked for on a held shop order (/api/retail/id-check): record how it went on the order. A
+        // manager still releases it; a pass is the evidence, not the decision.
+        const type = String(event.type);
+        if (type.startsWith('identity.verification_session.')) {
+          const vs: any = event.data.object; const t = String(vs?.metadata?.tenantId || ''); const oid = String(vs?.metadata?.retailOrderId || '');
+          const status = type.endsWith('.verified') ? 'verified' : type.endsWith('.requires_input') ? 'failed' : type.endsWith('.canceled') ? 'canceled' : type.endsWith('.processing') ? 'processing' : '';
+          if (t && oid && status) {
+            const at = new Date().toISOString();
+            await db.doc(`tenants/${t}/retailOrders/${oid}`).set({ idCheck: { status, at, sessionId: vs.id, lastError: vs?.last_error?.reason || null } }, { merge: true });
+            if (status === 'verified' || status === 'failed') {
+              const n = db.collection(`tenants/${t}/notifications`).doc();
+              await n.set({ id: n.id, type: 'order_id_check', read: false, createdAt: at, link: `/retail-orders/problems?order=${oid}`, message: status === 'verified' ? 'A held order’s ID check passed. It’s ready for you to release.' : 'A held order’s ID check didn’t pass.' });
+            }
+          }
+        }
         break;
+      }
     }
 
     return NextResponse.json({ received: true });

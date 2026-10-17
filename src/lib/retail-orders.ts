@@ -24,6 +24,7 @@
 // is a calendar day, and a calendar day only becomes an instant once you know
 // whose clock is being read. Deciding that inline is how a shop ends up late
 // on an order it shipped on time.
+import { effectiveUnitCents } from './retail-swap';
 import { taxShareCents } from './restocking';
 import { deadlineAt } from './tenant-time';
 
@@ -1651,7 +1652,7 @@ export interface RetailReturn {
 export function returnRefundCents(order: RetailOrder, lines: ReturnLine[]): number {
   const items = lines.reduce((sum, rl) => {
     const orig = order.lines.find((l) => l.lineId === rl.lineId);
-    return sum + (orig ? rl.qty * orig.unitPriceCents : 0);
+    return sum + (orig ? rl.qty * effectiveUnitCents(orig as any) : 0);
   }, 0);
   return items + taxShareCents(order as any, items);
 }

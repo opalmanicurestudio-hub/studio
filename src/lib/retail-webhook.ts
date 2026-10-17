@@ -25,6 +25,7 @@
  * partial-fulfillment flow. Payment confirmation is never blocked on stock.
  */
 
+import { assessRisk, riskPolicy, type RiskResult } from './retail-risk';
 import { createHmac, timingSafeEqual } from 'crypto';
 
 import { buildEvent, buildOrderQrValue } from '@/lib/retail-orders';
@@ -135,6 +136,20 @@ export async function handleRetailOrderPaid(
   const qrToken = makeQrToken(orderId);
   const now = new Date().toISOString();
 
+  // ── Should this order wait for a person? (lib/retail-risk) Read before the transaction; written with 'paid'. ──
+  let risk: RiskResult | null = null;
+  try {
+    const rsNow = ((await db.collection('tenants').doc(tenantId).get()).data() as any)?.retailSettings || {};
+    const pol = riskPolicy(rsNow);
+    if (pol.mode === 'auto' && order.digitalOnly !== true) {
+      let charge: any = null;
+      if (chargeId && stripe) { try { charge = await stripe.charges.retrieve(chargeId, {}, connAcct ? { stripeAccount: connAcct } : undefined); } catch { /* judged without it */ } }
+      let prior = 0;
+      if (email) { try { const p = await db.collection(`tenants/${tenantId}/retailOrders`).where('customerEmail', '==', order.customerEmail).limit(10).get(); prior = p.docs.filter((d: any) => d.id !== orderId && ['shipped', 'handed_off', 'completed'].includes((d.data() as any).stage)).length; } catch { /* treated as new */ } }
+      risk = assessRisk(order, charge, prior, pol);
+    }
+  } catch { risk = null; }
+
   // ── draft → paid: mint the number, reserve stock, all atomically ─────────
   // The order number is issued HERE and nowhere else. Checkout creates a draft
   // with orderNumber null; money landing is what turns it into a sale. Because
@@ -228,10 +243,15 @@ export async function handleRetailOrderPaid(
       clientId: clientId || fresh.clientId || null,
       stripePaymentIntentId: piId,
       stripeCheckoutSessionId: session.id,
+      ...(risk ? { riskCheck: { at: now, level: risk.riskLevel, score: risk.riskScore, reasons: risk.reasons } } : {}),
+      ...(risk?.hold ? { holdForReview: true, holdAuto: true, holdReason: risk.reasons.join(' · '), heldAt: now, heldBy: 'Automatic check' } : {}),
     });
     won = true;
   });
   if (!won) return;
+  if (risk?.hold) {
+    try { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, type: 'order_held', read: false, createdAt: now, link: `/retail-orders/problems?order=${orderId}`, message: `Order #${String(assignedNumber ?? '').padStart(4, '0')} is held for review: ${risk.reasons[0]}` }); } catch { /* the Problems list shows it */ }
+  }
   const confirmed = await orderRef.get();
 
   // Everything below (income transaction description, confirmation email) read

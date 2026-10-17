@@ -126,7 +126,7 @@ export async function SlipSheet({ tenantId, orderId, order, tenant, origin }: { 
                     ) : null}
                   </td>
                   <td>{qty}</td>
-                  <td style={{ textAlign: 'right' }}>{money(l.unitPriceCents * qty)}</td>
+                  <td style={{ textAlign: 'right' }}>{money(Math.max(0, l.unitPriceCents * qty - (Number(l.lineDiscountCents) || 0)))}</td>
                 </tr>
               );
             })}

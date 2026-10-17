@@ -86,7 +86,23 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
       {Array.isArray(p.ref.evidence?.photoUrls) && p.ref.evidence.photoUrls.length > 0 && <div className="mb-3 flex gap-2">{p.ref.evidence.photoUrls.slice(0, 4).map((u: string) => <img key={u} src={u} alt="Customer photo" className="h-16 w-16 rounded-xl object-cover" />)}</div>}
       <Link href="/retail-orders/claims" className="cf-press inline-flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold" style={{ background: C.ink, color: C.paper }}>Decide in Claims</Link>
     </Card>;
-    if (p.kind === 'held') return <Card key={p.key} p={p}>{canManage ? <div className="flex gap-2"><Btn kind="primary" className="flex-1" disabled={busy === 'hold'} onClick={async () => { setBusy('hold'); onToast(await setHold(fs, tenantId, [p.ref], actor, false)); setBusy(''); }}>{busy === 'hold' ? 'Releasing…' : 'Release to pack'}</Btn><Link href={`/retail-orders?order=${p.orderId}`} className="cf-press inline-flex h-12 flex-1 items-center justify-center rounded-full text-[15px] font-semibold" style={{ background: C.paper }}>Open order</Link></div> : <p className="m-0 text-[14px]" style={muted}>A manager decides on held orders.</p>}</Card>;
+    if (p.kind === 'held') {
+      const o = p.ref; const reasons: string[] = Array.isArray(o.riskCheck?.reasons) && o.riskCheck.reasons.length ? o.riskCheck.reasons : o.holdReason ? [String(o.holdReason)] : [];
+      const idc = o.idCheck?.status as string | undefined;
+      const idLine = idc === 'verified' ? 'ID check passed' : idc === 'failed' ? 'ID check didn’t pass' : idc === 'sent' || idc === 'processing' ? 'ID check sent, waiting for them' : idc === 'canceled' ? 'They didn’t finish the ID check' : '';
+      return <Card key={p.key} p={{ ...p, detail: o.holdAuto ? 'Held by the automatic check. The customer hasn’t been told.' : `Held by ${o.heldBy || 'the team'}. The customer hasn’t been told.` }}>
+        {reasons.length > 0 && <ul className="m-0 mb-3 list-none space-y-1 p-0">{reasons.map((r) => <li key={r} className="flex gap-2 text-[15px]"><span className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: C.warn }} />{r}</li>)}</ul>}
+        {idLine && <p className="m-0 mb-3 text-[15px] font-semibold" style={{ color: idc === 'verified' ? C.ok : idc === 'failed' ? C.bad : C.ink }}>{idLine}</p>}
+        {canManage ? <div className="flex flex-col gap-2">
+          <Btn kind="primary" className="w-full" disabled={busy === 'hold'} onClick={async () => { setBusy('hold'); onToast(await setHold(fs, tenantId, [o], actor, false)); setBusy(''); }}>{busy === 'hold' ? 'Releasing…' : 'Looks fine, release to pack'}</Btn>
+          {(!idc || idc === 'canceled' || idc === 'failed') && <Btn kind="soft" className="w-full" style={{ background: C.paper }} disabled={busy === 'id'} onClick={async () => {
+            setBusy('id');
+            try { const r = await fetch('/api/retail/id-check', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: p.orderId }) }); const d = await r.json().catch(() => ({})); feel(r.ok); onToast(d.message || d.error || 'Done.'); } finally { setBusy(''); }
+          }}>{busy === 'id' ? 'Sending…' : 'Ask them to confirm their ID'}</Btn>}
+          <Link href={`/retail-orders?order=${p.orderId}`} className="cf-press inline-flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold" style={{ background: C.badSoft, color: C.bad }}>Cancel and refund</Link>
+        </div> : <p className="m-0 text-[14px]" style={muted}>A manager decides on held orders.</p>}
+      </Card>;
+    }
     return <Card key={p.key} p={p}><Link href={`/retail-orders?order=${p.orderId}`} className="cf-press inline-flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold" style={p.kind === 'outside' ? { background: C.ink, color: C.paper } : { background: C.paper }}>{p.kind === 'outside' ? 'Go to the order' : 'Open order'}</Link></Card>;
   });
 

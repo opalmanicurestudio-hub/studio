@@ -206,7 +206,7 @@ export function OrdersApp() {
       {packing && <PackMode fs={fs} tenantId={tenantId} order={packing} all={orders} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor} batch={batches.find((b) => b.id === packing.batchId) || null}
         onClose={() => setPackId(null)} onDetails={() => { setOpenId(packing.id); setPackId(null); }} onMissing={(l) => setMissing({ order: packing, line: l })}
         onFinished={(m) => { setToast(m); setPackId(null); }} />}
-      {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} shelf={shelfFor.get(missing.line.productId)} actor={actor} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); setToast(m); }} />}
+      {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} shelf={shelfFor.get(missing.line.productId)} inventory={inventory || []} actor={actor} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); setToast(m); }} />}
       {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={inventory || []} rs={rs} actor={actor} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); setToast(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {selecting && <SelectBar fs={fs} tenantId={tenantId} picked={pickedOrders} actor={actor} rs={rs} perms={perms} onDone={endSelect} onToast={setToast} />}

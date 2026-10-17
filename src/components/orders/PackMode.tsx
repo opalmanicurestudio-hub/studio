@@ -9,6 +9,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { ScanGate } from '@/components/retail/ScanGate';
 import { packPhotoPolicy, packPhotoRequired, packPhotoPath } from '@/lib/pack-photo';
 import { uploadImage } from '@/lib/upload-image';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/orders-flow';
 import { dueLine, firstName, methodLabel, packProgress } from '@/lib/orders-view';
 import type { Actor } from '@/lib/retail-fulfill';
@@ -71,6 +72,12 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
     if (reduce) { onFinished(r.message); return; }
     setDone(r.message); setTimeout(() => onFinished(r.message), 1100);
   };
+  const refundNow = async (l: any) => {
+    setErr('');
+    const r = await fetch('/api/retail/swap', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ action: 'refund', tenantId, orderId: order.id, lineId: l.lineId, reason: 'No answer about a swap' }) });
+    const d = await r.json().catch(() => ({})); feel(r.ok);
+    if (r.ok) setUndo({ text: `${l.name} refunded`, lineId: '' }); else setErr(d.message || d.error || 'That didn’t go through.');
+  };
   const putDown = async () => { await stopPacking(fs, tenantId, order, batch, actor); onClose(); };
 
   const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? 'Add a photo of the box first' : order.method === 'ship' ? 'Done, packed for shipping' : `Done, it’s ready for ${firstName(order.customerName)}`;
@@ -111,10 +118,12 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
                   <Thumb src={photoFor.get(l.productId)} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[17px] font-semibold tracking-[-0.01em]" style={closed ? { color: C.muted, textDecoration: 'line-through' } : undefined}>{l.name}</span>
-                    <span className="block truncate text-[14px]" style={muted}>{[l.optionsLabel, shelf ? `Shelf ${shelf}` : '', closed ? (l.status === 'backordered' ? 'Sending later' : 'Refunded') : `${l.qtyScanned} of ${l.qtyOrdered}`].filter(Boolean).join(' · ')}</span>
+                    <span className="block truncate text-[14px]" style={muted}>{[l.swapForName ? `Swap for ${l.swapForName}` : '', order.swapOffer?.status === 'waiting' && order.swapOffer.lineId === l.lineId ? `Asked about ${order.swapOffer.sub?.name}` : '', l.swappedToName ? `Swapped for ${l.swappedToName}` : '', l.optionsLabel, shelf ? `Shelf ${shelf}` : '', closed ? (l.status === 'backordered' ? 'Sending later' : 'Refunded') : `${l.qtyScanned} of ${l.qtyOrdered}`].filter(Boolean).join(' · ')}</span>
                   </span>
                 </button>
-                {!closed && !full && <button type="button" onClick={() => onMissing(l)} className="h-9 shrink-0 rounded-full px-3 text-[13.5px] font-semibold" style={{ background: C.soft }}>Missing</button>}
+                {!closed && !full && (order.swapOffer?.status === 'waiting' && order.swapOffer.lineId === l.lineId
+                  ? <button type="button" onClick={() => void refundNow(l)} className="h-9 shrink-0 rounded-full px-3 text-[13.5px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>{Date.parse(order.swapOffer.expiresAt) < Date.now() ? 'No answer, refund' : 'Waiting · refund now'}</button>
+                  : <button type="button" onClick={() => onMissing(l)} className="h-9 shrink-0 rounded-full px-3 text-[13.5px] font-semibold" style={{ background: C.soft }}>Missing</button>)}
                 {!closed && <span key={full ? 'in' : 'out'} className={`${full ? 'cf-anim-pop ' : ''}grid h-8 w-8 shrink-0 place-items-center rounded-full border-2`} style={full ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{full ? Ic.check : null}</span>}
               </div>);
           })}

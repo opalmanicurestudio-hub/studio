@@ -1,3 +1,4 @@
+import { normaliseIfUnavailable } from '@/lib/retail-swap';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { payLaterCheckoutParams, createCheckoutSession } from '@/lib/pay-later';
@@ -83,6 +84,7 @@ interface CheckoutBody {
   // The customer's tick on the pre-order terms. Optional in the type because
   // most carts have no pre-order; REQUIRED at runtime the moment one does.
   preorderAck?: boolean;
+  ifUnavailable?: string;
   // These three were always sent by the storefront and always read here, but
   // were missing from the interface — so every read of them was a type error
   // hidden inside the repo-wide noise. Declaring them changes no behaviour.
@@ -500,6 +502,8 @@ async function handleCheckout(req: NextRequest) {
     // exact failure this is here to prevent. Same shape as policySnapshot,
     // so anything that already reads one can read the other.
     ...(preorderAck ? { preorderAck } : {}),
+    // What the customer wants if an item turns out to be out of stock. Saying nothing means a refund.
+    ifUnavailable: normaliseIfUnavailable(body.ifUnavailable),
     customerPhone: body.customer?.phone || '',
     shippingAddress: method === 'ship' ? body.shippingAddress : null,
     curbside: null,

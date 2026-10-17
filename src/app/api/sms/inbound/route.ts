@@ -97,6 +97,22 @@ export async function POST(req: NextRequest) {
         if (c) { senderName = c.name || senderName; senderType = 'client'; clientId = c.id; } } catch { /* stays unknown */ }
     }
 
+    // YES or NO to a question about swapping an out-of-stock item (lib/retail-swap-server). Only when exactly one
+    // order from this number is waiting for that answer; anything else carries on as a normal text.
+    try {
+      const { swapReply } = await import('@/lib/retail-swap'); const ans = swapReply(body);
+      if (ans && fromDigits.length >= 10) {
+        const waiting = await db.collection(`tenants/${tenantId}/retailOrders`).where('swapPendingPhone', '==', fromDigits.slice(-10)).limit(2).get();
+        if (waiting.size === 1) {
+          const { decideSwap } = await import('@/lib/retail-swap-server');
+          const origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
+          const r = await decideSwap(db, tenantId, waiting.docs[0].id, ans === 'yes', 'text', origin);
+          try { const { sendTenantSms } = await import('@/lib/sms'); await sendTenantSms(db, tenantId, from, r.message); } catch { /* the order page shows it */ }
+          return twimlOk();
+        }
+      }
+    } catch (e) { console.error('[sms/inbound] swap reply', e); }
+
     // A reply to a renter's text goes to that renter, privately (lib/renter-inbox): by who texted last, then whose
     // client it is. STOP, HELP and the like always stay with the studio, which owns the number.
     if ((senderType === 'client' || senderType === 'unknown') && !/^\s*(stop|stopall|unsubscribe|cancel|end|quit|help|info|start|unstop)\s*$/i.test(body)) {

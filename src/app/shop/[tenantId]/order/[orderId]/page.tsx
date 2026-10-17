@@ -1,5 +1,6 @@
 'use client';
 
+import { OrderNow } from '@/components/shop/OrderNow';
 import {
   Car, Check, CheckCircle2, Clock, LifeBuoy, Loader, Package, PackageCheck,
   QrCode, ShoppingBag, Store, Truck, XCircle,
@@ -791,6 +792,7 @@ export default function OrderStatusPage() {
       </header>
 
       <main className="max-w-lg mx-auto px-5 py-6 space-y-5">
+        {order.stage !== 'placed' && <OrderNow order={order} help={helpElig} tenantId={tenantId} orderId={orderId} token={selfToken} onChanged={() => void load()} />}
         {order.stage === 'cancelled' && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-8 text-center space-y-3">
@@ -863,7 +865,7 @@ export default function OrderStatusPage() {
         )}
 
         {isPickup && qrDataUrl && !['handed_off', 'completed'].includes(order.stage) && (
-          <Card className={cn(
+          <Card id="pickup-code" className={cn(
             'border-2 rounded-[2rem] overflow-hidden bg-white transition-all',
             order.stage === 'ready' || order.stage === 'arrived' ? 'border-primary shadow-xl shadow-primary/10' : ''
           )}>
@@ -885,7 +887,7 @@ export default function OrderStatusPage() {
         )}
 
         {order.method === 'curbside' && !['handed_off', 'completed', 'cancelled', 'placed'].includes(order.stage) && (
-          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <Card id="curbside" className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-3">
               <div className="flex items-center gap-2">
                 <Car className="w-4 h-4 text-primary" />
@@ -1141,8 +1143,12 @@ export default function OrderStatusPage() {
                       <p className="text-[9px] font-black uppercase tracking-widest text-amber-600">
                         {l.status === 'backordered'
                           ? `${l.qtyShorted} on backorder — ships separately`
+                          : (l as any).swappedToName ? `Out of stock — swapped for ${(l as any).swappedToName}`
                           : `${l.qtyShorted} unavailable — refunded`}
                       </p>
+                    )}
+                    {(l as any).swapForName && (
+                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">In place of {(l as any).swapForName}</p>
                     )}
                     {Array.isArray((l as any).documents) && (l as any).documents.length > 0 && (
                       <p className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
@@ -1157,7 +1163,7 @@ export default function OrderStatusPage() {
                       </p>
                     )}
                   </div>
-                  <p className="font-black font-mono text-xs shrink-0">{fmt(l.unitPriceCents * (l.qtyOrdered - l.qtyShorted))}</p>
+                  <p className="font-black font-mono text-xs shrink-0">{fmt(Math.max(0, l.unitPriceCents * (l.qtyOrdered - l.qtyShorted) - (Number((l as any).lineDiscountCents) || 0)))}</p>
                 </div>
               ))}
             </div>
@@ -1178,7 +1184,7 @@ export default function OrderStatusPage() {
         </Card>
 
         {selfToken && (
-          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <Card id="order-help" className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-3">
               <div className="flex items-center gap-2">
                 <LifeBuoy className="w-4 h-4 text-primary" />

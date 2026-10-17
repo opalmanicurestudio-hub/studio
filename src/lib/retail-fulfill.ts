@@ -1,5 +1,6 @@
 'use client';
 
+import { taxShareCents } from './restocking';
 import { cardRefundableCents } from '@/lib/retail-money';
 import {
   Firestore, collection, doc, getDoc, getDocs, limit, query, runTransaction, where,
@@ -430,7 +431,8 @@ export async function resolveShortLine(
 
       const orderUpdate: Record<string, unknown> = { lines: JSON.parse(JSON.stringify(lines)) };
       if (resolution === 'refund') {
-        orderUpdate.pendingRefundCents = (order.pendingRefundCents || 0) + refundCents;
+        // The tax paid on the missing items goes back too.
+        orderUpdate.pendingRefundCents = (order.pendingRefundCents || 0) + refundCents + taxShareCents(order as any, refundCents);
       }
       txn.update(oRef, orderUpdate);
       txn.set(doc(collection(oRef, 'events')), evPayload('line_shorted', actor, {

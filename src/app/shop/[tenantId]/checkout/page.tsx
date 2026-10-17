@@ -9,6 +9,7 @@
 // Cart contents live in localStorage (shop-cart) and are shared with the
 // storefront, so nothing about adding to cart changed.
 
+import { IF_UNAVAILABLE, type IfUnavailable } from '@/lib/retail-swap';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -140,6 +141,7 @@ export default function CheckoutPage() {
   }, [tenantId]);
   const [pickupChoice, setPickupChoice] = useState('ASAP');
   const [preorderAgreed, setPreorderAgreed] = useState(false);
+  const [ifUnavailable, setIfUnavailable] = useState<IfUnavailable>('refund');
 
   // Live carrier rates. The server signs every option (amount + service +
   // expiry); the browser only ever sends the chosen option's token back, so
@@ -366,6 +368,7 @@ export default function CheckoutPage() {
             ? Math.round(Number(creditLimit) * 100)
             : undefined,
           preorderAck: hasPreorder ? true : undefined,
+          ifUnavailable: digitalOnlyCart ? undefined : ifUnavailable,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...addr, country: 'US' } : undefined,
           shippingQuote: method === 'ship' && selectedQuote
@@ -650,6 +653,20 @@ export default function CheckoutPage() {
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
+              </div>
+            )}
+            {!digitalOnlyCart && (
+              <div className="space-y-1.5" role="radiogroup" aria-label="If something is out of stock">
+                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">If something is out of stock</span>
+                {IF_UNAVAILABLE.map((o) => (
+                  <button key={o.id} type="button" role="radio" aria-checked={ifUnavailable === o.id} onClick={() => setIfUnavailable(o.id)}
+                    className={cn('flex w-full items-start gap-2.5 rounded-2xl border-2 p-3 text-left transition-all', ifUnavailable === o.id ? 'border-foreground/60 bg-muted/20' : 'bg-white')}>
+                    <span className={cn('mt-0.5 h-4 w-4 shrink-0 rounded-full border-2', ifUnavailable === o.id ? 'border-[5px] border-foreground' : 'border-muted-foreground/40')} />
+                    <span className="min-w-0">
+                      <span className="block text-[11px] font-black uppercase tracking-widest">{o.label}</span>
+                      <span className="block text-[11px] font-bold text-muted-foreground">{o.id === 'ask' ? (phone.trim() ? 'We text you a suggestion. No answer in 2 hours means a refund.' : 'We email you a suggestion. Add a phone number above to get a text instead.') : o.note}</span>
+                    </span>
+                  </button>))}
               </div>
             )}
             {acctCreditCents === null && (
