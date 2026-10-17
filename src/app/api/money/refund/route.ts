@@ -2,6 +2,7 @@
 // POST { tenantId, transactionId, amountCents }
 // Cash, and payments with no card reference, come back { card: false } and the
 // Money page records the refund in the books only.
+import { refundAllowed } from '@/lib/money-limits';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireCan } from '@/lib/route-guard';
@@ -13,6 +14,9 @@ export async function POST(req: NextRequest) {
   if (!tenantId || !transactionId || want <= 0) return NextResponse.json({ ok: false, error: 'Missing the sale or the amount.' }, { status: 400 });
   const g = await requireCan(req, tenantId, 'checkout.refund'); if (g.deny) return g.deny;
   const db = getAdminDb(); const tenant = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+  // The same per-role refund limit as online orders (lib/money-limits).
+  const allowed = refundAllowed((tenant as any).retailSettings || {}, g.actor || {}, want);
+  if (!allowed.ok) return NextResponse.json({ ok: false, error: allowed.message }, { status: 403 });
   const r = await refundSaleToCard(db, tenantId, tenant, transactionId, want, g.actor?.name || null);
   return NextResponse.json(r, { status: r.ok ? 200 : r.status });
 }

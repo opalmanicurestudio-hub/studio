@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { isStorefrontVisible, listingPriceCents, preorderState, sellableStock, type SellableItem } from '@/lib/retail-orders';
+import { isStorefrontVisible, listingPriceCents, preorderState, onlineSellable, type SellableItem } from '@/lib/retail-orders';
 import { publicDescription, collectImages } from '@/lib/product-public';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { sanitizeShopConfig } from '@/lib/shop-config';
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
       // One malformed inventory doc must never take the whole shop down:
       // anything that throws here is skipped (and logged), not fatal.
       try {
-        const available = Math.max(0, sellableStock(item) || 0);
+        const available = Math.max(0, onlineSellable(item) || 0);
         // Pre-orders sell BEFORE stock exists — that is the whole point — so a
         // grid that decides availability from the shelf alone marks an open
         // pre-order sold out, and the customer never reaches the

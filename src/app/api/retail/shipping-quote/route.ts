@@ -1,3 +1,4 @@
+import { groundFilter, itemGroundOnly } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { quoteExpiry, signQuote } from '@/lib/shipping-quote';
@@ -82,12 +83,14 @@ export async function POST(req: NextRequest) {
     // Parcel weight from real per-item weights (same source as the Ship dialog).
     let ounces = 0;
     let known = false;
+    let groundOnly = false;
     for (const it of items) {
       const id = String(it.productId || '').trim();
       const qty = Math.max(0, Math.floor(Number(it.qty) || 0));
       if (!id || qty <= 0) continue;
       const snap = await db.collection(`tenants/${tenantId}/inventory`).doc(id).get();
       if (!snap.exists) continue;
+      if (itemGroundOnly(snap.data())) groundOnly = true;
       const w = Number((snap.data() as any).weightOz) || 0;
       if (w > 0) { known = true; ounces += w * qty; }
     }
@@ -123,7 +126,7 @@ export async function POST(req: NextRequest) {
     const markup = Math.max(0, Number(rs.shippingMarkupPercent) || 0);
     const exp = quoteExpiry();
 
-    const options = (data.rates || [])
+    const options = groundFilter(data.rates || [], groundOnly)
       .map((r: any) => {
         const base = Math.round(parseFloat(r.amount) * 100);
         const amountCents = Math.round(base * (1 + markup / 100));
@@ -142,10 +145,13 @@ export async function POST(req: NextRequest) {
       .sort((a: any, b: any) => a.amountCents - b.amountCents)
       .slice(0, 5);
 
+    if (options.length === 0 && groundOnly) {
+      return NextResponse.json({ error: 'Some of these items can only travel by ground, and no ground service reaches that address. Try pickup, or a different address.', groundOnly: true }, { status: 422 });
+    }
     if (options.length === 0) {
       return NextResponse.json({ error: 'No carrier options for that address' }, { status: 422 });
     }
-    return NextResponse.json({ options });
+    return NextResponse.json({ groundOnly, options });
   } catch (e: any) {
     return NextResponse.json(
       { error: String(e?.message || 'Shipping quote failed').slice(0, 200) },

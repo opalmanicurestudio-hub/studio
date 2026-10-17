@@ -1,3 +1,4 @@
+import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 
@@ -181,7 +182,7 @@ export async function POST(req: NextRequest) {
         address_from: addressFrom, address_to: addressTo, parcels, async: false,
         ...(extra ? { extra } : {}),
       });
-      const rates = (shipment.rates || [])
+      const rates = groundFilter(shipment.rates || [], order.groundOnly === true)
         .map((r: any) => ({
           id: r.object_id,
           provider: r.provider,
@@ -193,10 +194,10 @@ export async function POST(req: NextRequest) {
         .sort((a: any, b: any) => a.amountCents - b.amountCents)
         .slice(0, 8);
       if (rates.length === 0) {
-        return NextResponse.json({ error: 'No rates returned — check the addresses and parcel size.' }, { status: 422 });
+        return NextResponse.json({ error: order.groundOnly ? 'This order can only go by ground, and no ground rate came back. Check the address, or ship it another way.' : 'No rates returned — check the addresses and parcel size.' }, { status: 422 });
       }
       return NextResponse.json({
-        rates,
+        rates, groundOnly: order.groundOnly === true,
         // Surfaced so the ship dialog can say why a rate costs more than usual.
         protection: {
           signature: decision.signature,

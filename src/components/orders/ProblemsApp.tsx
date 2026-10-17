@@ -52,7 +52,7 @@ export function ProblemsApp() {
     return () => subs.forEach((u) => u());
   }, [fs, tenantId]);
 
-  const groups = React.useMemo(() => buildProblems({ orders, refundOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 48) }), [orders, refundOrders, tickets, claims, returns, now, rs.readyStaleHours]);
+  const groups = React.useMemo(() => buildProblems({ orders, refundOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24) }), [orders, refundOrders, tickets, claims, returns, now, rs.readyStaleHours]);
   React.useEffect(() => { if (wide && !openId && groups.length) setOpenId(groups[0].orderId); }, [wide, openId, groups]);
   const open = openId ? groups.find((g) => g.orderId === openId) || null : null;
   React.useEffect(() => { if (openId && !open && !loading && !wide) setOpenId(null); }, [openId, open, loading, wide]);

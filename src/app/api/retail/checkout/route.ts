@@ -1,3 +1,4 @@
+import { itemGroundOnly } from '@/lib/ground-only';
 import { normaliseIfUnavailable } from '@/lib/retail-swap';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -27,7 +28,7 @@ import {
   checkWholesaleMinimums,
   isStorefrontVisible,
   resolveOptions,
-  sellableStock,
+  onlineSellable,
   type FulfillmentMethod,
   type OrderLine,
   type PriceTier,
@@ -245,6 +246,7 @@ async function handleCheckout(req: NextRequest) {
   );
 
   const lines: OrderLine[] = [];
+  let groundOnly = false;   // any item that can't fly makes the parcel ground only (lib/ground-only)
   const neededByItem = new Map<string, number>();   // two lines can draw on the same shelf item
   for (let i = 0; i < productIds.length; i++) {
     const snap = itemSnaps[i];
@@ -286,9 +288,9 @@ async function handleCheckout(req: NextRequest) {
     // promise they carry is what makes it legitimate, and it's enforced by
     // the clock below rather than by pretending the shelf is full.
     const needed = (neededByItem.get(item.id) || 0) + qty; neededByItem.set(item.id, needed);
-    if (item.digital !== true && item.preorder !== true && sellableStock(item) < needed && item.allowBackorder !== true) {
+    if (item.digital !== true && item.preorder !== true && onlineSellable(item) < needed && item.allowBackorder !== true) {
       return NextResponse.json(
-        { error: `Only ${Math.max(0, sellableStock(item))} of ${item.name} left`, productId: item.id },
+        { error: `Only ${Math.max(0, onlineSellable(item))} of ${item.name} left`, productId: item.id },
         { status: 409 }
       );
     }
@@ -318,6 +320,7 @@ async function handleCheckout(req: NextRequest) {
       .slice(0, 6)
       .map((d: any) => ({ name: String(d.name).slice(0, 80), url: String(d.url).slice(0, 500) }));
     if (lineDocs.length > 0) (line as any).documents = lineDocs;
+    if (itemGroundOnly(item)) { groundOnly = true; (line as any).groundOnly = true; }
     lines.push(line);
   }
 
@@ -496,6 +499,7 @@ async function handleCheckout(req: NextRequest) {
     // move a date the customer was already given.
     ...(promiseAt && !digitalOnly ? { shipPromiseAt: promiseAt } : {}),
     ...(preorderLines.length > 0 ? { hasPreorder: true } : {}),
+    ...(groundOnly && method === 'ship' ? { groundOnly: true } : {}),
     // The agreement itself, in the customer's own words as they were shown
     // them. Carried as TEXT, not a version pointer: a pointer sends whoever
     // reads this later to a file that has since been edited, which is the

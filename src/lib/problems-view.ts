@@ -37,7 +37,7 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
     if (n.kind === 'refund' || n.kind === 'missing') continue;
     const o = byOrder.get(n.orderId) || {};
     const at = n.kind === 'outside' ? ms(o.curbside?.arrivedAt) : n.kind === 'uncollected' ? ms(o.readyAt) : n.kind === 'held' ? ms(o.heldAt || o.paidAt) : ms(o.paidAt);
-    const detail = n.kind === 'held' ? (o.idCheck?.status === 'verified' ? 'ID check passed · ready to release' : String((o.riskCheck?.reasons || [])[0] || o.holdReason || 'Not packed until someone releases it')) : n.kind === 'outside' ? `Waiting ${ago(at, now).replace(' ago', '')}` : n.kind === 'uncollected' ? `Ready ${ago(at, now)}` : 'Packs once the stock is in';
+    const detail = n.kind === 'held' ? (o.idCheck?.status === 'verified' ? 'ID check passed · ready to release' : String((o.riskCheck?.reasons || [])[0] || o.holdReason || 'Not packed until someone releases it')) : n.kind === 'outside' ? `Waiting ${ago(at, now).replace(' ago', '')}` : n.kind === 'uncollected' ? `Ready ${ago(at, now)}${Number(o.uncollectedNotices) ? ` · ${o.uncollectedNotices >= 3 ? 'last-day notice sent' : `${o.uncollectedNotices} reminder${o.uncollectedNotices === 1 ? '' : 's'} sent`}` : ''}` : 'Packs once the stock is in';
     push({ key: n.key, kind: n.kind as ProblemKind, orderId: n.orderId, title: n.text, detail, at, urgent: n.kind === 'outside', ref: o });
   }
   for (const o of byOrder.values()) {

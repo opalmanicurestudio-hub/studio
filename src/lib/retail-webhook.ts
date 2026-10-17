@@ -25,6 +25,7 @@
  * partial-fulfillment flow. Payment confirmation is never blocked on stock.
  */
 
+import { onlineSellable } from './retail-orders';
 import { assessRisk, riskPolicy, type RiskResult } from './retail-risk';
 import { createHmac, timingSafeEqual } from 'crypto';
 
@@ -252,6 +253,20 @@ export async function handleRetailOrderPaid(
   if (risk?.hold) {
     try { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, type: 'order_held', read: false, createdAt: now, link: `/retail-orders/problems?order=${orderId}`, message: `Order #${String(assignedNumber ?? '').padStart(4, '0')} is held for review: ${risk.reasons[0]}` }); } catch { /* the Problems list shows it */ }
   }
+  // Running low online? Tell the team the moment an order takes an item down to its alert level, once per drop.
+  try {
+    const qtyBy = new Map<string, number>();
+    for (const l of (order.lines || [])) if (l.digital !== true && l.productId) qtyBy.set(String(l.productId), (qtyBy.get(String(l.productId)) || 0) + (Number(l.qtyOrdered) || 0));
+    for (const [pid, q] of qtyBy) {
+      const it: any = (await db.collection(`tenants/${tenantId}/inventory`).doc(pid).get()).data(); if (!it) continue;
+      const at = Math.max(0, Math.floor(Number(it.lowStockThreshold) || 0)); if (at <= 0) continue;
+      const after = onlineSellable(it); const before = after + q;
+      if (after <= at && before > at) {
+        const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await n.set({ id: n.id, type: 'low_stock', read: false, createdAt: now, link: `/inventory/product/${pid}`, message: after <= 0 ? `${it.name} just sold out online.` : `${it.name} is running low online: ${after} left.` });
+      }
+    }
+  } catch { /* the inventory screen shows it too */ }
   const confirmed = await orderRef.get();
 
   // Everything below (income transaction description, confirmation email) read

@@ -8,7 +8,7 @@ export type OrdersTab = 'pack' | 'ready' | 'done';
 export const ACTIVE_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
 
 const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
-export const orderNum = (o: any) => (typeof o?.orderNumber === 'number' && o.orderNumber > 0 ? `#${String(o.orderNumber).padStart(4, '0')}` : 'Draft');
+export const orderNum = (o: any) => (o?.isTest ? 'Test' : typeof o?.orderNumber === 'number' && o.orderNumber > 0 ? `#${String(o.orderNumber).padStart(4, '0')}` : 'Draft');
 export const firstName = (n: any) => String(n || '').trim().split(/\s+/)[0] || 'Customer';
 export const money = (c: number) => `$${(Math.round(Number(c) || 0) / 100).toFixed(2)}`;
 

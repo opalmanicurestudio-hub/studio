@@ -2,9 +2,11 @@
 // src/components/orders/PoliciesScreen.tsx — EVERY SHOP POLICY ON ONE SCREEN. Cancelling, returns, restocking fees by
 // condition, problem reports, refunds and the wording customers see. Each change saves on its own path the moment it's
 // made, so nothing here can overwrite a setting changed somewhere else. Managers change them; everyone else can read.
+import { rolesFor } from '@/lib/permissions';
+import { uncollectedPolicy } from '@/lib/retail-uncollected-policy';
 import * as React from 'react';
 import Link from 'next/link';
-import { doc, updateDoc, type Firestore } from 'firebase/firestore';
+import { deleteField, doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { FEE_BANDS, type FeeBand } from '@/lib/restocking';
@@ -23,6 +25,19 @@ function NumberField({ value, unit, prefix, label, onSave, disabled, max }: { va
     </label>);
 }
 
+function LimitField({ value, label, onSave, disabled }: { value: number | null; label: string; onSave: (cents: number | null) => void; disabled?: boolean }) {
+  const shown = value == null ? '' : String(value / 100);
+  const [v, setV] = React.useState(shown);
+  React.useEffect(() => { setV(shown); }, [shown]);
+  const commit = () => { const t = v.replace(/[^0-9.]/g, ''); const next = t === '' ? null : Math.round(Number(t) * 100); if (next !== value) onSave(next); };
+  return (
+    <label className="flex h-10 shrink-0 items-center gap-1 rounded-xl px-3" style={{ background: C.paper }}>
+      <span className="text-[17px]" style={muted}>$</span>
+      <input inputMode="decimal" aria-label={label} value={v} placeholder="No limit" disabled={disabled} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        className="w-20 border-0 bg-transparent text-right text-[17px] outline-none ring-0 focus:ring-0 disabled:opacity-60" />
+    </label>);
+}
+
 export function PoliciesScreen() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
   const { selectedTenant, role } = useTenant() as any;
@@ -31,6 +46,8 @@ export function PoliciesScreen() {
   const pol = (rs.policies || {}) as any;
   const canEdit = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const [toast, setToast] = React.useState('');
+  // Opening Policies counts as reviewing them for the shop's setup steps.
+  React.useEffect(() => { if (canEdit && fs && tenantId && !rs.policiesReviewedAt) void updateDoc(doc(fs, 'tenants', tenantId), { 'retailSettings.policiesReviewedAt': new Date().toISOString() }).catch(() => {}); }, [canEdit, fs, tenantId, rs.policiesReviewedAt]);
   const [wording, setWording] = React.useState<string>(rs.returnPolicyText || '');
   React.useEffect(() => { setWording(rs.returnPolicyText || ''); }, [rs.returnPolicyText]);
 
@@ -47,6 +64,9 @@ export function PoliciesScreen() {
     void save('retailSettings.policies.restockingFees', next, 'Restocking fee');
   };
   const dollars = (c: unknown) => Math.round(Math.max(0, Number(c) || 0)) / 100;
+  const unc = uncollectedPolicy(rs);
+  const refundRoles = Object.entries(rolesFor(selectedTenant)).filter(([id, r]: any) => id !== 'owner' && Array.isArray(r.caps) && r.caps.includes('checkout.refund'));
+  const limits = (pol.refundLimits || {}) as Record<string, number>;
   const payer = rs.returnLabelPayer === 'shop' || rs.returnLabelPayer === 'customer' ? rs.returnLabelPayer : 'fault';
   const returnsOn = rs.returnsEnabled !== false;
 
@@ -89,6 +109,23 @@ export function PoliciesScreen() {
           <Row label="Refund on its own up to" note="Smaller refunds go back to the card as soon as a return is checked in. $0 means you confirm every one."><NumberField label="Refund on its own up to" prefix="$" value={dollars(pol.refundAutoBelowCents)} disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.refundAutoBelowCents', Math.round(n * 100), 'Refund limit')} /></Row>
           <Row label="Staff can give store credit up to" note="Managers have no limit." last><NumberField label="Staff credit limit" prefix="$" value={dollars(rs.staffCreditCapCents ?? 2500)} disabled={!canEdit} onSave={(n) => void save('retailSettings.staffCreditCapCents', Math.round(n * 100), 'Credit limit')} /></Row>
         </Group>
+
+        <Group title="Pickups nobody collects" foot={`They get a text and an email at each step. After the hold, the order shows in Problems for you to ${unc.after === 'keep' ? 'decide on' : 'put back on the shelf'}.`}>
+          <Row label="First reminder after" note="Hours after it’s ready."><NumberField label="First reminder after hours" value={unc.firstHours} unit="hours" disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.uncollected.firstHours', Math.max(1, Math.floor(n)), 'Reminder')} /></Row>
+          <Row label="Second reminder after"><NumberField label="Second reminder after hours" value={unc.secondHours} unit="hours" disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.uncollected.secondHours', Math.max(1, Math.floor(n)), 'Reminder')} /></Row>
+          <Row label="Hold it for"><NumberField label="Hold for days" value={unc.holdDays} unit="days" disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.uncollected.holdDays', Math.max(1, Math.floor(n)), 'Hold time')} /></Row>
+          <div className="px-4 py-3">
+            <p className="m-0 text-[17px]">After that</p>
+            <div className="mt-2.5"><Seg value={unc.after} onChange={(v) => void save('retailSettings.policies.uncollected.after', v, 'Pickup policy')} options={[{ id: 'refund', label: 'Refund' }, { id: 'credit', label: 'Store credit' }, { id: 'keep', label: 'Keep it' }]} /></div>
+            <p className="m-0 mt-2 text-[13px]" style={muted}>This is what the last-day message tells them will happen.</p>
+          </div>
+        </Group>
+
+        {refundRoles.length > 0 && (
+          <Group title="Refund limits by role" foot="Online and in store. The owner has no limit. Leave a role blank for no limit, or set $0 so they can’t refund at all.">
+            {refundRoles.map(([id, r]: any, i) => (
+              <Row key={id} label={r.name} last={i === refundRoles.length - 1}><LimitField label={`${r.name} refund limit`} value={limits[id] == null ? null : Number(limits[id])} disabled={!canEdit} onSave={(c) => void save(`retailSettings.policies.refundLimits.${id}`, c == null ? deleteField() : c, `${r.name} limit`)} /></Row>))}
+          </Group>)}
 
         <Group title="Orders that look risky" foot="A held order is paid but isn’t packed until a manager releases it. The customer isn’t told. Pickup orders are only held when Stripe itself flags the payment.">
           <Row label="Hold them for review" note="When Stripe flags the payment, or two warning signs line up."><Toggle label="Hold risky orders" on={pol.fraudHold !== 'off'} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.fraudHold', v ? 'auto' : 'off', 'Risk check')} /></Row>

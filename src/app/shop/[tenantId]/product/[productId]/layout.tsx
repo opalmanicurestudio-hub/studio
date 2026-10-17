@@ -2,7 +2,7 @@ import { jsonLd } from '@/lib/json-ld';
 import type { Metadata } from 'next';
 import React from 'react';
 
-import { listingPriceCents, sellableStock, isStorefrontVisible, type SellableItem } from '@/lib/retail-orders';
+import { listingPriceCents, onlineSellable, isStorefrontVisible, type SellableItem } from '@/lib/retail-orders';
 import { publicDescription } from '@/lib/product-public';
 import { productJsonLd, seoDescription, seoTitle } from '@/lib/shop-seo';
 import { faqJsonLd } from '@/lib/shop-seo';
@@ -133,7 +133,7 @@ export default async function ProductSeoLayout({
     description: publicDescription(item),
     images,
     priceCents: listingPriceCents(item as SellableItem),
-    inStock: item.digital === true || item.preorder === true || sellableStock(item as SellableItem) > 0 || item.allowBackorder === true,
+    inStock: item.digital === true || item.preorder === true || onlineSellable(item as SellableItem) > 0 || item.allowBackorder === true,
     sku: String(item.sku || ''),
     url: origin ? `${origin}/shop/${tenantId}/product/${productId}` : undefined,
     seoDescription: String(item.seoDescription || ''),

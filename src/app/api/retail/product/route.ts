@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
-  isStorefrontVisible, listingPriceCents, sellableStock, type SellableItem,
+  isStorefrontVisible, listingPriceCents, onlineSellable, type SellableItem,
 } from '@/lib/retail-orders';
 import { publicFields } from '@/lib/product-public';
 import { preorderState } from '@/lib/retail-orders';
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   const wholesaleUnlocked = wsAccess.unlocked;
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
 
-  const available = Math.max(0, sellableStock(item));
+  const available = Math.max(0, onlineSellable(item));
   // publicSpecs() also surfaces the inventory size/unit as a Size row, so an
   // item detailed only in Inventory still has real specs on its page.
   const specs = pub.specs.filter((s) => s.label && s.value).slice(0, 40);

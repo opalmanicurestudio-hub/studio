@@ -1,3 +1,4 @@
+import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 
@@ -157,11 +158,11 @@ export async function POST(req: NextRequest) {
         async: false,
         ...(extra ? { extra } : {}),
       });
-      const rates = (shipment.rates || [])
+      const rates = groundFilter(shipment.rates || [], order.groundOnly === true)
         .map((r: any) => ({ id: r.object_id, provider: r.provider, service: r.servicelevel?.name || '', amountCents: Math.round(parseFloat(r.amount) * 100) }))
         .filter((r: any) => Number.isFinite(r.amountCents) && r.amountCents > 0)
         .sort((a: any, b: any) => a.amountCents - b.amountCents);
-      if (rates.length === 0) { fail('No rates came back'); continue; }
+      if (rates.length === 0) { fail(order.groundOnly ? 'Ground only, and no ground rate came back' : 'No rates came back'); continue; }
       const cheapest = rates[0];
 
       const txn = await shippo(apiKey, '/transactions/', { rate: cheapest.id, label_file_type: 'PNG_4x6', async: false });

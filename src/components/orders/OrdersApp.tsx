@@ -81,7 +81,7 @@ export function OrdersApp() {
   const byId = React.useMemo(() => new Map([...orders, ...done].map((o) => [o.id, o])), [orders, done]);
   const solo = React.useMemo(() => soloShop(staff || [], (m: any) => permissionsFor(m)), [staff]);
   const queue = React.useMemo(() => packQueue(orders, rs, now), [orders, rs, now]);
-  const needs = React.useMemo(() => needsYou(orders, now, Math.max(1, Number(rs.readyStaleHours) || 48)), [orders, now, rs.readyStaleHours]);
+  const needs = React.useMemo(() => needsYou(orders, now, Math.max(1, Number(rs.readyStaleHours) || 24)), [orders, now, rs.readyStaleHours]);
   const counts = React.useMemo(() => ({ pack: orders.filter((o) => tabOf(o) === 'pack').length, ready: orders.filter((o) => tabOf(o) === 'ready').length }), [orders]);
   const list = React.useMemo(() => {
     const src = tab === 'done' ? done : orders.filter((o) => tabOf(o) === tab);
@@ -134,7 +134,7 @@ export function OrdersApp() {
 
   const row = (o: any) => {
     const d = dueLine(o, rs, now);
-    const extra = o.stage === 'picking' && o.claimedByName ? `${o.claimedBy === actor.id ? 'You’re' : `${firstName(o.claimedByName)} is`} packing` : o.holdForReview ? 'Held for review' : o.stage === 'cancelled' ? 'Cancelled' : '';
+    const extra = o.isTest ? 'Test order' : o.stage === 'picking' && o.claimedByName ? `${o.claimedBy === actor.id ? 'You’re' : `${firstName(o.claimedByName)} is`} packing` : o.holdForReview ? 'Held for review' : o.stage === 'cancelled' ? 'Cancelled' : '';
     const on = picked.has(o.id);
     const lead = selecting
       ? <span key={on ? 'on' : 'off'} className={`${on ? 'cf-anim-pop ' : ''}grid h-11 w-11 shrink-0 place-items-center`}><span className="grid h-6 w-6 place-items-center rounded-full border-2" style={on ? { background: C.ink, borderColor: C.ink } : { borderColor: '#c7c8cc' }}>{on ? Ic.check : null}</span></span>

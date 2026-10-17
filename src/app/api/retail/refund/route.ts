@@ -1,3 +1,4 @@
+import { refundAllowed } from '@/lib/money-limits';
 import { cardRefundableCents } from '@/lib/retail-money';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
@@ -86,6 +87,10 @@ export async function POST(req: NextRequest) {
     const auth = await verifyStaffActor(req, tenantId);
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
     if (!auth.actor.caps?.includes('checkout.refund')) return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
+    // The owner's limit for this person's role (lib/money-limits), checked against what would be sent now.
+    const wouldSend = Math.min(Number(order.pendingRefundCents) || 0, cardRefundableCents(order));
+    const allowed = refundAllowed(tenant.retailSettings || {}, auth.actor as any, wouldSend);
+    if (!allowed.ok) return NextResponse.json({ error: allowed.message, limitCents: allowed.limit }, { status: 403 });
     actor = auth.actor;
   }
   if (!tenant.stripeAccountId) {

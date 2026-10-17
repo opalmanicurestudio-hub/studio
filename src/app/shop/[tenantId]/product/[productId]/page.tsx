@@ -1,5 +1,6 @@
 'use client';
 
+import { RestockAlert } from '@/components/shop/RestockAlert';
 import { ArrowLeft, BookOpen, CheckCircle2, ChevronRight, FileDown, ListChecks, Loader, Minus, Package, Plus, RotateCcw, ShieldCheck, ShoppingBag, Star, Truck } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -373,6 +374,10 @@ export default function ProductPage() {
                 : 'Sold out'}
             </span>
           </div>
+
+          {!product.inStock && !paused && !(product as any).preorder?.isPreorder && !(product as any).digital && (
+            <RestockAlert tenantId={tenantId} productId={(product as any).id || productId} productName={product.name} />
+          )}
 
           {cfg.showTrust && (
           <div className="grid grid-cols-3 gap-2">

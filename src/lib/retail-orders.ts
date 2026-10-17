@@ -155,6 +155,11 @@ export function sellableStock(item: Pick<SellableItem, 'totalStock' | 'stockRese
   return item.totalStock - (item.stockReserved ?? 0) - allocated;
 }
 
+/** What the ONLINE shop may sell: sellable stock minus the units the shop keeps back for in-store customers. */
+export function onlineSellable(item: Pick<SellableItem, 'totalStock' | 'stockReserved'> & { storeHoldback?: number }): number {
+  return sellableStock(item) - Math.max(0, Math.floor(Number((item as any).storeHoldback) || 0));
+}
+
 /**
  * WHY an item isn't in the shop — the same four rules isStorefrontVisible
  * enforces, but as reasons a person can act on.

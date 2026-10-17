@@ -148,6 +148,9 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
     Array.isArray(product.optionGroups) ? product.optionGroups : [],
   );
 
+  const [holdback, setHoldback] = useState<string>(String(Number(product.storeHoldback) || 0));
+  const [lowAt, setLowAt] = useState<string>(String(Number(product.lowStockThreshold) || 0));
+  const [ground, setGround] = useState<boolean>(product.shipGroundOnly === true);
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
   const flash = (what: string) => { setSavedFlash(what); setTimeout(() => setSavedFlash(null), 2000); };
 
@@ -177,6 +180,7 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
     options: optionGroupsToText(groups) !== optionGroupsToText(Array.isArray(product.optionGroups) ? product.optionGroups : []),
     publish: showOnline !== (product.showOnline === true),
     seo: seoT !== (product.seoTitle || '') || seoD !== (product.seoDescription || ''),
+    stock: Number(holdback) !== (Number(product.storeHoldback) || 0) || Number(lowAt) !== (Number(product.lowStockThreshold) || 0) || ground !== (product.shipGroundOnly === true),
   };
 
   // What a search result will actually look like. Both fields fall back to
@@ -216,6 +220,33 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
           </Button>
         )}
       </div>
+
+      <Section
+        title="Stock and shipping"
+        hint="Keep some for the shop counter, get told when it's running low, and keep items that can't fly on the ground."
+        dirty={dirty.stock}
+        onSave={async () => { await onSave({ storeHoldback: Math.max(0, Math.floor(Number(holdback) || 0)), lowStockThreshold: Math.max(0, Math.floor(Number(lowAt) || 0)), shipGroundOnly: ground }); flash('stock'); }}
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Keep for the store</Label>
+            <Input aria-label="Units kept back for in-store customers" inputMode="numeric" value={holdback} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHoldback(e.target.value.replace(/\D/g, ''))} className="h-11 rounded-xl border-2 text-center font-mono font-bold" />
+            <p className="text-[10px] font-bold text-muted-foreground">The online shop stops selling when only this many are left.</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Running low at</Label>
+            <Input aria-label="Tell me when online stock drops to" inputMode="numeric" value={lowAt} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLowAt(e.target.value.replace(/\D/g, ''))} className="h-11 rounded-xl border-2 text-center font-mono font-bold" />
+            <p className="text-[10px] font-bold text-muted-foreground">You get an alert when online stock drops to this. 0 means off.</p>
+          </div>
+        </div>
+        <div className="flex items-start justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-tight">Ships by ground only</p>
+            <p className="text-[11px] font-bold text-muted-foreground">For things that can't fly: nail polish, acetone, aerosols, perfume, lithium batteries. Orders with this item only get ground services.</p>
+          </div>
+          <Switch aria-label="Ships by ground only" checked={ground} onCheckedChange={(v: boolean) => setGround(v)} />
+        </div>
+      </Section>
 
       <Section
         title="What customers read"
