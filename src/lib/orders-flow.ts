@@ -5,7 +5,7 @@
 import { type Firestore, doc, updateDoc } from 'firebase/firestore';
 import {
   claimSpecificOrder, markPacked, markReady, notifyCurbside, recordItemScan, recordLineTap, resolveShortLine,
-  releaseBatch, markBringingOut, handoffByScan, handoffWithoutScan, markShipped, cancelOrder, type Actor,
+  releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffWithoutScan, markShipped, cancelOrder, type Actor,
 } from '@/lib/retail-fulfill';
 import { nextFreeSlot } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -26,6 +26,10 @@ export async function scanInto(fs: Firestore, t: string, orderId: string, value:
 }
 export async function tapInto(fs: Firestore, t: string, orderId: string, lineId: string, actor: Actor) {
   return recordLineTap(fs, t, orderId, lineId, actor);
+}
+
+export async function undoTick(fs: Firestore, t: string, orderId: string, lineId: string, actor: Actor) {
+  return undoLineCount(fs, t, orderId, lineId, actor);
 }
 
 /** Put it down: stops packing and returns the order to the queue for anyone. */
@@ -72,7 +76,12 @@ export async function handOver(fs: Firestore, t: string, o: any, actor: Actor, v
 }
 
 export async function shipIt(fs: Firestore, t: string, o: any, actor: Actor, tracking: { carrier?: string; number?: string; url?: string }): Promise<Result> {
-  return markShipped(fs, t, o.id, tracking, actor);
+  const r = await markShipped(fs, t, o.id, tracking, actor);
+  // Tracking typed from a label bought elsewhere: the carrier won't tell the customer, so we do.
+  if (r.ok && !o.shippoTransactionId && (tracking.number || o.trackingNumber)) {
+    try { await fetch('/api/retail/shipped-notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id }) }); } catch { /* the order page shows tracking either way */ }
+  }
+  return r;
 }
 
 export async function cancelIt(fs: Firestore, t: string, o: any, actor: Actor, reason: string): Promise<Result> {

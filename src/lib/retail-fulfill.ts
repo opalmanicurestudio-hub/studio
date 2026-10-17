@@ -329,6 +329,29 @@ export async function recordLineTap(
   }
 }
 
+/** Undo one tick or scan on a line (a slip of the finger). Only while the order is still being packed. */
+export async function undoLineCount(
+  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = oSnap.data() as RetailOrder;
+      if (order.stage !== 'picking') return { ok: false, message: 'Packing is already finished for this order.' };
+      const idx = order.lines.findIndex((l) => l.lineId === lineId);
+      if (idx < 0 || order.lines[idx].qtyScanned <= 0) return { ok: false, message: 'Nothing to undo.' };
+      const lines = order.lines.map((l, i) => i === idx ? { ...l, qtyScanned: l.qtyScanned - 1 } : l);
+      txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
+      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { kind: 'count_undone', lineId, text: `Took one ${order.lines[idx].name} back out` }));
+      return { ok: true, message: 'Undone' };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'That didn’t save. Try again.' };
+  }
+}
+
 /**
  * Shelf discrepancy: fewer units physically exist than the order needs.
  * Corrects shelf truth (totalStock down), releases the hold for the missing

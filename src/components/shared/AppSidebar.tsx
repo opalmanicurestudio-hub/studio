@@ -82,8 +82,7 @@ const STUDIO_ASSETS = [
 ];
 
 const COMMERCE = [
-  { href: '/retail-orders',          icon: PackageCheck, label: 'Shop orders'   },
-  { href: '/retail-orders/history',  icon: HistoryIcon,  label: 'Order history' },
+  { href: '/retail-orders',          icon: PackageCheck, label: 'Orders'        },
   { href: '/retail-orders/customers', icon: Users2,      label: 'Shoppers'      },
   { href: '/retail-orders/waves',     icon: Layers,       label: 'Wave picking'  },
   { href: '/retail-orders/bench',     icon: PackageOpen,  label: 'Pack bench'    },
