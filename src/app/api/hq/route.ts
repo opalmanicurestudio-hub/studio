@@ -35,7 +35,7 @@ const NEEDS: Record<string, HqPerm> = {
   'ticket-update': 'tickets', 'ticket-note': 'tickets', 'ticket-draft': 'tickets', macros: 'tickets', 'macro-save': 'tickets', 'macro-delete': 'tickets',
   insights: 'insights', 'insights-refresh': 'insights', 'insights-brief': 'insights', team: 'team', 'team-save': 'team', 'team-remove': 'team',
   finance: 'finance', 'finance-sync': 'finance', 'finance-settings': 'finance', 'expense-save': 'finance', 'expense-delete': 'finance',
-  'billing-settings': 'finance', 'billing-setup-prices': 'finance',
+  'billing-settings': 'finance', 'billing-setup-prices': 'finance', addon: 'fix',
 };
 import { smsConfigured } from '@/lib/sms';
 
@@ -89,6 +89,14 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ ok: true, allowance: await locationAllowance(db, id) });
   }
+  if (b.action === 'addon') {   // HQ: switch a paid add-on on or off for a business by hand (until it can be bought in the app)
+    const id = String(b.id || ''); const key = String(b.addon || '');
+    if (!id || !['assistant'].includes(key)) return NextResponse.json({ ok: false, error: 'Missing business or add-on.' }, { status: 400 });
+    const on = b.on === true; const at = new Date().toISOString();
+    await db.doc(`tenants/${id}`).set({ addons: { [key]: on ? { active: true, since: at, grantedBy: admin.email || 'HQ' } : { active: false, endedAt: at } } }, { merge: true });
+    await audit(db, admin.email || 'HQ', id, 'addon', `${on ? 'Turned on' : 'Turned off'} the ${key} add-on`);
+    return NextResponse.json({ ok: true, addons: { [key]: on } });
+  }
   if (b.action === 'health-check') {   // HQ "Run account check" for one business
     const { serverHealthCheck } = await import('@/lib/account-health');
     const id = String(b.id || ''); if (!id) return NextResponse.json({ ok: false, error: 'Missing business.' }, { status: 400 });
@@ -129,6 +137,7 @@ export async function POST(req: NextRequest) {
       id, name: t.name, businessType: t.businessType || t.category || 'other', status: t.subscriptionStatus || 'inactive', createdAt: t.createdAt || null,
       activatedAt: t.activatedAt || null, inviteCode: t.inviteCode || null, teamSize: t.teamSize || null, tools: fromTenantModules(t.modules),
       owner: { email: o.email, lastSignIn: o.lastSignIn, uid: t.userId || null }, bookingUrl: `/book/${id}`,
+      addons: { assistant: t.addons?.assistant === true || t.addons?.assistant?.active === true },
     }, signals: s, setup: setupScore(s), health: healthScore(s), timeline, tickets });
   }
 

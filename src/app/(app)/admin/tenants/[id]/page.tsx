@@ -72,6 +72,10 @@ export default function HqTenantPage({ params }: { params: Promise<{ id: string 
                 <span className="ml-auto flex items-center gap-1.5">+ <input value={grant} onChange={(e) => setGrant(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} className="h-9 w-12 rounded-lg border px-2 text-center" aria-label="Extra locations granted" /> granted free
                   <button type="button" onClick={saveGrant} className="h-9 rounded-lg bg-foreground px-3 text-xs font-semibold text-background">Save</button></span>
               </div>}
+              <div className="flex flex-wrap items-center gap-2 rounded-xl bg-card/60 p-2.5 text-sm">
+                <span><span className="font-semibold">Assistant add-on:</span> {d.tenant.addons?.assistant ? 'on' : 'off'}</span>
+                <button type="button" onClick={async () => { const r = await hq({ action: 'addon', id, addon: 'assistant', on: !d.tenant.addons?.assistant }); if (r.ok) { setMsg(r.addons.assistant ? 'Assistant add-on turned on.' : 'Assistant add-on turned off.'); load(); } else setMsg(r.error || 'Couldn’t save.'); }} className="ml-auto h-9 rounded-lg bg-foreground px-3 text-xs font-semibold text-background">{d.tenant.addons?.assistant ? 'Turn off' : 'Turn on'}</button>
+              </div>
               {check?.findings?.length > 0 && <ul className="space-y-1.5 text-sm">{check.findings.map((f: any) => <li key={f.key} className="flex items-start gap-2">
                 <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${f.level === 'warn' ? 'bg-amber-100 text-amber-900' : f.level === 'ok' ? 'bg-emerald-100 text-emerald-800' : 'bg-border text-foreground/80'}`}>{f.level === 'warn' ? '!' : f.level === 'ok' ? '✓' : 'i'}</span><span>{f.text}</span></li>)}</ul>}
             </section>
