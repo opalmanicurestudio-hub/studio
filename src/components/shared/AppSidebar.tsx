@@ -81,19 +81,20 @@ const STUDIO_ASSETS = [
   { href: '/consents',    icon: FileSignature, label: 'Agreements'         },
 ];
 
+// The shop's places own their sub-screens: everything reached from Setup lights Setup, not Orders.
+const SHOP_SETUP_UNDER = ['settings', 'policies', 'designer', 'wholesale', 'reviews', 'claims', 'returns', 'support', 'waves', 'bench', 'kpis', 'classic', 'exceptions'];
+function shopActive(href: string, pathname: string): boolean {
+  const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
+  if (href === '/retail-orders/setup') return under(href) || SHOP_SETUP_UNDER.some((x) => under(`/retail-orders/${x}`));
+  if (href === '/retail-orders') return under(href) && !['problems', 'customers', 'setup', ...SHOP_SETUP_UNDER].some((x) => under(`/retail-orders/${x}`));
+  return under(href);
+}
+
 const COMMERCE = [
-  { href: '/retail-orders',          icon: PackageCheck, label: 'Orders'        },
-  { href: '/retail-orders/customers', icon: Users2,      label: 'Shoppers'      },
-  { href: '/retail-orders/waves',     icon: Layers,       label: 'Wave picking'  },
-  { href: '/retail-orders/bench',     icon: PackageOpen,  label: 'Pack bench'    },
-  { href: '/retail-orders/kpis',      icon: Gauge,        label: 'Fulfilment'    },
-  { href: '/retail-orders/returns',  icon: RotateCcw,    label: 'Returns'       },
-  { href: '/retail-orders/reviews',  icon: Star,         label: 'Reviews'       },
-  { href: '/retail-orders/claims',   icon: ShieldQuestion, label: 'Claims'      },
-  { href: '/retail-orders/support',  icon: LifeBuoy,     label: 'Shop support'  },
-  { href: '/retail-orders/wholesale', icon: Building2,   label: 'Wholesale'     },
-  { href: '/retail-orders/designer', icon: Paintbrush,   label: 'Shop designer' },
-  { href: '/retail-orders/settings', icon: ShoppingBag,  label: 'Shop settings' },
+  { href: '/retail-orders',           icon: PackageCheck,   label: 'Orders'   },
+  { href: '/retail-orders/problems',  icon: ShieldQuestion, label: 'Problems' },
+  { href: '/retail-orders/customers', icon: Users2,         label: 'Shoppers' },
+  { href: '/retail-orders/setup',     icon: ShoppingBag,    label: 'Setup'    },
 ];
 
 const TEAM_FULL = [
@@ -182,9 +183,7 @@ function NavItem({
   const isCollapsed = state === 'collapsed';
 
   const finalHref = isPortal && tenantId ? `${href}/${tenantId}` : href;
-  const isActive  = !isPortal && (
-    pathname === href || pathname.startsWith(`${href}/`)
-  );
+  const isActive  = !isPortal && shopActive(href, pathname);
 
   const btn = (
     <SidebarMenuButton

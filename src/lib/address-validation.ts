@@ -170,9 +170,18 @@ export function checkoutPolicyText(retailSettings: any): string {
   const rs = retailSettings || {};
   const stated = String(rs.returnPolicyText || '').trim();
   if (stated) return stated;
-  const days = Math.max(1, Math.floor(Number(rs.returnWindowDays) || 30));
-  const report = Math.max(1, Math.floor(Number(rs.deliveryIssueWindowDays) || 7));
-  return `Returns accepted within ${days} days of delivery for unopened items in original condition. Please report any delivery problem within ${report} days of the delivery scan so we can open a carrier claim in time.`;
+  const days = Math.max(0, Math.floor(Number(rs.returnWindowDays) || 0));
+  const report = Math.max(0, Math.floor(Number(rs.deliveryIssueWindowDays) || 0));
+  const reportLine = `Please report any delivery problem${report ? ` within ${report} days of delivery` : ' as soon as you can'} so we can put it right.`;
+  if (rs.returnsEnabled === false) return `All sales are final, but anything damaged, faulty or wrong is always put right. ${reportLine}`;
+  const p = rs.policies || {};
+  const m = p.restockingFees && typeof p.restockingFees === 'object' ? p.restockingFees : null;
+  const pct = (k: string) => Math.min(50, Math.max(0, Math.floor(Number(m ? m[k] : p.restockingFeePct) || 0)));
+  const fees = [['unopened', pct('as_new')], ['opened', pct('opened')], ['damaged', pct('damaged')]].filter(([, n]) => Number(n) > 0) as [string, number][];
+  const feeLine = !fees.length ? '' : fees.length === 3 && fees.every(([, n]) => n === fees[0][1])
+    ? ` A ${fees[0][1]}% restocking fee applies to change-of-mind refunds.`
+    : ` Change-of-mind refunds carry a restocking fee: ${fees.map(([w, n]) => `${n}% for ${w} items`).join(', ')}.`;
+  return `Returns accepted${days ? ` within ${days} days of delivery` : ''}.${feeLine} There is never a fee when an item arrives damaged, faulty or wrong. ${reportLine}`;
 }
 
 export function policySnapshot(retailSettings: any): PolicySnapshot {

@@ -1,3 +1,4 @@
+import { cardRefundableCents } from '@/lib/retail-money';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -107,13 +108,16 @@ export async function POST(req: NextRequest) {
       const cur = (await tx.get(oRef)).data() || {};
       const lock = cur.refundInFlight;
       if (lock && Date.parse(lock.at || '') > Date.now() - 2 * 60000) throw new Error('busy');
-      cents = Number(cur.pendingRefundCents) || 0;
+      // Never more than the card can take back: anything paid by store credit or gift card is returned that way.
+      cents = Math.min(Number(cur.pendingRefundCents) || 0, cardRefundableCents(cur));
+      if ((Number(cur.pendingRefundCents) || 0) > 0 && cents <= 0) throw new Error('nocard');
       if (cents <= 0) throw new Error('none');
       seq = (Number(cur.refundSeq) || 0) + 1;
       tx.update(oRef, { refundInFlight: { cents, seq, at: new Date().toISOString(), by: actor.uid } });
     });
   } catch (e: any) {
     if (e?.message === 'busy') return NextResponse.json({ error: 'A refund on this order is already being sent. Give it a moment.' }, { status: 409 });
+    if (e?.message === 'nocard') return NextResponse.json({ error: 'Everything paid by card is already refunded. Give the rest back as store credit.' }, { status: 409 });
     if (e?.message === 'none') return NextResponse.json({ error: 'No refund is pending on this order.' }, { status: 409 });
     return NextResponse.json({ error: 'Couldn’t start the refund. Try again.' }, { status: 500 });
   }

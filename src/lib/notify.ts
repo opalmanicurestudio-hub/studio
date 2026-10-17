@@ -40,6 +40,8 @@ export async function ensureApptToken(db: any, tenantId: string, apptId: string)
 }
 
 export type NotifyInput = {
+  /** A shop support case this email is about: the customer's reply goes back onto it (lib/inbound-email). */
+  replyCase?: string;
   /** Merge values for owner-customized copy. Ignored when the shop has not
    *  written its own version of this message kind. */
   tokens?: Record<string, string | number | null | undefined>;
@@ -103,6 +105,8 @@ export async function replyToFor(db: any, tenantId: string, input: any): Promise
   if (domain) {
     // Each client gets their own signed reply address, so a reply is linked to them only when it answers our email
     // (lib/inbound-email), never just because the From line says so.
+    // A reply to an email about a shop support case goes straight back onto that case.
+    if (input?.replyCase) { const { replyTag } = await import('./inbound-email'); const c = `case-${String(input.replyCase)}`; return `reply+${tenantId}.${c}.${replyTag(tenantId, c)}@${domain}`; }
     if (input?.clientId) { const { replyTag } = await import('./inbound-email'); return `reply+${tenantId}.${String(input.clientId)}.${replyTag(tenantId, String(input.clientId))}@${domain}`; }
     return `reply+${tenantId}@${domain}`;
   }

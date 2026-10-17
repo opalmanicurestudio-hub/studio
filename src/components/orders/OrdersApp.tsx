@@ -4,8 +4,6 @@
 // sit in a tab bar; on a computer, the order opens beside the list. A one-person shop leads with the next order.
 // Live from Firestore; the packing engine is lib/retail-fulfill, the screen's own rules are lib/orders-view.
 import * as React from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { collection, limit, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -22,17 +20,12 @@ import { PackMode } from './PackMode';
 import { MissingSheet } from './MissingSheet';
 import { ShipSheet } from './ShipSheet';
 import { HandoverSheet } from './HandoverSheet';
+import { PhoneShopBar, useWide } from './shell';
 import { SelectBar } from './SelectBar';
 import { ShipToday } from './ShipToday';
 import { bringingOut } from '@/lib/orders-flow';
 
 const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
-
-function useWide() {
-  const [w, setW] = React.useState(false);
-  React.useEffect(() => { const m = window.matchMedia('(min-width: 1024px)'); const f = () => setW(m.matches); f(); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, []);
-  return w;
-}
 
 export function OrdersApp() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
@@ -124,6 +117,7 @@ export function OrdersApp() {
   const shipPacked = orders.filter((o) => o.method === 'ship' && o.stage === 'packed' && !o.holdForReview);
   const outside = tab === 'ready' && !q ? orders.filter((o) => o.stage === 'arrived') : [];
 
+  React.useEffect(() => { const id = new URLSearchParams(window.location.search).get('order'); if (id) setOpenId(id); }, []);
   const open = openId ? byId.get(openId) || null : null;
   const packing = packId ? byId.get(packId) || null : null;
   React.useEffect(() => { if (packId && packing && !['paid', 'picking', 'packed'].includes(packing.stage)) setPackId(null); }, [packId, packing]);
@@ -206,7 +200,7 @@ export function OrdersApp() {
       ) : (
         <div className="pb-48">{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
       )}
-      {!wide && !open && !selecting && <PhoneShopBar onPackNext={perms.canPick && tab === 'pack' && !nextUp ? packNext : undefined} problems={needs.filter((n) => n.kind === 'refund').length} />}
+      {!wide && !open && !selecting && <PhoneShopBar onPackNext={perms.canPick && tab === 'pack' && !nextUp ? packNext : undefined} problems={needs.filter((n) => n.kind !== 'outside').length} />}
       {!wide && panel}
 
       {packing && <PackMode fs={fs} tenantId={tenantId} order={packing} all={orders} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor} batch={batches.find((b) => b.id === packing.batchId) || null}
@@ -242,24 +236,3 @@ function Arrival({ o, now, onOut, onHand }: { o: any; now: number; onOut: () => 
     </div>);
 }
 
-function PhoneShopBar({ onPackNext, problems }: { onPackNext?: () => void; problems: number }) {
-  const path = usePathname() || '';
-  const I = (d: React.ReactNode) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>;
-  const tabs: [string, string, React.ReactNode, number][] = [
-    ['/retail-orders', 'Orders', I(<><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 7v10l9 4 9-4V7" /></>), 0],
-    ['/retail-orders/support', 'Problems', I(<path d="M4 5h16v11H8l-4 4z" />), problems],
-    ['/retail-orders/customers', 'Shoppers', I(<><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></>), 0],
-    ['/retail-orders/settings', 'Setup', I(<><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></>), 0],
-  ];
-  return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t" style={{ borderColor: C.line, background: 'color-mix(in srgb, var(--paper, #fff) 86%, transparent)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-      {onPackNext && <div className="px-4 pt-3"><Btn kind="primary" className="w-full text-[17px]" onClick={onPackNext}>Pack the next order</Btn></div>}
-      <nav aria-label="Online shop" className="flex h-14">
-        {tabs.map(([href, label, icon, badge]) => { const on = href === '/retail-orders' ? path === href : path.startsWith(href); return (
-          <Link key={href} href={href} aria-current={on ? 'page' : undefined} className="relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold" style={{ color: on ? C.ink : C.muted }}>
-            {icon}<span>{label}</span>
-            {badge > 0 && <span className="absolute left-[56%] top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[11px] text-white" style={{ background: C.warn }}>{badge}</span>}
-          </Link>); })}
-      </nav>
-    </div>);
-}

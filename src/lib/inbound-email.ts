@@ -43,12 +43,14 @@ export async function receiveEmail(db: any, evt: any, fetchImpl: typeof fetch = 
   if (!tenantId || !(await db.doc(`tenants/${tenantId}`).get()).exists) return { ok: true, skipped: 'unknown_tenant' };
   const emailId = String(d.email_id || d.id || '');
   if (emailId && (await db.doc(`tenants/${tenantId}/smsInbox/em_${emailId.replace(/[^\w-]/g, '')}`).get()).exists) return { ok: true, skipped: 'duplicate' };
+  const caseId = o.verified === true && addr?.clientId?.startsWith('case-') ? addr.clientId.slice(5) : null;
   // The webhook carries only the envelope; the message itself is fetched.
   let full: any = {};
   const key = process.env.RESEND_API_KEY;
   if (emailId && (key || fetchImpl !== fetch)) { try { const r = await fetchImpl(`https://api.resend.com/emails/receiving/${encodeURIComponent(emailId)}`, { headers: { Authorization: `Bearer ${key || ''}` } }); if (r.ok) full = await r.json(); } catch { /* keep the envelope */ } }
   const from = parseAddress(full.from || d.from); const subject = String(full.subject || d.subject || '').slice(0, 200);
   const text = String(full.text || '') || strip(full.html || ''); const body = newPart(text).slice(0, 6000);
+  if (caseId) { const r = await intoCase(db, tenantId, caseId, { emailId, from, subject, body, at: d.created_at }); if (r) return r; }
   // Linked to a client only when it answers our email to them (a signed reply address) and the webhook itself was
   // verified. A message that merely claims to be from a client's address waits for the desk to link it.
   const { clientByEmail } = await import('@/lib/conversation');
@@ -64,4 +66,28 @@ export async function receiveEmail(db: any, evt: any, fetchImpl: typeof fetch = 
   const n = db.collection(`tenants/${tenantId}/notifications`).doc();
   await n.set({ id: n.id, type: 'email_in', read: false, createdAt: nowIso, link: '/inbox', ...(who ? { clientId: who.id } : {}), message: `Email from ${who?.name || from.name || from.email}${subject ? `: “${subject.slice(0, 80)}”` : ''}` });
   return { ok: true, inboxId: id };
+}
+
+/** A reply to one of our emails about a shop support case: it joins that case as the customer's next message and
+ *  reopens it, so it is answered where the rest of the conversation is. Returns null when the case is gone, and the
+ *  email falls back to the inbox. */
+async function intoCase(db: any, tenantId: string, caseId: string, m: { emailId: string; from: { name: string; email: string }; subject: string; body: string; at?: string }): Promise<{ ok: boolean; skipped?: string; inboxId?: string } | null> {
+  const ref = db.doc(`tenants/${tenantId}/retailSupport/${caseId}`);
+  const snap = await ref.get(); if (!snap.exists) return null;
+  const t: any = snap.data() || {};
+  const key = m.emailId ? `em_${m.emailId.replace(/[^\w-]/g, '')}` : '';
+  if (key && Array.isArray(t.followUps) && t.followUps.some((f: any) => f.emailKey === key)) return { ok: true, skipped: 'duplicate' };
+  const { FieldValue } = require('firebase-admin/firestore');
+  const at = m.at || new Date().toISOString();
+  await ref.set({
+    followUps: FieldValue.arrayUnion({ at, message: m.body || m.subject || '(empty email)', photoUrls: [], kind: 'email', emailKey: key || null, fromEmail: m.from.email }),
+    customerMessagesSinceStaffReply: FieldValue.increment(1), lastCustomerAt: at, status: 'open',
+  }, { merge: true });
+  if (t.orderId) {
+    const ev = db.collection(`tenants/${tenantId}/retailOrders/${t.orderId}/events`).doc();
+    await ev.set({ id: ev.id, type: 'note', at, actorId: 'customer', actorName: t.customerName || m.from.email, meta: { text: `Customer replied by email: ${String(m.body || '').slice(0, 120)}` } });
+  }
+  const n = db.collection(`tenants/${tenantId}/notifications`).doc();
+  await n.set({ id: n.id, type: 'email_in', read: false, createdAt: new Date().toISOString(), link: `/retail-orders/problems${t.orderId ? `?order=${t.orderId}` : ''}`, message: `${t.customerName || m.from.email} replied about order #${String(t.orderNumber ?? '').padStart(4, '0')}` });
+  return { ok: true, inboxId: `case:${caseId}` };
 }

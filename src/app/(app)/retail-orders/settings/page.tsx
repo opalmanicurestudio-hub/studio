@@ -7,7 +7,7 @@ import {
 import { ChevronDown } from 'lucide-react';
 import { Building2, ClipboardList, Package, RotateCcw, Sparkles, Store as StoreIcon, Wallet } from 'lucide-react';
 import Link from 'next/link';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -191,17 +191,11 @@ export default function RetailSettingsPage() {
       packPhotoMaxPhotos: Number(existing.packPhotoMaxPhotos) || 3,
       addressValidationEnabled: existing.addressValidationEnabled === true,
       blockUndeliverableAddresses: existing.blockUndeliverableAddresses === true,
-      returnWindowDays: Number(existing.returnWindowDays) || 30,
-      returnsEnabled: existing.returnsEnabled !== false,
-      returnLabelPayer: existing.returnLabelPayer === 'shop' || existing.returnLabelPayer === 'customer' ? existing.returnLabelPayer : 'fault',
-      claimAutoResolveMaxCents: Number(existing.claimAutoResolveMaxCents) || 0,
       cartRecoveryEnabled: existing.cartRecoveryEnabled !== false,
       requirePackScan: existing.requirePackScan === true,
       curbsideAlertPhone: existing.curbsideAlertPhone ?? '',
       curbsideLat: existing.curbsideLat ?? undefined,
       curbsideLng: existing.curbsideLng ?? undefined,
-      deliveryIssueWindowDays: Number(existing.deliveryIssueWindowDays) || 7,
-      returnPolicyText: existing.returnPolicyText || '',
       shipFrom: existing.shipFrom || {},
       storePaused: existing.storePaused === true,
       storePausedMessage: existing.storePausedMessage || '',
@@ -252,12 +246,9 @@ export default function RetailSettingsPage() {
     };
   }, [retailItems]);
 
-  const saveSettings = async () => {
-    if (!firestore || !tenantId || saving) return;
-    setSaving(true);
-    try {
-      await setDoc(doc(firestore as Firestore, 'tenants', tenantId), {
-        retailSettings: JSON.parse(JSON.stringify({
+  // Only fields changed on this screen are written, one path each, so edits made elsewhere (Policies, the shop
+  // designer, sales tax) are never put back to what this screen loaded.
+  const normalise = (rs: RetailSettings): Record<string, any> => JSON.parse(JSON.stringify({
           ...rs,
           taxRatePercent: Number(rs.taxRatePercent) || 0,
           stripeTaxEnabled: rs.stripeTaxEnabled === true,
@@ -294,17 +285,11 @@ export default function RetailSettingsPage() {
           packPhotoMaxPhotos: Math.min(10, Math.max(1, Math.floor(Number(rs.packPhotoMaxPhotos) || 3))),
           addressValidationEnabled: rs.addressValidationEnabled === true,
           blockUndeliverableAddresses: rs.blockUndeliverableAddresses === true,
-          returnWindowDays: Math.max(1, Math.floor(Number(rs.returnWindowDays) || 30)),
-          returnsEnabled: rs.returnsEnabled !== false,
-          returnLabelPayer: rs.returnLabelPayer === 'shop' || rs.returnLabelPayer === 'customer' ? rs.returnLabelPayer : 'fault',
-          claimAutoResolveMaxCents: Math.max(0, Math.floor(Number(rs.claimAutoResolveMaxCents) || 0)),
           cartRecoveryEnabled: rs.cartRecoveryEnabled !== false,
           requirePackScan: rs.requirePackScan === true,
           curbsideAlertPhone: String(rs.curbsideAlertPhone || '').trim() || null,
           curbsideLat: Number.isFinite(Number(rs.curbsideLat)) ? Number(rs.curbsideLat) : null,
           curbsideLng: Number.isFinite(Number(rs.curbsideLng)) ? Number(rs.curbsideLng) : null,
-          deliveryIssueWindowDays: Math.max(1, Math.floor(Number(rs.deliveryIssueWindowDays) || 7)),
-          returnPolicyText: String(rs.returnPolicyText || '').trim().slice(0, 1200),
           shipFrom: JSON.parse(JSON.stringify(rs.shipFrom || {})),
           storePaused: rs.storePaused === true,
           storePausedMessage: (rs.storePausedMessage || '').trim(),
@@ -314,8 +299,22 @@ export default function RetailSettingsPage() {
           shopAnnouncement: (rs.shopAnnouncement || '').trim(),
           wholesaleAccessCode: (rs.wholesaleAccessCode || '').trim(),
           curbsideSpots: (rs.curbsideSpots || []).filter(Boolean),
-        })),
-      }, { merge: true });
+        }));
+  const baseline = useRef<Record<string, any> | null>(null);
+  useEffect(() => { if (loaded && !baseline.current) baseline.current = normalise(rs); }, [loaded]);
+
+  const saveSettings = async () => {
+    if (!firestore || !tenantId || saving) return;
+    setSaving(true);
+    try {
+      const next = normalise(rs);
+      const before = baseline.current || {};
+      const patch: Record<string, any> = {};
+      for (const k of Object.keys(next)) if (JSON.stringify(next[k]) !== JSON.stringify(before[k])) patch[`retailSettings.${k}`] = next[k] === undefined ? null : next[k];
+      if (Object.keys(patch).length === 0) { toast({ title: 'Nothing changed' }); return; }
+      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), patch);
+      baseline.current = next;
+
       toast({ title: 'Shop settings saved', description: 'The storefront and checkout use these immediately.' });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Save failed', description: e?.message });
@@ -1031,7 +1030,7 @@ export default function RetailSettingsPage() {
             <span className="min-w-0 flex-1">
               <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">After the sale</span>
               <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                {rs.returnsEnabled === false ? 'Returns off' : `Returns ${rs.returnWindowDays ?? 30} days`} · problems {rs.deliveryIssueWindowDays ?? 14} days
+                Addresses, packing checks, curbside and policies
               </span>
             </span>
             <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'after' && 'rotate-180 text-primary')} aria-hidden="true" />
@@ -1042,7 +1041,7 @@ export default function RetailSettingsPage() {
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-black uppercase tracking-tight">Returns &amp; reported problems</p>
+              <p className="text-sm font-black uppercase tracking-tight">After the sale</p>
             </div>
 
             <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
@@ -1077,60 +1076,13 @@ export default function RetailSettingsPage() {
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label className="text-[11px] font-black uppercase tracking-widest">Accept returns</Label>
-                <p className="text-[11px] font-bold text-muted-foreground">
-                  Off closes self-serve returns storefront-wide and on every order page. &ldquo;Report a
-                  problem&rdquo; stays open regardless &mdash; a shop can decline changed minds, never defects.
-                </p>
-              </div>
-              <Switch aria-label="Accept returns"
-                checked={rs.returnsEnabled !== false}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, returnsEnabled: v })}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Who pays return shipping</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {([['fault', 'By fault'], ['shop', 'Shop always'], ['customer', 'Customer']] as const).map(([v, label]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={(rs.returnLabelPayer || 'fault') === v}
-                    onClick={() => setRs({ ...rs, returnLabelPayer: v })}
-                    className={cn(
-                      'h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all',
-                      (rs.returnLabelPayer || 'fault') === v ? 'border-primary bg-primary/5 text-primary' : 'bg-card'
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[11px] font-bold text-muted-foreground">
-                By fault: the shop covers defective or wrong-item returns, the customer covers changed
-                minds. Takes effect when return labels ship.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Auto-approve claims up to ($)</Label>
-              <Input aria-label="Auto-approve claims up to ($)"
-                inputMode="decimal"
-                value={String(((rs.claimAutoResolveMaxCents || 0) / 100) || '')}
-                placeholder="0 = every claim gets a human"
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setRs({ ...rs, claimAutoResolveMaxCents: Math.max(0, Math.round((Number(e.target.value) || 0) * 100)) })}
-                className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
-              />
-              <p className="text-[11px] font-bold text-muted-foreground">
-                Only fires when your own packing record agrees with the customer (the item was never
-                scanned complete) and the account is low-risk &mdash; and it queues the refund in the
-                banner, so money still moves through you. Zero keeps every claim on a person.
-              </p>
-            </div>
+            <Link href="/retail-orders/policies" className="flex min-h-[56px] items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-xs font-black uppercase tracking-tight">Returns, refunds and fees</span>
+                <span className="block text-[11px] font-bold text-muted-foreground">Return window, who pays return shipping, restocking fees and claim limits are all in Policies.</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
+            </Link>
 
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1202,47 +1154,6 @@ export default function RetailSettingsPage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Return window (days)</Label>
-                <Input aria-label="Return window (days)"
-                  inputMode="numeric"
-                  value={String(rs.returnWindowDays ?? 30)}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setRs({ ...rs, returnWindowDays: Number(e.target.value) || 1 })}
-                  className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Report a problem within</Label>
-                <Input aria-label="Report a problem within"
-                  inputMode="numeric"
-                  value={String(rs.deliveryIssueWindowDays ?? 7)}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setRs({ ...rs, deliveryIssueWindowDays: Number(e.target.value) || 1 })}
-                  className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-                Policy wording (optional)
-              </Label>
-              <Textarea aria-label="Leave blank and we write it from the two numbers above."
-                placeholder="Leave blank and we write it from the two numbers above."
-                value={rs.returnPolicyText || ''}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                  setRs({ ...rs, returnPolicyText: e.target.value })}
-                className="min-h-24 rounded-xl border-2 text-sm font-bold"
-              />
-              <p className="text-[11px] font-bold text-muted-foreground">
-                This appears on the Stripe checkout page above the pay button, on the tear-off card inside
-                every parcel, and in the evidence pack if a payment is ever disputed. The exact wording is
-                saved onto each order as it is placed, so editing it later never changes what a past
-                customer agreed to.
-              </p>
-            </div>
           </CardContent>
         </Card>
             </div>

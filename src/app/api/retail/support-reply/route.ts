@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   /* FIRST NAME ONLY, enforced here — not left to whoever typed the reply.
    * This email reaches a stranger's inbox; the staffer's surname doesn't
    * belong there, and no client-side mistake can leak it past this line. */
-  if (!tenantId || !ticketId || !reply) {
+  if (!tenantId || !ticketId || (!reply && !resolve)) {
     return NextResponse.json({ error: 'A reply is required' }, { status: 400 });
   }
   // Only a signed-in team member can write to a customer in the shop's name.
@@ -56,6 +56,11 @@ export async function POST(req: NextRequest) {
   const ticket = snap.data() as any;
 
   const now = new Date().toISOString();
+  // Marked solved without a reply: nothing is sent to the customer.
+  if (!reply) {
+    await ticketRef.set({ status: 'resolved', resolvedBy: staffName, resolvedAt: now, customerMessagesSinceStaffReply: 0 }, { merge: true });
+    return NextResponse.json({ ok: true, emailed: false, message: 'Marked solved.' });
+  }
   /* Policy gate for the EMAIL only — the reply is always recorded on the case
    * and always visible on the customer's order page. Switching the email off
    * means "I'll tell them another way", not "swallow my reply". */
@@ -103,6 +108,7 @@ export async function POST(req: NextRequest) {
         subject: `${emailBrand.shopName}: a reply about your order ${num}`,
         html, kind: 'support_reply', recipientType: 'client',
         recipientId: ticket.orderId || null, recipientName: ticket.customerName || null,
+        replyCase: ticketId,
       });
       emailed = r.ok;
     } catch {
@@ -111,12 +117,13 @@ export async function POST(req: NextRequest) {
   }
 
   const batch = db.batch();
-  batch.set(ticketRef, JSON.parse(JSON.stringify({
-    replies: [...(ticket.replies || []), { by: staffName, text: reply, at: now, emailed }],
+  const { FieldValue } = require('firebase-admin/firestore');
+  batch.set(ticketRef, {
+    replies: FieldValue.arrayUnion({ by: staffName, text: reply, at: now, emailed }),
     customerMessagesSinceStaffReply: 0,
     lastStaffReplyAt: now,
     ...(resolve ? { status: 'resolved', resolvedBy: staffName, resolvedAt: now } : {}),
-  })), { merge: true });
+  }, { merge: true });
   const evRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(ticket.orderId).collection('events').doc();
   batch.set(evRef, {
     id: evRef.id, type: 'note', at: now, actorId: 'staff', actorName: staffName,

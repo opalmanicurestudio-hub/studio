@@ -291,7 +291,8 @@ export const SETTINGS_MAP: SettingEntry[] = [
       const parts = [rs.returnsEnabled === false
         ? 'Self-serve returns are off'
         : `Returns accepted${win > 0 ? ` within ${win} days` : ' with no time limit'}`];
-      if (Number(p.restockingFeePct) > 0) parts.push(`${p.restockingFeePct}% restocking fee on remorse returns`);
+      const f = p.restockingFees && typeof p.restockingFees === 'object' ? [p.restockingFees.as_new, p.restockingFees.opened, p.restockingFees.damaged].map((n: any) => Number(n) || 0) : [Number(p.restockingFeePct) || 0];
+      if (Math.max(...f) > 0) parts.push(f.length === 1 ? `${f[0]}% restocking fee on change-of-mind returns` : `restocking fees of ${f[0]}% unopened, ${f[1]}% opened, ${f[2]}% damaged`);
       if (auto > 0) parts.push(`refunds under ${money(auto / 100)} fire automatically`);
       return `${parts.join('; ')}.`;
     },

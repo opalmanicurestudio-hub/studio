@@ -1,5 +1,6 @@
 'use client';
 
+import { restockingFee } from './restocking';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import {
   Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
@@ -311,17 +312,15 @@ export async function resolveReturn(
       if (fresh.resolution === 'refund') {
         const gross = fresh.refundCents || 0;
         let cents = Math.max(0, gross - labelDeduct);
-        /* RESTOCKING FEE — remorse only. A fee on the shop's own mistake
-         * (damage, defect, wrong item) would be charging the customer for
-         * being wronged, so any shop-fault line on the return waives it. */
-        const shopFault = new Set(['damaged_in_transit', 'defective', 'wrong_item']);
-        const anyShopFault = fresh.lines.some((l: any) => shopFault.has(String(l.reason || '')));
-        const feePct = Math.min(50, Math.max(0, Number(pol.restockingFeePct) || 0));
-        feeCents = !anyShopFault && feePct > 0 ? Math.round((cents * feePct) / 100) : 0;
+        /* RESTOCKING FEE — by the condition each item came back in, remorse only. Any shop-fault line on the
+         * return waives it (lib/restocking). */
+        const fee = restockingFee(order.lines as any, fresh.lines as any, pol);
+        feeCents = Math.min(cents, fee.cents);
         cents = Math.max(0, cents - feeCents);
+        if (feeCents > 0) txn.update(rRef, { restockingFeeCents: feeCents, restockingFeeLines: fee.lines });
         refundNetCents = cents;
         txn.update(oRef, { pendingRefundCents: (order.pendingRefundCents || 0) + cents });
-        summary = `Refund of $${(cents / 100).toFixed(2)} queued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''}${feeCents ? ` ($${(feeCents / 100).toFixed(2)} restocking fee, ${feePct}%)` : ''}`;
+        summary = `Refund of $${(cents / 100).toFixed(2)} queued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''}${feeCents ? ` ($${(feeCents / 100).toFixed(2)} restocking fee)` : ''}`;
       }
 
       if (fresh.resolution === 'store_credit') {

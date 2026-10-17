@@ -132,3 +132,33 @@ export const Ic = {
   back: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m15 6-6 6 6 6" /></svg>,
   check: <svg className="cf-anim-draw" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>,
 };
+
+/** An on/off switch: green when on, the knob glides. */
+export function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} disabled={disabled} onClick={() => onChange(!on)}
+      className="relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200 disabled:opacity-50" style={{ background: on ? C.ok : 'var(--line-strong, #dcdde0)' }}>
+      <span className="cf-glide absolute left-[2px] top-[2px] h-[27px] w-[27px] rounded-full bg-white" style={{ transform: `translateX(${on ? 20 : 0}px)`, boxShadow: '0 2px 6px rgba(0,0,0,.18)' }} />
+    </button>);
+}
+
+/** A titled group of rows, like a settings list. */
+export function Group({ title, foot, children }: { title?: string; foot?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="mt-7">
+      {title ? <p className="m-0 px-4 pb-2 text-[13px] font-semibold" style={muted}>{title}</p> : null}
+      <div className="overflow-hidden rounded-2xl" style={{ background: C.soft }}>{children}</div>
+      {foot ? <p className="m-0 px-4 pt-2 text-[13px] leading-snug" style={muted}>{foot}</p> : null}
+    </section>);
+}
+
+/** One row inside a Group: a label, an optional note under it, and a control on the right. */
+export function Row({ label, note, children, last }: { label: React.ReactNode; note?: React.ReactNode; children?: React.ReactNode; last?: boolean }) {
+  return (
+    <div className="flex min-h-[56px] items-center gap-3 pl-4">
+      <div className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-3 pr-4" style={last ? undefined : { borderBottom: `1px solid ${C.line}` }}>
+        <div className="min-w-0 flex-1"><p className="m-0 text-[17px] tracking-[-0.01em]">{label}</p>{note ? <p className="m-0 mt-0.5 text-[13px] leading-snug" style={muted}>{note}</p> : null}</div>
+        {children}
+      </div>
+    </div>);
+}
