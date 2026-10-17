@@ -878,3 +878,45 @@ html.studio [role="dialog"] .bg-background, html.studio [data-radix-popper-conte
 .cf-portal :is(.text-indigo-600, .text-indigo-600\/70) { color: #2e6b66; }
 .cf-portal .border-indigo-200 { border-color: #ececee; }
 .cf-portal .bg-indigo-50\/60 { background-color: #f6f6f7; }
+
+/* ── MOTION ──────────────────────────────────────────────────────────────────────────────────────────────────────
+   Movement that explains what happened: sheets rise from the bottom (and settle back down), an opened order slides in
+   from where you tapped, a tick pops, progress glides, buttons give under the finger. Curves follow the platform's feel:
+   a fast start with a soft landing; the pop has a small overshoot. Everything stops for people who ask for less motion. */
+@keyframes cf-sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes cf-sheet-down { from { transform: none; } to { transform: translateY(100%); } }
+@keyframes cf-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cf-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes cf-zoom-in { from { transform: scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes cf-zoom-out { from { transform: none; opacity: 1; } to { transform: scale(.97); opacity: 0; } }
+@keyframes cf-pop { 0% { transform: scale(.5); opacity: 0; } 60% { transform: scale(1.14); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes cf-rise { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes cf-push { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes cf-draw { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+@keyframes cf-pulse-ring { 0% { box-shadow: 0 0 0 0 rgb(180 83 9 / .35); } 100% { box-shadow: 0 0 0 10px rgb(180 83 9 / 0); } }
+.cf-anim-sheet { animation: cf-sheet-up .44s cubic-bezier(.32,.72,0,1) both; }
+.cf-anim-sheet-out { animation: cf-sheet-down .26s cubic-bezier(.4,0,1,1) both; }
+@media (min-width: 640px) {
+  .cf-anim-sheet { animation: cf-zoom-in .28s cubic-bezier(.2,.8,.2,1) both; }
+  .cf-anim-sheet-out { animation: cf-zoom-out .18s ease-in both; }
+}
+.cf-anim-backdrop { animation: cf-fade-in .24s ease both; }
+.cf-anim-backdrop-out { animation: cf-fade-out .22s ease both; }
+.cf-anim-pop { animation: cf-pop .4s cubic-bezier(.34,1.56,.64,1) both; }
+.cf-anim-rise { animation: cf-rise .34s cubic-bezier(.2,.8,.2,1) both; }
+.cf-anim-push { animation: cf-push .36s cubic-bezier(.2,.8,.2,1) both; }
+.cf-anim-draw path { stroke-dasharray: 30; animation: cf-draw .42s .12s cubic-bezier(.2,.8,.2,1) both; }
+.cf-anim-pulse { animation: cf-pulse-ring 1.6s ease-out infinite; }
+.cf-stagger > * { animation: cf-rise .36s cubic-bezier(.2,.8,.2,1) both; }
+.cf-stagger > *:nth-child(2) { animation-delay: 25ms; } .cf-stagger > *:nth-child(3) { animation-delay: 50ms; }
+.cf-stagger > *:nth-child(4) { animation-delay: 75ms; } .cf-stagger > *:nth-child(5) { animation-delay: 100ms; }
+.cf-stagger > *:nth-child(6) { animation-delay: 125ms; } .cf-stagger > *:nth-child(n+7) { animation-delay: 150ms; }
+.cf-press { transition: transform .14s cubic-bezier(.2,.8,.2,1), background-color .2s ease, opacity .2s ease; -webkit-tap-highlight-color: transparent; }
+.cf-press:active:not(:disabled) { transform: scale(.97); }
+.cf-glide { transition: transform .38s cubic-bezier(.32,.72,0,1), width .38s cubic-bezier(.32,.72,0,1); }
+@media (prefers-reduced-motion: reduce) {
+  .cf-anim-sheet, .cf-anim-sheet-out, .cf-anim-backdrop, .cf-anim-backdrop-out, .cf-anim-pop, .cf-anim-rise, .cf-anim-push, .cf-anim-pulse, .cf-stagger > * { animation: none !important; }
+  .cf-anim-draw path { animation: none !important; stroke-dasharray: none; }
+  .cf-press:active:not(:disabled) { transform: none; }
+  .cf-glide { transition: none; }
+}

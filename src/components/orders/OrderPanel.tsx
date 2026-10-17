@@ -57,7 +57,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   };
 
   return (
-    <div className={inline ? 'flex h-full flex-col' : 'fixed inset-0 z-30 flex flex-col overflow-y-auto lg:static lg:z-auto'} style={{ background: C.paper, color: C.ink }}>
+    <div className={inline ? 'cf-anim-rise flex h-full flex-col' : 'cf-anim-push fixed inset-0 z-30 flex flex-col overflow-y-auto lg:static lg:z-auto'} style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto w-full max-w-xl flex-1 px-4 pb-40 pt-3 lg:max-w-none lg:px-6 lg:pb-6">
         <div className="flex items-center justify-between gap-2">
           <IconBtn label="Close" onClick={onClose}>{inline ? <span className="text-[18px] leading-none">×</span> : Ic.back}</IconBtn>

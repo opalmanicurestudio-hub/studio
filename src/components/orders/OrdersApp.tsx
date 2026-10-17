@@ -139,7 +139,7 @@ export function OrdersApp() {
       {nextUp && (
         <div className="mx-4 mt-3 rounded-3xl border-2 p-4" style={{ borderColor: C.ink }}>
           <p className="m-0 text-[13px] font-semibold" style={muted}>Next up</p>
-          <div className="mt-1 flex items-start justify-between gap-2"><div><p className="m-0 text-[22px] font-light">{nextUp.customerName}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{methodLabel(nextUp.method)} · {itemCount(nextUp)} items</p></div><span className="text-[14px] font-semibold" style={dueLine(nextUp, rs, now).late ? { color: C.warn } : muted}>{dueLine(nextUp, rs, now).text}</span></div>
+          <div className="mt-1 flex items-start justify-between gap-2"><div><p className="m-0 text-[22px] font-light">{nextUp.customerName}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{methodLabel(nextUp.method)} · {itemCount(nextUp)} item{itemCount(nextUp) === 1 ? "" : "s"}</p></div><span className="text-[14px] font-semibold" style={dueLine(nextUp, rs, now).late ? { color: C.warn } : muted}>{dueLine(nextUp, rs, now).text}</span></div>
           <Btn kind="primary" className="mt-3 w-full" onClick={() => void beginPack(nextUp)}>Start packing</Btn>
         </div>)}
       {tab === 'pack' && !nextUp && <p className="m-0 px-4 pb-1 pt-4 text-[13px] font-semibold" style={muted}>Due first</p>}
@@ -159,25 +159,25 @@ export function OrdersApp() {
       {searching && !wide && <label className="mt-3 flex h-11 items-center gap-2 rounded-full px-4" style={{ background: C.soft }}><span style={muted}>{Ic.search}</span><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>}
       {needs.length > 0 && (
         <button type="button" onClick={() => needs.length === 1 ? setOpenId(needs[0].orderId) : setNeedsOpen(true)} className="mt-3.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-[15px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>
-          <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: C.warn }} />{needs.length} need{needs.length === 1 ? 's' : ''} you</span>
+          <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full${needs.some((n) => n.kind === 'outside') ? ' cf-anim-pulse' : ''}`} style={{ background: C.warn }} />{needs.length} need{needs.length === 1 ? 's' : ''} you</span>
           <span className="flex min-w-0 items-center gap-1.5 font-medium"><span className="truncate">{needs[0].text}</span>{Ic.chev}</span>
         </button>)}
       <div className="mt-3 lg:max-w-md"><Seg value={tab} onChange={(v) => { setTab(v); if (wide) setOpenId(null); }} options={[{ id: 'pack', label: `To pack ${counts.pack || ''}`.trim() }, { id: 'ready', label: `Ready ${counts.ready || ''}`.trim() }, { id: 'done', label: 'Done' }]} /></div>
     </div>);
 
   const panel = open && (
-    <OrderPanel fs={fs} tenantId={tenantId} order={open} actor={actor} rs={rs} photoFor={photoFor} canRefund={canRefund} inline={wide}
+    <OrderPanel key={open.id} fs={fs} tenantId={tenantId} order={open} actor={actor} rs={rs} photoFor={photoFor} canRefund={canRefund} inline={wide}
       onClose={() => setOpenId(null)} onPack={() => void beginPack(open)} onShip={() => setShipId(open.id)} onHandover={() => setHandId(open.id)} onToast={setToast} />);
 
   return (
     <div className="cf-settings min-h-[100dvh]" style={{ background: C.paper, color: C.ink }}>
       {wide ? (
         <div className="flex h-[100dvh]">
-          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto pb-8">{header}<div className="mt-1">{listBody}</div></div>
+          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto pb-8">{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
           <div className="w-[440px] shrink-0 overflow-y-auto border-l" style={{ borderColor: C.line }}>{panel || <Empty title="Pick an order" sub="Its items, history and next step show here." />}</div>
         </div>
       ) : (
-        <div className="pb-48">{header}<div className="mt-1">{listBody}</div></div>
+        <div className="pb-48">{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
       )}
       {!wide && !open && <PhoneShopBar onPackNext={perms.canPick && tab === 'pack' && !nextUp ? packNext : undefined} problems={needs.filter((n) => n.kind === 'refund').length} />}
       {!wide && panel}

@@ -27,19 +27,21 @@ export function Btn({ kind = 'soft', className = '', style, children, ...rest }:
     primary: { background: C.ink, color: C.paper }, soft: { background: C.soft, color: C.ink }, danger: { background: C.badSoft, color: C.bad },
     plain: { background: 'transparent', color: C.ink }, mint: { background: C.mint, color: '#16171a' },
   };
-  return <button type="button" {...rest} className={`inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold disabled:opacity-50 ${className}`} style={{ ...look[kind], ...style }}>{children}</button>;
+  return <button type="button" {...rest} className={`cf-press inline-flex h-12 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-semibold disabled:opacity-50 ${className}`} style={{ ...look[kind], ...style }}>{children}</button>;
 }
 
 export function IconBtn({ label, onClick, children }: { label: string; onClick?: () => void; children: React.ReactNode }) {
-  return <button type="button" aria-label={label} onClick={onClick} className="grid h-11 w-11 shrink-0 place-items-center rounded-full" style={{ background: C.soft, color: C.ink }}>{children}</button>;
+  return <button type="button" aria-label={label} onClick={onClick} className="cf-press grid h-11 w-11 shrink-0 place-items-center rounded-full" style={{ background: C.soft, color: C.ink }}>{children}</button>;
 }
 
 export function Seg<T extends string>({ value, options, onChange }: { value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
+  const i = Math.max(0, options.findIndex((o) => o.id === value));
   return (
-    <div role="tablist" className="flex gap-[3px] rounded-full p-[3px]" style={{ background: C.soft }}>
+    <div role="tablist" className="relative flex rounded-full p-[3px]" style={{ background: C.soft }}>
+      <span aria-hidden="true" className="cf-glide absolute bottom-[3px] top-[3px] rounded-full" style={{ left: 3, width: `calc((100% - 6px) / ${options.length})`, transform: `translateX(${i * 100}%)`, background: C.paper, boxShadow: '0 1px 3px rgba(0,0,0,.08), 0 1px 1px rgba(0,0,0,.04)' }} />
       {options.map((o) => {
         const on = o.id === value;
-        return <button key={o.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(o.id)} className="h-9 flex-1 rounded-full px-3 text-[14px] font-semibold" style={on ? { background: C.paper, color: C.ink, boxShadow: '0 1px 3px rgba(0,0,0,.08)' } : { color: C.muted }}>{o.label}</button>;
+        return <button key={o.id} type="button" role="tab" aria-selected={on} onClick={() => onChange(o.id)} className="relative z-[1] h-9 flex-1 rounded-full px-3 text-[14px] font-semibold transition-colors duration-200" style={{ color: on ? C.ink : C.muted }}>{o.label}</button>;
       })}
     </div>);
 }
@@ -52,16 +54,24 @@ export function BottomBar({ children, above = 0 }: { children: React.ReactNode; 
     </div>);
 }
 
-/** A sheet that slides up on phones and sits centred on computers. Labelled actions, never a bare ×. */
+/** A sheet that slides up on phones and sits centred on computers, and settles back down when closed. Labelled
+ *  actions, never a bare ×. */
 export function Sheet({ title, sub, onClose, closeLabel = 'Cancel', children, wide }: { title: string; sub?: React.ReactNode; onClose: () => void; closeLabel?: string; children: React.ReactNode; wide?: boolean }) {
-  React.useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
+  const [leaving, setLeaving] = React.useState(false);
+  const close = React.useCallback(() => {
+    if (leaving) return;
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { onClose(); return; }
+    setLeaving(true); setTimeout(onClose, 240);
+  }, [leaving, onClose]);
+  React.useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [close]);
   return (
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" style={{ background: 'rgba(22,23,26,.38)' }} onClick={onClose}>
-      <div className={`max-h-[90dvh] w-full overflow-y-auto rounded-t-[28px] p-5 sm:rounded-[28px] ${wide ? 'max-w-2xl' : 'max-w-lg'}`} style={{ background: C.paper, color: C.ink, paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-label={title} className={`fixed inset-0 z-50 flex items-end justify-center sm:items-center ${leaving ? 'cf-anim-backdrop-out' : 'cf-anim-backdrop'}`} style={{ background: 'rgba(22,23,26,.38)' }} onClick={close}>
+      <div className={`max-h-[90dvh] w-full overflow-y-auto rounded-t-[28px] p-5 sm:rounded-[28px] ${wide ? 'max-w-2xl' : 'max-w-lg'} ${leaving ? 'cf-anim-sheet-out' : 'cf-anim-sheet'}`} style={{ background: C.paper, color: C.ink, paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()}>
         <div className="mx-auto mb-3 h-[5px] w-10 rounded-full sm:hidden" style={{ background: C.line }} />
         <div className="mb-2 flex items-start gap-3">
           <div className="min-w-0 flex-1"><p className="m-0 text-[22px] font-light leading-snug">{title}</p>{sub ? <p className="m-0 mt-1 text-[15px]" style={muted}>{sub}</p> : null}</div>
-          <button type="button" onClick={onClose} className="h-11 shrink-0 px-1 text-[17px]" style={{ color: C.muted }}>{closeLabel}</button>
+          <button type="button" onClick={close} className="cf-press h-11 shrink-0 px-1 text-[17px]" style={{ color: C.muted }}>{closeLabel}</button>
         </div>
         {children}
       </div>
@@ -71,7 +81,7 @@ export function Sheet({ title, sub, onClose, closeLabel = 'Cancel', children, wi
 /** A row in a grouped list: whole row tappable, at least 64px tall. */
 export function ListRow({ onClick, lead, title, detail, trail, active }: { onClick?: () => void; lead?: React.ReactNode; title: React.ReactNode; detail?: React.ReactNode; trail?: React.ReactNode; active?: boolean }) {
   return (
-    <button type="button" onClick={onClick} className="flex min-h-[64px] w-full items-center gap-3 pl-4 text-left" style={{ background: active ? C.soft : 'transparent', color: C.ink }}>
+    <button type="button" onClick={onClick} className="cf-press flex min-h-[64px] w-full items-center gap-3 pl-4 text-left" style={{ background: active ? C.soft : 'transparent', color: C.ink }}>
       {lead}
       <span className="flex min-w-0 flex-1 items-center gap-3 self-stretch border-b py-2.5 pr-4" style={{ borderColor: C.line }}>
         <span className="min-w-0 flex-1"><span className="block truncate text-[17px] font-semibold tracking-[-0.01em]">{title}</span>{detail ? <span className="block truncate text-[14px]" style={muted}>{detail}</span> : null}</span>
@@ -95,7 +105,7 @@ export function Thumb({ src, size = 52 }: { src?: string; size?: number }) {
 export function UndoBar({ text, onUndo, onDone, bottom = 96 }: { text: string; onUndo?: () => void; onDone: () => void; bottom?: number }) {
   React.useEffect(() => { const t = setTimeout(onDone, 6000); return () => clearTimeout(t); }, [text, onDone]);
   return (
-    <div role="status" className="fixed inset-x-4 z-40 mx-auto flex h-12 max-w-md items-center justify-between rounded-2xl px-4 text-[15px] lg:inset-x-auto lg:right-8" style={{ bottom, background: '#16171a', color: '#fff' }}>
+    <div role="status" className="cf-anim-rise fixed inset-x-4 z-40 mx-auto flex h-12 max-w-md items-center justify-between rounded-2xl px-4 text-[15px] lg:inset-x-auto lg:right-8" style={{ bottom, background: '#16171a', color: '#fff' }}>
       <span className="truncate">{text}</span>
       {onUndo ? <button type="button" onClick={() => { onUndo(); onDone(); }} className="h-11 pl-4 font-semibold" style={{ color: C.mint }}>Undo</button> : null}
     </div>);
@@ -112,7 +122,7 @@ export function feel(ok: boolean) {
 }
 
 export function Empty({ title, sub, action }: { title: string; sub?: string; action?: React.ReactNode }) {
-  return <div className="px-6 py-16 text-center"><p className="m-0 text-[20px] font-light">{title}</p>{sub ? <p className="m-0 mt-1 text-[15px]" style={muted}>{sub}</p> : null}{action ? <div className="mt-4">{action}</div> : null}</div>;
+  return <div className="cf-anim-rise px-6 py-16 text-center"><p className="m-0 text-[20px] font-light">{title}</p>{sub ? <p className="m-0 mt-1 text-[15px]" style={muted}>{sub}</p> : null}{action ? <div className="mt-4">{action}</div> : null}</div>;
 }
 
 export const Ic = {
@@ -120,5 +130,5 @@ export const Ic = {
   scan: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10" /></svg>,
   chev: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>,
   back: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m15 6-6 6 6 6" /></svg>,
-  check: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>,
+  check: <svg className="cf-anim-draw" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>,
 };

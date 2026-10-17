@@ -24,6 +24,7 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const [camera, setCamera] = React.useState(false);
   const [typed, setTyped] = React.useState('');
   const [photoBusy, setPhotoBusy] = React.useState(false);
+  const [done, setDone] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const canTap = rs?.requireScan !== true;
   const prog = packProgress(order);
@@ -64,14 +65,18 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
     setBusy(true);
     const r = await finishPacking(fs, tenantId, order, all, actor, rs);
     setBusy(false);
-    if (r.ok) { feel(true); onFinished(r.message); } else setErr(r.message);
+    if (!r.ok) { setErr(r.message); return; }
+    feel(true);
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { onFinished(r.message); return; }
+    setDone(r.message); setTimeout(() => onFinished(r.message), 1100);
   };
   const putDown = async () => { await stopPacking(fs, tenantId, order, batch, actor); onClose(); };
 
   const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? 'Add a photo of the box first' : order.method === 'ship' ? 'Done, packed for shipping' : `Done, it’s ready for ${firstName(order.customerName)}`;
 
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto" style={{ background: C.paper, color: C.ink }}>
+    <div className="cf-anim-push fixed inset-0 z-40 overflow-y-auto" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-xl px-4 pb-40 pt-3">
         <div className="flex h-11 items-center justify-between">
           <button type="button" onClick={() => void putDown()} className="h-11 text-[17px]">Put down</button>
@@ -81,7 +86,7 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
         <p className="m-0 mt-2.5 text-[28px] font-light tracking-[-0.02em]">{order.customerName || 'Customer'}</p>
         <p className="m-0 mt-0.5 text-[15px]" style={muted}>{methodLabel(order.method)} · <span style={due.late ? { color: C.warn, fontWeight: 600 } : undefined}>{due.text}</span></p>
         <div className="mt-3.5 flex items-center gap-2.5">
-          <div className="h-1.5 flex-1 rounded-full" style={{ background: C.soft }}><div className="h-1.5 rounded-full transition-[width] duration-300" style={{ width: `${prog.total ? (prog.done / prog.total) * 100 : 100}%`, background: C.mint }} /></div>
+          <div className="h-1.5 flex-1 rounded-full" style={{ background: C.soft }}><div className="cf-glide h-1.5 rounded-full" style={{ width: `${prog.total ? (prog.done / prog.total) * 100 : 100}%`, background: C.mint }} /></div>
           <span className="text-[14px] font-semibold">{prog.done} of {prog.total}</span>
         </div>
 
@@ -110,7 +115,7 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
                   </span>
                 </button>
                 {!closed && !full && <button type="button" onClick={() => onMissing(l)} className="h-9 shrink-0 rounded-full px-3 text-[13.5px] font-semibold" style={{ background: C.soft }}>Missing</button>}
-                {!closed && <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2" style={full ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{full ? Ic.check : null}</span>}
+                {!closed && <span key={full ? 'in' : 'out'} className={`${full ? 'cf-anim-pop ' : ''}grid h-8 w-8 shrink-0 place-items-center rounded-full border-2`} style={full ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{full ? Ic.check : null}</span>}
               </div>);
           })}
         </div>
@@ -127,6 +132,16 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
           </div>)}
       </div>
 
+      {done !== null && (
+        <div role="status" aria-live="polite" className="cf-anim-backdrop fixed inset-0 z-50 grid place-items-center px-8 text-center" style={{ background: C.paper, color: C.ink }}>
+          <div>
+            <span className="cf-anim-pop mx-auto grid h-24 w-24 place-items-center rounded-full" style={{ background: C.ok }}>
+              <svg className="cf-anim-draw" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+            </span>
+            <p className="cf-anim-rise m-0 mt-6 text-[28px] font-light tracking-[-0.02em]">{order.method === 'ship' ? 'Packed' : `Ready for ${firstName(order.customerName)}`}</p>
+            {done ? <p className="cf-anim-rise m-0 mt-1 text-[15px]" style={muted}>{done}</p> : null}
+          </div>
+        </div>)}
       {undo && <UndoBar text={undo.text} onUndo={undo.lineId ? () => void undoTick(fs, tenantId, order.id, undo.lineId, actor) : undefined} onDone={() => setUndo(null)} />}
       <BottomBar>
         <div className="mx-auto max-w-xl"><Btn kind={left > 0 || needPhoto ? 'soft' : 'primary'} className="w-full text-[17px]" style={left > 0 || needPhoto ? { color: C.muted } : undefined} disabled={left > 0 || needPhoto || busy} onClick={() => void finish()}>{busy ? 'Finishing…' : mainLabel}</Btn></div>
