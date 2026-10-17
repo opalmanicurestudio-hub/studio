@@ -300,6 +300,35 @@ export async function recordItemScan(
   }
 }
 
+/** Tap-to-pack: one unit of one line counted by hand, for shops that don't scan. Same guards and timeline as a scan,
+ *  marked as a tap so the record shows it wasn't scanned. Shops that want every unit scanned turn taps off in setup. */
+export async function recordLineTap(
+  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor
+): Promise<{ ok: boolean; message: string; pickComplete?: boolean }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = oSnap.data() as RetailOrder;
+      if (order.stage !== 'picking') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]}, so packing is closed.` };
+      const idx = order.lines.findIndex((l) => l.lineId === lineId);
+      if (idx < 0) return { ok: false, message: 'That item isn’t on this order.' };
+      const line = order.lines[idx];
+      if (['shorted', 'refunded', 'backordered'].includes(line.status)) return { ok: false, message: `${line.name} was marked missing. Undo that first.` };
+      if (line.qtyScanned >= line.qtyOrdered) return { ok: false, message: `All ${line.qtyOrdered} ${line.name} are already in.` };
+      const lines = order.lines.map((l, i) => i === idx ? { ...l, qtyScanned: l.qtyScanned + 1 } : l);
+      const complete = isPickComplete(lines);
+      txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
+      txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, { lineId, qtyScanned: line.qtyScanned + 1, qtyOrdered: line.qtyOrdered, phase: 'pick', via: 'tap' }));
+      if (complete) txn.set(doc(collection(oRef, 'events')), evPayload('pick_complete', actor));
+      return { ok: true, message: `${line.qtyScanned + 1}/${line.qtyOrdered}`, pickComplete: complete };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'That didn’t save. Try again.' };
+  }
+}
+
 /**
  * Shelf discrepancy: fewer units physically exist than the order needs.
  * Corrects shelf truth (totalStock down), releases the hold for the missing

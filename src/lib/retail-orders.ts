@@ -66,7 +66,7 @@ export const LEGAL_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
   placed:     ['paid', 'cancelled'],
   paid:       ['picking', 'cancelled'],
   picking:    ['packed', 'paid', 'cancelled'],          // 'paid' = batch released back to queue
-  packed:     ['ready', 'cancelled'],                   // cancel after packed requires restock scan
+  packed:     ['ready', 'shipped', 'cancelled'],        // a packed ship order can go straight out; cancel after packed requires restock scan
   ready:      ['arrived', 'shipped', 'handed_off', 'cancelled'],
   arrived:    ['handed_off'],
   shipped:    ['completed'],
@@ -1218,15 +1218,17 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
   const raw = scannedValue.trim();
   const productIdFromQr = parseProductQr(raw);
 
-  const idx = lines.findIndex((l) =>
+  const matches = (l: OrderLine) =>
     productIdFromQr !== null
       ? l.productId === productIdFromQr
       : l.productId === raw ||
         l.productId.toLowerCase() === raw.toLowerCase() ||
         codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
         (!!l.caseBarcode && codesMatch(l.caseBarcode, raw)) ||
-        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw))
-  );
+        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw));
+  // One product can be on two lines (different options). Fill the first line still waiting for units.
+  const firstOpen = lines.findIndex((l) => matches(l) && !['shorted', 'refunded', 'backordered'].includes(l.status) && l.qtyScanned < l.qtyOrdered);
+  const idx = firstOpen >= 0 ? firstOpen : lines.findIndex(matches);
 
   if (idx === -1) {
     return {
@@ -1422,15 +1424,16 @@ export function applyPackScan(lines: OrderLine[], scannedValue: string): {
 } {
   const raw = scannedValue.trim();
   const productIdFromQr = parseProductQr(raw);
-  const idx = lines.findIndex((l) =>
+  const matchesPack = (l: OrderLine) =>
     productIdFromQr !== null
       ? l.productId === productIdFromQr
       : l.productId === raw ||
         l.productId.toLowerCase() === raw.toLowerCase() ||
         codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
         (!!l.caseBarcode && codesMatch(l.caseBarcode, raw)) ||
-        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw))
-  );
+        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw));
+  const firstOpenPack = lines.findIndex((l) => matchesPack(l) && !['refunded', 'backordered'].includes(l.status) && (l.qtyPacked || 0) < l.qtyOrdered - l.qtyShorted);
+  const idx = firstOpenPack >= 0 ? firstOpenPack : lines.findIndex(matchesPack);
   if (idx === -1) {
     return { result: { ok: false, code: 'unknown_sku', message: `Scanned code "${raw}" is not on this order.` }, lines };
   }

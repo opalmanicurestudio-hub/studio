@@ -1,0 +1,15 @@
+import { tabOf, packProgress, needsYou, matchesSearch, nextFreeSlot, packQueue, dueLine } from '../../src/lib/orders-view';
+import { applyScan } from '../../src/lib/retail-orders';
+let f = 0; const ok = (c: boolean, m: string) => { if (!c) { f++; console.error('FAIL', m); } };
+ok(tabOf({ stage: 'paid' }) === 'pack' && tabOf({ stage: 'packed', method: 'ship' }) === 'ready' && tabOf({ stage: 'packed', method: 'counter' }) === 'pack' && tabOf({ stage: 'shipped' }) === 'done', 'tabs');
+ok(JSON.stringify(packProgress({ lines: [{ qtyOrdered: 2, qtyScanned: 1, status: 'pending' }, { qtyOrdered: 1, qtyScanned: 0, status: 'shorted', qtyShorted: 1 }, { digital: true, qtyOrdered: 1 }] })) === JSON.stringify({ done: 1, total: 2, missing: 1 }), 'progress skips digital and missing');
+const n = needsYou([{ id: 'a', stage: 'arrived', customerName: 'Maya Chen', curbside: { spotOrVehicle: 'spot 2' } }, { id: 'b', stage: 'paid', pendingRefundCents: 2400, customerName: 'Sam Ortiz' }]);
+ok(n[0].kind === 'outside' && n[1].kind === 'refund' && n[1].text.includes('$24.00'), 'needs you order and text');
+ok(matchesSearch({ orderNumber: 42, customerName: 'Maya Chen', lines: [] }, '#0042') && matchesSearch({ customerName: 'x', lines: [{ name: 'Hand cream' }] }, 'cream') && !matchesSearch({ customerName: 'x', lines: [] }, 'zzz'), 'search');
+ok(nextFreeSlot([{ stage: 'ready', shelfSlot: 'A1' }, { stage: 'arrived', shelfSlot: 'A2' }, { stage: 'completed', shelfSlot: 'A3' }]) === 'A3', 'slot counts outside, frees completed');
+ok(packQueue([{ id: 'x', stage: 'paid', holdForReview: true }, { id: 'y', stage: 'paid' }], {}).map((o: any) => o.id).join() === 'y', 'held orders are not packed');
+ok(dueLine({ stage: 'arrived' }, {}).late === true, 'outside is urgent');
+const lines: any = [{ lineId: 'a', productId: 'p', qtyOrdered: 1, qtyScanned: 1, status: 'pending', barcode: '', sku: '' }, { lineId: 'b', productId: 'p', qtyOrdered: 1, qtyScanned: 0, status: 'pending', barcode: '', sku: '' }];
+const r = applyScan(lines, 'clarityflow://product/p');
+ok(r.result.ok && (r.lines as any)[1].qtyScanned === 1, 'scan fills the open line of the same product');
+if (f) process.exit(1); console.log('orders-view ok');
