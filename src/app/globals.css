@@ -802,6 +802,9 @@ html.studio.dark {
 /* Status colours for text that must stay readable in both: green, amber, red, blue — lighter in black. */
 :root { --ok-ink: #1f7a4d; --warn-ink: #b45309; --bad-ink: #b42318; --info-ink: #3d5a99; }
 html.dark { --ok-ink: #7fd1a5; --warn-ink: #f0b35a; --bad-ink: #ff8a80; --info-ink: #9db4e8; }
+/* Pale fills that pair with the status inks. Red is for destructive actions only (cancel, refund, delete) and they always confirm. */
+:root { --ok-soft: #eaf6ef; --warn-soft: #fff7ed; --bad-soft: #fdecea; }
+html.dark { --ok-soft: rgb(127 209 165 / 0.14); --warn-soft: rgb(240 179 90 / 0.14); --bad-soft: rgb(255 138 128 / 0.14); }
 html.dark { color-scheme: dark; }
 /* Pale status fills (badges, callouts) become calm see-through tints in black instead of bright blocks;
    their dark text lightens to match. */
