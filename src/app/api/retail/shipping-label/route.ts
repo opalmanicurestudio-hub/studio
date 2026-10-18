@@ -1,3 +1,4 @@
+import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { rateCents, recordPostage, reversePostage } from '@/lib/postage';
 import { groundFilter } from '@/lib/ground-only';
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
   // it is on the customer's QR code and order link.
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!mayShip(auth.actor)) return NextResponse.json({ error: SHIP_DENIED }, { status: 403 });
 
   const apiKey = await shippoKeyFor(db, tenantId, tenant);
   if (!apiKey) {

@@ -41,6 +41,8 @@ export type StaffActor = {
   portal?: boolean;
   employmentModel: EmploymentModel | null;
   decisionAuthority: DecisionAuthority | null;
+  /** Their online-orders job when a manager set one (picker, packer, shipper, manager, none). */
+  fulfilmentRole?: string | null;
 };
 
 export type StaffAuthResult =
@@ -103,6 +105,7 @@ export async function verifyStaffActor(
       caps: isTenantOwner ? ALL_CAPS : capsFor(tenantSnap.data(), role),
       employmentModel: (staff?.employmentModel as EmploymentModel) || null,
       decisionAuthority: (staff?.decisionAuthority as DecisionAuthority) || null,
+      fulfilmentRole: staff?.fulfilmentRole ? String(staff.fulfilmentRole) : null,
     },
   };
 }

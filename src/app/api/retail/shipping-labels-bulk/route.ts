@@ -1,3 +1,4 @@
+import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { recordPostage } from '@/lib/postage';
 import { groundFilter } from '@/lib/ground-only';
@@ -80,6 +81,7 @@ export async function POST(req: NextRequest) {
 
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!mayShip(auth.actor)) return NextResponse.json({ error: SHIP_DENIED }, { status: 403 });
 
   const db = getAdminDb();
   const tenantSnap = await db.collection('tenants').doc(tenantId).get();

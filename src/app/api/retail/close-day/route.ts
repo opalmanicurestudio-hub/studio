@@ -4,6 +4,7 @@
 // manifest per account: a single sheet the mail carrier scans instead of every box. Each order is stamped with the
 // manifest so it is never put on two. Other carriers don't use manifests; they are counted and left alone.
 // POST { tenantId, action: 'history' } lists the last 14 manifests.
+import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -51,6 +52,7 @@ export async function POST(req: NextRequest) {
   if (!tenantId) return NextResponse.json({ error: 'Missing details.' }, { status: 400 });
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!mayShip(auth.actor)) return NextResponse.json({ error: SHIP_DENIED }, { status: 403 });
 
   const db = getAdminDb();
   const manifests = db.collection(`tenants/${tenantId}/shipManifests`);

@@ -4181,6 +4181,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const showOrders = !!fulfilmentPerms.canPick && fr !== 'none' && (anyOrder || []).length > 0
     && (!!fr || isMgr);
   const ORDERS_TAB = { id: 'orders', label: 'Orders', icon: ShoppingCart };
+  const retailOnly = showOrders && !!fr && fr !== 'manager' && !isRenter && !isHybrid && !(((staffMember as any).serviceIds || []) as any[]).length;
+  const startedOnOrders = React.useRef(false);
+  React.useEffect(() => { if (retailOnly && !startedOnOrders.current) { startedOnOrders.current = true; if (activeTab === 'today' && !new URLSearchParams(window.location.search).get('tab')) setActiveTab('orders'); } }, [retailOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const TABS = isRenter
     ? ([RENT_TAB] as any[]).concat(ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox') as any[]).concat([DOCS_TAB])
@@ -4246,9 +4249,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const todayView: 'now' | 'day' | 'floor' = todayPick && todayPick.visitId === (liveVisit?.id || null) && (todayPick.view !== 'floor' || canFloor) ? todayPick.view : autoView;
   const pickToday = (v: 'now' | 'day' | 'floor') => setTodayPick({ view: v, visitId: liveVisit?.id || null });
   const navKey = navOf(activeTab, isRenter);
-  // People a manager set up for online orders get Orders in the bar, in place of Pay (Pay stays under Me).
+  // People a manager set up for online orders get Orders in the bar, in place of Pay (Pay stays under Me). Someone
+  // whose whole job is the shop (no services of their own) starts on Orders, and Today drops the visit panels.
   const packer = showOrders && !!fr && fr !== 'manager';
-  const navItems: NavKey[] = isRenter ? ['rent', 'team', 'me'] : packer ? ['today', 'orders', 'schedule', 'team', 'me'] : ['today', 'schedule', 'team', 'pay', 'me'];
+  const navItems: NavKey[] = isRenter ? ['rent', 'team', 'me'] : retailOnly ? ['orders', 'today', 'schedule', 'team', 'me'] : packer ? ['today', 'orders', 'schedule', 'team', 'me'] : ['today', 'schedule', 'team', 'pay', 'me'];
   const goNav = (k: NavKey) => setActiveTab(({ today: 'today', schedule: 'schedule', team: 'messages', pay: 'earnings', me: 'me', rent: 'rent', orders: 'orders' } as const)[k] as any);
   const firstName = String(staffMember.name || '').split(' ')[0] || 'there';
   const hello = (() => { const h = bizNow().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })();
@@ -4361,12 +4365,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 {!isRenter && <ForgotClockOut firestore={firestore} tenantId={tenantId} staffId={staffMember.id} tenant={portalTenant} shifts={allShiftsRaw || []} accent={accentColor} />}
 {isRenter ? <PortalCalls calls={myCalls} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} accent={accentColor} />
   : <TodoList tenantId={tenantId} staffMember={staffMember} calls={myCalls || []} isManager={isMgr} accent={accentColor} teamTasks={<TasksForYou tenantId={tenantId} staffMember={staffMember} />} />}
-{todayView === 'now' && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} tenant={portalTenant} accent={accentColor} onOpenDoc={isRenter ? undefined : (id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
+{todayView === 'now' && !retailOnly && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} tenant={portalTenant} accent={accentColor} onOpenDoc={isRenter ? undefined : (id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={(id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} />
 {!isRenter && <TidyPanel tenantId={tenantId} compact />}
 {isRenter && <TasksForYou tenantId={tenantId} staffMember={staffMember} />}
-<PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />
-{stuckApts.length > 0 && (
+{!retailOnly && <PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />}
+{!retailOnly && stuckApts.length > 0 && (
                   <div className="rounded-[22px] border border-amber-300 bg-amber-50 overflow-hidden">
                     <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2 bg-amber-100/60">
                       <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -4622,9 +4626,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   { k: 'details', label: 'My details', sub: 'Phone, address, emergency contact', show: true },
                   { k: 'alerts', label: 'Alerts', sub: 'What buzzes your phone, quiet hours, away', show: true },
                   { k: 'work', label: 'My work', sub: 'Tasks, SOPs to sign and checklist turns', show: !isRenter },
-                  { k: 'numbers', label: 'My numbers', sub: 'Rebooking, average visit, retail — and your next one-on-one', show: !isRenter },
+                  { k: 'numbers', label: 'My numbers', sub: 'Rebooking, average visit, retail — and your next one-on-one', show: !isRenter && !retailOnly },
                   { k: 'refunds', label: 'Refunds to give', sub: 'Cash pickups and refunds to send', show: canRefunds },
-                  { k: 'cases', label: 'Client cases', sub: 'Complaints and incidents on your visits — add your side', show: !isRenter },
+                  { k: 'cases', label: 'Client cases', sub: 'Complaints and incidents on your visits — add your side', show: !isRenter && !retailOnly },
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
                   { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
                   { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: showOrders && !packer },
