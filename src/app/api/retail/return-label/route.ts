@@ -1,3 +1,4 @@
+import { shippoKeyFor } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 import { limitPublic } from '@/lib/rate-limit';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'This order was a pickup order and has no shipping address on file, so a return label is not needed.' }, { status: 409 });
     }
 
-    const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
+    const apiKey = await shippoKeyFor(db, tenantId, tenant);
     if (!apiKey) return NextResponse.json({ error: 'Shippo is not connected — add your API key in Shop Settings.' }, { status: 400 });
 
     const from = rs.shipFrom || {};

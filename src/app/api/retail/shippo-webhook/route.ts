@@ -1,3 +1,4 @@
+import { shippoKeyFor } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
   let data: any = {};
   try {
     const tdoc: any = (await getAdminDb().doc(`tenants/${tenantId}`).get()).data() || {};
-    const key = String(tdoc.retailSettings?.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
+    const key = await shippoKeyFor(getAdminDb(), tenantId, tdoc);
     if (!key) return NextResponse.json({ ok: true, skipped: 'no Shippo key to confirm with' });
     const r = await fetch(`https://api.goshippo.com/tracks/${encodeURIComponent(claimedCarrier)}/${encodeURIComponent(claimedNumber)}`, { headers: { Authorization: `ShippoToken ${key}` } });
     if (!r.ok) return NextResponse.json({ ok: true, skipped: 'Shippo could not confirm this tracking number' });

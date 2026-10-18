@@ -26,7 +26,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   const [rates, setRates] = React.useState<Rate[]>([]); const [rate, setRate] = React.useState<string>('');
   const [loading, setLoading] = React.useState(false); const [err, setErr] = React.useState('');
   const [label, setLabel] = React.useState<{ url: string; carrier: string; number: string; trackUrl: string } | null>(order.labelUrl ? { url: order.labelUrl, carrier: order.carrier || '', number: order.trackingNumber || '', trackUrl: order.trackingUrl || '' } : null);
-  const [manual, setManual] = React.useState(!rs?.shippoApiKey && !label);
+  const [manual, setManual] = React.useState(!(rs?.shippoConnected || rs?.shippoApiKey) && !label);
   const [mCarrier, setMCarrier] = React.useState(''); const [mNumber, setMNumber] = React.useState('');
   const dims = preset || { lengthIn: 10, widthIn: 8, heightIn: 4 } as any;
 
@@ -70,7 +70,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
           <label className="text-[13px] font-semibold" style={muted}>Tracking number<input value={mNumber} onChange={(e) => setMNumber(e.target.value)} className="mt-1 h-12 w-full rounded-2xl border px-4 text-[17px] font-normal" style={{ borderColor: C.line, color: C.ink, background: C.paper }} /></label>
           <p className="m-0 text-[14px]" style={muted}>{firstName(order.customerName)} gets an email with this tracking number.</p>
           <Btn kind="primary" className="text-[17px]" disabled={loading || !mNumber.trim()} onClick={() => void markShipped({ carrier: mCarrier.trim(), number: mNumber.trim() })}>Mark as shipped</Btn>
-          {rs?.shippoApiKey && <Btn kind="plain" onClick={() => setManual(false)} style={muted}>Buy a label here instead</Btn>}
+          {(rs?.shippoConnected || rs?.shippoApiKey) && <Btn kind="plain" onClick={() => setManual(false)} style={muted}>Buy a label here instead</Btn>}
         </div>
       ) : (
         <div className="mt-2">

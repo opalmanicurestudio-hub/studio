@@ -4246,8 +4246,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const todayView: 'now' | 'day' | 'floor' = todayPick && todayPick.visitId === (liveVisit?.id || null) && (todayPick.view !== 'floor' || canFloor) ? todayPick.view : autoView;
   const pickToday = (v: 'now' | 'day' | 'floor') => setTodayPick({ view: v, visitId: liveVisit?.id || null });
   const navKey = navOf(activeTab, isRenter);
-  const navItems: NavKey[] = isRenter ? ['rent', 'team', 'me'] : ['today', 'schedule', 'team', 'pay', 'me'];
-  const goNav = (k: NavKey) => setActiveTab(({ today: 'today', schedule: 'schedule', team: 'messages', pay: 'earnings', me: 'me', rent: 'rent' } as const)[k] as any);
+  // People a manager set up for online orders get Orders in the bar, in place of Pay (Pay stays under Me).
+  const packer = showOrders && !!fr && fr !== 'manager';
+  const navItems: NavKey[] = isRenter ? ['rent', 'team', 'me'] : packer ? ['today', 'orders', 'schedule', 'team', 'me'] : ['today', 'schedule', 'team', 'pay', 'me'];
+  const goNav = (k: NavKey) => setActiveTab(({ today: 'today', schedule: 'schedule', team: 'messages', pay: 'earnings', me: 'me', rent: 'rent', orders: 'orders' } as const)[k] as any);
   const firstName = String(staffMember.name || '').split(' ')[0] || 'there';
   const hello = (() => { const h = bizNow().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })();
 
@@ -4625,7 +4627,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   { k: 'cases', label: 'Client cases', sub: 'Complaints and incidents on your visits — add your side', show: !isRenter },
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
                   { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
-                  { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: showOrders },
+                  { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: showOrders && !packer },
+                  { k: 'earnings', label: 'Pay', sub: 'Your hours, earnings and pay stubs', show: packer },
                   { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
                 ].filter((r) => r.show).map((r) => (
                   <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : r.k === 'cases' ? setViewingCases(true) : r.k === 'refunds' ? setViewingRefunds(true) : r.k === 'work' ? setViewingWork(true) : r.k === 'numbers' ? setViewingNumbers(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">

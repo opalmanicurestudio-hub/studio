@@ -4,6 +4,7 @@
 // manifest per account: a single sheet the mail carrier scans instead of every box. Each order is stamped with the
 // manifest so it is never put on two. Other carriers don't use manifests; they are counted and left alone.
 // POST { tenantId, action: 'history' } lists the last 14 manifests.
+import { shippoKeyFor } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
   const tenantSnap = await db.collection('tenants').doc(tenantId).get();
   const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : {};
   const rs = tenant.retailSettings || {};
-  const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
+  const apiKey = await shippoKeyFor(db, tenantId, tenant);
   if (!apiKey) return NextResponse.json({ error: 'Shipping labels aren’t connected yet. Add your Shippo key in Setup.' }, { status: 400 });
   const from = rs.shipFrom || {};
   if (!from.street1 || !from.city || !from.state || !from.zip) return NextResponse.json({ error: 'Add your ship-from address in Setup first.' }, { status: 400 });

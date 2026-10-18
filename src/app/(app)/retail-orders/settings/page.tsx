@@ -1,5 +1,6 @@
 'use client';
 
+import { RetailSecretField } from '@/components/settings/RetailSecretField';
 import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
   ArrowLeft, Camera, Car, DollarSign, Globe, Loader, Lock, MapPin, Plus, Printer, ShieldCheck, Store, Truck, X, Zap,
@@ -178,7 +179,6 @@ export default function RetailSettingsPage() {
       tipsEnabled: existing.tipsEnabled === true,
       scheduledPickup: existing.scheduledPickup === true,
       throttlePer15: Number(existing.throttlePer15) || 0,
-      shippoApiKey: existing.shippoApiKey || '',
       signatureConfirmationEnabled: existing.signatureConfirmationEnabled === true,
       signatureOverCents: Number(existing.signatureOverCents) || 15000,
       signatureType: existing.signatureType === 'ADULT' ? 'ADULT' : 'STANDARD',
@@ -211,7 +211,6 @@ export default function RetailSettingsPage() {
       curbsideOffered: existing.curbsideOffered !== false,
       curbsideMode: existing.curbsideMode || 'freeform',
       curbsideSpots: existing.curbsideSpots || [],
-      wholesaleAccessCode: existing.wholesaleAccessCode || '',
       wholesaleTaxExempt: existing.wholesaleTaxExempt === true,
     });
     if (tenant) setLoaded(true);
@@ -272,7 +271,6 @@ export default function RetailSettingsPage() {
           tipsEnabled: rs.tipsEnabled === true,
           scheduledPickup: rs.scheduledPickup === true,
           throttlePer15: Math.max(0, Math.floor(Number(rs.throttlePer15) || 0)),
-          shippoApiKey: (rs.shippoApiKey || '').trim(),
           signatureConfirmationEnabled: rs.signatureConfirmationEnabled === true,
           signatureOverCents: Math.max(0, Math.floor(Number(rs.signatureOverCents) || 15000)),
           signatureType: rs.signatureType === 'ADULT' ? 'ADULT' : 'STANDARD',
@@ -297,7 +295,6 @@ export default function RetailSettingsPage() {
           shopLayout: rs.shopLayout || 'grid',
           shopTagline: (rs.shopTagline || '').trim(),
           shopAnnouncement: (rs.shopAnnouncement || '').trim(),
-          wholesaleAccessCode: (rs.wholesaleAccessCode || '').trim(),
           curbsideSpots: (rs.curbsideSpots || []).filter(Boolean),
         }));
   const baseline = useRef<Record<string, any> | null>(null);
@@ -713,12 +710,7 @@ export default function RetailSettingsPage() {
               <Truck className="w-4 h-4 text-primary" />
               <p className="text-[10px] font-black uppercase tracking-widest">Shipping labels (Shippo)</p>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Shippo API key — blank keeps manual tracking entry</Label>
-              <Input aria-label="Shippo API key — blank keeps manual tracking entry" placeholder="shippo_live_…" value={rs.shippoApiKey || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shippoApiKey: e.target.value })}
-                className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
-            </div>
+            <RetailSecretField tenantId={tenantId} which="shippoApiKey" label="Shippo API key (blank keeps manual tracking entry)" placeholder="shippo_live_…" className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
             <div className="space-y-2">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
               <Input aria-label="Ship-from address (printed on labels, used for rates)" placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
@@ -1175,7 +1167,7 @@ export default function RetailSettingsPage() {
             <span className="min-w-0 flex-1">
               <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Trade &amp; wholesale</span>
               <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                {rs.wholesaleAccessCode ? 'Access code set' : 'No access code yet'}{rs.wholesaleTaxExempt === true ? ' · tax-exempt' : ''}
+                {(rs as any).wholesaleCodeSet || rs.wholesaleAccessCode ? 'Access code set' : 'No access code yet'}{rs.wholesaleTaxExempt === true ? ' · tax-exempt' : ''}
               </span>
             </span>
             <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'trade' && 'rotate-180 text-primary')} aria-hidden="true" />
@@ -1191,14 +1183,7 @@ export default function RetailSettingsPage() {
             <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
               <Link href="/retail-orders/wholesale">Manage per-business accounts</Link>
             </Button>
-            <div className="space-y-1.5">
-              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                House code — shared fallback; per-account codes live in Wholesale
-              </Label>
-              <Input aria-label="e.g. OPALPRO2026" placeholder="e.g. OPALPRO2026" value={rs.wholesaleAccessCode || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, wholesaleAccessCode: e.target.value })}
-                className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-sm" />
-            </div>
+            <RetailSecretField tenantId={tenantId} which="wholesaleAccessCode" label="House code (shared fallback; per-account codes live in Wholesale)" placeholder="e.g. OPALPRO2026" className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-sm" />
             <div className="flex items-center justify-between">
               <Label className="text-xs font-black uppercase tracking-widest">Wholesale orders tax-exempt</Label>
               <Switch aria-label="Wholesale orders tax-exempt" checked={rs.wholesaleTaxExempt === true}

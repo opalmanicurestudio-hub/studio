@@ -61,12 +61,12 @@ const correction = (...args: Parameters<typeof correctionRaw>) => clean(correcti
  * ════════════════════════════════════════════════════════════════════════════ */
 
 export async function claimNextBatch(
-  fs: Firestore, tenantId: string, actor: Actor
+  fs: Firestore, tenantId: string, actor: Actor, maxOrders?: number
 ): Promise<{ batchId: string; orderIds: string[] } | { error: string }> {
   const snap = await getDocs(query(orderCol(fs, tenantId), where('stage', '==', 'paid')));
   const candidates = snap.docs
     .map((d: any) => ({ ...(d.data() as RetailOrder), id: d.id as string }))
-    .filter((o: RetailOrder & { id: string }) => !o.batchId && !(o as any).waveId && o.holdUntilRestock !== true)   // a wave order is already in someone's tote
+    .filter((o: RetailOrder & { id: string }) => !o.batchId && !(o as any).waveId && o.holdUntilRestock !== true && (o as any).holdForReview !== true)   // a wave order is already in someone's tote; a held order waits for a manager
     .sort((a: RetailOrder, b: RetailOrder) => queuePriority(a) - queuePriority(b));
 
   if (candidates.length === 0) return { error: 'The queue is empty. There are no orders to pick.' };
@@ -74,7 +74,7 @@ export async function claimNextBatch(
   // Wave composition: ASAP orders pick solo; ship orders batch together.
   const head = candidates[0];
   const wave = head.method === 'ship'
-    ? candidates.filter((o: RetailOrder) => o.method === 'ship').slice(0, MAX_SHIP_ORDERS_PER_BATCH)
+    ? candidates.filter((o: RetailOrder) => o.method === 'ship').slice(0, Math.max(1, Math.min(MAX_SHIP_ORDERS_PER_BATCH, maxOrders ?? MAX_SHIP_ORDERS_PER_BATCH)))
     : [head];
 
   const batchRef = doc(batchCol(fs, tenantId));
@@ -100,7 +100,8 @@ export async function claimNextBatch(
       txn.set(batchRef, JSON.parse(JSON.stringify(batchDoc)));
 
       for (const { snap, ref } of still) {
-        txn.update(ref, { stage: 'picking', batchId: batchRef.id });
+        // Who's on it, on the order itself, so every screen (and the staff portal) can show it and find it.
+        txn.update(ref, { stage: 'picking', batchId: batchRef.id, claimedBy: actor.id, claimedByName: actor.name, claimedAt: now });
         txn.set(doc(collection(ref, 'events')), evPayload('batch_claimed', actor, {
           batchId: batchRef.id, waveSize: still.length,
         }));
@@ -133,7 +134,7 @@ export async function claimSpecificOrder(
       const snap = await txn.get(ref);
       if (!snap.exists()) return false;
       const o = snap.data() as RetailOrder;
-      if (o.stage !== 'paid' || o.batchId || o.holdUntilRestock === true) return false;
+      if (o.stage !== 'paid' || o.batchId || o.holdUntilRestock === true || (o as any).holdForReview === true) return false;   // held orders wait for a manager
 
       const batchDoc: FulfillmentBatch = {
         id: batchRef.id, tenantId,
@@ -143,7 +144,7 @@ export async function claimSpecificOrder(
         claimedAt: now, active: true,
       };
       txn.set(batchRef, JSON.parse(JSON.stringify(batchDoc)));
-      txn.update(ref, { stage: 'picking', batchId: batchRef.id });
+      txn.update(ref, { stage: 'picking', batchId: batchRef.id, claimedBy: actor.id, claimedByName: actor.name, claimedAt: now });
       txn.set(doc(collection(ref, 'events')), evPayload('batch_claimed', actor, {
         batchId: batchRef.id, waveSize: 1, scanToClaim: true,
       }));
@@ -174,7 +175,7 @@ export async function releaseBatch(
     txn.update(bRef, { active: false, releasedAt: new Date().toISOString(), releaseType: type });
     snaps.forEach((s, i) => {
       if (s.exists() && (s.data() as RetailOrder).stage === 'picking') {
-        txn.update(refs[i], { stage: 'paid', batchId: null });
+        txn.update(refs[i], { stage: 'paid', batchId: null, claimedBy: null, claimedByName: null, claimedAt: null });
         txn.set(doc(collection(refs[i], 'events')),
           evPayload(type === 'auto' ? 'batch_auto_released' : 'batch_released', actor, { batchId: batch.id }));
       }

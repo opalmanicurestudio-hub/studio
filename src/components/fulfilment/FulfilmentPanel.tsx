@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  type Firestore, collection, onSnapshot, query, where,
+  type Firestore, collection, doc, getDoc, onSnapshot, query, where,
 } from 'firebase/firestore';
 import { Check, ClipboardList, Loader, PackageCheck, ScanLine } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -62,6 +62,12 @@ export function FulfilmentPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [tenantSettings, setTenantSettings] = useState<any>(null);
 
+  // The shop's own timing rules (prep minutes, ship hours), so the queue order matches the Orders screen.
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    getDoc(doc(firestore, 'tenants', tenantId)).then((s) => setTenantSettings((s.data() as any)?.retailSettings || null)).catch(() => {});
+  }, [firestore, tenantId]);
+
   useEffect(() => {
     if (!firestore || !tenantId) return;
     const unsub = onSnapshot(
@@ -82,13 +88,13 @@ export function FulfilmentPanel({
 
   const queue = useMemo(
     () => orders
-      .filter((o) => o.stage === 'paid' && !o.batchId && o.holdUntilRestock !== true)
+      .filter((o: any) => o.stage === 'paid' && !o.batchId && o.holdUntilRestock !== true && o.holdForReview !== true)
       .sort((a, b) => queuePriority(a, policy) - queuePriority(b, policy)),
     [orders, policy]
   );
 
   const mine = useMemo(
-    () => orders.filter((o) => o.stage === 'picking' && o.assignedTo === staffMember.id),
+    () => orders.filter((o: any) => o.stage === 'picking' && (o.claimedBy === staffMember.id || o.assignedTo === staffMember.id)),
     [orders, staffMember.id]
   );
 

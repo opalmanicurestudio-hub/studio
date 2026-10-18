@@ -1,3 +1,4 @@
+import { getRetailSecrets } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { isStorefrontVisible, listingPriceCents, preorderState, onlineSellable, type SellableItem } from '@/lib/retail-orders';
@@ -53,13 +54,13 @@ export async function GET(req: NextRequest) {
   // SHOP'S clock, which is what its own comment always promised.
   const shopZone = tenantTimeZone(tenant);
 
-  const wsAccess = await resolveWholesaleAccess(db, tenantId, rs, wholesaleCode);
+  const wsAccess = await resolveWholesaleAccess(db, tenantId, wholesaleCode ? { ...rs, wholesaleAccessCode: (await getRetailSecrets(db, tenantId)).wholesaleAccessCode } : rs, wholesaleCode);
   if (wholesaleCode && !wsAccess.unlocked) {
     return NextResponse.json({ error: wsAccess.error || 'Invalid wholesale access code' }, { status: 403 });
   }
   const wholesaleUnlocked = wsAccess.unlocked;
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
-  const wholesaleOffered = String(rs.wholesaleAccessCode || '').trim().length > 0 || rs.wholesaleOffered !== false;
+  const wholesaleOffered = rs.wholesaleCodeSet === true || String(rs.wholesaleAccessCode || '').trim().length > 0 || rs.wholesaleOffered !== false;
 
   const invSnap = await db.collection(`tenants/${tenantId}/inventory`)
     .where('type', '==', 'retail').get();

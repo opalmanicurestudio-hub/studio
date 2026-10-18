@@ -1,3 +1,5 @@
+import { getRetailSecrets } from '@/lib/retail-secrets';
+import { shippoKeyFor } from '@/lib/retail-secrets';
 import { soldForOf } from '@/lib/renter-sales';
 import { itemGroundOnly } from '@/lib/ground-only';
 import { normaliseIfUnavailable } from '@/lib/retail-swap';
@@ -232,7 +234,7 @@ async function handleCheckout(req: NextRequest) {
   let wsAccount: { id: string; businessName: string; email: string; extraDiscountPercent: number } | null = null;
   let wsDiscount = 0;
   if (priceTier === 'wholesale') {
-    const wsAccess = await resolveWholesaleAccess(db, tenantId, rsEarly, String(body.wholesaleCode || ''));
+    const wsAccess = await resolveWholesaleAccess(db, tenantId, { ...rsEarly, wholesaleAccessCode: (await getRetailSecrets(db, tenantId)).wholesaleAccessCode }, String(body.wholesaleCode || ''));
     if (!wsAccess.unlocked) {
       return NextResponse.json({ error: wsAccess.error || 'Invalid wholesale access code' }, { status: 403 });
     }
@@ -417,7 +419,7 @@ async function handleCheckout(req: NextRequest) {
   const addressCheck = method === 'ship'
     ? await validateAddress({
         address: body.shippingAddress,
-        apiKey: String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim(),
+        apiKey: await shippoKeyFor(db, tenantId),
         policy: addrPolicy,
       })
     : null;

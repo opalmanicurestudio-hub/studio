@@ -1,3 +1,4 @@
+import { shippoKeyFor } from '@/lib/retail-secrets';
 import { recordPostage } from '@/lib/postage';
 import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
   if (!tenantSnap.exists) return NextResponse.json({ error: 'Shop not found' }, { status: 404 });
   const tenant = tenantSnap.data() as any;
   const rs = tenant.retailSettings || {};
-  const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
+  const apiKey = await shippoKeyFor(db, tenantId, tenant);
   if (!apiKey) return NextResponse.json({ error: 'Shippo is not connected — add your API key in Shop Settings.' }, { status: 400 });
   const from = rs.shipFrom || {};
   if (!from.street1 || !from.city || !from.state || !from.zip) {

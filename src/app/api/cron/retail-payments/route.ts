@@ -1,6 +1,7 @@
 // src/app/api/cron/retail-payments/route.ts — EVERY 5 MIN (Vercel Cron + CRON_SECRET): every shop order still 'placed'
 // (older than 90 s, so Stripe's own notification gets first go) is checked with Stripe — paid ones complete and appear
 // on the orders board; abandoned ones close. Unanswered swap questions past their time become refunds; pickup reminders and back-in-stock emails go out. Nothing depends on the customer keeping their page open.
+import { getRetailSecrets } from '@/lib/retail-secrets';
 import { heartbeat } from '@/lib/account-health';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -15,7 +16,10 @@ export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false }, { status: 401 });
   const db = getAdminDb(); const counts: Record<string, number> = { paid: 0, expired: 0, waiting: 0, skipped: 0, failed: 0, swapsRefunded: 0, restockEmails: 0, pickupReminders: 0 };
   for (const t of (await db.collection('tenants').get()).docs) {
-    const tenant: any = t.data() || {}; if (!tenant.stripeAccountId && !tenant.stripeConnectAccountId) continue;
+    const tenant: any = t.data() || {};
+    // Shippo key and wholesale code off the public business record (lib/retail-secrets; a no-op once moved).
+    try { const rsx = tenant.retailSettings || {}; if ('shippoApiKey' in rsx || 'wholesaleAccessCode' in rsx) await getRetailSecrets(db, t.id, tenant); } catch { /* next run */ }
+    if (!tenant.stripeAccountId && !tenant.stripeConnectAccountId) continue;
     // Swap questions nobody answered in time become refunds, so the order isn't held up.
     try { counts.swapsRefunded += await expireSwapOffers(db, t.id); } catch { /* next run */ }
     // Pickup reminders for ready orders nobody has collected (each sent once).

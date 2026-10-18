@@ -1,3 +1,4 @@
+import { shippoKeyFor } from '@/lib/retail-secrets';
 import { rateCents, recordPostage, reversePostage } from '@/lib/postage';
 import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
+  const apiKey = await shippoKeyFor(db, tenantId, tenant);
   if (!apiKey) {
     return NextResponse.json({ error: 'Shippo is not connected — add your API key in Shop Settings.' }, { status: 400 });
   }

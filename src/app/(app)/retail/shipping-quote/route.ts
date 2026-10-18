@@ -1,3 +1,4 @@
+import { shippoKeyFor } from '@/lib/retail-secrets';
 import crypto from 'crypto';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
 
     const tenant = tenantSnap.data() as any;
     const rs = tenant.retailSettings || {};
-    const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
+    const apiKey = await shippoKeyFor(db, tenantId, tenant);
     const from = rs.shipFrom || {};
 
     // No Shippo, or no ship-from on file: fall back to the shop's flat rate

@@ -27,6 +27,20 @@ import { buildEntry } from '@/lib/stock-ledger';
 //     movement with reason "Nightly reservation check", so a leak leaves a
 //     visible record instead of silently resolving.
 
+/** Every document a query matches, 500 at a time, so nothing is silently left out however big the shop gets. */
+async function allDocs(q: any): Promise<any[]> {
+  const out: any[] = []; let last: any = null;
+  for (let guard = 0; guard < 200; guard++) {
+    let page = q.limit(500);
+    if (last) page = page.startAfter(last);   // continues after the last document read, whatever the query's order
+    const snap = await page.get();
+    out.push(...snap.docs);
+    if (snap.size < 500) break;
+    last = snap.docs[snap.docs.length - 1];
+  }
+  return out;
+}
+
 const HOLDING_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
 
 export interface ReconcileResult {
@@ -45,10 +59,8 @@ export async function reconcileReservations(
 
   // 1. What SHOULD be held, straight from the orders that exist.
   const expected = new Map<string, number>();
-  const ordersSnap = await db.collection(`tenants/${tenantId}/retailOrders`)
-    .where('stage', 'in', HOLDING_STAGES)
-    .limit(1000)
-    .get();
+  // Every holding order, page by page: a cut-off here would under-count what's held and free real holds (overselling).
+  const ordersSnap = { docs: await allDocs(db.collection(`tenants/${tenantId}/retailOrders`).where('stage', 'in', HOLDING_STAGES).orderBy(require('firebase-admin/firestore').FieldPath.documentId())) };
 
   for (const doc of ordersSnap.docs) {
     const order = doc.data() as any;
@@ -64,10 +76,7 @@ export async function reconcileReservations(
 
   // 2. Compare against every item currently claiming a hold, PLUS every item
   //    an order expects — an item can be wrong in either direction.
-  const heldSnap = await db.collection(`tenants/${tenantId}/inventory`)
-    .where('stockReserved', '>', 0)
-    .limit(1000)
-    .get();
+  const heldSnap = { docs: await allDocs(db.collection(`tenants/${tenantId}/inventory`).where('stockReserved', '>', 0).orderBy('stockReserved')) };
 
   const ids = new Set<string>([...expected.keys(), ...heldSnap.docs.map((d: any) => d.id)]);
   const heldById = new Map<string, any>(heldSnap.docs.map((d: any) => [d.id, d.data()]));

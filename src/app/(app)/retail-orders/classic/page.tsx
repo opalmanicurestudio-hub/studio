@@ -223,7 +223,7 @@ export default function RetailFulfillmentBoard() {
   const [ratesLoading, setRatesLoading] = useState(false);
   const [buyingRate, setBuyingRate] = useState<string | null>(null);
   const [labelUrl, setLabelUrl] = useState('');
-  const shippoConfigured = !!(selectedTenant as any)?.retailSettings?.shippoApiKey;
+  const shippoConfigured = !!((selectedTenant as any)?.retailSettings?.shippoConnected || (selectedTenant as any)?.retailSettings?.shippoApiKey);
   const [shipCarrier, setShipCarrier] = useState('');
   const [shipNumber, setShipNumber] = useState('');
   const [shipUrl, setShipUrl] = useState('');

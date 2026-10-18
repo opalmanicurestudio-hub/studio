@@ -1,3 +1,4 @@
+import { getRetailSecrets } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Product not available' }, { status: 404 });
   }
 
-  const wsAccess = await resolveWholesaleAccess(db, tenantId, rs, wholesaleCode);
+  const wsAccess = await resolveWholesaleAccess(db, tenantId, wholesaleCode ? { ...rs, wholesaleAccessCode: (await getRetailSecrets(db, tenantId)).wholesaleAccessCode } : rs, wholesaleCode);
   if (wholesaleCode && !wsAccess.unlocked) {
     return NextResponse.json({ error: wsAccess.error || 'Invalid wholesale access code' }, { status: 403 });
   }
