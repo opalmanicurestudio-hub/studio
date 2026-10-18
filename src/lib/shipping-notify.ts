@@ -221,17 +221,23 @@ export async function sendCarrierUpdate(opts: {
   if (!to) return { ok: false, reason: 'no_customer_email' };
   if (!RESEND_API_KEY || !RESEND_FROM) return { ok: false, reason: 'email_not_configured' };
 
+  // Claim the marker BEFORE sending: two carrier webhooks for the same status arriving together can't both email.
+  // create() fails if the marker exists, so exactly one caller wins. A failed send removes the claim so the next
+  // webhook can try again.
   try {
-    const prior = await markerRef.get();
-    if (prior.exists) return { ok: true, sent: false, reason: 'already_sent' };
-  } catch {
-    // A read failure must not block a first real send.
+    await markerRef.create({ id: markerRef.id, type: 'note', at: new Date().toISOString(), actorId: 'system', actorName: 'Carrier update', meta: { kind: 'carrier_notifying' } });
+  } catch (e: any) {
+    const exists = /already exists|ALREADY_EXISTS|code.?6\b/i.test(String(e?.message || e?.code || '')) || e?.code === 6;
+    if (exists) return { ok: true, sent: false, reason: 'already_sent' };
+    // Any other failure to claim: fall back to checking, so a first real send isn't lost.
+    try { const prior = await markerRef.get(); if (prior.exists) return { ok: true, sent: false, reason: 'already_sent' }; } catch { /* send anyway */ }
   }
+  const release = async () => { try { await markerRef.delete(); } catch { /* stays claimed; the order page still shows tracking */ } };
 
   const shopName = String(tenant?.businessName || tenant?.name || 'Our team');
   const first = String(order?.customerName || '').split(' ')[0];
   const copy = copyFor(update, shopName, first);
-  if (!copy) return { ok: false, reason: 'no_copy_for_status' };
+  if (!copy) { await release(); return { ok: false, reason: 'no_copy_for_status' }; }
 
   const num = typeof order?.orderNumber === 'number' && order.orderNumber > 0
     ? `#${String(order.orderNumber).padStart(4, '0')}`
@@ -259,6 +265,7 @@ export async function sendCarrierUpdate(opts: {
     const { resolveMessagePolicy } = await import('@/lib/message-policy');
     const kind = update.status === 'DELAYED' ? 'order_delayed' : 'order_shipped';
     if (!resolveMessagePolicy(tenant, kind, 'email').enabled) {
+      await release();
       return { ok: false, sent: false, reason: `${kind} is switched off in message settings` };
     }
   } catch { /* fail open — never lose a carrier update over a settings lookup */ }
@@ -291,7 +298,7 @@ export async function sendCarrierUpdate(opts: {
     console.error('[shipping-notify] send failed:', e?.message || e);
   }
 
-  if (!sent) return { ok: false, reason: 'send_failed' };
+  if (!sent) { await release(); return { ok: false, reason: 'send_failed' }; }
 
   // Only mark it told once it actually went. A failed send stays retryable on
   // the carrier's next webhook for the same status.

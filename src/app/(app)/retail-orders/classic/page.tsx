@@ -1,5 +1,6 @@
 'use client';
 
+import { cancelIt } from '@/lib/orders-flow';
 import { openPrint } from '@/lib/open-print';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { arrayUnion, collection, doc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
@@ -1194,7 +1195,7 @@ export default function RetailFulfillmentBoard() {
                     onClick={() => {
                       const why = window.prompt(`Cancel order #${String(o.orderNumber).padStart(4, '0')}? Reason (optional):`);
                       if (why === null) return;
-                      act(`cancel-${o.id}`, () => cancelOrder(requireCtx() as Firestore, tenantId, o.id, actor, why.trim()));
+                      act(`cancel-${o.id}`, () => cancelIt(requireCtx() as Firestore, tenantId, o, actor, why.trim()));
                     }}
                     className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 border-destructive/30 text-destructive"
                   >

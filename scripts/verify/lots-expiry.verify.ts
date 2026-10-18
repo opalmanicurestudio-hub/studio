@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { depleteBatchesFIFO, expiredUnits, onlineSellable } from '../../src/lib/retail-orders';
+import { depleteBatchesFIFO, expiredUnits, onlineSellable, shrinkStock } from '../../src/lib/retail-orders';
 
 const now = Date.parse('2026-10-18T12:00:00Z');
 const batches = [
@@ -17,4 +17,7 @@ const old = depleteBatchesFIFO([{ id: 'x', stock: 2, costPerUnit: 1, receivedDat
 assert.equal(old.taken[0].batchId, 'y', 'without dates it is still oldest first');
 const all = depleteBatchesFIFO(batches as any, 15, now);
 assert.deepEqual(all.taken.map((t) => t.batchId), ['b', 'a', 'd', 'c'], 'undated stock before expired stock');
+const sh = shrinkStock({ totalStock: 10, batches: [{ id: 'a', stock: 4, costPerUnit: 1, receivedDate: '2026-01-01' }, { id: 'b', stock: 6, costPerUnit: 1, receivedDate: '2026-02-01' }] }, 3);
+assert.equal(sh.totalStock, 7); assert.equal(sh.batches!.reduce((a, b) => a + b.stock, 0), 7, 'a short comes out of the batches too, so a later recount keeps it');
+assert.deepEqual(shrinkStock({ totalStock: 5 }, 2), { totalStock: 3 });
 console.log('lots-expiry ok');

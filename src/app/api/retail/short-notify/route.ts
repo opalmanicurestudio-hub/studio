@@ -1,3 +1,5 @@
+import { verifyStaffActor } from '@/lib/staff-auth';
+import { taxShareCents } from '@/lib/restocking';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { brandedEmailHtml } from '@/lib/email-template';
@@ -79,6 +81,9 @@ export async function POST(req: NextRequest) {
   if (!tenantId || !orderId || !lineId) {
     return NextResponse.json({ ok: false, reason: 'missing_ids' }, { status: 400 });
   }
+  // Only the team, or the shop's own server, can ask for this email.
+  const internal = !!process.env.CRON_SECRET && req.headers.get('x-internal-key') === process.env.CRON_SECRET;
+  if (!internal) { const auth = await verifyStaffActor(req, tenantId); if (!auth.ok) return NextResponse.json({ ok: false, reason: 'not_allowed' }, { status: auth.status }); }
 
   const db = getAdminDb();
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
@@ -126,7 +131,9 @@ export async function POST(req: NextRequest) {
   const backordered = String(line.status) === 'backordered';
   const itemName = String(line.name || 'One item')
     + (line.optionsLabel ? ` (${String(line.optionsLabel)})` : '');
-  const refundCents = (Number(line.unitPriceCents) || 0) * qtyShorted;
+  const itemCents = (Number(line.unitPriceCents) || 0) * qtyShorted;
+  const refundCents = itemCents + taxShareCents(order, itemCents);   // the tax paid on it comes back too
+  const moneySent = (Number(order.refundedCents) || 0) >= refundCents && !(Number(order.pendingRefundCents) || 0);
   const remaining = (order.lines || [])
     .filter((l: any) => String(l?.lineId) !== lineId && (Number(l?.qtyShorted) || 0) === 0).length;
 
@@ -147,7 +154,9 @@ export async function POST(req: NextRequest) {
     );
   } else {
     bodyLines.push(
-      `We have refunded ${money(refundCents)} to the card you paid with. Most banks show the refund within 5 to 10 business days.`,
+      moneySent
+        ? `We have refunded ${money(refundCents)} to the card you paid with. Most banks show it within 5 to 10 business days.`
+        : `We are refunding ${money(refundCents)} to the card you paid with. Once it is sent, most banks show it within 5 to 10 business days.`,
       'If you would prefer that we send the item when it is back in stock instead, please open your order and let us know, and we can arrange that in place of the refund.',
     );
   }

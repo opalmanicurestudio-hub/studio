@@ -1,5 +1,8 @@
 'use client';
 
+import { staffAuthHeader } from './staff-fetch';
+import { syncRenterCredits } from './renter-credit-client';
+import { shrinkStock } from './retail-orders';
 import { taxShareCents } from './restocking';
 import { cardRefundableCents } from '@/lib/retail-money';
 import {
@@ -387,12 +390,12 @@ export function notifyCurbside(tenantId: string, orderId: string, moment: 'ready
 function notifyCustomerOfShort(tenantId: string, orderId: string, lineId: string): void {
   if (typeof window === 'undefined') return;
   try {
-    void fetch('/api/retail/short-notify', {
+    void staffAuthHeader().then((h) => fetch('/api/retail/short-notify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...h },
       body: JSON.stringify({ tenantId, orderId, lineId }),
       keepalive: true,
-    }).catch(() => undefined);
+    })).catch(() => undefined);
   } catch {
     // best effort by design
   }
@@ -421,7 +424,7 @@ export async function resolveShortLine(
       if (iSnap.exists()) {
         const item = iSnap.data() as any;
         txn.update(iRef, {
-          totalStock: Math.max(0, (item.totalStock || 0) - qtyShorted),
+          ...shrinkStock(item, qtyShorted),
           stockReserved: Math.max(0, (item.stockReserved || 0) - qtyShorted),
         });
         txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
@@ -615,8 +618,11 @@ function convertSaleInTxn(
   order.lines.forEach((line, i) => {
     const qty = fulfilledQty(line);
     const { snap, ref } = itemSnaps[i];
-    if (qty <= 0 || !snap.exists()) return;
+    // Digital lines have no shelf stock to move.
+    if (qty <= 0 || !snap.exists() || (line as any).digital === true) return;
     const item = snap.data() as any;
+    // Pre-order lines were never held in stockReserved (they count against the pre-order run), so only the shelf moves.
+    const heldQty = (line as any).preorder === true ? 0 : qty;
     const { batches, taken } = depleteBatchesFIFO(item.batches as InventoryBatchRef[], qty);
     const withLot = taken.filter((t) => t.lot || t.expirationDate).map(({ lot, expirationDate, qty: q }) => ({ lot, expirationDate, qty: q }));
     if (withLot.length) { saleLots[line.lineId] = withLot; withLot.forEach((t) => { if (t.lot) lotKeys.push(`${line.productId}|${t.lot}`); }); }
@@ -624,7 +630,7 @@ function convertSaleInTxn(
     txn.update(ref, {
       batches: JSON.parse(JSON.stringify(batches)),
       totalStock: newTotal,
-      stockReserved: Math.max(0, (item.stockReserved || 0) - qty),
+      stockReserved: Math.max(0, (item.stockReserved || 0) - heldQty),
     });
     txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
       correction(line.productId, item.unit || 'units', -qty,
@@ -633,13 +639,13 @@ function convertSaleInTxn(
       productId: line.productId,
       type: 'released',
       field: 'stockReserved',
-      delta: -qty,
+      delta: -heldQty,
       unit: item.unit || 'units',
       reason: `Hold released \u2014 order fulfilled (Order #${order.orderNumber})`,
       actorId: actor.id,
       actorName: actor.name,
       ref: { kind: 'order', id: order.id },
-      balanceAfter: Math.max(0, (item.stockReserved || 0) - qty),
+      balanceAfter: Math.max(0, (item.stockReserved || 0) - heldQty),
     }));
   });
   if (Object.keys(saleLots).length) txn.update(doc(orderCol(fs, tenantId), order.id), { saleLots, lotKeys: [...new Set(lotKeys)] });
@@ -715,7 +721,7 @@ export async function handoffByScan(
 
   const orderId = match.docs[0].id;
   try {
-    return await runTransaction(fs, async (txn) => {
+    const done: any = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
       const oSnap = await txn.get(oRef);
       const order = { ...(oSnap.data() as RetailOrder), id: orderId };
@@ -734,8 +740,12 @@ export async function handoffByScan(
       txn.update(oRef, { stage: 'completed', completedAt: now });
       txn.set(doc(collection(oRef, 'events')), evPayload('handoff_scanned', actor));
       txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor));
-      return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber };
+      return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, order };
     });
+    // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
+    if (done?.ok && done.order) syncRenterCredits(tenantId, done.order);
+    if (done && typeof done === 'object') delete done.order;
+    return done;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'The handoff did not go through. Please try again.' };
   }
@@ -746,7 +756,7 @@ export async function handoffWithoutScan(
   fs: Firestore, tenantId: string, orderId: string, verifiedBy: string, actor: Actor
 ): Promise<{ ok: boolean; message: string }> {
   try {
-    return await runTransaction(fs, async (txn) => {
+    const done: any = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
@@ -764,8 +774,12 @@ export async function handoffWithoutScan(
         rule: 'handoff_without_scan', reason: `Identity verified: ${verifiedBy}`.slice(0, 140),
       }));
       txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor));
-      return { ok: true, message: `Order #${order.orderNumber} handed off (no scan — logged)` };
+      return { ok: true, message: `Order #${order.orderNumber} handed off (no scan — logged)`, order };
     });
+    // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
+    if (done?.ok && done.order) syncRenterCredits(tenantId, done.order);
+    if (done && typeof done === 'object') delete done.order;
+    return done;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Handoff failed.' };
   }
@@ -924,7 +938,7 @@ export async function markShipped(
   tracking: { carrier?: string; number?: string; url?: string }, actor: Actor
 ): Promise<{ ok: boolean; message: string }> {
   try {
-    return await runTransaction(fs, async (txn) => {
+    const done: any = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
@@ -950,8 +964,12 @@ export async function markShipped(
         }));
       }
       txn.set(doc(collection(oRef, 'events')), evPayload('shipped', actor));
-      return { ok: true, message: `Order #${order.orderNumber} shipped` };
+      return { ok: true, message: `Order #${order.orderNumber} shipped`, order };
     });
+    // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
+    if (done?.ok && done.order) syncRenterCredits(tenantId, done.order);
+    if (done && typeof done === 'object') delete done.order;
+    return done;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not mark shipped.' };
   }
@@ -1035,8 +1053,16 @@ export async function releaseBackorder(
       const oRef = doc(orderCol(fs, tenantId), orderId);
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
-      if ((oSnap.data() as RetailOrder).holdUntilRestock !== true) {
+      const child = oSnap.data() as RetailOrder;
+      if (child.holdUntilRestock !== true) {
         return { ok: false, message: 'Order is not on hold.' };
+      }
+      // A waiting backorder holds no stock; released, it takes its units like any paid order.
+      const reads = await Promise.all((child.lines || []).filter((l) => (l as any).digital !== true).map(async (l) => ({ l, ref: invDoc(fs, tenantId, l.productId), snap: await txn.get(invDoc(fs, tenantId, l.productId)) })));
+      for (const { l, ref, snap } of reads) {
+        if (!snap.exists()) continue;
+        const it = snap.data() as any; const q = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
+        if (q > 0) txn.update(ref, { stockReserved: (it.stockReserved || 0) + q });
       }
       txn.update(oRef, { holdUntilRestock: false });
       txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Backorder released to queue' }));

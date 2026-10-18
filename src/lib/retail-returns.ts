@@ -1,5 +1,6 @@
 'use client';
 
+import { syncRenterCredits } from './renter-credit-client';
 import { restockingFee } from './restocking';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import {
@@ -392,6 +393,8 @@ export async function resolveReturn(
      * resolution is committed either way, and the route dedupes on the
      * return doc so a retry can't double-send. */
     if (result.ok) {
+      // A returned renter's product takes its share back off their rent credit (lib/renter-sales).
+      syncRenterCredits(tenantId, { id: ret.orderId }, true);
       void fetch('/api/retail/return-notify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, returnId: ret.id }),

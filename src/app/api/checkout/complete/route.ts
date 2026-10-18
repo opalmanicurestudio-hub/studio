@@ -9,6 +9,7 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { depleteBatchesFIFO } from '@/lib/retail-orders';
 import { giftCap, limitsOn, type BillLine } from '@/lib/gift-limits';
 import { homeLocation } from '@/lib/business-locations';
 import { saleStamp } from '@/lib/commission';
@@ -406,7 +407,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const description = it.type === 'giftcard' ? `Gift card sold: ${it.name}` : it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : it.type === 'rent' ? `Booth rent: ${it.name}` : it.type === 'tuition' ? `Tuition: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
     txn({ description, type: 'income', context: 'Business', category, ...(it.type === 'giftcard' ? { taxBucket: 'transfer' } : {}), amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
     if (it.type === 'product') {
-      batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity) }, { merge: true });
+      // The batches move too (soonest-expiring first, lib/retail-orders), so lots and expiry stay true for in-store sales.
+      let batchPatch: any = {};
+      try { const inv: any = (await db.doc(`${T}/inventory/${it.id}`).get()).data(); if (Array.isArray(inv?.batches) && inv.batches.length) batchPatch = { batches: JSON.parse(JSON.stringify(depleteBatchesFIFO(inv.batches, it.quantity).batches)) }; } catch { /* the total still moves */ }
+      batch.set(db.doc(`${T}/inventory/${it.id}`), { totalStock: FieldValue.increment(-it.quantity), ...batchPatch }, { merge: true });
       const sc = db.collection(`${T}/stockCorrections`).doc();
       batch.set(sc, clean({ productId: it.id, date: now, change: -it.quantity, unit: 'units', reason: `Retail Sale: ${it.name} for ${client.name || 'Guest'}`, actorId: auth.actor.uid || 'staff', actorName: auth.actor.name || 'Staff', source: 'stock_ledger', type: 'sold', field: 'totalStock', balanceAfter: Math.max(0, num(it.stock) - it.quantity), refKind: 'checkout', refId: checkoutSessionId }));
     }

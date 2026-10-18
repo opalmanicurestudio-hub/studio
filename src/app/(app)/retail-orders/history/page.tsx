@@ -1,4 +1,5 @@
 'use client';
+import { cancelIt } from '@/lib/orders-flow';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
 import {
@@ -407,7 +408,7 @@ export default function RetailOrderHistoryPage() {
                         const why = window.prompt(`Cancel order #${String(detail.orderNumber).padStart(4, '0')}? Reason (optional):`);
                         if (why === null) return;
                         setBusy(true);
-                        const r = await cancelOrder(firestore as Firestore, tenantId, detail.id, actor, why.trim());
+                        const r = await cancelIt(firestore as Firestore, tenantId, detail, actor, why.trim());
                         setBusy(false);
                         toast({ variant: r.ok ? 'default' : 'destructive', title: r.message });
                         if (r.ok) openDetail(detail);

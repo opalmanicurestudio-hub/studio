@@ -5,6 +5,7 @@
 //   use reversed · lifetime value taken back · the visit(s) reopened for a correct checkout · the till corrected.
 // Card payments are refunded first (the client gets the refund message). CASH: the desk is told exactly how much to
 // hand back and what happened to the till. Within the business's void window (same day, by default); after that it's a refund.
+import { returnToBatches } from '@/lib/retail-orders';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -83,7 +84,9 @@ export async function POST(req: NextRequest) {
   }
   // Stock back on the shelf.
   for (const p of R.products || []) {
-    batch.set(db.doc(`${T}/inventory/${p.id}`), { totalStock: FieldValue.increment(num(p.quantity)) }, { merge: true });
+    let back: any = {};
+    try { const inv: any = (await db.doc(`${T}/inventory/${p.id}`).get()).data(); const b2 = returnToBatches(inv?.batches, num(p.quantity)); if (b2) back = { batches: JSON.parse(JSON.stringify(b2)) }; } catch { /* the total still moves */ }
+    batch.set(db.doc(`${T}/inventory/${p.id}`), { totalStock: FieldValue.increment(num(p.quantity)), ...back }, { merge: true });
     const sc = db.collection(`${T}/stockCorrections`).doc();
     batch.set(sc, { productId: p.id, date: now, change: num(p.quantity), unit: 'units', reason: `Void: ${p.name || 'item'} (sale for ${rc.clientName || 'a client'})`, actorId: auth.actor.uid || 'staff', actorName: approvedBy, source: 'stock_ledger', type: 'returned', field: 'totalStock', refKind: 'void', refId: receiptId });
   }

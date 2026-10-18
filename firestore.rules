@@ -590,6 +590,48 @@ service cloud.firestore {
       allow read: if isTeam(tenantId);
       allow write: if false;
     }
+    // SHOP ORDERS. The team runs fulfilment from the browser (claim, scan, pack, shelf, hand over, ship, short, return), so
+    // the team can update orders, but never the money, identity or verification fields: what was charged and refunded,
+    // the order total, the customer's email and pickup code, the payment ids, the risk check and holds set by the
+    // payment step, and swap questions (all written by the server). Shorts, cancels and returns change the refund owed
+    // from the browser; the money itself only moves on the server, where it's capped at what the card paid and the
+    // person's refund limit. Only managers release a hold or mark a refund as done by hand. New orders from the browser are the zero-value follow-ups the engine makes
+    // (a backorder, a replacement, a split); paid orders are only ever created by checkout on the server.
+    function orderLockedKeys() {
+      return ['chargedCents', 'totalCents', 'subtotalCents', 'taxCents', 'shippingCents', 'tipCents', 'qrToken', 'customerEmail', 'clientId',
+              'orderNumber', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq', 'lastStripeRefundId',
+              'riskCheck', 'holdAuto', 'idCheck', 'swapOffer', 'swapPendingPhone', 'giftSpentAt', 'giftCardCents', 'giftCardId',
+              'storeCreditRequestedCents', 'creditShortfallCents', 'nonCardRestoredAt', 'nonCardRestored', 'isTest', 'policySnapshot'];
+    }
+    match /tenants/{tenantId}/retailOrders/{orderId} {
+      allow read: if isTeam(tenantId);
+      allow create: if isTeam(tenantId)
+        && request.resource.data.get('totalCents', 0) == 0
+        && request.resource.data.get('chargedCents', 0) == 0
+        && request.resource.data.get('pendingRefundCents', 0) == 0
+        && request.resource.data.get('refundedCents', 0) == 0;
+      allow update: if isTeam(tenantId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(orderLockedKeys())
+        && (isManager(tenantId) || (
+              request.resource.data.get('refundedCents', 0) == resource.data.get('refundedCents', 0)
+              && (request.resource.data.get('holdForReview', false) == true || resource.data.get('holdForReview', false) != true)
+           ));
+      allow delete: if false;
+      // The order's history: added to, never rewritten.
+      match /events/{eventId} {
+        allow read, create: if isTeam(tenantId);
+        allow update, delete: if false;
+      }
+    }
+    // RENT LEDGER. Managers record rent payments and credits; online-shop sale credits for renters are written only by
+    // the server (lib/renter-sales-server), so nobody can add one from a browser.
+    match /tenants/{tenantId}/rentLedger/{entryId} {
+      allow read: if isTeam(tenantId);
+      allow create, update: if isManager(tenantId)
+        && request.resource.data.get('type', '') != 'retail_sale_credit'
+        && (resource == null || resource.data.get('type', '') != 'retail_sale_credit');
+      allow delete: if isManager(tenantId) && resource.data.get('type', '') != 'retail_sale_credit';
+    }
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isTeam(tenantId) &&
         !(collection in [
@@ -601,7 +643,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger',
           'inventoryExceptions',
           'activityLogs', 'shifts', 'shiftRequests', 'staffThreads',
           'kits', 'linens', 'kitTypes', 'linenBundles', 'sterilisationCycles',

@@ -1,3 +1,4 @@
+import { recordPostage } from '@/lib/postage';
 import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -206,6 +207,7 @@ export async function POST(req: NextRequest) {
         },
       });
       await batch.commit();
+      await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, String(txn.object_id || ''), cheapest.amountCents, String(cheapest.provider || 'Carrier'));
 
       results.push({
         orderId, ok: true,

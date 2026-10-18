@@ -17,7 +17,8 @@ import { buildEntry } from '@/lib/stock-ledger';
 // difference. Truth is derived, not accumulated.
 //
 // Deliberate boundaries:
-//   · Only orders in stages that genuinely hold stock count (paid → ready).
+//   · Only orders in stages that genuinely hold stock count (paid → ready, and a customer waiting outside). Backorders
+//     waiting for stock hold none until released.
 //     Shipped and completed orders released theirs; cancelled never had it.
 //   · Digital and pre-order lines are skipped — neither reserves shelf stock.
 //   · A correction only writes when it CHANGES something, so a healthy shop
@@ -26,7 +27,7 @@ import { buildEntry } from '@/lib/stock-ledger';
 //     movement with reason "Nightly reservation check", so a leak leaves a
 //     visible record instead of silently resolving.
 
-const HOLDING_STAGES = ['paid', 'picking', 'packed', 'ready'];
+const HOLDING_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
 
 export interface ReconcileResult {
   productsChecked: number;
@@ -51,6 +52,7 @@ export async function reconcileReservations(
 
   for (const doc of ordersSnap.docs) {
     const order = doc.data() as any;
+    if (order.holdUntilRestock === true) continue;   // a backorder waiting for stock holds none until it's released
     for (const line of (order.lines || [])) {
       if (line.digital === true || line.preorder === true) continue;
       if (['refunded', 'cancelled'].includes(String(line.status))) continue;

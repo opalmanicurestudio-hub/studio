@@ -317,6 +317,26 @@ export function depleteBatchesFIFO(
   return { batches: sorted, depleted: qty - remaining, shortfall: remaining, cogsCents, taken };
 }
 
+/** Stock that turned out not to be there (a short, a swap's missing item): take it out of the batches as well as the
+ *  total, so the next sale (which recounts the total from the batches) can't quietly put it back. */
+export function shrinkStock(item: { totalStock?: number; batches?: any[] }, qty: number): { totalStock: number; batches?: InventoryBatchRef[] } {
+  const total = Math.max(0, (Number(item.totalStock) || 0) - qty);
+  if (!Array.isArray(item.batches) || item.batches.length === 0) return { totalStock: total };
+  const { batches } = depleteBatchesFIFO(item.batches as InventoryBatchRef[], qty);
+  return { totalStock: batches.reduce((a, b) => a + (Number(b.stock) || 0), 0), batches: JSON.parse(JSON.stringify(batches)) };
+}
+
+/** Units coming back to the shelf (a voided sale): they go back into the batch a sale would have taken them from. */
+export function returnToBatches(batches: InventoryBatchRef[] | undefined, qty: number, now = Date.now()): InventoryBatchRef[] | null {
+  if (!Array.isArray(batches) || !batches.length || qty <= 0) return null;
+  const copy = batches.map((b) => ({ ...b }));
+  const live = copy.filter((b) => batchExpiry(b) >= now);
+  const pool = live.length ? live : copy;
+  const target = [...pool].sort((a, b) => batchExpiry(a) - batchExpiry(b) || new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime())[0];
+  target.stock = (Number(target.stock) || 0) + qty;
+  return copy;
+}
+
 /* ── Stock ledger (existing stockCorrections collection) ──────────────────── */
 
 export const INVENTORY_MOVEMENT_TYPES = [

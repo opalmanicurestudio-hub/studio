@@ -1,3 +1,4 @@
+import { restoreNonCardPayment } from '@/lib/cancel-restore';
 import { cardRefundableCents } from '@/lib/retail-money';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
@@ -161,6 +162,9 @@ export async function POST(req: NextRequest) {
       });
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
+      // Gift card and store credit used on the order go back too (lib/cancel-restore).
+      const restored = await restoreNonCardPayment(db, tenantId, orderId, 'Customer cancellation').catch(() => ({ giftCents: 0, creditCents: 0 }));
+      const restoredLine = [restored.giftCents ? `$${(restored.giftCents / 100).toFixed(2)} is back on your gift card` : '', restored.creditCents ? `$${(restored.creditCents / 100).toFixed(2)} store credit is back on your account` : ''].filter(Boolean).join(' and ');
 
       /* AUTO-REFUND ON CANCEL. The returns desk already honors the shop's
        * "refund automatically below $X" policy; a self-serve cancellation is
@@ -183,11 +187,11 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         ok: true,
-        message: refundedNow
+        message: `${refundedNow
           ? 'Order cancelled and your refund is already on its way back to your card — most banks show it within 5–10 business days.'
           : result.pending > 0
             ? 'Order cancelled. Your refund has been queued and the shop will process it shortly.'
-            : 'Order cancelled.',
+            : 'Order cancelled.'}${restoredLine ? ` ${restoredLine.charAt(0).toUpperCase()}${restoredLine.slice(1)}.` : ''}`,
       });
     }
 

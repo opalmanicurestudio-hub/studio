@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
   }
   if (action === 'refund') {
     const r = await refundInstead(db, tenantId, orderId, lineId, actor, String(b.reason || 'Not on the shelf').slice(0, 120));
-    if (r.ok) { try { await fetch(`${origin}/api/retail/short-notify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, orderId, lineId }) }); } catch { /* the order page shows it */ } }
+    if (r.ok) { try { await fetch(`${origin}/api/retail/short-notify`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET || '') }, body: JSON.stringify({ tenantId, orderId, lineId }) }); } catch { /* the order page shows it */ } }
     return NextResponse.json(r, { status: r.ok ? 200 : 409 });
   }
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });

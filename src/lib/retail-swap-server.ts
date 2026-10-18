@@ -1,6 +1,7 @@
 // src/lib/retail-swap-server.ts — SWAPS ON THE SERVER. Offering a replacement, applying it, refunding instead, and
 // the customer's answer (from their order page or a YES/NO text) all run here in transactions, so the stock, the order
 // and the money move together, and two answers can't both win. The swap arithmetic itself is lib/retail-swap.
+import { shrinkStock } from './retail-orders';
 import { nanoid } from 'nanoid';
 import { taxShareCents } from './restocking';
 import { SWAP_ANSWER_HOURS, normaliseIfUnavailable, swapLines, type SwapItem } from './retail-swap';
@@ -43,7 +44,7 @@ export async function applySwap(db: any, t: string, orderId: string, lineId: str
       }
       if (origSnap.exists) {
         const it = origSnap.data() as any;
-        tx.update(origRef, { totalStock: Math.max(0, (Number(it.totalStock) || 0) - r.qty), stockReserved: Math.max(0, (Number(it.stockReserved) || 0) - r.qty) });
+        tx.update(origRef, { ...shrinkStock(it, r.qty), stockReserved: Math.max(0, (Number(it.stockReserved) || 0) - r.qty) });
         tx.set(db.collection(`tenants/${t}/stockCorrections`).doc(), correction(String(line.productId), -r.qty, `Not on the shelf, swapped (Order #${o.orderNumber})`, orderId, actor));
       }
       tx.update(ref, { lines: JSON.parse(JSON.stringify(r.lines)), pendingRefundCents: (Number(o.pendingRefundCents) || 0) + r.refundCents, swapOffer: null, swapPendingPhone: null });
@@ -71,7 +72,7 @@ export async function refundInstead(db: any, t: string, orderId: string, lineId:
       const lines = [...o.lines]; lines[idx] = { ...line, qtyShorted: (Number(line.qtyShorted) || 0) + qty, status: 'refunded', shortReason: why };
       if (iSnap.exists) {
         const it = iSnap.data() as any;
-        tx.update(iRef, { totalStock: Math.max(0, (Number(it.totalStock) || 0) - qty), stockReserved: Math.max(0, (Number(it.stockReserved) || 0) - qty) });
+        tx.update(iRef, { ...shrinkStock(it, qty), stockReserved: Math.max(0, (Number(it.stockReserved) || 0) - qty) });
         tx.set(db.collection(`tenants/${t}/stockCorrections`).doc(), correction(String(line.productId), -qty, `Not on the shelf (Order #${o.orderNumber})`, orderId, actor));
       }
       tx.update(ref, { lines: JSON.parse(JSON.stringify(lines)), pendingRefundCents: (Number(o.pendingRefundCents) || 0) + cents, swapOffer: null, swapPendingPhone: null });
@@ -141,7 +142,7 @@ export async function expireSwapOffers(db: any, t: string): Promise<number> {
     const o = d.data() as any; if (Date.parse(o.swapOffer?.expiresAt || '') > Date.now()) continue;
     const r = await refundInstead(db, t, d.id, o.swapOffer.lineId, { id: 'system', name: 'Automatic' }, 'No answer about a swap'); if (!r.ok) continue; n++;
     const base = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
-    if (base) { try { await fetch(`${base}/api/retail/short-notify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: t, orderId: d.id, lineId: o.swapOffer.lineId }) }); } catch { /* the order page shows it */ } }
+    if (base) { try { await fetch(`${base}/api/retail/short-notify`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET || '') }, body: JSON.stringify({ tenantId: t, orderId: d.id, lineId: o.swapOffer.lineId }) }); } catch { /* the order page shows it */ } }
   }
   return n;
 }

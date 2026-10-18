@@ -1,3 +1,4 @@
+import { rateCents, recordPostage, reversePostage } from '@/lib/postage';
 import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -127,6 +128,7 @@ export async function POST(req: NextRequest) {
         meta: { text: `Label voided — refund ${status.toLowerCase()} (carrier approval can take a few days)` },
       });
       await batch.commit();
+      await reversePostage(db, tenantId, txnId);
 
       return NextResponse.json({
         ok: true,
@@ -289,6 +291,8 @@ export async function POST(req: NextRequest) {
       },
     });
     await batch.commit();
+    // The postage is a real cost: into the books against this order (lib/postage).
+    await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, String(txn.object_id || ''), await rateCents(apiKey, rateId), result.carrier);
 
     return NextResponse.json({
       ...result,

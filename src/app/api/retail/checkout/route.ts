@@ -503,6 +503,7 @@ async function handleCheckout(req: NextRequest) {
     ...(promiseAt && !digitalOnly ? { shipPromiseAt: promiseAt } : {}),
     ...(preorderLines.length > 0 ? { hasPreorder: true } : {}),
     ...(groundOnly && method === 'ship' ? { groundOnly: true } : {}),
+    ...(lines.some((l: any) => l.soldFor?.renterId) ? { hasRenterItems: true } : {}),
     // The agreement itself, in the customer's own words as they were shown
     // them. Carried as TEXT, not a version pointer: a pointer sends whoever
     // reads this later to a file that has since been edited, which is the
