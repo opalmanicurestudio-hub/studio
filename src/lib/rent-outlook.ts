@@ -3,7 +3,7 @@
 // invoice when it's made, not what's already owed), so the portal never promises a figure the bill won't match.
 import { nextChargeDate } from '@/lib/rent-schedule';
 
-export const CREDIT_LABELS: Record<string, string> = { prepaid_credit: 'Paid ahead', desk_offset: 'Front-desk collections', leave_credit: 'Leave credit', sublet_credit: 'Sublet credit', rent_abatement: 'Rent reduction', gift_card_credit: 'Studio gift cards' };
+export const CREDIT_LABELS: Record<string, string> = { prepaid_credit: 'Paid ahead', desk_offset: 'Front-desk collections', leave_credit: 'Leave credit', sublet_credit: 'Sublet credit', rent_abatement: 'Rent reduction', gift_card_credit: 'Studio gift cards', retail_sale_credit: 'Online shop sales' };
 
 export function rentOutlook(x: { lease: any; renter: any; invoices: any[]; ledger: any[]; todayIso: string }) {
   const credits = (x.ledger || []).filter((c) => CREDIT_LABELS[String(c.type || '')])

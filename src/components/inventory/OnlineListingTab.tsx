@@ -14,6 +14,7 @@
 // Saving is per section, not one button at the bottom of a long page: a phone
 // that rings mid-edit shouldn't cost you the work you already did.
 
+import { SoldForSection } from './SoldForSection';
 import { Check, ChevronDown, Loader, Plus, Trash2 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 
@@ -220,6 +221,8 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
           </Button>
         )}
       </div>
+
+      <SoldForSection product={product} onSave={onSave} />
 
       <Section
         title="Stock and shipping"

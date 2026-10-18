@@ -524,6 +524,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                 costPerUnit: item.costPerUnit,
                 receivedDate: new Date().toISOString(),
                 expirationDate: item.expirationDate ? item.expirationDate.toISOString() : undefined,
+                ...(item.lot && item.lot.trim() ? { lot: item.lot.trim() } : {}),
               };
               
               const updatedBatches = [...existingProduct.batches, newBatchData];

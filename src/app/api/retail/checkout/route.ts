@@ -1,3 +1,4 @@
+import { soldForOf } from '@/lib/renter-sales';
 import { itemGroundOnly } from '@/lib/ground-only';
 import { normaliseIfUnavailable } from '@/lib/retail-swap';
 import { NextRequest, NextResponse } from 'next/server';
@@ -321,6 +322,8 @@ async function handleCheckout(req: NextRequest) {
       .map((d: any) => ({ name: String(d.name).slice(0, 80), url: String(d.url).slice(0, 500) }));
     if (lineDocs.length > 0) (line as any).documents = lineDocs;
     if (itemGroundOnly(item)) { groundOnly = true; (line as any).groundOnly = true; }
+    // Sold for a renter: the share agreed today travels with the line, so a later change can't rewrite this sale.
+    { const sf = soldForOf(item); if (sf) (line as any).soldFor = sf; }
     lines.push(line);
   }
 

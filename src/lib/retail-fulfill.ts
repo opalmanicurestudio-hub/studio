@@ -609,12 +609,17 @@ function convertSaleInTxn(
   txn: any, fs: Firestore, tenantId: string,
   order: RetailOrder & { id: string }, itemSnaps: { ref: any; snap: any }[], actor: Actor
 ) {
+  // Which lots went out on each line, so a recall can find every customer who got one.
+  const saleLots: Record<string, { lot: string; expirationDate: string; qty: number }[]> = {};
+  const lotKeys: string[] = [];
   order.lines.forEach((line, i) => {
     const qty = fulfilledQty(line);
     const { snap, ref } = itemSnaps[i];
     if (qty <= 0 || !snap.exists()) return;
     const item = snap.data() as any;
-    const { batches } = depleteBatchesFIFO(item.batches as InventoryBatchRef[], qty);
+    const { batches, taken } = depleteBatchesFIFO(item.batches as InventoryBatchRef[], qty);
+    const withLot = taken.filter((t) => t.lot || t.expirationDate).map(({ lot, expirationDate, qty: q }) => ({ lot, expirationDate, qty: q }));
+    if (withLot.length) { saleLots[line.lineId] = withLot; withLot.forEach((t) => { if (t.lot) lotKeys.push(`${line.productId}|${t.lot}`); }); }
     const newTotal = batches.reduce((a, b) => a + b.stock, 0);
     txn.update(ref, {
       batches: JSON.parse(JSON.stringify(batches)),
@@ -637,6 +642,7 @@ function convertSaleInTxn(
       balanceAfter: Math.max(0, (item.stockReserved || 0) - qty),
     }));
   });
+  if (Object.keys(saleLots).length) txn.update(doc(orderCol(fs, tenantId), order.id), { saleLots, lotKeys: [...new Set(lotKeys)] });
 }
 
 async function readOrderItems(txn: any, fs: Firestore, tenantId: string, order: RetailOrder) {

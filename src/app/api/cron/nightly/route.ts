@@ -30,6 +30,7 @@ import { ticketAcknowledged, respondByFor } from '@/lib/maintenance';
 import { staffMirrorFields, mirrorDiffers } from '@/lib/renter-identity';
 import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
+import { alertExpiringStock } from '@/lib/expiry-alerts';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import {
@@ -330,7 +331,7 @@ export async function GET(req: NextRequest) {
         try {
           const credSnap = await db.collection(`tenants/${tDoc.id}/rentLedger`).where('renterId', '==', lease.renterId).get();
           const creds = credSnap.docs.map((d) => ({ ref: d.ref, ...(d.data() as any) }))
-            .filter((c: any) => ['rent_abatement', 'leave_credit', 'sublet_credit', 'desk_offset', 'prepaid_credit', 'gift_card_credit'].includes(String(c.type || '')))
+            .filter((c: any) => ['rent_abatement', 'leave_credit', 'sublet_credit', 'desk_offset', 'prepaid_credit', 'gift_card_credit', 'retail_sale_credit'].includes(String(c.type || '')))
             .map((c: any) => ({ ...c, remaining: Math.abs(Number(c.amountCents) || 0) - (Number(c.appliedCents) || 0) }))
             .filter((c: any) => c.remaining > 0)
             .sort((a: any, b: any) => String(a.date || a.createdAt || '').localeCompare(String(b.date || b.createdAt || '')));
@@ -340,7 +341,7 @@ export async function GET(req: NextRequest) {
             const take = Math.min(c.remaining, due);
             due -= take; creditApplied += take;
             batch.set(c.ref, { appliedCents: (Number(c.appliedCents) || 0) + take, lastAppliedInvoiceId: ref.id, lastAppliedAt: nowIso }, { merge: true });
-            creditLines.push(`${c.type === 'desk_offset' ? 'front-desk collections' : c.type === 'prepaid_credit' ? 'paid ahead' : c.type === 'gift_card_credit' ? 'studio gift cards' : String(c.type).replace('_', ' ')} $${(take / 100).toFixed(2)}`);
+            creditLines.push(`${c.type === 'desk_offset' ? 'front-desk collections' : c.type === 'prepaid_credit' ? 'paid ahead' : c.type === 'gift_card_credit' ? 'studio gift cards' : c.type === 'retail_sale_credit' ? 'online shop sales' : String(c.type).replace('_', ' ')} $${(take / 100).toFixed(2)}`);
           }
           if (creditApplied > 0) {
             (inv as any).grossCents = inv.amountCents;
@@ -1395,6 +1396,8 @@ export async function GET(req: NextRequest) {
   for (const tDoc of allTenantsSnap.docs) {
     try {
       const r = await reconcileReservations(db, tDoc.id);
+      // Batches expiring within 30 days, or today: one alert each (lib/expiry-alerts).
+      try { const ex = await alertExpiringStock(db, tDoc.id); if (ex > 0) results[`expiry:${tDoc.id}`] = { alerts: ex }; } catch { /* next night */ }
       // Anyone still showing as "outside" hours later did not get their order.
       const stale = await sweepStaleCurbside(db, tDoc.id);
       if (stale.flagged > 0) results[`curbside:${tDoc.id}`] = stale;

@@ -528,6 +528,7 @@ export type Batch = {
   costPerUnit: number;
   receivedDate: string;
   expirationDate?: string;
+  lot?: string;
 };
 
 export type LifespanTestResult = {

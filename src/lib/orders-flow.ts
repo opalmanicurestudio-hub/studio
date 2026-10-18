@@ -70,13 +70,21 @@ export async function bringingOut(fs: Firestore, t: string, o: any, actor: Actor
   return r;
 }
 
+/** Renters' shares of a finished order go onto their rent accounts (lib/renter-sales). Only orders that have one. */
+export function syncRenterCredits(t: string, o: any): void {
+  if (!(o?.lines || []).some((l: any) => l?.soldFor?.renterId)) return;
+  void (async () => { try { await fetch('/api/retail/renter-credit', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id }) }); } catch { /* the next sync catches up */ } })();
+}
+
 export async function handOver(fs: Firestore, t: string, o: any, actor: Actor, via: { scan?: string; verifiedBy?: string }): Promise<Result> {
-  if (via.scan) return handoffByScan(fs, t, via.scan, actor);
-  return handoffWithoutScan(fs, t, o.id, via.verifiedBy || 'Checked name and phone', actor);
+  const r = via.scan ? await handoffByScan(fs, t, via.scan, actor) : await handoffWithoutScan(fs, t, o.id, via.verifiedBy || 'Checked name and phone', actor);
+  if (r.ok) syncRenterCredits(t, o);
+  return r;
 }
 
 export async function shipIt(fs: Firestore, t: string, o: any, actor: Actor, tracking: { carrier?: string; number?: string; url?: string }): Promise<Result> {
   const r = await markShipped(fs, t, o.id, tracking, actor);
+  if (r.ok) syncRenterCredits(t, o);
   // Tracking typed from a label bought elsewhere: the carrier won't tell the customer, so we do.
   if (r.ok && !o.shippoTransactionId && (tracking.number || o.trackingNumber)) {
     try { await fetch('/api/retail/shipped-notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id }) }); } catch { /* the order page shows tracking either way */ }

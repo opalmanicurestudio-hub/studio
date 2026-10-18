@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { doc, getDoc, type Firestore } from 'firebase/firestore';
 import { receiveReturnLine, resolveReturn } from '@/lib/retail-returns';
+import { syncRenterCredits } from '@/lib/orders-flow';
 import { restockingFee } from '@/lib/restocking';
 import { money } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -47,6 +48,7 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
         const d = await r.json().catch(() => ({}));
         msg = r.ok ? `Checked in. ${money(res.refundQueuedCents || 0)} is on its way back to ${first}’s card.` : `Checked in. The refund didn’t send: ${d.error || 'try again from Problems'}.`;
       }
+      syncRenterCredits(tenantId, order || { id: ret.orderId, lines: [] });
       feel(true); onDone(msg);
     } finally { setBusy(false); }
   };

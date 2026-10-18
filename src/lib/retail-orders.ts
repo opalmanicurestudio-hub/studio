@@ -84,13 +84,27 @@ export const TERMINAL_STAGES: OrderStage[] = ['completed', 'cancelled', 'refunde
  * INVENTORY BRIDGE  (existing tenants/{tid}/inventory items, type 'retail')
  * ════════════════════════════════════════════════════════════════════════════ */
 
-/** Shape of a batch on an existing InventoryItem (FIFO by receivedDate). */
+/** Shape of a batch on an existing InventoryItem. Sold earliest-expiry first, then oldest first. The receiving
+ *  screens write `expirationDate`; `expiryDate` is the older spelling, read for safety. */
 export interface InventoryBatchRef {
   id: string;
   stock: number;
   costPerUnit: number;
   receivedDate: string;
   expiryDate?: string;
+  expirationDate?: string;
+  lot?: string;
+}
+
+export const batchExpiry = (b: { expirationDate?: any; expiryDate?: any }): number => {
+  const v = b.expirationDate ?? b.expiryDate; if (!v) return Infinity;
+  const t = typeof v === 'object' && typeof v.toDate === 'function' ? v.toDate().getTime() : Date.parse(String(v));
+  return Number.isFinite(t) ? t : Infinity;
+};
+
+/** Units in batches that are past their expiry date. They stay in stock for the record but are never sold online. */
+export function expiredUnits(item: { batches?: any[] }, now = Date.now()): number {
+  return (item.batches || []).reduce((a: number, b: any) => a + (batchExpiry(b) < now ? Math.max(0, Number(b.stock) || 0) : 0), 0);
 }
 
 /**
@@ -157,7 +171,7 @@ export function sellableStock(item: Pick<SellableItem, 'totalStock' | 'stockRese
 
 /** What the ONLINE shop may sell: sellable stock minus the units the shop keeps back for in-store customers. */
 export function onlineSellable(item: Pick<SellableItem, 'totalStock' | 'stockReserved'> & { storeHoldback?: number }): number {
-  return sellableStock(item) - Math.max(0, Math.floor(Number((item as any).storeHoldback) || 0));
+  return sellableStock(item) - Math.max(0, Math.floor(Number((item as any).storeHoldback) || 0)) - expiredUnits(item as any);
 }
 
 /**
@@ -277,23 +291,30 @@ export function isLowStock(item: SellableItem): boolean {
  */
 export function depleteBatchesFIFO(
   batches: InventoryBatchRef[] | undefined,
-  qty: number
-): { batches: InventoryBatchRef[]; depleted: number; shortfall: number; cogsCents: number } {
+  qty: number,
+  now = Date.now()
+): { batches: InventoryBatchRef[]; depleted: number; shortfall: number; cogsCents: number; taken: { batchId: string; lot: string; expirationDate: string; qty: number }[] } {
+  // Earliest expiry first (expired batches last, since they shouldn't be sold), then oldest received.
+  const rank = (b: InventoryBatchRef) => { const e = batchExpiry(b); return e < now ? Infinity : Number.isFinite(e) ? e : 8.64e15; };
   const sorted = [...(batches ?? [])]
     .map((b) => ({ ...b }))
-    .sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+    .sort((a, b) => rank(a) - rank(b) || new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
 
   let remaining = qty;
   let cogsCents = 0;
+  const taken: { batchId: string; lot: string; expirationDate: string; qty: number }[] = [];
   for (const batch of sorted) {
     if (remaining <= 0) break;
     const take = Math.min(batch.stock, remaining);
+    if (take <= 0) continue;
     batch.stock -= take;
     remaining -= take;
     cogsCents += Math.round(take * (batch.costPerUnit ?? 0) * 100);
+    const exp = batchExpiry(batch);
+    taken.push({ batchId: batch.id, lot: String(batch.lot || ''), expirationDate: Number.isFinite(exp) ? new Date(exp).toISOString().slice(0, 10) : '', qty: take });
   }
 
-  return { batches: sorted, depleted: qty - remaining, shortfall: remaining, cogsCents };
+  return { batches: sorted, depleted: qty - remaining, shortfall: remaining, cogsCents, taken };
 }
 
 /* ── Stock ledger (existing stockCorrections collection) ──────────────────── */

@@ -39,6 +39,7 @@ export type ReceivedItem = {
   quantityDamaged: number;
   costPerUnit: number;
   expirationDate?: Date;
+  lot?: string;
   capturedBarcode?: string;
 };
 
@@ -106,7 +107,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
     }
   }, [order]);
 
-  const handleItemChange = (productId: string, field: 'quantityReceived' | 'quantityDamaged' | 'expirationDate', value: number | Date | undefined) => {
+  const handleItemChange = (productId: string, field: 'quantityReceived' | 'quantityDamaged' | 'expirationDate' | 'lot', value: number | Date | string | undefined) => {
     setReceivedItems(prev => prev.map(item => {
         if (item.productId === productId) {
             const updatedItem = { ...item, [field]: value };
@@ -196,6 +197,17 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
                             <Input id={`qty-dmg-${item.productId}`} type="number" value={item.quantityDamaged} onChange={(e) => handleItemChange(item.productId, 'quantityDamaged', parseInt(e.target.value) || 0)} className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-destructive/5 border-destructive/20 text-destructive text-center" />
                         </div>
                     </div>
+                </div>
+
+                <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Lot or batch number (if printed)</Label>
+                    <Input
+                        aria-label="Lot or batch number"
+                        value={item.lot || ''}
+                        onChange={(e) => handleItemChange(item.productId, 'lot', e.target.value.slice(0, 40))}
+                        placeholder="e.g. L2405B"
+                        className="h-14 rounded-2xl border-2 font-mono font-bold bg-muted/5 shadow-inner"
+                    />
                 </div>
 
                 <div className="space-y-2">

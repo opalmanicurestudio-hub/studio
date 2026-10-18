@@ -1,5 +1,6 @@
 'use client';
 
+import { LotOrders } from '@/components/inventory/LotOrders';
 import { costGap } from '@/lib/product-cost';
 import { verifyPin } from '@/lib/pin-client';
 import React, { useMemo, useState } from 'react';
@@ -696,6 +697,12 @@ export default function ProductDetailPage() {
                                                                 <p className={cn("text-[9px] font-black uppercase tracking-widest mt-1 flex items-center gap-1.5 text-left", isPast(safeDate(batch.expirationDate)) ? "text-destructive" : "text-muted-foreground opacity-60")}>
                                                                     <Clock className="w-2.5 h-2.5" /> Expiry: {format(safeDate(batch.expirationDate), 'MMM d, yyyy')}
                                                                 </p>
+                                                            )}
+                                                            {(batch as any).lot && (
+                                                                <>
+                                                                    <p className="text-[9px] font-black uppercase tracking-widest mt-1 text-muted-foreground">Lot {(batch as any).lot}</p>
+                                                                    <LotOrders tenantId={String(tenantId || '')} productId={String(product?.id || '')} lot={String((batch as any).lot)} />
+                                                                </>
                                                             )}
                                                         </TableCell>
                                                         <TableCell className="text-left">

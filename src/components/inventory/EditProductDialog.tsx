@@ -509,7 +509,8 @@ export const EditProductDialog: React.FC<{
   const onSubmit = (data: ProductFormData) => {
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : product.costPerUnit;
     const updatedBatches = [...product.batches];
-    if (updatedBatches.length > 0) updatedBatches[0] = { ...updatedBatches[0], costPerUnit, expirationDate: data.expirationDate?.toISOString() };
+    // This form has no expiry field, so a batch's expiry is only ever changed when one was actually given.
+    if (updatedBatches.length > 0) updatedBatches[0] = { ...updatedBatches[0], costPerUnit, ...(data.expirationDate ? { expirationDate: data.expirationDate.toISOString() } : {}) };
     
     onProductUpdated(syncPublicFields({ 
         ...product, 
