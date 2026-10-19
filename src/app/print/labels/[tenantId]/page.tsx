@@ -1,4 +1,5 @@
 import { checkPrintKey } from '@/lib/print-key';
+import { isPngLabel, isZplLabel, labelFormatOf } from '@/lib/label-format';
 
 /**
  * /print/labels/[tenantId]?ids=orderId,orderId,… — the label STACK.
@@ -47,6 +48,8 @@ export default async function PrintLabelsPage({
   }
 
   const db = getAdminDb();
+  const tenantSnap = await db.collection('tenants').doc(tenantId).get().catch(() => null);
+  const paper = labelFormatOf((tenantSnap?.data() as any)?.retailSettings) === 'paper';
   const snaps = await Promise.all(
     orderIds.map((id) => db.collection(`tenants/${tenantId}/retailOrders`).doc(id).get())
   );
@@ -57,9 +60,10 @@ export default async function PrintLabelsPage({
     .filter((o: any) => o.labelUrl)
     .sort((a: any, b: any) => (Number(a.orderNumber) || 0) - (Number(b.orderNumber) || 0));
 
-  const isPng = (u: string) => /\.png(\?|$)/i.test(u) || u.includes('label_file_type=PNG');
-  const pngs = entries.filter((o: any) => isPng(String(o.labelUrl)));
-  const pdfs = entries.filter((o: any) => !isPng(String(o.labelUrl)));
+  const pngs = entries.filter((o: any) => isPngLabel(o.labelUrl));
+  const zpls = entries.filter((o: any) => isZplLabel(o.labelUrl));
+  const pdfs = entries.filter((o: any) => !isPngLabel(o.labelUrl) && !isZplLabel(o.labelUrl));
+  const zplHref = zpls.length ? `/api/retail/labels-zpl?tenantId=${encodeURIComponent(tenantId)}&ids=${encodeURIComponent(zpls.map((o: any) => o.id).join(','))}&k=${encodeURIComponent(String(k || ''))}&x=${encodeURIComponent(String(x || ''))}` : '';
 
   return (
     <html lang="en">
@@ -67,10 +71,12 @@ export default async function PrintLabelsPage({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`Label stack — ${pngs.length} label${pngs.length === 1 ? '' : 's'}`}</title>
         <style>{`
-          @page { size: 4in 6in; margin: 0; }
+          @page { size: ${paper ? '8.5in 11in' : '4in 6in'}; margin: 0; }
           * { box-sizing: border-box; }
           body { margin: 0; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
-          .label { width: 4in; height: 6in; page-break-after: always; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+          .label { width: ${paper ? '8.5in' : '4in'}; height: ${paper ? '11in' : '6in'}; page-break-after: always; display: flex; align-items: ${paper ? 'flex-start' : 'center'}; justify-content: center; overflow: hidden; ${paper ? 'padding-top: 0.5in; border-bottom: 0;' : ''} }
+          .cut { ${paper ? 'position: absolute; left: 0.5in; right: 0.5in; top: 6.75in; border-top: 1px dashed #94a3b8;' : 'display: none;'} }
+          .label { position: relative; }
           .label img { width: 4in; height: 6in; object-fit: contain; }
           .sheet { width: 4in; min-height: 6in; padding: 0.25in; font-size: 10px; color: #0f172a; }
           .sheet h1 { font-size: 12px; margin: 0 0 8px; }
@@ -83,12 +89,14 @@ export default async function PrintLabelsPage({
       </head>
       <body>
         <div className="bar">
-          <span>{pngs.length} label{pngs.length === 1 ? '' : 's'} ready{pdfs.length ? ` · ${pdfs.length} PDF listed at the end` : ''}</span>
+          <span>{pngs.length} label{pngs.length === 1 ? '' : 's'} ready{pdfs.length ? ` · ${pdfs.length} PDF listed at the end` : ''}{zpls.length ? ` · ${zpls.length} for the label printer` : ''}</span>
+          {zplHref ? <a href={zplHref} style={{ color: '#fff', fontWeight: 800 }}>Download printer file</a> : null}
           <button type="button" data-print>Print stack</button>
         </div>
         {pngs.map((o: any) => (
           <div className="label" key={o.id}>
             <img src={o.labelUrl} alt={`Shipping label for order #${String(o.orderNumber ?? '').padStart(4, '0')}`} />
+            <div className="cut" />
           </div>
         ))}
         {pdfs.length > 0 && (
@@ -101,7 +109,10 @@ export default async function PrintLabelsPage({
             ))}
           </div>
         )}
-        {pngs.length === 0 && pdfs.length === 0 && (
+        {zpls.length > 0 && pngs.length === 0 && (
+          <div className="sheet"><h1>{zpls.length} label{zpls.length === 1 ? '' : 's'} for the label printer</h1><p><a href={zplHref}>Download the printer file</a> and send it to the label printer.</p></div>
+        )}
+        {pngs.length === 0 && pdfs.length === 0 && zpls.length === 0 && (
           <div className="sheet"><h1>No labels found on these orders yet.</h1></div>
         )}
         <script

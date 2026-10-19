@@ -1,3 +1,4 @@
+import { labelFormatOf, shippoFileType } from '@/lib/label-format';
 import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { rateCents, recordPostage, reversePostage } from '@/lib/postage';
@@ -219,7 +220,7 @@ export async function POST(req: NextRequest) {
     if (!rateId) return NextResponse.json({ error: 'rateId is required' }, { status: 400 });
 
     const txn = await shippo(apiKey, '/transactions/', {
-      rate: rateId, label_file_type: 'PDF_4x6', async: false,
+      rate: rateId, label_file_type: shippoFileType(labelFormatOf(rs)), async: false,
     });
     if (txn.status !== 'SUCCESS') {
       const msg = (txn.messages || []).map((m: any) => m.text).join('; ') || 'Label purchase failed';

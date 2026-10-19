@@ -14,6 +14,8 @@ import { finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/o
 import { dueLine, firstName, methodLabel, packProgress } from '@/lib/orders-view';
 import type { Actor } from '@/lib/retail-fulfill';
 import { BottomBar, Btn, C, Thumb, UndoBar, feel, muted, Ic } from './ui';
+import { compareBins } from '@/lib/bins';
+import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfFor, batch, onClose, onDetails, onMissing, onFinished }: {
   fs: Firestore; tenantId: string; order: any; all: any[]; actor: Actor; rs: any; photoFor: Map<string, string>; shelfFor: Map<string, string>; batch: any | null;
@@ -34,7 +36,7 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const photos: string[] = Array.isArray(order.packPhotoUrls) ? order.packPhotoUrls : [];
   const needPhoto = packPhotoRequired(order, policy) && photos.length === 0;
   const due = dueLine(order, rs);
-  const lines = (order.lines || []).filter((l: any) => l.digital !== true);
+  const lines = (order.lines || []).filter((l: any) => l.digital !== true).map((l: any, i: number) => ({ l, i })).sort((a: any, b: any) => compareBins(shelfFor.get(a.l.productId) || '', shelfFor.get(b.l.productId) || '') || a.i - b.i).map((x: any) => x.l);
 
   React.useEffect(() => { if (!camera) inputRef.current?.focus(); }, [camera]);
 
@@ -82,6 +84,7 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
 
   const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? 'Add a photo of the box first' : order.method === 'ship' ? 'Done, packed for shipping' : `Done, it’s ready for ${firstName(order.customerName)}`;
 
+  useWedgeScanner((v) => void scan(v));
   return (
     <div className="cf-anim-push fixed inset-0 z-40 overflow-y-auto" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-xl px-4 pb-40 pt-3">

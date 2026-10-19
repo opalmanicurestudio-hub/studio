@@ -5,6 +5,7 @@ import { Camera, Keyboard } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { cn } from '@/lib/utils';
+import { scannerSeenBefore, useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 // ─── src/components/retail/ScanGate.tsx ───────────────────────────────────────
 // The one scan surface used at every fulfillment checkpoint: item picking,
@@ -87,8 +88,21 @@ export function ScanGate({
 
   useEffect(() => { onScanRef.current = onScan; }, [onScan]);
 
+  // A paired handheld or desk scanner works on every scan surface with no tap first. Once one has been used on this
+  // device the camera stays off by default (it only drains the battery), with a button to bring it back.
+  const [camOn, setCamOn] = useState(true);
+  const [scannerLive, setScannerLive] = useState(false);
+  useEffect(() => { if (scannerSeenBefore()) setCamOn(false); }, []);
+  const pausedRef = useRef(paused); const pendingRef = useRef<string[]>([]);
+  useEffect(() => { pausedRef.current = paused; if (!paused && pendingRef.current.length) { const next = pendingRef.current.shift()!; onScanRef.current(next); } }, [paused]);
+  useWedgeScanner((v) => {
+    setScannerLive(true); setCamOn(false);
+    if (pausedRef.current) { pendingRef.current.push(v); return; }
+    onScanRef.current(v);
+  });
+
   useEffect(() => {
-    if (paused) return;
+    if (paused || !camOn) return;
     let qr: Html5Qrcode | undefined;
     let cancelled = false;
 
@@ -139,10 +153,21 @@ export function ScanGate({
       clearTimeout(timer);
       if (qr?.isScanning) qr.stop().catch(console.error);
     };
-  }, [paused]);
+  }, [paused, camOn]);
 
   return (
     <div className={cn('space-y-2', className)}>
+      {!camOn ? (
+        <div className="flex min-h-[64px] items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: '#f5f5f7', color: '#16171a' }}>
+          <span className="flex items-center gap-2.5 text-[15px] font-semibold">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: scannerLive ? '#1f7a4d' : '#6d7075' }} />
+            {scannerLive ? 'Scanner ready' : 'Scan with your handheld scanner'}
+          </span>
+          <button type="button" onClick={() => setCamOn(true)} className="h-11 shrink-0 rounded-xl px-3 text-[14px] font-semibold" style={{ background: '#ffffff', color: '#16171a' }}>
+            <span className="inline-flex items-center gap-1.5"><Camera className="h-4 w-4" /> Use the camera</span>
+          </button>
+        </div>
+      ) : (
       <div className="relative rounded-2xl border-2 overflow-hidden bg-foreground min-h-[220px]">
         <div id={idRef.current} className="w-full" />
         {torch.can && <button type="button" aria-pressed={torch.on} aria-label={torch.on ? 'Turn the light off' : 'Turn the light on'} onClick={async () => { const on = !torch.on; try { await qrRef.current?.applyVideoConstraints({ advanced: [{ torch: on }] } as any); setTorch({ can: true, on }); } catch { setTorch({ can: false, on: false }); } }}
@@ -154,7 +179,8 @@ export function ScanGate({
           </div>
         )}
       </div>
-      <p className="text-[9px] font-black uppercase tracking-widest text-center text-muted-foreground/60">{label}</p>
+      )}
+      {camOn && <p className="text-[9px] font-black uppercase tracking-widest text-center text-muted-foreground/60">{label}</p>}
           <div className="mt-2">
         {manualOpen ? (
           <form

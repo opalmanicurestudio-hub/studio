@@ -65,6 +65,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { syncPublicFields } from '@/lib/product-public';
+import { binOf, normalizeBin, overflowOf } from '@/lib/bins';
+import { printShelfLabels } from '@/lib/shelf-labels-client';
 import { format, parseISO } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
@@ -105,6 +107,8 @@ const editProductSchema = z.object({
   purchaseLink: z.string().optional(),
   reorderPoint: z.coerce.number().optional(),
   primaryLocationId: z.string().optional(),
+  storageLocation: z.string().max(40).optional(),
+  overflowLocation: z.string().max(80).optional(),
   expirationDate: z.date().optional(),
 
   // Manufacturing & SOP
@@ -380,7 +384,9 @@ const Step2 = () => {
 };
 
 const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAddLocationClick: () => void }) => {
-    const { register, control, formState: { errors } } = useFormContext<ProductFormData>();
+    const { register, control, watch, formState: { errors } } = useFormContext<ProductFormData>();
+    const { toast } = useToast();
+    const bin = String(watch('storageLocation') || '').trim();
     return (
         <div className="space-y-10">
             <SectionHeader icon={Truck} title="Logistics & Continuity" step={3} />
@@ -431,6 +437,14 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Asset SKU</Label><Input placeholder="Registry ID" {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
                                 <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Point</Label><Input type="number" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg shadow-inner bg-card" /></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5 text-left"><Label htmlFor="pick-bin" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Pick bin</Label><Input id="pick-bin" placeholder="A-02-3" autoCapitalize="characters" {...register('storageLocation', { setValueAs: (v: string) => normalizeBin(v) })} className="h-11 rounded-xl border-2 font-mono font-black uppercase" /></div>
+                                <div className="space-y-1.5 text-left"><Label htmlFor="overflow-bin" className="text-[9px] font-black uppercase text-muted-foreground ml-1">Overflow</Label><Input id="overflow-bin" placeholder="Back room, shelf 4" {...register('overflowLocation')} className="h-11 rounded-xl border-2 font-bold" /></div>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                                <p className="text-[12px] text-muted-foreground m-0">Aisle, shelf, spot. Pick lists walk bins in order. A shelf label lets packers scan the spot.</p>
+                                <Button type="button" variant="outline" disabled={!bin} onClick={() => { if (!printShelfLabels([{ bin, name: String(watch('name') || '') }])) toast({ title: 'Allow pop-ups to print the shelf label.' }); }} className="h-10 shrink-0 rounded-xl border-2 text-[11px] font-black uppercase">Print shelf label</Button>
                             </div>
                             <div className="space-y-1.5">
                                 <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Placement Zone</Label>
@@ -500,6 +514,8 @@ export const EditProductDialog: React.FC<{
             labelImageUrl: product.labelImageUrl || '',
             moq: product.moq || 0,
             leadTimeDays: product.leadTimeDays || 0,
+            storageLocation: binOf(product),
+            overflowLocation: overflowOf(product),
         });
         setStep(1);
     }

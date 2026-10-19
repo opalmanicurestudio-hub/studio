@@ -20,6 +20,8 @@ import { Btn, C, Empty, Initials, ListRow, UndoBar, feel, muted, Ic } from '@/co
 import { MissingSheet } from '@/components/orders/MissingSheet';
 import { ShipSheet } from '@/components/orders/ShipSheet';
 import { HandoverSheet } from '@/components/orders/HandoverSheet';
+import { binMatches, compareBins } from '@/lib/bins';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 type BoardOrder = RetailOrder & { id: string } & Record<string, any>;
 const ACTIVE = ['paid', 'picking', 'packed', 'ready', 'arrived'];
@@ -62,17 +64,35 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const toShip = React.useMemo(() => perms.canShip ? orders.filter((o) => o.stage === 'packed' && o.method === 'ship' && o.holdForReview !== true) : [], [orders, perms.canShip]);
   const shelfOrders = React.useMemo(() => perms.canPack ? orders.filter((o) => ['ready', 'arrived'].includes(o.stage) && o.method !== 'ship').sort((a, b) => Number(b.stage === 'arrived') - Number(a.stage === 'arrived')) : [], [orders, perms.canPack]);
 
+  // Bins and weights for the products in hand, asked of the server (the portal can't read product records directly).
+  const [info, setInfo] = React.useState<Record<string, { bin: string; overflow: string; weightOz: number | null }>>({});
+  const wantIds = React.useMemo(() => [...new Set([...mine, ...toShip].flatMap((o) => (o.lines || []).map((l: any) => String(l.productId || ''))).filter(Boolean))].sort().join(','), [mine, toShip]);
+  React.useEffect(() => {
+    const ids = wantIds ? wantIds.split(',').filter((id) => !info[id]) : [];
+    if (!ids.length) return;
+    let gone = false;
+    void (async () => {
+      try {
+        const r = await fetch('/api/retail/pick-info', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, productIds: ids }) });
+        const d = await r.json().catch(() => ({}));
+        if (!gone && d?.items) setInfo((prev) => { const next = { ...prev }; ids.forEach((id) => { next[id] = d.items[id] || { bin: '', overflow: '', weightOz: null }; }); return next; });
+      } catch { /* bins are a help, not a requirement */ }
+    })();
+    return () => { gone = true; };
+  }, [wantIds, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const weights = React.useMemo(() => Object.entries(info).map(([id, v]) => ({ id, weightOz: v.weightOz ?? undefined })), [info]);
+
   const shelf = React.useMemo(() => {
-    const m = new Map<string, { key: string; name: string; needed: number; scanned: number; nums: string[] }>();
+    const m = new Map<string, { key: string; name: string; needed: number; scanned: number; nums: string[]; bin: string; overflow: string }>();
     mine.forEach((o) => (o.lines || []).forEach((l: any) => {
       if (l.digital === true || ['shorted', 'refunded', 'backordered'].includes(l.status)) return;
       const need = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)); if (need <= 0) return;
       const key = `${l.productId}|${l.optionsLabel || ''}`;
-      const row = m.get(key) || { key, name: `${l.name}${l.optionsLabel ? ` · ${l.optionsLabel}` : ''}`, needed: 0, scanned: 0, nums: [] };
+      const row = m.get(key) || { key, name: `${l.name}${l.optionsLabel ? ` · ${l.optionsLabel}` : ''}`, needed: 0, scanned: 0, nums: [], bin: info[l.productId]?.bin || '', overflow: info[l.productId]?.overflow || '' };
       row.needed += need; row.scanned += Math.min(l.qtyScanned || 0, need); row.nums.push(orderNum(o)); m.set(key, row);
     }));
-    return [...m.values()].sort((a, b) => Number(a.scanned >= a.needed) - Number(b.scanned >= b.needed) || a.name.localeCompare(b.name));
-  }, [mine]);
+    return [...m.values()].sort((a, b) => Number(a.scanned >= a.needed) - Number(b.scanned >= b.needed) || compareBins(a.bin, b.bin) || a.name.localeCompare(b.name));
+  }, [mine, info]);
   const left = shelf.reduce((a, r) => a + Math.max(0, r.needed - r.scanned), 0);
 
   const say = (m: string, ok = true) => { feel(ok); setToast(m); };
@@ -99,6 +119,8 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
           return;
         }
       }
+      const atBin = shelf.find((r) => r.scanned < r.needed && binMatches(r.bin, value));
+      if (atBin) { say(`You’re at ${atBin.bin}. Grab ${atBin.needed - atBin.scanned} × ${atBin.name}.`); return; }
       const raw = value.trim(); const pid = parseProductQr(raw);
       const owner = queue.find((o) => (o.lines || []).some((l: any) => (pid && l.productId === pid) || l.productId === raw || codesMatch(l.barcode, raw) || codesMatch(l.sku, raw)));
       if (owner && mine.length < perms.claimLimit) {
@@ -127,7 +149,8 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
             {shelf.map((r) => { const done = r.scanned >= r.needed; return (
               <div key={r.key} className="flex min-h-[56px] items-center gap-3 border-b py-2.5" style={{ borderColor: C.line, opacity: done ? 0.5 : 1 }}>
                 <span key={done ? 'd' : 'n'} className={`${done ? 'cf-anim-pop ' : ''}grid h-7 w-7 shrink-0 place-items-center rounded-full border-2`} style={done ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{done ? Ic.check : null}</span>
-                <span className="min-w-0 flex-1"><span className="block truncate text-[16px] font-semibold">{r.name}</span><span className="block truncate text-[13px]" style={muted}>{r.nums.join(' · ')}</span></span>
+                {r.bin ? <span className="shrink-0 rounded-lg px-2 py-1 font-mono text-[13px] font-semibold" style={done ? { background: C.soft, color: C.muted } : { background: C.ink, color: C.paper }}>{r.bin}</span> : null}
+                <span className="min-w-0 flex-1"><span className="block truncate text-[16px] font-semibold">{r.name}</span><span className="block truncate text-[13px]" style={muted}>{[r.nums.join(' · '), r.overflow ? `Overflow: ${r.overflow}` : ''].filter(Boolean).join(' · ')}</span></span>
                 <span className="shrink-0 text-[15px] font-semibold">{r.scanned}/{r.needed}</span>
               </div>); })}
           </div>
@@ -161,7 +184,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       </Section>
 
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} actor={actor as any} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); say(m); }} />}
-      {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={[]} rs={rs} actor={actor as any} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); say(m); }} />}
+      {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={weights} rs={rs} actor={actor as any} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); say(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor as any} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); say(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={110} />}
     </div>);

@@ -2,6 +2,7 @@
 // src/components/orders/ShipSheet.tsx — SHIP ONE ORDER. Pick a box (weight comes from the items plus the box), pick a
 // rate (cheapest first), buy and print the label, then mark it shipped. Or type tracking from a label bought elsewhere.
 // Insurance and signature follow the shop's shipping rules automatically (the label route applies them).
+import { isZplLabel } from '@/lib/label-format';
 import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -60,7 +61,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
         <div className="mt-2">
           <div className="rounded-2xl p-4" style={{ background: C.soft }}><p className="m-0 text-[17px] font-semibold">Label ready</p><p className="m-0 mt-1 text-[15px]" style={muted}>{[label.carrier, label.number].filter(Boolean).join(' · ')}</p></div>
           <div className="mt-3 flex flex-col gap-2">
-            {label.url && <Btn kind="soft" onClick={() => window.open(label.url, '_blank')}>Print the label again</Btn>}
+            {label.url && <Btn kind="soft" onClick={() => window.open(label.url, '_blank')}>{isZplLabel(label.url) ? 'Download the printer file again' : 'Print the label again'}</Btn>}
             <Btn kind="primary" className="text-[17px]" disabled={loading} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>Mark as shipped</Btn>
           </div>
         </div>

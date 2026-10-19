@@ -1,5 +1,6 @@
 'use client';
 
+import { LABEL_FORMAT_CHOICES, labelFormatOf } from '@/lib/label-format';
 import { RetailSecretField } from '@/components/settings/RetailSecretField';
 import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
@@ -43,6 +44,7 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  labelFormat?: 'thermal' | 'paper' | 'zpl';
   shipProcessingHours?: number;
   slaWarnMinutes?: number;
   readyStaleHours?: number;
@@ -711,6 +713,17 @@ export default function RetailSettingsPage() {
               <p className="text-[10px] font-black uppercase tracking-widest">Shipping labels (Shippo)</p>
             </div>
             <RetailSecretField tenantId={tenantId} which="shippoApiKey" label="Shippo API key (blank keeps manual tracking entry)" placeholder="shippo_live_…" className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
+            <fieldset className="space-y-2">
+              <legend className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">What labels print on</legend>
+              {LABEL_FORMAT_CHOICES.map((c) => {
+                const on = labelFormatOf(rs) === c.id;
+                return (
+                  <label key={c.id} className={cn('flex cursor-pointer items-start gap-3 rounded-xl border-2 p-3', on ? 'border-primary' : '')}>
+                    <input type="radio" name="label-format" className="mt-1" checked={on} onChange={() => setRs({ ...rs, labelFormat: c.id })} />
+                    <span className="min-w-0"><span className="block text-sm font-bold">{c.label}</span><span className="block text-[11px] text-muted-foreground">{c.sub}</span></span>
+                  </label>);
+              })}
+            </fieldset>
             <div className="space-y-2">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
               <Input aria-label="Ship-from address (printed on labels, used for rates)" placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}

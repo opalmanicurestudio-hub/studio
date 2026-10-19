@@ -1,3 +1,4 @@
+import { labelFormatOf, shippoFileType } from '@/lib/label-format';
 import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { recordPostage } from '@/lib/postage';
@@ -169,7 +170,7 @@ export async function POST(req: NextRequest) {
       if (rates.length === 0) { fail(order.groundOnly ? 'Ground only, and no ground rate came back' : 'No rates came back'); continue; }
       const cheapest = rates[0];
 
-      const txn = await shippo(apiKey, '/transactions/', { rate: cheapest.id, label_file_type: 'PNG_4x6', async: false });
+      const txn = await shippo(apiKey, '/transactions/', { rate: cheapest.id, label_file_type: shippoFileType(labelFormatOf(rs), { stack: true }), async: false });
       if (txn.status !== 'SUCCESS') {
         fail((txn.messages || []).map((m: any) => m.text).join('; ') || 'Label purchase failed');
         continue;
