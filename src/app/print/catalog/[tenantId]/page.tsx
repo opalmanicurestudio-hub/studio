@@ -106,7 +106,7 @@ export default async function PrintCatalogPage({
         <title>{`${shopName} — ${wholesale ? 'Line sheet' : 'Catalog'}`}</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
         <style>{`

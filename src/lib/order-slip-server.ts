@@ -10,7 +10,7 @@ export async function slipFor(db: any, tenantId: string, orderId: string, order:
   const products: Record<string, any> = {};
   if (ids.length) {
     const snaps = await db.getAll(...ids.map((id) => db.collection(`tenants/${tenantId}/inventory`).doc(id))).catch(() => []);
-    snaps.forEach((s: any) => { if (s.exists) { const d = s.data() || {}; products[s.id] = { name: d.name, careNote: d.careNote, batches: d.batches }; } });
+    snaps.forEach((s: any) => { if (s.exists) { const d = s.data() || {}; products[s.id] = { name: d.name, careNote: d.careNote, batches: d.batches, imageUrl: (Array.isArray(d.imageUrls) && d.imageUrls.find((x: any) => typeof x === 'string' && x)) || d.imageUrl || '' }; } });
   }
   const model = buildSlip(order, rs, products);
   const orderUrl = origin ? `${origin}/shop/${tenantId}/order/${orderId}` : '';

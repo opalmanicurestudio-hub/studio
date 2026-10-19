@@ -78,6 +78,8 @@ export default async function PrintLabelsPage({
   return (
     <html lang="en">
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`Label stack — ${pngs.length} label${pngs.length === 1 ? '' : 's'}`}</title>
         <style>{`

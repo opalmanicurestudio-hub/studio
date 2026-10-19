@@ -21,7 +21,7 @@ export function slipSettingsOf(rs: any): SlipSettings {
   return { size, notInBox: on('notInBox'), swap: on('swap'), boxes: on('boxes'), care: on('care'), useBy: on('useBy'), gift: on('gift'), damage: on('damage'), returns: on('returns'), prices: on('prices', false) };
 }
 
-export interface SlipLine { name: string; qty: number; priceCents: number | null; note?: string; swapFor?: string }
+export interface SlipLine { name: string; qty: number; priceCents: number | null; note?: string; swapFor?: string; imageUrl?: string }
 export interface SlipModel {
   orderNo: string; firstName: string; customerName: string;
   gift: { to: string; message: string } | null;
@@ -75,7 +75,7 @@ export function buildSlip(order: any, rs: any, products: Record<string, any> = {
   for (const l of lines) {
     if (l?.digital === true) continue;
     const ordered = n(l.qtyOrdered); const short = Math.min(n(l.qtyShorted), ordered); const sent = ordered - short;
-    if (sent > 0 && l.preorder !== true) inBox.push({ name: lineName(l), qty: sent, priceCents: showPrices ? unitCents(l) : null, ...(l.swapForName ? { swapFor: String(l.swapForName) } : {}) });
+    if (sent > 0 && l.preorder !== true) inBox.push({ name: lineName(l), qty: sent, priceCents: showPrices ? unitCents(l) : null, ...(l.swapForName ? { swapFor: String(l.swapForName) } : {}), ...(products[l.productId]?.imageUrl ? { imageUrl: String(products[l.productId].imageUrl) } : l.imageUrl ? { imageUrl: String(l.imageUrl) } : {}) });
     if (l.preorder === true && sent > 0) notInBox.push({ name: lineName(l), qty: sent, text: `is a pre-order${l.preorderEtaAt ? `, expected around ${fmtDate(l.preorderEtaAt)}` : ''}. It ships on its own with its own tracking.`, later: true });
     if (short > 0 && l.shortReason !== 'Swapped' && !l.swappedToName) {
       const text = l.status === 'backordered'
