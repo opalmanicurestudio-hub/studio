@@ -1,5 +1,7 @@
 import * as React from 'react';
 import { checkPrintKey } from '@/lib/print-key';
+import QRCode from 'qrcode';
+import { toteOf } from '@/lib/totes';
 import { isPngLabel, isZplLabel, labelFormatOf, slipAfterLabel } from '@/lib/label-format';
 
 /**
@@ -67,6 +69,8 @@ export default async function PrintLabelsPage({
   const pngs = entries.filter((o: any) => isPngLabel(o.labelUrl));
   const zpls = entries.filter((o: any) => isZplLabel(o.labelUrl));
   const pdfs = entries.filter((o: any) => !isPngLabel(o.labelUrl) && !isZplLabel(o.labelUrl));
+  const slipQr = new Map<string, string>();
+  if (withSlip) for (const o of pngs) { if (o.qrToken) { try { slipQr.set(o.id, await QRCode.toDataURL(`clarityflow://order/${o.qrToken}`, { width: 220, margin: 0 })); } catch { /* the slip prints without it */ } } }
   const zplHref = zpls.length ? `/api/retail/labels-zpl?tenantId=${encodeURIComponent(tenantId)}&ids=${encodeURIComponent(zpls.map((o: any) => o.id).join(','))}&k=${encodeURIComponent(String(k || ''))}&x=${encodeURIComponent(String(x || ''))}` : '';
 
   return (
@@ -87,7 +91,7 @@ export default async function PrintLabelsPage({
           .tote { border: 2px solid #000; padding: 4px 10px; display: flex; flex-direction: column; align-items: center; } .tote span { font-size: 9px; font-weight: 800; } .tote b { font-size: 24px; line-height: 1; }
           .rule { height: 2px; background: #000; }
           .line { display: flex; gap: 8px; font-size: 12px; font-weight: 600; align-items: flex-start; } .line .box { width: 12px; height: 12px; border: 1.5px solid #000; flex-shrink: 0; margin-top: 1px; } .line .nm { flex: 1; }
-          .thanks { margin-top: auto; font-size: 10px; font-weight: 600; }
+          .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; } .thanks { font-size: 10px; font-weight: 600; } .sqr { width: 0.9in; height: 0.9in; }
           .label img { width: 4in; height: 6in; object-fit: contain; }
           .sheet { width: 4in; min-height: 6in; padding: 0.25in; font-size: 10px; color: #0f172a; }
           .sheet h1 { font-size: 12px; margin: 0 0 8px; }
@@ -115,13 +119,13 @@ export default async function PrintLabelsPage({
               <div className="slip-in">
                 <div className="slip-top">
                   <div><div className="shop">{shopName}</div><div className="num">#{String(o.orderNumber ?? '').padStart(4, '0')}</div><div className="who">{o.customerName || ''}</div></div>
-                  {Number(o.toteNo) > 0 ? <div className="tote"><span>TOTE</span><b>{o.toteNo}</b></div> : null}
+                  {toteOf(o) ? <div className="tote"><span>TOTE</span><b>{toteOf(o)}</b></div> : null}
                 </div>
                 <div className="rule" />
                 {(o.lines || []).filter((l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && (l.qtyOrdered || 0) - (l.qtyShorted || 0) > 0).map((l: any) => (
                   <div className="line" key={l.lineId || l.productId}><span className="box" /><span className="nm">{l.name}{l.optionsLabel ? ` · ${l.optionsLabel}` : ''}</span><span>×{(l.qtyOrdered || 0) - (l.qtyShorted || 0)}</span></div>
                 ))}
-                <div className="thanks">Thank you for your order.</div>
+                <div className="foot"><div className="thanks">Thank you for your order.</div>{slipQr.get(o.id) ? <img className="sqr" src={slipQr.get(o.id)} alt={`Order code for #${String(o.orderNumber ?? '').padStart(4, '0')}`} /> : null}</div>
               </div>
             </div>
           )}

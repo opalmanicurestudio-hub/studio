@@ -4,7 +4,9 @@
 // sit in a tab bar; on a computer, the order opens beside the list. A one-person shop leads with the next order.
 // Live from Firestore; the packing engine is lib/retail-fulfill, the screen's own rules are lib/orders-view.
 import * as React from 'react';
-import { collection, limit, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
+import { collection, doc, limit, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
+import { benchScanTarget } from '@/lib/totes';
+import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -185,6 +187,16 @@ export function OrdersApp() {
         </button>)}
       <div className="mt-3 lg:max-w-md"><Seg value={tab} onChange={(v) => { setTab(v); if (wide) setOpenId(null); }} options={[{ id: 'pack', label: `To pack ${counts.pack || ''}`.trim() }, { id: 'ready', label: `Ready ${counts.ready || ''}`.trim() }, { id: 'done', label: 'Done' }]} /></div>
     </div>);
+
+  // A handheld scanner on the board: a tote tag or slip code opens that order; a shipping label is checked against its box.
+  useWedgeScanner((v) => {
+    const t = benchScanTarget(v, orders);
+    if (!t) return;
+    if (t.kind === 'foreignLabel') { feel(false); setToast('That label isn’t for any box waiting to ship.'); return; }
+    const num = `#${String(t.order.orderNumber ?? '').padStart(4, '0')}`;
+    if (t.kind === 'label') { void updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, t.order.id), { labelCheckedAt: new Date().toISOString(), labelCheckedBy: actor.id, labelCheckedByName: actor.name }).catch(() => {}); feel(true); setToast(`Right box: ${num}. It can go out.`); return; }
+    feel(true); setOpenId(t.order.id); setToast(t.kind === 'tote' ? `Tote ${t.tote}: ${num}` : `${num} is open`);
+  });
 
   const panel = open && (
     <OrderPanel key={open.id} fs={fs} tenantId={tenantId} order={open} actor={actor} rs={rs} photoFor={photoFor} canRefund={canRefund} inline={wide}

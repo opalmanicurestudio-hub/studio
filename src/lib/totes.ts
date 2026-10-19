@@ -55,3 +55,28 @@ export function labelMatchesOrder(scanned: unknown, order: any): boolean {
 export function orderForLabel(scanned: unknown, orders: any[]): any | null {
   return orders.find((o) => labelMatchesOrder(scanned, o)) || null;
 }
+
+// An order's tote, whether set in the staff portal (toteNo) or dealt by a wave (waveTote).
+export function toteOf(o: any): number {
+  return Number(o?.toteNo) > 0 ? Number(o.toteNo) : Number(o?.waveTote) > 0 ? Number(o.waveTote) : 0;
+}
+
+// The order code printed on packing slips (clarityflow://order/<code>): opens that order anywhere a scan is taken.
+export function orderFromSlipScan(raw: unknown, orders: any[]): any | null {
+  const m = String(raw ?? '').trim().match(/^clarityflow:\/\/order\/(.+)$/i);
+  if (!m) return null;
+  return orders.find((o) => (o.qrToken && o.qrToken === m[1]) || o.id === m[1]) || null;
+}
+
+// Orders with a tote, a label to check, or a slip code — what a bench scan can mean before it's read as an item.
+export function benchScanTarget(raw: unknown, orders: any[]): { kind: 'tote' | 'slip' | 'label'; order: any; tote?: number } | { kind: 'foreignLabel' } | null {
+  const t = parseTote(raw);
+  if (t) { const o = orders.find((x) => toteOf(x) === t && ['picking', 'packed'].includes(String(x.stage))); return o ? { kind: 'tote', order: o, tote: t } : null; }
+  const slip = orderFromSlipScan(raw, orders);
+  if (slip) return { kind: 'slip', order: slip };
+  const labeled = orders.filter((o) => o.trackingNumber && ['packed', 'shipped'].includes(String(o.stage)));
+  const l = orderForLabel(raw, labeled);
+  if (l) return { kind: 'label', order: l };
+  if (looksLikeTracking(raw) && labeled.length) return { kind: 'foreignLabel' };
+  return null;
+}

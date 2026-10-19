@@ -25,6 +25,8 @@ import { codesMatch, parseProductQr, slaFor, fulfilmentPolicy } from '@/lib/reta
 import { packPhotoPolicy, packPhotoRequired, packPhotoPath} from '@/lib/pack-photo';
 import { uploadImage } from '@/lib/upload-image';
 import { cn } from '@/lib/utils';
+import { benchScanTarget, toteOf } from '@/lib/totes';
+import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 // ─── Pack bench ───────────────────────────────────────────────────────────────
 // One order at a time, at a table, with both hands busy.
@@ -150,8 +152,8 @@ export default function PackBenchPage() {
     () => orders
       .filter((o) => ['picking', 'packed'].includes(String(o.stage)))
       .sort((a, b) => {
-        const at = Number(a.waveTote) || 9999;
-        const bt = Number(b.waveTote) || 9999;
+        const at = toteOf(a) || 9999;
+        const bt = toteOf(b) || 9999;
         return at - bt || String(a.paidAt || a.placedAt || '').localeCompare(String(b.paidAt || b.placedAt || ''));
       }),
     [orders]
@@ -199,7 +201,24 @@ export default function PackBenchPage() {
   };
 
   const onScan = async (value: string) => {
-    if (!firestore || !active || busy) return;
+    if (!firestore || busy) return;
+    // A tote tag or a slip code brings that order up; a shipping label is checked against its box.
+    const target = benchScanTarget(value, orders);
+    if (target) {
+      if (target.kind === 'foreignLabel') { scanFeedback(false); toast({ variant: 'destructive', title: 'This label isn’t for any box waiting to ship', description: 'Check the box and the label before it goes out.' }); return; }
+      const num = `#${String(target.order.orderNumber).padStart(4, '0')}`;
+      if (target.kind === 'label') {
+        await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders`, target.order.id), { labelCheckedAt: new Date().toISOString(), labelCheckedBy: actor.id, labelCheckedByName: actor.name }).catch(() => {});
+        scanFeedback(true); toast({ title: `Right box: ${num}`, description: `${target.order.customerName || 'The customer'}’s label is on. It can go out.` }); return;
+      }
+      if (target.order.id !== activeId && ['picking', 'packed'].includes(String(target.order.stage))) {
+        setActiveId(target.order.id); scanFeedback(true);
+        toast({ title: target.kind === 'tote' ? `Tote ${target.tote}: ${num}` : `${num} is up`, description: target.order.customerName || '' });
+        return;
+      }
+      if (target.order.id === activeId) { scanFeedback(true); toast({ title: `${num} is already open` }); return; }
+    }
+    if (!active) return;
     if (isCancelled) {
       scanFeedback(false);
       toast({ variant: 'destructive', title: 'This order was cancelled', description: 'Put the items back and move to the next tote.' });
@@ -226,13 +245,15 @@ export default function PackBenchPage() {
         variant: 'destructive',
         title: elsewhere ? `That belongs to #${String(elsewhere.orderNumber).padStart(4, '0')}` : 'Not on this order',
         description: elsewhere
-          ? `Tote ${elsewhere.waveTote ?? '—'} — put it back and finish this one first.`
+          ? `Tote ${toteOf(elsewhere) || '—'}. Put it back and finish this one first.`
           : res.message,
       });
     } finally {
       setBusy(null);
     }
   };
+
+  useWedgeScanner((v) => void onScan(v));
 
   const addPackPhoto = async (file: File | null | undefined) => {
     if (!file || !firestore || !active) return;
@@ -332,7 +353,8 @@ export default function PackBenchPage() {
                     <p className="mt-1 truncate text-xs font-black uppercase tracking-tight">{active.customerName}</p>
                     <p className="mt-0.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
                       {String(active.method || '').replace('_', ' ')}
-                      {active.waveTote ? ` · tote ${active.waveTote}` : ''}
+                      {toteOf(active) ? ` · tote ${toteOf(active)}` : ''}
+                      {active.labelCheckedAt ? ' · label checked' : active.trackingNumber ? ' · scan the label on the box' : ''}
                       {active.stage === 'packed' ? ' · packed' : ''}
                       {active.shelfSlot ? ` · shelf ${active.shelfSlot}` : ''}
                     </p>
@@ -586,7 +608,7 @@ export default function PackBenchPage() {
                     sla.state === 'late' && 'border-destructive/50')}
                 >
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 font-mono text-base font-bold">
-                    {o.waveTote ?? '—'}
+                    {toteOf(o) || '—'}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs font-black uppercase tracking-tight">

@@ -2,6 +2,7 @@
 // src/components/orders/ShipToday.tsx — SHIP TODAY. Everything packed for shipping, as three steps that tick off in
 // order: buy the labels, print them, hand the boxes over. Then Close the day makes the USPS manifest (one sheet the
 // carrier scans) and shows what went out.
+import { labelFormatOf, slipAfterLabel } from '@/lib/label-format';
 import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import type { Actor } from '@/lib/retail-fulfill';
@@ -26,6 +27,7 @@ export function ShipToday({ fs, tenantId, orders, actor, rs, onClose, onToast }:
   const toLabel = ship.filter(needsLabel);
   const labelled = ship.filter((o) => o.labelUrl || o.trackingNumber);
   const toHand = ship.filter(canMarkShipped);
+  const unchecked = labelled.filter((o) => !o.labelCheckedAt);
   const [busy, setBusy] = React.useState('');
   const [printed, setPrinted] = React.useState(false);
   const [handed, setHanded] = React.useState(0);
@@ -40,10 +42,10 @@ export function ShipToday({ fs, tenantId, orders, actor, rs, onClose, onToast }:
       <Step n={1} done={ship.length > 0 && toLabel.length === 0} title={toLabel.length ? `Buy ${toLabel.length} label${toLabel.length === 1 ? '' : 's'}` : 'Labels bought'} sub={toLabel.length ? `For ${names(toLabel)}. Cheapest rate, with your signature and insurance rules.` : ship.length ? 'Every packed box has a label.' : 'Packed ship orders appear here.'}>
         {toLabel.length > 0 && <Btn kind={current === 1 ? 'primary' : 'soft'} className="w-full sm:w-auto" disabled={!!busy} onClick={() => void go('buy', async () => { const r = await buyLabels(tenantId, toLabel, rs); onToast(r.message); })}>{busy === 'buy' ? 'Buying labels…' : `Buy ${toLabel.length} label${toLabel.length === 1 ? '' : 's'}`}</Btn>}
       </Step>
-      <Step n={2} done={printed && labelled.length > 0} title="Print the labels" sub={labelled.length ? `${labelled.length} ready to print, one per page for a 4 × 6 printer.` : 'Once labels are bought.'}>
+      <Step n={2} done={printed && labelled.length > 0} title="Print the labels" sub={labelled.length ? `${labelled.length} ready to print${labelFormatOf(rs) === 'paper' ? ', one per letter page' : labelFormatOf(rs) === 'zpl' ? ' as a label-printer file' : ', one per page for a 4 × 6 printer'}${slipAfterLabel(rs) ? ', each with its packing slip' : ''}.` : 'Once labels are bought.'}>
         {labelled.length > 0 && <Btn kind={current === 2 ? 'primary' : 'soft'} className="w-full sm:w-auto" disabled={!!busy} onClick={() => void go('print', async () => { const e = await printLabels(tenantId, labelled); if (e) onToast(e); else setPrinted(true); })}>{printed ? 'Print again' : `Print ${labelled.length} label${labelled.length === 1 ? '' : 's'}`}</Btn>}
       </Step>
-      <Step n={3} done={handed > 0 && toHand.length === 0} title={toHand.length ? 'Hand them to the carrier' : handed ? `${handed} handed over` : 'Hand them to the carrier'} sub={toHand.length ? 'Marks them shipped. Customers get tracking from the carrier as it moves.' : 'Labelled boxes appear here.'}>
+      <Step n={3} done={handed > 0 && toHand.length === 0} title={toHand.length ? 'Hand them to the carrier' : handed ? `${handed} handed over` : 'Hand them to the carrier'} sub={unchecked.length && toHand.length ? `${unchecked.length} label${unchecked.length === 1 ? ' hasn’t' : 's haven’t'} been checked. Scan each label on its box first, so the right box goes out.` : toHand.length ? 'Marks them shipped. Customers get tracking from the carrier as it moves.' : 'Labelled boxes appear here.'}>
         {toHand.length > 0 && <Btn kind={current === 3 ? 'primary' : 'soft'} className="w-full sm:w-auto" disabled={!!busy} onClick={() => void go('hand', async () => { const n = toHand.length; onToast(await markAllShipped(fs, tenantId, toHand, actor)); setHanded((h) => h + n); })}>{busy === 'hand' ? 'Marking…' : `Mark ${toHand.length} shipped`}</Btn>}
       </Step>
       <div className="pt-4">

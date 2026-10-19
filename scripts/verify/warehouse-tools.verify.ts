@@ -3,7 +3,7 @@
 import { binMatches, binOf, compareBins, normalizeBin, overflowOf } from '../../src/lib/bins';
 import { isPngLabel, isZplLabel, labelFormatOf, shippoFileType } from '../../src/lib/label-format';
 import { isWedgeBurst } from '../../src/lib/use-wedge-scanner';
-import { labelMatchesOrder, looksLikeTracking, needsTote, orderForLabel, parseTote, toteBusy, toteCode } from '../../src/lib/totes';
+import { benchScanTarget, labelMatchesOrder, looksLikeTracking, needsTote, orderForLabel, orderFromSlipScan, parseTote, toteBusy, toteCode, toteOf } from '../../src/lib/totes';
 import { slipAfterLabel, withOrderRef } from '../../src/lib/label-format';
 let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.log('✗', m); } else console.log('✓', m); };
 
@@ -34,5 +34,11 @@ ok(orderForLabel('1Z999AA10123456791', shipped)?.id === 'y' && !orderForLabel('9
 ok(looksLikeTracking('9400111899223344556677') && looksLikeTracking('1Z999AA10123456784') && !looksLikeTracking('TOTE-03') && !looksLikeTracking('012345678905'), 'tracking numbers told apart from product barcodes');
 ok(withOrderRef({ signature_confirmation: 'STANDARD' }, {}, { orderNumber: 42 })?.reference_1 === 'Order #0042' && withOrderRef(undefined, { labelOrderRef: false }, { orderNumber: 42 }) === null, 'order number goes on the label unless turned off');
 ok(!slipAfterLabel({}) && slipAfterLabel({ labelPackingSlip: true }), 'slip after label is off until turned on');
+
+ok(toteOf({ toteNo: 3 }) === 3 && toteOf({ waveTote: 7 }) === 7 && toteOf({}) === 0, 'tote from the portal or from a wave');
+const bench = [{ id: 'o1', qrToken: 'qq1', stage: 'picking', waveTote: 4 }, { id: 'o2', stage: 'packed', trackingNumber: '9400111899223344556677' }];
+ok(orderFromSlipScan('clarityflow://order/qq1', bench)?.id === 'o1' && !orderFromSlipScan('qq1', bench), 'the slip code opens its order');
+ok((benchScanTarget('TOTE-04', bench) as any)?.order?.id === 'o1' && (benchScanTarget('420787049400111899223344556677', bench) as any)?.kind === 'label', 'bench scans: tote opens, label checks');
+ok((benchScanTarget('9400111899000000000000', bench) as any)?.kind === 'foreignLabel' && benchScanTarget('012345678905', bench) === null, 'a stranger label is flagged; a product barcode passes through');
 
 if (bad) { console.log(`\n${bad} failed`); process.exit(1); } else console.log('\nall good');

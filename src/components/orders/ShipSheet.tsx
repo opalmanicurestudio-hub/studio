@@ -59,7 +59,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     <Sheet title={`Ship ${firstName(order.customerName)}’s order`} sub={order.shippingAddress ? `To ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode || ''}` : undefined} onClose={onClose}>
       {label ? (
         <div className="mt-2">
-          <div className="rounded-2xl p-4" style={{ background: C.soft }}><p className="m-0 text-[17px] font-semibold">Label ready</p><p className="m-0 mt-1 text-[15px]" style={muted}>{[label.carrier, label.number].filter(Boolean).join(' · ')}</p></div>
+          <div className="rounded-2xl p-4" style={{ background: C.soft }}><p className="m-0 text-[17px] font-semibold">Label ready</p><p className="m-0 mt-1 text-[15px]" style={muted}>{[label.carrier, label.number].filter(Boolean).join(' · ')}</p><p className="m-0 mt-2 text-[14px] font-semibold" style={{ color: order.labelCheckedAt ? C.ok : C.ink }}>{order.labelCheckedAt ? 'Label on the box and checked' : 'Stick it on, then scan the label to check it’s the right box'}</p></div>
           <div className="mt-3 flex flex-col gap-2">
             {label.url && <Btn kind="soft" onClick={() => window.open(label.url, '_blank')}>{isZplLabel(label.url) ? 'Download the printer file again' : 'Print the label again'}</Btn>}
             {slipAfterLabel(rs) && order.qrToken && <Btn kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken || '')}`, '_blank')}>Print the packing slip</Btn>}

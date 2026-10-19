@@ -1,5 +1,6 @@
 import { headers } from 'next/headers';
 import QRCode from 'qrcode';
+import { toteOf } from '@/lib/totes';
 
 // src/components/print/slip.tsx — ONE PACKING SLIP: the staff half above the cut line and the tear-off customer card
 // below it. Shared by the single-slip page and the bulk print page so a slip looks the same either way.
@@ -84,7 +85,7 @@ export async function SlipSheet({ tenantId, orderId, order, tenant, origin }: { 
             {order.shelfSlot && order.method !== 'ship' ? (
               <p className="slot">Shelf {String(order.shelfSlot)}</p>
             ) : null}
-            {order.waveTote ? <p className="slot tote">Tote {String(order.waveTote)}</p> : null}
+            {toteOf(order) ? <p className="slot tote">Tote {String(toteOf(order))}</p> : null}
           </div>
           <p className="num">{num}</p>
         </div>

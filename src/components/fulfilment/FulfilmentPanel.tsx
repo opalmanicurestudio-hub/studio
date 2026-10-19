@@ -22,7 +22,7 @@ import { ShipSheet } from '@/components/orders/ShipSheet';
 import { HandoverSheet } from '@/components/orders/HandoverSheet';
 import { binMatches, compareBins } from '@/lib/bins';
 import { staffAuthHeader } from '@/lib/staff-fetch';
-import { assignTote, looksLikeTracking, needsTote, orderForLabel, parseTote, skipTotes, toteBusy } from '@/lib/totes';
+import { assignTote, looksLikeTracking, needsTote, orderForLabel, orderFromSlipScan, parseTote, skipTotes, toteBusy, toteOf } from '@/lib/totes';
 import { printToteTags } from '@/lib/shelf-labels-client';
 
 type Banner = { kind: 'tote' | 'ok' | 'warn'; title: string; sub?: string; tote?: number; at: number };
@@ -104,7 +104,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       const need = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)); if (need <= 0) return;
       const key = `${l.productId}|${l.optionsLabel || ''}`;
       const row = m.get(key) || { key, name: `${l.name}${l.optionsLabel ? ` · ${l.optionsLabel}` : ''}`, needed: 0, scanned: 0, nums: [], bin: info[l.productId]?.bin || '', overflow: info[l.productId]?.overflow || '', totes: [] };
-      row.needed += need; row.scanned += Math.min(l.qtyScanned || 0, need); row.nums.push(orderNum(o)); if (Number(o.toteNo) > 0 && (l.qtyScanned || 0) < need) row.totes.push(Number(o.toteNo)); m.set(key, row);
+      row.needed += need; row.scanned += Math.min(l.qtyScanned || 0, need); row.nums.push(orderNum(o)); if (toteOf(o) && (l.qtyScanned || 0) < need) row.totes.push(toteOf(o)); m.set(key, row);
     }));
     return [...m.values()].sort((a, b) => Number(a.scanned >= a.needed) - Number(b.scanned >= b.needed) || compareBins(a.bin, b.bin) || a.name.localeCompare(b.name));
   }, [mine, info]);
@@ -146,6 +146,14 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
         show({ kind: 'tote', tote, title: `Tote ${tote} is ${orderNum(held)}`, sub: `${Math.max(0, p.total - p.done)} more to pick.` });
         return;
       }
+      const slip = orderFromSlipScan(raw, orders);
+      if (slip) {
+        const p = packProgress(slip);
+        if (slip.stage === 'picking' && p.total > 0 && p.done >= p.total && perms.canPack) { await finish(slip); show({ kind: 'ok', title: `${orderNum(slip)} finished`, sub: slip.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' }); return; }
+        if (slip.stage === 'packed' && slip.method === 'ship' && perms.canShip) { setShipId(slip.id); return; }
+        show({ kind: toteOf(slip) ? 'tote' : 'ok', tote: toteOf(slip) || undefined, title: `${orderNum(slip)} ${firstName(slip.customerName)}`, sub: slip.stage === 'picking' ? `${Math.max(0, p.total - p.done)} more to pick.` : slip.stage === 'packed' ? 'Packed. Waiting for a label.' : 'Ready.' });
+        return;
+      }
       const labelFor = labeled.length ? orderForLabel(raw, labeled) : null;
       if (labelFor) {
         await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, labelFor.id), { labelCheckedAt: new Date().toISOString(), labelCheckedBy: actor.id, labelCheckedByName: actor.name });
@@ -156,7 +164,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       for (const o of mine) {
         const r = await recordItemScan(fs, tenantId, o.id, value, actor as any);
         if (r.ok) {
-          const t = Number(o.toteNo) > 0 ? Number(o.toteNo) : 0;
+          const t = toteOf(o);
           if (t) show({ kind: 'tote', tote: t, title: `Put it in Tote ${t}`, sub: `${r.message} · ${orderNum(o)}` });
           else show({ kind: 'ok', title: r.message, sub: `${orderNum(o)} ${firstName(o.customerName)}` });
           if ((r as any).pickComplete && perms.canPack && !t) await finish(o);
@@ -230,7 +238,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
 
       {toFinish.length > 0 && (
         <Section title="Picked, ready to finish">
-          {toFinish.map((o) => <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${Number(o.toteNo) > 0 ? `Tote ${o.toteNo} · ` : ''}${orderNum(o)} · ${methodLabel(o.method)} · picked by ${firstName(o.claimedByName) || 'someone'}`} trail={<Btn kind="primary" className="h-10 px-4 text-[14px]" onClick={() => void finish(o)}>Finish</Btn>} />)}
+          {toFinish.map((o) => <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${toteOf(o) ? `Tote ${toteOf(o)} · ` : ''}${orderNum(o)} · ${methodLabel(o.method)} · picked by ${firstName(o.claimedByName) || 'someone'}`} trail={<Btn kind="primary" className="h-10 px-4 text-[14px]" onClick={() => void finish(o)}>Finish</Btn>} />)}
         </Section>)}
 
       {toShip.length > 0 && (
