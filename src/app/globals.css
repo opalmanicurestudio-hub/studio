@@ -854,6 +854,27 @@ html.studio [role="dialog"] .bg-background, html.studio [data-radix-popper-conte
   html.studio .font-black { font-weight: 800; }
 }
 
+/* ── CUSTOMER PAGES (.cf-shop, every /shop page: order page, checkout, account, gift exchange). Customers see the
+   app's own look: text as written (never shouted or lowercased), readable small text, semibold labels, light large
+   headings, hairline borders, soft corners, round buttons. Printing is left alone. */
+@media screen {
+  .cf-shop .uppercase { text-transform: none; }
+  .cf-shop :is(.tracking-widest, .tracking-wider, .tracking-wide, [class*="tracking-[0."]) { letter-spacing: 0; }
+  .cf-shop :is(.text-\[6px\], .text-\[7px\], .text-\[8px\], .text-\[9px\], .text-\[10px\]) { font-size: 12.5px; }
+  .cf-shop .text-\[11px\] { font-size: 13px; }
+  .cf-shop :is(.font-black, .font-extrabold) { font-weight: 600; }
+  .cf-shop :is(.font-black, .font-extrabold, .font-bold):is(.text-lg, .text-xl, .text-2xl, .text-3xl, .text-4xl, .text-5xl) { font-weight: 300; letter-spacing: -0.02em; }
+  .cf-shop .tracking-tighter, .cf-shop .tracking-tight { letter-spacing: -0.01em; }
+  .cf-shop .font-mono { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+  .cf-shop .border-2 { border-width: 1px; }
+  .cf-shop .border-b-2 { border-bottom-width: 1px; }
+  .cf-shop .border-t-2 { border-top-width: 1px; }
+  .cf-shop .rounded-\[2rem\] { border-radius: 24px; }
+  .cf-shop .rounded-\[2\.5rem\] { border-radius: 28px; }
+  .cf-shop :is(button, a).rounded-xl:is(.h-9, .h-10, .h-11, .h-12, .h-14) { border-radius: 999px; }
+  .cf-shop .bg-muted\/5 { background-color: #fff; }
+}
+
 /* ── STAFF PORTAL — a bolder, app-like hierarchy for the team's phones and the shared tablet (.cf-portal). The rest of
    the app keeps its calmer weights. */
 :root .cf-portal .font-extrabold { font-weight: 800; }

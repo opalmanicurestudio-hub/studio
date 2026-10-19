@@ -775,7 +775,7 @@ export default function OrderStatusPage() {
         <div className="max-w-lg mx-auto px-5 py-5 flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">
-              {isShip ? 'Shipping Order' : order.method === 'curbside' ? 'Curbside Order' : 'Pickup Order'}
+              {isShip ? 'Shipping order' : order.method === 'curbside' ? 'Curbside order' : 'Pickup order'}
             </p>
             <h1 className="font-black uppercase tracking-tighter text-2xl leading-none">
               {typeof order.orderNumber === 'number' && order.orderNumber > 0
@@ -1124,7 +1124,7 @@ export default function OrderStatusPage() {
                   {totBack > 0 && (
                     <p className="col-span-3 text-[9px] font-bold text-amber-800">
                       {isShip
-                        ? 'Backordered units ship separately at no extra shipping cost — we’ll email tracking when they’re on the way.'
+                        ? 'Backordered units ship separately at no extra shipping cost — we’ll post tracking here and send you a heads-up when they’re on the way.'
                         : 'Backordered units will be ready for pickup when restocked — we’ll let you know.'}
                       {totRefunded > 0 ? ` ${totRefunded} unavailable unit(s) were refunded.` : ''}
                     </p>
@@ -1566,7 +1566,7 @@ export default function OrderStatusPage() {
             <CardContent className="p-5 space-y-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Running late</p>
               <p className="text-xs font-bold text-amber-900">
-                We said this would be on its way by {new Date((order as any).shipPromiseAt).toLocaleDateString()} and it isn&apos;t yet. You can wait — we&apos;ll email as soon as it ships — or cancel right now for a full refund, no questions asked.
+                We said this would be on its way by {new Date((order as any).shipPromiseAt).toLocaleDateString()} and it isn&apos;t yet. You can wait — we&apos;ll let you know as soon as it ships — or cancel right now for a full refund, no questions asked.
               </p>
             </CardContent>
           </Card>
@@ -1925,7 +1925,7 @@ export default function OrderStatusPage() {
                         {retLabel.deductCents > 0
                           ? `Return shipping of $${(retLabel.deductCents / 100).toFixed(2)} will be deducted from your refund or credit — you'll see the exact amount in the confirmation.`
                           : 'Return shipping is on us — the label costs you nothing.'}{' '}
-                        It's also in your email. Tape it over the old label on any box.
+                        It's also saved on this page. Tape it over the old label on any box.
                       </p>
                     </div>
                   )}

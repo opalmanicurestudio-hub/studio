@@ -99,7 +99,7 @@ export default async function ShopLayout({
           .filter((kv) => kv.length >= 2)
           .map(([k, v]) => [k.trim(), v.trim()])
       ) as React.CSSProperties) }}
-      className="min-h-dvh flex flex-col"
+      className="cf-shop min-h-dvh flex flex-col"
     >
       <div className="flex-1">{children}</div>
       <footer

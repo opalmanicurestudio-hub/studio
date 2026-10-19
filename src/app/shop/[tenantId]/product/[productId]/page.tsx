@@ -534,7 +534,7 @@ export default function ProductPage() {
             {(cfg.faq && cfg.faq.length > 0 ? cfg.faq : [
               fulfil.offersPickup
                 ? { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' }
-                : { q: 'How fast do you ship?', a: 'Orders are packed within a day or two and you get tracking by email the moment a label is bought.' },
+                : { q: 'How fast do you ship?', a: 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
               { q: 'What is the return policy?', a: 'Start a return from your order page once it has been picked up or delivered — choose the items and a reason, and the shop takes it from there.' },
               fulfil.offersShipping
                 ? { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' }
