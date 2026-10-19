@@ -88,11 +88,11 @@ async function tell(db: any, t: string, o: any, origin: string, sms: string, sub
   const tenant: any = (await db.doc(`tenants/${t}`).get()).data() || {};
   const shop = String(tenant.businessName || tenant.name || 'The shop');
   const link = origin ? `${origin}/shop/${t}/order/${o.id}` : '';
-  if (o.customerPhone) { try { await sendNotification(db, { tenantId: t, channel: 'sms', to: o.customerPhone, text: `${shop}: ${sms}${link && !sms.includes('http') ? ` ${link}` : ''}`, kind: 'order_swap', recipientType: 'client', recipientId: o.clientId || null } as any); } catch { /* email still goes */ } }
+  if (o.customerPhone) { try { await sendNotification(db, { tenantId: t, channel: 'sms', to: o.customerPhone, text: `${shop}: ${sms}${link && !sms.includes('http') ? ` ${link}` : ''}`, kind: 'order_swap', orderId: o.id, recipientType: 'client', recipientId: o.clientId || null } as any); } catch { /* email still goes */ } }
   if (o.customerEmail) {
     try {
       const html = brandedEmailHtml({ studioName: shop, title, bodyLines: [...body, `Kind regards, ${shop}`], cta: link ? { label: 'View my order', url: link } : null, footerNote: `You are receiving this because you placed order #${String(o.orderNumber).padStart(4, '0')} with ${shop}.` });
-      await sendNotification(db, { tenantId: t, channel: 'email', to: o.customerEmail, subject, html, kind: 'order_swap', recipientType: 'client' } as any);
+      await sendNotification(db, { tenantId: t, channel: 'email', to: o.customerEmail, subject, html, kind: 'order_swap', orderId: o.id, recipientType: 'client' } as any);
     } catch { /* best effort */ }
   }
 }

@@ -1183,6 +1183,27 @@ export default function OrderStatusPage() {
           </CardContent>
         </Card>
 
+        {Array.isArray((order as any)?.updates) && (order as any).updates.length > 0 && (
+          <Card id="order-updates" className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <CardContent className="p-6 space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Updates from the shop</p>
+              {(order as any).updates.map((u: any, i: number) => (
+                <details key={u.id} open={i === 0} className="rounded-2xl border-2 p-4">
+                  <summary className="cursor-pointer list-none">
+                    <span className="block text-sm font-black">{u.title}</span>
+                    {u.at ? <span className="block text-[11px] font-bold text-muted-foreground">{new Date(u.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span> : null}
+                  </summary>
+                  {u.body ? <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-foreground/80">{u.body}</p> : null}
+                  {Array.isArray(u.links) && u.links.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {u.links.map((l: any) => <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center rounded-xl border-2 px-4 text-[11px] font-black uppercase tracking-widest">{l.label}</a>)}
+                    </div>)}
+                </details>))}
+              <p className="text-[11px] font-bold text-muted-foreground">Questions about any of these? Send us a message below and the reply will show up here.</p>
+            </CardContent>
+          </Card>
+        )}
+
         {selfToken && (
           <Card id="order-help" className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-3">
@@ -1307,7 +1328,7 @@ export default function OrderStatusPage() {
                         answered ? 'border-green-600/40 bg-green-500/10 text-green-700' : 'border-primary/30 bg-primary/[0.05] text-primary')}>
                         {last.status === 'resolved' ? '✓ Resolved — reply below if anything’s still off'
                           : last.replies.length > 0 ? '✓ The team replied — answer below any time'
-                          : `With the team — ${last.expectNote || 'replies land right here (and by email)'}. This page checks automatically.`}
+                          : `With the team — ${last.expectNote || 'replies land right here, and we’ll send you a heads-up'}. This page checks automatically.`}
                       </p>
                     );
                   })()}

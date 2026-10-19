@@ -40,6 +40,10 @@ export async function ensureApptToken(db: any, tenantId: string, apptId: string)
 }
 
 export type NotifyInput = {
+  /** The shop order this message is about: posted on its order page, with only a nudge sent (lib/order-inbox). */
+  orderId?: string | null;
+  /** Internal: already routed through the order page. */
+  viaOrderPage?: boolean;
   /** A shop support case this email is about: the customer's reply goes back onto it (lib/inbound-email). */
   replyCase?: string;
   /** Merge values for owner-customized copy. Ignored when the shop has not
@@ -122,6 +126,14 @@ export function resolveFromAddress(): string {
 }
 
 export async function sendNotification(db: any, input: NotifyInput): Promise<NotifyResult> {
+  /* THE ORDER PAGE FIRST (lib/order-inbox). A message about a shop order is posted in full on the customer's order
+   * page; what goes out is a one-line nudge with the link. Returns null when the message isn't about an order the
+   * recipient bought, and it goes out as usual. */
+  try {
+    const { routeThroughOrderPage } = await import('./order-inbox');
+    const handled = await routeThroughOrderPage(db, input, (next: any) => sendNotification(db, next));
+    if (handled) return handled;
+  } catch { /* fail open: send as written */ }
   const { tenantId, channel, to, kind } = input;
   let result: NotifyResult;
 

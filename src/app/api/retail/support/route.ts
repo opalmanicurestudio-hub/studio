@@ -271,7 +271,7 @@ export async function POST(req: NextRequest) {
               <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
               { preheader: urgent ? 'Your message has been marked as a priority.' : expectNote, title: 'We have received your message', tag: `#${String(order.orderNumber).padStart(4, '0')}` });
           })(),
-        kind: 'support_received', recipientType: 'client', replyCase: ticketRef.id,
+        kind: 'support_received', recipientType: 'client', replyCase: ticketRef.id, orderId,
       });
     } catch {
       // acknowledgment email is best-effort

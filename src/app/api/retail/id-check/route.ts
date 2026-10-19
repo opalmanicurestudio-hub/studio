@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   const num = `#${String(o.orderNumber ?? '').padStart(4, '0')}`;
   try {
     const { sendNotification } = await import('@/lib/notify');
-    await sendNotification(db, { tenantId, channel: 'email', to: o.customerEmail, subject: `${shop}: one quick step before we send order ${num}`, kind: 'order_id_check', recipientType: 'client',
+    await sendNotification(db, { tenantId, channel: 'email', to: o.customerEmail, subject: `${shop}: one quick step before we send order ${num}`, kind: 'order_id_check', recipientType: 'client', orderId,
       html: brandedEmailHtml({ studioName: shop, title: 'One quick step before we send your order', bodyLines: [`Hi ${first},`, `Thank you for your order ${num}. Before we send it, we need to confirm it was you who placed it. It takes about two minutes: a photo of your ID and a quick selfie, handled securely by Stripe. We never see or keep the photos.`, 'If you didn’t place this order, you don’t need to do anything; reply to this email and we will cancel and refund it.', `Kind regards, ${shop}`], cta: { label: 'Confirm it’s me', url }, footerNote: `You are receiving this because order ${num} was placed with ${shop} using this email address.` }) } as any);
   } catch { /* the link is still on the order for staff to share */ }
   const at = new Date().toISOString();

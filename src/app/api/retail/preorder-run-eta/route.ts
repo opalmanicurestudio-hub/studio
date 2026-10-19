@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
           tenantId, channel: 'email', to: to,
             subject: `${brand.shopName}: an updated ship date for your pre-order`,
             html,
-          kind: 'preorder_eta', recipientType: 'client',
+          kind: 'preorder_eta', recipientType: 'client', orderId: o.id,
         });
         emailed += 1;
       } catch (e: any) {

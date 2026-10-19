@@ -103,7 +103,7 @@ export function SmartSlip({ m, size, shopName, qr, giftQr }: { m: SlipModel; siz
     </>);
 
   const track = m.boxes === 2 ? 'Tracking for both boxes' : m.boxes > 2 ? `Tracking for all ${m.boxes} boxes` : 'Tracking';
-  const footText = `${track}, receipt, ${m.returns ? 'returns, ' : ''}reorder and reviews.${paper && m.damage ? ` Arrived damaged? ${m.damage}` : ''}${!paper && m.returns ? ` ${m.returns}` : ''}${dense && m.damage ? ` Arrived damaged? ${m.damage}` : ''} Questions? Reply to your order email.`;
+  const footText = `${track}, receipt, ${m.returns ? 'returns, ' : ''}reorder and reviews.${paper && m.damage ? ` Arrived damaged? ${m.damage}` : ''}${!paper && m.returns ? ` ${m.returns}` : ''}${dense && m.damage ? ` Arrived damaged? ${m.damage}` : ''} Questions? Message us from your order page.`;
 
   return (
     <div className={`ss s${size}${dense ? ' dense' : ''}`}>

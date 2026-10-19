@@ -54,7 +54,7 @@ function MessageCard({ p, tenantId, onToast }: { p: Problem; tenantId: string; o
         <Btn kind="primary" className="flex-1" disabled={!text.trim() || !!busy} onClick={() => void send(false)}>{busy === 'send' ? 'Sending…' : 'Send'}</Btn>
         <Btn kind="soft" className="flex-1" style={{ background: C.paper }} disabled={!!busy} onClick={() => void send(true)}>{text.trim() ? 'Send and mark solved' : busy === 'solve' ? 'Saving…' : 'Mark solved'}</Btn>
       </div>
-      <p className="m-0 mt-2 text-[12px]" style={muted}>They get it by email and on their order page. If they reply to the email, it lands right here.</p>
+      <p className="m-0 mt-2 text-[12px]" style={muted}>It appears on their order page, and they get a text or email pointing them to it. Their reply lands right here.</p>
     </Card>);
 }
 

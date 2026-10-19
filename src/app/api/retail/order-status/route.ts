@@ -144,6 +144,13 @@ export async function GET(req: NextRequest) {
     return usable(t?.studioLocation?.lat, t?.studioLocation?.lng);
   })();
 
+  /* Updates from the shop (lib/order-inbox): everything we'd once have emailed, kept here in full. */
+  let updates: any[] = [];
+  try {
+    const u = await db.collection(`tenants/${tenantId}/retailOrders/${orderId}/inbox`).orderBy('at', 'desc').limit(30).get();
+    updates = u.docs.map((d: any) => { const x = d.data() || {}; return { id: d.id, kind: String(x.kind || ''), at: x.at || null, title: String(x.title || ''), body: String(x.body || ''), links: Array.isArray(x.links) ? x.links.slice(0, 3) : [] }; });
+  } catch { /* the rest of the page still loads */ }
+
   let supportTickets: any[] = [];
   try {
     const tSnap = await db.collection(`tenants/${tenantId}/retailSupport`)
@@ -265,6 +272,7 @@ export async function GET(req: NextRequest) {
        * every staff reply, and its status. Same poll that moves the stage
        * tracker moves this, so a reply appears without a refresh. */
       support: supportTickets,
+      updates,
       totalCents: order.totalCents || 0,
       timestamps: {
         placedAt: order.placedAt || null,

@@ -100,7 +100,7 @@ export default function RetailClaimsPage() {
         body: JSON.stringify({ tenantId, claimId: c.id, kind: 'info_request' }),
       }).catch(() => {});
       setAskFor({ ...askFor, [c.id]: '' });
-      toast({ title: 'Request sent', description: 'The customer sees it on their order page and by email.' });
+      toast({ title: 'Request sent', description: 'The customer sees it on their order page and gets a nudge to look.' });
     } catch {
       toast({ variant: 'destructive', title: 'Could not send the request' });
     } finally {
@@ -222,7 +222,7 @@ export default function RetailClaimsPage() {
         title: approve ? 'Approved — refund queued' : 'Declined',
         description: approve
           ? `${money(Number.isFinite(approveCents[c.id]) ? Math.min(approveCents[c.id], Number(c.claimValueCents) || 0) : c.claimValueCents)} added to the refund banner. The customer has been emailed.`
-          : 'Reason saved and emailed to the customer — they can appeal once.',
+          : 'Reason saved and posted on the customer’s order page. They can appeal once.',
       });
       setDeclineFor(null);
       setDeclineWhy('');

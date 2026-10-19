@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { staffOrServer } from '@/lib/route-guard';
-import { sendTenantSms } from '@/lib/sms';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
 // ─── /api/retail/ready-notify ────────────────────────────────────────────────
@@ -39,7 +38,9 @@ export async function POST(req: NextRequest) {
     const holdDays = Math.max(0, Number(t.retailSettings?.pickupHoldDays) || 0);
     let texted = false;
     if (o.customerPhone) {
-      const r = await sendTenantSms(db, tenantId, String(o.customerPhone), `Hi ${first}, your order ${num} from ${shop} is ready for pickup${address ? ` at ${address}` : ''}. Show the code on your order page at the counter: ${link}`);
+      // Through lib/notify, so it becomes the one nudge to the order page (lib/order-inbox) like every order message.
+      const { sendNotification } = await import('@/lib/notify');
+      const r = await sendNotification(db, { tenantId, channel: 'sms', to: String(o.customerPhone), text: `Hi ${first}, your order ${num} from ${shop} is ready for pickup${address ? ` at ${address}` : ''}. Show the code on your order page at the counter: ${link}`, kind: 'order_ready', recipientType: 'client', recipientId: orderId, orderId } as any);
       texted = r.ok === true;
     }
     if (o.customerEmail) {

@@ -24,8 +24,8 @@ export async function sweepUncollected(db: any, t: string, origin: string): Prom
     if (!claimed) continue;
     const m = noticeText(step, o, pol, shop);
     const link = origin ? `${origin}/shop/${t}/order/${o.id}` : '';
-    if (o.customerPhone) { try { await sendNotification(db, { tenantId: t, channel: 'sms', to: o.customerPhone, text: `${shop}: ${m.sms}${link ? ` ${link}` : ''}`, kind: 'order_uncollected', recipientType: 'client', recipientId: o.clientId || null } as any); } catch { /* email still goes */ } }
-    if (o.customerEmail) { try { await sendNotification(db, { tenantId: t, channel: 'email', to: o.customerEmail, subject: m.subject, kind: 'order_uncollected', recipientType: 'client', html: brandedEmailHtml({ studioName: shop, title: m.title, bodyLines: [...m.body, `Kind regards, ${shop}`], cta: link ? { label: 'View my order', url: link } : null, footerNote: `You are receiving this because your order with ${shop} is ready to collect.` }) } as any); } catch { /* best effort */ } }
+    if (o.customerPhone) { try { await sendNotification(db, { tenantId: t, channel: 'sms', to: o.customerPhone, text: `${shop}: ${m.sms}${link ? ` ${link}` : ''}`, kind: 'order_uncollected', orderId: o.id, recipientType: 'client', recipientId: o.clientId || null } as any); } catch { /* email still goes */ } }
+    if (o.customerEmail) { try { await sendNotification(db, { tenantId: t, channel: 'email', to: o.customerEmail, subject: m.subject, kind: 'order_uncollected', orderId: o.id, recipientType: 'client', html: brandedEmailHtml({ studioName: shop, title: m.title, bodyLines: [...m.body, `Kind regards, ${shop}`], cta: link ? { label: 'View my order', url: link } : null, footerNote: `You are receiving this because your order with ${shop} is ready to collect.` }) } as any); } catch { /* best effort */ } }
     const ev = d.ref.collection('events').doc();
     await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'system', actorName: 'Automatic', meta: { kind: 'uncollected_notice', text: step === 3 ? 'Sent the last-day notice' : `Sent pickup reminder ${step}` } });
     n++;

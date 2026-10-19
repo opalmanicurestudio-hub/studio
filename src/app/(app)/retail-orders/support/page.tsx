@@ -139,7 +139,7 @@ export default function RetailSupportPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not send');
-      toast({ title: data.emailed ? 'Reply emailed to customer' : 'Reply saved', description: data.emailed ? undefined : data.message });
+      toast({ title: data.emailed ? 'Reply posted on their order page' : 'Reply saved', description: data.emailed ? undefined : data.message });
       setDrafts({ ...drafts, [t.id]: '' });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Reply failed', description: e?.message });
@@ -475,7 +475,7 @@ export default function RetailSupportPage() {
               )}
               {t.autoReply && (
                 <div className="rounded-2xl border-2 border-primary/20 bg-primary/[0.03] p-3">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-primary mb-1">Auto-answered instantly by email</p>
+                  <p className="text-[8px] font-black uppercase tracking-widest text-primary mb-1">Answered instantly on their order page</p>
                   <p className="text-xs font-bold text-muted-foreground leading-relaxed">{t.autoReply}</p>
                 </div>
               )}

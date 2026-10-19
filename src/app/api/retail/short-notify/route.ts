@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
           ? `Order ${num}: one item will arrive separately`
           : `Order ${num}: an update on your order`,
         html,
-      kind: 'order_short', recipientType: 'client',
+      kind: 'order_short', recipientType: 'client', orderId,
     });
     sent = res.ok;
     if (!res.ok) {
