@@ -31,6 +31,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
   { title: 'Busy days', items: [
     ['/retail-orders/waves', 'Wave picking', 'Pick many orders in one walk'],
     ['/retail-orders/bench', 'Pack bench', 'A station screen for packing all day'],
+    ['/retail-orders/bins', 'Bins and totes', 'Where products live, shelf labels and tote tags'],
     ['/retail-orders/kpis', 'How it’s going', 'Speed, accuracy and who packed what'],
   ] },
   { title: 'More', items: [

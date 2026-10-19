@@ -71,7 +71,9 @@ export function ScanGate({
   paused = false,
   label = 'Point the camera at a code',
   className,
+  cameraFirst = true,
 }: {
+  cameraFirst?: boolean;
   onScan: (value: string) => void;
   paused?: boolean;
   label?: string;
@@ -90,7 +92,7 @@ export function ScanGate({
 
   // A paired handheld or desk scanner works on every scan surface with no tap first. Once one has been used on this
   // device the camera stays off by default (it only drains the battery), with a button to bring it back.
-  const [camOn, setCamOn] = useState(true);
+  const [camOn, setCamOn] = useState(cameraFirst);
   const [scannerLive, setScannerLive] = useState(false);
   useEffect(() => { if (scannerSeenBefore()) setCamOn(false); }, []);
   const pausedRef = useRef(paused); const pendingRef = useRef<string[]>([]);
@@ -161,7 +163,7 @@ export function ScanGate({
         <div className="flex min-h-[64px] items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: '#f5f5f7', color: '#16171a' }}>
           <span className="flex items-center gap-2.5 text-[15px] font-semibold">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: scannerLive ? '#1f7a4d' : '#6d7075' }} />
-            {scannerLive ? 'Scanner ready' : 'Scan with your handheld scanner'}
+            {scannerLive ? 'Scanner ready' : 'Scan with a handheld scanner'}
           </span>
           <button type="button" onClick={() => setCamOn(true)} className="h-11 shrink-0 rounded-xl px-3 text-[14px] font-semibold" style={{ background: '#ffffff', color: '#16171a' }}>
             <span className="inline-flex items-center gap-1.5"><Camera className="h-4 w-4" /> Use the camera</span>

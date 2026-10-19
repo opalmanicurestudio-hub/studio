@@ -9,7 +9,7 @@
 //   3. The last item finishes the order: shipping waits for a label, pickup goes on the shelf and the customer is told.
 //   4. Ship it (label or tracking), or hand it over when they arrive.
 import * as React from 'react';
-import { collection, doc, getDoc, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { ScanGate } from '@/components/retail/ScanGate';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { claimNextBatch, claimSpecificOrder, recordItemScan } from '@/lib/retail-fulfill';
@@ -22,6 +22,19 @@ import { ShipSheet } from '@/components/orders/ShipSheet';
 import { HandoverSheet } from '@/components/orders/HandoverSheet';
 import { binMatches, compareBins } from '@/lib/bins';
 import { staffAuthHeader } from '@/lib/staff-fetch';
+import { assignTote, looksLikeTracking, needsTote, orderForLabel, parseTote, skipTotes, toteBusy } from '@/lib/totes';
+import { printToteTags } from '@/lib/shelf-labels-client';
+
+type Banner = { kind: 'tote' | 'ok' | 'warn'; title: string; sub?: string; tote?: number; at: number };
+
+function ScanBanner({ b }: { b: Banner }) {
+  const warn = b.kind === 'warn';
+  return (
+    <div key={b.at} role="status" aria-live="assertive" className="cf-anim-pop mt-3 flex items-center gap-4 rounded-2xl px-4 py-4" style={warn ? { background: C.warnSoft, color: C.warn } : b.kind === 'tote' ? { background: C.ok, color: '#fff' } : { background: C.ink, color: C.paper }}>
+      {b.kind === 'tote' && b.tote ? <span className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-2xl text-center" style={{ background: '#fff', color: C.ok }}><span className="block text-[11px] font-bold leading-none">TOTE</span><span className="block text-[40px] font-bold leading-none">{b.tote}</span></span> : null}
+      <span className="min-w-0"><span className="block text-[19px] font-semibold leading-tight">{b.title}</span>{b.sub ? <span className="mt-0.5 block text-[14px]" style={{ opacity: warn ? 1 : 0.85 }}>{b.sub}</span> : null}</span>
+    </div>);
+}
 
 type BoardOrder = RetailOrder & { id: string } & Record<string, any>;
 const ACTIVE = ['paid', 'picking', 'packed', 'ready', 'arrived'];
@@ -49,6 +62,8 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const [shipId, setShipId] = React.useState<string | null>(null);
   const [handId, setHandId] = React.useState<string | null>(null);
   const [showMissing, setShowMissing] = React.useState(false);
+  const [banner, setBanner] = React.useState<Banner | null>(null);
+  const show = (b: Omit<Banner, 'at'>) => { feel(b.kind !== 'warn'); setBanner({ ...b, at: Date.now() }); };
 
   React.useEffect(() => {
     if (!fs || !tenantId) return;
@@ -60,7 +75,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const byId = React.useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
   const queue = React.useMemo(() => packQueue(orders, rs).filter((o: any) => o.stage === 'paid' && !o.batchId && !o.waveId), [orders, rs]);
   const mine = React.useMemo(() => orders.filter((o) => o.stage === 'picking' && (o.claimedBy === staffMember.id || o.assignedTo === staffMember.id)), [orders, staffMember.id]);
-  const toFinish = React.useMemo(() => perms.canPack ? orders.filter((o) => o.stage === 'picking' && !mine.includes(o) && packProgress(o).total > 0 && packProgress(o).done >= packProgress(o).total) : [], [orders, mine, perms.canPack]);
+  const toFinish = React.useMemo(() => perms.canPack ? orders.filter((o) => o.stage === 'picking' && (!mine.includes(o) || Number(o.toteNo) > 0) && packProgress(o).total > 0 && packProgress(o).done >= packProgress(o).total) : [], [orders, mine, perms.canPack]);
   const toShip = React.useMemo(() => perms.canShip ? orders.filter((o) => o.stage === 'packed' && o.method === 'ship' && o.holdForReview !== true) : [], [orders, perms.canShip]);
   const shelfOrders = React.useMemo(() => perms.canPack ? orders.filter((o) => ['ready', 'arrived'].includes(o.stage) && o.method !== 'ship').sort((a, b) => Number(b.stage === 'arrived') - Number(a.stage === 'arrived')) : [], [orders, perms.canPack]);
 
@@ -83,17 +98,20 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const weights = React.useMemo(() => Object.entries(info).map(([id, v]) => ({ id, weightOz: v.weightOz ?? undefined })), [info]);
 
   const shelf = React.useMemo(() => {
-    const m = new Map<string, { key: string; name: string; needed: number; scanned: number; nums: string[]; bin: string; overflow: string }>();
+    const m = new Map<string, { key: string; name: string; needed: number; scanned: number; nums: string[]; bin: string; overflow: string; totes: number[] }>();
     mine.forEach((o) => (o.lines || []).forEach((l: any) => {
       if (l.digital === true || ['shorted', 'refunded', 'backordered'].includes(l.status)) return;
       const need = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)); if (need <= 0) return;
       const key = `${l.productId}|${l.optionsLabel || ''}`;
-      const row = m.get(key) || { key, name: `${l.name}${l.optionsLabel ? ` · ${l.optionsLabel}` : ''}`, needed: 0, scanned: 0, nums: [], bin: info[l.productId]?.bin || '', overflow: info[l.productId]?.overflow || '' };
-      row.needed += need; row.scanned += Math.min(l.qtyScanned || 0, need); row.nums.push(orderNum(o)); m.set(key, row);
+      const row = m.get(key) || { key, name: `${l.name}${l.optionsLabel ? ` · ${l.optionsLabel}` : ''}`, needed: 0, scanned: 0, nums: [], bin: info[l.productId]?.bin || '', overflow: info[l.productId]?.overflow || '', totes: [] };
+      row.needed += need; row.scanned += Math.min(l.qtyScanned || 0, need); row.nums.push(orderNum(o)); if (Number(o.toteNo) > 0 && (l.qtyScanned || 0) < need) row.totes.push(Number(o.toteNo)); m.set(key, row);
     }));
     return [...m.values()].sort((a, b) => Number(a.scanned >= a.needed) - Number(b.scanned >= b.needed) || compareBins(a.bin, b.bin) || a.name.localeCompare(b.name));
   }, [mine, info]);
   const left = shelf.reduce((a, r) => a + Math.max(0, r.needed - r.scanned), 0);
+  const totesOn = rs.useTotes !== false && mine.length >= 2;
+  const untoted = totesOn ? mine.filter(needsTote) : [];
+  const labeled = React.useMemo(() => orders.filter((o) => o.stage === 'packed' && o.method === 'ship' && o.trackingNumber), [orders]);
 
   const say = (m: string, ok = true) => { feel(ok); setToast(m); };
   const finish = async (o: BoardOrder) => {
@@ -111,23 +129,50 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
     if (!fs || busy) return;
     setBusy('scan');
     try {
+      const raw = value.trim();
+      const tote = parseTote(raw);
+      if (tote) {
+        const next = untoted[0];
+        if (next) {
+          const r = await assignTote(fs, tenantId, next, tote, orders, actor);
+          if (r.ok) show({ kind: 'tote', tote, title: `Tote ${tote} is ${orderNum(next)}`, sub: untoted.length > 1 ? `Now scan a tote for ${orderNum(untoted[1])}.` : 'All set. Start the walk.' });
+          else show({ kind: 'warn', title: 'That tote is in use', sub: r.message });
+          return;
+        }
+        const held = toteBusy(orders, tote);
+        if (!held) { show({ kind: 'warn', title: `Tote ${tote} is empty`, sub: 'No order is in it right now.' }); return; }
+        const p = packProgress(held);
+        if (p.total > 0 && p.done >= p.total && perms.canPack) { await finish(held); show({ kind: 'ok', title: `Tote ${tote}: ${orderNum(held)} finished`, sub: held.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' }); return; }
+        show({ kind: 'tote', tote, title: `Tote ${tote} is ${orderNum(held)}`, sub: `${Math.max(0, p.total - p.done)} more to pick.` });
+        return;
+      }
+      const labelFor = labeled.length ? orderForLabel(raw, labeled) : null;
+      if (labelFor) {
+        await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, labelFor.id), { labelCheckedAt: new Date().toISOString(), labelCheckedBy: actor.id, labelCheckedByName: actor.name });
+        show({ kind: 'ok', title: `Right box: ${orderNum(labelFor)}`, sub: `${firstName(labelFor.customerName)}’s label is on. It can go out.` });
+        return;
+      }
+      if (looksLikeTracking(raw) && labeled.length) { show({ kind: 'warn', title: 'This label isn’t for any box waiting to ship', sub: 'Check the box and the label before it goes out.' }); return; }
       for (const o of mine) {
         const r = await recordItemScan(fs, tenantId, o.id, value, actor as any);
         if (r.ok) {
-          say(`${orderNum(o)} · ${r.message}`);
-          if ((r as any).pickComplete && perms.canPack) await finish(o);
+          const t = Number(o.toteNo) > 0 ? Number(o.toteNo) : 0;
+          if (t) show({ kind: 'tote', tote: t, title: `Put it in Tote ${t}`, sub: `${r.message} · ${orderNum(o)}` });
+          else show({ kind: 'ok', title: r.message, sub: `${orderNum(o)} ${firstName(o.customerName)}` });
+          if ((r as any).pickComplete && perms.canPack && !t) await finish(o);
           return;
         }
       }
       const atBin = shelf.find((r) => r.scanned < r.needed && binMatches(r.bin, value));
-      if (atBin) { say(`You’re at ${atBin.bin}. Grab ${atBin.needed - atBin.scanned} × ${atBin.name}.`); return; }
-      const raw = value.trim(); const pid = parseProductQr(raw);
+      if (atBin) { show({ kind: 'ok', title: `You’re at ${atBin.bin}`, sub: `Grab ${atBin.needed - atBin.scanned} × ${atBin.name}.` }); return; }
+      const pid = parseProductQr(raw);
       const owner = queue.find((o) => (o.lines || []).some((l: any) => (pid && l.productId === pid) || l.productId === raw || codesMatch(l.barcode, raw) || codesMatch(l.sku, raw)));
       if (owner && mine.length < perms.claimLimit) {
         const grab = await claimSpecificOrder(fs, tenantId, owner.id, actor as any);
-        if (!('error' in grab)) { const r2 = await recordItemScan(fs, tenantId, owner.id, value, actor as any); if (r2.ok) { say(`${orderNum(owner)} is yours · ${r2.message}`); return; } }
+        if (!('error' in grab)) { const r2 = await recordItemScan(fs, tenantId, owner.id, value, actor as any); if (r2.ok) { show({ kind: 'ok', title: `${orderNum(owner)} is yours`, sub: r2.message }); return; } }
       }
-      say(owner ? 'That item’s order would put you over your limit. Finish one first.' : 'None of the waiting orders need that item.', false);
+      if (owner) show({ kind: 'warn', title: 'You’re holding as many orders as your job allows', sub: 'Finish one, then scan this again.' });
+      else show({ kind: 'warn', title: 'That’s not in this pick', sub: mine.length ? 'None of your orders need it. Put it back where it came from.' : 'None of the waiting orders need it.' });
     } finally { setBusy(''); }
   };
 
@@ -144,6 +189,19 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
         <section className="cf-anim-rise mt-5 rounded-2xl border-2 p-4" style={{ borderColor: C.ink }}>
           <p className="m-0 text-[17px] font-semibold">{left > 0 ? `${left} item${left === 1 ? '' : 's'} to grab` : 'All in'}</p>
           <p className="m-0 mt-0.5 text-[14px]" style={muted}>{mine.map((o) => `${orderNum(o)} ${firstName(o.customerName)}`).join(' · ')}</p>
+          {untoted.length > 0 && (
+            <div className="cf-anim-rise mt-3 rounded-2xl p-4" style={{ background: C.soft }}>
+              <p className="m-0 text-[16px] font-semibold">Set out a tote for each order</p>
+              <p className="m-0 mt-0.5 text-[14px]" style={muted}>Scan an empty tote now for {orderNum(untoted[0])} {firstName(untoted[0].customerName)}.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {mine.map((o) => <span key={o.id} className="rounded-full px-3 py-1.5 text-[13px] font-semibold" style={Number(o.toteNo) > 0 ? { background: C.ok, color: '#fff' } : o.id === untoted[0].id ? { background: C.paper, border: `2px solid ${C.ink}` } : { background: C.paper, color: C.muted }}>{Number(o.toteNo) > 0 ? `Tote ${o.toteNo} · ` : ''}{orderNum(o)}</span>)}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Btn kind="soft" className="h-10 px-4 text-[14px]" style={{ background: C.paper }} onClick={() => void skipTotes(fs, tenantId, untoted)}>Skip totes this time</Btn>
+                <Btn kind="soft" className="h-10 px-4 text-[14px]" style={{ background: C.paper }} onClick={() => { if (!printToteTags(12)) say('Allow pop-ups to print tote tags.', false); }}>Print tote tags</Btn>
+              </div>
+            </div>)}
+          {banner && <ScanBanner b={banner} />}
           <div className="mt-3 overflow-hidden rounded-2xl"><ScanGate onScan={(v) => void onScan(v)} paused={busy === 'scan'} label="Scan each item as it goes in" /></div>
           <div className="mt-3">
             {shelf.map((r) => { const done = r.scanned >= r.needed; return (
@@ -151,6 +209,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
                 <span key={done ? 'd' : 'n'} className={`${done ? 'cf-anim-pop ' : ''}grid h-7 w-7 shrink-0 place-items-center rounded-full border-2`} style={done ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{done ? Ic.check : null}</span>
                 {r.bin ? <span className="shrink-0 rounded-lg px-2 py-1 font-mono text-[13px] font-semibold" style={done ? { background: C.soft, color: C.muted } : { background: C.ink, color: C.paper }}>{r.bin}</span> : null}
                 <span className="min-w-0 flex-1"><span className="block truncate text-[16px] font-semibold">{r.name}</span><span className="block truncate text-[13px]" style={muted}>{[r.nums.join(' · '), r.overflow ? `Overflow: ${r.overflow}` : ''].filter(Boolean).join(' · ')}</span></span>
+                {!done && r.totes.length > 0 ? <span className="flex shrink-0 gap-1">{[...new Set(r.totes)].map((t) => <span key={t} className="rounded-lg border-2 px-1.5 text-[12px] font-bold" style={{ borderColor: C.ink }}>T{t}</span>)}</span> : null}
                 <span className="shrink-0 text-[15px] font-semibold">{r.scanned}/{r.needed}</span>
               </div>); })}
           </div>
@@ -161,14 +220,22 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
           </div>}
         </section>)}
 
+      {mine.length === 0 && (toFinish.length > 0 || labeled.some((o) => !o.labelCheckedAt)) && (
+        <section className="mt-5 rounded-2xl border p-4" style={{ borderColor: C.line }}>
+          <p className="m-0 text-[16px] font-semibold">At the bench</p>
+          <p className="m-0 mt-0.5 text-[14px]" style={muted}>Scan a tote to finish its order, or scan a label on a box to check it’s the right one.</p>
+          {banner && <ScanBanner b={banner} />}
+          <div className="mt-3 overflow-hidden rounded-2xl"><ScanGate onScan={(v) => void onScan(v)} paused={busy === 'scan'} label="Scan a tote or a label" cameraFirst={false} /></div>
+        </section>)}
+
       {toFinish.length > 0 && (
         <Section title="Picked, ready to finish">
-          {toFinish.map((o) => <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${methodLabel(o.method)} · picked by ${firstName(o.claimedByName) || 'someone'}`} trail={<Btn kind="primary" className="h-10 px-4 text-[14px]" onClick={() => void finish(o)}>Finish</Btn>} />)}
+          {toFinish.map((o) => <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${Number(o.toteNo) > 0 ? `Tote ${o.toteNo} · ` : ''}${orderNum(o)} · ${methodLabel(o.method)} · picked by ${firstName(o.claimedByName) || 'someone'}`} trail={<Btn kind="primary" className="h-10 px-4 text-[14px]" onClick={() => void finish(o)}>Finish</Btn>} />)}
         </Section>)}
 
       {toShip.length > 0 && (
         <Section title="Ready to ship" sub={`${toShip.length}`}>
-          {toShip.map((o) => <ListRow key={o.id} onClick={() => setShipId(o.id)} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${o.labelUrl || o.trackingNumber ? 'Label bought' : 'Needs a label'}${o.groundOnly ? ' · ground only' : ''}`} trail={<span style={muted}>{Ic.chev}</span>} />)}
+          {toShip.map((o) => <ListRow key={o.id} onClick={() => setShipId(o.id)} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${o.labelCheckedAt ? 'Label on and checked' : o.labelUrl || o.trackingNumber ? 'Scan the label on the box' : 'Needs a label'}${o.groundOnly ? ' · ground only' : ''}`} trail={<span style={muted}>{Ic.chev}</span>} />)}
         </Section>)}
 
       {shelfOrders.length > 0 && (

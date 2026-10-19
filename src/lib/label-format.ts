@@ -32,3 +32,13 @@ export const LABEL_FORMAT_CHOICES: { id: LabelFormat; label: string; sub: string
   { id: 'paper', label: 'Regular paper', sub: 'Letter paper with the label in the top half. Fold, cut and tape.' },
   { id: 'zpl', label: 'Label printer, raw code (advanced)', sub: 'Downloads a .zpl file for printers set up to take it directly.' },
 ];
+
+// The order number in the label's reference line (printed by USPS, UPS and FedEx), unless the shop turned it off.
+export function withOrderRef(extra: Record<string, any> | null | undefined, rs: any, order: any): Record<string, any> | null {
+  if (rs?.labelOrderRef === false || order?.orderNumber == null) return extra || null;
+  return { ...(extra || {}), reference_1: `Order #${String(order.orderNumber).padStart(4, '0')}` };
+}
+
+export function slipAfterLabel(rs: any): boolean {
+  return rs?.labelPackingSlip === true;
+}

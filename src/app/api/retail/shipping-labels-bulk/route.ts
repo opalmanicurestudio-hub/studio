@@ -1,4 +1,4 @@
-import { labelFormatOf, shippoFileType } from '@/lib/label-format';
+import { labelFormatOf, shippoFileType, withOrderRef } from '@/lib/label-format';
 import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { recordPostage } from '@/lib/postage';
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
       const weightOz = Math.max(8, Math.ceil(productOz + parcelDefaults.boxWeightOz));
 
       const decision = protectionFor(order, protectionPolicy(rs));
-      const extra = shippoExtra(decision);
+      const extra = withOrderRef(shippoExtra(decision), rs, order);
       const shipment = await shippo(apiKey, '/shipments/', {
         address_from: addressFrom, address_to: addressTo,
         parcels: [{

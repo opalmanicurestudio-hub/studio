@@ -1,4 +1,4 @@
-import { labelFormatOf, shippoFileType } from '@/lib/label-format';
+import { labelFormatOf, shippoFileType, withOrderRef } from '@/lib/label-format';
 import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { rateCents, recordPostage, reversePostage } from '@/lib/postage';
@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
       // they are added HERE and not at purchase — otherwise staff would be
       // shown one price and charged another.
       const decision = protectionFor(order, protectionPolicy(rs));
-      const extra = shippoExtra(decision);
+      const extra = withOrderRef(shippoExtra(decision), rs, order);
 
       const shipment = await shippo(apiKey, '/shipments/', {
         address_from: addressFrom, address_to: addressTo, parcels, async: false,

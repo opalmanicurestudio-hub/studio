@@ -44,6 +44,8 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  labelPackingSlip?: boolean;
+  labelOrderRef?: boolean;
   labelFormat?: 'thermal' | 'paper' | 'zpl';
   shipProcessingHours?: number;
   slaWarnMinutes?: number;
@@ -724,6 +726,14 @@ export default function RetailSettingsPage() {
                   </label>);
               })}
             </fieldset>
+            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
+              <div className="min-w-0"><Label className="text-[10px] font-black uppercase tracking-widest">Packing slip after each label</Label><p className="text-[11px] text-muted-foreground mt-1">The label stack prints each order’s slip right behind its label, with the tote number, so they stay together.</p></div>
+              <Switch aria-label="Packing slip after each label" checked={rs.labelPackingSlip === true} onCheckedChange={(v: boolean) => setRs({ ...rs, labelPackingSlip: v })} />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
+              <div className="min-w-0"><Label className="text-[10px] font-black uppercase tracking-widest">Order number on the label</Label><p className="text-[11px] text-muted-foreground mt-1">Printed in the label’s reference line where the carrier supports it (USPS, UPS, FedEx).</p></div>
+              <Switch aria-label="Order number on the label" checked={rs.labelOrderRef !== false} onCheckedChange={(v: boolean) => setRs({ ...rs, labelOrderRef: v })} />
+            </div>
             <div className="space-y-2">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
               <Input aria-label="Ship-from address (printed on labels, used for rates)" placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
