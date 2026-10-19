@@ -66,7 +66,9 @@ export async function POST(req: NextRequest) {
 
     const orderSnap = await db.doc(`tenants/${tenantId}/retailOrders/${ret.orderId}`).get();
     const order = orderSnap.exists ? (orderSnap.data() as any) : {};
-    const to = str(order.customerEmail, 200);
+    // A gift return is told to the person who received the gift, never to the person who sent it.
+    const gr = ret.giftRecipient && typeof ret.giftRecipient === 'object' ? ret.giftRecipient : null;
+    const to = str(gr ? gr.email : order.customerEmail, 200);
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
     if (!to || !RESEND_API_KEY || !RESEND_FROM) {
@@ -74,7 +76,7 @@ export async function POST(req: NextRequest) {
     }
 
     const emailBrand = await getEmailBrand(db, tenantId);
-    const first = str(order.customerName, 120).split(' ')[0] || 'there';
+    const first = str(gr ? gr.name : order.customerName, 120).split(' ')[0] || 'there';
     const num = `#${String(ret.orderNumber ?? order.orderNumber ?? '').padStart(4, '0')}`;
     const origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
     const labelDeduct = Math.max(0, Number(ret.labelDeductCents) || 0);
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
       // Claim the credit's own grant email so the two paths can never both send.
       let balanceCents = cents;
       try {
-        const email = str(order.customerEmail, 200).toLowerCase();
+        const email = str(gr ? gr.email : order.customerEmail, 200).toLowerCase();
         const credSnap = await db.collection(`tenants/${tenantId}/depositCredits`)
           .where('clientEmail', '==', email).limit(50).get();
         balanceCents = credSnap.docs.reduce((a: number, d: any) => {
@@ -138,10 +140,10 @@ export async function POST(req: NextRequest) {
 
     const html = brandedEmail(emailBrand, `
       <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${first},</p>
-      <p style="font-size:13px;color:#334155;line-height:1.6">Thank you for sending your return. We have received and checked in the following items from order ${num}:</p>
+      <p style="font-size:13px;color:#334155;line-height:1.6">Thank you for sending your return. We have received and checked in the following items${gr ? '' : ` from order ${num}`}:</p>
       <table style="border-collapse:collapse;margin:8px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0;width:100%">${itemsHtml}</table>
       ${outcomeHtml}
-      ${origin ? emailButton(`${origin}/shop/${tenantId}/order/${ret.orderId}`, 'View my order', emailBrand) : ''}
+      ${origin && !gr ? emailButton(`${origin}/shop/${tenantId}/order/${ret.orderId}`, 'View my order', emailBrand) : ''}
       <p style="font-size:13px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
       { preheader: `We have received your return for order ${num}` });
 
@@ -150,7 +152,7 @@ export async function POST(req: NextRequest) {
       tenantId, channel: 'email', to,
       subject: `${emailBrand.shopName}: we have received your return for order ${num}`,
       html, kind: 'return_received', recipientType: 'client',
-      recipientId: ret.orderId || null, recipientName: order?.customerName || null,
+      recipientId: ret.orderId || null, recipientName: (gr ? gr.name : order?.customerName) || null,
     });
 
     return NextResponse.json({ ok: true, sent: r.ok });

@@ -79,6 +79,7 @@ const editProductSchema = z.object({
   type: z.enum(['professional', 'retail', 'equipment', 'overhead', 'refreshment']),
   category: z.string().min(1, 'Category is required'),
   description: z.string().optional(),
+  careNote: z.string().max(240).optional(),
   imageUrl: z.string().optional(),
   internalNotes: z.string().optional(),
   isMembersOnly: z.boolean().default(false),
@@ -259,6 +260,10 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
                     <Label htmlFor="description-edit" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Public Description</Label>
                     <Textarea id="description-edit" placeholder="Public flavor profiles, ingredients, or benefit context..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 p-4 font-medium shadow-inner" />
                 </div>
+      <div className="space-y-2 text-left">
+        <Label htmlFor="care-note" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Care note (prints on the packing slip)</Label>
+        <Textarea id="care-note" maxLength={240} placeholder="How to use it, in a sentence or two." {...register('careNote')} className="rounded-2xl border-2 bg-muted/5 min-h-[72px] p-4 font-medium" />
+      </div>
 
                 <div className="space-y-2 text-left">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dossier Visual</Label>
@@ -515,6 +520,7 @@ export const EditProductDialog: React.FC<{
             moq: product.moq || 0,
             leadTimeDays: product.leadTimeDays || 0,
             storageLocation: binOf(product),
+            careNote: (product as any).careNote || '',
             overflowLocation: overflowOf(product),
         });
         setStep(1);

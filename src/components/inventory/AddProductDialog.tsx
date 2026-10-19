@@ -27,6 +27,7 @@ const schema = z.object({
   type: z.enum(['professional', 'retail']),
   category: z.string().min(1, 'Required'),
   description: z.string().optional(),
+  careNote: z.string().max(240).optional(),
   imageUrl: z.string().optional(),
   totalPurchaseCost: z.coerce.number().optional(),
   numUnits: z.coerce.number().optional(),
@@ -117,6 +118,10 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
       <div className="space-y-2 text-left">
         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Description</Label>
         <Textarea placeholder="Guest-facing description..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] p-4 font-medium" />
+      </div>
+      <div className="space-y-2 text-left">
+        <Label htmlFor="care-note" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Care note (prints on the packing slip)</Label>
+        <Textarea id="care-note" maxLength={240} placeholder="How to use it, in a sentence or two." {...register('careNote')} className="rounded-2xl border-2 bg-muted/5 min-h-[72px] p-4 font-medium" />
       </div>
       <div className="space-y-2 text-left">
         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Dossier Visual</Label>
@@ -328,6 +333,7 @@ export const AddProductDialog: React.FC<{
       type: data.type,
       category: data.category,
       description: data.description,
+      ...(data.careNote ? { careNote: data.careNote.trim() } : {}),
       totalStock: data.initialStock || 0,
       supplier: data.supplier || '',
       supplierUrl: data.purchaseLink,

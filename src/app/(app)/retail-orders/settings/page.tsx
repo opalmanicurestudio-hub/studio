@@ -1,5 +1,6 @@
 'use client';
 
+import { SlipSettingsCard } from '@/components/settings/SlipSettingsCard';
 import { LABEL_FORMAT_CHOICES, labelFormatOf } from '@/lib/label-format';
 import { RetailSecretField } from '@/components/settings/RetailSecretField';
 import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
@@ -44,6 +45,7 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  slip?: Record<string, any>;
   labelPackingSlip?: boolean;
   labelOrderRef?: boolean;
   labelFormat?: 'thermal' | 'paper' | 'zpl';
@@ -733,6 +735,9 @@ export default function RetailSettingsPage() {
             <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
               <div className="min-w-0"><Label className="text-[10px] font-black uppercase tracking-widest">Order number on the label</Label><p className="text-[11px] text-muted-foreground mt-1">Printed in the label’s reference line where the carrier supports it (USPS, UPS, FedEx).</p></div>
               <Switch aria-label="Order number on the label" checked={rs.labelOrderRef !== false} onCheckedChange={(v: boolean) => setRs({ ...rs, labelOrderRef: v })} />
+            </div>
+            <div className="rounded-xl border-2 p-3">
+              <SlipSettingsCard rs={rs} setRs={setRs} />
             </div>
             <div className="space-y-2">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>

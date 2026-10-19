@@ -1,4 +1,6 @@
 import { SLIP_CSS, SlipSheet, printOrigin } from '@/components/print/slip';
+import { SMART_SLIP_CSS, SmartSlip } from '@/components/print/SmartSlip';
+import { slipFor } from '@/lib/order-slip-server';
 
 // ─── /print/packing-slip/[tenantId]/[orderId]?t=<qrToken> ────────────────────
 // Staff print route. Token-gated: the ?t= param must match the order's
@@ -66,6 +68,10 @@ export default async function PackingSlipPage({
 
   const num = `#${String(order.orderNumber).padStart(4, '0')}`;
   const origin = await printOrigin();
+  // Shipped orders get the smart slip (what's in this box, what isn't, how to return); pickup orders keep the
+  // handoff slip with the pickup code.
+  const smart = order.method === 'ship' || order.gift ? await slipFor(db, tenantId, orderId, order, tenant, origin) : null;
+  const page = smart ? (smart.size === '4x6' ? '4in 6in' : smart.size === 'half' ? '5.5in 8.5in' : '8.5in 11in') : '';
 
   return (
     <html>
@@ -76,10 +82,10 @@ export default async function PackingSlipPage({
           rel="stylesheet"
         />
         <title>{`Packing slip ${num}`}</title>
-        <style>{SLIP_CSS}</style>
+        <style>{smart ? `@page { size: ${page}; margin: 0; } body { margin: 0; } ${SMART_SLIP_CSS}` : SLIP_CSS}</style>
       </head>
       <body>
-        <SlipSheet tenantId={tenantId} orderId={orderId} order={order} tenant={tenant} origin={origin} />
+        {smart ? <SmartSlip m={smart.model} size={smart.size} shopName={smart.shopName} qr={smart.qr} giftQr={smart.giftQr} /> : <SlipSheet tenantId={tenantId} orderId={orderId} order={order} tenant={tenant} origin={origin} />}
         <script dangerouslySetInnerHTML={{ __html: 'setTimeout(function(){window.print()},400);' }} />
       </body>
     </html>

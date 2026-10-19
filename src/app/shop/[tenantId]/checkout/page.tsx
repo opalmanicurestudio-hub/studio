@@ -142,6 +142,7 @@ export default function CheckoutPage() {
   const [pickupChoice, setPickupChoice] = useState('ASAP');
   const [preorderAgreed, setPreorderAgreed] = useState(false);
   const [ifUnavailable, setIfUnavailable] = useState<IfUnavailable>('refund');
+  const [isGift, setIsGift] = useState(false); const [giftTo, setGiftTo] = useState(''); const [giftMsg, setGiftMsg] = useState('');
 
   // Live carrier rates. The server signs every option (amount + service +
   // expiry); the browser only ever sends the chosen option's token back, so
@@ -369,6 +370,7 @@ export default function CheckoutPage() {
             : undefined,
           preorderAck: hasPreorder ? true : undefined,
           ifUnavailable: digitalOnlyCart ? undefined : ifUnavailable,
+          gift: !digitalOnlyCart && isGift ? { isGift: true, to: giftTo.trim(), message: giftMsg.trim() } : undefined,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...addr, country: 'US' } : undefined,
           shippingQuote: method === 'ship' && selectedQuote
@@ -667,6 +669,21 @@ export default function CheckoutPage() {
                       <span className="block text-[11px] font-bold text-muted-foreground">{o.id === 'ask' ? (phone.trim() ? 'We text you a suggestion. No answer in 2 hours means a refund.' : 'We email you a suggestion. Add a phone number above to get a text instead.') : o.note}</span>
                     </span>
                   </button>))}
+              </div>
+            )}
+            {!digitalOnlyCart && (
+              <div className="space-y-2 rounded-2xl border-2 bg-white p-3">
+                <label className="flex cursor-pointer items-center gap-2.5">
+                  <input type="checkbox" checked={isGift} onChange={(e) => setIsGift(e.target.checked)} className="h-4 w-4" />
+                  <span className="text-[11px] font-black uppercase tracking-widest">This is a gift</span>
+                </label>
+                {isGift && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-muted-foreground">No prices go in the box. They get a gift slip with your message, and can exchange it for shop credit without you being told.</p>
+                    <input aria-label="Who it’s for" value={giftTo} maxLength={60} onChange={(e) => setGiftTo(e.target.value)} placeholder="Who it’s for (first name is fine)" className="h-10 w-full rounded-xl border-2 bg-white px-3 text-sm" />
+                    <textarea aria-label="Gift message" value={giftMsg} maxLength={300} onChange={(e) => setGiftMsg(e.target.value)} placeholder="Your message (optional)" rows={3} className="w-full rounded-xl border-2 bg-white px-3 py-2 text-sm" />
+                    <p className="text-right text-[10px] font-bold text-muted-foreground">{giftMsg.length}/300</p>
+                  </div>)}
               </div>
             )}
             {acctCreditCents === null && (

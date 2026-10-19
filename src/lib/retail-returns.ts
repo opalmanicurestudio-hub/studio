@@ -241,7 +241,9 @@ export async function receiveReturnLine(
           if (l.lineId !== lineId) return l;
           const qtyReturned = (l.qtyReturned || 0) + line.qty;
           const fullyReturned = qtyReturned >= l.qtyOrdered - l.qtyShorted;
-          return { ...l, qtyReturned, status: fullyReturned ? ('returned' as const) : l.status };
+          // A gift recipient's return is kept apart, so the buyer's order page doesn't show it.
+          const gift = (fresh as any).giftRecipient ? { qtyGiftReturned: ((l as any).qtyGiftReturned || 0) + line.qty } : {};
+          return { ...l, qtyReturned, ...gift, status: fullyReturned ? ('returned' as const) : l.status };
         });
         txn.update(oRef, { lines: JSON.parse(JSON.stringify(newLines)) });
       }
@@ -331,9 +333,10 @@ export async function resolveReturn(
         issuedCreditId = creditRef.id;
         txn.set(creditRef, {
           id: creditRef.id, tenantId,
-          clientId: order.clientId || null,
-          clientEmail: (order.customerEmail || '').toLowerCase().trim(),
-          clientName: order.customerName || 'Guest',
+          // A gift return's credit belongs to the person who received the gift.
+          clientId: (fresh as any).giftRecipient ? null : order.clientId || null,
+          clientEmail: String((fresh as any).giftRecipient?.email || order.customerEmail || '').toLowerCase().trim(),
+          clientName: (fresh as any).giftRecipient?.name || order.customerName || 'Guest',
           amountCents: cents, status: 'available',
           sourceRetailReturnId: ret.id, createdAt: now,
         });

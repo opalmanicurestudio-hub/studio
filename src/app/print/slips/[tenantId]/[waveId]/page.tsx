@@ -1,5 +1,7 @@
 import { headers } from 'next/headers';
 import QRCode from 'qrcode';
+import { SMART_SLIP_CSS, SmartSlip } from '@/components/print/SmartSlip';
+import { slipFor } from '@/lib/order-slip-server';
 
 // ─── /print/slips/[tenantId]/[waveId] ─────────────────────────────────────────
 // The packing half of a rush. The wave pack prints the PICK side of a batch
@@ -85,7 +87,9 @@ export default async function BulkSlipsPage({
     const qrDataUrl = await QRCode.toDataURL(`clarityflow://order/${order.qrToken}`, { width: 320, margin: 1 });
     const orderUrl = origin ? `${origin}/shop/${tenantId}/order/${order.id}` : '';
     const customerQr = orderUrl ? await QRCode.toDataURL(orderUrl, { width: 360, margin: 1 }) : '';
-    return { order, qrDataUrl, customerQr };
+    // Shipped and gift orders get the smart slip; pickup orders keep the handoff slip below.
+    const smart = order.method === 'ship' || order.gift ? await slipFor(db, tenantId, order.id, order, tenant, origin).catch(() => null) : null;
+    return { order, qrDataUrl, customerQr, smart };
   }));
 
   return (
@@ -99,6 +103,7 @@ export default async function BulkSlipsPage({
         <title>{`Packing slips · wave of ${orders.length}`}</title>
         <style>{`
           @page { size: letter; margin: 0.5in; }
+          ${SMART_SLIP_CSS}
           * { box-sizing: border-box; }
           body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; color: #0f172a; margin: 0; }
           .bar { display: flex; gap: 10px; align-items: center; padding: 10px 0 14px; }
@@ -156,7 +161,8 @@ export default async function BulkSlipsPage({
           </p>
         </div>
 
-        {jobs.map(({ order, qrDataUrl, customerQr }) => {
+        {jobs.map(({ order, qrDataUrl, customerQr, smart }) => {
+          if (smart) return <div className="job" key={order.id}><SmartSlip m={smart.model} size={smart.size} shopName={smart.shopName} qr={smart.qr} giftQr={smart.giftQr} /></div>;
           const num = `#${String(order.orderNumber).padStart(4, '0')}`;
           const missing = (order.lines || []).filter((l: any) => (Number(l.qtyShorted) || 0) > 0);
           const firstName = String(order.customerName || '').split(' ')[0];

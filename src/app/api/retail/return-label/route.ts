@@ -67,7 +67,8 @@ export async function POST(req: NextRequest) {
   const orderId = String(body.orderId || '').trim();
   const returnId = String(body.returnId || '').trim();
   const qrToken = String(body.qrToken || '').trim();
-  if (!tenantId || !orderId || !returnId || !qrToken) {
+  const giftToken = String(body.giftToken || '').trim();
+  if (!tenantId || !orderId || !returnId || (!qrToken && !giftToken)) {
     return NextResponse.json({ error: 'tenantId, orderId, returnId, and qrToken are required' }, { status: 400 });
   }
 
@@ -87,7 +88,12 @@ export async function POST(req: NextRequest) {
     const order = orderSnap.data() as any;
     const ret = retSnap.data() as any;
 
-    if (order.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+    // A gift recipient proves the gift with the gift code, and only for their own gift return; the label then goes
+    // to them, never to the person who sent the gift.
+    const gr = ret.giftRecipient && typeof ret.giftRecipient === 'object' ? ret.giftRecipient : null;
+    const okBuyer = !!qrToken && order.qrToken === qrToken;
+    const okGift = !!giftToken && !!gr && !!order.gift?.token && order.gift.token === giftToken;
+    if (!okBuyer && !okGift) return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
     if (ret.orderId !== orderId) return NextResponse.json({ error: 'Return does not belong to this order' }, { status: 400 });
     if (ret.status !== 'open') {
       return NextResponse.json({ error: 'A return label can only be sent while the return is open.' }, { status: 409 });
@@ -112,7 +118,7 @@ export async function POST(req: NextRequest) {
     const addressFrom = {
       name: cust.name, street1: cust.line1, street2: cust.line2 || '',
       city: cust.city, state: cust.state, zip: cust.postalCode, country: cust.country || 'US',
-      phone: order.customerPhone || '', email: order.customerEmail || '',
+      phone: gr ? '' : order.customerPhone || '', email: gr ? String(gr.email || '') : order.customerEmail || '',
     };
     const addressTo = {
       name: from.name || tenant.businessName || tenant.name || 'Shop',
@@ -191,16 +197,16 @@ export async function POST(req: NextRequest) {
     try {
       const RESEND_API_KEY = process.env.RESEND_API_KEY;
       const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
-      const to = String(order.customerEmail || '').trim();
+      const to = String(gr ? gr.email : order.customerEmail || '').trim();
       if (RESEND_API_KEY && RESEND_FROM && to) {
         const shopName = String(tenant.businessName || tenant.name || 'the shop');
         const emailBrand = await getEmailBrand(db, tenantId);
-        const firstName = String(order.customerName || '').trim().split(/\s+/)[0] || 'there';
+        const firstName = String(gr ? gr.name : order.customerName || '').trim().split(/\s+/)[0] || 'there';
         const itemsHtml = retLines.slice(0, 8).map((rl: any) =>
           `<tr><td style="font-size:13px;color:#0f172a;padding:4px 0">${String(rl.name || 'Item')}${(Number(rl.qty) || 1) > 1 ? ` \u00d7 ${Number(rl.qty)}` : ''}</td></tr>`
         ).join('');
         const deductHtml = labelDeductCents
-          ? `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping of <strong>$${(labelDeductCents / 100).toFixed(2)}</strong> will be deducted from your refund, as outlined in our return policy. You will see the exact amount before your refund is processed.</p>`
+          ? `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping of <strong>$${(labelDeductCents / 100).toFixed(2)}</strong> will be deducted from your ${gr ? 'credit' : 'refund'}, as outlined in our return policy. You will see the exact amount before your refund is processed.</p>`
           : `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping is covered by ${shopName}, so there is no cost to you for this label.</p>`;
         const html = brandedEmail(emailBrand, `
           <p style="font-size:14px;color:#0f172a">Hi ${firstName},</p>
@@ -208,7 +214,7 @@ export async function POST(req: NextRequest) {
           <table style="border-collapse:collapse;margin:14px 0">${itemsHtml}</table>
           ${deductHtml}
           ${emailButton(String(txn.label_url || ''), 'Open my return label', emailBrand)}
-          <p style="font-size:12px;color:#94a3b8;line-height:1.6">Tracking number: ${String(txn.tracking_number || '')}. Your refund will be processed once your return arrives and has been checked in.</p>
+          <p style="font-size:12px;color:#94a3b8;line-height:1.6">Tracking number: ${String(txn.tracking_number || '')}. ${gr ? 'Your shop credit will be issued' : 'Your refund will be processed'} once your return arrives and has been checked in.</p>
           <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,
           { preheader: 'Your return label is ready' });
         const { sendNotification } = await import('@/lib/notify');

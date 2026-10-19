@@ -229,13 +229,14 @@ export async function GET(req: NextRequest) {
       lines: (order.lines || []).map((l: any) => ({
         lineId: l.lineId,
         productId: l.productId,
-        qtyReturned: l.qtyReturned || 0,
+        // Exchanges made by a gift's recipient aren't shown to the buyer.
+        qtyReturned: Math.max(0, (l.qtyReturned || 0) - (l.qtyGiftReturned || 0)),
         name: l.name,
         documents: Array.isArray(l.documents) ? l.documents.slice(0, 6) : [],
         qtyOrdered: l.qtyOrdered,
         qtyShorted: l.qtyShorted || 0,
         unitPriceCents: l.unitPriceCents,
-        status: l.status,
+        status: l.status === 'returned' && (l.qtyGiftReturned || 0) > 0 && (l.qtyReturned || 0) - (l.qtyGiftReturned || 0) < (l.qtyOrdered || 0) - (l.qtyShorted || 0) ? 'picked' : l.status,
         digital: l.digital === true,
         optionsLabel: l.optionsLabel || '',
         swappedToName: l.swappedToName || '',

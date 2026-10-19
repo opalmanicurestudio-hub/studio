@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { checkPrintKey } from '@/lib/print-key';
-import QRCode from 'qrcode';
-import { toteOf } from '@/lib/totes';
+import { SMART_SLIP_CSS, SmartSlip } from '@/components/print/SmartSlip';
+import { printOrigin } from '@/components/print/slip';
+import { slipFor } from '@/lib/order-slip-server';
 import { isPngLabel, isZplLabel, labelFormatOf, slipAfterLabel } from '@/lib/label-format';
 
 /**
@@ -69,8 +70,9 @@ export default async function PrintLabelsPage({
   const pngs = entries.filter((o: any) => isPngLabel(o.labelUrl));
   const zpls = entries.filter((o: any) => isZplLabel(o.labelUrl));
   const pdfs = entries.filter((o: any) => !isPngLabel(o.labelUrl) && !isZplLabel(o.labelUrl));
-  const slipQr = new Map<string, string>();
-  if (withSlip) for (const o of pngs) { if (o.qrToken) { try { slipQr.set(o.id, await QRCode.toDataURL(`clarityflow://order/${o.qrToken}`, { width: 220, margin: 0 })); } catch { /* the slip prints without it */ } } }
+  const origin = withSlip ? await printOrigin() : '';
+  const slips = new Map<string, Awaited<ReturnType<typeof slipFor>>>();
+  if (withSlip) for (const o of pngs) { try { slips.set(o.id, await slipFor(db, tenantId, o.id, o, tenantData, origin, paper ? 'half' : '4x6')); } catch { /* the label still prints */ } }
   const zplHref = zpls.length ? `/api/retail/labels-zpl?tenantId=${encodeURIComponent(tenantId)}&ids=${encodeURIComponent(zpls.map((o: any) => o.id).join(','))}&k=${encodeURIComponent(String(k || ''))}&x=${encodeURIComponent(String(x || ''))}` : '';
 
   return (
@@ -85,13 +87,7 @@ export default async function PrintLabelsPage({
           .label { width: ${paper ? '8.5in' : '4in'}; height: ${paper ? '11in' : '6in'}; page-break-after: always; display: flex; align-items: ${paper ? 'flex-start' : 'center'}; justify-content: center; overflow: hidden; ${paper ? 'padding-top: 0.5in; border-bottom: 0;' : ''} }
           .cut { ${paper ? 'position: absolute; left: 0.5in; right: 0.5in; top: 6.75in; border-top: 1px dashed #94a3b8;' : 'display: none;'} }
           .label { position: relative; }
-          .slip-in { width: 4in; height: 6in; padding: 0.25in; display: flex; flex-direction: column; gap: 8px; color: #000; }
-          .slip-top { display: flex; justify-content: space-between; align-items: flex-start; }
-          .shop { font-size: 10px; font-weight: 700; } .num { font-size: 30px; font-weight: 800; line-height: 1.05; } .who { font-size: 12px; font-weight: 600; }
-          .tote { border: 2px solid #000; padding: 4px 10px; display: flex; flex-direction: column; align-items: center; } .tote span { font-size: 9px; font-weight: 800; } .tote b { font-size: 24px; line-height: 1; }
-          .rule { height: 2px; background: #000; }
-          .line { display: flex; gap: 8px; font-size: 12px; font-weight: 600; align-items: flex-start; } .line .box { width: 12px; height: 12px; border: 1.5px solid #000; flex-shrink: 0; margin-top: 1px; } .line .nm { flex: 1; }
-          .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; } .thanks { font-size: 10px; font-weight: 600; } .sqr { width: 0.9in; height: 0.9in; }
+          ${SMART_SLIP_CSS}
           .label img { width: 4in; height: 6in; object-fit: contain; }
           .sheet { width: 4in; min-height: 6in; padding: 0.25in; font-size: 10px; color: #0f172a; }
           .sheet h1 { font-size: 12px; margin: 0 0 8px; }
@@ -114,19 +110,9 @@ export default async function PrintLabelsPage({
             <img src={o.labelUrl} alt={`Shipping label for order #${String(o.orderNumber ?? '').padStart(4, '0')}`} />
             <div className="cut" />
           </div>
-          {withSlip && (
+          {withSlip && slips.get(o.id) && (
             <div className="label slip">
-              <div className="slip-in">
-                <div className="slip-top">
-                  <div><div className="shop">{shopName}</div><div className="num">#{String(o.orderNumber ?? '').padStart(4, '0')}</div><div className="who">{o.customerName || ''}</div></div>
-                  {toteOf(o) ? <div className="tote"><span>TOTE</span><b>{toteOf(o)}</b></div> : null}
-                </div>
-                <div className="rule" />
-                {(o.lines || []).filter((l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && (l.qtyOrdered || 0) - (l.qtyShorted || 0) > 0).map((l: any) => (
-                  <div className="line" key={l.lineId || l.productId}><span className="box" /><span className="nm">{l.name}{l.optionsLabel ? ` · ${l.optionsLabel}` : ''}</span><span>×{(l.qtyOrdered || 0) - (l.qtyShorted || 0)}</span></div>
-                ))}
-                <div className="foot"><div className="thanks">Thank you for your order.</div>{slipQr.get(o.id) ? <img className="sqr" src={slipQr.get(o.id)} alt={`Order code for #${String(o.orderNumber ?? '').padStart(4, '0')}`} /> : null}</div>
-              </div>
+              {(() => { const x = slips.get(o.id)!; return <SmartSlip m={x.model} size={x.size} shopName={x.shopName} qr={x.qr} giftQr={x.giftQr} />; })()}
             </div>
           )}
           </React.Fragment>

@@ -1,3 +1,4 @@
+import { cleanGift, giftToken } from '@/lib/gift-orders';
 import { getRetailSecrets } from '@/lib/retail-secrets';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { soldForOf } from '@/lib/renter-sales';
@@ -82,6 +83,7 @@ function getAdminDb() {
 }
 
 interface CheckoutBody {
+  gift?: { isGift?: boolean; to?: string; message?: string }; // a gift: who it's for and the message (lib/gift-orders)
   applyStoreCredit?: boolean;
   giftCode?: string;             // a gift card from this business: its balance comes off the order (lib/gift-cards)
   storeCreditCapCents?: number; // customer-set spend limit; omitted = use all
@@ -164,6 +166,7 @@ async function handleCheckout(req: NextRequest) {
     }
   } catch { /* fail open */ }
   const priceTier = (body.priceTier || 'retail') as PriceTier;
+  const giftInfo = cleanGift(body.gift);
   if (!PRICE_TIERS.includes(priceTier)) {
     return NextResponse.json({ error: 'priceTier must be retail or wholesale' }, { status: 400 });
   }
@@ -514,6 +517,8 @@ async function handleCheckout(req: NextRequest) {
     ...(preorderAck ? { preorderAck } : {}),
     // What the customer wants if an item turns out to be out of stock. Saying nothing means a refund.
     ifUnavailable: normaliseIfUnavailable(body.ifUnavailable),
+    // A gift: who it's for and their message. The recipient's exchange code is separate from the buyer's order code.
+    ...(giftInfo && !digitalOnly ? { gift: { ...giftInfo, token: giftToken() } } : {}),
     customerPhone: body.customer?.phone || '',
     shippingAddress: method === 'ship' ? body.shippingAddress : null,
     curbside: null,
