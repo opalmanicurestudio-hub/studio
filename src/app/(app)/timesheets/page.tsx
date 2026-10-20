@@ -29,6 +29,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
 import { sessionsFrom, clockPolicy, localDay, zonedEpoch } from '@/lib/timeclock';
+import { usePunchesInRange } from '@/hooks/use-transactions';
 import { ClockFixReview } from '@/components/staff/ClockFixReview';
 import { dayCompare } from '@/lib/shift-check';
 import { logAuditClient } from '@/lib/audit-client';
@@ -52,7 +53,7 @@ const formatDuration = (minutes: number) => {
 export default function TimesheetsPage() {
   const { firestore } = useFirebase();
   const { selectedTenant, role } = useTenant();
-  const { staff, activityLogs, isLoading } = useInventory();
+  const { staff, isLoading: ctxLoading } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
@@ -73,6 +74,11 @@ export default function TimesheetsPage() {
 
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: wso });
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
+  // Only this week's punches are read (a day wider each side, for overnight shifts).
+  const punchFrom = useMemo(() => new Date(weekStart.getTime()), [weekStart]);
+  const punchTo = useMemo(() => new Date(weekEnd.getTime() + 1), [weekEnd.getTime()]);
+  const { activityLogs, isLoading: punchLoading } = usePunchesInRange(punchFrom, punchTo);
+  const isLoading = ctxLoading || punchLoading;
   const overtimeThreshold = safeNumber(selectedTenant?.overtimeThresholdHours) || 40;
   const paidBreakMinutes = safeNumber(selectedTenant?.paidBreakMinutes) || 0;
 
@@ -88,12 +94,15 @@ export default function TimesheetsPage() {
     return staff.filter((m: any) => m.isRenter !== true && m.archived !== true).map(member => {
       const mine = all.filter((x) => x.staffId === member.id);
       const latestIn = mine.length ? mine[mine.length - 1].inAt : '';
+      // Past weeks don't see later shifts, so a clock-in after this one means it isn't their latest.
+      const clockedInAt = (member as any).clockInTime ? safeDate((member as any).clockInTime).getTime() : 0;
+      const laterShift = (inAt: string) => clockedInAt > Date.parse(inAt) + 60_000;
       const days = weekDays.map(day => {
         const key = format(day, 'yyyy-MM-dd');
         const sessions = mine.filter((x) => x.localDate === key).map((x) => ({
           clockIn: new Date(x.inAt), clockOut: x.outAt ? new Date(x.outAt) : null, breakMinutes: x.breakMinutes, paidBreakMins: x.paidBreakMinutes,
           workedMinutes: x.workedMinutes, geoVerified: x.geoVerified, geoWarnOnly: x.geoWarnOnly, status: x.status, logId: x.outId || null, inId: x.inId || null,
-          missingOut: x.missingOut, isLatest: x.inAt === latestIn, localDate: x.localDate, shiftNoteIn: x.shiftNoteIn || null, shiftNoteOut: x.shiftNoteOut || null, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id, hourlyMinutes: x.hourlyMinutes || 0, splitTime: (member as any).splitTime === true,
+          missingOut: x.missingOut, isLatest: x.inAt === latestIn && !laterShift(x.inAt), localDate: x.localDate, shiftNoteIn: x.shiftNoteIn || null, shiftNoteOut: x.shiftNoteOut || null, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id, hourlyMinutes: x.hourlyMinutes || 0, splitTime: (member as any).splitTime === true,
         }));
         const totalMinutes = sessions.reduce((sum, s) => sum + s.workedMinutes, 0);
         const cmp = dayCompare(key, (weekShifts || []).filter((x: any) => x.staffId === member.id), mine, selectedTenant);

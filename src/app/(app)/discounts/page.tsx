@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useInventory } from '@/context/InventoryContext';
+import { useTransactionsInCategories } from '@/hooks/use-transactions';
+const DISCOUNT_CATEGORIES = ['Discounts'];
 import { AddDiscountDialog } from '@/components/discounts/AddDiscountDialog';
 import { DiscountCard } from '@/components/discounts/DiscountCard';
 import { type Discount, type Tenant } from '@/lib/data';
@@ -155,7 +157,9 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
 }
 
 function DiscountsContent() {
-    const { discounts, isLoading, transactions, appointments } = useInventory();
+    const { discounts, isLoading: ctxLoading, appointments } = useInventory();
+    const { transactions, isLoading: txLoading } = useTransactionsInCategories(DISCOUNT_CATEGORIES);
+    const isLoading = ctxLoading || txLoading;
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
@@ -281,7 +285,7 @@ function DiscountsContent() {
 
         discountTransactions.forEach(t => {
             if (t.appliedDiscountCode) {
-                const codes = t.appliedDiscountCode.split(',').map(c => c.trim());
+                const codes: string[] = String(t.appliedDiscountCode).split(',').map((c: string) => c.trim());
                 const perCodeAmount = t.amount / (codes.length || 1);
                 codes.forEach(c => {
                     if (c) {

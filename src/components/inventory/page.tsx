@@ -765,7 +765,6 @@ export default function InventoryPage() {
     stockCorrections,
     locations, 
     locationTypes,
-    transactions,
     staff,
     isLoading: isInventoryLoading
   } = useInventory();

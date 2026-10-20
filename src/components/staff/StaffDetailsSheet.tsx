@@ -6,6 +6,7 @@ import { serviceCommission, perServicePay } from '@/lib/commission';
 import { TypicalTimes } from '@/components/staff/TypicalTimes';
 import { CommissionByService } from '@/components/staff/CommissionByService';
 import React, { useMemo, useState, useEffect } from 'react';
+import { useTransactionsInRange, usePunchesInRange, usePickerRange } from '@/hooks/use-transactions';
 import {
   Sheet,
   SheetContent,
@@ -143,10 +144,8 @@ export const StaffDetailsSheet = ({
   onOpenChange,
   staffMember,
   dateRange: initialDateRange,
-  transactions,
   services,
   appointments,
-  activityLogs,
   consentForms,
   inline,
 }: any) => {
@@ -160,6 +159,10 @@ export const StaffDetailsSheet = ({
   const [transactionSearch, setTransactionSearch] = useState('');
   const [periodPreset, setPeriodPreset] = useState('30days');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(initialDateRange);
+  // Reads its own period, so widening the dates here doesn't depend on what the list loaded.
+  const [rangeFrom, rangeTo] = usePickerRange(dateRange);
+  const { transactions } = useTransactionsInRange(open ? rangeFrom : null, rangeTo);
+  const { activityLogs } = usePunchesInRange(open ? rangeFrom : null, rangeTo);
   
   useEffect(() => {
     const now = new Date();

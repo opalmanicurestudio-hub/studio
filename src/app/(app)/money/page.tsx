@@ -6,6 +6,7 @@ import { PayStatement } from '@/components/staff/PayStatement';
 import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras, reversalsFor } from '@/lib/commission';
 import { periodPay, payrollFields } from '@/lib/pay-period';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
+import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transactions';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import { OwedToClientsCard } from '@/components/money/OwedToClientsCard';
@@ -1070,8 +1071,17 @@ const LedgerTab = () => {
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
-  const { transactions: rawTransactions, staff, tillSessions, services, appointments, inventory, clients, isLoading } = useInventory();
+  const { staff, tillSessions, services, appointments, inventory, clients, isLoading: ctxLoading } = useInventory();
   const auditActor = useAuditActor();
+  const [periodPreset, setPeriodPreset] = useState('30days');
+  const [date, setDate] = useState<DateRange | undefined>(undefined);
+  // Only the period on screen is read.
+  const txFromMs = date?.from ? startOfDay(date.from).getTime() : 0;
+  const txToMs = date?.from ? endOfDay(date.to || date.from).getTime() + 1 : 0;
+  const txFrom = useMemo(() => (txFromMs ? new Date(txFromMs) : null), [txFromMs]);
+  const txTo = useMemo(() => (txToMs ? new Date(txToMs) : null), [txToMs]);
+  const { transactions: rawTransactions, isLoading: txLoading } = useTransactionsInRange(txFrom, txTo);
+  const isLoading = ctxLoading || txLoading || !date;
   // v58 — intake normalization: every consumer below assumes `amount`
   // (dollars) and `type` exist. Entries written with amountCents or a
   // missing type (early day-rental payments) are healed here instead of
@@ -1087,8 +1097,6 @@ const LedgerTab = () => {
     taxBucket:     t.taxBucket || 'revenue',
   })), [rawTransactions]);
 
-  const [periodPreset, setPeriodPreset] = useState('30days');
-  const [date, setDate] = useState<DateRange | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
   const [contextFilter, setContextFilter] = useState<'all' | 'Business' | 'Personal'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -1577,7 +1585,7 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
 type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 const PaydayTab = () => {
-  const { billDefinitions, billInstances, transactions, staff, activityLogs, isLoading, services, appointments } = useInventory();
+  const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services, appointments } = useInventory();
   const auditActor = useAuditActor();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -1596,6 +1604,12 @@ const PaydayTab = () => {
           to: endOfDay(now)
       };
   });
+  // Only this pay period's sales and clock punches are read.
+  const payFrom = useMemo(() => new Date(dateRange.from.getTime()), [dateRange.from.getTime()]);
+  const payTo = useMemo(() => new Date(dateRange.to.getTime() + 1), [dateRange.to.getTime()]);
+  const { transactions, isLoading: txLoading } = useTransactionsInRange(payFrom, payTo);
+  const { activityLogs, isLoading: punchLoading } = usePunchesInRange(payFrom, payTo);
+  const isLoading = ctxLoading || txLoading || punchLoading;
 
   const handlePrevPeriod = () => {
       if (cadence === 'custom') return;
@@ -2602,7 +2616,7 @@ type HubTab = 'overview' | 'ledger' | 'payday' | 'bills' | 'activity';
 type OverviewPreset = '7days' | '30days' | 'thisMonth';
 
 const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
-  const { billDefinitions, billInstances, transactions: rawTransactions, staff, activityLogs, isLoading, services, appointments } = useInventory();
+  const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services, appointments } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
@@ -2616,13 +2630,6 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
     return () => unsub();
   }, [firestore, tenantId]);
 
-  const transactions = useMemo(() => (rawTransactions || []).map((t: any) => ({
-    ...t,
-    amount:   typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100,
-    type:     t.type || 'income',
-    context:  t.context || 'Business',
-    category: t.category || 'Uncategorized',
-  })), [rawTransactions]);
 
   const [preset, setPreset] = useState<OverviewPreset>('thisMonth');
 
@@ -2632,6 +2639,19 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
     if (preset === '30days') return { from: startOfDay(subDays(now, 29)), to: endOfDay(now) };
     return { from: startOfMonth(now), to: endOfMonth(now) };
   }, [preset]);
+  // Only the period on screen is read.
+  const ovFrom = useMemo(() => new Date(range.from.getTime()), [range]);
+  const ovTo = useMemo(() => new Date(range.to.getTime() + 1), [range]);
+  const { transactions: rawTransactions, isLoading: txLoading } = useTransactionsInRange(ovFrom, ovTo);
+  const { activityLogs, isLoading: punchLoading } = usePunchesInRange(ovFrom, ovTo);
+  const isLoading = ctxLoading || txLoading || punchLoading;
+  const transactions = useMemo(() => (rawTransactions || []).map((t: any) => ({
+    ...t,
+    amount:   typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100,
+    type:     t.type || 'income',
+    context:  t.context || 'Business',
+    category: t.category || 'Uncategorized',
+  })), [rawTransactions]);
 
   const periodTxns = useMemo(() => transactions.filter((t: any) => {
     const d = safeDate(t.date);

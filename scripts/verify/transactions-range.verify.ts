@@ -11,4 +11,6 @@ const got = mergeInRange(text, stamps, from.getTime(), to.getTime());
 ok(got.map((t) => t.id).join() === 'c,d,a', 'only the day’s records, newest first, no duplicates');
 ok(got.every((t) => t.date instanceof Date), 'dates come back as Dates, as screens expect');
 ok(txDate(null).getTime() === 0 && txDate({ toDate: () => new Date(5) }).getTime() === 5, 'odd and Firestore dates read safely');
+const punches = mergeInRange([{ id: 'p1', timestamp: '2026-10-19T13:00:00Z', type: 'clock_in' }, { id: 'p2', timestamp: '2026-10-21T13:00:00Z' }], null, from.getTime(), to.getTime(), 'timestamp');
+ok(punches.length === 1 && punches[0].timestamp instanceof Date, 'clock punches trim and convert on their own timestamp field');
 if (bad) { console.log(`\n${bad} failed`); process.exit(1); } else console.log('\nall good');

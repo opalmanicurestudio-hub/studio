@@ -37,6 +37,7 @@ import {
 import { cn, safeNumber } from '@/lib/utils';
 import { type Staff, type Service, type Appointment } from '@/lib/data';
 import { DateRange } from 'react-day-picker';
+import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transactions';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser, useFirebase } from '@/firebase';
@@ -84,7 +85,7 @@ export default function ReportsPage() {
   const [periodPreset, setPeriodPreset] = useState('thisMonth');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
-  const { inventory, appointments, services, staff, activityLogs, transactions, clients, billInstances, businessProfiles, isLoading } = useInventory();
+  const { inventory, appointments, services, staff, clients, billInstances, businessProfiles, isLoading: ctxLoading } = useInventory();
 
   useEffect(() => {
     const now = new Date();
@@ -100,6 +101,11 @@ export default function ReportsPage() {
 
   const effectiveFrom = useMemo(() => dateRange?.from ? startOfDay(dateRange.from) : startOfMonth(new Date()), [dateRange]);
   const effectiveTo = useMemo(() => dateRange?.to ? endOfDay(dateRange.to) : endOfMonth(new Date()), [dateRange]);
+  // Only the period being reported on is read.
+  const readTo = useMemo(() => new Date(effectiveTo.getTime() + 1), [effectiveTo]);
+  const { transactions, isLoading: txLoading } = useTransactionsInRange(effectiveFrom, readTo);
+  const { activityLogs, isLoading: punchLoading } = usePunchesInRange(effectiveFrom, readTo);
+  const isLoading = ctxLoading || txLoading || punchLoading;
 
   const analyticsData = useMemo(() => {
     if (!staff || !appointments || !services || !transactions || !activityLogs || !selectedTenant)

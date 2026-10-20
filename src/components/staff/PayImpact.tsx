@@ -7,6 +7,7 @@
 // Numbers come from lib/pay-impact (pay + employer taxes, products, running costs per hour of station time).
 import * as React from 'react';
 import { useInventory } from '@/context/InventoryContext';
+import { usePunchesInRange, useToday } from '@/hooks/use-transactions';
 import { useTenant } from '@/context/TenantContext';
 import { visitKinds, visitOutcome, maxPayFor, choicesFor, busyShareFrom, type VisitKind, type PayChoice } from '@/lib/pay-impact';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
@@ -36,7 +37,10 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
   const [what, setWhat] = React.useState<{ commissionPct?: number; perHour?: number; hourly?: number }>({});
   const base = { inventory, costPerHour, taxPct, tenant: selectedTenant };
   // Real time with clients, from the time clock (last 30 days) — for hourly pay, the time between clients is paid too.
-  const sessions = React.useMemo(() => sessionsFrom((inv?.activityLogs || []) as any, clockPolicy(selectedTenant)), [inv?.activityLogs, selectedTenant]);
+  const [, todayEnd] = useToday();
+  const monthAgo = React.useMemo(() => new Date(todayEnd.getTime() - 30 * 86_400_000), [todayEnd]);
+  const { activityLogs } = usePunchesInRange(monthAgo, todayEnd);
+  const sessions = React.useMemo(() => sessionsFrom((activityLogs || []) as any, clockPolicy(selectedTenant)), [activityLogs, selectedTenant]);
   const teamBusy = React.useMemo(() => busyShareFrom({ sessions, appointments: inv?.appointments || [] }), [sessions, inv?.appointments]);
   const muted = { color: 'hsl(var(--muted-foreground))' }; const ipt = 'h-9 w-16 rounded-lg border px-2 text-right text-[13px] tabular-nums';
 

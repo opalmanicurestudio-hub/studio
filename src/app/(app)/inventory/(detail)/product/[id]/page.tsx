@@ -112,7 +112,7 @@ const collectImages = (p: any): string[] =>
 
 export default function ProductDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const { inventory, stockCorrections, locations, services, transactions, appointments, clients, staff, isLoading: isInventoryLoading } = useInventory();
+    const { inventory, stockCorrections, locations, services, appointments, clients, staff, isLoading: isInventoryLoading } = useInventory();
     const { firestore } = useFirebase();
     // FIX: tenantId was never derived from selectedTenant — handleProductUpdate
     // referenced a bare `tenantId` that didn't exist, throwing a ReferenceError

@@ -1,5 +1,5 @@
 'use client';
-// src/hooks/use-transactions.ts — SALES AND MONEY RECORDS FOR JUST THE DATES (OR THE VISIT) A SCREEN SHOWS. Screens used
+// src/hooks/use-transactions.ts — SALES, MONEY RECORDS AND CLOCK PUNCHES FOR JUST THE DATES (OR THE VISIT) A SCREEN SHOWS. Screens used
 // to read every transaction the business ever had; these read only what they display, live.
 //
 // Dates are stored two ways across the app's history (ISO text, and Firestore timestamps from a few older writers), so
@@ -32,20 +32,17 @@ export function textBounds(from: Date, to: Date): [string, string] {
 }
 
 /** Merge both query results, keep only what's really in [from, to), and give every record a Date like the old context did. */
-export function mergeInRange(a: any[] | null, b: any[] | null, from: number, to: number): any[] {
+export function mergeInRange(a: any[] | null, b: any[] | null, from: number, to: number, field = 'date'): any[] {
   const byId = new Map<string, any>();
   for (const t of [...(a || []), ...(b || [])]) {
-    const d = txDate(t.date); const ms = d.getTime();
-    if (ms >= from && ms < to) byId.set(t.id, { ...t, date: d });
+    const d = txDate(t[field]); const ms = d.getTime();
+    if (ms >= from && ms < to) byId.set(t.id, { ...t, [field]: d });
   }
-  return [...byId.values()].sort((x, y) => y.date.getTime() - x.date.getTime());
+  return [...byId.values()].sort((x, y) => y[field].getTime() - x[field].getTime());
 }
 
-/**
- * Transactions dated in [from, to). Pass null to load nothing. Keep from/to stable (useMemo) so the query isn't
- * rebuilt on every render.
- */
-export function useTransactionsInRange(from: Date | null, to: Date | null): { transactions: any[]; isLoading: boolean } {
+/** Records in one tenant collection whose `field` falls in [from, to), from both stored date kinds, with `field` as a Date. */
+function useDatedRange(name: string, field: string, from: Date | null, to: Date | null): { list: any[]; isLoading: boolean } {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant() as any;
   const tenantId = selectedTenant?.id as string | undefined;
@@ -54,17 +51,37 @@ export function useTransactionsInRange(from: Date | null, to: Date | null): { tr
   const textQ = useMemoFirebase(() => {
     if (!ok) return null;
     const [lo, hi] = textBounds(new Date(fromMs), new Date(toMs));
-    return query(collection(firestore, 'tenants', tenantId!, 'transactions'), where('date', '>=', lo), where('date', '<', hi));
-  }, [ok, firestore, tenantId, fromMs, toMs]);
+    return query(collection(firestore, 'tenants', tenantId!, name), where(field, '>=', lo), where(field, '<', hi));
+  }, [ok, firestore, tenantId, fromMs, toMs, name, field]);
   const stampQ = useMemoFirebase(() => {
     if (!ok) return null;
-    return query(collection(firestore, 'tenants', tenantId!, 'transactions'), where('date', '>=', Timestamp.fromMillis(fromMs - DAY)), where('date', '<', Timestamp.fromMillis(toMs + DAY)));
-  }, [ok, firestore, tenantId, fromMs, toMs]);
+    return query(collection(firestore, 'tenants', tenantId!, name), where(field, '>=', Timestamp.fromMillis(fromMs - DAY)), where(field, '<', Timestamp.fromMillis(toMs + DAY)));
+  }, [ok, firestore, tenantId, fromMs, toMs, name, field]);
   const a = useCollection<any>(textQ);
   const b = useCollection<any>(stampQ);
-  const transactions = useMemo(() => (ok ? mergeInRange(a.data, b.data, fromMs, toMs) : NONE), [ok, a.data, b.data, fromMs, toMs]);
+  const list = useMemo(() => (ok ? mergeInRange(a.data, b.data, fromMs, toMs, field) : NONE), [ok, a.data, b.data, fromMs, toMs, field]);
   const isLoading = ok && ((a.isLoading || (a.data == null && !a.error)) || (b.isLoading || (b.data == null && !b.error)));
-  return { transactions, isLoading };
+  return { list, isLoading };
+}
+
+/**
+ * Transactions dated in [from, to). Pass null to load nothing. Keep from/to stable (useMemo) so the query isn't
+ * rebuilt on every render.
+ */
+export function useTransactionsInRange(from: Date | null, to: Date | null): { transactions: any[]; isLoading: boolean } {
+  const r = useDatedRange('transactions', 'date', from, to);
+  return { transactions: r.list, isLoading: r.isLoading };
+}
+
+/**
+ * Time clock punches (and other activity) for [from, to), read a day wider each side so a shift that starts the
+ * evening before or ends the morning after still pairs up. Timestamps come back as Dates.
+ */
+export function usePunchesInRange(from: Date | null, to: Date | null): { activityLogs: any[]; isLoading: boolean } {
+  const f = useMemo(() => (from ? new Date(from.getTime() - DAY) : null), [from ? from.getTime() : 0]);
+  const t = useMemo(() => (to ? new Date(to.getTime() + DAY) : null), [to ? to.getTime() : 0]);
+  const r = useDatedRange('activityLogs', 'timestamp', f, t);
+  return { activityLogs: r.list, isLoading: r.isLoading };
 }
 
 /** Every transaction recorded against one visit (deposits, payments, fees, refunds), whenever it happened. */
@@ -108,4 +125,27 @@ export function useTransactionsForVisits(appointmentIds: string[]): { transactio
     return () => { live = false; };
   }, [firestore, tenantId, key]);
   return { transactions: state.key === key ? state.list : NONE, isLoading: !!key && state.key !== key };
+}
+
+/**
+ * A picker's { from, to } as a stable [start of from, end of to) pair for the hooks above. A missing end means today;
+ * a missing start means a year before the end (pickers used to mean "all time", which no screen needs live).
+ */
+export function usePickerRange(range: { from?: Date | null; to?: Date | null } | undefined | null): [Date, Date] {
+  const toEnd = range?.to ? new Date(range.to) : new Date(); toEnd.setHours(23, 59, 59, 999);
+  const fromStart = range?.from ? new Date(range.from) : new Date(toEnd.getTime() - 365 * DAY); fromStart.setHours(0, 0, 0, 0);
+  const a = fromStart.getTime(); const b = toEnd.getTime() + 1;
+  return useMemo(() => [new Date(a), new Date(b)], [a, b]);
+}
+
+/** Every transaction in a few categories (discounts, membership payments), whenever recorded. Pass up to 10. */
+export function useTransactionsInCategories(categories: string[]): { transactions: any[]; isLoading: boolean } {
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant() as any;
+  const tenantId = selectedTenant?.id as string | undefined;
+  const key = [...new Set(categories.filter(Boolean))].sort().slice(0, 10).join('|');
+  const q = useMemoFirebase(() => (firestore && tenantId && key ? query(collection(firestore, 'tenants', tenantId, 'transactions'), where('category', 'in', key.split('|'))) : null), [firestore, tenantId, key]);
+  const r = useCollection<any>(q);
+  const transactions = useMemo(() => (r.data || NONE).map((t: any) => ({ ...t, date: txDate(t.date) })), [r.data]);
+  return { transactions, isLoading: !!q && (r.isLoading || (r.data == null && !r.error)) };
 }

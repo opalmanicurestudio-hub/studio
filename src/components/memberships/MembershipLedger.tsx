@@ -53,6 +53,8 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format, parseISO, isPast, isToday, addMonths, startOfDay, isSameMonth, isBefore, startOfMonth, endOfMonth } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
+import { useTransactionsInCategories } from '@/hooks/use-transactions';
+const MEMBERSHIP_CATEGORIES = ['Membership Revenue', 'Membership Sales'];
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -398,7 +400,9 @@ export const MembershipLedger = () => {
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
-  const { subscriptionInstances, clients, memberships, transactions, redemptions, isLoading } = useInventory();
+  const { subscriptionInstances, clients, memberships, redemptions, isLoading: ctxLoading } = useInventory();
+  const { transactions, isLoading: txLoading } = useTransactionsInCategories(MEMBERSHIP_CATEGORIES);
+  const isLoading = ctxLoading || txLoading;
 
   const [activeSubTab, setActiveSubTab] = useState<'pending' | 'payments' | 'redemptions'>('pending');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -419,7 +423,7 @@ export const MembershipLedger = () => {
   const historicalTransactions = useMemo(() => {
       if (!transactions) return [];
       return transactions
-        .filter(t => t.category === 'Membership Revenue' || t.description.toLowerCase().includes('membership'))
+        .filter(t => t.category === 'Membership Revenue' || t.category === 'Membership Sales' || String(t.description || '').toLowerCase().includes('membership'))
         .filter(t => !searchTerm.trim() || t.clientOrVendor.toLowerCase().includes(searchTerm.toLowerCase()) || t.description.toLowerCase().includes(searchTerm.toLowerCase()))
         .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [transactions, searchTerm]);

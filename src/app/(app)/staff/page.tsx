@@ -45,6 +45,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
+import { useTransactionsInRange, usePunchesInRange, usePickerRange } from '@/hooks/use-transactions';
 import { computeServiceProfitability } from '@/lib/service-cost';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { isDeadAppointment, applyCoverageDecision } from '@/lib/booking-approval';
@@ -604,13 +605,16 @@ export default function StaffPage() {
   const {
     services,
     clients,
-    transactions,
     appointments,
-    activityLogs,
     consentForms,
     inventory,
-    isLoading,
+    isLoading: ctxLoading,
   } = useInventory();
+  // Only the period on screen is read.
+  const [rangeFrom, rangeTo] = usePickerRange(dateRange);
+  const { transactions, isLoading: txLoading } = useTransactionsInRange(dateRange ? rangeFrom : null, rangeTo);
+  const { activityLogs, isLoading: punchLoading } = usePunchesInRange(dateRange ? rangeFrom : null, rangeTo);
+  const isLoading = ctxLoading || txLoading || punchLoading;
   
   const staffQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
   // Renters' own menus, so a renter's chip can say "no services" for the same
