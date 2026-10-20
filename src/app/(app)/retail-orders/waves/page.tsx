@@ -276,7 +276,7 @@ export default function WavesPage() {
     setLastDrop({ tote: res.tote, name: res.name, putInTote: res.putInTote, toteNeed: res.toteNeed, toteDone: res.toteDone });
     const toteRow = rows.find((r) => r.productId === res.productId)!;
     void recordWavePut(firestore as Firestore, tenantId, active.id, res.tote, res.productId,
-      toteRow.totes.find((t) => t.tote === res.tote)?.qty || 0, toteRow.totalQty);
+      toteRow.totes.find((t) => t.tote === res.tote)?.qty || 0, toteRow.totalQty, actor);
     if (res.toteDone) {
       /* THE WAVE ADVANCES ITSELF. When a solo operator's last beep completes
        * the last tote, making them find a "move to the bench" button is a

@@ -18,28 +18,33 @@ export async function printFor(t: string, orders: any[], show: 'picks' | 'slips'
 }
 
 export async function printLabels(t: string, orders: any[]): Promise<string | null> {
-  const ids = orders.filter((o) => o.labelUrl).map((o) => o.id);
+  const ids = orders.filter((o) => o.labelUrl).map((o) => o.id).slice(0, 100);
   if (!ids.length) return 'None of these have a label yet.';
   return openPrint(t, 'orders', `/print/labels/${t}?ids=${ids.join(',')}`);
 }
 
 export async function buyLabels(t: string, orders: any[], rs: any): Promise<{ ok: boolean; message: string; boughtIds: string[] }> {
-  const todo = orders.filter(needsLabel).slice(0, 25);
-  if (!todo.length) return { ok: false, message: 'None of these are packed ship orders waiting for a label.', boughtIds: [] };
+  const all = orders.filter(needsLabel);
+  if (!all.length) return { ok: false, message: 'None of these are packed ship orders waiting for a label.', boughtIds: [] };
   const p = (rs?.packagingPresets || [])[0];
-  try {
-    const r = await fetch('/api/retail/shipping-labels-bulk', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-      body: JSON.stringify({ tenantId: t, orders: todo.map((o) => ({ orderId: o.id, qrToken: o.qrToken || '' })), parcelDefaults: p ? { lengthIn: p.lengthIn, widthIn: p.widthIn, heightIn: p.heightIn, boxWeightOz: p.weightOz } : undefined }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) return { ok: false, message: d.error || 'The labels didn’t go through. Try again.', boughtIds: [] };
-    const res: any[] = d.results || [];
-    const bought = res.filter((x) => x.ok && !x.skipped && x.labelUrl).map((x) => x.orderId);
-    const failed = res.filter((x) => !x.ok);
-    const msg = `${plural(bought.length, 'label')} bought${failed.length ? `. ${plural(failed.length, 'order')} couldn’t get one: ${failed[0].error}` : '.'}`;
-    return { ok: bought.length > 0, message: msg, boughtIds: bought };
-  } catch { return { ok: false, message: 'The labels didn’t go through. Check your connection.', boughtIds: [] }; }
+  // Bought 25 at a time (one request each), so a big day goes through in full instead of stopping at the first 25.
+  const bought: string[] = []; const failed: { error: string }[] = []; let lastError = '';
+  for (let i = 0; i < all.length; i += 25) {
+    const todo = all.slice(i, i + 25);
+    try {
+      const r = await fetch('/api/retail/shipping-labels-bulk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+        body: JSON.stringify({ tenantId: t, orders: todo.map((o) => ({ orderId: o.id, qrToken: o.qrToken || '' })), parcelDefaults: p ? { lengthIn: p.lengthIn, widthIn: p.widthIn, heightIn: p.heightIn, boxWeightOz: p.weightOz } : undefined }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { lastError = d.error || 'The labels didn’t go through.'; failed.push(...todo.map(() => ({ error: lastError }))); continue; }
+      const res: any[] = d.results || [];
+      bought.push(...res.filter((x) => x.ok && !x.skipped && x.labelUrl).map((x) => x.orderId));
+      failed.push(...res.filter((x) => !x.ok));
+    } catch { lastError = 'Check your connection.'; failed.push(...todo.map(() => ({ error: lastError }))); }
+  }
+  const msg = `${plural(bought.length, 'label')} bought${failed.length ? `. ${plural(failed.length, 'order')} couldn’t get one: ${failed[0].error}` : '.'}`;
+  return { ok: bought.length > 0, message: msg, boughtIds: bought };
 }
 
 export async function markAllShipped(fs: Firestore, t: string, orders: any[], actor: Actor): Promise<string> {

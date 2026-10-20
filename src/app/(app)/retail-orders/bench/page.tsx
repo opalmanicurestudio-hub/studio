@@ -25,7 +25,7 @@ import { codesMatch, parseProductQr, slaFor, fulfilmentPolicy } from '@/lib/reta
 import { packPhotoPolicy, packPhotoRequired, packPhotoPath} from '@/lib/pack-photo';
 import { uploadImage } from '@/lib/upload-image';
 import { cn } from '@/lib/utils';
-import { benchScanTarget, toteOf } from '@/lib/totes';
+import { benchScanTarget, markLabelChecked, toteOf } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 
 // ─── Pack bench ───────────────────────────────────────────────────────────────
@@ -208,7 +208,7 @@ export default function PackBenchPage() {
       if (target.kind === 'foreignLabel') { scanFeedback(false); toast({ variant: 'destructive', title: 'This label isn’t for any box waiting to ship', description: 'Check the box and the label before it goes out.' }); return; }
       const num = `#${String(target.order.orderNumber).padStart(4, '0')}`;
       if (target.kind === 'label') {
-        await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders`, target.order.id), { labelCheckedAt: new Date().toISOString(), labelCheckedBy: actor.id, labelCheckedByName: actor.name }).catch(() => {});
+        await markLabelChecked(firestore as Firestore, tenantId, target.order, actor).catch(() => {});
         scanFeedback(true); toast({ title: `Right box: ${num}`, description: `${target.order.customerName || 'The customer'}’s label is on. It can go out.` }); return;
       }
       if (target.order.id !== activeId && ['picking', 'packed'].includes(String(target.order.stage))) {

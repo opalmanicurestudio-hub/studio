@@ -5,7 +5,7 @@
 // Live from Firestore; the packing engine is lib/retail-fulfill, the screen's own rules are lib/orders-view.
 import * as React from 'react';
 import { collection, doc, limit, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
-import { benchScanTarget } from '@/lib/totes';
+import { benchScanTarget, markLabelChecked } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -194,7 +194,7 @@ export function OrdersApp() {
     if (!t) return;
     if (t.kind === 'foreignLabel') { feel(false); setToast('That label isn’t for any box waiting to ship.'); return; }
     const num = `#${String(t.order.orderNumber ?? '').padStart(4, '0')}`;
-    if (t.kind === 'label') { void updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, t.order.id), { labelCheckedAt: new Date().toISOString(), labelCheckedBy: actor.id, labelCheckedByName: actor.name }).catch(() => {}); feel(true); setToast(`Right box: ${num}. It can go out.`); return; }
+    if (t.kind === 'label') { void markLabelChecked(fs, tenantId, t.order, actor).catch(() => {}); feel(true); setToast(`Right box: ${num}. It can go out.`); return; }
     feel(true); setOpenId(t.order.id); setToast(t.kind === 'tote' ? `Tote ${t.tote}: ${num}` : `${num} is open`);
   });
 

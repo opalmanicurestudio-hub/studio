@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams;
   const tenantId = String(p.get('tenantId') || '').trim();
   if (!tenantId || !checkPrintKey(tenantId, 'orders', p.get('k'), p.get('x'))) return new NextResponse('This print link has expired. Go back to Orders and print again.', { status: 403 });
-  const ids = String(p.get('ids') || '').split(',').map((s) => s.trim()).filter((s) => s && !s.includes('/')).slice(0, 60);
+  const ids = String(p.get('ids') || '').split(',').map((s) => s.trim()).filter((s) => s && !s.includes('/')).slice(0, 100);
   const db = getAdminDb();
   const snaps = await Promise.all(ids.map((id) => db.collection(`tenants/${tenantId}/retailOrders`).doc(id).get()));
   const orders = snaps.filter((s: any) => s.exists).map((s: any) => s.data() as any)

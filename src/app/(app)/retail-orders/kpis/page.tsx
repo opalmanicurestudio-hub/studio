@@ -16,6 +16,7 @@ import { permissionsFor, staffKpis, teamKpis, type StaffKpis } from '@/lib/fulfi
 import { recentWaves, type Wave } from '@/lib/waves';
 import { dueAt, fulfilmentPolicy } from '@/lib/retail-orders';
 import { cn } from '@/lib/utils';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 // ─── Fulfilment KPIs ──────────────────────────────────────────────────────────
 // Numbers about how work actually went, derived from events the engine already
@@ -44,6 +45,7 @@ export default function FulfilmentKpisPage() {
   const [loading, setLoading] = useState(true);
   const [orderCount, setOrderCount] = useState(0);
   const [waves, setWaves] = useState<Wave[]>([]);
+  const [capped, setCapped] = useState(false);
 
   const perms = useFulfilmentPerms();
 
@@ -60,38 +62,11 @@ export default function FulfilmentKpisPage() {
     (async () => {
       try {
         const days = RANGES.find((r) => r.id === rangeId)?.days ?? 7;
-        const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
-        const snap = await getDocs(query(
-          collection(firestore as Firestore, `tenants/${tenantId}/retailOrders`),
-          where('placedAt', '>', since),
-          orderBy('placedAt', 'desc'),
-          limit(150)
-        ));
-
-        // Events live in a subcollection per order; fetched in parallel and
-        // capped, because a KPI screen must never become the slowest page.
-        const withEvents = await Promise.all(snap.docs.map(async (d) => {
-          const data = d.data() as any;
-          let events: any[] = [];
-          try {
-            const evSnap = await getDocs(query(collection(d.ref, 'events'), limit(60)));
-            events = evSnap.docs.map((e) => e.data() as any);
-          } catch {
-            // an order whose events can't be read simply contributes nothing
-          }
-          return {
-            id: d.id,
-            orderNumber: data.orderNumber,
-            stage: data.stage,
-            method: data.method,
-            placedAt: data.placedAt,
-            paidAt: data.paidAt,
-            lines: data.lines || [],
-            events,
-            dueAtMs: dueAt(data, policy),
-          };
-        }));
+        // Worked out on the server over every order in the range (no cap at the last 150), with wave picks credited.
+        const r = await fetch(`/api/retail/kpis?tenantId=${encodeURIComponent(tenantId)}&days=${days}`, { headers: await staffAuthHeader() });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'Could not load the numbers');
 
         try {
           const ws = await recentWaves(firestore as Firestore, tenantId, 8);
@@ -101,8 +76,9 @@ export default function FulfilmentKpisPage() {
         }
 
         if (!alive) return;
-        setOrderCount(withEvents.length);
-        setRows(staffKpis(withEvents));
+        setOrderCount(Number(d.orderCount) || 0);
+        setCapped(d.capped === true);
+        setRows(Array.isArray(d.rows) ? d.rows : []);
       } catch {
         if (alive) setRows([]);
       } finally {
@@ -141,7 +117,7 @@ export default function FulfilmentKpisPage() {
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-black uppercase leading-none tracking-tighter">Fulfilment</h1>
             <p className="mt-0.5 text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-              {loading ? 'Reading order history…' : `${orderCount} orders · ${team.people} people`}
+              {loading ? 'Reading order history…' : `${orderCount} orders · ${team.people} people${capped ? ' · the most recent 5,000' : ''}`}
             </p>
           </div>
         </div>
@@ -178,6 +154,8 @@ export default function FulfilmentKpisPage() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {stat('orders picked', String(mine.ordersPicked))}
                 {stat('items picked', String(mine.itemsPicked))}
+                {stat('orders packed', String(mine.ordersPacked || 0))}
+                {stat('labels checked', String(mine.labelsChecked || 0))}
                 {stat('typical order', mine.medianMinutes === null ? '—' : `${mine.medianMinutes}m`)}
                 {stat('accuracy', mine.accuracy === null ? '—' : `${mine.accuracy}%`,
                   mine.accuracy !== null && mine.accuracy < 95 ? 'warn' : 'good')}
@@ -202,6 +180,7 @@ export default function FulfilmentKpisPage() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {stat('orders', String(team.orders))}
                 {stat('items', String(team.items))}
+                {stat('packed', String(team.packed || 0))}
                 {stat('typical order', team.medianMinutes === null ? '—' : `${team.medianMinutes}m`)}
                 {stat('on time', team.onTimeRate === null ? '—' : `${team.onTimeRate}%`,
                   team.onTimeRate !== null && team.onTimeRate < 90 ? 'warn' : 'good')}
@@ -292,6 +271,16 @@ export default function FulfilmentKpisPage() {
                   {r.shortsRaised > 0 && (
                     <span className="rounded-full bg-muted/40 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest">
                       {r.shortsRaised} shorts flagged
+                    </span>
+                  )}
+                  {(r.ordersPacked || 0) > 0 && (
+                    <span className="rounded-full bg-muted/40 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest">
+                      {r.ordersPacked} packed
+                    </span>
+                  )}
+                  {(r.labelsChecked || 0) > 0 && (
+                    <span className="rounded-full bg-muted/40 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest">
+                      {r.labelsChecked} labels checked
                     </span>
                   )}
                   {r.abandonedClaims > 0 && (

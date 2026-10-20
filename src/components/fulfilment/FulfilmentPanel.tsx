@@ -22,7 +22,7 @@ import { ShipSheet } from '@/components/orders/ShipSheet';
 import { HandoverSheet } from '@/components/orders/HandoverSheet';
 import { binMatches, compareBins } from '@/lib/bins';
 import { staffAuthHeader } from '@/lib/staff-fetch';
-import { assignTote, looksLikeTracking, needsTote, orderForLabel, orderFromSlipScan, parseTote, skipTotes, toteBusy, toteOf } from '@/lib/totes';
+import { markLabelChecked, assignTote, looksLikeTracking, needsTote, orderForLabel, orderFromSlipScan, parseTote, skipTotes, toteBusy, toteOf } from '@/lib/totes';
 import { printToteTags } from '@/lib/shelf-labels-client';
 
 type Banner = { kind: 'tote' | 'ok' | 'warn'; title: string; sub?: string; tote?: number; at: number };
@@ -156,7 +156,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       }
       const labelFor = labeled.length ? orderForLabel(raw, labeled) : null;
       if (labelFor) {
-        await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, labelFor.id), { labelCheckedAt: new Date().toISOString(), labelCheckedBy: actor.id, labelCheckedByName: actor.name });
+        await markLabelChecked(fs, tenantId, labelFor, actor);
         show({ kind: 'ok', title: `Right box: ${orderNum(labelFor)}`, sub: `${firstName(labelFor.customerName)}’s label is on. It can go out.` });
         return;
       }

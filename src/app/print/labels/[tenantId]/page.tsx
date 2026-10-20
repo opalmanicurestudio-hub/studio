@@ -45,7 +45,7 @@ export default async function PrintLabelsPage({
   if (!checkPrintKey(tenantId, 'orders', k, x)) {
     return <p style={{ fontFamily: 'sans-serif', padding: 40 }}>This print link has expired. Go back to Orders and print again.</p>;
   }
-  const orderIds = String(ids || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 30);
+  const orderIds = String(ids || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 100);
 
   if (orderIds.length === 0) {
     return <p style={{ fontFamily: 'sans-serif', padding: 40 }}>No orders given — open this page from the board&apos;s bulk-label button.</p>;

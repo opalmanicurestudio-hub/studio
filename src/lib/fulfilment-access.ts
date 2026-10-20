@@ -120,6 +120,8 @@ export interface StaffKpis {
   shortsRaised: number;
   reopens: number;
   abandonedClaims: number;
+  ordersPacked: number;          // boxed or put on the pickup shelf by this person
+  labelsChecked: number;         // shipping labels scanned onto the right box
 }
 
 const median = (xs: number[]): number | null => {
@@ -140,7 +142,7 @@ const pct = (num: number, den: number): number | null =>
  * together; and shorts are counted without judgement — a high number often
  * means someone is surfacing stock problems everyone else walked past.
  */
-export function staffKpis(orders: OrderLike[], now: number = Date.now()): StaffKpis[] {
+export function staffKpis(orders: OrderLike[], now: number = Date.now(), wavePicks: Record<string, { name: string; items: number }> = {}): StaffKpis[] {
   const byActor = new Map<string, StaffKpis & { durations: number[]; onTime: number; finished: number; scans: number; mismatches: number }>();
 
   const ensure = (id: string, name: string) => {
@@ -148,7 +150,7 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now()): StaffK
     if (!row) {
       row = {
         actorId: id, name, ordersPicked: 0, itemsPicked: 0, medianMinutes: null,
-        onTimeRate: null, accuracy: null, shortsRaised: 0, reopens: 0, abandonedClaims: 0,
+        onTimeRate: null, accuracy: null, shortsRaised: 0, reopens: 0, abandonedClaims: 0, ordersPacked: 0, labelsChecked: 0,
         durations: [], onTime: 0, finished: 0, scans: 0, mismatches: 0,
       };
       byActor.set(id, row);
@@ -158,10 +160,17 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now()): StaffK
 
   for (const order of orders) {
     const events = [...(order.events || [])].sort((a, b) => String(a.at).localeCompare(String(b.at)));
-    const claim = events.find((e) => e.type === 'batch_claimed');
+    // Who started it: a claim, or for a wave order, the person who finished walking the wave.
+    const claim = events.find((e) => e.type === 'batch_claimed') || events.find((e) => e.type === 'note' && e.meta?.kind === 'wave_to_packing');
     const done = events.find((e) => ['marked_ready', 'ready', 'packed', 'handed_off', 'shipped'].includes(e.type));
+    // Who boxed it or shelved it: the first packed/ready event, whoever picked it.
+    const packedBy = events.find((e) => ['packed', 'marked_ready'].includes(e.type));
+    let lastClaimer: { id: string; name: string } | null = null;
 
     for (const e of events) {
+      if (e.type === 'batch_claimed' && e.actorId) lastClaimer = { id: String(e.actorId), name: String(e.actorName || 'Staff') };
+      // A claim that timed out is counted against the person who held it, not the system that released it.
+      if (e.type === 'batch_auto_released') { if (lastClaimer) ensure(lastClaimer.id, lastClaimer.name).abandonedClaims += 1; continue; }
       const id = String(e.actorId || '');
       if (!id || id === 'system' || id === 'shippo' || id === 'customer') continue;
       const row = ensure(id, String(e.actorName || 'Staff'));
@@ -170,8 +179,9 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now()): StaffK
       if (e.type === 'scan_mismatch') { row.scans += 1; row.mismatches += 1; }
       if (e.type === 'line_shorted') row.shortsRaised += 1;
       if (e.type === 'line_reopened') row.reopens += 1;
-      if (e.type === 'batch_auto_released') row.abandonedClaims += 1;
+      if (e.type === 'label_scan_verified') row.labelsChecked += 1;
     }
+    if (packedBy?.actorId && !['system', 'shippo', 'customer'].includes(String(packedBy.actorId))) ensure(String(packedBy.actorId), String(packedBy.actorName || 'Staff')).ordersPacked += 1;
 
     if (claim?.actorId && done) {
       const row = ensure(String(claim.actorId), String(claim.actorName || 'Staff'));
@@ -186,6 +196,9 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now()): StaffK
     }
   }
 
+  // Items picked on a wave walk are counted on the wave, by the person who scanned them (lib/waves).
+  for (const [id, w] of Object.entries(wavePicks)) { if (id && Number(w?.items) > 0) { const r = ensure(id, String(w.name || 'Staff')); r.itemsPicked += Number(w.items); } }
+
   return [...byActor.values()]
     .map((r) => ({
       actorId: r.actorId,
@@ -198,6 +211,8 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now()): StaffK
       shortsRaised: r.shortsRaised,
       reopens: r.reopens,
       abandonedClaims: r.abandonedClaims,
+      ordersPacked: r.ordersPacked,
+      labelsChecked: r.labelsChecked,
     }))
     .sort((a, b) => b.ordersPicked - a.ordersPicked || b.itemsPicked - a.itemsPicked);
 }
@@ -205,6 +220,7 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now()): StaffK
 /** Shop-wide view for the same period — the denominator for everything above. */
 export function teamKpis(rows: StaffKpis[]) {
   const orders = rows.reduce((a, r) => a + r.ordersPicked, 0);
+  const packed = rows.reduce((a, r) => a + (r.ordersPacked || 0), 0);
   const items = rows.reduce((a, r) => a + r.itemsPicked, 0);
   const timed = rows.filter((r) => r.medianMinutes !== null);
   const onTime = rows.filter((r) => r.onTimeRate !== null);
@@ -212,6 +228,7 @@ export function teamKpis(rows: StaffKpis[]) {
   return {
     people: rows.length,
     orders,
+    packed,
     items,
     medianMinutes: median(timed.map((r) => r.medianMinutes as number)),
     onTimeRate: onTime.length

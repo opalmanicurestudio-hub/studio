@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -71,8 +72,18 @@ export async function POST(req: NextRequest) {
   if (!from.street1 || !from.city || !from.state || !from.zip) return NextResponse.json({ error: 'Add your ship-from address in Setup first.' }, { status: 400 });
 
   const since = Date.now() - 7 * 86400000;
-  const snap = await db.collection(`tenants/${tenantId}/retailOrders`).where('stage', 'in', ['packed', 'shipped']).limit(400).get();
-  const candidates = snap.docs.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
+  // Every order packed in the last two weeks, a page at a time (no silent cap), then narrowed to labels not yet on a
+  // manifest. Packing always comes before a label, so packedAt bounds the search without a composite index.
+  const packedSince = new Date(Date.now() - 14 * 86400000).toISOString();
+  const all: any[] = []; let cursor: any = null;
+  for (let page = 0; page < 50; page++) {
+    let q = db.collection(`tenants/${tenantId}/retailOrders`).where('packedAt', '>', packedSince).orderBy('packedAt', 'asc').limit(400);
+    if (cursor) q = q.startAfter(cursor);
+    const snap = await q.get(); all.push(...snap.docs);
+    if (snap.size < 400) break; cursor = snap.docs[snap.docs.length - 1];
+  }
+  const candidates = all.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
+    .filter((o: any) => ['packed', 'shipped'].includes(String(o.stage)))
     .filter((o: any) => o.shippoTransactionId && !o.manifestId && !o.labelVoidedAt)
     .filter((o: any) => { const at = Date.parse(o.shipmentProtection?.decidedAt || o.shippedAt || o.packedAt || ''); return !Number.isFinite(at) || at >= since; });
   const usps = candidates.filter((o: any) => isUsps(String(o.carrier || '')));
@@ -81,16 +92,18 @@ export async function POST(req: NextRequest) {
 
   const groups = new Map<string, any[]>();
   const failed: { orderId: string; error: string }[] = [];
-  for (const o of usps) {
+  // Looked up several at a time, so a busy day still finishes well inside the time limit.
+  const lookup = async (o: any) => {
     try {
       const txn = await shippo(apiKey, `/transactions/${encodeURIComponent(o.shippoTransactionId)}`);
       const rateId = typeof txn.rate === 'string' ? txn.rate : txn.rate?.object_id;
       const rate = rateId ? await shippo(apiKey, `/rates/${encodeURIComponent(rateId)}`) : null;
       const acct = String(rate?.carrier_account || '');
-      if (!acct) { failed.push({ orderId: o.id, error: 'No carrier account on this label' }); continue; }
+      if (!acct) { failed.push({ orderId: o.id, error: 'No carrier account on this label' }); return; }
       groups.set(acct, [...(groups.get(acct) || []), o]);
     } catch (e: any) { failed.push({ orderId: o.id, error: String(e?.message || 'Lookup failed') }); }
-  }
+  };
+  for (let i = 0; i < usps.length; i += 8) await Promise.all(usps.slice(i, i + 8).map(lookup));
 
   const addressFrom = {
     name: from.name || String(tenant.businessName || tenant.name || 'Shop'),

@@ -5,7 +5,7 @@
 //
 // Also here: matching a scanned shipping-label barcode to its order, so the right label goes on the right box.
 // Carrier barcodes often wrap the tracking number (USPS adds a 420 + ZIP prefix), so the match is "ends with".
-import { doc, updateDoc, type Firestore } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 
 export const MAX_TOTES = 99;
 
@@ -79,4 +79,13 @@ export function benchScanTarget(raw: unknown, orders: any[]): { kind: 'tote' | '
   if (l) return { kind: 'label', order: l };
   if (looksLikeTracking(raw) && labeled.length) return { kind: 'foreignLabel' };
   return null;
+}
+
+/** The label on the box was scanned and matches: stamped on the order, and on its history for the numbers screen. */
+export async function markLabelChecked(fs: Firestore, tenantId: string, order: any, actor: { id: string; name: string }): Promise<void> {
+  const at = new Date().toISOString();
+  const ref = doc(fs, `tenants/${tenantId}/retailOrders`, order.id);
+  await updateDoc(ref, { labelCheckedAt: at, labelCheckedBy: actor.id, labelCheckedByName: actor.name });
+  const ev = doc(collection(ref, 'events'));
+  await setDoc(ev, { id: ev.id, type: 'label_scan_verified', at, actorId: actor.id, actorName: actor.name, meta: { trackingNumber: String(order.trackingNumber || '') } }).catch(() => {});
 }

@@ -397,7 +397,7 @@ export function wavePut(
  *  `scanned` in step; ticks the row when the aggregate reaches its total. */
 export async function recordWavePut(
   fs: Firestore, tenantId: string, waveId: string,
-  tote: number, productId: string, toteNeed: number, totalQty: number,
+  tote: number, productId: string, toteNeed: number, totalQty: number, actor?: { id: string; name: string },
 ): Promise<void> {
   await runTransaction(fs, async (txn) => {
     const ref = doc(waveCol(fs, tenantId), waveId);
@@ -416,9 +416,13 @@ export async function recordWavePut(
     scanned[productId] = agg;
 
     const pickedProductIds: string[] = data.pickedProductIds || [];
+    // Who scanned it, so the numbers screen can credit wave picks to a person (lib/fulfilment-access).
+    const pickedBy = { ...(data.pickedBy || {}) };
+    if (actor?.id) { const cur = pickedBy[actor.id] || { name: actor.name, items: 0 }; pickedBy[actor.id] = { name: actor.name || cur.name, items: (Number(cur.items) || 0) + 1 }; }
     txn.update(ref, {
       scannedByTote: byTote,
       scanned,
+      ...(actor?.id ? { pickedBy } : {}),
       ...(agg >= totalQty && !pickedProductIds.includes(productId)
         ? { pickedProductIds: [...pickedProductIds, productId] }
         : {}),
