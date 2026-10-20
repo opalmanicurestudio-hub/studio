@@ -1,5 +1,6 @@
 'use client';
 
+import { useTransactionsInRange } from '@/hooks/use-transactions';
 import { writePartHandoff } from '@/lib/part-handoff';
 import { startBlocker } from '@/lib/visit-requests';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
@@ -120,7 +121,7 @@ function PlannerPageContent() {
 
   const {
       inventory, clients, services, staff: allStaff, appointments, events: eventsFromInventory,
-      walkIns, billDefinitions, billInstances, transactions, memberships, packages, isLoading
+      walkIns, billDefinitions, billInstances, memberships, packages, isLoading
   } = useInventory();
 
   const [showCancelled, setShowCancelled] = useState(false);
@@ -902,6 +903,11 @@ function PlannerPageContent() {
 
     return { booked, net, bookedMinutes, availableMinutes };
   }, [showProfitability, appointments, services, allStaff, inventory, selectedTenant, currentDate, columns]);
+
+  // The planner's money records: this week and last (for "last week at this point"), not the whole history.
+  const txWeekKey = startOfWeek(currentDate).getTime();
+  const [txFrom, txTo] = useMemo(() => [new Date(txWeekKey - 7 * 864e5), new Date(txWeekKey + 7 * 864e5)], [txWeekKey]);
+  const { transactions } = useTransactionsInRange(txFrom, txTo);
 
   // "This week" (lib/week-numbers): taken, still booked, goal, last week at this point, and the week's share of the bills.
   const weekNums = useMemo(() => {

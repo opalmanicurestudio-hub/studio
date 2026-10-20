@@ -1,4 +1,5 @@
 'use client';
+import { useVisitTransactions } from '@/hooks/use-transactions';
 import { ReadyCard, ChairCard, AfterCard, SendToClient } from '@/components/visit/VisitFlow';
 import { MidServiceAddOnSheet } from '@/components/visit/AddOnSheet';
 import { visitClock, startedAt } from '@/lib/visit-clock';
@@ -1617,10 +1618,13 @@ function LateBanner({ appointment, tenantId, onCancel, onDone }: { appointment: 
 
 export const AppointmentDetailsSheet: React.FC<any> = ({
   open, onOpenChange, appointment: initialAppointment, client, service, tmhr,
-  transactions, onStartService, onFinishService, onEdit, onDelete, onCancel,
+  transactions: _transactionsFromParent, onStartService, onFinishService, onEdit, onDelete, onCancel,
   onReschedule, onRebook, onBookNewForClient, onPrintTicket, onOverride, onWaiveFee,
 }) => {
   const isMobile = useIsMobile();
+  // This visit's own money records, whenever they happened (hooks/use-transactions), rather than whatever list the
+  // screen that opened the sheet had loaded. The deposit check below depends on seeing an earlier deposit.
+  const { transactions } = useVisitTransactions(initialAppointment?.id);
   const [mounted, setMounted] = useState(false);
   const { inventory, services: allServices, staff, appointments: allAppointments, consentForms } = useInventory();
   const { role, selectedTenant, can } = useTenant();

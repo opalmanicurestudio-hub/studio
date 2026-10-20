@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { useToday, useTransactionsInRange } from '@/hooks/use-transactions';
 import { writePartHandoff } from '@/lib/part-handoff';
 import { arrivalFields } from '@/lib/check-in';
 import { addOnIdsOf } from '@/lib/prep-checkout';
@@ -23,7 +24,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, getServicePrice } from '@/lib/data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, limit } from 'firebase/firestore';
+import { collection, doc, getDoc, writeBatch, increment, arrayUnion, getDocs, query, where, limit } from 'firebase/firestore';
 import { offerProblem, offerLine, walletStatus } from '@/lib/offers';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -256,7 +257,10 @@ export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string,
 
 export function usePosEngine() {
   const isMobile = useIsMobile();
-  const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
+  const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
+  // Today's sales only (hooks/use-transactions): what the till and takings show, not the whole history.
+  const [posDayStart, posDayEnd] = useToday();
+  const { transactions } = useTransactionsInRange(posDayStart, posDayEnd);
   const { firestore, user: currentUser } = useFirebase();
   const { selectedTenant, role, can } = useTenant();
   const tenantId = selectedTenant?.id;
@@ -1421,7 +1425,9 @@ export function usePosEngine() {
     const batch = writeBatch(firestore);
     batch.update(txRef, sanitizeForFirestore({ voided: true, voidedAt: new Date().toISOString(), voidedBy: authorizer.id, voidReason: reason }));
     const reversalRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-    const originalTx = transactions?.find(t => t.id === txId);
+    // Today's list first; an older sale is read on its own, so its reversal is never skipped.
+    let originalTx: any = transactions?.find(t => t.id === txId);
+    if (!originalTx) { try { const snap = await getDoc(txRef); if (snap.exists()) originalTx = { id: snap.id, ...(snap.data() as any) }; } catch { /* reversal needs the original */ } }
     if (originalTx) batch.set(reversalRef, sanitizeForFirestore({ id: reversalRef.id, date: new Date().toISOString(), description: `VOID: ${originalTx.description}`, clientOrVendor: originalTx.clientOrVendor, clientId: originalTx.clientId, type: originalTx.type === 'income' ? 'expense' : 'income', context: 'Business', category: 'Void', taxBucket: 'refund', amount: originalTx.amount, paymentMethod: originalTx.paymentMethod, voidOf: txId, notes: reason, hasReceipt: false, tenantId }));
     await batch.commit();
     toast({ title: 'Transaction Voided', description: `Reversal recorded. Authorized by ${authorizer.data().name}.` });

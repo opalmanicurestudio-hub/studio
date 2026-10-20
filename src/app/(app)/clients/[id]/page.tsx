@@ -1,5 +1,6 @@
 'use client';
 
+import { useTransactionsForVisits } from '@/hooks/use-transactions';
 import { ClientOutreach } from '@/components/clients/ClientOutreach';
 import { ClientRewards } from '@/components/loyalty/ClientRewards';
 import { ClientTimingCard } from '@/components/clients/ClientTimingCard';
@@ -285,7 +286,10 @@ export default function ClientDetailPage() {
   const { selectedTenant, role, roleId, can, isLoading: isTenantLoading } = useTenant();
   const showFinancials = canSeeFinancials(selectedTenant, roleId || role);
   const showCareContents = canSeeCareNoteContents(selectedTenant, roleId || role);
-  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages, transactions: allTransactions } = useInventory();
+  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages } = useInventory();
+  // This client's visits' money records only (hooks/use-transactions), not every sale the business has had.
+  const clientVisitIds = useMemo(() => (allAppointments || []).filter((a: any) => a.clientId === clientId).map((a: any) => a.id), [allAppointments, clientId]);
+  const { transactions: allTransactions } = useTransactionsForVisits(clientVisitIds);
   const allClientsList: any[] = ((useInventory() as any).clients) || [];
   const { showProfitability: seesMoney } = useProfitabilityVisibility();
   const [linkCount, setLinkCount] = useState(0);

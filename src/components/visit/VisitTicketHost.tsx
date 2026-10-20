@@ -20,7 +20,7 @@ const AppointmentDetailsSheet: any = dynamic(() => import('@/components/planner/
 
 export function VisitTicketHost() {
   const { selectedTenant } = useTenant() as any;
-  const { appointments, clients, services, transactions } = useInventory() as any;
+  const { appointments, clients, services } = useInventory() as any;
   const { firestore } = useFirebase() as any;
   const router = useRouter();
   const [id, setId] = React.useState<string | null>(null);
@@ -37,7 +37,7 @@ export function VisitTicketHost() {
     return <AppointmentDetailsSheet
       open={!!id} onOpenChange={(o: boolean) => { if (!o) setId(null); }} appointment={appt}
       client={(clients || []).find((c: any) => c.id === appt.clientId) || null} service={(services || []).find((s: any) => s.id === appt.serviceId) || null}
-      tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []}
+      tmhr={selectedTenant?.tmhr || 50} transactions={[]}
       onStartService={(aid: string) => { if (!firestore || !tenantId) return; const a: any = (appointments || []).find((x: any) => x.id === aid); if (!a) return;
         if (startBlocker(a, (services || []).find((s: any) => s.id === a.serviceId), (clients || []).find((c: any) => c.id === a.clientId), undefined, selectedTenant)) return;   // the sheet shows why
         const now = new Date().toISOString(); const b = writeBatch(firestore);
