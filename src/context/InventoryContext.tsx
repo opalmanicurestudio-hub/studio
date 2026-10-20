@@ -1,7 +1,7 @@
 'use client';
 
 import { canSeeClientContact, maskClientContact, maskAppointmentContact } from '@/lib/privacy';
-import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useFirebase, useMemoFirebase } from '@/firebase/provider';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { useDoc } from '@/firebase/firestore/use-doc';
@@ -99,6 +99,7 @@ interface InventoryContextType {
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
+const NONE: any[] = [];
 
 export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { firestore } = useFirebase();
@@ -109,8 +110,20 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const hideContact = !canSeeClientContact(selectedTenant, roleId || role);
   const tenantId = selectedTenant?.id;
 
+  /* LOAD WHAT A SCREEN USES. Records that only grow (sales, clock-ins, stock changes, walk-ins, reviews, events…) are
+   * no longer all read the moment anyone signs in. Each starts loading the first time a screen reads it from this
+   * context, and stays live for the rest of the session; screens that never use it never pay for it. While a
+   * collection is starting up, isLoading is true, exactly as it is on a first load. */
+  const [wanted, setWanted] = useState<Record<string, boolean>>({});
+  const wantedRef = useRef<Record<string, boolean>>({});
+  const want = useCallback((k: string) => {
+    if (wantedRef.current[k]) return;
+    wantedRef.current[k] = true;
+    queueMicrotask(() => setWanted((w) => (w[k] ? w : { ...w, [k]: true })));
+  }, []);
+
   const { data: inventory, isLoading: inventoryLoading } = useCollection<InventoryItem>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'inventory') : null, [firestore, tenantId]));
-  const { data: stockCorrections, isLoading: stockCorrectionsLoading } = useCollection<StockCorrection>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'stockCorrections') : null, [firestore, tenantId]));
+  const { data: stockCorrections, isLoading: stockCorrectionsLoading, error: stockCorrectionsError } = useCollection<StockCorrection>(useMemoFirebase(() => tenantId && wanted.stockCorrections ? collection(firestore, 'tenants', tenantId, 'stockCorrections') : null, [firestore, tenantId, wanted.stockCorrections]));
   const { data: locations, isLoading: locationsLoading } = useCollection<LocationType>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'locations') : null, [firestore, tenantId]));
   const { data: locationTypes, isLoading: locationTypesLoading } = useCollection<LocType>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'locationTypes') : null, [firestore, tenantId]));
   
@@ -119,7 +132,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: lifestyleProfiles, isLoading: lifestyleLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/lifestyleProfiles`) : null, [firestore, tenantId]));
   const { data: businessProfiles, isLoading: businessLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/businessProfiles`) : null, [firestore, tenantId]));
 
-  const { data: rawTransactions, isLoading: transactionsLoading } = useCollection<Transaction>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'transactions') : null, [firestore, tenantId]));
+  const { data: rawTransactions, isLoading: transactionsLoading, error: transactionsError } = useCollection<Transaction>(useMemoFirebase(() => tenantId && wanted.transactions ? collection(firestore, 'tenants', tenantId, 'transactions') : null, [firestore, tenantId, wanted.transactions]));
   const { data: rawClients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'clients') : null, [firestore, tenantId]));
   // A booth renter's clients are THEIR book, not the studio's. They live in
   // the same collection (one booking route, one schema) but carry
@@ -131,26 +144,26 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId]));
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'services') : null, [firestore, tenantId]));
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'staff') : null, [firestore, tenantId]));
-  const { data: walkIns, isLoading: walkInsLoading } = useCollection<WalkIn>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'walkIns') : null, [firestore, tenantId]));
-  const { data: rawActivityLogs, isLoading: activityLogsLoading } = useCollection<ActivityLog>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'activityLogs') : null, [firestore, tenantId]));
+  const { data: walkIns, isLoading: walkInsLoading, error: walkInsError } = useCollection<WalkIn>(useMemoFirebase(() => tenantId && wanted.walkIns ? collection(firestore, 'tenants', tenantId, 'walkIns') : null, [firestore, tenantId, wanted.walkIns]));
+  const { data: rawActivityLogs, isLoading: activityLogsLoading, error: activityLogsError } = useCollection<ActivityLog>(useMemoFirebase(() => tenantId && wanted.activityLogs ? collection(firestore, 'tenants', tenantId, 'activityLogs') : null, [firestore, tenantId, wanted.activityLogs]));
   const { data: memberships, isLoading: membershipsLoading } = useCollection<Membership>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'memberships') : null, [firestore, tenantId]));
   const { data: packages, isLoading: packagesLoading } = useCollection<Package>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'packages') : null, [firestore, tenantId]));
   const { data: consentForms, isLoading: consentFormsLoading } = useCollection<ConsentForm>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'consentForms') : null, [firestore, tenantId]));
   const { data: resources, isLoading: resourcesLoading } = useCollection<Resource>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'resources') : null, [firestore, tenantId]));
-  const { data: rawEvents, isLoading: eventsLoading } = useCollection<Event>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId]));
+  const { data: rawEvents, isLoading: eventsLoading, error: eventsError } = useCollection<Event>(useMemoFirebase(() => tenantId && wanted.events ? collection(firestore, 'tenants', tenantId, 'events') : null, [firestore, tenantId, wanted.events]));
 
   // ── STUDIO EVENTS (separate from planner events — no collection collision) ──
-  const { data: rawStudioEvents, isLoading: studioEventsLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'studioEvents') : null, [firestore, tenantId]));
+  const { data: rawStudioEvents, isLoading: studioEventsLoading, error: studioEventsError } = useCollection<any>(useMemoFirebase(() => tenantId && wanted.studioEvents ? collection(firestore, 'tenants', tenantId, 'studioEvents') : null, [firestore, tenantId, wanted.studioEvents]));
 
   const { data: discounts, isLoading: discountsLoading } = useCollection<Discount>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'discounts') : null, [firestore, tenantId]));
-  const { data: reviews, isLoading: reviewsLoading } = useCollection<Review>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'reviews') : null, [firestore, tenantId]));
+  const { data: reviews, isLoading: reviewsLoading, error: reviewsError } = useCollection<Review>(useMemoFirebase(() => tenantId && wanted.reviews ? collection(firestore, 'tenants', tenantId, 'reviews') : null, [firestore, tenantId, wanted.reviews]));
   const { data: pricingTiers, isLoading: pricingTiersLoading } = useCollection<PricingTier>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'pricingTiers') : null, [firestore, tenantId]));
   const { data: scheduleProfiles, isLoading: scheduleProfilesLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'scheduleProfiles') : null, [firestore, tenantId]));
-  const { data: tillSessions, isLoading: tillSessionsLoading } = useCollection<TillSession>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'tillSessions') : null, [firestore, tenantId]));
+  const { data: tillSessions, isLoading: tillSessionsLoading, error: tillSessionsError } = useCollection<TillSession>(useMemoFirebase(() => tenantId && wanted.tillSessions ? collection(firestore, 'tenants', tenantId, 'tillSessions') : null, [firestore, tenantId, wanted.tillSessions]));
   const { data: rawSubInstances, isLoading: subInstancesLoading } = useCollection<SubscriptionInstance>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'subscriptionInstances') : null, [firestore, tenantId]));
-  const { data: refreshmentRequests, isLoading: refreshmentRequestsLoading } = useCollection<RefreshmentRequest>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'refreshmentRequests') : null, [firestore, tenantId]));
+  const { data: refreshmentRequests, isLoading: refreshmentRequestsLoading, error: refreshmentRequestsError } = useCollection<RefreshmentRequest>(useMemoFirebase(() => tenantId && wanted.refreshmentRequests ? collection(firestore, 'tenants', tenantId, 'refreshmentRequests') : null, [firestore, tenantId, wanted.refreshmentRequests]));
   
-  const { data: redemptions, isLoading: redemptionsLoading } = useCollection<Redemption>(useMemoFirebase(() => !firestore || !tenantId ? null : collectionGroup(firestore, 'redemptions'), [firestore, tenantId]));
+  const { data: redemptions, isLoading: redemptionsLoading, error: redemptionsError } = useCollection<Redemption>(useMemoFirebase(() => !firestore || !tenantId || !wanted.redemptions ? null : collectionGroup(firestore, 'redemptions'), [firestore, tenantId, wanted.redemptions]));
 
   const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
 
@@ -161,7 +174,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: assetUnits, isLoading: assetUnitsLoading } = useCollection<AssetUnit>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'assetUnits') : null, [firestore, tenantId]));
   const { data: stationAllocations, isLoading: stationAllocationsLoading } = useCollection<StationAllocation>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'stationAllocations') : null, [firestore, tenantId]));
   const { data: staffReplenishmentRequests, isLoading: staffReplenishmentRequestsLoading } = useCollection<StaffReplenishmentRequest>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'staffReplenishmentRequests') : null, [firestore, tenantId]));
-  const { data: overflowEvents, isLoading: overflowEventsLoading } = useCollection<OverflowEvent>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'overflowEvents') : null, [firestore, tenantId]));
+  const { data: overflowEvents, isLoading: overflowEventsLoading, error: overflowEventsError } = useCollection<OverflowEvent>(useMemoFirebase(() => tenantId && wanted.overflowEvents ? collection(firestore, 'tenants', tenantId, 'overflowEvents') : null, [firestore, tenantId, wanted.overflowEvents]));
 
   const billDefinitions = useMemo(() => {
     const rawDefs = billDefinitionsData || [];
@@ -329,7 +342,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     return rawStudioEvents || [];
   }, [rawStudioEvents]);
 
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || studioEventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading || refreshmentRequestsLoading || assetUnitsLoading || stationAllocationsLoading || staffReplenishmentRequestsLoading || overflowEventsLoading;
+  const eagerLoading = inventoryLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || discountsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || subInstancesLoading || assetUnitsLoading || stationAllocationsLoading || staffReplenishmentRequestsLoading;
+  const lazyLoading = (k: string, flag: boolean) => !!wantedRef.current[k] && (!wanted[k] || flag);
+  // Still starting: loading, or asked for but no answer yet (and no error).
+  const lazyFlags: Record<string, boolean> = { transactions: transactionsLoading || (rawTransactions == null && !transactionsError), activityLogs: activityLogsLoading || (rawActivityLogs == null && !activityLogsError), stockCorrections: stockCorrectionsLoading || (stockCorrections == null && !stockCorrectionsError), tillSessions: tillSessionsLoading || (tillSessions == null && !tillSessionsError), redemptions: redemptionsLoading || (redemptions == null && !redemptionsError), refreshmentRequests: refreshmentRequestsLoading || (refreshmentRequests == null && !refreshmentRequestsError), overflowEvents: overflowEventsLoading || (overflowEvents == null && !overflowEventsError), reviews: reviewsLoading || (reviews == null && !reviewsError), walkIns: walkInsLoading || (walkIns == null && !walkInsError), events: eventsLoading || (rawEvents == null && !eventsError), studioEvents: studioEventsLoading || (rawStudioEvents == null && !studioEventsError) };
   
   /*
    * RENDER ARMOR — a Firestore FieldValue sentinel (or any stray object) that
@@ -386,33 +402,25 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     });
   }, [inventory]);
 
-  const value = {
+  // The same array every time it's read, so screens that watch these lists don't see a "change" on every render.
+  const safeWalkIns = useMemo(() => (hideContact ? (walkIns || NONE).map((w: any) => maskAppointmentContact(w)) : (walkIns || NONE)), [walkIns, hideContact]);
+  const value: any = {
     inventory: safeInventory,
-    stockCorrections: stockCorrections || [],
     locations: locations || [],
     locationTypes: locationTypes || [],
     billDefinitions: billDefinitions || [],
     billInstances: billInstances || [],
-    transactions: transactions || [],
     clients: clients || [],
     appointments: appointments || [],
     services: services || [],
     staff: staff || [],
-    walkIns: hideContact ? (walkIns || []).map((w: any) => maskAppointmentContact(w)) : (walkIns || []),
-    activityLogs: activityLogs || [],
     memberships: memberships || [],
     packages: packages || [],
     consentForms: consentForms || [],
     resources: resources || [],
-    events: events || [],
-    studioEvents: studioEvents || [],
     discounts: discounts || [],
-    reviews: reviews || [],
     pricingTiers: pricingTiers || [],
-    tillSessions: tillSessions || [],
     subscriptionInstances: subscriptionInstances || [],
-    redemptions: redemptions || [],
-    refreshmentRequests: refreshmentRequests || [],
     scheduleProfiles: scheduleProfiles || [],
     lifestyleProfiles: lifestyleProfiles || [],
     businessProfiles: businessProfiles || [],
@@ -420,9 +428,19 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     assetUnits: assetUnits || [],
     stationAllocations: stationAllocations || [],
     staffReplenishmentRequests: staffReplenishmentRequests || [],
-    overflowEvents: overflowEvents || [],
-    isLoading,
   };
+  Object.defineProperty(value, 'stockCorrections', { enumerable: true, get: () => { want('stockCorrections'); return stockCorrections || NONE; } });
+  Object.defineProperty(value, 'transactions', { enumerable: true, get: () => { want('transactions'); return transactions || NONE; } });
+  Object.defineProperty(value, 'walkIns', { enumerable: true, get: () => { want('walkIns'); return safeWalkIns; } });
+  Object.defineProperty(value, 'activityLogs', { enumerable: true, get: () => { want('activityLogs'); return activityLogs || NONE; } });
+  Object.defineProperty(value, 'events', { enumerable: true, get: () => { want('events'); return events || NONE; } });
+  Object.defineProperty(value, 'studioEvents', { enumerable: true, get: () => { want('studioEvents'); return studioEvents || NONE; } });
+  Object.defineProperty(value, 'reviews', { enumerable: true, get: () => { want('reviews'); return reviews || NONE; } });
+  Object.defineProperty(value, 'tillSessions', { enumerable: true, get: () => { want('tillSessions'); return tillSessions || NONE; } });
+  Object.defineProperty(value, 'redemptions', { enumerable: true, get: () => { want('redemptions'); return redemptions || NONE; } });
+  Object.defineProperty(value, 'refreshmentRequests', { enumerable: true, get: () => { want('refreshmentRequests'); return refreshmentRequests || NONE; } });
+  Object.defineProperty(value, 'overflowEvents', { enumerable: true, get: () => { want('overflowEvents'); return overflowEvents || NONE; } });
+  Object.defineProperty(value, 'isLoading', { enumerable: true, get: () => eagerLoading || Object.keys(lazyFlags).some((k) => lazyLoading(k, lazyFlags[k])) });
 
   return (
     <InventoryContext.Provider value={value}>
