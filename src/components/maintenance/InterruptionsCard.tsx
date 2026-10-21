@@ -21,6 +21,7 @@ import {
   type InterruptionRecord, type InterruptionType,
 } from '@/lib/interruptions';
 import { useInventory } from '@/context/InventoryContext';
+import { useAppointmentWindow, useAppointmentsInRange } from '@/hooks/use-appointments';
 import { InterruptionClients } from '@/components/maintenance/InterruptionClients';
 
 const money = (c: number) => `$${(Math.round(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
@@ -40,7 +41,8 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
   const [showResolved, setShowResolved] = useState(false);
   const [cancelArm, setCancelArm] = useState('');
   const [cancelResult, setCancelResult] = useState<Record<string, string>>({});
-  const { appointments: allAppointments, staff: allStaff } = useInventory();
+  const { staff: allStaff } = useInventory();
+  const { appointments: allAppointments } = useAppointmentWindow();   // interruptions affect today onward
 
   useEffect(() => {
     if (!firestore || !tenantId) return;

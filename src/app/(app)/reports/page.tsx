@@ -38,6 +38,7 @@ import { cn, safeNumber } from '@/lib/utils';
 import { type Staff, type Service, type Appointment } from '@/lib/data';
 import { DateRange } from 'react-day-picker';
 import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transactions';
+import { useAppointmentsInRange } from '@/hooks/use-appointments';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useUser, useFirebase } from '@/firebase';
@@ -85,7 +86,7 @@ export default function ReportsPage() {
   const [periodPreset, setPeriodPreset] = useState('thisMonth');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
-  const { inventory, appointments, services, staff, clients, billInstances, businessProfiles, isLoading: ctxLoading } = useInventory();
+  const { inventory, services, staff, clients, billInstances, businessProfiles, isLoading: ctxLoading } = useInventory();
 
   useEffect(() => {
     const now = new Date();
@@ -105,7 +106,10 @@ export default function ReportsPage() {
   const readTo = useMemo(() => new Date(effectiveTo.getTime() + 1), [effectiveTo]);
   const { transactions, isLoading: txLoading } = useTransactionsInRange(effectiveFrom, readTo);
   const { activityLogs, isLoading: punchLoading } = usePunchesInRange(effectiveFrom, readTo);
-  const isLoading = ctxLoading || txLoading || punchLoading;
+  // Visits from the period's start onward (rebooking looks at what was booked after each visit), not all history.
+  const apptTo = useMemo(() => new Date(Math.max(readTo.getTime(), Date.now() + 366 * 86_400_000)), [readTo]);
+  const { appointments, isLoading: apptLoading } = useAppointmentsInRange(effectiveFrom, apptTo);
+  const isLoading = ctxLoading || txLoading || punchLoading || apptLoading;
 
   const analyticsData = useMemo(() => {
     if (!staff || !appointments || !services || !transactions || !activityLogs || !selectedTenant)

@@ -8,6 +8,7 @@ import { notFound, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
+import { useClientVisits } from '@/hooks/use-appointments';
 import { format, formatDistanceToNow, parseISO} from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { generateClientReport } from '@/ai/flows/generate-client-report';
@@ -23,7 +24,8 @@ import { canSeeFinancials } from '@/lib/privacy';
 
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
-    const { clients, appointments, services } = useInventory();
+    const { clients, services } = useInventory();
+    const { appointments } = useClientVisits(String((params as any)?.id || '') || null);   // just this client's visits
     const { role, roleId, can, selectedTenant } = useTenant();
     const showFinancials = canSeeFinancials(selectedTenant, roleId || role);
     const isOwnerOrAdmin = can('money.view');

@@ -9,6 +9,7 @@
 
 
 import { useToday, useTransactionsInRange } from '@/hooks/use-transactions';
+import { useAppointmentWindow, useClientVisits } from '@/hooks/use-appointments';
 import { writePartHandoff } from '@/lib/part-handoff';
 import { arrivalFields } from '@/lib/check-in';
 import { addOnIdsOf } from '@/lib/prep-checkout';
@@ -257,7 +258,10 @@ export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string,
 
 export function usePosEngine() {
   const isMobile = useIsMobile();
-  const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
+  const { inventory, services, clients, walkIns, staff, memberships, packages, resources, discounts, tillSessions, isLoading: ctxLoading } = useInventory();
+  // The shared working window (hooks/use-appointments): today's visits, the queue and upcoming conflicts, not all history.
+  const { appointments: appointmentsFromInventory, isLoading: apptLoading } = useAppointmentWindow();
+  const isInventoryLoading = ctxLoading || apptLoading;
   // Today's sales only (hooks/use-transactions): what the till and takings show, not the whole history.
   const [posDayStart, posDayEnd] = useToday();
   const { transactions } = useTransactionsInRange(posDayStart, posDayEnd);
@@ -551,7 +555,8 @@ export function usePosEngine() {
   const groupWins = !!groupInfo && groupDiscountRaw > 0 && (groupInfo.stackWithCodes || groupDiscountRaw >= codeDiscountRaw);
   const groupDiscountValue = groupWins ? groupDiscountRaw : 0;
   // Moments (birthday / first visit / milestone) — the same rules as the server (lib/moments).
-  const momentVisits = useMemo(() => !groupClient ? 0 : (appointmentsFromInventory || []).filter((a: any) => a.clientId === groupClient.id && a.status === 'completed' && !selectedAppointmentIds.has(a.id)).length, [groupClient, appointmentsFromInventory, selectedAppointmentIds]);
+  const { appointments: groupClientVisits } = useClientVisits(groupClient?.id || null);   // their whole history, for milestones
+  const momentVisits = useMemo(() => !groupClient ? 0 : (groupClientVisits || []).filter((a: any) => a.clientId === groupClient.id && a.status === 'completed' && !selectedAppointmentIds.has(a.id)).length, [groupClient, groupClientVisits, selectedAppointmentIds]);
   const moments = useMemo(() => { const pre = prebookMoment((appointmentsFromInventory || []).filter((a: any) => selectedAppointmentIds.has(a.id)));
     return [...momentsFor(selectedTenant, groupClient, momentVisits, new Date(), selectedAppointmentIds.size > 0), ...(pre ? [pre] : [])]; }, [selectedTenant, groupClient, momentVisits, selectedAppointmentIds, appointmentsFromInventory]);
   const momentReward = bestMomentReward(moments);

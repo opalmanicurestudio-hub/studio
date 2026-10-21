@@ -1,6 +1,7 @@
 'use client';
 
 import { useTransactionsInRange } from '@/hooks/use-transactions';
+import { useAppointmentsInRange, useAppointmentById } from '@/hooks/use-appointments';
 import { writePartHandoff } from '@/lib/part-handoff';
 import { startBlocker } from '@/lib/visit-requests';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
@@ -120,9 +121,19 @@ function PlannerPageContent() {
   const router = useRouter();
 
   const {
-      inventory, clients, services, staff: allStaff, appointments, events: eventsFromInventory,
-      walkIns, billDefinitions, billInstances, memberships, packages, isLoading
+      inventory, clients, services, staff: allStaff, events: eventsFromInventory,
+      walkIns, billDefinitions, billInstances, memberships, packages, isLoading: ctxLoading
   } = useInventory();
+  // The shared working window plus the month on screen (when it's further back): never the whole history.
+  const apMonthKey = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getTime();
+  const [apFrom, apTo] = useMemo(() => { const m = new Date(apMonthKey); return [new Date(m.getTime() - 7 * 864e5), new Date(new Date(m.getFullYear(), m.getMonth() + 1, 1).getTime() + 14 * 864e5)]; }, [apMonthKey]);
+  const { appointments: rangeAppointments, isLoading: apptLoading } = useAppointmentsInRange(apFrom, apTo, { withWindow: true });
+  // A visit opened by link (?visit= / ?rebook=) from outside both is read on its own.
+  const linkedId = searchParams?.get('visit') || searchParams?.get('rebook_apt_id') || null;
+  const { appointment: linkedAppointment } = useAppointmentById(linkedId && !rangeAppointments.some((a: any) => a.id === linkedId) ? linkedId : null);
+  const appointments: Appointment[] = useMemo(() => (linkedAppointment && !rangeAppointments.some((a: any) => a.id === linkedAppointment.id) ? [...rangeAppointments, linkedAppointment] : rangeAppointments), [rangeAppointments, linkedAppointment]);
+  const apptsSeen = useRef(false); if (!apptLoading) apptsSeen.current = true;
+  const isLoading = ctxLoading || (apptLoading && !apptsSeen.current);   // first load only; moving between months stays quiet
 
   const [showCancelled, setShowCancelled] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);

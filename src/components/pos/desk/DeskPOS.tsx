@@ -42,6 +42,7 @@ import { useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { useClientScreen, ClientScreenPanel } from '@/components/pos/ClientScreen';
 import { TodaysSales } from '@/components/pos/desk/TodaysSales';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCompletedVisitCounts } from '@/hooks/use-appointments';
 import { getAuth } from 'firebase/auth';
 import { LayoutGroup, motion } from 'framer-motion';
 import { format, isToday, parseISO } from 'date-fns';
@@ -268,9 +269,13 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   /** When each provider is next free: now, or when their current guest finishes. */
   const freeAt = (sid: string): Date | null => { const cur = active.filter((g) => g.staffId === sid && g.stage === 'service').map(endsAt).filter(Boolean) as Date[]; return cur.length ? new Date(Math.max(...cur.map((d) => d.getTime()))) : null; };
   const estWait = () => { const t = staffList.map((s) => freeAt(s.id)); if (t.some((x) => !x)) return 0; const soonest = Math.min(...(t as Date[]).map((d) => d.getTime())); return Math.max(0, Math.round((soonest - now.getTime()) / 60000)); };
+  // Completed visits for the people on the floor, counted on the server (the shared list only reaches six weeks back).
+  const guestClientIds = useMemo(() => guests.map((g: any) => String(g.appt?.clientId || g.walkIn?.clientId || '')).filter(Boolean), [guests]);
+  const visitCounts = useCompletedVisitCounts(guestClientIds);
   const flagsFor = (g: Guest) => {
     const a = g.appt || {}; const c = (e.clients || []).find((x: any) => x.id === (a.clientId || g.walkIn?.clientId));
-    const visits = c ? (e.appointmentsFromInventory || []).filter((x: any) => x.clientId === c.id && x.status === 'completed').length : 0;
+    const recent = c ? (e.appointmentsFromInventory || []).filter((x: any) => x.clientId === c.id && x.status === 'completed').length : 0;
+    const visits = !c ? 0 : c.id in visitCounts ? Math.max(visitCounts[c.id], recent) : (recent || -1);   // -1: still counting, so not "new" yet
     const bd = c?.birthday ? String(c.birthday).slice(5, 10) : null; const soon = bd ? [0, 1, 2, 3, 4, 5, 6].some((i) => { const d = new Date(now.getTime() + i * 864e5); return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === bd; }) : false;
     const out: [string, 'soft' | 'warn' | 'ok' | 'accent'][] = [];
     // What the client told us from their visit link — first, while they're on their way.

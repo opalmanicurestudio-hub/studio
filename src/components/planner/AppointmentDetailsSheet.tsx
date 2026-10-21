@@ -89,6 +89,7 @@ import { StoreCreditSection } from '@/components/appointments/StoreCreditSection
 import { useStoreCredit } from '@/hooks/useStoreCredit';
 import { useDepositCredit } from '@/hooks/useDepositCredit';
 import { ContactProof } from '@/components/visit/ContactProof';
+import { useClientVisits, useAppointmentsInRange } from '@/hooks/use-appointments';
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
 
@@ -1626,7 +1627,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   // screen that opened the sheet had loaded. The deposit check below depends on seeing an earlier deposit.
   const { transactions } = useVisitTransactions(initialAppointment?.id);
   const [mounted, setMounted] = useState(false);
-  const { inventory, services: allServices, staff, appointments: allAppointments, consentForms } = useInventory();
+  const { inventory, services: allServices, staff, consentForms } = useInventory();
+  // Only what the visit needs (hooks/use-appointments): this client's own history, and the same day's visits (who's next
+  // in this chair or room). The live copy of this visit is in one or both.
+  const { appointments: clientVisits } = useClientVisits(open ? (client?.id || (initialAppointment as any)?.clientId || null) : null);
+  const visitDayMs = (() => { const d = initialAppointment?.startTime ? new Date(initialAppointment.startTime as any) : null; if (!d || !Number.isFinite(d.getTime())) return 0; d.setHours(0, 0, 0, 0); return d.getTime(); })();
+  const [sameDayFrom, sameDayTo] = useMemo(() => (visitDayMs ? [new Date(visitDayMs), new Date(visitDayMs + 2 * 86_400_000)] : [null, null]), [visitDayMs]);
+  const { appointments: sameDayVisits } = useAppointmentsInRange(open ? sameDayFrom : null, open ? sameDayTo : null);
+  const allAppointments = useMemo(() => { const m = new Map<string, any>(); for (const a of [...sameDayVisits, ...clientVisits]) m.set(a.id, a); return [...m.values()]; }, [sameDayVisits, clientVisits]);
   const { role, selectedTenant, can } = useTenant();
   const { user: currentUser } = useUser();
   const tenantId = selectedTenant?.id;

@@ -70,6 +70,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
+import { useAppointmentsOnDay } from '@/hooks/use-appointments';
 import { collection, doc, writeBatch, increment, arrayUnion, query, where, getDocs } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -126,7 +127,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const { firestore } = useFirebase();
   const { user } = useUser();
   const { selectedTenant, role } = useTenant();
-  const { services, staff, pricingTiers, clients, scheduleProfiles, appointments: appointmentsFromDB, events: eventsFromDB } = useInventory();
+  const { services, staff, pricingTiers, clients, scheduleProfiles, events: eventsFromDB } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
 
@@ -189,6 +190,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const watchServiceId = watch('serviceId');
   const watchStaffId = watch('staffId');
   const watchDate = watch('date');
+  const { appointments: appointmentsFromDB } = useAppointmentsOnDay(open ? watchDate : null);   // only the chosen day, for slots and load
   const watchStartTime = watch('startTime');
   const watchTierId = watch('selectedTierId');
   const watchOverride = watch('overrideBusinessHours');

@@ -5,6 +5,7 @@
 // reminder shows once; dismissing it keeps it gone for this session.
 import * as React from 'react';
 import { useInventory } from '@/context/InventoryContext';
+import { useServicingNow } from '@/hooks/use-appointments';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -23,7 +24,8 @@ function chime() {
 }
 
 export function StepReminder() {
-  const { appointments, services } = useInventory() as any; const { selectedTenant } = useTenant() as any; const { user } = useUser() as any;
+  const { services } = useInventory() as any; const { selectedTenant } = useTenant() as any; const { user } = useUser() as any;
+  const { appointments } = useServicingNow(!!user?.uid);   // only visits in the chair right now
   return <StepReminderView appointments={appointments || []} services={services || []} uid={user?.uid} tenantId={selectedTenant?.id} />;
 }
 

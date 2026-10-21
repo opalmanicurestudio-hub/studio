@@ -7,6 +7,7 @@
 // Numbers come from lib/pay-impact (pay + employer taxes, products, running costs per hour of station time).
 import * as React from 'react';
 import { useInventory } from '@/context/InventoryContext';
+import { useAppointmentWindow, useAppointmentsInRange } from '@/hooks/use-appointments';
 import { usePunchesInRange, useToday } from '@/hooks/use-transactions';
 import { useTenant } from '@/context/TenantContext';
 import { visitKinds, visitOutcome, maxPayFor, choicesFor, busyShareFrom, type VisitKind, type PayChoice } from '@/lib/pay-impact';
@@ -41,7 +42,8 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
   const monthAgo = React.useMemo(() => new Date(todayEnd.getTime() - 30 * 86_400_000), [todayEnd]);
   const { activityLogs } = usePunchesInRange(monthAgo, todayEnd);
   const sessions = React.useMemo(() => sessionsFrom((activityLogs || []) as any, clockPolicy(selectedTenant)), [activityLogs, selectedTenant]);
-  const teamBusy = React.useMemo(() => busyShareFrom({ sessions, appointments: inv?.appointments || [] }), [sessions, inv?.appointments]);
+  const { appointments: recentVisits } = useAppointmentWindow();   // the last six weeks are in the shared window
+  const teamBusy = React.useMemo(() => busyShareFrom({ sessions, appointments: recentVisits || [] }), [sessions, recentVisits]);
   const muted = { color: 'hsl(var(--muted-foreground))' }; const ipt = 'h-9 w-16 rounded-lg border px-2 text-right text-[13px] tabular-nums';
 
   if (mode === 'person') {
@@ -55,7 +57,7 @@ export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }
         <p className="text-[12px]" style={muted}>With this pay, after their pay plus {taxPct}% employer taxes, products, and running costs of ${costPerHour} an hour. Green keeps at least {target}%.</p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {svcs.map((s: any) => <Card key={s.id} title={s.name} sub={`${Number(s.duration) || 60} min`} target={target}
-            rows={visitKinds(s, memberships, packages).map((k) => { const o = visitOutcome({ ...base, service: s, staff: { ...staffMember, busyShare: busyShareFrom({ sessions, appointments: inv?.appointments || [], staffId: staffMember.id }) || teamBusy || undefined }, kind: k, minutes: Number(staffMember?.serviceMinutes?.[s.id]) || undefined }); return { kind: k, pay: o.pay, keep: o.keep, pct: o.marginPct }; })} />)}
+            rows={visitKinds(s, memberships, packages).map((k) => { const o = visitOutcome({ ...base, service: s, staff: { ...staffMember, busyShare: busyShareFrom({ sessions, appointments: recentVisits || [], staffId: staffMember.id }) || teamBusy || undefined }, kind: k, minutes: Number(staffMember?.serviceMinutes?.[s.id]) || undefined }); return { kind: k, pay: o.pay, keep: o.keep, pct: o.marginPct }; })} />)}
         </div>
       </section>);
   }

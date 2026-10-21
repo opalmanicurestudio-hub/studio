@@ -5,6 +5,9 @@ import React, { createContext, useContext, useState, ReactNode, useMemo, useEffe
 import { useFirebase, useMemoFirebase } from '@/firebase/provider';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { useDoc } from '@/firebase/firestore/use-doc';
+import { useDatedRange } from '@/hooks/use-transactions';
+import { useCheckInsFor } from '@/hooks/use-checkins';
+import { mergeVisits, liveTokens } from '@/lib/appointment-merge';
 import { useTenant } from '@/context/TenantContext';
 import { collection, doc, query, where, collectionGroup } from 'firebase/firestore';
 import {
@@ -70,6 +73,8 @@ interface InventoryContextType {
   transactions: Transaction[];
   clients: Client[];
   appointments: Appointment[];
+  /** Six weeks back to a year ahead, shared (hooks/use-appointments). */
+  appointmentWindow: Appointment[];
   services: Service[];
   staff: Staff[];
   walkIns: WalkIn[];
@@ -141,7 +146,12 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   // POS lookup, reports — sees only the studio's own. The renter sees theirs
   // in the portal. Filtered here rather than per page so nothing can forget.
   const clients = useMemo(() => { const own = (rawClients || []).filter((c: any) => !c.ownerRenterId); return hideContact ? own.map((c: any) => maskClientContact(c)) : own; }, [rawClients, hideContact]);
-  const { data: appointmentsFromDB, isLoading: appointmentsLoading } = useCollection<Appointment>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId]));
+  // Every appointment ever: only for the few screens that still need all of history. Most read the shared window below.
+  const { data: appointmentsFromDB, isLoading: appointmentsLoading, error: appointmentsError } = useCollection<Appointment>(useMemoFirebase(() => tenantId && wanted.appointments ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId, wanted.appointments]));
+  // THE WORKING WINDOW: six weeks back to a year ahead, read once and shared by every screen that works around today.
+  const winDay = new Date().toDateString();
+  const [winFrom, winTo] = useMemo(() => { const s = new Date(); s.setHours(0, 0, 0, 0); return [new Date(s.getTime() - 45 * 86_400_000), new Date(s.getTime() + 366 * 86_400_000)]; }, [winDay]); // eslint-disable-line react-hooks/exhaustive-deps
+  const apptWin = useDatedRange('appointments', 'startTime', wanted.apptWindow ? winFrom : null, wanted.apptWindow ? winTo : null);
   const { data: services, isLoading: servicesLoading } = useCollection<Service>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'services') : null, [firestore, tenantId]));
   const { data: staff, isLoading: staffLoading } = useCollection<Staff>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'staff') : null, [firestore, tenantId]));
   const { data: walkIns, isLoading: walkInsLoading, error: walkInsError } = useCollection<WalkIn>(useMemoFirebase(() => tenantId && wanted.walkIns ? collection(firestore, 'tenants', tenantId, 'walkIns') : null, [firestore, tenantId, wanted.walkIns]));
@@ -165,7 +175,9 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   
   const { data: redemptions, isLoading: redemptionsLoading, error: redemptionsError } = useCollection<Redemption>(useMemoFirebase(() => !firestore || !tenantId || !wanted.redemptions ? null : collectionGroup(firestore, 'redemptions'), [firestore, tenantId, wanted.redemptions]));
 
-  const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
+  // Visit-link copies only for the visits around today (lib/appointment-merge: older ones change nothing on screen).
+  const checkInTokens = useMemo(() => liveTokens([appointmentsFromDB, apptWin.list]), [appointmentsFromDB, apptWin.list]);
+  const checkInMap = useCheckInsFor(checkInTokens);
 
   // ── Staff custody & replenishment ──────────────────────────────────────────
   // Same pattern as every other tenant-scoped collection above. These feed
@@ -285,33 +297,9 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     return [...existing, ...generated].sort((a,b) => safeDate(b.dueDate).getTime() - safeDate(a.dueDate).getTime());
   }, [rawSubInstances, clients, memberships]);
 
-  const DAY_OF_PROGRESS = useMemo(() => new Set(['arrived', 'checked_in', 'servicing', 'ready_for_checkout', 'completed']), []);
-  const appointments = useMemo(() => {
-    if (!appointmentsFromDB) return [];
-    const checkInMap = new Map((checkIns || []).map(ci => [ci.checkInToken, ci]));
-    const merged = appointmentsFromDB.map(rawApt => {
-      const apt: any = rawApt;
-      const ci = apt.checkInToken ? checkInMap.get(apt.checkInToken) : null;
-      return {
-        ...apt,
-        startTime: safeDate(apt.startTime),
-        endTime: safeDate(apt.endTime),
-        actualStartTime: apt.actualStartTime ? safeDate(apt.actualStartTime) : undefined,
-        actualEndTime: apt.actualEndTime ? safeDate(apt.actualEndTime) : undefined,
-        checkInStatus: ci?.checkInStatus || apt.checkInStatus || 'pending',
-        lateTimeMinutes: ci?.lateTimeMinutes ?? apt.lateTimeMinutes ?? 0,
-        // The check-in record carries a COPY of the booking made when it was
-        // created — including status "requested" for a request. That copy was
-        // allowed to override a confirmed booking, so an accepted request kept
-        // showing as "requested" (and counted as "awaiting you") everywhere.
-        // Now the check-in record may only add DAY-OF PROGRESS (in the chair,
-        // ready for checkout, finished) on top of a confirmed booking — never
-        // an old booking-stage status.
-        status: (apt.status === 'confirmed' && DAY_OF_PROGRESS.has(String(ci?.status || ''))) ? (ci as any).status : apt.status
-      };
-    });
-    return hideContact ? merged.map((a: any) => maskAppointmentContact(a)) : merged;
-  }, [appointmentsFromDB, checkIns, DAY_OF_PROGRESS, hideContact]);
+  const mergeRaw = useCallback((raw: any[] | null | undefined) => mergeVisits(raw, checkInMap, hideContact ? maskAppointmentContact : null), [checkInMap, hideContact]);
+  const appointments = useMemo(() => mergeRaw(appointmentsFromDB), [appointmentsFromDB, mergeRaw]);
+  const appointmentWindow = useMemo(() => mergeRaw(apptWin.list), [apptWin.list, mergeRaw]);
 
   const activityLogs = useMemo(() => {
     if (!rawActivityLogs) return [];
@@ -342,10 +330,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     return rawStudioEvents || [];
   }, [rawStudioEvents]);
 
-  const eagerLoading = inventoryLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || discountsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || subInstancesLoading || assetUnitsLoading || stationAllocationsLoading || staffReplenishmentRequestsLoading;
+  const eagerLoading = inventoryLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || clientsLoading || servicesLoading || staffLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || discountsLoading || pricingTiersLoading || scheduleProfilesLoading || lifestyleLoading || businessLoading || subInstancesLoading || assetUnitsLoading || stationAllocationsLoading || staffReplenishmentRequestsLoading;
   const lazyLoading = (k: string, flag: boolean) => !!wantedRef.current[k] && (!wanted[k] || flag);
   // Still starting: loading, or asked for but no answer yet (and no error).
-  const lazyFlags: Record<string, boolean> = { transactions: transactionsLoading || (rawTransactions == null && !transactionsError), activityLogs: activityLogsLoading || (rawActivityLogs == null && !activityLogsError), stockCorrections: stockCorrectionsLoading || (stockCorrections == null && !stockCorrectionsError), tillSessions: tillSessionsLoading || (tillSessions == null && !tillSessionsError), redemptions: redemptionsLoading || (redemptions == null && !redemptionsError), refreshmentRequests: refreshmentRequestsLoading || (refreshmentRequests == null && !refreshmentRequestsError), overflowEvents: overflowEventsLoading || (overflowEvents == null && !overflowEventsError), reviews: reviewsLoading || (reviews == null && !reviewsError), walkIns: walkInsLoading || (walkIns == null && !walkInsError), events: eventsLoading || (rawEvents == null && !eventsError), studioEvents: studioEventsLoading || (rawStudioEvents == null && !studioEventsError) };
+  const lazyFlags: Record<string, boolean> = { appointments: appointmentsLoading || (appointmentsFromDB == null && !appointmentsError), apptWindow: apptWin.isLoading, transactions: transactionsLoading || (rawTransactions == null && !transactionsError), activityLogs: activityLogsLoading || (rawActivityLogs == null && !activityLogsError), stockCorrections: stockCorrectionsLoading || (stockCorrections == null && !stockCorrectionsError), tillSessions: tillSessionsLoading || (tillSessions == null && !tillSessionsError), redemptions: redemptionsLoading || (redemptions == null && !redemptionsError), refreshmentRequests: refreshmentRequestsLoading || (refreshmentRequests == null && !refreshmentRequestsError), overflowEvents: overflowEventsLoading || (overflowEvents == null && !overflowEventsError), reviews: reviewsLoading || (reviews == null && !reviewsError), walkIns: walkInsLoading || (walkIns == null && !walkInsError), events: eventsLoading || (rawEvents == null && !eventsError), studioEvents: studioEventsLoading || (rawStudioEvents == null && !studioEventsError) };
   
   /*
    * RENDER ARMOR — a Firestore FieldValue sentinel (or any stray object) that
@@ -411,7 +399,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     billDefinitions: billDefinitions || [],
     billInstances: billInstances || [],
     clients: clients || [],
-    appointments: appointments || [],
     services: services || [],
     staff: staff || [],
     memberships: memberships || [],
@@ -429,6 +416,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     stationAllocations: stationAllocations || [],
     staffReplenishmentRequests: staffReplenishmentRequests || [],
   };
+  Object.defineProperty(value, 'appointments', { enumerable: true, get: () => { want('appointments'); return appointments; } });
+  Object.defineProperty(value, 'appointmentWindow', { enumerable: true, get: () => { want('apptWindow'); return appointmentWindow; } });
+  value._apptWindowFrom = winFrom.getTime(); value._apptWindowTo = winTo.getTime(); value._mergeVisits = mergeRaw;
+  Object.defineProperty(value, '_apptWindowLoading', { enumerable: false, get: () => lazyLoading('apptWindow', lazyFlags.apptWindow) || (!wantedRef.current.apptWindow) });
   Object.defineProperty(value, 'stockCorrections', { enumerable: true, get: () => { want('stockCorrections'); return stockCorrections || NONE; } });
   Object.defineProperty(value, 'transactions', { enumerable: true, get: () => { want('transactions'); return transactions || NONE; } });
   Object.defineProperty(value, 'walkIns', { enumerable: true, get: () => { want('walkIns'); return safeWalkIns; } });

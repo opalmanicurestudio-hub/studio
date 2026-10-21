@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import { useInventory } from '@/context/InventoryContext';
+import { useServicingNow } from '@/hooks/use-appointments';
 import type { Resource, InventoryItem, Appointment } from '@/lib/data';
 import { AddResourceDialog } from '@/components/resources/AddResourceDialog';
 import { EditResourceDialog } from '@/components/resources/EditResourceDialog';
@@ -179,7 +180,8 @@ export default function ResourcesPage() {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
-    const { inventory, resources, appointments, isLoading: resourcesLoading } = useInventory();
+    const { inventory, resources, isLoading: resourcesLoading } = useInventory();
+    const { appointments } = useServicingNow();   // a room is occupied while a visit in it is in progress
     const { toast } = useToast();
 
     const [isAddResourceOpen, setIsAddResourceOpen] = useState(false);

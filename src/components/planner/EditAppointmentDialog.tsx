@@ -76,6 +76,7 @@ import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addM
 import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { useInventory } from '@/context/InventoryContext';
+import { useAppointmentsOnDay } from '@/hooks/use-appointments';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
@@ -145,7 +146,7 @@ const EditAppointmentForm = ({
     services: Service[];
     onConfirm: (apt: Appointment) => void;
 }) => {
-    const { inventory, staff, appointments, events, scheduleProfiles } = useInventory();
+    const { inventory, staff, events, scheduleProfiles } = useInventory();
     const { selectedTenant, role, can } = useTenant();
     const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
     const { toast } = useToast();
@@ -155,6 +156,7 @@ const EditAppointmentForm = ({
     const [selectedServiceId, setSelectedServiceId] = useState<string>(appointment.serviceId);
     const [selectedStaffId, setSelectedStaffId] = useState<string>(appointment.staffId || '');
     const [date, setDate] = useState<Date>(safeDate(appointment.startTime));
+    const { appointments } = useAppointmentsOnDay(date);   // only the chosen day, for slots and clashes
     const [startTime, setStartTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
     const [selectedAddOns, setSelectedAddOns] = useState<Service[]>([]);
     const [isAddOnSelectorOpen, setIsAddOnSelectorOpen] = useState(false);

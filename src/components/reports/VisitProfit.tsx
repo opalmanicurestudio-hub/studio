@@ -6,6 +6,7 @@ import * as React from 'react';
 import { collection, query, where, doc, updateDoc } from 'firebase/firestore';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
+import { useAppointmentWindow, useAppointmentsInRange } from '@/hooks/use-appointments';
 import { useTenant } from '@/context/TenantContext';
 import { actualVisitCost, rollupProfit, type VisitCost } from '@/lib/visit-cost';
 
@@ -15,9 +16,11 @@ type By = 'service' | 'provider' | 'station';
 
 export function VisitProfit() {
   const { firestore } = useFirebase(); const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id;
-  const { appointments, services, staff, inventory } = useInventory() as any;
+  const { services, staff, inventory } = useInventory() as any;
   const [days, setDays] = React.useState(30); const [by, setBy] = React.useState<By>('service');
   const since = React.useMemo(() => new Date(Date.now() - days * 86400000).toISOString(), [days]);
+  const sinceDate = React.useMemo(() => new Date(since), [since]); const untilDate = React.useMemo(() => new Date(Date.now() + 86_400_000), [since]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { appointments } = useAppointmentsInRange(sinceDate, untilDate);   // only the period shown
   const uq = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'usage'), where('recordedAt', '>=', since)) : null), [firestore, tenantId, since]);
   const rq = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'resources') : null), [firestore, tenantId]);
   const { data: usage } = useCollection<any>(uq); const { data: resources } = useCollection<any>(rq);

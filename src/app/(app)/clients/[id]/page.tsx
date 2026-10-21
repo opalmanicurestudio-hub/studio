@@ -101,6 +101,7 @@ import { MessagingConsentCard } from '@/components/clients/MessagingConsentCard'
 import { ClientOffersCard } from '@/components/clients/ClientOffersCard';
 import { PrivateImg, resolvePrivateUrl } from '@/components/shared/private-file';
 import { useInventory } from '@/context/InventoryContext';
+import { useClientVisits, useAppointmentWindow } from '@/hooks/use-appointments';
 import { collection, doc, arrayUnion, increment, getDocs, query, where, setDoc, deleteField } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
@@ -286,7 +287,9 @@ export default function ClientDetailPage() {
   const { selectedTenant, role, roleId, can, isLoading: isTenantLoading } = useTenant();
   const showFinancials = canSeeFinancials(selectedTenant, roleId || role);
   const showCareContents = canSeeCareNoteContents(selectedTenant, roleId || role);
-  const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages } = useInventory();
+  const { services, memberships, redemptions: allRedemptions, packages } = useInventory();
+  const { appointments: allAppointments } = useClientVisits(clientId || null);   // this client's own visits, every one
+  const { appointments: bookingWindow } = useAppointmentWindow();   // the booking sheet checks clashes with everyone's bookings
   // This client's visits' money records only (hooks/use-transactions), not every sale the business has had.
   const clientVisitIds = useMemo(() => (allAppointments || []).filter((a: any) => a.clientId === clientId).map((a: any) => a.id), [allAppointments, clientId]);
   const { transactions: allTransactions } = useTransactionsForVisits(clientVisitIds);
@@ -1159,7 +1162,7 @@ export default function ClientDetailPage() {
       </main>
 
       {tenantId && <StaffBookSheet open={bookOpen} onClose={() => setBookOpen(false)} tenantId={tenantId} tenant={selectedTenant} clients={allClientsList} services={services || []} staff={allStaffList.filter((st: any) => st.role !== 'renter' && st.active !== false)}
-        appointments={allAppointments || []} role={role} uid={currentUser?.uid || null} prefill={{ clientId: client.id }} />}
+        appointments={bookingWindow || []} role={role} uid={currentUser?.uid || null} prefill={{ clientId: client.id }} />}
       <EditClientDialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen} client={client} onSave={(data) => {
         if (!firestore || !tenantId) return;
         // Consent to marketing texts was given for a NUMBER. If the number

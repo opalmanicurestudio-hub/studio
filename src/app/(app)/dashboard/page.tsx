@@ -1,6 +1,7 @@
 'use client';
 
 import { useToday, useTransactionsInRange } from '@/hooks/use-transactions';
+import { useAppointmentWindow } from '@/hooks/use-appointments';
 import { deliverRefreshment } from '@/lib/lounge-delivery';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -408,7 +409,9 @@ const ActiveSessionCard = ({ appointment, service, staffMember }: { appointment:
 export default function DashboardPage() {
   const { firestore, user } = useFirebase();
   const { selectedTenant, role: tenantRole } = useTenant() as any;
-  const { inventory, clients, appointments, staff, services, walkIns, refreshmentRequests, isLoading: isInventoryLoading } = useInventory();
+  const { inventory, clients, staff, services, walkIns, refreshmentRequests, isLoading: ctxLoading } = useInventory();
+  const { appointments, isLoading: apptLoading } = useAppointmentWindow();   // today's world, shared with the planner and desk
+  const isInventoryLoading = ctxLoading || apptLoading;
   // Today's sales only (hooks/use-transactions), not the whole history.
   const [dayStart, dayEnd] = useToday();
   const { transactions } = useTransactionsInRange(dayStart, dayEnd);

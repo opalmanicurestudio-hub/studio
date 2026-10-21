@@ -7,6 +7,7 @@ import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerSe
 import { periodPay, payrollFields } from '@/lib/pay-period';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transactions';
+import { useAppointmentsByIds } from '@/hooks/use-appointments';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import { OwedToClientsCard } from '@/components/money/OwedToClientsCard';
@@ -1071,7 +1072,7 @@ const LedgerTab = () => {
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
-  const { staff, tillSessions, services, appointments, inventory, clients, isLoading: ctxLoading } = useInventory();
+  const { staff, tillSessions, services, inventory, clients, isLoading: ctxLoading } = useInventory();
   const auditActor = useAuditActor();
   const [periodPreset, setPeriodPreset] = useState('30days');
   const [date, setDate] = useState<DateRange | undefined>(undefined);
@@ -1105,6 +1106,7 @@ const LedgerTab = () => {
   const [previewTransaction, setPreviewTransaction] = useState<Transaction | null>(null);
   const [selectedDossier, setSelectedDossier] = useState<Transaction | null>(null);
   const [transactionToRefund, setTransactionToRefund] = useState<Transaction | null>(null);
+  const { appointments: refundVisit } = useAppointmentsByIds(transactionToRefund?.appointmentId ? [String(transactionToRefund.appointmentId)] : []);   // just the visit being refunded
 
   useEffect(() => {
     const now = new Date();
@@ -1558,7 +1560,7 @@ const LedgerTab = () => {
         transaction={transactionToRefund}
         staff={staff || []}
         services={services || []}
-        appointments={appointments || []}
+        appointments={refundVisit}
         inventory={inventory || []}
         tenant={selectedTenant}
         onConfirm={handleRefundConfirm}
@@ -1585,7 +1587,7 @@ const AllocationItem = ({ label, percentage, amount, color }: { label: string, p
 type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 const PaydayTab = () => {
-  const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services, appointments } = useInventory();
+  const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services } = useInventory();
   const auditActor = useAuditActor();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -1677,6 +1679,9 @@ const PaydayTab = () => {
       return Math.max(0, income - expenses);
   }, [filteredTransactions]);
 
+  // The visits this period's payments belong to, read by id (who did the work), not every visit ever.
+  const periodVisitIds = useMemo(() => (filteredTransactions || []).map((t: any) => String(t.appointmentId || '')).filter(Boolean), [filteredTransactions]);
+  const { appointments } = useAppointmentsByIds(periodVisitIds);
   const apptStaff = useMemo(() => Object.fromEntries((appointments || []).filter((a: any) => a?.id && a.staffId).map((a: any) => [a.id, String(a.staffId)])) as Record<string, string>, [appointments]);
   const staffObligations = useMemo(() => {
     if (!staff || !filteredTransactions || !activityLogs) return [];
@@ -2616,7 +2621,7 @@ type HubTab = 'overview' | 'ledger' | 'payday' | 'bills' | 'activity';
 type OverviewPreset = '7days' | '30days' | 'thisMonth';
 
 const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
-  const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services, appointments } = useInventory();
+  const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
@@ -2678,6 +2683,9 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
   }, [periodTxns, range]);
 
   // ── Staff owed this period (same math as Payday tab) ──
+  // The visits this period's payments belong to, read by id (who did the work), not every visit ever.
+  const periodVisitIds = useMemo(() => (periodTxns || []).map((t: any) => String(t.appointmentId || '')).filter(Boolean), [periodTxns]);
+  const { appointments } = useAppointmentsByIds(periodVisitIds);
   const apptStaff = useMemo(() => Object.fromEntries((appointments || []).filter((a: any) => a?.id && a.staffId).map((a: any) => [a.id, String(a.staffId)])) as Record<string, string>, [appointments]);
   const staffTotalOwed = useMemo(() => {
     if (!staff) return 0;

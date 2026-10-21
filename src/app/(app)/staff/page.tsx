@@ -46,6 +46,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
 import { useTransactionsInRange, usePunchesInRange, usePickerRange } from '@/hooks/use-transactions';
+import { useAppointmentsInRange, useAppointmentWindow, useStaffVisits } from '@/hooks/use-appointments';
 import { computeServiceProfitability } from '@/lib/service-cost';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { isDeadAppointment, applyCoverageDecision } from '@/lib/booking-approval';
@@ -605,7 +606,6 @@ export default function StaffPage() {
   const {
     services,
     clients,
-    appointments,
     consentForms,
     inventory,
     isLoading: ctxLoading,
@@ -614,7 +614,11 @@ export default function StaffPage() {
   const [rangeFrom, rangeTo] = usePickerRange(dateRange);
   const { transactions, isLoading: txLoading } = useTransactionsInRange(dateRange ? rangeFrom : null, rangeTo);
   const { activityLogs, isLoading: punchLoading } = usePunchesInRange(dateRange ? rangeFrom : null, rangeTo);
-  const isLoading = ctxLoading || txLoading || punchLoading;
+  const { appointments: periodAppointments, isLoading: apptLoading } = useAppointmentsInRange(dateRange ? rangeFrom : null, rangeTo);
+  const { appointments: upcomingAppointments } = useAppointmentWindow();   // cover plans and moving a provider's bookings look ahead
+  const appointments = periodAppointments;
+  const { appointments: convertVisits } = useStaffVisits((convertFor as any)?.id || null);   // who they've served, for a move to renting
+  const isLoading = ctxLoading || txLoading || punchLoading || apptLoading;
   
   const staffQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/staff`) : null, [firestore, tenantId]);
   // Renters' own menus, so a renter's chip can say "no services" for the same
@@ -1276,7 +1280,7 @@ export default function StaffPage() {
         onOpenChange={(v: boolean) => { if (!v) setCoverageFor(null); }}
         provider={coverageFor}
         date={new Date()}
-        appointments={appointments || []}
+        appointments={upcomingAppointments || []}
         services={services || []}
         staff={staff || []}
         busyId={coverageBusyId}
@@ -1376,7 +1380,7 @@ export default function StaffPage() {
         firestore={firestore}
         tenantId={tenantId}
         locationId={(convertFor as any)?.locationId ?? null}
-        appointments={appointments || []}
+        appointments={convertVisits || []}
         clients={clients || []}
         services={services || []}
         onDone={() => setConvertFor(null)}

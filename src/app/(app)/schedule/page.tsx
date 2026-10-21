@@ -34,6 +34,7 @@ import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, up
 import { collection, doc, writeBatch, query, where, setDoc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
+import { useAppointmentWindow } from '@/hooks/use-appointments';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -118,7 +119,8 @@ const fmtTime = (hhmm: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(h
 export default function SchedulePage() {
   const { firestore, user } = useFirebase();
   const { selectedTenant, role, can } = useTenant();
-  const { staff, appointments, services } = useInventory();
+  const { staff, services } = useInventory();
+  const { appointments } = useAppointmentWindow();   // the weeks being scheduled are around today
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 

@@ -4,6 +4,7 @@ import { type InventoryItem } from '@/lib/data';
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
+import { useAppointmentWindow } from '@/hooks/use-appointments';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, type ActivityLog, type ClientFormData } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
 import { RetailCatalog } from '@/components/pos/RetailCatalog';
@@ -59,7 +60,8 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 
 function POSPage() {
-    const { inventory, services, appointments: appointmentsFromDB, clients, walkIns, staff, memberships, packages } = useInventory();
+    const { inventory, services, clients, walkIns, staff, memberships, packages } = useInventory();
+    const { appointments: appointmentsFromDB } = useAppointmentWindow();   // today's visits ready to pay
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();

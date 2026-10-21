@@ -42,7 +42,7 @@ export function mergeInRange(a: any[] | null, b: any[] | null, from: number, to:
 }
 
 /** Records in one tenant collection whose `field` falls in [from, to), from both stored date kinds, with `field` as a Date. */
-function useDatedRange(name: string, field: string, from: Date | null, to: Date | null): { list: any[]; isLoading: boolean } {
+export function useDatedRange(name: string, field: string, from: Date | null, to: Date | null): { list: any[]; isLoading: boolean } {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant() as any;
   const tenantId = selectedTenant?.id as string | undefined;
