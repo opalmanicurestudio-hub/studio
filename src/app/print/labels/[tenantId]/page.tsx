@@ -70,7 +70,9 @@ export default async function PrintLabelsPage({
   const pngs = entries.filter((o: any) => isPngLabel(o.labelUrl));
   const zpls = entries.filter((o: any) => isZplLabel(o.labelUrl));
   const pdfs = entries.filter((o: any) => !isPngLabel(o.labelUrl) && !isZplLabel(o.labelUrl));
-  const pngCount = pngs.reduce((n: number, o: any) => n + 1 + ((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isPngLabel(u)).length, 0);   // one per box
+  // Orders shipped together share one label: it prints once, and each order's slip follows it.
+  const printedLabels = new Set<string>();
+  const pngCount = new Set(pngs.flatMap((o: any) => [o.labelUrl, ...((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isPngLabel(u))])).size;   // one per box
   const origin = withSlip ? await printOrigin() : '';
   const slips = new Map<string, Awaited<ReturnType<typeof slipFor>>>();
   if (withSlip) for (const o of pngs) { try { slips.set(o.id, await slipFor(db, tenantId, o.id, o, tenantData, origin, paper ? 'half' : '4x6')); } catch { /* the label still prints */ } }
@@ -107,7 +109,7 @@ export default async function PrintLabelsPage({
           {zplHref ? <a href={zplHref} style={{ color: '#fff', fontWeight: 800 }}>Download printer file</a> : null}
           <button type="button" data-print>Print stack</button>
         </div>
-        {pngs.map((o: any) => { const all = [o.labelUrl, ...((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isPngLabel(u))]; return (
+        {pngs.map((o: any) => { const all = [o.labelUrl, ...((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isPngLabel(u))].filter((u) => !printedLabels.has(u)); all.forEach((u) => printedLabels.add(u)); return (
           <React.Fragment key={o.id}>
           {all.map((u: string, i: number) => (
           <div className="label" key={u}>

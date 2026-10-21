@@ -76,9 +76,17 @@ export async function POST(req: NextRequest) {
   // it is printed on the customer's QR code and tracking link.
   // One exception to the staff rule: the shop's own server, refunding a customer's self-serve cancellation under the
   // shop's "refund automatically below $X" policy. It proves itself with the server secret and is re-checked here.
-  const internal = !!process.env.CRON_SECRET && req.headers.get('x-internal-key') === process.env.CRON_SECRET && body.reason === 'customer_cancel';
+  // A second: the shipping on an order that went in the same box as another of the customer's orders (lib/ship-together),
+  // which the shop refunds automatically. Never more than that order's shipping.
+  const internalKey = !!process.env.CRON_SECRET && req.headers.get('x-internal-key') === process.env.CRON_SECRET;
+  const internal = internalKey && body.reason === 'customer_cancel';
+  const together = internalKey && body.reason === 'ship_together';
   let actor: { uid: string; name: string };
-  if (internal) {
+  if (together) {
+    const pendingNow = Number(order.pendingRefundCents) || 0;
+    if (!order.shippedWithOrderId || pendingNow <= 0 || pendingNow > Math.max(0, Number(order.shippingCents) || 0)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
+    actor = { uid: 'system', name: 'Shipped together (automatic shipping refund)' };
+  } else if (internal) {
     const autoBelow = Math.max(0, Number(tenant.retailSettings?.policies?.refundAutoBelowCents) || 0);
     const pendingNow = Number(order.pendingRefundCents) || 0;
     if (order.stage !== 'cancelled' || autoBelow <= 0 || pendingNow <= 0 || pendingNow > autoBelow) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });

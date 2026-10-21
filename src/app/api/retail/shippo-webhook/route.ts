@@ -114,13 +114,13 @@ export async function POST(req: NextRequest) {
   try {
     const db = getAdminDb();
     let snap = await db.collection(`tenants/${tenantId}/retailOrders`)
-      .where('trackingNumber', '==', trackingNumber).limit(3).get();
+      .where('trackingNumber', '==', trackingNumber).limit(10).get();
     // ANOTHER BOX of a multi-box order: its scans are kept per box, and the order counts as delivered only once every
     // box is (lib/totes labelBoxes). The customer hears "delivered" once, when the last box arrives.
     let extraBox = false;
     if (snap.empty) {
       const ex = await db.collection(`tenants/${tenantId}/retailOrders`)
-        .where('extraTrackingNumbers', 'array-contains', trackingNumber).limit(3).get().catch(() => null);
+        .where('extraTrackingNumbers', 'array-contains', trackingNumber).limit(10).get().catch(() => null);
       if (ex && !ex.empty) { snap = ex; extraBox = true; }
     }
 
@@ -220,7 +220,7 @@ export async function POST(req: NextRequest) {
         const origEtaRaw = Date.parse(String(data.original_eta || ''));
         const slippedDays = Number.isFinite(etaRaw) && Number.isFinite(origEtaRaw)
           ? Math.floor((etaRaw - origEtaRaw) / 86400000) : 0;
-        if (!extraBox && slippedDays >= 1 && !['DELIVERED', 'RETURNED'].includes(String(status))) {
+        if (!extraBox && !order.shippedWithOrderId && slippedDays >= 1 && !['DELIVERED', 'RETURNED'].includes(String(status))) {
           const etaKey = new Date(etaRaw).toISOString().slice(0, 10);
           const res = await sendCarrierUpdate({
             markerRef: d.ref.collection('events').doc(`carrier-delayed-${etaKey}`),
@@ -237,7 +237,8 @@ export async function POST(req: NextRequest) {
       }
 
       // Other boxes' scans don't email the customer, except the last delivery; the first box's "delivered" waits for the rest.
-      const speak = status === 'DELIVERED' ? allDelivered : !extraBox;
+      // An order shipped in the same box as another (lib/ship-together) stays quiet: the customer hears it once, on the first order.
+      const speak = !order.shippedWithOrderId && (status === 'DELIVERED' ? allDelivered : !extraBox);
       if (speak && shouldNotify(status)) {
         const res = await sendCarrierUpdate({
           // Deterministic id = one email per order per status, however many

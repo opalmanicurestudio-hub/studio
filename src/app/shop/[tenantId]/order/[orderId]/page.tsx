@@ -59,7 +59,7 @@ interface StatusOrder {
   refundedCents: number; totalCents: number;
   timestamps: Record<string, string | null>;
   curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number; bringingOutAt?: string | null; bringingOutBy?: string; bringingOutPhoto?: string | null } | null;
-  shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null; extraTracking?: { number: string; url: string | null }[];
+  shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null; extraTracking?: { number: string; url: string | null }[]; shippedWith?: string[]; shipTogetherRefundCents?: number;
 }
 
 const fmt = (cents: number) =>
@@ -1059,6 +1059,8 @@ export default function OrderStatusPage() {
               </div>
               {order.trackingNumber ? (
                 <div className="space-y-2">
+                  {(order.shippedWith?.length || 0) > 0 && <p className="text-sm">Shipped together with your order{(order.shippedWith?.length || 0) > 1 ? 's' : ''} {order.shippedWith!.join(' and ')}, in the same shipment.</p>}
+                  {(order.shipTogetherRefundCents || 0) > 0 && <p className="text-sm" style={{ color: '#1f7a4d' }}>{fmt(order.shipTogetherRefundCents || 0)} shipping refunded: your orders went together, so this one’s shipping wasn’t needed.</p>}
                   {(order.extraTracking?.length || 0) > 0 && <p className="text-sm">Your order is coming in {1 + (order.extraTracking?.length || 0)} boxes, each with its own tracking.</p>}
                   {[{ number: order.trackingNumber, url: order.trackingUrl }, ...(order.extraTracking || [])].map((t, i, all) => (
                     <div key={t.number} className="flex items-center justify-between gap-3">

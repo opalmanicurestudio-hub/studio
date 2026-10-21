@@ -18,13 +18,17 @@ import { labelProgress } from '@/lib/totes';
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
 
-export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, onDone }: { fs: Firestore; tenantId: string; order: any; inventory: any[]; rs: any; actor: Actor; onClose: () => void; onDone: (msg: string) => void }) {
+export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, onDone, together = [] }: { fs: Firestore; tenantId: string; order: any; inventory: any[]; rs: any; actor: Actor; onClose: () => void; onDone: (msg: string) => void; together?: any[] }) {
+  // SHIPPED TOGETHER (lib/ship-together): the customer's other orders going in the same box. The label is bought on this
+  // order; the others get the same tracking, and the shipping they paid is refunded automatically.
+  const group = [order, ...together];
+  const many = together.length > 0;
   const presets: Preset[] = (rs?.packagingPresets || []).slice(0, 8);
-  const itemsOz = React.useMemo(() => (order.lines || []).reduce((s: number, l: any) => {
+  const itemsOz = React.useMemo(() => group.flatMap((g: any) => g.lines || []).reduce((s: number, l: any) => {
     if (l.digital === true) return s;
     const w = Number(inventory.find((i: any) => i.id === l.productId)?.weightOz) || 4;
     return s + w * Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
-  }, 0), [order, inventory]);
+  }, 0), [order, together, inventory]); // eslint-disable-line react-hooks/exhaustive-deps
   // THE BOXES. Each has a size and a weight; the items' weight is shared across the boxes whose weight hasn't been typed.
   type Box = { presetId: string | null; oz: number; typed: boolean };
   const presetOf = (id: string | null) => presets.find((p) => p.id === id) || null;
@@ -62,20 +66,40 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     try { const d = await post({ action: 'purchase', rateId: rate, parcels });
       const extraUrls: string[] = d.extraLabelUrls || [];
       setLabel({ url: d.labelUrl || '', carrier: d.carrier || '', number: d.trackingNumber || '', trackUrl: d.trackingUrl || '', extraUrls, extraNumbers: d.extraTrackingNumbers || [] });
+      if (many) await joinGroup(null);
       if (!extraUrls.length && d.labelUrl) window.open(d.labelUrl, '_blank'); }   // several labels: printed together from the button below, one tap
     catch (e: any) { setErr(e.message); } setLoading(false);
   };
-  // Several labels print together, in one stack (one page per box).
-  const printAll = () => openPrint(tenantId, 'orders', `/print/labels/${tenantId}?ids=${order.id}`);
+  // Several labels print together, in one stack (one page per box); orders shipped together print their slips with it.
+  const printAll = () => openPrint(tenantId, 'orders', `/print/labels/${tenantId}?ids=${group.map((g: any) => g.id).join(',')}`);
+  const [refundNote, setRefundNote] = React.useState('');
+  const joinGroup = async (tracking: { carrier?: string; number?: string; extraNumbers?: string[] } | null) => {
+    const r = await fetch('/api/retail/ship-together', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'apply', orderIds: group.map((g: any) => g.id), ...(tracking ? { tracking } : {}) }) });
+    const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || 'Those orders couldn’t be put together.');
+    const cents = Object.values(d.refunds || {}).reduce((s: number, c: any) => s + (Number(c) || 0), 0);
+    const sent = Object.values(d.refunded || {}).some(Boolean);
+    setRefundNote(cents ? (sent ? `${money(cents)} of shipping refunded to ${firstName(order.customerName)}’s card.` : `${money(cents)} of shipping is waiting to be refunded: it’s on the order.`) : '');
+  };
   const markShipped = async (t: { carrier?: string; number?: string; url?: string; extraNumbers?: string[] }) => {
-    setLoading(true); const r = await shipIt(fs, tenantId, order, actor, t); setLoading(false);
-    if (r.ok) onDone(`${firstName(order.customerName)}’s order is on its way. They get tracking when the carrier scans it.`); else setErr(r.message);
+    setLoading(true); setErr('');
+    try { if (many && !label) await joinGroup({ carrier: t.carrier, number: t.number, extraNumbers: t.extraNumbers }); } catch (e: any) { setErr(e.message); setLoading(false); return; }
+    let r = await shipIt(fs, tenantId, order, actor, t);
+    // The others already carry the tracking (set when they were put together); one shipping email is enough.
+    for (const g of together) { if (!r.ok) break; r = await shipIt(fs, tenantId, g, actor, {}); }
+    setLoading(false);
+    if (r.ok) onDone(many ? `${firstName(order.customerName)}’s ${group.length} orders are on their way in one shipment.${refundNote ? ` ${refundNote}` : ''}` : `${firstName(order.customerName)}’s order is on its way. They get tracking when the carrier scans it.`); else setErr(r.message);
   };
   const chosen = rates.find((r) => r.id === rate);
   const pill = (on: boolean) => ({ border: on ? `2px solid ${C.ink}` : `1px solid ${C.line}`, background: C.paper, color: C.ink } as React.CSSProperties);
 
   return (
-    <Sheet title={`Ship ${firstName(order.customerName)}’s order`} sub={order.shippingAddress ? `To ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode || ''}` : undefined} onClose={onClose}>
+    <Sheet title={many ? `Ship ${firstName(order.customerName)}’s ${group.length} orders together` : `Ship ${firstName(order.customerName)}’s order`} sub={order.shippingAddress ? `To ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode || ''}${many ? ` · ${group.map((g: any) => `#${String(g.orderNumber ?? '').padStart(4, '0')}`).join(' + ')}` : ''}` : undefined} onClose={onClose}>
+      {many && (
+        <div className="mt-2 rounded-2xl p-4" style={{ background: C.soft }}>
+          <p className="m-0 text-[13px] font-semibold" style={muted}>In this shipment</p>
+          {group.map((g: any) => <p key={g.id} className="m-0 mt-1 text-[15px]"><b className="font-semibold">#{String(g.orderNumber ?? '').padStart(4, '0')}</b> · {(g.lines || []).filter((l: any) => l.digital !== true).map((l: any) => `${l.name}${(l.qtyOrdered || 1) > 1 ? ` × ${l.qtyOrdered}` : ''}`).join(', ')}</p>)}
+          <p className="m-0 mt-2 text-[14px]" style={muted}>{(() => { const extra = together.reduce((s: number, g: any) => s + (Number(g.shippingCents) || 0), 0); return extra ? `The ${money(extra)} shipping paid on the other order${together.length > 1 ? 's' : ''} is refunded automatically.` : 'One label covers every order; each gets the tracking.'; })()}</p>
+        </div>)}
       {label ? (
         <div className="mt-2">
           {(() => { const n = 1 + (label.extraUrls?.length || 0); const p = labelProgress(order); return (
@@ -84,8 +108,10 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
             <p className="m-0 mt-2 text-[14px] font-semibold" style={{ color: order.labelCheckedAt ? C.ok : C.ink }}>{order.labelCheckedAt ? (n > 1 ? 'Every box’s label checked' : 'Label on the box and checked') : n > 1 ? `${p.checked} of ${n} labels checked. Scan each box’s label at the bench.` : 'Scan the label on the box at the bench to check it.'}</p></div>); })()}
           <div className="mt-3 flex flex-col gap-2">
             {label.url && <Btn kind={label.extraUrls?.length && !order.labelCheckedAt ? 'primary' : 'soft'} onClick={() => { if (label.extraUrls?.length) void printAll(); else window.open(label.url, '_blank'); }}>{isZplLabel(label.url) ? 'Download the printer file again' : label.extraUrls?.length ? `Print all ${1 + label.extraUrls.length} labels` : 'Print the label again'}</Btn>}
-            {slipAfterLabel(rs) && order.qrToken && <Btn kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken || '')}`, '_blank')}>Print the packing slip</Btn>}
-            <Btn kind="primary" className="text-[17px]" disabled={loading} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
+            {slipAfterLabel(rs) && order.qrToken && !many && <Btn kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken || '')}`, '_blank')}>Print the packing slip</Btn>}
+            {many && group.filter((g: any) => g.qrToken).map((g: any) => <Btn key={g.id} kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${g.id}?t=${encodeURIComponent(g.qrToken || '')}`, '_blank')}>{`Packing slip for #${String(g.orderNumber ?? '').padStart(4, '0')}`}</Btn>)}
+            {refundNote && <p className="m-0 text-[14px]" style={{ color: C.ok }}>{refundNote}</p>}
+            <Btn kind="primary" className="text-[17px]" disabled={loading} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{many ? `Mark all ${group.length} orders as shipped` : label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
           </div>
         </div>
       ) : manual ? (

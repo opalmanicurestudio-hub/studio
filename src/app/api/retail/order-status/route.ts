@@ -212,6 +212,12 @@ export async function GET(req: NextRequest) {
     refundState: (Number(order.refundedCents) || 0) > 0 ? 'refunded' : (Number(order.pendingRefundCents) || 0) > 0 ? 'pending' : 'none',
   };
 
+  // Shipped in one box with the customer's other orders (lib/ship-together): which ones, by number.
+  let shippedWith: string[] = [];
+  try {
+    const others: string[] = order.shippedWithOrderId ? [String(order.shippedWithOrderId)] : Array.isArray(order.shippedWithOrderIds) ? order.shippedWithOrderIds.map(String).slice(0, 9) : [];
+    if (others.length) shippedWith = (await Promise.all(others.map((id) => db.doc(`tenants/${tenantId}/retailOrders/${id}`).get()))).filter((d: any) => d.exists).map((d: any) => `#${String((d.data() as any)?.orderNumber ?? '').padStart(4, '0')}`);
+  } catch { /* cosmetic */ }
   return NextResponse.json({
     help,
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
@@ -304,6 +310,8 @@ export async function GET(req: NextRequest) {
       hasPreorder: order.hasPreorder === true,
       trackingNumber: order.trackingNumber || null,
       trackingUrl: order.trackingUrl || null,
+      shippedWith,
+      shipTogetherRefundCents: Number(order.shipTogetherRefundCents) || 0,
       // More boxes: one tracking number (and link, when the carrier gave one) per box.
       extraTracking: (Array.isArray(order.extraTrackingNumbers) ? order.extraTrackingNumbers : []).slice(0, 9).map((n: any, i: number) => ({ number: String(n || ''), url: String((order.extraTrackingUrls || [])[i] || '') || null })).filter((x: any) => x.number),
       carrier: order.carrier || null,

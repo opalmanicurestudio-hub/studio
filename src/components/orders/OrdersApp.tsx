@@ -15,7 +15,8 @@ import { permissionsFor } from '@/lib/fulfilment-access';
 import { notifyCurbside, sweepStaleClaims, type Actor } from '@/lib/retail-fulfill';
 import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import { startPacking } from '@/lib/orders-flow';
-import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabel, needsYou, packQueue, soloShop, tabOf, type OrdersTab } from '@/lib/orders-view';
+import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabel, money, needsYou, packQueue, soloShop, tabOf, type OrdersTab } from '@/lib/orders-view';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Empty, IconBtn, Initials, LargeTitle, ListRow, Seg, Sheet, UndoBar, feel, muted, Ic } from './ui';
 import { OrderPanel } from './OrderPanel';
 import { PackMode } from './PackMode';
@@ -26,6 +27,7 @@ import { PhoneShopBar, useWide } from './shell';
 import { SelectBar } from './SelectBar';
 import { ShipToday } from './ShipToday';
 import { bringingOut } from '@/lib/orders-flow';
+import { shipTogetherGroups } from '@/lib/ship-together';
 
 const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
 
@@ -49,6 +51,7 @@ export function OrdersApp() {
   const [packId, setPackId] = React.useState<string | null>(null);
   const [missing, setMissing] = React.useState<any | null>(null);
   const [shipId, setShipId] = React.useState<string | null>(null);
+  const [shipGroup, setShipGroup] = React.useState<string[] | null>(null);   // orders shipped together (lib/ship-together)
   const [handId, setHandId] = React.useState<string | null>(null);
   const [needsOpen, setNeedsOpen] = React.useState(false);
   const [toast, setToast] = React.useState('');
@@ -117,6 +120,9 @@ export function OrdersApp() {
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const pickedOrders = React.useMemo(() => [...picked].map((id) => byId.get(id)).filter(Boolean) as any[], [picked, byId]);
   const shipPacked = orders.filter((o) => o.method === 'ship' && o.stage === 'packed' && !o.holdForReview);
+  // A customer's packed orders going to the same address: suggested as one shipment; staff decide.
+  const togetherGroups = React.useMemo(() => shipTogetherGroups(orders), [orders]);
+  const keepSeparate = async (g: any[]) => { try { await fetch('/api/retail/ship-together', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'decline', orderIds: g.map((o) => o.id) }) }); } catch { /* the card stays */ } };
   const outside = tab === 'ready' && !q ? orders.filter((o) => o.stage === 'arrived') : [];
 
   React.useEffect(() => { const id = new URLSearchParams(window.location.search).get('order'); if (id) setOpenId(id); }, []);
@@ -158,6 +164,15 @@ export function OrdersApp() {
         </div>)}
       {selecting && <div className="flex items-center justify-between px-4 pb-1 pt-3"><span className="text-[13px] font-semibold" style={muted}>{picked.size ? `${picked.size} of ${list.length}` : 'Tap orders to pick them'}</span><button type="button" onClick={() => setPicked(picked.size === list.length ? new Set() : new Set(list.map((o) => o.id)))} className="h-11 text-[15px] font-semibold">{picked.size === list.length ? 'Clear' : `Select all ${list.length}`}</button></div>}
       {!selecting && outside.length > 0 && <div className="px-4 pt-3"><p className="m-0 pb-2 text-[13px] font-semibold" style={muted}>Outside now</p><div className="grid gap-2.5 lg:grid-cols-2">{outside.map((o) => <Arrival key={o.id} o={o} now={now} onOut={async () => { const r = await bringingOut(fs, tenantId, o, actor); feel(r.ok); setToast(r.ok ? `${firstName(o.customerName)} knows you’re on the way.` : r.message); }} onHand={() => setHandId(o.id)} />)}</div></div>}
+      {!selecting && tab === 'ready' && !q && perms.canShip && togetherGroups.map((g) => (
+        <div key={g[0].id} className="mx-4 mt-3 rounded-2xl p-4" style={{ border: `2px solid ${C.ink}` }}>
+          <p className="m-0 text-[17px] font-semibold">{firstName(g[0].customerName)} has {g.length} orders going to the same address</p>
+          <p className="m-0 mt-1 text-[14px]" style={muted}>{g.map((o) => `#${String(o.orderNumber ?? '').padStart(4, '0')} (${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}${o.shippingCents ? `, paid ${money(o.shippingCents)} shipping` : ''})`).join(' and ')}. Ship them in one box to save postage; the extra shipping is refunded automatically.</p>
+          <div className="mt-3 flex gap-2">
+            <Btn kind="primary" onClick={() => setShipGroup(g.map((o) => o.id))}>Ship together</Btn>
+            <Btn kind="soft" onClick={() => void keepSeparate(g)}>Keep separate</Btn>
+          </div>
+        </div>))}
       {!selecting && tab === 'ready' && !q && shipPacked.length > 0 && perms.canShip && (
         <button type="button" onClick={() => setShipToday(true)} className="cf-press mx-4 mt-3 flex min-h-[64px] w-[calc(100%-2rem)] items-center gap-3 rounded-2xl px-4 text-left" style={{ background: C.soft }}>
           <span className="min-w-0 flex-1"><span className="block text-[17px] font-semibold tracking-[-0.01em]">Ship today</span><span className="block text-[14px]" style={muted}>{(() => { const nl = shipPacked.filter((o) => !o.trackingNumber && !o.labelUrl).length; return nl ? `${nl} need${nl === 1 ? 's' : ''} a label · ${shipPacked.length - nl} labelled` : `${shipPacked.length} labelled, ready to hand over`; })()}</span></span>
@@ -219,6 +234,7 @@ export function OrdersApp() {
         onClose={() => setPackId(null)} onDetails={() => { setOpenId(packing.id); setPackId(null); }} onMissing={(l) => setMissing({ order: packing, line: l })}
         onFinished={(m) => { setToast(m); setPackId(null); }} />}
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} shelf={shelfFor.get(missing.line.productId)} inventory={inventory || []} actor={actor} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); setToast(m); }} />}
+      {shipGroup && byId.get(shipGroup[0]) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipGroup[0])} together={shipGroup.slice(1).map((id) => byId.get(id)).filter(Boolean)} inventory={inventory || []} rs={rs} actor={actor} onClose={() => setShipGroup(null)} onDone={(m) => { setShipGroup(null); setToast(m); }} />}
       {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={inventory || []} rs={rs} actor={actor} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); setToast(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {selecting && <SelectBar fs={fs} tenantId={tenantId} picked={pickedOrders} actor={actor} rs={rs} perms={perms} onDone={endSelect} onToast={setToast} />}
