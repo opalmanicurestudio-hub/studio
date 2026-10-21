@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
           const tn = String(cur.trackingNumber || '');
           const told = cur.voidedLabelMoving?.trackingNumber === tn && cur.voidedLabelMoving?.open === false;
           tx.set(ref, { labelSeenMoving: now,
-            ...(begun ? { labelVoiding: null, ...(told ? {} : { voidedLabelMoving: { open: true, unsure: true, at: now, trackingNumber: tn } }) } : {}),
+            ...(begun ? { labelVoiding: null, ...(told ? {} : { voidedLabelMoving: { open: true, unsure: true, at: now, trackingNumber: tn, voidedBoxes: 0 } }) } : {}),
             ...(mine(cur.addressRequest) ? { addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } } : {}) }, { merge: true });
         }).catch(() => {});
         return NextResponse.json({ ok: false, error: `The carrier has already scanned this box, so its label can’t be voided. Keep the old address and let ${who} know it’s on its way.` }, { status: 409 });
@@ -130,6 +130,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'That didn’t go through. Try again in a minute.' }, { status: 503 });
       }
       const v = await voidOrderLabels(db, tenantId, claim, key, { alreadyVoided: Array.isArray(claim.labelVoidIds) ? claim.labelVoidIds : [] });
+      // Shippo says the carrier already has a box: it's on its way to the old address, so the change can't go ahead.
+      if (v.outcome === 'moving') {
+        await db.runTransaction(async (tx: any) => {
+          const cur: any = (await tx.get(ref)).data() || {};
+          const same = String(cur.shippoTransactionId || '') === labelTxn;
+          const tn = String(cur.trackingNumber || '');
+          const told = cur.voidedLabelMoving?.trackingNumber === tn && cur.voidedLabelMoving?.open === false;
+          tx.set(ref, { ...(same ? { labelSeenMoving: now, labelVoiding: null, ...(v.voidedIds.length ? { labelVoidIds: v.voidedIds, ...(told ? {} : { voidedLabelMoving: { open: true, unsure: true, at: now, trackingNumber: tn, voidedBoxes: v.voidedIds.length } }) } : {}) } : {}),
+            ...(mine(cur.addressRequest) ? { addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } } : {}) }, { merge: true });
+        }).catch(() => {});
+        return NextResponse.json({ ok: false, error: `The carrier already has this box, so its label can’t be voided. Keep the old address and let ${who} know it’s on its way.` }, { status: 409 });
+      }
       if (v.outcome === 'refused' || v.outcome === 'unknown') {
         // Shippo said no and nothing was voided: the label works as before, so the note comes off. No real answer for
         // some box: it may have gone through, so the note stays and the label can't ship until this is approved again.

@@ -4,13 +4,19 @@
 //   voiding    — a void of it is under way, or Shippo never answered (lib/label-sweep writes `labelVoiding` first)
 //   partial    — some of its boxes were voided and the rest not yet
 //   unfinished — the morning check handed a void that didn't finish to the team, and nobody has decided yet
-// Each has a way out: voiding it again settles the first two; the third also clears when someone keeps the label.
+// Each has a way out: voiding it again settles the first two; the third also clears when someone keeps the label. Once
+// the carrier has scanned the box it's out of the shop whatever happened, so it isn't held back: the "being voided"
+// warning (voidedLabelMoving) covers what's left to check about the money.
 
 export type LabelDoubt = 'voiding' | 'partial' | 'unfinished';
+
+const SCANNED = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'];
 
 export function labelDoubt(o: any): LabelDoubt | null {
   const txn = String(o?.shippoTransactionId || '');
   if (!txn) return null;
+  if (o?.labelSeenMoving || SCANNED.includes(String(o?.carrierTrail?.status || '').toUpperCase())
+    || Object.values(o?.boxStatus || {}).some((s: any) => SCANNED.includes(String(s).toUpperCase()))) return null;
   if (String(o?.labelVoiding?.txn || '') === txn) return 'voiding';
   if (Array.isArray(o?.labelVoidIds) && o.labelVoidIds.length > 0) return 'partial';
   if (o?.labelUnscannedOpen === true && o?.labelUnscanned?.why === 'void_unfinished') return 'unfinished';

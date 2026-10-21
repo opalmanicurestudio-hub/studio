@@ -50,7 +50,7 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   let refunds: string[] = []; let lookups = 0;
   // Each tracking number's answer; each label's refund answer ('ok' unless set: 'no' is Shippo saying no, 'silent' no
   // answer, 'gateway' a 504 that may have come after the refund was made). Label 'm' has a second box, 'm2'.
-  type Say = 'ok' | 'no' | 'silent' | 'gateway';
+  type Say = 'ok' | 'no' | 'silent' | 'gateway' | 'used';
   let refundSays: Record<string, Say> = {};
   const tracks = (map: Record<string, any>, says: Record<string, Say> = {}) => {
     refunds = []; lookups = 0; refundSays = says;
@@ -63,6 +63,7 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
         refunds.push(txn);
         if (say === 'no') return { ok: false, status: 400, json: async () => ({ detail: 'Transaction is not eligible for a refund' }) };
         if (say === 'gateway') return { ok: false, status: 504, json: async () => ({}) };
+        if (say === 'used') return { ok: false, status: 400, json: async () => ({ detail: 'This label has already been used and can’t be refunded' }) };
         return { ok: true, status: 201, json: async () => ({ status: 'QUEUED' }) };
       }
       if (u.endsWith('/transactions/m')) return { ok: true, json: async () => ({ rate: 'r1' }) };
@@ -90,7 +91,7 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   ok(await labelState('k', { carrier: 'Some Courier', trackingNumber: '1' }) === 'unknown' && await labelState('k', { carrier: 'USPS', trackingNumber: '1', carrierTrail: { status: 'TRANSIT' } }) === 'moving', 'an unknown carrier, or a scan already on record, never reads as unused');
 
   // A small stand-in for the database: orders by id, shallow merges, events kept apart.
-  const memDb = (rows: Record<string, any>) => {
+  const memDb = (rows: Record<string, any>, paths: Record<string, any> = {}) => {
     const events: any[] = [];
     const evRef = () => ({ __event: true, id: 'e', set: async (v: any) => { events.push(v); } });
     const refOf = (id: string): any => ({
@@ -107,12 +108,13 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
           get: async () => { const docs = Object.keys(rows).map((id) => ({ id, ref: refOf(id), data: () => rows[id] })); return { docs, size: docs.length }; },
         }) }) }),
       }),
-      doc: () => ({ get: async () => ({ exists: false, data: () => ({}) }), create: async () => {} }),
+      doc: (path: string) => ({ id: String(path).split('/').pop(), get: async () => ({ id: String(path).split('/').pop(), exists: path in paths, data: () => paths[path] }),
+        create: async (v: any) => { if (path in paths) throw new Error('already exists'); paths[path] = v; } }),
       runTransaction: async (fn: any) => fn({ get: (r: any) => r.get(), set: (r: any, v: any) => { if (r?.__event) events.push(v); else rows[r.id] = { ...(rows[r.id] || {}), ...v }; } }),
     };
-    return { rows, db, refOf, events };
+    return { rows, db, refOf, events, paths };
   };
-  const solo = (row: any) => { const m = memDb({ a: { ...row } }); return { ...m, ref: m.refOf('a'), row: () => m.rows.a }; };
+  const solo = (row: any, paths: Record<string, any> = {}) => { const m = memDb({ a: { ...row } }, paths); return { ...m, ref: m.refOf('a'), row: () => m.rows.a }; };
 
   let t = solo({ shippoTransactionId: 't1', trackingNumber: '1', carrier: 'USPS', stage: 'cancelled', labelUrl: 'u', labelUnscannedOpen: true, autoVoid: { tries: 2 } });
   tracks({ '1': pre });
@@ -150,9 +152,11 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   tracks({ '13': pre }, { tg: 'gateway' });
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
   ok(!r.ok && r.refused === 'uncertain' && t.row().labelVoiding?.txn === 'tg', 'a server error or gateway timeout counts as no answer: the refund may have gone through, so the note stays');
-  t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
+  t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'USPS', stage: 'packed', labelUrl: 'u' },
+    { 'tenants/shop/transactions/postage-m': { amount: 12.4, description: 'Postage: order #0012' } });
   tracks({ '14': pre, '15': pre }, { m2: 'no' });
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(t.paths['tenants/shop/transactions/postage-void-m']?.amount === 6.2, 'the box that was voided: its share of the postage goes into the books as money coming back');
   ok(r.ok && /1 of 2 labels voided/.test(String(r.note)) && /not eligible/.test(String(r.note)) && t.row().shippoTransactionId === '' && (t.row().labelVoidIds || []).length === 0 && t.row().labelVoiding === null && !labelInDoubt(t.row()),
     'one box voided and Shippo said no to the other: the label can’t ship as it is, so it comes off the order (a new one can be bought) and the box Shippo wouldn’t refund is named');
   t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
@@ -163,6 +167,17 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   tracks({ '14': pre, '15': pre }, { m2: 'no' });
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
   ok(r.ok && refunds.join() === 'm2' && t.row().shippoTransactionId === '' && !labelInDoubt(t.row()), 'voiding it again settles it: only the box still to go is tried, and the label comes off');
+  t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'Some Courier', stage: 'packed', labelUrl: 'u' });
+  tracks({}, { m2: 'used' });
+  r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(!r.ok && r.refused === 'moving' && t.row().shippoTransactionId === 'm' && !!t.row().labelSeenMoving && (t.row().labelVoidIds || []).join() === 'm'
+    && t.row().voidedLabelMoving?.open === true && t.row().voidedLabelMoving?.voidedBoxes === 1 && !labelInDoubt(t.row()) && /needs a new label/.test(String(r.error)),
+    'Shippo says a box was already used (tracking couldn’t say): the label stays, the box is remembered as out, the voided box is named, and the order isn’t held back');
+  t = solo({ shippoTransactionId: 'tu', trackingNumber: '16', carrier: 'Some Courier', stage: 'packed', labelUrl: 'u' });
+  tracks({}, { tu: 'used' });
+  r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(!r.ok && r.refused === 'moving' && t.row().shippoTransactionId === 'tu' && !!t.row().labelSeenMoving && !t.row().voidedLabelMoving && t.row().labelVoiding === null,
+    'one box, already used: nothing was refunded, so it simply stays on the order as out');
   t = solo({ shippoTransactionId: 'ts', trackingNumber: '12', carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
   tracks({ '12': pre }, { ts: 'silent' });
   await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
@@ -177,6 +192,9 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     && labelDoubt({ shippoTransactionId: 'x', labelUnscannedOpen: false, labelUnscanned: { why: 'void_unfinished', dismissedAt: 'x' } }) === null
     && labelDoubt({ shippoTransactionId: 'x', labelUnscannedOpen: true, labelUnscanned: {} }) === null && labelDoubt({ labelVoiding: { txn: '' } }) === null,
     'in doubt: a void under way or unanswered, some boxes voided, or a void the morning check handed over that nobody has decided on (kept: not in doubt)');
+  ok(labelDoubt({ shippoTransactionId: 'x', labelVoidIds: ['x'], labelSeenMoving: 'y' }) === null && labelDoubt({ shippoTransactionId: 'x', labelVoiding: { txn: 'x' }, carrierTrail: { status: 'TRANSIT' } }) === null
+    && labelDoubt({ shippoTransactionId: 'x', labelVoiding: { txn: 'x' }, boxStatus: { '2': 'DELIVERED' } }) === null,
+    'once the carrier has scanned a box it’s out whatever happened, so the order isn’t held back (the warning card covers the money)');
   ok(labelHolderId({ labelFromOrderId: 'p', shippedWithOrderId: 'p' }) === 'p' && labelHolderId({ shippoTransactionId: 't', shippedWithOrderId: 'p' }) === '' && labelHolderId({}) === '',
     'an order in another order’s box is checked against that order’s label');
 

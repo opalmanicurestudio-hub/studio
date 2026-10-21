@@ -12,6 +12,9 @@ const timeout = (ms: number): AbortSignal | undefined => { try { return (AbortSi
 // "Already refunded" means our earlier void went through. "Already used" (scanned by the carrier) means it can't be voided.
 const ALREADY = /already (been )?refunded|refund[^.]{0,40}already exists|already (has|have) a refund|refund (was|has been) already requested/i;
 const NOT_VOIDABLE = /used|scanned|in transit|not eligible|cannot be refunded|can't be refunded|can’t be refunded/i;
+// Turned down because the carrier already has the box: it's on its way, so its label must stay on the order. ("Not
+// eligible" is left out: it doesn't say why.)
+const IN_USE = /\bused\b|scanned|in transit/i;
 
 /** What an order looks like once its labels are voided: no label, no tracking, nothing checked at the bench. */
 export const LABEL_CLEARED = {
@@ -31,11 +34,12 @@ export const SHARED_CLEARED = {
   labelFromOrderId: null, shippedWithOrderId: null, shipTogetherAt: null,
 };
 
-/** How it ended. voided: every box. partial: some boxes voided and Shippo said no to the rest, so the label can't ship as
- *  it is. refused: nothing voided, so the label works as before. unknown: some box got no real answer (no response, a
- *  timeout, or a server error that may have come after Shippo made the refund), so it may or may not have gone through.
- *  `refusal` is Shippo's own words for a box it turned down; `total` is how many boxes the label has. */
-export type VoidResult = { ok: boolean; outcome: 'voided' | 'partial' | 'refused' | 'unknown'; error?: string; refusal?: string; status?: string; count: number; total: number; voidedIds: string[]; trackingNumbers: string[]; uncertain?: boolean };
+/** How it ended. voided: every box. moving: Shippo said a box was already used (the carrier has it), so the label stays
+ *  on the order. partial: some boxes voided and Shippo said no to the rest, so the label can't ship as it is. refused:
+ *  nothing voided, so the label works as before. unknown: some box got no real answer (no response, a timeout, or a
+ *  server error that may have come after Shippo made the refund), so it may or may not have gone through. `refusal` is
+ *  Shippo's own words for a box it turned down; `total` is how many boxes the label has. */
+export type VoidResult = { ok: boolean; outcome: 'voided' | 'moving' | 'partial' | 'refused' | 'unknown'; error?: string; refusal?: string; status?: string; count: number; total: number; voidedIds: string[]; trackingNumbers: string[]; uncertain?: boolean };
 
 export async function voidOrderLabels(db: any, tenantId: string, order: any, apiKey: string, opts: { alreadyVoided?: string[] } = {}): Promise<VoidResult> {
   const master = String(order?.shippoTransactionId || '').trim();
@@ -57,7 +61,7 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
     if (ids.length < 1 + extra) return { ok: false, outcome: 'refused', error: 'Couldn’t find every box’s label to void, so none were voided. Try again in a minute.', count: 0, total: 1 + extra, voidedIds: [], trackingNumbers };
   }
   const done = new Set((opts.alreadyVoided || []).map(String));
-  const failed: string[] = []; let noAnswer = 0; let refusal = '';
+  const failed: string[] = []; let noAnswer = 0; let inUse = 0; let refusal = '';
   let status = done.has(master) ? 'PENDING' : '';
   for (const id of ids) {
     if (done.has(id)) continue;
@@ -67,12 +71,15 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
     if (r && r.ok) { done.add(id); if (id === master) status = String(d.status || 'PENDING'); continue; }
     if (r && ALREADY.test(said) && !NOT_VOIDABLE.test(said)) { done.add(id); if (id === master) status = 'PENDING'; continue; }
     if (!r || r.status >= 500 || r.status === 408) noAnswer++;
-    else if (!refusal) refusal = said;
+    else { if (IN_USE.test(said)) inUse++; if (!refusal) refusal = said; }
     failed.push(id);
   }
   const voidedIds = ids.filter((id) => done.has(id));
   if (failed.length) {
-    const outcome = noAnswer > 0 ? 'unknown' : voidedIds.length ? 'partial' : 'refused';
+    // A box the carrier has is a fact, whatever else happened; then no answer; then what Shippo said.
+    const outcome = inUse > 0 ? 'moving' : noAnswer > 0 ? 'unknown' : voidedIds.length ? 'partial' : 'refused';
+    // Some boxes voided and nothing left in doubt: their share of the postage comes back, into the books now.
+    if ((outcome === 'partial' || outcome === 'moving') && voidedIds.length) await reversePostage(db, tenantId, master, voidedIds.length / ids.length).catch(() => {});
     return { ok: false, outcome, error: voidedIds.length ? `${voidedIds.length} of ${ids.length} labels voided; the rest didn’t go through. Try again in a minute.` : 'The label couldn’t be voided. Try again in a minute.', refusal: refusal.slice(0, 160), count: voidedIds.length, total: ids.length, voidedIds, trackingNumbers, uncertain: noAnswer > 0 };
   }
   await reversePostage(db, tenantId, master).catch(() => {});

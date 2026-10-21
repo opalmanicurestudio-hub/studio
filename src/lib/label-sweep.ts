@@ -157,7 +157,7 @@ export async function voidIfUnused(db: any, tenantId: string, ref: any, order: a
     const begun = opts.finishing || String(order.labelVoiding?.txn || '') === txnId;
     const told = order.voidedLabelMoving?.trackingNumber === tn && order.voidedLabelMoving?.open === false;
     await ref.set({ labelSeenMoving: at, labelUnscannedOpen: false, labelVoiding: null,
-      ...(begun && !told ? { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn } } : {}) }, { merge: true }).catch(() => {});
+      ...(begun && !told ? { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes: 0 } } : {}) }, { merge: true }).catch(() => {});
     return { ok: false, refused: 'moving', error: 'The carrier has already scanned this label, so it can’t be voided.' };
   }
   // A packed box can still go out, so finishing its void needs the same proof an automatic void does.
@@ -181,6 +181,15 @@ export async function voidIfUnused(db: any, tenantId: string, ref: any, order: a
   if (start.stop) return { ok: false, refused: 'changed', error: start.stop };
   const cur: any = start.c;
   const v = await voidOrderLabels(db, tenantId, cur, apiKey, { alreadyVoided: Array.isArray(cur.labelVoidIds) ? cur.labelVoidIds : [] });
+  if (v.outcome === 'moving') {
+    // Shippo says the carrier already has a box: the label stays (that box is on its way), it's remembered as moving (so
+    // the order can be marked shipped), and if other boxes did void, the team hears they need new labels.
+    const at = new Date().toISOString(); const tn = String(cur.trackingNumber || '');
+    const told = cur.voidedLabelMoving?.trackingNumber === tn && cur.voidedLabelMoving?.open === false;
+    await ref.set({ labelSeenMoving: at, labelUnscannedOpen: false, labelVoiding: null, ...(v.voidedIds.length ? { labelVoidIds: v.voidedIds } : {}),
+      ...(v.voidedIds.length && !told ? { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes: v.voidedIds.length } } : {}) }, { merge: true }).catch(() => {});
+    return { ok: false, refused: 'moving', error: `The carrier already has ${v.total > 1 ? 'one of these boxes' : 'this box'}, so ${v.total > 1 ? 'its label' : 'the label'} can’t be voided.${v.voidedIds.length ? ` ${v.voidedIds.length} other box label${v.voidedIds.length === 1 ? ' was' : 's were'} voided, so ${v.voidedIds.length === 1 ? 'that box needs' : 'those boxes need'} a new label before going out.` : ''}` };
+  }
   if (v.outcome === 'refused' || v.outcome === 'unknown') {
     // Shippo said no and nothing was voided: the label works as before, so the note comes off. No real answer for some
     // box: it may have gone through, so the note stays (the void is finished the next morning or shown to someone, and
@@ -230,7 +239,7 @@ async function tellUnfinished(ref: any, o: any, now: number, reason?: string): P
     // A person decides from here, so no automatic void runs on this label again.
     autoVoid: { tries: AUTO_TRIES, at, error: String(reason || 'A void didn’t finish').slice(0, 200) },
     ...(scannedOnRecord(o)
-      ? (told ? {} : { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn } })
+      ? (told ? {} : { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes: 0 } })
       : listed(o, at, 'void_unfinished', { startedAt: o.labelVoiding?.at || null, error: reason ? reason.slice(0, 200) : null })),
   }, { merge: true });
 }

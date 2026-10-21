@@ -11,15 +11,18 @@ export async function recordPostage(db: any, t: string, order: { id: string; ord
   } catch { /* already recorded */ }
 }
 
-export async function reversePostage(db: any, t: string, shippoTxnId: string): Promise<void> {
-  if (!shippoTxnId) return;
+/** The postage coming back for a voided label, once. `share`: the part of it that came back when only some of a label's
+ *  boxes were voided (by box count, since one rate covers every box). */
+export async function reversePostage(db: any, t: string, shippoTxnId: string, share = 1): Promise<void> {
+  const part = Math.max(0, Math.min(1, Number(share) || 0));
+  if (!shippoTxnId || !part) return;
   const key = shippoTxnId.replace(/[^\w-]/g, '');
   const orig = await db.doc(`tenants/${t}/transactions/postage-${key}`).get(); if (!orig.exists) return;
   const o: any = orig.data() || {};
   const ref = db.doc(`tenants/${t}/transactions/postage-void-${key}`);
   try {
     await ref.create({ id: ref.id, tenantId: t, date: new Date().toISOString(), type: 'income', context: 'Business', category: 'Shipping', taxBucket: 'refund',
-      amount: Number(o.amount) || 0, description: `Postage refund (label voided): ${String(o.description || '').replace(/^Postage: /, '')}`, clientOrVendor: o.clientOrVendor || 'Carrier', paymentMethod: 'Shippo', hasReceipt: false,
+      amount: Math.round((Number(o.amount) || 0) * part * 100) / 100, description: `Postage refund (${part < 1 ? 'some box labels voided' : 'label voided'}): ${String(o.description || '').replace(/^Postage: /, '')}`, clientOrVendor: o.clientOrVendor || 'Carrier', paymentMethod: 'Shippo', hasReceipt: false,
       retailOrderId: o.retailOrderId || null, shippoTransactionId: shippoTxnId, voidOf: orig.id });
   } catch { /* already recorded */ }
 }
