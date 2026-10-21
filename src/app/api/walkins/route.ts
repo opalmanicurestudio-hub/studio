@@ -96,6 +96,7 @@ import { homeLocation } from '@/lib/business-locations';
 import { sendNotification } from '@/lib/notify';
 import { nanoid } from 'nanoid';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
+import { searchFields } from '@/lib/client-search';
 
 export const dynamic = 'force-dynamic';
 
@@ -2200,6 +2201,7 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
           lastAppointment: nowIso,
           lastServiceId: seat.service.id,
           createdVia: 'walkin-kiosk',
+          ...searchFields({ name: seat.name, email: seat.email, phone: seat.phone }),
           // A guest added by first name only, with no phone and no email. This
           // is deliberately NOT merged onto an existing record with the same
           // name: welding two different people's history — their notes, their

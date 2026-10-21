@@ -113,6 +113,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { StoreCreditHistory } from '@/components/clients/StoreCreditHistory';
 import { Wallet } from 'lucide-react';
 import { isPoorHistory } from '@/lib/deposit-policy';
+import { searchFields } from '@/lib/client-search';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -1173,6 +1174,8 @@ export default function ClientDetailPage() {
         const nowIso = new Date().toISOString();
         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), {
           ...stripHiddenContact(client as any, data as any),
+          // Search keys from the real details; a record shown with contact hidden is left to the background job.
+          ...(!(client as any).contactHidden ? searchFields({ ...(client as any), ...(data as any) }) : {}),
           ...(reset ? { smsMarketingOptIn: false, smsMarketingOptOutAt: nowIso,
             consentLog: arrayUnion({ at: nowIso, kind: 'sms_marketing', value: false, source: 'staff', method: 'number_changed', by: String(currentUser?.displayName || currentUser?.email || 'Staff'), byUid: currentUser?.uid || null, phone: (client as any).phone || null, note: `Number changed to ${(data as any)?.phone || '(none)'} — ask again` }) } : {}),
         });

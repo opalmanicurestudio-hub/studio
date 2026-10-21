@@ -41,6 +41,7 @@ import { useTenant } from '@/context/TenantContext';
 import { canSeeFinancials, canSeeClientContact, canMessageClients } from '@/lib/privacy';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientCard } from '@/components/clients/ClientCard';
+import { searchFields } from '@/lib/client-search';
 
 const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
     <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
@@ -101,8 +102,9 @@ export default function ClientsPage() {
       notes: data.notes, referralCode,
       birthday: data.birthday ? data.birthday.toISOString() : undefined,
       address: data.address, emergencyContact: data.emergencyContact,
-      intel: { referralSource: data.intel?.referralSource }
-    };
+      intel: { referralSource: data.intel?.referralSource },
+      ...searchFields(data),
+    } as any;
     const clientsCollection = collection(firestore, `tenants/${tenantId}/clients`);
     addDocumentNonBlocking(clientsCollection, JSON.parse(JSON.stringify(newClient)));
     if (referringClientId && clients) {

@@ -12,6 +12,7 @@
 //     sale — when there isn't one).
 import { createHash } from 'crypto';
 import { digits10, type ImportKind } from '@/lib/import-records';
+import { searchFields } from '@/lib/client-search';
 
 const T = (t: string) => `tenants/${t}`;
 const now = () => new Date().toISOString();
@@ -95,7 +96,7 @@ export async function rememberMaps(db: any, tenantId: string, staffMap: Record<s
   if (Object.keys(patch).length) await db.doc(T(tenantId)).update(patch).catch(() => {});
 }
 
-const newClientDoc = (ref: any, r: any, meta: { importId: string; app: string }) => JSON.parse(JSON.stringify({ id: ref.id, name: r.client || r.name, firstName: r.firstName, lastName: r.lastName, email: r.email || null, phone: r.phone || null, status: 'active', lifetimeValue: 0, lastAppointment: null, createdVia: 'import', importId: meta.importId, importedFrom: meta.app || null, importedAt: now(), createdAt: now(), importedSpent: 0, importedLastVisit: null }));
+const newClientDoc = (ref: any, r: any, meta: { importId: string; app: string }) => JSON.parse(JSON.stringify({ id: ref.id, name: r.client || r.name, firstName: r.firstName, lastName: r.lastName, email: r.email || null, phone: r.phone || null, ...searchFields({ name: r.client || r.name, firstName: r.firstName, lastName: r.lastName, email: r.email, phone: r.phone }), status: 'active', lifetimeValue: 0, lastAppointment: null, createdVia: 'import', importId: meta.importId, importedFrom: meta.app || null, importedAt: now(), createdAt: now(), importedSpent: 0, importedLastVisit: null }));
 
 /** Save a chunk of appointments. */
 export async function saveAppointments(db: any, tenantId: string, tenant: any, rows: any[], o: { importId: string; app: string; staffMap: Record<string, string>; serviceMap: Record<string, string>; reminders: boolean }) {

@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { sameKeys, fillIn, type ImportKind } from '@/lib/import-records';
+import { searchFields } from '@/lib/client-search';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -34,6 +35,7 @@ function newDoc(kind: ImportKind, id: string, d: any, meta: { importId: string; 
     const o: any = { ...base, name: d.name, email: d.email || null, phone: d.phone || null, status: 'active', lifetimeValue: Number(d.spent) || 0, lastAppointment: d.lastVisit || null, createdAt: d.clientSince ? `${d.clientSince}T12:00:00.000Z` : now() };
     for (const k of ['firstName', 'lastName', 'birthday', 'address', 'notes', 'allergyNotes', 'tags', 'referral']) if (d[k] != null) o[k] = d[k];
     if (d.visits != null) o.importedVisits = d.visits;
+    Object.assign(o, searchFields(o));
     if (meta.keepMarketing) {
       if (d.emailOk === false) o.marketingOptIn = false; if (d.emailOk === true) { o.marketingOptIn = true; o.marketingOptInSource = `Imported from ${meta.app || 'another app'}`; o.marketingOptInAt = now(); }
       if (d.smsOk === false) o.smsMarketingOptIn = false; if (d.smsOk === true) { o.smsMarketingOptIn = true; o.smsMarketingOptInSource = `Imported from ${meta.app || 'another app'}`; o.smsMarketingOptInAt = now(); }

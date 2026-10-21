@@ -132,6 +132,7 @@ async function callerTrust(req: NextRequest, tenantId: string, body: any): Promi
 }
 import { verifyBookable, providerMinutes } from '@/lib/availability';
 import { graceHoursOf, resolveBookingPlan, shouldAutoApprove } from '@/lib/deposit-policy';
+import { searchFields } from '@/lib/client-search';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -726,6 +727,7 @@ export async function POST(req: NextRequest) {
             lifetimeValue: 0,
             lastAppointment: new Date().toISOString(),
             createdVia: source,
+            ...searchFields({ name: clientName, email: emailRaw, phone: phoneRaw }),
             ...(bookOwner ? { ownerRenterId: bookOwner, ownerStaffId: renterSvc.staffId } : {}),
             ...consent,
           });

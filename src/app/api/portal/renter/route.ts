@@ -72,6 +72,7 @@ function clampWeekToLease(week: any, lease: any): any {
 }
 import { dueAtFor, respondByFor, ticketAcknowledged, responseCommitments, TICKET_STATUS_LABELS } from '@/lib/maintenance';
 import { uploadTicketPhotoFromDataUrl, uploadPortalImageFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
+import { searchFields } from '@/lib/client-search';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -3212,7 +3213,7 @@ export async function POST(req: NextRequest) {
       // two businesses, two records.
       const ref = db.collection(`tenants/${tenantId}/clients`).doc();
       await ref.set({ id: ref.id, name, phone, email, renterNotes, status: 'active', lifetimeValue: 0, lastAppointment: nowIso, createdVia: 'renter_portal', createdAt: nowIso,
-        ownerRenterId: session.renterId, ownerStaffId: st.id });
+        ownerRenterId: session.renterId, ownerStaffId: st.id, ...searchFields({ name, phone, email }) });
       return NextResponse.json({ ok: true, id: ref.id });
     }
     if (action === 'client-archive') {

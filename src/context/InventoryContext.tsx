@@ -138,7 +138,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: businessProfiles, isLoading: businessLoading } = useCollection<any>(useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/businessProfiles`) : null, [firestore, tenantId]));
 
   const { data: rawTransactions, isLoading: transactionsLoading, error: transactionsError } = useCollection<Transaction>(useMemoFirebase(() => tenantId && wanted.transactions ? collection(firestore, 'tenants', tenantId, 'transactions') : null, [firestore, tenantId, wanted.transactions]));
-  const { data: rawClients, isLoading: clientsLoading } = useCollection<Client>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'clients') : null, [firestore, tenantId]));
+  // Every client: only for screens that list or total them all. Finding one client or showing a few uses hooks/use-clients.
+  const { data: rawClients, isLoading: clientsLoading, error: clientsError } = useCollection<Client>(useMemoFirebase(() => tenantId && wanted.clients ? collection(firestore, 'tenants', tenantId, 'clients') : null, [firestore, tenantId, wanted.clients]));
   // A booth renter's clients are THEIR book, not the studio's. They live in
   // the same collection (one booking route, one schema) but carry
   // ownerRenterId, and this is the one place the studio's view is cut: every
@@ -146,6 +147,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   // POS lookup, reports — sees only the studio's own. The renter sees theirs
   // in the portal. Filtered here rather than per page so nothing can forget.
   const clients = useMemo(() => { const own = (rawClients || []).filter((c: any) => !c.ownerRenterId); return hideContact ? own.map((c: any) => maskClientContact(c)) : own; }, [rawClients, hideContact]);
+  // The same view of one client record, for screens that read clients one at a time: renters' clients hidden, contact privacy applied.
+  const clientView = useCallback((c: any) => (!c || c.ownerRenterId ? null : hideContact ? maskClientContact(c) : c), [hideContact]);
   // Every appointment ever: only for the few screens that still need all of history. Most read the shared window below.
   const { data: appointmentsFromDB, isLoading: appointmentsLoading, error: appointmentsError } = useCollection<Appointment>(useMemoFirebase(() => tenantId && wanted.appointments ? collection(firestore, 'tenants', tenantId, 'appointments') : null, [firestore, tenantId, wanted.appointments]));
   // THE WORKING WINDOW: six weeks back to a year ahead, read once and shared by every screen that works around today.
@@ -330,10 +333,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     return rawStudioEvents || [];
   }, [rawStudioEvents]);
 
-  const eagerLoading = inventoryLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || clientsLoading || servicesLoading || staffLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || discountsLoading || pricingTiersLoading || scheduleProfilesLoading || lifestyleLoading || businessLoading || subInstancesLoading || assetUnitsLoading || stationAllocationsLoading || staffReplenishmentRequestsLoading;
+  const eagerLoading = inventoryLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || servicesLoading || staffLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || discountsLoading || pricingTiersLoading || scheduleProfilesLoading || lifestyleLoading || businessLoading || subInstancesLoading || assetUnitsLoading || stationAllocationsLoading || staffReplenishmentRequestsLoading;
   const lazyLoading = (k: string, flag: boolean) => !!wantedRef.current[k] && (!wanted[k] || flag);
   // Still starting: loading, or asked for but no answer yet (and no error).
-  const lazyFlags: Record<string, boolean> = { appointments: appointmentsLoading || (appointmentsFromDB == null && !appointmentsError), apptWindow: apptWin.isLoading, transactions: transactionsLoading || (rawTransactions == null && !transactionsError), activityLogs: activityLogsLoading || (rawActivityLogs == null && !activityLogsError), stockCorrections: stockCorrectionsLoading || (stockCorrections == null && !stockCorrectionsError), tillSessions: tillSessionsLoading || (tillSessions == null && !tillSessionsError), redemptions: redemptionsLoading || (redemptions == null && !redemptionsError), refreshmentRequests: refreshmentRequestsLoading || (refreshmentRequests == null && !refreshmentRequestsError), overflowEvents: overflowEventsLoading || (overflowEvents == null && !overflowEventsError), reviews: reviewsLoading || (reviews == null && !reviewsError), walkIns: walkInsLoading || (walkIns == null && !walkInsError), events: eventsLoading || (rawEvents == null && !eventsError), studioEvents: studioEventsLoading || (rawStudioEvents == null && !studioEventsError) };
+  const lazyFlags: Record<string, boolean> = { clients: clientsLoading || (rawClients == null && !clientsError), appointments: appointmentsLoading || (appointmentsFromDB == null && !appointmentsError), apptWindow: apptWin.isLoading, transactions: transactionsLoading || (rawTransactions == null && !transactionsError), activityLogs: activityLogsLoading || (rawActivityLogs == null && !activityLogsError), stockCorrections: stockCorrectionsLoading || (stockCorrections == null && !stockCorrectionsError), tillSessions: tillSessionsLoading || (tillSessions == null && !tillSessionsError), redemptions: redemptionsLoading || (redemptions == null && !redemptionsError), refreshmentRequests: refreshmentRequestsLoading || (refreshmentRequests == null && !refreshmentRequestsError), overflowEvents: overflowEventsLoading || (overflowEvents == null && !overflowEventsError), reviews: reviewsLoading || (reviews == null && !reviewsError), walkIns: walkInsLoading || (walkIns == null && !walkInsError), events: eventsLoading || (rawEvents == null && !eventsError), studioEvents: studioEventsLoading || (rawStudioEvents == null && !studioEventsError) };
   
   /*
    * RENDER ARMOR — a Firestore FieldValue sentinel (or any stray object) that
@@ -398,7 +401,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     locationTypes: locationTypes || [],
     billDefinitions: billDefinitions || [],
     billInstances: billInstances || [],
-    clients: clients || [],
     services: services || [],
     staff: staff || [],
     memberships: memberships || [],
@@ -407,7 +409,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     resources: resources || [],
     discounts: discounts || [],
     pricingTiers: pricingTiers || [],
-    subscriptionInstances: subscriptionInstances || [],
     scheduleProfiles: scheduleProfiles || [],
     lifestyleProfiles: lifestyleProfiles || [],
     businessProfiles: businessProfiles || [],
@@ -416,6 +417,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     stationAllocations: stationAllocations || [],
     staffReplenishmentRequests: staffReplenishmentRequests || [],
   };
+  Object.defineProperty(value, 'clients', { enumerable: true, get: () => { want('clients'); return clients; } });
+  value._clientView = clientView;
+  // Upcoming membership charges are worked out from clients, so reading them loads clients.
+  Object.defineProperty(value, 'subscriptionInstances', { enumerable: true, get: () => { want('clients'); return subscriptionInstances || NONE; } });
   Object.defineProperty(value, 'appointments', { enumerable: true, get: () => { want('appointments'); return appointments; } });
   Object.defineProperty(value, 'appointmentWindow', { enumerable: true, get: () => { want('apptWindow'); return appointmentWindow; } });
   value._apptWindowFrom = winFrom.getTime(); value._apptWindowTo = winTo.getTime(); value._mergeVisits = mergeRaw;
