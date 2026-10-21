@@ -3,14 +3,16 @@
 // combines on its own). One label covers them all; its tracking goes on every order; the shipping paid on the other
 // orders is refunded automatically, because it was never needed.
 //
-// Left out: gift orders (their slip and the recipient's exchange are their own), orders held for review, and orders
-// already labelled or shipped.
+// Left out: gift orders (their slip and the recipient's exchange are their own), orders held for review, orders with an
+// address change waiting, and orders already labelled or shipped.
 
 const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** The same person at the same address, or '' when an order can't be combined. */
 export function togetherKey(o: any, opts: { labelled?: boolean } = {}): string {
   if (!o || o.method !== 'ship' || o.gift || o.holdForReview || o.digitalOnly) return '';
+  // An address change waiting for the team (lib/address-flow): it may not be going to the same place after all.
+  if (['waiting', 'approving'].includes(String(o.addressRequest?.status || ''))) return '';
   if (!opts.labelled && (o.labelUrl || o.trackingNumber || o.shippoTransactionId)) return '';
   const a = o.shippingAddress || {};
   const email = String(o.customerEmail || '').trim().toLowerCase();

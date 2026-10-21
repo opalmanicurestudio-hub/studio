@@ -311,7 +311,7 @@ export async function GET(req: NextRequest) {
         const r = order.addressRequest || null;
         return {
           addressConfirm: order.addressConfirm ? { status: String(order.addressConfirm.status || ''), askedAt: order.addressConfirm.askedAt || null } : null,
-          addressRequest: r ? { status: String(r.status || ''), to: r.to || null, at: r.at || null, reply: r.reply || null, answeredAt: r.answeredAt || null } : null,
+          addressRequest: r ? { status: r.status === 'approving' ? 'waiting' : String(r.status || ''), to: r.to || null, at: r.at || null, reply: r.reply || null, answeredAt: r.answeredAt || null } : null,
           addressChange: changeMode(order, rs).mode,
           addressChangeUntil: changePolicy(rs).until,
           addressVerdict: order.addressCheck?.verdict || null,

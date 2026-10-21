@@ -15,7 +15,7 @@ import { Btn, C, Sheet, muted } from './ui';
 import { openPrint } from '@/lib/open-print';
 import { labelProgress } from '@/lib/totes';
 import { AddressCard } from './AddressCard';
-import { oneLine } from '@/lib/address-flow';
+import { addressKey, oneLine, openRequest } from '@/lib/address-flow';
 
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
@@ -46,7 +46,18 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   const parcelsKey = JSON.stringify(parcels);
   const [rates, setRates] = React.useState<Rate[]>([]); const [rate, setRate] = React.useState<string>('');
   const [loading, setLoading] = React.useState(false); const [err, setErr] = React.useState('');
-  const [label, setLabel] = React.useState<{ url: string; carrier: string; number: string; trackUrl: string; extraUrls: string[]; extraNumbers: string[] } | null>(order.labelUrl ? { url: order.labelUrl, carrier: order.carrier || '', number: order.trackingNumber || '', trackUrl: order.trackingUrl || '', extraUrls: order.extraLabelUrls || [], extraNumbers: order.extraTrackingNumbers || [] } : null);
+  type LabelView = { url: string; carrier: string; number: string; trackUrl: string; extraUrls: string[]; extraNumbers: string[] };
+  const labelOf = (o: any): LabelView | null => (o.labelUrl ? { url: o.labelUrl, carrier: o.carrier || '', number: o.trackingNumber || '', trackUrl: o.trackingUrl || '', extraUrls: o.extraLabelUrls || [], extraNumbers: o.extraTrackingNumbers || [] } : null);
+  const [label, setLabel] = React.useState<LabelView | null>(labelOf(order));
+  // The label as the order has it now: voided or replaced by someone else while this sheet is open, it follows.
+  const labelSig = `${order.labelUrl || ''}|${order.shippoTransactionId || ''}`;
+  const firstSig = React.useRef(labelSig);
+  React.useEffect(() => { if (labelSig === firstSig.current) return; firstSig.current = labelSig; setLabel(labelOf(order)); }, [labelSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A change to the address the customer asked for, on this order or any going in the same box (lib/address-flow).
+  const asked = group.find((g: any) => openRequest(g)) || null;
+  // Rates are priced for an address; when it changes, they're fetched again, and buying names the address they were for.
+  const addrK = addressKey(order.shippingAddress);
+  const [ratesFor, setRatesFor] = React.useState('');
   const [manual, setManual] = React.useState(!(rs?.shippoConnected || rs?.shippoApiKey) && !label);
   const [mCarrier, setMCarrier] = React.useState(''); const [mNumber, setMNumber] = React.useState('');
   const [mExtra, setMExtra] = React.useState<string[]>([]);   // more boxes, one tracking number each
@@ -56,21 +67,21 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'That didn’t work.'); return d;
   };
   const loadRates = React.useCallback(async () => {
-    if (manual || label) return; setLoading(true); setErr('');
-    try { const d = await post({ action: 'rates', parcels }); const rs2 = (d.rates || []).sort((a: Rate, b: Rate) => a.amountCents - b.amountCents); setRates(rs2); setRate(rs2[0]?.id || ''); }
+    if (manual || label) return; setLoading(true); setErr(''); setRates([]); setRate('');
+    try { const d = await post({ action: 'rates', parcels }); const rs2 = (d.rates || []).sort((a: Rate, b: Rate) => a.amountCents - b.amountCents); setRates(rs2); setRate(rs2[0]?.id || ''); setRatesFor(String(d.addressKey || '')); }
     catch (e: any) { setErr(e.message); } setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parcelsKey, manual, label]);
+  }, [parcelsKey, manual, label, addrK]);
   React.useEffect(() => { void loadRates(); }, [loadRates]);
 
   const buy = async () => {
     setLoading(true); setErr('');
-    try { const d = await post({ action: 'purchase', rateId: rate, parcels });
+    try { const d = await post({ action: 'purchase', rateId: rate, parcels, ...(ratesFor ? { addressKey: ratesFor } : {}) });
       const extraUrls: string[] = d.extraLabelUrls || [];
       setLabel({ url: d.labelUrl || '', carrier: d.carrier || '', number: d.trackingNumber || '', trackUrl: d.trackingUrl || '', extraUrls, extraNumbers: d.extraTrackingNumbers || [] });
       if (many) await joinGroup(null);
       if (!extraUrls.length && d.labelUrl) window.open(d.labelUrl, '_blank'); }   // several labels: printed together from the button below, one tap
-    catch (e: any) { setErr(e.message); } setLoading(false);
+    catch (e: any) { setErr(e.message); if (/address changed/i.test(String(e.message))) void loadRates(); } setLoading(false);
   };
   // Several labels print together, in one stack (one page per box); orders shipped together print their slips with it.
   const printAll = () => openPrint(tenantId, 'orders', `/print/labels/${tenantId}?ids=${group.map((g: any) => g.id).join(',')}`);
@@ -104,9 +115,9 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   return (
     <Sheet title={many ? `Ship ${firstName(order.customerName)}’s ${group.length} orders together` : `Ship ${firstName(order.customerName)}’s order`} sub={order.shippingAddress ? `To ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode || ''}${many ? ` · ${group.map((g: any) => `#${String(g.orderNumber ?? '').padStart(4, '0')}`).join(' + ')}` : ''}` : undefined} onClose={onClose}>
       <div className="mt-2"><AddressCard order={order} tenantId={tenantId} onToast={onToast} /></div>
-      {order.addressRequest?.status === 'waiting' && (
+      {asked && (
         <div className="mt-2 rounded-2xl p-4 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>
-          <b className="font-semibold">{firstName(order.customerName)} asked to change the address</b> to {oneLine(order.addressRequest.to)}. Answer that on the order first, so the label goes to the right place.
+          <b className="font-semibold">{firstName(asked.customerName)} asked to change the address{many ? ` on #${String(asked.orderNumber ?? '').padStart(4, '0')}` : ''}</b> to {oneLine(asked.addressRequest?.to)}. Answer that on the order first, so the label goes to the right place.
         </div>)}
       {many && (
         <div className="mt-2 rounded-2xl p-4" style={{ background: C.soft }}>
@@ -125,7 +136,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
             {slipAfterLabel(rs) && order.qrToken && !many && <Btn kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken || '')}`, '_blank')}>Print the packing slip</Btn>}
             {many && group.filter((g: any) => g.qrToken).map((g: any) => <Btn key={g.id} kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${g.id}?t=${encodeURIComponent(g.qrToken || '')}`, '_blank')}>{`Packing slip for #${String(g.orderNumber ?? '').padStart(4, '0')}`}</Btn>)}
             {refundNote && <p className="m-0 text-[14px]" style={{ color: C.ok }}>{refundNote}</p>}
-            <Btn kind="primary" className="text-[17px]" disabled={loading} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{many ? `Mark all ${group.length} orders as shipped` : label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
+            <Btn kind="primary" className="text-[17px]" disabled={loading || !!asked} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{many ? `Mark all ${group.length} orders as shipped` : label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
             {!many && order.shippoTransactionId && (voiding ? (
               <div className="rounded-2xl p-4" style={{ background: C.soft }}>
                 <p className="m-0 text-[15px] font-semibold">Void {label.extraUrls?.length ? `all ${1 + label.extraUrls.length} labels` : 'this label'}?</p>
@@ -146,7 +157,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
             </div>))}
           {mExtra.length < 9 && <Btn kind="plain" onClick={() => setMExtra((l) => [...l, ''])} style={muted}>Add another box</Btn>}
           <p className="m-0 text-[14px]" style={muted}>{firstName(order.customerName)} gets an email with this tracking number.</p>
-          <Btn kind="primary" className="text-[17px]" disabled={loading || !mNumber.trim()} onClick={() => void markShipped({ carrier: mCarrier.trim(), number: mNumber.trim(), extraNumbers: mExtra.map((x) => x.trim()).filter(Boolean) })}>Mark as shipped</Btn>
+          <Btn kind="primary" className="text-[17px]" disabled={loading || !mNumber.trim() || !!asked} onClick={() => void markShipped({ carrier: mCarrier.trim(), number: mNumber.trim(), extraNumbers: mExtra.map((x) => x.trim()).filter(Boolean) })}>Mark as shipped</Btn>
           {(rs?.shippoConnected || rs?.shippoApiKey) && <Btn kind="plain" onClick={() => setManual(false)} style={muted}>Buy a label here instead</Btn>}
         </div>
       ) : (
@@ -177,7 +188,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
               </button>))}
           </div>
           <p className="m-0 mt-3 text-[14px]" style={muted}>Insurance and signature follow your shipping rules. {firstName(order.customerName)} gets tracking when the carrier first scans the box.</p>
-          <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={loading || !chosen} onClick={() => void buy()}>{chosen ? (boxes.length > 1 ? `Buy ${boxes.length} labels for ${money(chosen.amountCents)} and print` : `Buy label for ${money(chosen.amountCents)} and print`) : 'Choose a rate'}</Btn>
+          <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={loading || !chosen || !!asked} onClick={() => void buy()}>{chosen ? (boxes.length > 1 ? `Buy ${boxes.length} labels for ${money(chosen.amountCents)} and print` : `Buy label for ${money(chosen.amountCents)} and print`) : 'Choose a rate'}</Btn>
           <Btn kind="plain" className="mt-1 w-full" style={muted} onClick={() => setManual(true)}>I already have tracking</Btn>
         </div>)}
       {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}

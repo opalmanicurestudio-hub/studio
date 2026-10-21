@@ -949,7 +949,10 @@ export async function markShipped(
       const guard = canAdvance(order, 'shipped');
       if (!guard.ok) return { ok: false, message: guard.reason };
       // The customer asked for a different address (lib/address-flow): it can't go out until someone answers that.
-      if ((order as any).addressRequest?.status === 'waiting') return { ok: false, message: `${String(order.customerName || 'The customer').split(' ')[0]} asked to change the address. Answer that on the order before it goes out.` };
+      if (['waiting', 'approving'].includes(String((order as any).addressRequest?.status))) return { ok: false, message: `${String(order.customerName || 'The customer').split(' ')[0]} asked to change the address. Answer that on the order before it goes out.` };
+      // A tracking number from a label that was voided (lib/label-void) would send the customer a dead link.
+      const voidedNums: string[] = Array.isArray((order as any).voidedTracking) ? (order as any).voidedTracking.map(String) : [];
+      if (voidedNums.length && [tracking.number, ...(tracking.extraNumbers || [])].some((n) => n && voidedNums.includes(String(n).trim()))) return { ok: false, message: 'That label was voided. Buy a new one before it goes out.' };
 
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
       convertSaleInTxn(txn, fs, tenantId, order, itemSnaps, actor);

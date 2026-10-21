@@ -2,6 +2,7 @@ import { labelFormatOf, shippoFileType, withOrderRef } from '@/lib/label-format'
 import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { recordPostage } from '@/lib/postage';
+import { addressKey, openRequest } from '@/lib/address-flow';
 import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -122,7 +123,9 @@ export async function POST(req: NextRequest) {
   const results: any[] = [];
   for (let i = 0; i < reqOrders.length; i++) {
     const { orderId, qrToken } = reqOrders[i];
-    const snap = orderSnaps[i];
+    // Read again here, not from the list loaded at the start: buying labels one after another takes a while, and an
+    // address can change in the meantime.
+    const snap = await db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId).get();
     const fail = (error: string) => results.push({ orderId, ok: false, error });
     try {
       if (!snap.exists) { fail('Order not found'); continue; }
@@ -133,7 +136,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
       if (order.stage !== 'packed') { fail(`Not packed yet (${order.stage})`); continue; }
-      if (order.addressRequest?.status === 'waiting') { fail('The customer asked to change the address. Answer that on the order first.'); continue; }
+      if (openRequest(order)) { fail('The customer asked to change the address. Answer that on the order first.'); continue; }
       if (order.method !== 'ship' || !order.shippingAddress) { fail('Not a ship order'); continue; }
 
       const cust = order.shippingAddress;
@@ -180,38 +183,49 @@ export async function POST(req: NextRequest) {
       const now = new Date().toISOString();
       const orderRef = snap.ref;
       const evRef = orderRef.collection('events').doc();
-      const batch = db.batch();
-      batch.set(orderRef, {
-        shipmentProtection: {
-          signature: decision.signature,
-          insuranceCents: decision.insuranceCents,
-          insurableValueCents: insurableValueCents(order),
-          expectedWeightOz: weightOz,
-          decidedAt: now,
-        },
-        trackingNumber: String(txn.tracking_number || ''),
-        carrier: String(txn.rate?.provider || cheapest.provider || 'Carrier'),
-        trackingUrl: String(txn.tracking_url_provider || ''),
-        labelUrl: String(txn.label_url || ''),
-        shippoTransactionId: String(txn.object_id || ''),
-        extraLabelUrls: [],
-        extraTrackingNumbers: [],
-        packageCount: 1,
-      }, { merge: true });
-      batch.set(evRef, {
-        id: evRef.id, type: 'label_generated', at: now,
-        actorId: 'shippo', actorName: 'Shippo',
-        meta: {
-          carrier: String(cheapest.provider || ''),
+      const boughtFor = addressKey(order.shippingAddress);
+      const saved = await db.runTransaction(async (tx: any) => {
+        const cur: any = (await tx.get(orderRef)).data() || {};
+        if (addressKey(cur.shippingAddress) !== boughtFor || openRequest(cur) || (cur.shippoTransactionId && cur.labelUrl)) return false;
+        tx.set(orderRef, {
+          shipmentProtection: {
+            signature: decision.signature,
+            insuranceCents: decision.insuranceCents,
+            insurableValueCents: insurableValueCents(order),
+            expectedWeightOz: weightOz,
+            decidedAt: now,
+          },
           trackingNumber: String(txn.tracking_number || ''),
-          packages: 1,
-          signature: decision.signature,
-          insuranceCents: decision.insuranceCents,
-          expectedWeightOz: weightOz,
-          text: `Bulk purchase — cheapest rate (${cheapest.provider} ${cheapest.service}, $${(cheapest.amountCents / 100).toFixed(2)})${decision.reasons.length ? ' · ' + decision.reasons.join(' · ') : ''}`,
-        },
+          carrier: String(txn.rate?.provider || cheapest.provider || 'Carrier'),
+          trackingUrl: String(txn.tracking_url_provider || ''),
+          labelUrl: String(txn.label_url || ''),
+          shippoTransactionId: String(txn.object_id || ''),
+          extraLabelUrls: [],
+          extraTrackingNumbers: [],
+          packageCount: 1,
+        }, { merge: true });
+        tx.set(evRef, {
+          id: evRef.id, type: 'label_generated', at: now,
+          actorId: 'shippo', actorName: 'Shippo',
+          meta: {
+            carrier: String(cheapest.provider || ''),
+            trackingNumber: String(txn.tracking_number || ''),
+            packages: 1,
+            signature: decision.signature,
+            insuranceCents: decision.insuranceCents,
+            expectedWeightOz: weightOz,
+            text: `Bulk purchase — cheapest rate (${cheapest.provider} ${cheapest.service}, $${(cheapest.amountCents / 100).toFixed(2)})${decision.reasons.length ? ' · ' + decision.reasons.join(' · ') : ''}`,
+          },
+        });
+        return true;
       });
-      await batch.commit();
+      if (!saved) {
+        // The address changed (or a change came in) while this label was being bought: give it straight back.
+        const { voidOrderLabels } = await import('@/lib/label-void');
+        await voidOrderLabels(db, tenantId, { shippoTransactionId: String(txn.object_id || '') }, apiKey).catch(() => null);
+        fail('The address changed while the label was being bought, so it was voided. Buy it again from the order.');
+        continue;
+      }
       await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, String(txn.object_id || ''), cheapest.amountCents, String(cheapest.provider || 'Carrier'));
 
       results.push({

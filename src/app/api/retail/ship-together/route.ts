@@ -38,6 +38,8 @@ export async function POST(req: NextRequest) {
       const snaps = await Promise.all(refs.map((r) => tx.get(r)));
       if (snaps.some((s: any) => !s.exists)) throw new Error('One of those orders couldn’t be found.');
       const orders = snaps.map((s: any, i: number) => ({ ...(s.data() || {}), id: ids[i] }));
+      const asked = orders.find((o: any) => ['waiting', 'approving'].includes(String(o.addressRequest?.status || '')));
+      if (asked) throw new Error(`${String(asked.customerName || 'The customer').split(' ')[0]} asked to change the address on #${String(asked.orderNumber ?? '').padStart(4, '0')}. Answer that on the order first.`);
       const key = togetherKey(orders[0], { labelled: true });
       if (!key || orders.some((o: any) => togetherKey(o, { labelled: true }) !== key)) throw new Error('These orders aren’t going to the same person and address, so they can’t share a box.');
       if (orders.some((o: any) => !['packed', 'shipped'].includes(String(o.stage)))) throw new Error('Every order needs to be packed first.');

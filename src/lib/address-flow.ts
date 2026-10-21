@@ -157,7 +157,7 @@ export function changeMode(o: any, rs: any): { mode: ChangeMode; why: 'ok' | 'la
   return { mode: 'direct', why: 'ok' };
 }
 
-/** The customer's change waiting for staff, if any. */
-export const openRequest = (o: any) => (o?.addressRequest && o.addressRequest.status === 'waiting' ? o.addressRequest : null);
+/** The customer's change waiting for staff (or being approved this moment), if any. */
+export const openRequest = (o: any) => (o?.addressRequest && ['waiting', 'approving'].includes(String(o.addressRequest.status)) ? o.addressRequest : null);
 /** Staff asked the customer to confirm, and they haven't answered. */
 export const awaitingConfirm = (o: any) => o?.addressConfirm?.status === 'waiting';

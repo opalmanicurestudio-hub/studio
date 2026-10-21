@@ -208,18 +208,28 @@ export async function POST(req: NextRequest) {
       const tSnap = await db.collection('tenants').doc(tenantId).get();
       const tenant: any = tSnap.exists ? tSnap.data() : {};
       const rs = tenant.retailSettings || {};
-      // The carrier check the page already made for this address, or a fresh one.
+      // The order and its token first: a carrier check costs the shop, so only the order's own page can ask for one,
+      // and only when a change is possible at all.
+      const pre = await orderRef.get();
+      if (!pre.exists) return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
+      const po: any = pre.data() || {};
+      if (po.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
+      const early = changeMode(po, rs).mode;
+      if (early === 'carrier') return NextResponse.json({ error: 'It\u2019s already with the carrier, so the address can\u2019t be changed here. Their tracking page shows what they can do, like holding it for pickup.' }, { status: 409 });
+      if (early === 'none') return NextResponse.json({ error: po.method !== 'ship' ? 'This order isn\u2019t being shipped, so there\u2019s no address to change.' : 'This order can\u2019t be changed any more.' }, { status: 409 });
+      // The carrier check the page already made for this address, or a fresh one (a few per order, then none).
       const { addressPolicy, validateAddress, shouldBlock, addressMessage } = await import('@/lib/address-validation');
-      const { checkFromToken } = await import('@/lib/address-flow-server');
+      const { checkFromToken, checkAllowed } = await import('@/lib/address-flow-server');
       const policy = addressPolicy(rs);
       const signed = checkFromToken(tenantId, body.checkToken, clean);
       let check: any = signed ? { ...signed.check, choice: signed.picked } : null;
-      if (!check) {
+      if (!check && policy.enabled && await checkAllowed(db, tenantId, `order_${orderId}`)) {
         const { shippoKeyFor } = await import('@/lib/retail-secrets');
         check = await validateAddress({ address: clean, apiKey: await shippoKeyFor(db, tenantId, tenant), policy });
       }
-      if (shouldBlock(check, policy)) return NextResponse.json({ error: addressMessage(check) }, { status: 422 });
-      const kept = check && check.verdict !== 'skipped' ? check : null;
+      if (check && shouldBlock(check, policy)) return NextResponse.json({ error: addressMessage(check) }, { status: 422 });
+      const unitAnswer = body.unitAnswer === 'added' || body.unitAnswer === 'none' ? body.unitAnswer : null;
+      const kept = check && check.verdict !== 'skipped' ? { ...check, ...(unitAnswer ? { unitAnswer } : {}) } : null;
 
       const result = await db.runTransaction(async (txn: any) => {
         const snap = await txn.get(orderRef);
@@ -229,6 +239,7 @@ export async function POST(req: NextRequest) {
         if (order.method !== 'ship') {
           return { status: 409, error: 'This order isn\u2019t being shipped, so there\u2019s no address to change.' };
         }
+        if (order.addressRequest?.status === 'approving') return { status: 409, error: 'The shop is updating your address right now. Check back in a minute.' };
         const { mode, why } = changeMode(order, rs);
         if (mode === 'carrier') return { status: 409, error: 'It\u2019s already with the carrier, so the address can\u2019t be changed here. Their tracking page shows what they can do, like holding it for pickup.' };
         if (mode === 'none') return { status: 409, error: 'This order can\u2019t be changed any more.' };

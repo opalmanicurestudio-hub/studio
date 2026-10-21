@@ -33,10 +33,10 @@ export function useAddressReview(tenantId: string, submit: ReviewSubmit, onAddre
   };
   const route = (d: any, a: ReviewAddress, unitAnswer?: 'added' | 'none') => {
     setBase(a);
-    if (d.verdict === 'corrected' && d.carrier) { setPick('carrier'); setReview({ kind: 'suggest', token: d.token, carrier: d.carrier }); return; }
-    if (d.verdict === 'undeliverable') { setReview({ kind: 'notfound', token: d.token, refuse: d.refuse === true, message: d.message || '' }); return; }
-    if (d.unitMissing && !unitAnswer) { setUnit(''); setReview({ kind: 'unit', token: d.token }); return; }
-    setReview(null); submit({ token: d.token, unitAnswer, address: a });
+    if (d.verdict === 'corrected' && d.carrier) { setPick('carrier'); setReview({ kind: 'suggest', token: d.token || '', carrier: d.carrier }); return; }
+    if (d.verdict === 'undeliverable') { setReview({ kind: 'notfound', token: d.token || '', refuse: d.refuse === true, message: d.message || '' }); return; }
+    if (d.unitMissing && !unitAnswer) { setUnit(''); setReview({ kind: 'unit', token: d.token || '' }); return; }
+    setReview(null); submit({ token: d.token || undefined, unitAnswer, address: a });
   };
   /** Check this address; submits straight away when there's nothing to ask (or the check couldn't run). */
   const start = async (a: ReviewAddress) => {

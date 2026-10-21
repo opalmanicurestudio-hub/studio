@@ -146,7 +146,7 @@ export function OrdersApp() {
     const d = dueLine(o, rs, now);
     const live = ['paid', 'picking', 'packed'].includes(String(o.stage));
     const addrNote = !live || o.method !== 'ship' ? ''
-      : o.addressRequest?.status === 'waiting' ? 'Address change to approve'
+      : ['waiting', 'approving'].includes(String(o.addressRequest?.status)) ? 'Address change to approve'
       : o.addressConfirm?.status === 'waiting' ? `Waiting on ${firstName(o.customerName)} to confirm the address`
       : o.addressChanged && ['picking', 'packed', 'label'].includes(String(o.addressChanged.after)) && !o.labelUrl ? 'New address' : '';
     const extra = o.isTest ? 'Test order' : o.stage === 'picking' && o.claimedByName ? `${o.claimedBy === actor.id ? 'You’re' : `${firstName(o.claimedByName)} is`} packing` : o.holdForReview ? 'Held for review' : o.stage === 'cancelled' ? 'Cancelled' : addrNote;

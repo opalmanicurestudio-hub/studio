@@ -380,11 +380,11 @@ export default function OrderStatusPage() {
 
   // THE ADDRESS (lib/address-flow): checked with the carrier before it's saved (components/shop/AddressReview), then
   // straight onto the order or sent to the shop to approve, by the shop's policy. The answer comes back here.
-  const saveAddress = async (o: { token?: string; address: ReviewAddress }) => {
+  const saveAddress = async (o: { token?: string; unitAnswer?: 'added' | 'none'; address: ReviewAddress }) => {
     if (!selfToken || fixSending) return;
     setFixSending(true);
     try {
-      const data = await selfServe({ action: 'update_address', address: { ...fixAddr, ...o.address, name: fixAddr.name }, checkToken: o.token });
+      const data = await selfServe({ action: 'update_address', address: { ...fixAddr, ...o.address, name: fixAddr.name }, checkToken: o.token, unitAnswer: o.unitAnswer });
       toast({ title: data.requested ? 'Sent to the shop' : 'Address saved', description: data.message });
       setFixOpen(false);
       load();

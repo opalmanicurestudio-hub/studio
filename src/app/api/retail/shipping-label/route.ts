@@ -5,6 +5,7 @@ import { rateCents, recordPostage, reversePostage } from '@/lib/postage';
 import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { addressKey, openRequest } from '@/lib/address-flow';
 
 import {
   insurableValueCents, protectionFor, protectionPolicy, shippoExtra,
@@ -117,15 +118,20 @@ export async function POST(req: NextRequest) {
       const txnId = String(order.shippoTransactionId || '').trim();
       if (!txnId) return NextResponse.json({ error: 'No purchased label is saved on this order.' }, { status: 400 });
 
-      // Every box's label (lib/label-void), and the postage record reversed.
+      // Every box's label (lib/label-void), and the postage record reversed. Boxes that voided are kept on the order
+      // when others didn't, so trying again finishes the job.
       const { voidOrderLabels, LABEL_CLEARED } = await import('@/lib/label-void');
-      const v = await voidOrderLabels(db, tenantId, order, apiKey);
-      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 502 });
+      const { FieldValue } = await import('firebase-admin/firestore');
+      const v = await voidOrderLabels(db, tenantId, order, apiKey, { alreadyVoided: Array.isArray(order.labelVoidIds) ? order.labelVoidIds : [] });
+      if (!v.ok) {
+        if (v.voidedIds.length) await orderRef.set({ labelVoidIds: v.voidedIds }, { merge: true }).catch(() => {});
+        return NextResponse.json({ error: v.error }, { status: 502 });
+      }
       const status = String(v.status || 'PENDING');
 
       const evRef = orderRef.collection('events').doc();
       const batch = db.batch();
-      batch.set(orderRef, { ...LABEL_CLEARED, labelVoidedAt: new Date().toISOString() }, { merge: true });
+      batch.set(orderRef, { ...LABEL_CLEARED, labelVoidedAt: new Date().toISOString(), ...(v.trackingNumbers.length ? { voidedTracking: FieldValue.arrayUnion(...v.trackingNumbers) } : {}) }, { merge: true });
       batch.set(evRef, {
         id: evRef.id, type: 'note', at: new Date().toISOString(),
         actorId: auth.actor.uid, actorName: auth.actor.name,
@@ -203,6 +209,8 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({
         rates, groundOnly: order.groundOnly === true,
+        // The address these rates were priced for: buying must be for the same one (lib/address-flow).
+        addressKey: addressKey(order.shippingAddress),
         // Surfaced so the ship dialog can say why a rate costs more than usual.
         protection: {
           signature: decision.signature,
@@ -215,7 +223,10 @@ export async function POST(req: NextRequest) {
     // purchase: never a second label over one that is still live (it could never be voided afterwards).
     if (order.shippoTransactionId && order.labelUrl) return NextResponse.json({ error: 'This order already has a label. Void it first to buy a new one.' }, { status: 409 });
     if (['cancelled', 'completed'].includes(String(order.stage))) return NextResponse.json({ error: `This order is ${order.stage}.` }, { status: 409 });
-    if (order.addressRequest?.status === 'waiting') return NextResponse.json({ error: 'The customer asked to change the address. Answer that on the order first, so the label goes to the right place.' }, { status: 409 });
+    if (openRequest(order)) return NextResponse.json({ error: 'The customer asked to change the address. Answer that on the order first, so the label goes to the right place.' }, { status: 409 });
+    // The rate was priced for an address; if the order's address changed since, the label would go to the old one.
+    const boughtFor = addressKey(order.shippingAddress);
+    if (body.addressKey && String(body.addressKey) !== boughtFor) return NextResponse.json({ error: 'The address changed since these rates came in. Get new rates and buy the label again.', addressChanged: true }, { status: 409 });
     const rateId = String(body.rateId || '').trim();
     if (!rateId) return NextResponse.json({ error: 'rateId is required' }, { status: 400 });
 
@@ -265,41 +276,51 @@ export async function POST(req: NextRequest) {
       : [body.parcel || {}]
     ).reduce((a: number, p: any) => a + (Number(p?.weightOz) || 0), 0);
 
+    // Saved only if the order still goes to the address the label was bought for, has no change waiting, and has no
+    // other label; otherwise the new label is voided straight away.
     const evRef = orderRef.collection('events').doc();
-    const batch = db.batch();
-    batch.set(orderRef, {
-      shipmentProtection: {
-        signature: purchaseDecision.signature,
-        insuranceCents: purchaseDecision.insuranceCents,
-        insurableValueCents: insurableValueCents(order),
-        expectedWeightOz,
-        decidedAt: new Date().toISOString(),
-      },
-      trackingNumber: result.trackingNumber,
-      carrier: result.carrier,
-      trackingUrl: result.trackingUrl,
-      labelUrl: result.labelUrl,
-      shippoTransactionId: String(txn.object_id || ''),
-      extraLabelUrls,
-      extraTrackingNumbers: extraTracking,
-      extraTrackingUrls,
-      packageCount: result.packageCount,
-      labelsChecked: [],
-    }, { merge: true });
-    batch.set(evRef, {
-      id: evRef.id, type: 'label_generated', at: new Date().toISOString(),
-      actorId: 'shippo', actorName: 'Shippo',
-      meta: {
-        carrier: result.carrier,
+    const saved = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(orderRef)).data() || {};
+      if (addressKey(cur.shippingAddress) !== boughtFor || openRequest(cur) || (cur.shippoTransactionId && cur.labelUrl)) return false;
+      tx.set(orderRef, {
+        shipmentProtection: {
+          signature: purchaseDecision.signature,
+          insuranceCents: purchaseDecision.insuranceCents,
+          insurableValueCents: insurableValueCents(order),
+          expectedWeightOz,
+          decidedAt: new Date().toISOString(),
+        },
         trackingNumber: result.trackingNumber,
-        packages: result.packageCount,
-        signature: purchaseDecision.signature,
-        insuranceCents: purchaseDecision.insuranceCents,
-        expectedWeightOz,
-        text: purchaseDecision.reasons.join(' · ') || 'No added protection on this shipment',
-      },
+        carrier: result.carrier,
+        trackingUrl: result.trackingUrl,
+        labelUrl: result.labelUrl,
+        shippoTransactionId: String(txn.object_id || ''),
+        extraLabelUrls,
+        extraTrackingNumbers: extraTracking,
+        extraTrackingUrls,
+        packageCount: result.packageCount,
+        labelsChecked: [],
+      }, { merge: true });
+      tx.set(evRef, {
+        id: evRef.id, type: 'label_generated', at: new Date().toISOString(),
+        actorId: 'shippo', actorName: 'Shippo',
+        meta: {
+          carrier: result.carrier,
+          trackingNumber: result.trackingNumber,
+          packages: result.packageCount,
+          signature: purchaseDecision.signature,
+          insuranceCents: purchaseDecision.insuranceCents,
+          expectedWeightOz,
+          text: purchaseDecision.reasons.join(' · ') || 'No added protection on this shipment',
+        },
+      });
+      return true;
     });
-    await batch.commit();
+    if (!saved) {
+      const { voidOrderLabels } = await import('@/lib/label-void');
+      await voidOrderLabels(db, tenantId, { shippoTransactionId: String(txn.object_id || ''), extraLabelUrls, trackingNumber: result.trackingNumber, extraTrackingNumbers: extraTracking }, apiKey).catch(() => null);
+      return NextResponse.json({ error: 'The address changed while the label was being bought, so that label was voided straight away. Get new rates and buy it again.', addressChanged: true }, { status: 409 });
+    }
     // The postage is a real cost: into the books against this order (lib/postage).
     await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, String(txn.object_id || ''), await rateCents(apiKey, rateId), result.carrier);
 

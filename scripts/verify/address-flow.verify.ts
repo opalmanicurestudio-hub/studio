@@ -1,10 +1,12 @@
 // Checks getting the address right: what counts as a real difference, the apartment question, when a change goes
 // straight through, the signed check, the carrier check's answers and the Needs you list.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/address-flow.verify.ts
-import { addressKey, carrierAddress, changeMode, changePolicy, meaningfulChanges, oneLine, sameAddress, tidyCase, unitLooksMissing, unitOf } from '../../src/lib/address-flow';
+import { addressKey, carrierAddress, changeMode, changePolicy, meaningfulChanges, oneLine, openRequest, sameAddress, tidyCase, unitLooksMissing, unitOf } from '../../src/lib/address-flow';
 import { checkFromToken, signCheck } from '../../src/lib/address-flow-server';
 import { validateAddress, shouldBlock } from '../../src/lib/address-validation';
 import { needsYou } from '../../src/lib/orders-view';
+import { voidOrderLabels } from '../../src/lib/label-void';
+import { togetherKey } from '../../src/lib/ship-together';
 
 let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.log('✗', m); } else console.log('✓', m); };
 
@@ -41,6 +43,7 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   ok(changeMode(ord({ holdForReview: true }), rs()).why === 'held' && changeMode(ord({ holdForReview: true }), rs({ addressHeldNeedsManager: false })).mode === 'direct', 'held orders ask, unless the shop turned that off');
   ok(changeMode(ord({ stage: 'shipped' }), rs()).mode === 'carrier' && changeMode(ord({ stage: 'shipped', deliveredAt: 'x' }), rs()).mode === 'none', 'shipped: the carrier’s own options; delivered: nothing');
   ok(changeMode(ord({ method: 'counter' }), rs()).mode === 'none' && changeMode(ord({ stage: 'cancelled' }), rs()).mode === 'none', 'pickups and cancelled orders have no address to change');
+  ok(!!openRequest({ addressRequest: { status: 'waiting' } }) && !!openRequest({ addressRequest: { status: 'approving' } }) && !openRequest({ addressRequest: { status: 'kept' } }), 'a change being approved this moment still holds the label and shipping');
 
   // The signed check: used once at checkout instead of asking the carrier again.
   const check: any = { verdict: 'corrected', suggestion: { postalCode: '78704' }, carrier: { ...house, postalCode: '78704-1234' }, unitMissing: false, messages: [], checkedAt: 'now' };
@@ -87,11 +90,57 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     { id: 'c', stage: 'paid', method: 'ship', customerName: 'Priya Shah', addressConfirm: { status: 'waiting', askedAt: new Date(now - 30 * 3600e3).toISOString() } },
     { id: 'd', stage: 'paid', method: 'ship', customerName: 'Marcus T', addressConfirm: { status: 'waiting', askedAt: new Date(now - 2 * 3600e3).toISOString() } },
     { id: 'e', stage: 'shipped', method: 'ship', customerName: 'Old', addressRequest: { status: 'waiting' } },
+    { id: 'f', stage: 'packed', method: 'ship', customerName: 'Lena Fox', labelUrl: 'x', addressRequest: { status: 'approving' } },
   ], now);
   ok(n.find((x) => x.orderId === 'a')?.text === 'Dana changed the address after the label was bought', 'a change after the label is listed');
   ok(n.find((x) => x.orderId === 'b')?.text === 'Sam asked to change the address', 'a change waiting for approval is listed');
   ok(n.find((x) => x.orderId === 'c')?.kind === 'unconfirmed' && !n.some((x) => x.orderId === 'd'), 'no answer after a day is listed; a fresh question isn’t');
   ok(!n.some((x) => x.orderId === 'e'), 'nothing for orders that have gone');
+  ok(n.some((x) => x.orderId === 'f'), 'a change being approved stays on the list until it’s done');
+
+  // Voiding every box's label: all or nothing, honestly.
+  const fakeDb = { doc: () => ({ get: async () => ({ exists: false, data: () => ({}) }), create: async () => {} }) };
+  const realFetch2 = globalThis.fetch;
+  const shippo = (o: { lookupFails?: boolean; extra?: string[]; refund?: (id: string) => { ok: boolean; body: any } }) => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: any, init?: any) => {
+      const u = String(url);
+      if (u.includes('/transactions/?rate=')) { if (o.lookupFails) throw new Error('down'); return { ok: true, json: async () => ({ results: [{ object_id: 'm', status: 'SUCCESS' }, ...(o.extra || []).map((id) => ({ object_id: id, status: 'SUCCESS' }))] }) }; }
+      if (u.includes('/transactions/m')) { if (o.lookupFails) throw new Error('down'); return { ok: true, json: async () => ({ rate: 'rate1' }) }; }
+      if (u.endsWith('/refunds/')) { const id = JSON.parse(init.body).transaction; calls.push(id); const r = o.refund ? o.refund(id) : { ok: true, body: { status: 'QUEUED' } }; return { ok: r.ok, json: async () => r.body }; }
+      return { ok: false, json: async () => ({}) };
+    }) as any;
+    return calls;
+  };
+  let calls = shippo({});
+  let vr = await voidOrderLabels(fakeDb, 't', { shippoTransactionId: 'm', trackingNumber: '9400' }, 'k');
+  ok(vr.ok && vr.count === 1 && calls.join() === 'm' && vr.trackingNumbers.join() === '9400', 'one box: its label is voided');
+  calls = shippo({ extra: ['b2', 'b3'] });
+  vr = await voidOrderLabels(fakeDb, 't', { shippoTransactionId: 'm', extraLabelUrls: ['x', 'y'], trackingNumber: '1', extraTrackingNumbers: ['2', '3'] }, 'k');
+  ok(vr.ok && vr.count === 3 && calls.join() === 'm,b2,b3' && vr.trackingNumbers.length === 3, 'three boxes: every label is voided');
+  calls = shippo({ lookupFails: true });
+  vr = await voidOrderLabels(fakeDb, 't', { shippoTransactionId: 'm', extraLabelUrls: ['x'] }, 'k');
+  ok(!vr.ok && calls.length === 0, 'can’t find the other boxes: nothing is voided, and it says so');
+  calls = shippo({ extra: ['b2'] });
+  vr = await voidOrderLabels(fakeDb, 't', { shippoTransactionId: 'm', extraLabelUrls: ['x', 'y'] }, 'k');
+  ok(!vr.ok && calls.length === 0, 'fewer boxes found than were bought: nothing is voided');
+  calls = shippo({ extra: ['b2', 'b3'], refund: (id) => (id === 'b2' ? { ok: false, body: { detail: 'Carrier timeout' } } : { ok: true, body: { status: 'QUEUED' } }) });
+  vr = await voidOrderLabels(fakeDb, 't', { shippoTransactionId: 'm', extraLabelUrls: ['x', 'y'] }, 'k');
+  ok(!vr.ok && vr.voidedIds.join() === 'm,b3' && /2 of 3/.test(String(vr.error)), 'one box fails: the others are reported as voided, and the count is honest');
+  calls = shippo({ extra: ['b2', 'b3'] });
+  vr = await voidOrderLabels(fakeDb, 't', { shippoTransactionId: 'm', extraLabelUrls: ['x', 'y'] }, 'k', { alreadyVoided: ['m', 'b3'] });
+  ok(vr.ok && calls.join() === 'b2', 'trying again only voids what’s left');
+  calls = shippo({ refund: () => ({ ok: false, body: { detail: 'This transaction has already been refunded.' } }) });
+  vr = await voidOrderLabels(fakeDb, 't', { shippoTransactionId: 'm' }, 'k');
+  ok(vr.ok, 'a label the carrier already refunded counts as voided');
+  calls = shippo({ refund: () => ({ ok: false, body: { detail: 'Label already used and cannot be refunded.' } }) });
+  vr = await voidOrderLabels(fakeDb, 't', { shippoTransactionId: 'm' }, 'k');
+  ok(!vr.ok, 'a label the carrier already scanned is not counted as voided');
+  globalThis.fetch = realFetch2;
+
+  // Orders with a change waiting aren't put in one box with others.
+  const tg = (extra: any = {}) => ({ method: 'ship', stage: 'packed', customerEmail: 'a@x.com', shippingAddress: { name: 'A', line1: '1 Main St', city: 'X', state: 'TX', postalCode: '78704' }, ...extra });
+  ok(togetherKey(tg()) !== '' && togetherKey(tg({ addressRequest: { status: 'waiting' } })) === '' && togetherKey(tg({ addressRequest: { status: 'kept' } })) !== '', 'a waiting change keeps an order out of shipping together');
 
   if (bad) { console.log(`\n${bad} failed`); process.exit(1); } else console.log('\nall good');
 })();

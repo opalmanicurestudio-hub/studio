@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
     unitMissing: check.unitMissing === true,
     refuse: shouldBlock(check, policy),
     message: check.verdict === 'undeliverable' ? addressMessage(check) : '',
-    token: signCheck(tenantId, address, check),
+    // Only a real answer is signed: "skipped" (checks off, carrier down, too many checks) leaves checkout to check.
+    token: check.verdict === 'skipped' ? null : signCheck(tenantId, address, check),
   });
 }

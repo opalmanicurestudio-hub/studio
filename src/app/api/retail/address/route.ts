@@ -1,9 +1,10 @@
 // src/app/api/retail/address/route.ts — THE TEAM'S SIDE OF GETTING THE ADDRESS RIGHT (lib/address-flow). Team only.
-//   ask_confirm     "Ask Dana to confirm": a text (or email) with her order page, where she taps "Yes, ship it here" or
-//                   fixes it. Nothing waits on her answer; the label can still be bought.
-//   approve_change  her change came in after the label: every box's label is voided (the postage comes back), the new
-//                   address goes on the order, and it's ready for a new label. On an order held for review, managers only.
-//   keep_old        the old address stays; she's told why on her order page.
+//   ask_confirm     "Ask Dana to confirm": a text (or email) with the order page, where the customer taps "Yes, ship it
+//                   here" or fixes it. Nothing waits on the answer; the label can still be bought.
+//   approve_change  the change came in after the label: claimed first (one person acts), every box's label is voided
+//                   (the postage comes back), then the voided label is cleared and the new address goes on in one write.
+//                   An approval interrupted part way can simply be approved again. Held orders: managers only.
+//   keep_old        the old address stays; the customer is told why on their order page.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -72,25 +73,62 @@ export async function POST(req: NextRequest) {
     if (!mayShip(actor)) return NextResponse.json({ ok: false, error: SHIP_DENIED }, { status: 403 });
     const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     if (o.holdForReview === true && changePolicy(t.retailSettings).heldNeedsManager && !actor.isManager) return NextResponse.json({ ok: false, error: 'This order is held for review, so a manager needs to approve the change.' }, { status: 403 });
-    let voided = 0;
-    if (o.shippoTransactionId) {
+    // Orders sharing one box and label (lib/ship-together) can't change address one at a time.
+    const shared = [...(Array.isArray(o.shippedWithOrderIds) ? o.shippedWithOrderIds : []), ...(o.shippedWithOrderId ? [o.shippedWithOrderId] : [])];
+    if (shared.length && (o.labelUrl || o.trackingNumber)) return NextResponse.json({ ok: false, error: `This order shares a box and label with another order, so its address can’t change on its own. Keep the old address and let ${who} know, or work it out with them in the order’s messages.` }, { status: 409 });
+    // 1. Claim it, so two people answering at once can't both act. The order as it is at the claim is the one acted on.
+    //    A claim left behind by an interrupted approval can be taken over after five minutes (well past the time the
+    //    carrier calls below can take).
+    const claim: any = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(ref)).data() || {}; const r = cur.addressRequest || {};
+      const stale = r.status === 'approving' && Date.now() - Date.parse(String(r.claimedAt || '')) > 5 * 60e3;
+      if (r.id !== req0.id || !(r.status === 'waiting' || stale)) return null;
+      tx.set(ref, { addressRequest: { ...r, status: 'approving', claimedBy: actor.uid, claimedAt: now } }, { merge: true });
+      return cur;
+    });
+    if (!claim) return NextResponse.json({ ok: false, error: 'Someone else already answered this.' }, { status: 409 });
+    const mine = (r: any) => r?.id === req0.id && r?.status === 'approving' && r?.claimedBy === actor.uid;
+    const { FieldValue } = await import('firebase-admin/firestore');
+
+    // 2. Void every box's label. Boxes that voided are kept on the order if others didn't, and the claim is let go,
+    //    so trying again picks up where it stopped (a label the carrier already refunded counts as voided).
+    const labelTxn = String(claim.shippoTransactionId || '');
+    let voided = 0; let tracking: string[] = [];
+    if (labelTxn) {
       const { shippoKeyFor } = await import('@/lib/retail-secrets');
       const { voidOrderLabels } = await import('@/lib/label-void');
-      const v = await voidOrderLabels(db, tenantId, o, await shippoKeyFor(db, tenantId, t));
-      if (!v.ok) return NextResponse.json({ ok: false, error: v.error }, { status: 502 });
-      voided = v.count;
+      const v = await voidOrderLabels(db, tenantId, claim, await shippoKeyFor(db, tenantId, t), { alreadyVoided: Array.isArray(claim.labelVoidIds) ? claim.labelVoidIds : [] });
+      if (!v.ok) {
+        await db.runTransaction(async (tx: any) => {
+          const cur: any = (await tx.get(ref)).data() || {};
+          if (!mine(cur.addressRequest)) return;
+          tx.set(ref, { ...(v.voidedIds.length ? { labelVoidIds: v.voidedIds } : {}), addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } }, { merge: true });
+        }).catch(() => {});
+        return NextResponse.json({ ok: false, error: v.error }, { status: 502 });
+      }
+      voided = v.count; tracking = v.trackingNumbers;
     }
+
+    // 3. Clear the voided label and put the new address on, in one write. If the claim was lost meanwhile, the voided
+    //    label is still cleared (it can't ship), and the other person's approval finishes the change.
     const { LABEL_CLEARED } = await import('@/lib/label-void');
-    const hadLabel = !!(o.labelUrl || o.trackingNumber || o.shippoTransactionId);
     const out = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(ref)).data() || {};
-      if (cur.addressRequest?.id !== req0.id || cur.addressRequest?.status !== 'waiting') return { ok: false, error: 'Someone else already answered this.' };
+      const sameLabel = !!labelTxn && String(cur.shippoTransactionId || '') === labelTxn;
+      const cleared = sameLabel ? { ...LABEL_CLEARED, labelVoidedAt: now, ...(tracking.length ? { voidedTracking: FieldValue.arrayUnion(...tracking) } : {}) } : {};
+      if (!mine(cur.addressRequest)) { if (sameLabel) tx.set(ref, cleared, { merge: true }); return { ok: false, error: 'Someone else already answered this.' }; }
+      if (cur.shippoTransactionId && !sameLabel) {
+        tx.set(ref, { addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } }, { merge: true });
+        return { ok: false, error: 'A different label is on this order now. Open it again and approve the change once more.' };
+      }
+      const hadLabel = !!labelTxn || !!(cur.labelUrl || cur.trackingNumber);
       tx.set(ref, {
-        ...(hadLabel ? { ...LABEL_CLEARED, labelVoidedAt: now } : {}),
+        ...cleared,
+        ...(!sameLabel && hadLabel ? { ...LABEL_CLEARED, labelVoidedAt: now } : {}),
         shippingAddress: req0.to, addressCheck: req0.check || null,
         addressChanged: { at: now, from: cur.shippingAddress || null, by: 'staff', after: hadLabel ? 'label' : String(cur.stage || '') },
-        addressRequest: { ...cur.addressRequest, status: 'done', answeredAt: now, answeredBy: actor.uid, answeredByName: actor.name },
-        ...(cur.addressConfirm?.status === 'waiting' ? { addressConfirm: { ...cur.addressConfirm, status: 'fixed', answeredAt: now } } : {}),
+        addressRequest: { ...cur.addressRequest, status: 'done', answeredAt: now, answeredBy: actor.uid, answeredByName: actor.name, claimedBy: null, claimedAt: null },
+        ...(['waiting', 'confirmed'].includes(String(cur.addressConfirm?.status || '')) ? { addressConfirm: { ...cur.addressConfirm, status: 'fixed', answeredAt: now } } : {}),
       }, { merge: true });
       const ev = ref.collection('events').doc();
       tx.set(ev, { id: ev.id, type: 'address_updated', at: now, actorId: actor.uid, actorName: actor.name, meta: { from: cur.shippingAddress || null, to: req0.to, approved: true, ...(voided ? { labelsVoided: voided } : {}) } });
@@ -106,7 +144,10 @@ export async function POST(req: NextRequest) {
     const reason = String(b.reason || '').trim().slice(0, 300);
     const out = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(ref)).data() || {};
+      if (cur.addressRequest?.id === req0!.id && cur.addressRequest?.status === 'approving') return { ok: false, error: 'This change is being approved. If that was interrupted, approve it again to finish it.' };
       if (cur.addressRequest?.id !== req0!.id || cur.addressRequest?.status !== 'waiting') return { ok: false, error: 'Someone else already answered this.' };
+      // Some box labels already voided by an approval that stopped part way: the rest must go too before it can ship.
+      if (Array.isArray(cur.labelVoidIds) && cur.labelVoidIds.length && cur.shippoTransactionId) return { ok: false, error: 'Some of this order’s labels were already voided. Void the rest from the ship sheet first, then keep the old address.' };
       tx.set(ref, { addressRequest: { ...cur.addressRequest, status: 'kept', reply: reason || null, answeredAt: now, answeredBy: actor.uid, answeredByName: actor.name } }, { merge: true });
       const ev = ref.collection('events').doc();
       tx.set(ev, { id: ev.id, type: 'note', at: now, actorId: actor.uid, actorName: actor.name, meta: { kind: 'address_change_kept', text: `Kept the original address${reason ? `: ${reason}` : ''}` } });
