@@ -42,6 +42,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { format, parseISO } from 'date-fns';
+import { useClient } from '@/hooks/use-clients';
 
 const QuoteDocument = ({ quote, client }: { quote: QuoteType, client: any }) => {
     const servicesTotal = quote.lineItems.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity || 1)), 0);
@@ -129,7 +130,7 @@ export default function QuoteDetailPage() {
     const { firestore } = useFirebase();
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
-    const { clients, services, staff } = useInventory();
+    const { services, staff } = useInventory();
     const { toast } = useToast();
     const router = useRouter();
 
@@ -142,6 +143,7 @@ export default function QuoteDetailPage() {
     , [firestore, tenantId, quoteId]);
 
     const { data: quote, isLoading } = useDoc<QuoteType>(quoteRef);
+    const { client: quoteClient } = useClient((quote as any)?.clientId || null);   // just this quote's client
 
     if (isLoading) {
         return (
@@ -157,7 +159,7 @@ export default function QuoteDetailPage() {
 
     if (!quote) return notFound();
 
-    const client = clients.find(c => c.id === quote.clientId);
+    const client = quoteClient || undefined;
 
     const handleUpdateStatus = (newStatus: QuoteType['status']) => {
         if (!quoteRef) return;

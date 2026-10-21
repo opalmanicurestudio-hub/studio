@@ -4,12 +4,13 @@
 import * as React from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { creditBalance, availableCredits } from '@/lib/store-credit';
+import { useClientsWithCredit } from '@/hooks/use-clients';
 
 const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const SRC: Record<string, string> = { referral_reward: 'Referral rewards', service_recovery: 'Making it right', recovery: 'Making it right', refund: 'Refunds as credit', manual: 'Added by hand' };
 
 export function OwedToClientsCard() {
-  const { clients } = useInventory() as any;
+  const { clients } = useClientsWithCredit();   // only clients holding store credit
   const s = React.useMemo(() => {
     let total = 0, people = 0; const by: Record<string, number> = {};
     for (const c of clients || []) { const b = creditBalance(c); if (b <= 0) continue; total += b; people++;

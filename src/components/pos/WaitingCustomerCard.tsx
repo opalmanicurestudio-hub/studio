@@ -18,6 +18,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useInventory } from '@/context/InventoryContext';
+import { useClient } from '@/hooks/use-clients';
 
 const statusOptions = [
     { value: 'pending', label: 'Reset to Pending', icon: Clock, color: 'text-muted-foreground' },
@@ -54,7 +55,6 @@ const minutesFromClockTime = (timeStr: string): number | null => {
 };
 
 export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus, onResolve }) => {
-    const { clients } = useInventory();
     const isWalkIn = item.type === 'walk-in';
     const customerName = isWalkIn ? (item as WalkIn).customerName : (item as Appointment).clientName;
     const serviceIds = isWalkIn ? (item as WalkIn).serviceIds : [(item as Appointment).serviceId];
@@ -95,10 +95,8 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
         setIsLateEntryOpen(false);
     };
 
-    const client = useMemo(() => {
-        const clientId = isWalkIn ? (item as WalkIn).clientId : (item as Appointment).clientId;
-        return clients?.find(c => c.id === clientId);
-    }, [item, clients, isWalkIn]);
+    const { client: loaded } = useClient((isWalkIn ? (item as WalkIn).clientId : (item as Appointment).clientId) || null);   // just this guest
+    const client = loaded || undefined;
 
     const isBirthdayToday = useMemo(() => {
         if (!client?.birthday) return false;

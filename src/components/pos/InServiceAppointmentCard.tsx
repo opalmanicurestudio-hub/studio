@@ -14,6 +14,7 @@ import { cn, safeNumber } from '@/lib/utils';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
+import { useClient } from '@/hooks/use-clients';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -25,7 +26,6 @@ const safeDate = (val: any): Date => {
 };
 
 export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services, staff, onSendToCheckout, onViewDetails, onCancel }) => {
-    const { clients } = useInventory();
     const mainService = services?.find((s: any) => s.id === appointment.serviceId);
     const addOnServices = (appointment.addOnIds || []).map((id: any) => services?.find((s: any) => s.id === id)).filter((s: any): s is Service => !!s);
     const allServices = [mainService, ...addOnServices].filter((s: any): s is Service => !!s);
@@ -36,7 +36,8 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
     const [progress, setProgress] = useState(0);
     const [minsRemaining, setMinsRemaining] = useState(0);
 
-    const client = useMemo(() => clients?.find(c => c.id === appointment.clientId), [appointment.clientId, clients]);
+    const { client: loaded } = useClient(appointment.clientId || null);   // just this client
+    const client = loaded || undefined;
 
     const refreshments = appointment.checkoutState?.refreshments || [];
     const hasRefreshments = refreshments.length > 0;

@@ -21,10 +21,13 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
 import { canSeeFinancials } from '@/lib/privacy';
+import { useClient } from '@/hooks/use-clients';
 
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
-    const { clients, services } = useInventory();
+    const { services } = useInventory();
+    const { client: oneClient } = useClient(String((params as any)?.id || '') || null);   // just this client
+    const clients = useMemo(() => (oneClient ? [oneClient] : []), [oneClient]);
     const { appointments } = useClientVisits(String((params as any)?.id || '') || null);   // just this client's visits
     const { role, roleId, can, selectedTenant } = useTenant();
     const showFinancials = canSeeFinancials(selectedTenant, roleId || role);

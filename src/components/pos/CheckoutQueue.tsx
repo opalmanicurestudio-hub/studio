@@ -29,7 +29,7 @@ const safeDate = (val: any): Date => {
 export const CheckoutQueueCard: React.FC<any> = (props) => (props?.appointmentData?.appointment ? <CheckoutQueueCardInner {...props} /> : null);
 
 const CheckoutQueueCardInner: React.FC<any> = ({ appointmentData, isSelected, onSelect, onRevertToService }) => {
-  const { staff: allStaffList, clients } = useInventory();
+  const { staff: allStaffList } = useInventory();
   
   // Hooks first, every render — an early return BEFORE a hook crashed the POS (React #300) the moment a visit left the
   // queue (e.g. right after it was paid).

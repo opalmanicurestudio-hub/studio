@@ -72,6 +72,7 @@ import { cn } from '@/lib/utils';
 import { InServiceAppointmentCard } from './InServiceAppointmentCard';
 import { CheckoutQueueCard } from './CheckoutQueueCard';
 import { useInventory } from '@/context/InventoryContext';
+import { useClientLookups } from '@/hooks/use-clients';
 
 interface WalkInQueueProps {
     walkIns: WalkIn[] | null;
@@ -234,7 +235,6 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
         return () => clearInterval(id);
     }, []);
 
-    const { clients } = useInventory();
 
     /**
      * A stable string, not a Date object. The previous version put a freshly
@@ -253,17 +253,16 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
      * Built once per client-list change instead of scanning every client for
      * every waiting guest on every render.
      */
+    // Is a waiting guest already a client? Their number or email is looked up once (hooks/use-clients).
+    const lookupValues = useMemo(() => (walkIns || []).filter(w => w.status === 'waiting' || w.status === 'skipped')
+        .flatMap(w => { const raw = w as any; return [digitsOnly(raw.customerPhone || raw.phone) || null, normalizedEmail(raw.customerEmail || raw.email) || null]; }), [walkIns]);
+    const lookups = useClientLookups(lookupValues);
     const clientIndex = useMemo(() => {
         const byPhone = new Map<string, Client>();
         const byEmail = new Map<string, Client>();
-        (clients || []).forEach(c => {
-            const p = digitsOnly((c as any).phone);
-            const e = normalizedEmail((c as any).email);
-            if (p && !byPhone.has(p)) byPhone.set(p, c);
-            if (e && !byEmail.has(e)) byEmail.set(e, c);
-        });
+        lookups.forEach((list, v) => { const c = list[0]; if (!c) return; if (v.includes('@')) { if (!byEmail.has(v)) byEmail.set(v, c); } else if (!byPhone.has(v)) byPhone.set(v, c); });
         return { byPhone, byEmail };
-    }, [clients]);
+    }, [lookups]);
 
     /**
      * LANE ONE. Walk-ins only. Nothing with a booked start time belongs here.

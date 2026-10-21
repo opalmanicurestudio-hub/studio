@@ -72,6 +72,7 @@ import { cn } from '@/lib/utils';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { useInventory } from '@/context/InventoryContext';
+import { useClient } from '@/hooks/use-clients';
 
 /**
  * Firestore timestamps arrive as an ISO string, a Firestore Timestamp, or a
@@ -100,7 +101,6 @@ const statusOptions = [
 
 export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartService, onSkip, onCancel, onReturnToQueue, onUpdateStatus }) => {
     const { selectedTenant } = useTenant();
-    const { clients } = useInventory();
     const [timeSinceNotified, setTimeSinceNotified] = useState('');
     const [isOverTime, setIsOverTime] = useState(false);
 
@@ -131,7 +131,8 @@ export const NotifiedCustomerCard: React.FC<any> = ({ walkIn, staff, onStartServ
         return () => clearInterval(interval);
     }, [notifiedValue, selectedTenant]);
 
-    const client = useMemo(() => clients?.find(c => c.id === walkIn?.clientId), [walkIn?.clientId, clients]);
+    const { client: loaded } = useClient(walkIn?.clientId || null);   // just this guest
+    const client = loaded || undefined;
 
     const isBirthdayToday = useMemo(() => {
         if (!client?.birthday) return false;

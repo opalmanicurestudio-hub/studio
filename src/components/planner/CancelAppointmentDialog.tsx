@@ -58,6 +58,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { useDepositCredit } from '@/hooks/useDepositCredit';
 import { rateFor } from '@/lib/commission';
+import { useClient } from '@/hooks/use-clients';
 
 // Who is performing the cancellation. Drives the audit trail's actorType.
 type ActorType = 'studio' | 'client' | 'no_show';
@@ -128,7 +129,7 @@ const safeDate = (val: any): Date => {
 /** The cancel/no-show dialog's logic — shared by the planner dialog and the front desk (same policy maths, two layouts). */
 export function useCancelDialog(props: CancelAppointmentDialogProps) {
   const { open, onOpenChange, appointment, tenant, currentStaff, onConfirm } = props;
-  const { services, clients, staff, inventory } = useInventory();
+  const { services, staff, inventory } = useInventory();
 
   const [actorType, setActorType] = useState<ActorType>('studio');
   const [studioReason, setStudioReason] = useState<StudioCancellationReason>('client_request_relayed');
@@ -152,10 +153,9 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
   const [depositDisposition, setDepositDisposition] = useState<'refund' | 'store_credit'>('refund');
   const [additionalCreditValue, setAdditionalCreditValue] = useState(0);
 
-  const client = useMemo(
-    () => clients?.find(c => c.id === appointment.clientId),
-    [clients, appointment.clientId],
-  );
+  const { client: loaded } = useClient(appointment.clientId || null);   // just this client
+  const client = loaded || undefined;
+  const clients = useMemo(() => (loaded ? [loaded] : []), [loaded]);
 
   // Single source of truth for deposit state — shared with
   // AppointmentDetailsSheet's readiness banner so both agree on whether a

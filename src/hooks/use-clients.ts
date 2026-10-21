@@ -3,7 +3,7 @@
 // has. Every record goes through the same view as the shared list (renters' own clients hidden, contact privacy
 // applied), so a screen can't tell the difference.
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, documentId, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, documentId, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { useFirebase, useMemoFirebase } from '@/firebase/provider';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { useDoc } from '@/firebase/firestore/use-doc';
@@ -93,4 +93,39 @@ export function useTopClients(n = 6, enabled = true): { clients: Client[]; isLoa
   const r = useCollection<any>(q);
   const clients = useMemo(() => (r.data ? r.data.map(view).filter(Boolean).slice(0, n) : NONE), [r.data, view, n]);
   return { clients, isLoading: !!q && (r.isLoading || (r.data == null && !r.error)) };
+}
+
+/** Clients holding store credit (the business owes them), live. */
+export function useClientsWithCredit(): { clients: Client[]; isLoading: boolean } {
+  const { firestore, tenantId, view } = useTenantDb();
+  const q = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'clients'), where('totalStoreCredit', '>', 0)) : null), [firestore, tenantId]);
+  const r = useCollection<any>(q);
+  const clients = useMemo(() => (r.data ? r.data.map(view).filter(Boolean) : NONE), [r.data, view]);
+  return { clients, isLoading: !!q && (r.isLoading || (r.data == null && !r.error)) };
+}
+
+/**
+ * Existing clients with exactly this phone number or email, for a few people at once (is this walk-in already a
+ * client?). Read once per number or email. Returns a map from what was looked up to the clients found.
+ */
+export function useClientLookups(values: (string | null | undefined)[]): Map<string, Client[]> {
+  const { firestore, tenantId, view } = useTenantDb();
+  const keys = [...new Set(values.map((v) => (v ? searchTermKey(String(v)) : null)).filter((k): k is string => !!k && (/^\d{10}$/.test(k) || k.includes('@'))))].sort();
+  const key = keys.join('|');
+  const [found, setFound] = useState<Record<string, any[]>>({});
+  useEffect(() => {
+    if (!firestore || !tenantId || !key) return;
+    let live = true;
+    const todo = key.split('|').filter((k) => !(k in found));
+    void Promise.all(todo.map(async (k) => {
+      try { const s = await getDocs(query(collection(firestore, 'tenants', tenantId, 'clients'), where('searchKeys', 'array-contains', k), limit(5))); return [k, s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))] as const; }
+      catch { return [k, []] as const; }
+    })).then((pairs) => { if (live && pairs.length) setFound((f) => ({ ...f, ...Object.fromEntries(pairs) })); });
+    return () => { live = false; };
+  }, [firestore, tenantId, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return useMemo(() => {
+    const m = new Map<string, Client[]>();
+    for (const v of values) { if (!v) continue; const k = searchTermKey(String(v)); if (k && found[k]) m.set(String(v), found[k].map(view).filter(Boolean)); }
+    return m;
+  }, [found, view, key]); // eslint-disable-line react-hooks/exhaustive-deps
 }

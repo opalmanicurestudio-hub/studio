@@ -41,6 +41,7 @@ import { Search } from 'lucide-react';
 import { PrintWalkInTicket, type WalkInTicketData } from '@/components/walk-in/PrintWalkInTicket';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { useClientsByIds } from '@/hooks/use-clients';
 
 
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
@@ -60,8 +61,9 @@ const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: stri
 
 
 function POSPage() {
-    const { inventory, services, clients, walkIns, staff, memberships, packages } = useInventory();
+    const { inventory, services, walkIns, staff, memberships, packages } = useInventory();
     const { appointments: appointmentsFromDB } = useAppointmentWindow();   // today's visits ready to pay
+    const { clients } = useClientsByIds((appointmentsFromDB || []).filter((a: any) => a.status === 'ready_for_checkout').map((a: any) => a.clientId));   // just those clients
     const [cart, setCart] = useState<any[]>([]);
     const [activeTab, setActiveTab] = useState('catalog');
     const { firestore } = useFirebase();

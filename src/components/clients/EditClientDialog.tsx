@@ -75,6 +75,7 @@ import { format, parseISO } from 'date-fns';
 import { PhoneInput } from '../ui/phone-input';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
+import { useClient, useClientSearch, useDebounced } from '@/hooks/use-clients';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -246,8 +247,14 @@ const IntelCategory = ({
 };
 
 const EditClientFormInternal = ({ client }: { client: Client }) => {
-    const { clients: allClients } = useInventory();
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
+    // The referrer is found by search (hooks/use-clients); the one already chosen is read on its own.
+    const [refQ, setRefQ] = React.useState('');
+    const refSettled = useDebounced(refQ.trim().length >= 2 ? refQ : '', 200);
+    const { clients: refFound } = useClientSearch(refSettled, 20);
+    const chosenRefId = watch('referringClientId' as any) as any;
+    const { client: chosenRef } = useClient(chosenRefId || null);
+    const allClients = React.useMemo(() => { const m = new Map<string, any>(); for (const c of [...(chosenRef ? [chosenRef] : []), ...refFound]) if (c.id !== client.id) m.set(c.id, c); return [...m.values()]; }, [refFound, chosenRef, client.id]);
     const referralSource = watch('intel.referralSource');
     const clientStatus = watch('status');
     
@@ -518,6 +525,7 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
                             render={({ field }) => (
                                 <div className="space-y-1.5 text-left">
                                     <Label htmlFor="referring-client-edit" className="text-[9px] uppercase font-black text-muted-foreground ml-1">Referring Guest</Label>
+                                    <Input value={refQ} onChange={(e) => setRefQ(e.target.value)} placeholder="Search by name, phone or email" className="h-11 rounded-xl" aria-label="Search for the client who referred them" />
                                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                                         <SelectTrigger id="referring-client-edit" className="h-12 rounded-xl border-2 font-bold uppercase text-[10px] tracking-widest">
                                         <SelectValue placeholder="SELECT REFERRER..." />

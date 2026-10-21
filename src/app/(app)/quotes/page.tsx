@@ -60,6 +60,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { InquiriesTab } from '@/components/quotes/InquiriesTab';
+import { useClientsByIds } from '@/hooks/use-clients';
 
 const formatCurrency = (n: number) => `$${(n || 0).toFixed(2)}`;
 
@@ -1256,7 +1257,6 @@ export default function QuotesPage() {
   const router = useRouter();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
-  const { clients } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
 
@@ -1265,6 +1265,7 @@ export default function QuotesPage() {
     [firestore, tenantId]
   );
   const { data: quotes, isLoading } = useCollection<any>(quotesQ);
+  const { clients } = useClientsByIds((quotes || []).map((q: any) => q?.clientId));   // just the clients on these quotes
 
   const requestsQ = useMemoFirebase(
     () => tenantId ? collection(firestore, `tenants/${tenantId}/quoteRequests`) : null,

@@ -288,13 +288,15 @@ export default function ClientDetailPage() {
   const { selectedTenant, role, roleId, can, isLoading: isTenantLoading } = useTenant();
   const showFinancials = canSeeFinancials(selectedTenant, roleId || role);
   const showCareContents = canSeeCareNoteContents(selectedTenant, roleId || role);
-  const { services, memberships, redemptions: allRedemptions, packages } = useInventory();
+  const { services, memberships, packages } = useInventory();
+  // This client's own redemptions (their perk and package use), read from their record.
+  const { data: allRedemptions } = useCollection<any>(useMemoFirebase(() => (firestore && selectedTenant?.id && clientId ? collection(firestore, `tenants/${selectedTenant.id}/clients/${clientId}/redemptions`) : null), [firestore, selectedTenant?.id, clientId]));
   const { appointments: allAppointments } = useClientVisits(clientId || null);   // this client's own visits, every one
   const { appointments: bookingWindow } = useAppointmentWindow();   // the booking sheet checks clashes with everyone's bookings
   // This client's visits' money records only (hooks/use-transactions), not every sale the business has had.
   const clientVisitIds = useMemo(() => (allAppointments || []).filter((a: any) => a.clientId === clientId).map((a: any) => a.id), [allAppointments, clientId]);
   const { transactions: allTransactions } = useTransactionsForVisits(clientVisitIds);
-  const allClientsList: any[] = ((useInventory() as any).clients) || [];
+  const allClientsList: any[] = [];   // pickers on this page search on the server (hooks/use-clients)
   const { showProfitability: seesMoney } = useProfitabilityVisibility();
   const [linkCount, setLinkCount] = useState(0);
   const [tab, setTab] = useState('overview'); const [bookOpen, setBookOpen] = useState(false);
@@ -411,7 +413,7 @@ export default function ClientDetailPage() {
       });
   }, [clientId, allAppointments, services, allTransactions]);
 
-  const clientRedemptions = useMemo(() => (allRedemptions || []).filter(r => r.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allRedemptions]);
+  const clientRedemptions = useMemo(() => (allRedemptions || []).map((r: any) => ({ ...r, clientId: r.clientId || clientId, date: r.date || r.redeemedAt })).filter((r: any) => r.clientId === clientId).sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()), [clientId, allRedemptions]);
   const clientRefreshments = useMemo(() => (allRequests || []).filter((r: any) => r.clientId === clientId).sort((a: any,b: any) => safeDate(b.requestedAt).getTime() - safeDate(a.requestedAt).getTime()), [clientId, allRequests]);
 
   const activeMembership = useMemo(() => {

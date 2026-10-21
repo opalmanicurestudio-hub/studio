@@ -86,7 +86,7 @@ export default function ReportsPage() {
   const [periodPreset, setPeriodPreset] = useState('thisMonth');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
-  const { inventory, services, staff, clients, billInstances, businessProfiles, isLoading: ctxLoading } = useInventory();
+  const { inventory, services, staff, billInstances, businessProfiles, isLoading: ctxLoading } = useInventory();
 
   useEffect(() => {
     const now = new Date();
@@ -242,7 +242,7 @@ export default function ReportsPage() {
         .filter(a => a.cancellationFeeWaived === true)
         .map(a => ({
             id: a.id, date: a.waivedAt || a.startTime,
-            clientName: a.clientName || clients.find(c => c.id === a.clientId)?.name || 'Guest',
+            clientName: a.clientName || 'Guest',   // visits carry the client's name
             authorizer: staff.find(s => s.id === a.waivedBy)?.name || 'Admin',
             amount: a.cancellationFeeApplied || 0,
             reason: a.waivedReason || 'Policy Exception',
@@ -268,7 +268,7 @@ export default function ReportsPage() {
         performance, channelStats, onlineByChannel, reconciliation, absorbedLedger, recoveryLedger,
         overall: { totalRevenue: totalGrossRevenue, totalCOGS: totalMaterials, totalLaborLoad, totalReconciledOpEx, totalRecoveryLoss, netIncome: totalGrossRevenue - totalMaterials - totalReconciledOpEx - totalLaborLoad - totalRecoveryLoss, utilization: performance.length > 0 ? performance.reduce((acc, d) => acc + d.stats.utilizationRate, 0) / performance.length : 0 }
     };
-  }, [staff, appointments, services, transactions, activityLogs, inventory, clients, businessProfiles, effectiveFrom, effectiveTo, selectedTenant]);
+  }, [staff, appointments, services, transactions, activityLogs, inventory, businessProfiles, effectiveFrom, effectiveTo, selectedTenant]);
 
   if (isLoading) return <div className="h-screen flex flex-col items-center justify-center gap-4"><Loader className="animate-spin text-primary h-10 w-10" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground animate-pulse">Synthesizing Dossier...</p></div>;
 

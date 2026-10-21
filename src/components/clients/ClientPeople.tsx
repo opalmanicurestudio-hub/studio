@@ -4,6 +4,7 @@
 // permissions start from that kind and can be changed), change permissions or an end date, or end it (kept on record).
 import * as React from 'react';
 import { KINDS, PERMISSIONS, type RelKind, type RelPermission } from '@/lib/relationships';
+import { useClientSearch, useDebounced } from '@/hooks/use-clients';
 
 async function call(body: any) { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
   return fetch('/api/clients/relationships', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => null); }
@@ -16,7 +17,9 @@ export function ClientPeople({ tenantId, client, clients, onCount, onOpenClient 
   const load = React.useCallback(async () => { const r: any = await call({ tenantId, action: 'list', clientId: client.id }); if (r?.ok) { setRows(r.rows); onCount?.(r.rows.filter((x: any) => x.active).length); } else { setRows([]); setErr(r?.error || 'Couldn’t load linked people.'); } }, [tenantId, client.id, onCount]);
   React.useEffect(() => { void load(); }, [load]);
   React.useEffect(() => { setPerms(KINDS[kind].defaults); }, [kind]);
-  const matches = q.trim().length < 2 ? [] : clients.filter((c) => c.id !== client.id && String(c.name || '').toLowerCase().includes(q.trim().toLowerCase())).slice(0, 6);
+  const qSettled = useDebounced(q.trim().length >= 2 ? q : '', 200);
+  const { clients: found } = useClientSearch(qSettled, 8);   // anyone, searched on the server
+  const matches = q.trim().length < 2 ? [] : (() => { const m = new Map<string, any>(); for (const c of [...found, ...(clients || [])]) if (c.id !== client.id && String(c.name || '').toLowerCase().includes(q.trim().toLowerCase())) m.set(c.id, c); return [...m.values()].slice(0, 6); })();
   const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties; const line = { borderColor: 'hsl(var(--border))' } as React.CSSProperties;
   const label = (p: RelPermission) => PERMISSIONS.find((x) => x.key === p)?.label || p;
   const save = async () => { if (!other) return; setBusy(true); setErr(null);

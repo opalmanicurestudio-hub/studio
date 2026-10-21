@@ -19,6 +19,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '..
 import Image from 'next/image';
 import { Checkbox } from '../ui/checkbox';
 import { ChevronDown } from 'lucide-react';
+import { useClientsByIds } from '@/hooks/use-clients';
 
 interface PickingListDialogProps {
   open: boolean;
@@ -41,7 +42,8 @@ export const PickingListDialog: React.FC<PickingListDialogProps> = ({
   onOpenChange,
   appointments,
 }) => {
-  const { inventory, locations, clients, services } = useInventory();
+  const { inventory, locations, services } = useInventory();
+  const { clients } = useClientsByIds((appointments || []).map((a: any) => a?.clientId));   // just these visits' clients
 
   const pickingListByLocation = useMemo(() => {
     const productMap = new Map<string, AggregatedProduct>();

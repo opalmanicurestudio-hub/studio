@@ -82,6 +82,7 @@ import { BrowseConsentFormsDialog } from '@/components/services/BrowseConsentFor
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useInquiryPrefill } from '@/hooks/useInquiryPrefill';
+import { useClient, useClientSearch, useDebounced } from '@/hooks/use-clients';
 
 type LineItem = {
     id: string;
@@ -229,7 +230,11 @@ const YieldEngineCard = ({
 
 // ─── Inner page component ─────────────────────────────────────────────────────
 function QuoteGeneratorPageInner() {
-    const { clients, services, consentForms, staff } = useInventory();
+    const { services, consentForms, staff } = useInventory();
+    // The client is found by search (hooks/use-clients); the one chosen is read on its own.
+    const [clientQ, setClientQ] = useState('');
+    const clientQSettled = useDebounced(clientQ.trim().length >= 2 ? clientQ : '', 200);
+    const { clients: clientHits } = useClientSearch(clientQSettled, 20);
     const { selectedTenant } = useTenant();
     const tmhr = selectedTenant?.tmhr || 50;
     const { toast } = useToast();
@@ -239,6 +244,8 @@ function QuoteGeneratorPageInner() {
 
     // ── Event Details ──────────────────────────────────────────────────────────
     const [clientId, setClientId] = useState('');
+    const { client: chosenClient } = useClient(clientId && clientId !== 'add-new' ? clientId : null);
+    const quoteClients = useMemo(() => { const m = new Map<string, any>(); for (const c of [...(chosenClient ? [chosenClient] : []), ...clientHits]) m.set(c.id, c); return [...m.values()]; }, [chosenClient, clientHits]);
     const [isAddingClient, setIsAddingClient] = useState(false);
     const [eventName, setEventName] = useState('');
     const [eventStartDate, setEventStartDate] = useState<Date | undefined>(new Date());
@@ -483,6 +490,7 @@ function QuoteGeneratorPageInner() {
                             <div className="space-y-3">
                                 <Label htmlFor="client" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Identification</Label>
                                 <div className="flex gap-3">
+                                    <Input value={clientQ} onChange={(e) => setClientQ(e.target.value)} placeholder="Search clients by name, phone or email" className="h-14 rounded-2xl" aria-label="Search clients" />
                                     <Select value={clientId} onValueChange={(value) => {
                                         if (value === 'add-new') { setIsAddingClient(true); setClientId(''); } 
                                         else { setIsAddingClient(false); setClientId(value); }
@@ -491,7 +499,7 @@ function QuoteGeneratorPageInner() {
                                             <SelectValue placeholder="SEARCH GUEST ARCHIVE..." />
                                         </SelectTrigger>
                                         <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            {clients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
+                                            {quoteClients.map(c => <SelectItem key={c.id} value={c.id} className="font-bold uppercase text-[10px] tracking-widest">{c.name}</SelectItem>)}
                                             <SelectItem value="add-new" className="font-black text-primary">
                                                 <span className="flex items-center gap-2"><UserPlus className="w-3.5 h-3.5" /> REGISTER NEW PROFILE</span>
                                             </SelectItem>
