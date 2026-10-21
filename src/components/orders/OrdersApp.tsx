@@ -28,6 +28,7 @@ import { SelectBar } from './SelectBar';
 import { ShipToday } from './ShipToday';
 import { bringingOut } from '@/lib/orders-flow';
 import { shipTogetherGroups } from '@/lib/ship-together';
+import { addressLines } from './AddressCard';
 
 const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
 
@@ -168,6 +169,7 @@ export function OrdersApp() {
         <div key={g[0].id} className="mx-4 mt-3 rounded-2xl p-4" style={{ border: `2px solid ${C.ink}` }}>
           <p className="m-0 text-[17px] font-semibold">{firstName(g[0].customerName)} has {g.length} orders going to the same address</p>
           <p className="m-0 mt-1 text-[14px]" style={muted}>{g.map((o) => `#${String(o.orderNumber ?? '').padStart(4, '0')} (${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}${o.shippingCents ? `, paid ${money(o.shippingCents)} shipping` : ''})`).join(' and ')}. Ship them in one box to save postage; the extra shipping is refunded automatically.</p>
+          <p className="m-0 mt-2 text-[14px]">{addressLines(g[0].shippingAddress).join(' · ')}</p>
           <div className="mt-3 flex gap-2">
             <Btn kind="primary" onClick={() => setShipGroup(g.map((o) => o.id))}>Ship together</Btn>
             <Btn kind="soft" onClick={() => void keepSeparate(g)}>Keep separate</Btn>

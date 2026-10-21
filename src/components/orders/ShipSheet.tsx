@@ -14,6 +14,7 @@ import type { Actor } from '@/lib/retail-fulfill';
 import { Btn, C, Sheet, muted } from './ui';
 import { openPrint } from '@/lib/open-print';
 import { labelProgress } from '@/lib/totes';
+import { AddressCard } from './AddressCard';
 
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
@@ -94,6 +95,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
 
   return (
     <Sheet title={many ? `Ship ${firstName(order.customerName)}’s ${group.length} orders together` : `Ship ${firstName(order.customerName)}’s order`} sub={order.shippingAddress ? `To ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode || ''}${many ? ` · ${group.map((g: any) => `#${String(g.orderNumber ?? '').padStart(4, '0')}`).join(' + ')}` : ''}` : undefined} onClose={onClose}>
+      <div className="mt-2"><AddressCard order={order} /></div>
       {many && (
         <div className="mt-2 rounded-2xl p-4" style={{ background: C.soft }}>
           <p className="m-0 text-[13px] font-semibold" style={muted}>In this shipment</p>
