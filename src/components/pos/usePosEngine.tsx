@@ -47,6 +47,7 @@ import { posTaxAmount, posTaxLabel } from '@/lib/pos-tax';
 // ── NEW IMPORTS — four feature additions ──────────────────────────────────────
 import { useWaitlist } from '@/hooks/useWaitlist';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
+import { useOpenTill } from '@/hooks/use-till';
 
 // Opens the ticket in a fresh, chrome-free browser window and auto-prints.
 // This sidesteps the core mobile print problem: window.print() from inside
@@ -259,7 +260,8 @@ export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string,
 
 export function usePosEngine() {
   const isMobile = useIsMobile();
-  const { inventory, services, walkIns, staff, memberships, packages, resources, discounts, tillSessions, isLoading: ctxLoading } = useInventory();
+  const { inventory, services, walkIns, staff, memberships, packages, resources, discounts, isLoading: ctxLoading } = useInventory();
+  const { activeTill: openTill, openTills: tillSessions } = useOpenTill();   // only the open till
   // The shared working window (hooks/use-appointments): today's visits, the queue and upcoming conflicts, not all history.
   const { appointments: appointmentsFromInventory, isLoading: apptLoading } = useAppointmentWindow();
   const isInventoryLoading = ctxLoading || apptLoading;
@@ -423,7 +425,7 @@ export function usePosEngine() {
   }, [walkIns]);
 
   const isOwnerOrAdminUser = can('checkout.discount');
-  const activeTill = useMemo(() => tillSessions?.find(s => s.status === 'open') || null, [tillSessions]);
+  const activeTill = openTill;
 
   const readyForCheckoutAppointments = useMemo(() => {
     if (!appointmentsFromInventory || !clients || !services || !staff) return [];

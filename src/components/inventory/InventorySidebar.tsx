@@ -42,6 +42,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
 import { Transaction } from '@/lib/financial-data';
 import { cn } from '@/lib/utils';
+import { useRecentStockChanges } from '@/hooks/use-stock';
 
 export const InventorySidebar = ({ 
     inventory,
@@ -145,11 +146,13 @@ export const InventorySidebar = ({
         };
     }, [inventory]);
 
+    // The last 90 days of stock changes (hooks/use-stock), not every change ever recorded.
+    const { stockCorrections: recentChanges } = useRecentStockChanges(90);
     const topUsedProducts = useMemo(() => {
         const usageCounts: { [key: string]: { name: string; count: number } } = {};
         // FIX: guard both stockCorrections and inventory
-        (stockCorrections ?? [])
-            .filter(sc => sc.reason.includes('Service') || sc.reason.includes('Appointment'))
+        (recentChanges ?? [])
+            .filter((sc: any) => String(sc.reason || '').includes('Service') || String(sc.reason || '').includes('Appointment'))
             .forEach(sc => {
                 const product = (inventory ?? []).find(p => p.id === sc.productId);
                 if (product) {
@@ -160,7 +163,7 @@ export const InventorySidebar = ({
                 }
             });
         return Object.values(usageCounts).sort((a, b) => b.count - a.count).slice(0, 5);
-    }, [stockCorrections, inventory]);
+    }, [recentChanges, inventory]);
     
     const handleLogUseClick = (item: InventoryItem) => {
         setItemToLogUse(item);
@@ -263,7 +266,7 @@ export const InventorySidebar = ({
             </CardHeader>
             <CardContent className="p-6 space-y-6 text-left">
                 <div className="space-y-4">
-                    <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest">High Rotation Items</p>
+                    <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest">High Rotation Items · Last 90 Days</p>
                     {topUsedProducts.length > 0 ? (
                         <div className="grid gap-2">
                             {topUsedProducts.map(p => (

@@ -87,6 +87,9 @@ import { Separator } from '@/components/ui/separator';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useStockChangesFor } from '@/hooks/use-stock';
+import { useAppointmentWindow } from '@/hooks/use-appointments';
+import { useClientsByIds } from '@/hooks/use-clients';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -112,7 +115,12 @@ const collectImages = (p: any): string[] =>
 
 export default function ProductDetailPage() {
     const { id } = useParams<{ id: string }>();
-    const { inventory, stockCorrections, locations, services, appointments, clients, staff, isLoading: isInventoryLoading } = useInventory();
+    const { inventory, locations, services, staff, isLoading: isInventoryLoading } = useInventory();
+    // Who a service-use entry was for: recent visits from the shared window, and just those visits' clients.
+    const { appointments } = useAppointmentWindow();
+    const usedForIds = useMemo(() => (appointments || []).map((a: any) => a.clientId).filter(Boolean), [appointments]);
+    const { clients } = useClientsByIds(usedForIds);
+    const { stockCorrections } = useStockChangesFor(id || null);   // this product's changes only
     const { firestore } = useFirebase();
     // FIX: tenantId was never derived from selectedTenant — handleProductUpdate
     // referenced a bare `tenantId` that didn't exist, throwing a ReferenceError
@@ -240,8 +248,8 @@ export default function ProductDetailPage() {
                 const shortId = parts[0].replace('Appointment #', '').toUpperCase();
                 const staffName = parts[1] || 'Unknown Staff';
                 const appointment = appointments.find(apt => apt.id.toUpperCase().endsWith(shortId));
-                const clientName = appointment ? (clients.find(c => c.id === appointment.clientId)?.name) : 'Unknown Client';
-                displayReason = `Service for ${clientName} by ${staffName}`;
+                const clientName = appointment ? (clients.find(c => c.id === appointment.clientId)?.name || appointment.clientName) : null;
+                displayReason = clientName ? `Service for ${clientName} by ${staffName}` : `Service by ${staffName}`;
             }
     
             return { 

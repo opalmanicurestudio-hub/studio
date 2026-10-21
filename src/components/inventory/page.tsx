@@ -762,7 +762,6 @@ const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
 export default function InventoryPage() {
   const { 
     inventory, 
-    stockCorrections,
     locations, 
     locationTypes,
     staff,
@@ -1461,7 +1460,7 @@ export default function InventoryPage() {
             <div className="hidden lg:block lg:col-span-1">
                 <InventorySidebar
                   inventory={inventory || []}
-                  stockCorrections={stockCorrections || []}
+                  stockCorrections={[]}
                   onLogOverheadUse={handleOpenLogUse} 
                 />
             </div>
@@ -1484,7 +1483,7 @@ export default function InventoryPage() {
                                 <div className="p-4">
                                      <InventorySidebar
                                       inventory={inventory || []}
-                                      stockCorrections={stockCorrections || []}
+                                      stockCorrections={[]}
                                       onLogOverheadUse={handleOpenLogUse}
                                      />
                                 </div>

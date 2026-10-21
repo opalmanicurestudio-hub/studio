@@ -86,6 +86,8 @@ import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 import { nanoid } from 'nanoid';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useOpenTill } from '@/hooks/use-till';
+import { useClientsOwing } from '@/hooks/use-clients';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1072,7 +1074,9 @@ const LedgerTab = () => {
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
-  const { staff, tillSessions, services, inventory, clients, isLoading: ctxLoading } = useInventory();
+  const { staff, services, inventory, isLoading: ctxLoading } = useInventory();
+  const { openTills: tillSessions } = useOpenTill();   // only the open till
+  const { clients } = useClientsOwing();   // bad-debt aging needs only clients who owe
   const auditActor = useAuditActor();
   const [periodPreset, setPeriodPreset] = useState('30days');
   const [date, setDate] = useState<DateRange | undefined>(undefined);

@@ -482,7 +482,7 @@ function PlannerPageContent() {
 
   // Lounge orders, so the printed ticket can list what the guest has already had
   // brought to them. Same plain subscription the kitchen board uses.
-  const { data: refreshmentRequests } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'refreshmentRequests'), [firestore, tenantId]));
+  const { refreshmentRequests } = useInventory() as any;   // pending lounge orders and those since yesterday (the visits on the board)
 
   // The waiting list. Front desk writes it from Quick Book; the walk-in kiosk
   // writes it through /api/waitlist when every chair is full. Until now nothing
