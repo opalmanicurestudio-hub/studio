@@ -9,6 +9,7 @@
 import * as React from 'react';
 import { format, differenceInDays, differenceInYears } from 'date-fns';
 import { reachOf, type Reach } from '@/lib/client-reach';
+import { mergeClientHistory, type ClientHist } from '@/lib/history-stats';
 
 const safe = (v: any) => new Date(v?.toDate ? v.toDate() : v);
 const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
@@ -21,15 +22,18 @@ const last10 = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
 export type Row = { c: any; visits: number; first: Date | null; last: Date | null; next: any | null; everyDays: number | null; usual: string | null; spent: number; dueBack: Date | null; dueThisWeek: boolean; quiet: boolean; isNew: boolean; regular: boolean; member: boolean; birthday: boolean; formDue: boolean; owes: number; age: number | null; dup: boolean };
 type Seg = 'all' | 'due' | 'quiet' | 'new' | 'regulars' | 'members' | 'owe' | 'birthdays' | 'banned' | 'reach_push' | 'reach_link' | 'reach_texts' | 'archived';
 
-export function buildRows(clients: any[], appointments: any[], services: any[], staff: any[], now = new Date()): Row[] {
+/** With `history` (all-time numbers from the server, hooks/use-history-stats), `appointments` only needs the live window. */
+export function buildRows(clients: any[], appointments: any[], services: any[], staff: any[], now = new Date(), history?: Record<string, ClientHist> | null): Row[] {
   const byClient = new Map<string, any[]>(); for (const a of appointments) { if (!a?.clientId) continue; (byClient.get(a.clientId) || byClient.set(a.clientId, []).get(a.clientId)!).push(a); }
   const svcName = new Map(services.map((s) => [s.id, s.name])); const staffName = new Map(staff.map((s) => [s.id, String(s.name || '').split(' ')[0]]));
   const phones = new Map<string, number>(), emails = new Map<string, number>();
   for (const c of clients) { const p = last10(c.phone), e = String(c.email || '').trim().toLowerCase(); if (p.length === 10) phones.set(p, (phones.get(p) || 0) + 1); if (e) emails.set(e, (emails.get(e) || 0) + 1); }
   return clients.map((c) => {
-    const mine = byClient.get(c.id) || []; const done = mine.filter((a) => a.status === 'completed').sort((x, y) => safe(y.startTime).getTime() - safe(x.startTime).getTime());
+    const mine = byClient.get(c.id) || [];
+    const merged = history ? mergeClientHistory(history[c.id], mine, now.getTime()) : null;
+    const done = merged ? merged.done : mine.filter((a) => a.status === 'completed').sort((x, y) => safe(y.startTime).getTime() - safe(x.startTime).getTime());
     const next = mine.filter((a) => !['cancelled', 'declined', 'no_show', 'completed'].includes(String(a.status)) && safe(a.startTime) > now).sort((x, y) => safe(x.startTime).getTime() - safe(y.startTime).getTime())[0] || null;
-    const last = done[0] ? safe(done[0].startTime) : null; const first = done.length ? safe(done[done.length - 1].startTime) : null;
+    const last = done[0] ? safe(done[0].startTime) : null; const first = merged ? (merged.first ? new Date(merged.first) : null) : done.length ? safe(done[done.length - 1].startTime) : null;
     const gaps = done.slice(0, 7).map((a, i, arr) => (i < arr.length - 1 ? differenceInDays(safe(a.startTime), safe(arr[i + 1].startTime)) : 0)).filter((g) => g > 0);
     const everyDays = gaps.length >= 2 ? Math.round(gaps.reduce((s, g) => s + g, 0) / gaps.length) : null;
     const mode = (xs: string[]) => { const m = new Map<string, number>(); xs.filter(Boolean).forEach((x) => m.set(x, (m.get(x) || 0) + 1)); let b = '', n = 0; m.forEach((v, k) => { if (v > n) { b = k; n = v; } }); return n >= 2 ? b : ''; };
@@ -39,22 +43,22 @@ export function buildRows(clients: any[], appointments: any[], services: any[], 
     const dueThisWeek = !!dueBack && !next && differenceInDays(dueBack, now) <= 7 && differenceInDays(now, dueBack) <= 14;
     const quiet = !next && !!last && done.length >= 2 && differenceInDays(now, last) > Math.max(42, (everyDays || 28) * 1.5);
     const isNew = !!first && differenceInDays(now, first) <= 30;
-    const regular = done.filter((a) => differenceInDays(now, safe(a.startTime)) <= 365).length >= 6;
+    const regular = (merged ? merged.year : done.filter((a) => differenceInDays(now, safe(a.startTime)) <= 365).length) >= 6;
     const member = !!(c.activeMembershipId || c.membershipStatus === 'active' || c.isMember);
     let age: number | null = null, birthday = false; try { const dob = c.dob || c.birthday || c.dateOfBirth; if (dob) { const d = safe(dob); age = differenceInYears(now, d); birthday = d.getMonth() === now.getMonth(); } } catch { /* fine */ }
     const formDue = !!next && (() => { const svc = services.find((s) => s.id === next.serviceId); const need: string[] = [...(svc?.requiredFormIds || []), ...(next.requiredFormIds || [])]; const signed = new Set((next.signedForms || []).map((f: any) => f.formId)); return need.some((id) => !signed.has(id)); })();
     const p = last10(c.phone), e = String(c.email || '').trim().toLowerCase();
-    return { c, visits: done.length, first, last, next, everyDays, usual, spent: Number(c.lifetimeValue) || 0, dueBack, dueThisWeek, quiet, isNew, regular, member, birthday, formDue, owes: Number(c.outstandingBalance) || 0, age, dup: (p.length === 10 && (phones.get(p) || 0) > 1) || (!!e && (emails.get(e) || 0) > 1) };
+    return { c, visits: merged ? merged.visits : done.length, first, last, next, everyDays, usual, spent: Number(c.lifetimeValue) || 0, dueBack, dueThisWeek, quiet, isNew, regular, member, birthday, formDue, owes: Number(c.outstandingBalance) || 0, age, dup: (p.length === 10 && (phones.get(p) || 0) > 1) || (!!e && (emails.get(e) || 0) > 1) };
   });
 }
 
-export function ClientsList({ tenantId, clients, appointments, services, staff, showMoney, showContact, canMessage = showContact, canManage, onOpen, onBook, onAdd, onFindDuplicates, onArchive, onUnarchive, onDelete, onTag }: {
-  tenantId: string; clients: any[]; appointments: any[]; services: any[]; staff: any[]; showMoney: boolean; showContact: boolean; canMessage?: boolean; canManage: boolean;
+export function ClientsList({ tenantId, clients, appointments, history, services, staff, showMoney, showContact, canMessage = showContact, canManage, onOpen, onBook, onAdd, onFindDuplicates, onArchive, onUnarchive, onDelete, onTag }: {
+  tenantId: string; clients: any[]; appointments: any[]; history?: Record<string, ClientHist> | null; services: any[]; staff: any[]; showMoney: boolean; showContact: boolean; canMessage?: boolean; canManage: boolean;
   onOpen: (id: string) => void; onBook: (id: string) => void; onAdd: () => void; onFindDuplicates: () => void;
   onArchive: (ids: string[]) => void; onUnarchive: (ids: string[]) => void; onDelete?: (ids: string[]) => void; onTag: (ids: string[], tag: string) => void;
 }) {
   const now = React.useMemo(() => new Date(), []);
-  const all = React.useMemo(() => buildRows(clients, appointments, services, staff, now), [clients, appointments, services, staff, now]);
+  const all = React.useMemo(() => buildRows(clients, appointments, services, staff, now, history), [clients, appointments, services, staff, now, history]);
   const [seg, setSeg] = React.useState<Seg>('all'); const [q, setQ] = React.useState(''); const [sort, setSort] = React.useState<'last' | 'next' | 'name' | 'spent' | 'visits'>('last');
   const [sel, setSel] = React.useState<Set<string>>(new Set()); const [limit, setLimit] = React.useState(50); const [compose, setCompose] = React.useState<null | 'message' | 'invite'>(null);
   const [selecting, setSelecting] = React.useState(false); const [menu, setMenu] = React.useState(false);   // phones: selecting is a mode; extras live in ⋯

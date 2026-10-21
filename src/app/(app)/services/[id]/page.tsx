@@ -25,6 +25,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { doc } from 'firebase/firestore';
 import { EditServiceDialog } from '@/components/services/ServiceFormSheet';
+import { useHistoryStats } from '@/hooks/use-history-stats';
 
 const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
   service: Service; tmhr: number; staff: Staff[]; pricingTiers: PricingTier[]; taxBurden: number;
@@ -187,7 +188,8 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
 
 export default function ServiceDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { services, appointments, staff, pricingTiers, resources, isLoading } = useInventory();
+  const { services, staff, pricingTiers, resources, isLoading } = useInventory();
+  const { stats: history } = useHistoryStats();   // all-time numbers, worked out on the server
   const { selectedTenant } = useTenant();
   const { firestore } = useFirebase();
   const { toast } = useToast();
@@ -214,14 +216,12 @@ export default function ServiceDetailPage() {
 
   const servicePerformance = useMemo(() => {
     if (!service) return null;
-    const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
-    const totalRevenue = bookings.reduce((acc, apt) => acc + ((apt as any).revenue || service.price), 0);
-    const uniqueClients = new Set(bookings.map(apt => apt.clientId)).size;
+    const h = history?.services?.[service.id]; const totalBookings = h?.b || 0; const totalRevenue = h?.rv || 0;
     return {
-      totalBookings: bookings.length, totalRevenue, uniqueClients,
-      avgRevenuePerBooking: bookings.length > 0 ? totalRevenue / bookings.length : 0,
+      totalBookings, totalRevenue, uniqueClients: h?.u || 0,
+      avgRevenuePerBooking: totalBookings > 0 ? totalRevenue / totalBookings : 0,
     };
-  }, [service, appointments]);
+  }, [service, history]);
 
   const handleCopyLink = () => {
     if (!service || !selectedTenant) return;

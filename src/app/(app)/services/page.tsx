@@ -40,14 +40,15 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useTenant } from '@/context/TenantContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { useAppointmentWindow } from '@/hooks/use-appointments';
+import { useHistoryStats } from '@/hooks/use-history-stats';
 
 interface ServiceCardProps {
   service: Service;
   onEditServiceOpen: (service: Service) => void;
   tmhr: number;
   taxBurden: number;
-  appointments: Appointment[] | null;
-  transactions: Transaction[] | null;
+  history: { b: number; tx: number } | null;
   onPriceUpdate: (serviceId: string, newPrice: number) => void;
   isSelected: boolean;
   onSelectItem: () => void;
@@ -55,7 +56,7 @@ interface ServiceCardProps {
 }
 
 const ServiceCard: React.FC<ServiceCardProps> = ({
-  service, onEditServiceOpen, tmhr, taxBurden, appointments, transactions,
+  service, onEditServiceOpen, tmhr, taxBurden, history,
   isSelected, onSelectItem, pricingTiers,
 }) => {
   const { toast } = useToast();
@@ -64,15 +65,8 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   const totalPadding = (service.padBefore || 0) + (service.padAfter || 0);
   const totalDuration = (service.duration || 0) + totalPadding;
 
-  const performance = useMemo(() => {
-    if (!appointments || !transactions) return { totalBookings: 0, totalRevenue: 0 };
-    const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
-    const bookingIds = new Set(bookings.map(b => b.id));
-    const totalRevenue = transactions
-      .filter(t => t.appointmentId && bookingIds.has(t.appointmentId) && t.category === 'Service Revenue')
-      .reduce((total, t) => total + t.amount, 0);
-    return { totalBookings: bookings.length, totalRevenue };
-  }, [service.id, appointments, transactions]);
+  // All-time bookings and revenue, worked out on the server (hooks/use-history-stats).
+  const performance = useMemo(() => ({ totalBookings: history?.b || 0, totalRevenue: history?.tx || 0 }), [history]);
 
   const materialCost = useMemo(() => {
     return (service.products || []).reduce((acc, p) => {
@@ -306,7 +300,9 @@ export default function ServicesPage() {
         setDocumentNonBlocking(ref, { ...rest, id: ref.id, name: `${svc.name} (copy)`, isPrivate: true, status: 'active', createdAt: new Date().toISOString() }, { merge: false }); toast({ title: `Copied — “${svc.name} (copy)” is hidden from the booking page until you’re ready.` }); } };
     return t ? { ...base, __timing: t, __setDuration: (m: number) => { if (firestore && tenantId) updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { duration: m }); } } : base; };
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
-  const { services, appointments, resources, isLoading, transactions, pricingTiers, inventory } = useInventory();
+  const { services, resources, isLoading, pricingTiers, inventory } = useInventory();
+  const { appointments } = useAppointmentWindow();   // the last 90 days are in the shared window
+  const { stats: history } = useHistoryStats();
 
   useEffect(() => { setTmhr(selectedTenant?.tmhr ?? 50); }, [selectedTenant]);
 
@@ -499,8 +495,7 @@ export default function ServicesPage() {
                         {mainServices.map(service => (
                           <ServiceCard
                             key={service.id} service={withTiming(service)} onEditServiceOpen={handleOpenEditService}
-                            tmhr={tmhr} taxBurden={taxBurden} appointments={appointments}
-                            transactions={transactions} onPriceUpdate={() => {}}
+                            tmhr={tmhr} taxBurden={taxBurden} history={history?.services?.[service.id] || null} onPriceUpdate={() => {}}
                             isSelected={selectedItems.has(service.id)}
                             onSelectItem={() => handleItemSelect(service.id)}
                             pricingTiers={pricingTiers || []}
@@ -514,8 +509,7 @@ export default function ServicesPage() {
                       {addOnServices.map(service => (
                         <ServiceCard
                           key={service.id} service={service} onEditServiceOpen={handleOpenEditService}
-                          tmhr={tmhr} taxBurden={taxBurden} appointments={appointments}
-                          transactions={transactions} onPriceUpdate={() => {}}
+                          tmhr={tmhr} taxBurden={taxBurden} history={history?.services?.[service.id] || null} onPriceUpdate={() => {}}
                           isSelected={selectedItems.has(service.id)}
                           onSelectItem={() => handleItemSelect(service.id)}
                           pricingTiers={pricingTiers || []}

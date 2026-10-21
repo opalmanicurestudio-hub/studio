@@ -49,6 +49,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { useHistoryStats } from '@/hooks/use-history-stats';
 
 const KpiCard = ({ title, value, icon: Icon, description, colorClass }: { title: string, value: string, icon: any, description: string, colorClass?: string }) => (
     <Card className="border-2 shadow-sm min-w-0 text-left bg-card/50 backdrop-blur-sm overflow-hidden">
@@ -157,7 +158,8 @@ const ActiveAutomationCard = ({ discount, onEdit, onDelete }: { discount: Discou
 }
 
 function DiscountsContent() {
-    const { discounts, isLoading: ctxLoading, appointments } = useInventory();
+    const { discounts, isLoading: ctxLoading } = useInventory();
+    const { stats: history } = useHistoryStats();   // each client's latest booking, worked out on the server
     const { transactions, isLoading: txLoading } = useTransactionsInCategories(DISCOUNT_CATEGORIES);
     const isLoading = ctxLoading || txLoading;
     const { firestore } = useFirebase();
@@ -269,7 +271,7 @@ function DiscountsContent() {
     };
     
     const { kpiData, savingsByCode } = useMemo(() => {
-        if (!transactions || !discounts || !appointments) {
+        if (!transactions || !discounts) {
           return {
             kpiData: { totalGrossDiscountsValue: 0, promoRetentionRate: 0, mostPopularCode: 'N/A', totalRedemptions: 0 },
             savingsByCode: {} as Record<string, number>
@@ -304,10 +306,7 @@ function DiscountsContent() {
             const clientDiscountTransactions = discountTransactions.filter(t => t.clientId === clientId);
             if (clientDiscountTransactions.length === 0) return;
             const lastDiscountedTx = clientDiscountTransactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-            const hasSubsequentAppointment = appointments.some(apt => 
-                apt.clientId === clientId && 
-                new Date(apt.startTime) > new Date(lastDiscountedTx.date)
-            );
+            const hasSubsequentAppointment = (history?.clients?.[clientId]?.la || 0) > new Date(lastDiscountedTx.date).getTime();
             if (hasSubsequentAppointment) retainedClients++;
         });
     
@@ -323,7 +322,7 @@ function DiscountsContent() {
           kpiData: { totalGrossDiscountsValue: totalDiscountsValue, promoRetentionRate, mostPopularCode, totalRedemptions },
           savingsByCode: codeSavings
         };
-      }, [transactions, discounts, appointments]);
+      }, [transactions, discounts, history]);
     
     const filteredDiscounts = useMemo(() => {
         if (!discounts) return [];

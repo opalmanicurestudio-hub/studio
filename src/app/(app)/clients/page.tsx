@@ -42,6 +42,9 @@ import { canSeeFinancials, canSeeClientContact, canMessageClients } from '@/lib/
 import { useInventory } from '@/context/InventoryContext';
 import { ClientCard } from '@/components/clients/ClientCard';
 import { searchFields } from '@/lib/client-search';
+import { useAppointmentWindow } from '@/hooks/use-appointments';
+import { useHistoryStats } from '@/hooks/use-history-stats';
+import { mergeClientHistory } from '@/lib/history-stats';
 
 const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
     <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
@@ -69,7 +72,10 @@ export default function ClientsPage() {
   const router = useRouter();
   const tenantId = selectedTenant?.id;
   const inv = useInventory();
-  const { clients, appointments, transactions } = inv;
+  const { clients } = inv;
+  // Visits around today from the shared window; everything older as all-time numbers from the server (hooks/use-history-stats).
+  const { appointments } = useAppointmentWindow();
+  const { stats: history } = useHistoryStats();
   const [bookFor, setBookFor] = useState<string | null>(null);
 
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
@@ -245,18 +251,19 @@ export default function ClientsPage() {
   const ClientStatsSidebar = () => {
     const stats = useMemo(() => {
         const totalClients = filteredClients.length;
-        if (totalClients === 0 || !appointments || !transactions) return { totalActiveClients: 0, retentionRate: 0, avgSpend: 0, serviceRevenue: 0, retailRevenue: 0, tipRevenue: 0, totalPendingDebt: 0 };
-        const filteredClientIds = new Set(filteredClients.map(c => c.id));
-        const relevantTransactions = transactions.filter(t => t.clientId && filteredClientIds.has(t.clientId));
-        const clientsWithMultipleAppointments = filteredClients.filter(c => (appointments || []).filter(apt => apt.clientId === c.id && apt.status === 'completed').length > 1).length;
+        if (totalClients === 0 || !history) return { totalActiveClients: 0, retentionRate: 0, avgSpend: 0, serviceRevenue: 0, retailRevenue: 0, tipRevenue: 0, totalPendingDebt: 0 };
+        const h = history.clients;
+        const liveBy = new Map<string, any[]>(); for (const a of (appointments || []) as any[]) if (a?.clientId) (liveBy.get(a.clientId) || liveBy.set(a.clientId, []).get(a.clientId)!).push(a);
+        const visitsOf = (id: string) => mergeClientHistory(h[id], liveBy.get(id) || []).visits;
+        const clientsWithMultipleAppointments = filteredClients.filter(c => visitsOf(c.id) > 1).length;
         const totalRevenue = filteredClients.reduce((acc, c) => acc + safeNumber(c.lifetimeValue), 0);
         const totalPendingDebt = filteredClients.reduce((acc, c) => acc + safeNumber(c.outstandingBalance), 0);
-        const serviceRevenue = relevantTransactions.filter(t => t.category === 'Service Revenue').reduce((acc, t) => acc + safeNumber(t.amount), 0);
-        const retailRevenue = relevantTransactions.filter(t => t.category === 'Retail').reduce((acc, t) => acc + safeNumber(t.amount), 0);
-        const tipRevenue = relevantTransactions.reduce((acc, t) => acc + safeNumber(t.tipAmount || 0), 0);
-        const completedApts = (appointments || []).filter(a => a.status === 'completed' && filteredClientIds.has(a.clientId));
+        const serviceRevenue = filteredClients.reduce((acc, c) => acc + safeNumber(h[c.id]?.sr), 0);
+        const retailRevenue = filteredClients.reduce((acc, c) => acc + safeNumber(h[c.id]?.rr), 0);
+        const tipRevenue = filteredClients.reduce((acc, c) => acc + safeNumber(h[c.id]?.tp), 0);
+        const completedApts = { length: filteredClients.reduce((acc, c) => acc + visitsOf(c.id), 0) };
         return { totalActiveClients: totalClients, retentionRate: totalClients > 0 ? (clientsWithMultipleAppointments / totalClients) * 100 : 0, avgSpend: completedApts.length > 0 ? totalRevenue / completedApts.length : 0, serviceRevenue, retailRevenue, tipRevenue, totalPendingDebt };
-    }, [filteredClients, appointments, transactions]);
+    }, [filteredClients, appointments, history]);
 
     return (
         <div className="space-y-6 lg:sticky top-24">
@@ -307,7 +314,7 @@ export default function ClientsPage() {
       <ClientOnly>
         <main className="cf-settings cf-legacy flex-1 w-full max-w-7xl mx-auto min-w-0 p-4 pb-28 md:p-8">
           <SettingsStyle />
-          <ClientsList tenantId={tenantId || ''} clients={clients || []} appointments={appointments || []} services={(inv as any).services || []} staff={(inv as any).staff || []}
+          <ClientsList tenantId={tenantId || ''} clients={clients || []} appointments={appointments || []} history={history?.clients || null} services={(inv as any).services || []} staff={(inv as any).staff || []}
             showMoney={!!showFinancials} showContact={!!showContact} canMessage={canMessageClients(selectedTenant, roleId || role)} canManage={can('clients.delete')}
             onOpen={(id: string) => router.push(`/clients/${id}`)} onBook={(id: string) => setBookFor(id)} onAdd={() => setIsAddClientOpen(true)} onFindDuplicates={() => setIsMergeClientsOpen(true)}
             onArchive={(ids: string[]) => { if (!firestore || !tenantId) return; ids.forEach((id) => updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, id), { status: 'archived' })); toast({ title: `${ids.length} archived` }); }}

@@ -12,23 +12,26 @@ import { ArrowLeft, Printer, BarChart, DollarSign, TrendingUp, Star, Download, T
 import { useInventory } from '@/context/InventoryContext';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useHistoryStats } from '@/hooks/use-history-stats';
 
 export default function ServiceReportPage() {
-    const { services, appointments, isLoading } = useInventory();
+    const { services, isLoading: ctxLoading } = useInventory();
+    const { stats: history, isLoading: histLoading } = useHistoryStats();   // all-time numbers, worked out on the server
+    const isLoading = ctxLoading || histLoading;
 
     const servicePerformance = useMemo(() => {
-        if (!services || !appointments) return [];
+        if (!services) return [];
         return services.map(service => {
-            const bookings = appointments.filter(apt => apt.serviceId === service.id && apt.status === 'completed');
-            const totalBookings = bookings.length;
-            const totalRevenue = bookings.reduce((acc, apt) => acc + (apt.revenue || service.price), 0);
+            const h = history?.services?.[service.id];
+            const totalBookings = h?.b || 0;
+            const totalRevenue = h?.rv || 0;
             return {
                 ...service,
                 totalBookings,
                 totalRevenue,
             };
         });
-    }, [services, appointments]);
+    }, [services, history]);
 
     const kpiData = useMemo(() => {
         if (!servicePerformance || servicePerformance.length === 0) {
