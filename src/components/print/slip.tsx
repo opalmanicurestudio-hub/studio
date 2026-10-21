@@ -141,6 +141,7 @@ export async function SlipSheet({ tenantId, orderId, order, tenant, origin }: { 
           </div>
           <div className="totals">
             <p>Subtotal {money(order.subtotalCents || 0)}</p>
+            {(order.promo?.cents || 0) > 0 ? <p>{String(order.promo.label || order.promo.code)} −{money(order.promo.cents)}</p> : null}
             {order.taxCents > 0 ? <p>Tax {money(order.taxCents)}</p> : null}
             {order.shippingCents > 0 ? <p>Shipping {money(order.shippingCents)}</p> : null}
             {order.refundedCents > 0 ? <p style={{ color: '#b45309' }}>Refunded −{money(order.refundedCents)}</p> : null}

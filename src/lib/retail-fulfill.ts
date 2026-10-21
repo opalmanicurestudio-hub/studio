@@ -19,6 +19,7 @@ import {
   type RetailOrder, type ShortResolution,
 } from '@/lib/retail-orders';
 import { buildEntry } from '@/lib/stock-ledger';
+import { effectiveUnitCents } from '@/lib/retail-swap';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // Client-side fulfillment actions for the board. Every state change runs in a
@@ -837,7 +838,7 @@ export async function reopenShortedLine(
             `Short reversed (Order #${order.orderNumber})`, orderId, actor));
       }
 
-      const refundBack = qty * (line.unitPriceCents || 0);
+      const refundBack = qty * effectiveUnitCents(line as any);   // what was actually paid, after any promo code
       const lines = order.lines.map((l) => l.lineId !== lineId ? l : ({
         ...l, qtyShorted: 0, shortReason: '',
         status: l.qtyScanned >= l.qtyOrdered ? ('picked' as const) : ('pending' as const),

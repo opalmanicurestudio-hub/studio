@@ -3,6 +3,7 @@ import { taxShareCents } from '@/lib/restocking';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { brandedEmailHtml } from '@/lib/email-template';
+import { effectiveUnitCents } from '@/lib/retail-swap';
 
 // ─── /api/retail/short-notify ─────────────────────────────────────────────────
 // POST { tenantId, orderId, lineId }
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest) {
   const backordered = String(line.status) === 'backordered';
   const itemName = String(line.name || 'One item')
     + (line.optionsLabel ? ` (${String(line.optionsLabel)})` : '');
-  const itemCents = (Number(line.unitPriceCents) || 0) * qtyShorted;
+  const itemCents = effectiveUnitCents(line) * qtyShorted;   // what was actually paid, after any promo code
   const refundCents = itemCents + taxShareCents(order, itemCents);   // the tax paid on it comes back too
   const moneySent = (Number(order.refundedCents) || 0) >= refundCents && !(Number(order.pendingRefundCents) || 0);
   const remaining = (order.lines || [])

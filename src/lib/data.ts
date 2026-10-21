@@ -1538,8 +1538,14 @@ export type Discount = {
   id: string;
   code: string;
   description?: string;
-  type: 'percentage' | 'fixed';
+  type: 'percentage' | 'fixed' | 'free_shipping';   // free shipping: online shop only
   value: number;
+  /** Where the code works (lib/promo-codes). Codes made before this are 'services'. */
+  appliesTo?: 'services' | 'shop' | 'both';
+  minOrderCents?: number;
+  applicableProductIds?: string[];
+  usedByEmails?: string[];
+  shopUses?: number; shopRevenueCents?: number; shopDiscountCents?: number;
   usageLimit: number;
   usageCount: number;
   isActive: boolean;

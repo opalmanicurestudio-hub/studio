@@ -140,6 +140,7 @@ export default function InvoicePage({ params }: { params: Promise<{ tenantId: st
 
         <div className="ml-auto mt-4 w-full max-w-[240px] space-y-1 text-sm">
           <div className="flex justify-between"><span className="font-bold text-muted-foreground">Subtotal</span><span className="font-mono font-bold">{fmt(o.subtotalCents)}</span></div>
+          {(o.promo?.cents || 0) > 0 && <div className="flex justify-between"><span className="font-bold" style={{ color: '#1f7a4d' }}>{String(o.promo.label || o.promo.code)}</span><span className="font-mono font-bold" style={{ color: '#1f7a4d' }}>−{fmt(o.promo.cents)}</span></div>}
           {(o.shippingCents || 0) > 0 && <div className="flex justify-between"><span className="font-bold text-muted-foreground">Shipping</span><span className="font-mono font-bold">{fmt(o.shippingCents)}</span></div>}
           {(o.taxCents || 0) > 0 && <div className="flex justify-between"><span className="font-bold text-muted-foreground">Tax</span><span className="font-mono font-bold">{fmt(o.taxCents)}</span></div>}
           {(o.tipCents || 0) > 0 && <div className="flex justify-between"><span className="font-bold text-muted-foreground">Tip</span><span className="font-mono font-bold">{fmt(o.tipCents)}</span></div>}

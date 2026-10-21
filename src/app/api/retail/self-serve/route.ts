@@ -6,6 +6,7 @@ import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
 import { isPromiseLate } from '@/lib/retail-orders';
 import { canReturnLine } from '@/lib/return-eligibility';
+import { effectiveUnitCents } from '@/lib/retail-swap';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -338,7 +339,7 @@ export async function POST(req: NextRequest) {
 
     const value = lines.reduce((sum, rl) => {
       const orig = (order.lines || []).find((l: any) => l.lineId === rl.lineId);
-      return sum + rl.qty * (orig?.unitPriceCents || 0);
+      return sum + rl.qty * (orig ? effectiveUnitCents(orig) : 0);
     }, 0);
 
     const retRef = db.collection(`tenants/${tenantId}/retailReturns`).doc();

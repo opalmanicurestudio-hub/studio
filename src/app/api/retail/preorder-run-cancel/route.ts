@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
+import { effectiveUnitCents } from '@/lib/retail-swap';
 
 // ─── /api/retail/preorder-run-cancel ─────────────────────────────────────────
 // The supplier fell through. Forty people are holding a promise you can't
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
         orders: affected.length,
         refundCents: affected.reduce((sum: number, o: any) => sum + (o.lines || [])
           .filter((l: any) => l.productId === productId && l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status)))
-          .reduce((s: number, l: any) => s + (l.unitPriceCents || 0) * Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)), 0), 0),
+          .reduce((s: number, l: any) => s + effectiveUnitCents(l) * Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)), 0), 0),
       });
     }
 
@@ -105,7 +106,7 @@ export async function POST(req: NextRequest) {
             if (l.productId !== productId || l.preorder !== true) return l;
             if (['refunded', 'cancelled'].includes(String(l.status))) return l;
             const owed = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
-            lineRefund += (l.unitPriceCents || 0) * owed;
+            lineRefund += effectiveUnitCents(l) * owed;
             return { ...l, status: 'refunded', qtyShorted: (l.qtyShorted || 0) + owed, shortReason: 'run_cancelled' };
           });
           if (lineRefund === 0) return null;

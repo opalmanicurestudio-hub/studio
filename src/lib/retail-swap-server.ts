@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 import { taxShareCents } from './restocking';
 import { SWAP_ANSWER_HOURS, normaliseIfUnavailable, swapLines, type SwapItem } from './retail-swap';
 import { brandedEmailHtml } from './email-template';
+import { effectiveUnitCents } from '@/lib/retail-swap';
 
 type Actor = { id: string; name: string };
 const money = (c: number) => `$${(Math.max(0, c) / 100).toFixed(2)}`;
@@ -68,7 +69,7 @@ export async function refundInstead(db: any, t: string, orderId: string, lineId:
       if (qty <= 0) return { ok: false, message: 'Nothing left to refund on that item.' };
       const iRef = db.collection(`tenants/${t}/inventory`).doc(String(line.productId));
       const iSnap = await tx.get(iRef);
-      const items = qty * (Number(line.unitPriceCents) || 0); const cents = items + taxShareCents(o, items);
+      const items = qty * effectiveUnitCents(line); const cents = items + taxShareCents(o, items);
       const lines = [...o.lines]; lines[idx] = { ...line, qtyShorted: (Number(line.qtyShorted) || 0) + qty, status: 'refunded', shortReason: why };
       if (iSnap.exists) {
         const it = iSnap.data() as any;

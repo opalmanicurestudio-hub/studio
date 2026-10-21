@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requestForensics } from '@/lib/request-forensics';
+import { effectiveUnitCents } from '@/lib/retail-swap';
 
 // ─── /api/retail/claims/route.ts ──────────────────────────────────────────────
 // A claim is a customer's report that what arrived doesn't match what was
@@ -259,7 +260,7 @@ export async function POST(req: NextRequest) {
     };
 
     const claimValueCents = line
-      ? Math.min(qty, lineTarget || qty) * (Number(line.unitPriceCents) || 0)
+      ? Math.min(qty, lineTarget || qty) * effectiveUnitCents(line)
       : Math.max(0, Number(order.totalCents) || 0);
 
     // ── Risk + routing ──

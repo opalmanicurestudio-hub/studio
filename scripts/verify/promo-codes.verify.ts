@@ -1,0 +1,30 @@
+// Checks shop promo codes: rules, the amount, how it's shared across items, the 50¢ floor, and refunds per item.
+// Run: npx tsx scripts/verify/promo-codes.verify.ts
+import { evaluatePromo, shareAcross, capForMinimum, refundUnitCents, normalizeCode } from '../../src/lib/promo-codes';
+import { effectiveUnitCents } from '../../src/lib/retail-swap';
+import { taxShareCents } from '../../src/lib/restocking';
+let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.log('✗', m); } else console.log('✓', m); };
+const lines = [{ id: 'a', productId: 'oil', unitPriceCents: 2400, qtyOrdered: 2 }, { id: 'b', productId: 'cut', unitPriceCents: 1400, qtyOrdered: 1 }];
+const base = { id: 'd1', code: 'fall15', appliesTo: 'shop', type: 'percentage', value: 15, isActive: true, usageLimit: 0, usageCount: 0 };
+const r = evaluatePromo(base, lines);
+ok(r.ok && r.cents === 930 && r.label === 'FALL15 (15% off)', '15% off $62.00 is $9.30');
+ok(r.byLine.a + r.byLine.b === 930 && r.byLine.b === 210, 'shared across items to the cent, by what each costs');
+ok(evaluatePromo({ ...base, appliesTo: 'services' }, lines).error === 'We couldn’t find that code.', 'a desk-only code doesn’t work in the shop');
+ok(!evaluatePromo({ ...base, validUntil: '2020-01-01' }, lines).ok, 'an ended code is refused');
+ok(evaluatePromo({ ...base, minOrderCents: 7000 }, lines).error === 'Add $8.00 more to use this code.', 'minimum order says how much more');
+ok(evaluatePromo({ ...base, usageLimit: 5, usageCount: 5 }, lines).error === 'That code has been used up.', 'used-up codes are refused');
+ok(evaluatePromo({ ...base, limitOnePerCustomer: true, usedByEmails: ['dana@x.com'] }, lines, { email: 'Dana@x.com' }).error === 'You’ve already used this code.', 'once per customer, by email');
+const some = evaluatePromo({ ...base, applicableProductIds: ['cut'] }, lines);
+ok(some.cents === 210 && !some.byLine.a, 'only some products: comes off just those');
+ok(evaluatePromo({ ...base, applicableProductIds: ['zzz'] }, lines).error === 'This code doesn’t cover the items in your cart.', 'no covered items: said plainly');
+const fixed = evaluatePromo({ ...base, type: 'fixed', value: 100 }, lines);
+ok(fixed.cents === 6200, '$ off never takes more than the items cost');
+ok(capForMinimum(fixed, 6200).cents === 6150, 'the card is always left at least 50¢');
+const fs = evaluatePromo({ ...base, type: 'free_shipping' }, lines);
+ok(fs.ok && fs.freeShipping && fs.cents === 0, 'free shipping codes');
+const line = { unitPriceCents: 1400, qtyOrdered: 1, promoCents: 210 };
+ok(refundUnitCents(line) === 1190 && effectiveUnitCents(line) === 1190, 'a refund gives back what was paid for the item');
+ok(taxShareCents({ subtotalCents: 6200, taxCents: 448, discountCents: 930 }, 1190) === 101, 'its tax share is worked out on the discounted total');
+ok(shareAcross([{ id: 'x', productId: 'x', unitPriceCents: 1, qtyOrdered: 3 }, { id: 'y', productId: 'y', unitPriceCents: 1, qtyOrdered: 3 }], 5).x + shareAcross([{ id: 'x', productId: 'x', unitPriceCents: 1, qtyOrdered: 3 }, { id: 'y', productId: 'y', unitPriceCents: 1, qtyOrdered: 3 }], 5).y === 5, 'remainders land somewhere, never lost');
+ok(normalizeCode(' fall 15 ') === 'FALL15', 'codes are matched without case or spaces');
+if (bad) { console.log(`\n${bad} failed`); process.exit(1); } else console.log('\nall good');

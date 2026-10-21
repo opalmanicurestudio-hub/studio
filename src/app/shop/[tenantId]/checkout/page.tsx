@@ -107,6 +107,10 @@ export default function CheckoutPage() {
   const [tipPct, setTipPct] = useState<number>(0);
   const [applyCredit, setApplyCredit] = useState(false);
   const [giftCode, setGiftCode] = useState(''); const [giftOpen, setGiftOpen] = useState(false);   // a gift card from this business
+  // A promo code (lib/promo-codes): checked when applied, and again by the server when paying.
+  const [promoInput, setPromoInput] = useState(''); const [promoOpen, setPromoOpen] = useState(false);
+  const [promo, setPromo] = useState<{ code: string; label: string; cents: number; freeShipping: boolean } | null>(null);
+  const [promoErr, setPromoErr] = useState<string | null>(null); const [promoBusy, setPromoBusy] = useState(false);
   const [creditMode, setCreditMode] = useState<'all' | 'limit'>('all');
   const [creditLimit, setCreditLimit] = useState('');
   const [acctEmail, setAcctEmail] = useState('');
@@ -281,6 +285,22 @@ export default function CheckoutPage() {
     (a, [key, q]) => a + (unitPrice(byId.get(parseCartKey(key).productId)!) + optionDelta(key).deltaCents) * q, 0
   );
   const tipCents = shop?.tipsEnabled && tipPct > 0 ? Math.round((subtotalCents * tipPct) / 100) : 0;
+  const promoLines = () => cartEntries.map(([key, q]) => { const k = parseCartKey(key); return { productId: k.productId, qty: q, unitPriceCents: unitPrice(byId.get(k.productId)!) + optionDelta(key).deltaCents }; });
+  const applyPromo = async (code: string) => {
+    const c = code.trim(); if (!c) return;
+    setPromoBusy(true); setPromoErr(null);
+    try {
+      const r = await fetch('/api/retail/promo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, code: c, items: promoLines(), email: email.trim() }) });
+      const j: any = await r.json().catch(() => ({}));
+      if (j?.ok) { setPromo({ code: j.code, label: j.label, cents: Number(j.cents) || 0, freeShipping: !!j.freeShipping }); setPromoInput(j.code); }
+      else { setPromo(null); setPromoErr(j?.error || 'That code can’t be used.'); }
+    } catch { setPromoErr('We couldn’t check that code. Please try again.'); }
+    setPromoBusy(false);
+  };
+  // The cart changed: check the code again so the total shown is the total charged.
+  const promoCartKey = cartEntries.map(([k, q]) => `${k}:${q}`).join('|');
+  useEffect(() => { if (promo) void applyPromo(promo.code); }, [promoCartKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const promoCents = promo?.cents || 0;
 
   const fetchQuotes = async () => {
     if (!addrComplete || quoting) return;
@@ -365,6 +385,7 @@ export default function CheckoutPage() {
           applyStoreCredit: applyCredit,
           creditSession: applyCredit ? acctSess : undefined,
           giftCode: giftCode.trim() || undefined,
+          promoCode: promo?.code || undefined,
           storeCreditCapCents: applyCredit && creditMode === 'limit' && Number(creditLimit) > 0
             ? Math.round(Number(creditLimit) * 100)
             : undefined,
@@ -384,7 +405,7 @@ export default function CheckoutPage() {
       const raw = await res.text();
       let data: any = {};
       try { data = JSON.parse(raw); } catch { /* non-JSON reply handled below */ }
-      if (!res.ok) throw new Error(data.error || `Checkout failed (HTTP ${res.status})`);
+      if (!res.ok) { if (data.promoError) { setPromo(null); setPromoErr(data.error || null); } throw new Error(data.error || `Checkout failed (HTTP ${res.status})`); }
       window.location.href = data.url;
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Checkout problem', description: e?.message || 'Please try again.' });
@@ -634,10 +655,15 @@ export default function CheckoutPage() {
             <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
               <span>Subtotal</span><span className="font-mono">{fmt(subtotalCents)}</span>
             </div>
+            {promo && promoCents > 0 && (
+              <div className="flex justify-between text-xs font-bold tracking-widest" style={{ color: '#1f7a4d' }}>
+                <span>{promo.label}</span><span className="font-mono">−{fmt(promoCents)}</span>
+              </div>
+            )}
             {method === 'ship' && !digitalOnlyCart && (
               <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
                 <span>Shipping</span>
-                <span className="font-mono">{shippingCents === 0 ? 'Free' : fmt(shippingCents)}</span>
+                <span className="font-mono">{shippingCents === 0 || promo?.freeShipping ? (promo?.freeShipping && shippingCents > 0 ? `Free with ${promo.code}` : 'Free') : fmt(shippingCents)}</span>
               </div>
             )}
             {method !== 'ship' && (shop.prepMinutes || 0) > 0 && (
@@ -755,6 +781,26 @@ export default function CheckoutPage() {
               )}
             </div>
             )}
+            {!wholesale && (
+            <div className={cn('rounded-2xl border-2 p-3 transition-all', promo && 'border-foreground/60 bg-muted/20')}>
+              {!promoOpen && !promo ? <button type="button" onClick={() => setPromoOpen(true)} className="text-[11px] font-black uppercase tracking-widest underline underline-offset-4">Have a promo code?</button> : promo ? (
+                <div className="flex items-center gap-3">
+                  <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[13px] text-white" style={{ background: '#1f7a4d' }}>✓</span>
+                  <span className="min-w-0 flex-1 text-[13px]"><b className="font-semibold">{promo.code}</b> · {promo.freeShipping ? 'free shipping' : `${fmt(promoCents)} off`}</span>
+                  <button type="button" onClick={() => { setPromo(null); setPromoInput(''); setPromoErr(null); }} className="text-[12px] underline underline-offset-4">Remove</button>
+                </div>
+              ) : <>
+                <label htmlFor="promo-code" className="block text-[11px] font-black uppercase tracking-widest">Promo code</label>
+                <div className="mt-1.5 flex gap-2">
+                  <input id="promo-code" value={promoInput} onChange={(e) => { setPromoInput(e.target.value.toUpperCase()); setPromoErr(null); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void applyPromo(promoInput); } }}
+                    placeholder="Enter code" autoCapitalize="characters" autoComplete="off" aria-invalid={!!promoErr} aria-describedby={promoErr ? 'promo-err' : undefined}
+                    className="h-10 min-w-0 flex-1 rounded-xl border-2 bg-white px-3 font-mono text-sm font-bold tracking-widest outline-none focus:border-foreground/60" />
+                  <button type="button" disabled={!promoInput.trim() || promoBusy} onClick={() => void applyPromo(promoInput)} className="h-10 shrink-0 rounded-xl bg-foreground px-4 text-[12px] font-bold text-background disabled:opacity-50">{promoBusy ? 'Checking…' : 'Apply'}</button>
+                </div>
+                {promoErr && <p id="promo-err" role="alert" className="mt-1.5 text-[12px] font-bold" style={{ color: '#b45309' }}>{promoErr}</p>}
+              </>}
+            </div>
+            )}
             <div className={cn('rounded-2xl border-2 p-3 transition-all', giftCode.trim() && 'border-foreground/60 bg-muted/20')}>
               {!giftOpen ? <button type="button" onClick={() => setGiftOpen(true)} className="text-[11px] font-black uppercase tracking-widest underline underline-offset-4">Have a gift card?</button> : <>
                 <label className="block text-[11px] font-black uppercase tracking-widest">Gift card code</label>
@@ -793,7 +839,7 @@ export default function CheckoutPage() {
               onClick={placeOrder}
               className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20"
             >
-              {placing ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(subtotalCents + shippingCents + tipCents)} + tax`}
+              {placing ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - promoCents) + (promo?.freeShipping ? 0 : shippingCents) + tipCents)} + tax`}
             </Button>
             <p className="text-[9px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
               Secure payment &middot; You&apos;ll get a pickup QR code

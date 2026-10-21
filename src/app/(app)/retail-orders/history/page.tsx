@@ -454,6 +454,7 @@ export default function RetailOrderHistoryPage() {
                   <div className="flex justify-between items-baseline">
                     <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground space-x-3">
                       <span>Sub {fmt(detail.subtotalCents)}</span>
+                      {(detail as any).promo?.cents > 0 && <span style={{ color: '#1f7a4d' }}>{(detail as any).promo.code} −{fmt((detail as any).promo.cents)}</span>}
                       {detail.taxCents > 0 && <span>Tax {fmt(detail.taxCents)}</span>}
                       {detail.shippingCents > 0 && <span>Ship {fmt(detail.shippingCents)}</span>}
                       {detail.refundedCents > 0 && <span className="text-amber-600">Refunded {fmt(detail.refundedCents)}</span>}

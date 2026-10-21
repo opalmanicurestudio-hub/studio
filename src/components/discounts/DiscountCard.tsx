@@ -57,6 +57,7 @@ export const DiscountCard: React.FC<DiscountCardProps> = ({ discount, onEdit, on
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
                 <p className="font-black uppercase tracking-tight text-sm text-foreground truncate">{discount.code}</p>
+                {(discount as any).appliesTo && (discount as any).appliesTo !== 'services' && <span className="shrink-0 rounded-full border px-2 py-0.5 text-[11px]">{(discount as any).appliesTo === 'shop' ? 'Online shop' : 'Shop and desk'}</span>}
                 {discount.automation && discount.automation.trigger !== 'none' && (
                     <TooltipProvider>
                         <Tooltip>

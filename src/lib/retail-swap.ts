@@ -37,10 +37,10 @@ export function swapLines(order: { lines: any[]; subtotalCents?: number; taxCent
   return { lines, qty, refundCents: diff + taxShareCents(order, diff), newLine };
 }
 
-/** What a line really cost the customer per unit, after any line discount. */
-export function effectiveUnitCents(l: { unitPriceCents?: number; qtyOrdered?: number; lineDiscountCents?: number }): number {
+/** What a line really cost the customer per unit, after any line discount and its share of a promo code (lib/promo-codes). */
+export function effectiveUnitCents(l: { unitPriceCents?: number; qtyOrdered?: number; lineDiscountCents?: number; promoCents?: number }): number {
   const q = Math.max(1, Number(l.qtyOrdered) || 1);
-  return Math.max(0, (Number(l.unitPriceCents) || 0) - Math.round((Number(l.lineDiscountCents) || 0) / q));
+  return Math.max(0, (Number(l.unitPriceCents) || 0) - Math.round(((Number(l.lineDiscountCents) || 0) + (Number(l.promoCents) || 0)) / q));
 }
 
 /** Close matches for a missing item: in stock, same category if it has one, nearest price first, not dearer than

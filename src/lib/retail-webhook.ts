@@ -276,6 +276,8 @@ export async function handleRetailOrderPaid(
 
   // Loyalty (lib/loyalty): the order's products earn, once.
   try { const tSnap = await db.doc(`tenants/${tenantId}`).get(); const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tSnap.data() || {}, orderId, order); } catch (e) { console.error('[retail-webhook] loyalty', e); }
+  // A promo code on the order: one more use, counted once (lib/promo-codes-server).
+  if ((order as any)?.promo?.discountId) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch (e) { console.error('[retail-webhook] promo use', e); } }
 
   // ── DIGITAL-ONLY: nothing to pick, pack, or post. The receipt below IS the
   // delivery, so the order is finished the moment money lands — it must never
@@ -527,6 +529,7 @@ export async function sendOrderConfirmation(
   }
 
   const num = `#${String(order.orderNumber ?? '').padStart(4, '0')}`;
+  const escapeHtml = (v: string) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
   const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
   const rows = (order.lines || []).map((l: any) => {
     const opts = l.optionsLabel ? ` <span style="color:#64748b">(${String(l.optionsLabel)})</span>` : '';
@@ -562,6 +565,8 @@ export async function sendOrderConfirmation(
     </table>
     <table style="width:100%;border-collapse:collapse">
       <tr><td style="font-size:13px;color:#64748b">Subtotal</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.subtotalCents)}</td></tr>
+      ${(order.promo?.cents || 0) > 0 ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.promo.label || order.promo.code || 'Promo code'))}</td><td style="font-size:13px;text-align:right;color:#1f7a4d">\u2212${money(order.promo.cents)}</td></tr>` : ''}
+      ${order.promo?.freeShipping ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.promo.code || 'Promo code'))}: free shipping</td><td style="font-size:13px;text-align:right;color:#1f7a4d">${(order.promo.shippingSavedCents || 0) > 0 ? `\u2212${money(order.promo.shippingSavedCents)}` : ''}</td></tr>` : ''}
       ${(order.shippingCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Shipping</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.shippingCents)}</td></tr>` : ''}
       ${(order.taxCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Sales tax</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.taxCents)}</td></tr>` : ''}
       ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Tip</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}

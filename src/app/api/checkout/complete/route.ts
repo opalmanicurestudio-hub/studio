@@ -201,7 +201,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const wantFees: string[] = Array.isArray(b.feeIds) ? b.feeIds : [];
   const fees = Object.values(people).flatMap((p: any) => (p.unpaidFees || []).filter((f: any) => wantFees.includes(f.feeId)).map((f: any) => ({ ...f, __owner: p.id })));
   const codes: string[] = Array.isArray(b.discountCodes) ? b.discountCodes.map((c: any) => String(c).toUpperCase()).slice(0, 5) : [];
-  const discounts = codes.map((c) => allDiscounts.find((d: any) => String(d.code || '').toUpperCase() === c)).filter(Boolean);
+  const discounts = codes.map((c) => allDiscounts.find((d: any) => String(d.code || '').toUpperCase() === c && d.appliesTo !== 'shop')).filter(Boolean);   // shop-only codes don't work at the desk
   const redeemedOffer = b.redeemedOffer && b.redeemedOffer.id ? { type: String(b.redeemedOffer.type), id: String(b.redeemedOffer.id), itemId: b.redeemedOffer.itemId ? String(b.redeemedOffer.itemId) : undefined } : null;
   const waivedIds: string[] = Array.isArray(b.waivedAppointmentIds) ? b.waivedAppointmentIds.map(String) : [];
   const tipAllocations: Record<string, number> = b.tipAllocations && typeof b.tipAllocations === 'object' ? b.tipAllocations : {};

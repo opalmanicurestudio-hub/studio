@@ -85,6 +85,7 @@ function getAdminDb() {
 interface CheckoutBody {
   gift?: { isGift?: boolean; to?: string; message?: string }; // a gift: who it's for and the message (lib/gift-orders)
   applyStoreCredit?: boolean;
+  promoCode?: string;            // a promo code from Discounts that works in the shop (lib/promo-codes)
   giftCode?: string;             // a gift card from this business: its balance comes off the order (lib/gift-cards)
   storeCreditCapCents?: number; // customer-set spend limit; omitted = use all
   // The customer's tick on the pre-order terms. Optional in the type because
@@ -366,6 +367,17 @@ async function handleCheckout(req: NextRequest) {
   // ── Server-side pricing ───────────────────────────────────────────────────
   const subtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qtyOrdered, 0);
 
+  // ── A promo code: checked again here, against the priced cart (lib/promo-codes). It comes off as its own line;
+  // each covered line records its share so a refund gives back what was paid for it.
+  let promo: import('@/lib/promo-codes').PromoResult | null = null;
+  if (body.promoCode && String(body.promoCode).trim() && priceTier !== 'wholesale') {
+    const { checkPromo } = await import('@/lib/promo-codes-server');
+    const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'shop';
+    const r = await checkPromo(db, tenantId, String(body.promoCode), lines.map((l: any) => ({ id: l.id || l.lineId, productId: l.productId, unitPriceCents: l.unitPriceCents, qtyOrdered: l.qtyOrdered })), { email: customerEmail, who: ip });
+    if (!r.ok) return NextResponse.json({ error: r.error || 'That code can’t be used.', promoError: true }, { status: 400 });
+    promo = r;
+  }
+
   const rs = tenant.retailSettings || {};
   const taxExempt = priceTier === 'wholesale' && rs.wholesaleTaxExempt === true;
   const taxRatePercent = taxExempt ? 0 : Number(rs.taxRatePercent) || 0;
@@ -377,7 +389,9 @@ async function handleCheckout(req: NextRequest) {
   // the flat path untouched. In stripe mode the draft carries taxCents 0 —
   // Stripe computes the real figure at payment and the webhook writes it back.
   const stripeTax = rs.stripeTaxEnabled === true && method === 'ship' && !taxExempt;
-  const taxCents = stripeTax ? 0 : Math.round(subtotalCents * (taxRatePercent / 100));
+  // Tax is on what the items actually cost after the code (the shop's flat rate; Stripe Tax sees the discount itself).
+  let promoCents = promo?.cents || 0;
+  const taxCents0 = (base: number) => (stripeTax ? 0 : Math.round(base * (taxRatePercent / 100)));
 
   let shippingCents = 0;
   let shippingService = '';
@@ -404,12 +418,23 @@ async function handleCheckout(req: NextRequest) {
     }
   }
 
+  let shippingSavedCents = 0;
+  if (promo?.freeShipping && shippingCents > 0) { shippingSavedCents = shippingCents; shippingCents = 0; }
   const tipCents = Math.min(
     Math.max(0, Math.floor(Number(body.tipCents) || 0)),
     Math.max(subtotalCents, 50_000)
   );
+  // The card always has at least the processor's 50¢ to collect.
+  if (promo && promoCents > 0) {
+    const { capForMinimum } = await import('@/lib/promo-codes');
+    const capped = capForMinimum(promo, subtotalCents + shippingCents + tipCents);
+    if (!capped.ok) return NextResponse.json({ error: capped.error, promoError: true }, { status: 400 });
+    promo = capped; promoCents = capped.cents;
+  }
+  const taxCents = taxCents0(subtotalCents - promoCents);
+  for (const l of lines as any[]) { const off = promo?.byLine?.[l.id || l.lineId]; if (off) l.promoCents = off; }
   const pickupAt = String(body.pickupAt || '').slice(0, 40);
-  const totalCents = subtotalCents + taxCents + shippingCents + tipCents;
+  const totalCents = subtotalCents - promoCents + taxCents + shippingCents + tipCents;
   if (totalCents <= 0) return NextResponse.json({ error: 'Order total must be positive' }, { status: 400 });
 
   // ── Check the address, and snapshot the policy ────────────────────────────
@@ -490,6 +515,7 @@ async function handleCheckout(req: NextRequest) {
     poNumber: priceTier === 'wholesale' ? String(body.business?.poNumber || '').trim() : '',
     lines,
     subtotalCents,
+    ...(promo ? { promo: { code: promo.code, discountId: promo.discountId, label: promo.label, cents: promoCents, freeShipping: promo.freeShipping, shippingSavedCents }, discountCents: promoCents } : {}),
     taxCents,
     taxMode: stripeTax ? 'stripe' : 'flat',
     shippingCents,
@@ -641,6 +667,7 @@ async function handleCheckout(req: NextRequest) {
   // zero-charge orders are a later round, said plainly.
   let creditCoupon: string | null = null;
   let creditAppliedCents = 0;
+  let giftHeldCents = 0; let giftLabel = '';
   // Credit is spent only by someone who has proven the email is theirs (the signed account session the
   // checkout page already holds). Typing someone else's email is not enough.
   const cs = (body as any).creditSession || {};
@@ -664,7 +691,7 @@ async function handleCheckout(req: NextRequest) {
       const capRaw = Number(body.storeCreditCapCents);
       const cap = Number.isFinite(capRaw) && capRaw > 0 ? Math.floor(capRaw) : null;
       const available = cap !== null ? Math.min(rawAvailable, cap) : rawAvailable;
-      const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
+      const chargeable = subtotalCents - promoCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
 
       // ── FULL-CREDIT, ZERO-CHARGE PATH ────────────────────────────────────
       // When credit covers the ENTIRE total, Stripe has nothing to collect —
@@ -749,6 +776,7 @@ async function handleCheckout(req: NextRequest) {
           const paidSnap = await orderRef.get();
           const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
           try { const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tenant, orderId, paidOrder); } catch { /* loyalty is best effort */ }
+          if (promo) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch { /* best effort */ } }
           try {
             await sendOrderConfirmation(db, tenantId, orderId, paidOrder, null);
           } catch (e: any) {
@@ -764,11 +792,7 @@ async function handleCheckout(req: NextRequest) {
 
       creditAppliedCents = Math.max(0, Math.min(available, chargeable - 50));
       if (creditAppliedCents > 0) {
-        const coupon = await stripe.coupons.create(
-          { amount_off: creditAppliedCents, currency: 'usd', duration: 'once', name: 'Store credit' },
-          { stripeAccount: stripeAccountId }
-        );
-        creditCoupon = coupon.id;
+        // The Stripe discount itself is made once, below, covering the code, credit and gift card together.
         await orderRef.set({ storeCreditRequestedCents: creditAppliedCents }, { merge: true });
       }
     } catch {
@@ -793,7 +817,7 @@ async function handleCheckout(req: NextRequest) {
       if (g.promo) return NextResponse.json({ error: 'Bonus cards can be used during your visit, but they cannot be used in the online shop.' }, { status: 400 });
       if (g.limits && tenant?.giftCardSettings?.advancedLimits === true) { const { giftCap } = await import('@/lib/gift-limits');
         const lim = giftCap(g, { channel: 'shop', lines: [{ kind: 'product', cents: subtotalCents }] }, true); if (lim.error) return NextResponse.json({ error: lim.error }, { status: 400 }); }
-      const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
+      const chargeable = subtotalCents - promoCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
       // ── The gift card covers the WHOLE order: nothing for the card processor to collect, so skip it (its 50¢
       // minimum would otherwise leave 50¢ to pay). Any store credit is left untouched for next time. Same atomic
       // finish as the store-credit path above; flat/no-tax only, because with automatic tax the total isn't known yet.
@@ -828,6 +852,7 @@ async function handleCheckout(req: NextRequest) {
             else console.error('[checkout] gift card spend after a paid order failed — needs a look:', r.error);
             const paidSnap = await orderRef.get(); const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
             try { const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tenant, orderId, paidOrder); } catch { /* loyalty is best effort */ }
+            if (promo) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch { /* best effort */ } }
             try { await sendOrderConfirmation(db, tenantId, orderId, paidOrder, null); } catch (e: any) { console.error('[checkout] gift-paid receipt failed (order is paid):', e?.message); }
             const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
             return NextResponse.json({ url: `${origin}/shop/${tenantId}/order/${orderId}?paid=gift`, orderId, orderNumber: (paidOrder as any).orderNumber ?? null, isDraft: false, zeroCharge: true });
@@ -839,11 +864,25 @@ async function handleCheckout(req: NextRequest) {
       if (room > 0) { const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: `retail_${orderId}`, cents: room });
         if (!h.ok) return NextResponse.json({ error: h.error || 'That gift card can’t be used right now.' }, { status: 400 });
         if (h.cents > 0) {
-          const coupon = await stripe.coupons.create({ amount_off: creditAppliedCents + h.cents, currency: 'usd', duration: 'once', name: creditAppliedCents ? 'Store credit + gift card' : `Gift card ${g.code}` }, { stripeAccount: stripeAccountId });
-          creditCoupon = coupon.id;
+          giftHeldCents = h.cents; giftLabel = `Gift card ${g.code}`;
           await orderRef.set({ giftCardId: g.id, giftCardCode: g.code, giftCardCents: h.cents }, { merge: true });
         } }
     } catch (e: any) { console.error('[checkout] gift card', e?.message); return NextResponse.json({ error: 'The gift card couldn’t be applied — try again, or remove it to pay by card.' }, { status: 400 }); }
+  }
+
+  // ONE Stripe discount for everything that comes off: the promo code, store credit and a gift card.
+  {
+    const offCents = promoCents + creditAppliedCents + giftHeldCents;
+    if (offCents > 0) {
+      const name = [promo?.code ? promo.code : '', creditAppliedCents ? 'Store credit' : '', giftHeldCents ? giftLabel : ''].filter(Boolean).join(' + ').slice(0, 40) || 'Discount';
+      try {
+        const coupon = await stripe.coupons.create({ amount_off: offCents, currency: 'usd', duration: 'once', name }, { stripeAccount: stripeAccountId });
+        creditCoupon = coupon.id;
+      } catch (e: any) {
+        console.error('[checkout] discount could not be set up', e?.message);
+        return NextResponse.json({ error: 'The discount couldn’t be applied just now. Please try again.' }, { status: 502 });
+      }
+    }
   }
 
   try {
@@ -866,11 +905,11 @@ async function handleCheckout(req: NextRequest) {
         `[checkout] Stripe Tax session failed for tenant ${tenantId} — falling back to flat rate:`,
         String(taxErr?.raw?.message || taxErr?.message || taxErr)
       );
-      const fbTaxCents = Math.round(subtotalCents * ((Number(rs.taxRatePercent) || 0) / 100));
+      const fbTaxCents = Math.round((subtotalCents - promoCents) * ((Number(rs.taxRatePercent) || 0) / 100));
       await orderRef.set({
         taxMode: 'flat_fallback',
         taxCents: fbTaxCents,
-        totalCents: subtotalCents + fbTaxCents + shippingCents + tipCents,
+        totalCents: subtotalCents - promoCents + fbTaxCents + shippingCents + tipCents,
       }, { merge: true });
       session = await createCheckoutSession(stripe, 
         { ...sessionParams(buildLineItems(false, fbTaxCents), false), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) },

@@ -545,7 +545,7 @@ export function usePosEngine() {
     const key = `${[...selectedAppointmentIds].sort().join(',')}|${code || ''}`;
     if (!code || autoAppliedOfferRef.current === key) return;
     autoAppliedOfferRef.current = key;
-    const d: any = (discounts || []).find((x: any) => String(x.code || '').toUpperCase() === String(code).toUpperCase());
+    const d: any = (discounts || []).find((x: any) => String(x.code || '').toUpperCase() === String(code).toUpperCase() && x.appliesTo !== 'shop');   // shop-only codes don't work at the desk
     const problem = offerProblem(d, { clientId: offerClientId, serviceIds: offerServiceIds });
     if (problem) { toast({ variant: 'destructive', title: 'Booked with an offer that can’t be used', description: `${String(code)}: ${problem}` }); return; }
     setAppliedDiscountCodes((prev) => (prev.map((c) => c.toUpperCase()).includes(String(code).toUpperCase()) ? prev : [...prev, d.code]));

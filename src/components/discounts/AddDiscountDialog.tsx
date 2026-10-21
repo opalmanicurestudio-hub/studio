@@ -49,8 +49,11 @@ import { Badge } from '../ui/badge';
 const discountSchema = z.object({
   code: z.string().min(3, "Code must be at least 3 characters.").toUpperCase(),
   description: z.string().optional(),
-  type: z.enum(['percentage', 'fixed']),
-  value: z.coerce.number().min(0.01, "Value must be positive."),
+  type: z.enum(['percentage', 'fixed', 'free_shipping']),
+  value: z.coerce.number().min(0),
+  appliesTo: z.enum(['services', 'shop', 'both']).default('services'),
+  minOrderDollars: z.coerce.number().min(0).optional(),
+  applicableProductIds: z.array(z.string()).optional(),
   usageLimit: z.coerce.number().min(0).optional(),
   isActive: z.boolean().default(true),
   validFrom: z.date().optional(),
@@ -65,6 +68,12 @@ const discountSchema = z.object({
 }).refine(data => data.type !== 'percentage' || (data.value >= 1 && data.value <= 100), {
   message: "Percentage must be between 1 and 100.",
   path: ["value"],
+}).refine(data => data.type === 'free_shipping' || data.value >= 0.01, {
+  message: "Value must be positive.",
+  path: ["value"],
+}).refine(data => data.type !== 'free_shipping' || data.appliesTo === 'shop', {
+  message: "Free shipping only applies in the online shop.",
+  path: ["type"],
 });
 
 type DiscountFormData = z.infer<typeof discountSchema>;
@@ -239,7 +248,8 @@ export const AddDiscountDialog: React.FC<{
   discountToEdit: Discount | null;
   initialTrigger?: 'none' | 'new_client' | 'loyalty' | 're_engagement' | 'birthday';
 }> = ({ open, onOpenChange, onSave, discountToEdit, initialTrigger = 'none' }) => {
-    const { services: allServices, pricingTiers } = useInventory();
+    const { services: allServices, pricingTiers, inventory } = useInventory();
+    const [productQ, setProductQ] = useState('');
     const [isServiceSelectorOpen, setIsServiceSelectorOpen] = useState(false);
     const isMobile = useIsMobile();
 
@@ -250,9 +260,14 @@ export const AddDiscountDialog: React.FC<{
             type: 'percentage',
             applicableServiceIds: [],
             limitOnePerCustomer: false,
+            appliesTo: 'services',
+            applicableProductIds: [],
             automation: { trigger: initialTrigger },
         }
     });
+    const appliesTo = watch('appliesTo');
+    const selectedProductIds = watch('applicableProductIds') || [];
+    const shopProducts = useMemo(() => (inventory || []).filter((i: any) => i.showOnline === true && i.status !== 'archived'), [inventory]);
 
     const discountType = watch('type');
     const discountValue = watch('value');
@@ -272,6 +287,9 @@ export const AddDiscountDialog: React.FC<{
                 validUntil: discountToEdit.validUntil ? parseISO(discountToEdit.validUntil) : undefined,
                 applicableServiceIds: discountToEdit.applicableServiceIds || [],
                 limitOnePerCustomer: discountToEdit.limitOnePerCustomer || false,
+                appliesTo: (discountToEdit as any).appliesTo || 'services',
+                minOrderDollars: (discountToEdit as any).minOrderCents ? Number((discountToEdit as any).minOrderCents) / 100 : undefined,
+                applicableProductIds: (discountToEdit as any).applicableProductIds || [],
                 automation: discountToEdit.automation || { trigger: 'none' }
             });
         } else {
@@ -286,14 +304,21 @@ export const AddDiscountDialog: React.FC<{
                 validUntil: undefined,
                 applicableServiceIds: [],
                 limitOnePerCustomer: false,
+                appliesTo: 'services',
+                minOrderDollars: undefined,
+                applicableProductIds: [],
                 automation: { trigger: initialTrigger || 'none' }
             });
         }
     }, [discountToEdit, reset, open, initialTrigger]);
 
     const onSubmit = (data: DiscountFormData) => {
+        const { minOrderDollars, ...rest } = data as any;
         onSave({
-            ...data,
+            ...rest,
+            minOrderCents: minOrderDollars ? Math.round(Number(minOrderDollars) * 100) : 0,
+            applicableProductIds: data.appliesTo === 'services' ? [] : (data.applicableProductIds || []),
+            ...(data.type === 'free_shipping' ? { value: 0 } : {}),
             validFrom: data.validFrom?.toISOString(),
             validUntil: data.validUntil?.toISOString(),
         });
@@ -316,6 +341,22 @@ export const AddDiscountDialog: React.FC<{
                 <Label htmlFor="description" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Internal Description</Label>
                 <Textarea id="description" placeholder="e.g., Seasonal promotion for email subscribers." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 font-medium" />
             </div>
+            <Controller
+                name="appliesTo"
+                control={control}
+                render={({ field }) => (
+                    <div className="space-y-3">
+                        <Label className="text-[13px] font-semibold ml-1">Where it works</Label>
+                        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Where it works">
+                            {([['services', 'Visits at the desk'], ['shop', 'Online shop'], ['both', 'Both']] as const).map(([v, l]) => (
+                                <button key={v} type="button" role="radio" aria-checked={field.value === v} onClick={() => { field.onChange(v); if (v !== 'shop' && discountType === 'free_shipping') setValue('type', 'percentage'); }}
+                                    className={cn('h-10 rounded-full px-4 text-[14px]', field.value === v ? 'bg-foreground text-background' : 'border')}>{l}</button>
+                            ))}
+                        </div>
+                        <p className="text-[12px] text-muted-foreground ml-1">Shop codes come off the order as their own line; item prices stay as listed.</p>
+                    </div>
+                )}
+            />
             <Controller
                 name="type"
                 control={control}
@@ -343,11 +384,21 @@ export const AddDiscountDialog: React.FC<{
                                     <RadioGroupItem value="fixed" id="fixed-edit" className="sr-only" />
                                 </div>
                             </label>
+                            {appliesTo === 'shop' && <label htmlFor="free-shipping-edit" className="cursor-pointer col-span-2">
+                                <div className={cn(
+                                    "flex items-center justify-center p-4 rounded-[2rem] border-2 transition-all",
+                                    field.value === 'free_shipping' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background hover:border-primary/20"
+                                )}>
+                                    <span className="text-[13px] font-semibold text-foreground">Free shipping</span>
+                                    <RadioGroupItem value="free_shipping" id="free-shipping-edit" className="sr-only" />
+                                </div>
+                            </label>}
                         </RadioGroup>
+                        {errors.type && <p className="text-[12px] font-bold text-destructive ml-1">{errors.type.message}</p>}
                     </div>
                 )}
             />
-            <div className="space-y-3">
+            {discountType !== 'free_shipping' && <div className="space-y-3">
                 <Label htmlFor="value" className="text-[10px] uppercase font-black tracking-widest text-muted-foreground ml-1">Incentive Value</Label>
                 <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 h-8 w-8 text-primary opacity-40 flex items-center justify-center">
@@ -356,7 +407,45 @@ export const AddDiscountDialog: React.FC<{
                     <Input id="value" type="number" placeholder={discountType === 'percentage' ? '15' : '10.00'} className="pl-14 h-20 rounded-[2rem] border-4 font-black text-5xl tracking-tighter text-primary shadow-inner bg-muted/5 focus-visible:ring-primary/20 text-center" {...register('value')} />
                 </div>
                 {errors.value && <p className="text-[10px] font-bold text-destructive uppercase ml-1 text-center">{errors.value.message}</p>}
-            </div>
+            </div>}
+
+            {appliesTo !== 'services' && (
+                <div className="space-y-5 rounded-3xl border p-5">
+                    <p className="text-[15px] font-semibold">In the online shop</p>
+                    <div className="space-y-2">
+                        <Label htmlFor="min-order" className="text-[13px] font-semibold">Minimum order</Label>
+                        <Input id="min-order" type="number" step="0.01" min="0" placeholder="No minimum" {...register('minOrderDollars')} className="h-11 rounded-xl" />
+                        <p className="text-[12px] text-muted-foreground">Counted on the items the code covers, before tax and shipping.</p>
+                    </div>
+                    <div className="space-y-2">
+                        <Label className="text-[13px] font-semibold">Which products</Label>
+                        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Which products">
+                            <button type="button" role="radio" aria-checked={selectedProductIds.length === 0} onClick={() => setValue('applicableProductIds', [], { shouldDirty: true })} className={cn('h-10 rounded-full px-4 text-[14px]', selectedProductIds.length === 0 ? 'bg-foreground text-background' : 'border')}>Everything in the shop</button>
+                            <span className={cn('inline-flex h-10 items-center rounded-full px-4 text-[14px]', selectedProductIds.length > 0 ? 'bg-foreground text-background' : 'border')}>{selectedProductIds.length > 0 ? `${selectedProductIds.length} chosen` : 'Only some: tick them below'}</span>
+                        </div>
+                        <Input value={productQ} onChange={(e) => setProductQ(e.target.value)} placeholder="Find a product" aria-label="Find a product" className="h-10 rounded-xl" />
+                        <div className="max-h-48 overflow-y-auto rounded-2xl border">
+                            {shopProducts.filter((p: any) => !productQ.trim() || String(p.name || '').toLowerCase().includes(productQ.trim().toLowerCase())).slice(0, 60).map((p: any) => {
+                                const on = selectedProductIds.includes(p.id);
+                                return (
+                                    <label key={p.id} className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-[14px] last:border-b-0">
+                                        <input type="checkbox" checked={on} onChange={() => setValue('applicableProductIds', on ? selectedProductIds.filter((x) => x !== p.id) : [...selectedProductIds, p.id], { shouldDirty: true })} className="h-4 w-4" />
+                                        <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                                    </label>
+                                );
+                            })}
+                            {shopProducts.length === 0 && <p className="p-3 text-[13px] text-muted-foreground">No products are showing in the shop yet.</p>}
+                        </div>
+                        <p className="text-[12px] text-muted-foreground">With some chosen, the discount comes off just those items.</p>
+                    </div>
+                    {discountToEdit && Number((discountToEdit as any).shopUses) > 0 && (
+                        <div className="rounded-2xl bg-muted/40 p-4">
+                            <p className="text-[13px] font-semibold">How it’s doing in the shop</p>
+                            <p className="text-[14px]">Used {Number((discountToEdit as any).shopUses)} {Number((discountToEdit as any).shopUses) === 1 ? 'time' : 'times'} · ${(Number((discountToEdit as any).shopRevenueCents || 0) / 100).toFixed(2)} in orders · ${(Number((discountToEdit as any).shopDiscountCents || 0) / 100).toFixed(2)} given</p>
+                        </div>
+                    )}
+                </div>
+            )}
 
             <Separator className="border-dashed" />
 
@@ -397,7 +486,7 @@ export const AddDiscountDialog: React.FC<{
                         {selectedServices.length > 0 && (
                             <ProfitabilityAnalysis
                                 services={selectedServices}
-                                discountType={discountType}
+                                discountType={discountType === 'free_shipping' ? 'fixed' : discountType}
                                 discountValue={discountValue}
                                 pricingTiers={pricingTiers}
                             />
@@ -409,7 +498,7 @@ export const AddDiscountDialog: React.FC<{
                         </div>
 
                         <PotentialImpactAnalysis
-                            discountType={discountType}
+                            discountType={discountType === 'free_shipping' ? 'fixed' : discountType}
                             discountValue={discountValue}
                             usageLimit={usageLimit}
                             selectedServices={selectedServices}

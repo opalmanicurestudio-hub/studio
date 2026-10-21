@@ -45,8 +45,9 @@ export function restockingFee(orderLines: { lineId: string; unitPriceCents: numb
 }
 
 /** The tax that went with these items, so a refund returns it too. */
-export function taxShareCents(order: { subtotalCents?: number; taxCents?: number }, itemCents: number): number {
-  const sub = Number(order.subtotalCents) || 0; const tax = Number(order.taxCents) || 0;
+export function taxShareCents(order: { subtotalCents?: number; taxCents?: number; discountCents?: number }, itemCents: number): number {
+  // Tax was charged on the items after any promo code, so the share is worked out against that.
+  const sub = (Number(order.subtotalCents) || 0) - Math.max(0, Number(order.discountCents) || 0); const tax = Number(order.taxCents) || 0;
   if (sub <= 0 || tax <= 0 || itemCents <= 0) return 0;
   return Math.min(tax, Math.round((itemCents * tax) / sub));
 }

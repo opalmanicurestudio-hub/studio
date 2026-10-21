@@ -580,7 +580,7 @@ export const CheckoutHub = ({
   const handleApplyDiscount = (code: string) => {
     const codeUpper = code.trim().toUpperCase();
     if (!codeUpper) return;
-    const d = discounts.find((d: any) => d.code.toUpperCase() === codeUpper);
+    const d = discounts.find((d: any) => d.code.toUpperCase() === codeUpper && (d as any).appliesTo !== 'shop');   // shop-only codes don't work at the desk
     if (d) {
       // Same rules as online booking: switched on, within its dates, under its
       // usage limit, not already used by this client, covers these services.

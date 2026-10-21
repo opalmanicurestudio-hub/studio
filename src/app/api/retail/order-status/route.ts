@@ -263,6 +263,7 @@ export async function GET(req: NextRequest) {
       shelfSlot: order.shelfSlot || null,
       hasPhone: !!order.customerPhone,
       subtotalCents: order.subtotalCents || 0,
+      promo: order.promo ? { code: String(order.promo.code || ''), label: String(order.promo.label || order.promo.code || ''), cents: Number(order.promo.cents) || 0, freeShipping: !!order.promo.freeShipping } : null,
       taxCents: order.taxCents || 0,
       shippingCents: order.shippingCents || 0,
       refundedCents: order.refundedCents || 0,
