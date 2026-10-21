@@ -70,12 +70,13 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const day = (v: unknown) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'a few days ago'; };
   const lw = String(order.labelUnscanned?.why || '');
   const closedOrder = ['cancelled', 'refunded'].includes(order.stage);
+  const leftOn = String(order.labelUnscanned?.on || '');
   const lbl = lw === 'void_unfinished'
     ? (order.stage === 'shipped'
       ? { title: 'Voiding this label didn’t finish', text: `A void was started ${day(order.labelUnscanned?.startedAt)}, before the box was marked shipped, and Shippo never confirmed it. Check the label in Shippo: if the refund went through, the carrier may charge the postage back.`, keep: 'Got it' }
-      : { title: 'Voiding this label didn’t finish', text: `A void was started ${day(order.labelUnscanned?.startedAt)} and Shippo never confirmed it, so this label may no longer work. Void it again so the postage is sure to come back, then buy a new one if the box is still going.`, keep: 'Keep the label' })
+      : { title: 'Voiding this label didn’t finish', text: `A void was started ${day(order.labelUnscanned?.startedAt)} and Shippo never confirmed it, so this label may no longer work. Void it again so the postage is sure to come back${closedOrder ? '' : ', then buy a new one if the box is still going'}.`, keep: closedOrder ? 'Leave it' : 'Keep the label' })
     : closedOrder
-      ? { title: `This ${order.stage === 'refunded' ? 'refunded' : 'cancelled'} order still has a label`, text: `Bought ${day(order.labelUnscanned?.boughtAt)}. It couldn’t be voided automatically. If the box didn’t go out, void it here and the postage comes back.`, keep: 'Leave it' }
+      ? { title: `This ${order.stage === 'refunded' ? 'refunded' : 'cancelled'} order still has a label`, text: `Bought ${day(order.labelUnscanned?.boughtAt)}. ${leftOn === 'form' ? 'It’s on a USPS form, so it wasn’t voided automatically.' : leftOn === 'shared' ? 'Every order in its box was cancelled, and a shared label isn’t voided automatically.' : 'It couldn’t be voided automatically.'} If the box didn’t go out, void it here and the postage comes back.`, keep: 'Leave it' }
       : order.stage === 'shipped'
         ? { title: 'The carrier hasn’t scanned this box', text: `Marked shipped ${day(order.completedAt)}, with no carrier scan since. If the box is still here, hand it over: the label works for 30 days after it was bought.`, keep: 'It went out' }
         : { title: 'This label hasn’t been used', text: lw === 'void_refused' ? `Bought ${day(order.labelUnscanned?.boughtAt)}. It couldn’t be voided automatically: if this box isn’t going out, void it here and the postage comes back.` : `Bought ${day(order.labelUnscanned?.boughtAt)}. If this box isn’t going out, void the label and the postage comes back.`, keep: 'It’s going out today' };

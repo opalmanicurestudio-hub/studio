@@ -31,7 +31,8 @@ export const SHARED_CLEARED = {
   labelFromOrderId: null, shippedWithOrderId: null, shipTogetherAt: null,
 };
 
-/** `uncertain`: some box got no answer at all (a timeout), so its refund may or may not have gone through. */
+/** `uncertain`: some box got no real answer (no response, a timeout, or a server error that may have come after Shippo
+ *  made the refund), so its refund may or may not have gone through. */
 export type VoidResult = { ok: boolean; error?: string; status?: string; count: number; voidedIds: string[]; trackingNumbers: string[]; uncertain?: boolean };
 
 export async function voidOrderLabels(db: any, tenantId: string, order: any, apiKey: string, opts: { alreadyVoided?: string[] } = {}): Promise<VoidResult> {
@@ -63,7 +64,7 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
     const said = String(d?.detail || d?.__all__?.[0] || d?.transaction?.[0] || JSON.stringify(d || {})).slice(0, 300);
     if (r && r.ok) { done.add(id); if (id === master) status = String(d.status || 'PENDING'); continue; }
     if (r && ALREADY.test(said) && !NOT_VOIDABLE.test(said)) { done.add(id); if (id === master) status = 'PENDING'; continue; }
-    if (!r) noAnswer++;
+    if (!r || r.status >= 500 || r.status === 408) noAnswer++;
     failed.push(id);
   }
   const voidedIds = ids.filter((id) => done.has(id));

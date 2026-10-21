@@ -124,14 +124,20 @@ export async function POST(req: NextRequest) {
     const snap = await q.get(); all.push(...snap.docs);
     if (snap.size < 400) break; cursor = snap.docs[snap.docs.length - 1];
   }
-  const candidates = all.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
+  const waitingForForm = all.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
     .filter((o: any) => ['packed', 'shipped'].includes(String(o.stage)))
     // A relabelled order (its old label voided) has a new label to put on a form; manifestId is cleared with a void.
     .filter((o: any) => o.shippoTransactionId && !o.manifestId)
     .filter((o: any) => { const at = Date.parse(o.shipmentProtection?.decidedAt || o.shippedAt || o.packedAt || ''); return !Number.isFinite(at) || at >= since; });
+  // A label whose void didn't finish, or with some boxes voided (lib/label-sweep), may no longer work: it stays off the
+  // form until that's sorted on the order.
+  const inDoubt = (o: any) => String(o.labelVoiding?.txn || '') === String(o.shippoTransactionId) || (Array.isArray(o.labelVoidIds) && o.labelVoidIds.length > 0);
+  const held = waitingForForm.filter(inDoubt).length;
+  const candidates = waitingForForm.filter((o: any) => !inDoubt(o));
+  const heldLine = held ? ` ${held} label${held === 1 ? ' was' : 's were'} left off because voiding ${held === 1 ? 'it' : 'them'} didn’t finish; sort ${held === 1 ? 'that' : 'those'} out on the order before ${held === 1 ? 'it goes' : 'they go'} anywhere.` : '';
   const usps = candidates.filter((o: any) => isUsps(String(o.carrier || '')));
   const others = candidates.length - usps.length;
-  if (usps.length === 0) return NextResponse.json({ ok: true, manifests: [], count: 0, others, message: others ? 'Nothing for USPS today. Other carriers scan each box at pickup.' : 'No labels waiting for a manifest.' });
+  if (usps.length === 0) return NextResponse.json({ ok: true, manifests: [], count: 0, others, held, message: `${others ? 'Nothing for USPS today. Other carriers scan each box at pickup.' : 'No labels waiting for a manifest.'}${heldLine}` });
 
   // One form per carrier account per ship date (Shippo's rule), so each label is looked up for both.
   const groups = new Map<string, { acct: string; date: string; list: any[] }>();
@@ -249,9 +255,9 @@ export async function POST(req: NextRequest) {
   const making = out.some((m: any) => !(m.documents || []).length);
   const left = failed.length ? ` ${failed.length} box${failed.length === 1 ? '' : 'es'} couldn’t go on it; the carrier scans ${failed.length === 1 ? 'that one' : 'those'} at pickup.` : '';
   return NextResponse.json({
-    ok: out.length > 0 || failed.length === 0, manifests: out, count, others, failed, making,
+    ok: out.length > 0 || failed.length === 0, manifests: out, count, others, failed, making, held,
     message: count
-      ? `${out.length > 1 ? `${out.length} USPS forms` : 'USPS form'} ${making ? 'being made' : 'ready'} for ${count} box${count === 1 ? '' : 'es'}${out.length > 1 ? ', one for each day the labels were bought' : ''}. Hand the carrier the sheet${out.length > 1 ? 's' : ''}.${left}`
-      : `The USPS form didn’t go through. Your labels still work; the carrier can scan each box.${left}`,
+      ? `${out.length > 1 ? `${out.length} USPS forms` : 'USPS form'} ${making ? 'being made' : 'ready'} for ${count} box${count === 1 ? '' : 'es'}${out.length > 1 ? ', one for each day the labels were bought' : ''}. Hand the carrier the sheet${out.length > 1 ? 's' : ''}.${left}${heldLine}`
+      : `The USPS form didn’t go through. Your labels still work; the carrier can scan each box.${left}${heldLine}`,
   });
 }

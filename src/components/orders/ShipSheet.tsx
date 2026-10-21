@@ -17,6 +17,8 @@ import { labelProgress } from '@/lib/totes';
 import { AddressCard } from './AddressCard';
 import { addressKey, oneLine, openRequest } from '@/lib/address-flow';
 import { paidServiceRate } from '@/lib/paid-service';
+import { togetherRefunds } from '@/lib/ship-together';
+import { cardRefundableCents } from '@/lib/retail-money';
 
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
@@ -110,11 +112,12 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     if (r.ok) onDone(many ? `${firstName(order.customerName)}’s ${group.length} orders are on their way in one shipment.${refundNote ? ` ${refundNote}` : ''}` : `${firstName(order.customerName)}’s order is on its way. They get tracking when the carrier scans it.`); else setErr(r.message);
   };
   // Void the label (every box's): the wrong box, the wrong rate, or the address changed. The postage comes back. A label
-  // shared by orders in one box comes off all of them. A void that didn't finish (Shippo never answered) is shown, so
-  // the label isn't used until it's sorted.
+  // shared by orders in one box comes off all of them. A void that didn't finish (no answer from Shippo, or some boxes
+  // voided and others not) leaves a label that may no longer work: it's shown, and it can't be marked shipped.
   const [voiding, setVoiding] = React.useState<'ask' | 'busy' | null>(null);
   const sharedWith = Array.isArray(order.shippedWithOrderIds) ? order.shippedWithOrderIds.length : 0;
-  const voidOpen = !!order.shippoTransactionId && String(order.labelVoiding?.txn || '') === String(order.shippoTransactionId) && voiding !== 'busy';
+  const inDoubt = !!order.shippoTransactionId && (String(order.labelVoiding?.txn || '') === String(order.shippoTransactionId) || (Array.isArray(order.labelVoidIds) && order.labelVoidIds.length > 0));
+  const voidOpen = inDoubt && voiding !== 'busy';
   const voidLabel = async () => {
     setVoiding('busy'); setErr('');
     try { const d = await post({ action: 'void' }); setLabel(null); setRates([]); setVoiding(null); onToast?.(d.message || 'Label voided.'); }
@@ -134,7 +137,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
         <div className="mt-2 rounded-2xl p-4" style={{ background: C.soft }}>
           <p className="m-0 text-[13px] font-semibold" style={muted}>In this shipment</p>
           {group.map((g: any) => <p key={g.id} className="m-0 mt-1 text-[15px]"><b className="font-semibold">#{String(g.orderNumber ?? '').padStart(4, '0')}</b> · {(g.lines || []).filter((l: any) => l.digital !== true).map((l: any) => `${l.name}${(l.qtyOrdered || 1) > 1 ? ` × ${l.qtyOrdered}` : ''}`).join(', ')}</p>)}
-          <p className="m-0 mt-2 text-[14px]" style={muted}>{(() => { const extra = together.reduce((s: number, g: any) => s + (Number(g.shippingCents) || 0), 0); return extra ? `The ${money(extra)} shipping paid on the other order${together.length > 1 ? 's' : ''} is refunded automatically.` : 'One label covers every order; each gets the tracking.'; })()}</p>
+          <p className="m-0 mt-2 text-[14px]" style={muted}>{(() => { const back = Object.values(togetherRefunds(group, cardRefundableCents)).reduce((s: number, c: number) => s + c, 0); return back ? `${money(back)} of the shipping paid on the other order${together.length > 1 ? 's' : ''} is refunded automatically.` : 'One label covers every order; each gets the tracking.'; })()}</p>
         </div>)}
       {label ? (
         <div className="mt-2">
@@ -147,17 +150,17 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
             {slipAfterLabel(rs) && order.qrToken && !many && <Btn kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken || '')}`, '_blank')}>Print the packing slip</Btn>}
             {many && group.filter((g: any) => g.qrToken).map((g: any) => <Btn key={g.id} kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${g.id}?t=${encodeURIComponent(g.qrToken || '')}`, '_blank')}>{`Packing slip for #${String(g.orderNumber ?? '').padStart(4, '0')}`}</Btn>)}
             {refundNote && <p className="m-0 text-[14px]" style={{ color: C.ok }}>{refundNote}</p>}
-            <Btn kind="primary" className="text-[17px]" disabled={loading || !!asked} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{many ? `Mark all ${group.length} orders as shipped` : label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
+            <Btn kind="primary" className="text-[17px]" disabled={loading || !!asked || inDoubt} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{many ? `Mark all ${group.length} orders as shipped` : label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
             {voidOpen && !voiding && (
               <div className="rounded-2xl p-4" style={{ background: C.warnSoft, color: C.warn }}>
                 <p className="m-0 text-[15px] font-semibold">Voiding this label didn’t finish</p>
-                <p className="m-0 mt-1 text-[14px]">Shippo never confirmed it, so this label may no longer work. Void it again so the postage is sure to come back, then buy a new one.</p>
+                <p className="m-0 mt-1 text-[14px]">It may no longer work, so it can’t be marked shipped. Void it again so the postage is sure to come back, then buy a new one.</p>
               </div>)}
             {!order.shippoTransactionId && order.labelFromOrderId && <p className="m-0 text-[14px]" style={muted}>This label was bought with another order in the same box. To void it, open that order.</p>}
             {order.shippoTransactionId && (voiding ? (
               <div className="rounded-2xl p-4" style={{ background: C.soft }}>
                 <p className="m-0 text-[15px] font-semibold">Void {label.extraUrls?.length ? `all ${1 + label.extraUrls.length} labels` : 'this label'}?</p>
-                <p className="m-0 mt-1 text-[14px]" style={muted}>Only if it hasn’t gone out. The postage is refunded by the carrier, which can take a few days. Take the old label off the box.{sharedWith ? ` It covers ${sharedWith === 1 ? 'another order' : `${sharedWith} other orders`} in this box, so it comes off ${sharedWith === 1 ? 'both' : 'all of them'}.` : ''}</p>
+                <p className="m-0 mt-1 text-[14px]" style={muted}>Only if it hasn’t gone out. The postage is refunded by the carrier, which can take a few days. Take the old label off the box.{sharedWith ? ` It covers ${sharedWith === 1 ? 'another order' : `${sharedWith} other orders`} in this box, so it comes off ${sharedWith === 1 ? 'both' : 'all of them'}. Shipping refunded for sharing this box stays refunded.` : ''}</p>
                 <div className="mt-3 flex gap-2"><Btn kind="danger" className="flex-1" disabled={voiding === 'busy'} onClick={() => void voidLabel()}>{voiding === 'busy' ? 'Voiding…' : 'Void it'}</Btn><Btn kind="soft" className="flex-1" disabled={voiding === 'busy'} onClick={() => setVoiding(null)}>Keep it</Btn></div>
               </div>
             ) : <Btn kind={voidOpen ? 'soft' : 'plain'} style={voidOpen ? undefined : muted} onClick={() => setVoiding('ask')}>{voidOpen ? 'Void it again' : 'Void the label'}</Btn>)}

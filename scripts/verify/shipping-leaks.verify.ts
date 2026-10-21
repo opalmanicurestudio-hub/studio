@@ -47,9 +47,11 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     'the carrier’s tracking code, and none for a carrier we don’t know (so it’s never voided by us)');
   const realFetch = globalThis.fetch;
   let refunds: string[] = []; let lookups = 0;
-  // Each tracking number's answer; each label's refund answer ('ok' unless set: 'no' is Shippo saying no, 'silent' no answer).
-  let refundSays: Record<string, 'ok' | 'no' | 'silent'> = {};
-  const tracks = (map: Record<string, any>, says: Record<string, 'ok' | 'no' | 'silent'> = {}) => {
+  // Each tracking number's answer; each label's refund answer ('ok' unless set: 'no' is Shippo saying no, 'silent' no
+  // answer, 'gateway' a 504 that may have come after the refund was made). Label 'm' has a second box, 'm2'.
+  type Say = 'ok' | 'no' | 'silent' | 'gateway';
+  let refundSays: Record<string, Say> = {};
+  const tracks = (map: Record<string, any>, says: Record<string, Say> = {}) => {
     refunds = []; lookups = 0; refundSays = says;
     globalThis.fetch = (async (url: any, init?: any) => {
       const u = String(url);
@@ -58,9 +60,12 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
         const txn = JSON.parse(init.body).transaction; const say = refundSays[txn] || 'ok';
         if (say === 'silent') throw new Error('timed out');
         refunds.push(txn);
-        if (say === 'no') return { ok: false, json: async () => ({ detail: 'Transaction is not eligible for a refund' }) };
-        return { ok: true, json: async () => ({ status: 'QUEUED' }) };
+        if (say === 'no') return { ok: false, status: 400, json: async () => ({ detail: 'Transaction is not eligible for a refund' }) };
+        if (say === 'gateway') return { ok: false, status: 504, json: async () => ({}) };
+        return { ok: true, status: 201, json: async () => ({ status: 'QUEUED' }) };
       }
+      if (u.endsWith('/transactions/m')) return { ok: true, json: async () => ({ rate: 'r1' }) };
+      if (u.includes('/transactions/?rate=r1')) return { ok: true, json: async () => ({ results: [{ object_id: 'm', status: 'SUCCESS' }, { object_id: 'm2', status: 'SUCCESS' }] }) };
       return { ok: false, json: async () => ({}) };
     }) as any;
   };
@@ -121,6 +126,8 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   tracks({ '5': pre });
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'test');
   ok(!r.ok && r.refused === 'form' && refunds.length === 0, 'automatic: a label on a USPS form is left alone');
+  ok(t.row().labelUnscanned?.why === 'void_refused' && t.row().labelUnscanned?.on === 'form' && t.row().labelUnscannedOpen === true,
+    '…and on a cancelled order it’s listed under Needs you right away, where someone can void it by hand');
   t = solo({ shippoTransactionId: 't4', trackingNumber: '6', carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
   tracks({ '6': notFound });
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'test');
@@ -138,6 +145,18 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
   ok(!r.ok && r.refused === 'uncertain' && t.row().labelVoiding?.txn === 'ts' && t.row().labelVoiding?.tries === 1 && /may already be voided/.test(String(r.error)),
     'no answer from Shippo: the note stays (it may have gone through), and the person is told not to use the label yet');
+  t = solo({ shippoTransactionId: 'tg', trackingNumber: '13', carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
+  tracks({ '13': pre }, { tg: 'gateway' });
+  r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(!r.ok && r.refused === 'uncertain' && t.row().labelVoiding?.txn === 'tg', 'a server error or gateway timeout counts as no answer: the refund may have gone through, so the note stays');
+  t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
+  tracks({ '14': pre, '15': pre }, { m2: 'no' });
+  r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(!r.ok && r.refused === 'uncertain' && t.row().labelVoiding?.txn === 'm' && (t.row().labelVoidIds || []).join() === 'm' && t.row().shippoTransactionId === 'm',
+    'one box voided and the other refused: the label can’t ship as it is, so the note stays and the voided box is kept');
+  t = solo({ shippoTransactionId: 'ts', trackingNumber: '12', carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
+  tracks({ '12': pre }, { ts: 'silent' });
+  await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
   const firstAt = t.row().labelVoiding.at;
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
   ok(t.row().labelVoiding?.tries === 2 && t.row().labelVoiding?.at === firstAt, 'trying again counts the try and keeps when the void began');
@@ -163,6 +182,8 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   ok(togetherRefunds([{ id: 'a' }, { id: 'b', shippingCents: 800, shipTogetherRefundCents: 800 }, { id: 'c', shippingCents: 600 }], () => 5000).b === undefined
     && togetherRefunds([{ id: 'a' }, { id: 'b', shippingCents: 800, shipTogetherRefundCents: 800 }, { id: 'c', shippingCents: 600 }], () => 5000).c === 600,
     'put in one box again later: shipping already refunded for sharing a box isn’t refunded twice');
+  const regroup = togetherRefunds([{ id: 'b', shippingCents: 800, shipTogetherRefundCents: 800 }, { id: 'd', shippingCents: 600 }, { id: 'e', shippingCents: 500 }], () => 5000);
+  ok(regroup.d === undefined && regroup.e === 500, 'the first order’s shipping went back already: the next order’s shipping pays for this box, so a box is never shipped with no shipping paid');
 
   // Retries for an automatic void that's turned down: after 1, 2, then 4 days, then it's left for someone.
   const day = 86400e3; const nowMs = Date.parse('2026-11-20T12:00:00Z'); const ago = (d: number) => new Date(nowMs - d * day).toISOString();
@@ -193,6 +214,10 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     cancelledUnsure: { shippoTransactionId: 'cu', trackingNumber: 'ncu', carrier: 'USPS', stage: 'cancelled', shipmentProtection: { decidedAt: ago(2) } },
     cancelledWaiting: { shippoTransactionId: 'cw', trackingNumber: 'ncw', carrier: 'USPS', stage: 'cancelled', autoVoid: { tries: 2, at: ago(1) }, shipmentProtection: { decidedAt: ago(9) } },
     cancelledLastTry: { shippoTransactionId: 'cl', trackingNumber: 'ncl', carrier: 'USPS', stage: 'cancelled', autoVoid: { tries: 3, at: ago(4) }, shipmentProtection: { decidedAt: ago(9) } },
+    sharedCancelled: { shippoTransactionId: 'sc', trackingNumber: 'nsc', carrier: 'USPS', stage: 'cancelled', orderNumber: 40, shippedWithOrderIds: ['sharedMate'], shipmentProtection: { decidedAt: ago(3) } },
+    sharedMate: { trackingNumber: 'nsc', stage: 'cancelled', orderNumber: 41, labelFromOrderId: 'sharedCancelled', shippedWithOrderId: 'sharedCancelled' },
+    sharedStillGoing: { shippoTransactionId: 'sg', trackingNumber: 'nsg', carrier: 'USPS', stage: 'cancelled', shippedWithOrderIds: ['goingMate'], shipmentProtection: { decidedAt: ago(3) } },
+    goingMate: { trackingNumber: 'nsg', stage: 'packed', labelFromOrderId: 'sharedStillGoing', shippedWithOrderId: 'sharedStillGoing' },
     sharedPacked: { shippoTransactionId: 'sp', trackingNumber: 'nsp', carrier: 'USPS', stage: 'packed', shippedWithOrderIds: ['x'], shipmentProtection: { decidedAt: ago(29) } },
   };
   const sweepDb = memDb(rows);
@@ -211,11 +236,14 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     'a void that didn’t finish on an order since marked shipped: never retried, listed under Needs you');
   ok(!refunds.includes('if') && rows.cutOnForm.labelUnscanned?.why === 'void_unfinished', 'put on a USPS form after the void began: never retried, listed');
   ok(!refunds.includes('it') && rows.cutTried.labelUnscanned?.why === 'void_unfinished', 'three tries without an answer: listed for someone, not tried again');
-  ok(rows.cutRefused.shippoTransactionId === 'icn' && rows.cutRefused.labelVoiding === null && rows.cutRefused.labelUnscanned?.why === 'void_refused' && rows.cutRefused.labelUnscannedOpen === true && rows.cutRefused.autoVoid?.tries === AUTO_TRIES,
-    'finishing a void Shippo turns down: the label still works, so it’s listed as one that couldn’t be voided, and nothing retries it automatically');
+  ok(rows.cutRefused.shippoTransactionId === 'icn' && rows.cutRefused.labelVoiding === null && rows.cutRefused.labelUnscanned?.why === 'void_unfinished' && rows.cutRefused.labelUnscannedOpen === true && rows.cutRefused.autoVoid?.tries === AUTO_TRIES,
+    'finishing a void Shippo turns down: the first try may still have gone through, so it’s listed as a void that didn’t finish, and nothing retries it automatically');
   ok(!refunds.includes('im') && rows.cutMoving.voidedLabelMoving?.open === true && rows.cutMoving.voidedLabelMoving?.unsure === true && rows.cutMoving.labelVoiding === null,
     'finishing a void the carrier has since scanned: nothing voided, and the team is told the box is out on a label that may be refunded');
-  ok(!refunds.includes('cf') && rows.cancelledOnForm.autoVoid === undefined, 'a cancelled order’s label on a USPS form isn’t looked at every morning');
+  ok(!refunds.includes('cf') && rows.cancelledOnForm.autoVoid === undefined && rows.cancelledOnForm.labelUnscanned?.on === 'form' && rows.cancelledOnForm.labelUnscannedOpen === true,
+    'a cancelled order’s label on a USPS form: never voided automatically, listed once for someone to void by hand');
+  ok(!refunds.includes('sc') && rows.sharedCancelled.labelUnscanned?.on === 'shared' && rows.sharedCancelled.labelUnscannedOpen === true && !rows.sharedStillGoing.labelUnscanned && !refunds.includes('sg'),
+    'a shared label whose orders are all cancelled is listed for someone; one with an order still going keeps its label, unlisted');
   ok(!refunds.includes('cu') && rows.cancelledUnsure.autoVoid?.tries === 1 && !rows.cancelledUnsure.labelUnscannedOpen, 'a cancelled label the tracking can’t confirm unused: the try is counted, tried again later');
   ok(rows.cancelledWaiting.autoVoid?.tries === 2, 'a try two days ago that waits four: not looked up today');
   ok(rows.cancelledLastTry.autoVoid?.tries === 4 && rows.cancelledLastTry.labelUnscanned?.why === 'void_refused' && rows.cancelledLastTry.labelUnscannedOpen === true, 'the last try turned down: listed under Needs you for someone to void by hand or leave');
@@ -235,11 +263,28 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     doc: () => ({ get: async () => ({ data: () => ({ ...cursors }) }), set: async (v: any) => { Object.assign(cursors, v); } }),
   };
   const fan = await forEachTenant(tenantsDb, 'test', async (x) => (x.id === 's2' ? { again: true } : undefined), { concurrency: 1 });
-  ok(fan.done === 4 && fan.nextStart === 1 && cursors.test === 1, 'every shop ran, and the one cut off short is where the next run starts');
-  const fan2 = await forEachTenant(tenantsDb, 'test', async (x) => (x.id === 's2' ? { again: true } : undefined), { concurrency: 1 });
-  ok(fan2.done === 4 && fan2.nextStart === 0, 'cut off again while it was first: no second head start, so a busy shop can’t hold the others back');
+  ok(fan.done === 4 && fan.nextStart === 0 && (cursors.testFirst || []).join() === 's2', 'every shop ran, and the one cut off short goes first next time');
+  const visited: string[] = [];
+  const fan2 = await forEachTenant(tenantsDb, 'test', async (x) => { visited.push(x.id); return x.id === 's2' ? { again: true } : undefined; }, { concurrency: 1 });
+  ok(visited.join() === 's2,s1,s3,s4' && fan2.nextStart === 0 && (cursors.testFirst || []).length === 0, 'it went first; cut off again while going first, it gets no second head start, so a busy shop can’t hold the others back');
   const fan3 = await forEachTenant(tenantsDb, 'test', async () => undefined, { concurrency: 1 });
   ok(fan3.done === 4 && fan3.nextStart === 0, 'a run with nothing cut off starts from the top next time');
+  // Twelve shops, time for three a morning, four busy ones next to each other that are always cut off.
+  const rot: Record<string, any> = {}; let clock = 0;
+  const ids12 = Array.from({ length: 12 }, (_, i) => `t${i}`);
+  const db12: any = {
+    collection: () => ({ get: async () => ({ docs: ids12.map((id) => ({ id, data: () => ({}) })) }) }),
+    doc: () => ({ get: async () => ({ data: () => ({ ...rot }) }), set: async (v: any) => { Object.assign(rot, v); } }),
+  };
+  const busy = new Set(['t1', 't2', 't3', 't4']); const firstRun: Record<string, number> = {}; const starts: number[] = [];
+  for (let run = 1; run <= 6; run++) {
+    clock = 0;
+    await forEachTenant(db12, 'rot', async (x) => { if (!(x.id in firstRun)) firstRun[x.id] = run; clock += 5000; return busy.has(x.id) ? { again: true } : undefined; },
+      { concurrency: 1, budgetMs: 14000, startedAt: 0, clock: () => clock });
+    starts.push(rot.rot);
+  }
+  ok(ids12.every((id) => firstRun[id] && firstRun[id] <= 6) && firstRun.t7 <= 4 && starts.slice(0, 4).every((x, i, a) => i === 0 || x > a[i - 1]),
+    'busy shops next to each other each get one head start while the rotation keeps moving forward: every shop is reached within six mornings');
 
   // Needs you.
   const n = needsYou([

@@ -950,6 +950,9 @@ export async function markShipped(
       if (!guard.ok) return { ok: false, message: guard.reason };
       // The customer asked for a different address (lib/address-flow): it can't go out until someone answers that.
       if (['waiting', 'approving'].includes(String((order as any).addressRequest?.status))) return { ok: false, message: `${String(order.customerName || 'The customer').split(' ')[0]} asked to change the address. Answer that on the order before it goes out.` };
+      // A label whose void didn't finish, or with some boxes voided (lib/label-sweep): it may no longer work.
+      const labelTxn = String((order as any).shippoTransactionId || '');
+      if (labelTxn && (String((order as any).labelVoiding?.txn || '') === labelTxn || (Array.isArray((order as any).labelVoidIds) && (order as any).labelVoidIds.length > 0))) return { ok: false, message: 'Voiding this label didn’t finish, so it may no longer work. Void it again on the ship sheet and buy a new one before it goes out.' };
       // A tracking number from a label that was voided (lib/label-void) would send the customer a dead link.
       const voidedNums: string[] = Array.isArray((order as any).voidedTracking) ? (order as any).voidedTracking.map(String) : [];
       if (voidedNums.length && [tracking.number, ...(tracking.extraNumbers || [])].some((n) => n && voidedNums.includes(String(n).trim()))) return { ok: false, message: 'That label was voided. Buy a new one before it goes out.' };

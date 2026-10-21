@@ -34,11 +34,14 @@ export function shipTogetherGroups(orders: any[]): any[][] {
 }
 
 /** Shipping refunded on each order other than the first: what it paid for shipping, never more than its card can take back.
- *  An order whose shipping was already refunded for sharing a box (one whose label was later voided, say) gets nothing more. */
+ *  An order whose shipping was already refunded for sharing a box (one whose label was later voided, say) gets nothing more,
+ *  and when the first order's own shipping was refunded that way, one other order's shipping pays for this box instead. */
 export function togetherRefunds(group: any[], refundable: (o: any) => number): Record<string, number> {
   const out: Record<string, number> = {};
+  let payer = (Number(group[0]?.shipTogetherRefundCents) || 0) > 0;
   for (const o of group.slice(1)) {
     if ((Number(o.shipTogetherRefundCents) || 0) > 0) continue;
+    if (payer && (Number(o.shippingCents) || 0) > 0) { payer = false; continue; }
     const cents = Math.min(Math.max(0, Math.round(Number(o.shippingCents) || 0)), Math.max(0, refundable(o) - Math.max(0, Number(o.pendingRefundCents) || 0)));
     if (cents > 0) out[o.id] = cents;
   }
