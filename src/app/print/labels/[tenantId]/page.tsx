@@ -70,6 +70,7 @@ export default async function PrintLabelsPage({
   const pngs = entries.filter((o: any) => isPngLabel(o.labelUrl));
   const zpls = entries.filter((o: any) => isZplLabel(o.labelUrl));
   const pdfs = entries.filter((o: any) => !isPngLabel(o.labelUrl) && !isZplLabel(o.labelUrl));
+  const pngCount = pngs.reduce((n: number, o: any) => n + 1 + ((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isPngLabel(u)).length, 0);   // one per box
   const origin = withSlip ? await printOrigin() : '';
   const slips = new Map<string, Awaited<ReturnType<typeof slipFor>>>();
   if (withSlip) for (const o of pngs) { try { slips.set(o.id, await slipFor(db, tenantId, o.id, o, tenantData, origin, paper ? 'half' : '4x6')); } catch { /* the label still prints */ } }
@@ -81,7 +82,7 @@ export default async function PrintLabelsPage({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{`Label stack — ${pngs.length} label${pngs.length === 1 ? '' : 's'}`}</title>
+        <title>{`Label stack — ${pngCount} label${pngCount === 1 ? '' : 's'}`}</title>
         <style>{`
           @page { size: ${paper ? '8.5in 11in' : '4in 6in'}; margin: 0; }
           * { box-sizing: border-box; }
@@ -102,29 +103,31 @@ export default async function PrintLabelsPage({
       </head>
       <body>
         <div className="bar">
-          <span>{pngs.length} label{pngs.length === 1 ? '' : 's'} ready{pdfs.length ? ` · ${pdfs.length} PDF listed at the end` : ''}{zpls.length ? ` · ${zpls.length} for the label printer` : ''}</span>
+          <span>{pngCount} label{pngCount === 1 ? '' : 's'} ready{pdfs.length ? ` · ${pdfs.length} PDF listed at the end` : ''}{zpls.length ? ` · ${zpls.length} for the label printer` : ''}</span>
           {zplHref ? <a href={zplHref} style={{ color: '#fff', fontWeight: 800 }}>Download printer file</a> : null}
           <button type="button" data-print>Print stack</button>
         </div>
-        {pngs.map((o: any) => (
+        {pngs.map((o: any) => { const all = [o.labelUrl, ...((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isPngLabel(u))]; return (
           <React.Fragment key={o.id}>
-          <div className="label">
-            <img src={o.labelUrl} alt={`Shipping label for order #${String(o.orderNumber ?? '').padStart(4, '0')}`} />
+          {all.map((u: string, i: number) => (
+          <div className="label" key={u}>
+            <img src={u} alt={`Shipping label for order #${String(o.orderNumber ?? '').padStart(4, '0')}${all.length > 1 ? `, box ${i + 1} of ${all.length}` : ''}`} />
             <div className="cut" />
-          </div>
+          </div>))}
           {withSlip && slips.get(o.id) && (
             <div className="label slip">
               {(() => { const x = slips.get(o.id)!; return <SmartSlip m={x.model} size={x.size} shopName={x.shopName} qr={x.qr} giftQr={x.giftQr} />; })()}
             </div>
           )}
           </React.Fragment>
-        ))}
+        ); })}
         {pdfs.length > 0 && (
           <div className="sheet">
             <h1>PDF labels — open and print separately</h1>
             {pdfs.map((o: any) => (
               <p key={o.id}>
                 #{String(o.orderNumber ?? '').padStart(4, '0')} — <a href={o.labelUrl}>{o.labelUrl}</a>
+                {((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).map((u, i) => <React.Fragment key={u}><br />Box {i + 2}: <a href={u}>{u}</a></React.Fragment>)}
               </p>
             ))}
           </div>

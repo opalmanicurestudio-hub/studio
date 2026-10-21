@@ -5,7 +5,7 @@
 //
 // Also here: matching a scanned shipping-label barcode to its order, so the right label goes on the right box.
 // Carrier barcodes often wrap the tracking number (USPS adds a 420 + ZIP prefix), so the match is "ends with".
-import { collection, doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
+import { arrayUnion, collection, doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 
 export const MAX_TOTES = 99;
 
@@ -81,11 +81,37 @@ export function benchScanTarget(raw: unknown, orders: any[]): { kind: 'tote' | '
   return null;
 }
 
-/** The label on the box was scanned and matches: stamped on the order, and on its history for the numbers screen. */
-export async function markLabelChecked(fs: Firestore, tenantId: string, order: any, actor: { id: string; name: string }): Promise<void> {
+/** Every box's tracking number on an order (one label per box). */
+export function labelBoxes(order: any): string[] {
+  return [order?.trackingNumber, ...(Array.isArray(order?.extraTrackingNumbers) ? order.extraTrackingNumbers : [])].map((t) => String(t || '').trim()).filter((t) => digits(t).length >= 8);
+}
+
+/** Which box a scanned label is (its tracking number), or null. */
+export function boxForLabel(scanned: unknown, order: any): string | null {
+  const s = digits(scanned);
+  return labelBoxes(order).find((t) => { const d = digits(t); return s === d || s.endsWith(d); }) || null;
+}
+
+/** How many of an order's box labels have been scanned, of how many. */
+export function labelProgress(order: any): { checked: number; total: number } {
+  const all = labelBoxes(order); const done = new Set((Array.isArray(order?.labelsChecked) ? order.labelsChecked : []).map(String));
+  return { checked: all.filter((t) => done.has(t)).length || (order?.labelCheckedAt && all.length <= 1 ? 1 : 0), total: Math.max(1, all.length) };
+}
+
+/**
+ * A box's label was scanned and matches. Each box is ticked off; the order counts as label-checked once every box's
+ * label has been scanned (one box: the first scan). Stamped on the order and its history for the numbers screen.
+ */
+export async function markLabelChecked(fs: Firestore, tenantId: string, order: any, actor: { id: string; name: string }, scanned?: unknown): Promise<{ checked: number; total: number; done: boolean }> {
   const at = new Date().toISOString();
   const ref = doc(fs, `tenants/${tenantId}/retailOrders`, order.id);
-  await updateDoc(ref, { labelCheckedAt: at, labelCheckedBy: actor.id, labelCheckedByName: actor.name });
+  const all = labelBoxes(order);
+  const box = (scanned != null ? boxForLabel(scanned, order) : null) || all[0] || String(order.trackingNumber || '');
+  const done = new Set([...(Array.isArray(order?.labelsChecked) ? order.labelsChecked.map(String) : []), box].filter(Boolean));
+  const checked = all.length ? all.filter((t) => done.has(t)).length : 1; const total = Math.max(1, all.length);
+  const complete = checked >= total;
+  await updateDoc(ref, { labelsChecked: arrayUnion(box), ...(complete ? { labelCheckedAt: at, labelCheckedBy: actor.id, labelCheckedByName: actor.name } : {}) });
   const ev = doc(collection(ref, 'events'));
-  await setDoc(ev, { id: ev.id, type: 'label_scan_verified', at, actorId: actor.id, actorName: actor.name, meta: { trackingNumber: String(order.trackingNumber || '') } }).catch(() => {});
+  await setDoc(ev, { id: ev.id, type: 'label_scan_verified', at, actorId: actor.id, actorName: actor.name, meta: { trackingNumber: box, box: checked, boxes: total } }).catch(() => {});
+  return { checked, total, done: complete };
 }

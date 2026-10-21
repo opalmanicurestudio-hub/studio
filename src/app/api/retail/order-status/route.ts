@@ -304,6 +304,8 @@ export async function GET(req: NextRequest) {
       hasPreorder: order.hasPreorder === true,
       trackingNumber: order.trackingNumber || null,
       trackingUrl: order.trackingUrl || null,
+      // More boxes: one tracking number (and link, when the carrier gave one) per box.
+      extraTracking: (Array.isArray(order.extraTrackingNumbers) ? order.extraTrackingNumbers : []).slice(0, 9).map((n: any, i: number) => ({ number: String(n || ''), url: String((order.extraTrackingUrls || [])[i] || '') || null })).filter((x: any) => x.number),
       carrier: order.carrier || null,
     },
     queuePosition,

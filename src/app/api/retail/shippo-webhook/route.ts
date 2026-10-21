@@ -113,8 +113,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const db = getAdminDb();
-    const snap = await db.collection(`tenants/${tenantId}/retailOrders`)
+    let snap = await db.collection(`tenants/${tenantId}/retailOrders`)
       .where('trackingNumber', '==', trackingNumber).limit(3).get();
+    // ANOTHER BOX of a multi-box order: its scans are kept per box, and the order counts as delivered only once every
+    // box is (lib/totes labelBoxes). The customer hears "delivered" once, when the last box arrives.
+    let extraBox = false;
+    if (snap.empty) {
+      const ex = await db.collection(`tenants/${tenantId}/retailOrders`)
+        .where('extraTrackingNumbers', 'array-contains', trackingNumber).limit(3).get().catch(() => null);
+      if (ex && !ex.empty) { snap = ex; extraBox = true; }
+    }
 
     // Return labels carry their own tracking numbers that never match an
     // order's outbound leg. When the order lookup comes up empty, check the
@@ -166,6 +174,13 @@ export async function POST(req: NextRequest) {
 
     for (const d of snap.docs) {
       const order = d.data() as any;
+      const extras: string[] = Array.isArray(order.extraTrackingNumbers) ? order.extraTrackingNumbers.map(String) : [];
+      const multi = extras.length > 0;
+      // Each box's latest status, this scan included.
+      const boxStatus: Record<string, string> = { ...(order.boxStatus || {}), [trackingNumber]: String(status) };
+      if (multi) { try { await d.ref.set({ boxStatus: { [trackingNumber]: String(status) } }, { merge: true }); } catch { /* evidence below still lands */ } }
+      const allBoxes = [String(order.trackingNumber || ''), ...extras].filter(Boolean);
+      const allDelivered = allBoxes.every((t) => boxStatus[t] === 'DELIVERED' || (t === trackingNumber && status === 'DELIVERED'));
 
       // Evidence is recorded for EVERY scan, including ones that send no email
       // and ones on an order that has already completed. A claim six weeks from
@@ -180,13 +195,14 @@ export async function POST(req: NextRequest) {
         // or not anyone ever disputes anything, because it costs nothing now
         // and cannot be reconstructed later.
         const expectedOz = Number(order.shipmentProtection?.expectedWeightOz) || 0;
-        if (carrierWeightOz > 0 && expectedOz > 0) {
+        // The expected weight is for the whole order, so it's only compared when the order went as one box.
+        if (!multi && carrierWeightOz > 0 && expectedOz > 0) {
           trail.weightCheck = weightVerdict(
             expectedOz, carrierWeightOz, protectionPolicy(tenant.retailSettings).weightToleranceOz
           );
         }
 
-        await d.ref.set({ carrierTrail: trail }, { merge: true });
+        await d.ref.set(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail }, { merge: true });
       } catch {
         // never let bookkeeping fail the webhook
       }
@@ -204,7 +220,7 @@ export async function POST(req: NextRequest) {
         const origEtaRaw = Date.parse(String(data.original_eta || ''));
         const slippedDays = Number.isFinite(etaRaw) && Number.isFinite(origEtaRaw)
           ? Math.floor((etaRaw - origEtaRaw) / 86400000) : 0;
-        if (slippedDays >= 1 && !['DELIVERED', 'RETURNED'].includes(String(status))) {
+        if (!extraBox && slippedDays >= 1 && !['DELIVERED', 'RETURNED'].includes(String(status))) {
           const etaKey = new Date(etaRaw).toISOString().slice(0, 10);
           const res = await sendCarrierUpdate({
             markerRef: d.ref.collection('events').doc(`carrier-delayed-${etaKey}`),
@@ -220,7 +236,9 @@ export async function POST(req: NextRequest) {
         // delay detection is best-effort; the scan trail already landed
       }
 
-      if (shouldNotify(status)) {
+      // Other boxes' scans don't email the customer, except the last delivery; the first box's "delivered" waits for the rest.
+      const speak = status === 'DELIVERED' ? allDelivered : !extraBox;
+      if (speak && shouldNotify(status)) {
         const res = await sendCarrierUpdate({
           // Deterministic id = one email per order per status, however many
           // times the carrier repeats itself.
@@ -230,6 +248,15 @@ export async function POST(req: NextRequest) {
         if (res.sent) notified += 1;
       }
 
+      if (status === 'DELIVERED' && multi && !allDelivered) {
+        try {
+          const n = allBoxes.filter((t) => boxStatus[t] === 'DELIVERED').length;
+          const nRef = d.ref.collection('events').doc(`box-delivered-${trackingNumber}`);
+          await nRef.set({ id: nRef.id, type: 'note', at: new Date().toISOString(), actorId: 'shippo', actorName: 'Carrier',
+            meta: { kind: 'box_delivered', text: `Box ${n} of ${allBoxes.length} delivered (${trackingNumber}). Waiting on the rest.`, trackingNumber } }, { merge: true });
+        } catch { /* the box status already landed */ }
+        continue;
+      }
       if (status !== 'DELIVERED' || order.stage !== 'shipped') continue;
 
       const evRef = d.ref.collection('events').doc();

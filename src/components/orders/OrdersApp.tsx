@@ -189,12 +189,12 @@ export function OrdersApp() {
     </div>);
 
   // A handheld scanner on the board: a tote tag or slip code opens that order; a shipping label is checked against its box.
-  useWedgeScanner((v) => {
+  useWedgeScanner(async (v) => {
     const t = benchScanTarget(v, orders);
     if (!t) return;
     if (t.kind === 'foreignLabel') { feel(false); setToast('That label isn’t for any box waiting to ship.'); return; }
     const num = `#${String(t.order.orderNumber ?? '').padStart(4, '0')}`;
-    if (t.kind === 'label') { void markLabelChecked(fs, tenantId, t.order, actor).catch(() => {}); feel(true); setToast(`Right box: ${num}. It can go out.`); return; }
+    if (t.kind === 'label') { const r = await markLabelChecked(fs, tenantId, t.order, actor, v).catch(() => null); feel(true); setToast(r && r.total > 1 ? (r.done ? `All ${r.total} boxes for ${num} checked. They can go out.` : `Box ${r.checked} of ${r.total} for ${num} checked. Scan the other label${r.total - r.checked > 1 ? 's' : ''}.`) : `Right box: ${num}. It can go out.`); return; }
     feel(true); setOpenId(t.order.id); setToast(t.kind === 'tote' ? `Tote ${t.tote}: ${num}` : `${num} is open`);
   });
 

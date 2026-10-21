@@ -59,7 +59,7 @@ interface StatusOrder {
   refundedCents: number; totalCents: number;
   timestamps: Record<string, string | null>;
   curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number; bringingOutAt?: string | null; bringingOutBy?: string; bringingOutPhoto?: string | null } | null;
-  shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null;
+  shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null; extraTracking?: { number: string; url: string | null }[];
 }
 
 const fmt = (cents: number) =>
@@ -1058,13 +1058,17 @@ export default function OrderStatusPage() {
                 </p>
               </div>
               {order.trackingNumber ? (
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-mono font-black text-xs truncate">{order.carrier ? `${order.carrier} · ` : ''}{order.trackingNumber}</p>
-                  {order.trackingUrl && (
-                    <Button asChild variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
-                      <a href={order.trackingUrl} target="_blank" rel="noreferrer">Track</a>
-                    </Button>
-                  )}
+                <div className="space-y-2">
+                  {(order.extraTracking?.length || 0) > 0 && <p className="text-sm">Your order is coming in {1 + (order.extraTracking?.length || 0)} boxes, each with its own tracking.</p>}
+                  {[{ number: order.trackingNumber, url: order.trackingUrl }, ...(order.extraTracking || [])].map((t, i, all) => (
+                    <div key={t.number} className="flex items-center justify-between gap-3">
+                      <p className="font-mono font-black text-xs truncate">{all.length > 1 ? `Box ${i + 1} · ` : ''}{order.carrier ? `${order.carrier} · ` : ''}{t.number}</p>
+                      {t.url && (
+                        <Button asChild variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
+                          <a href={t.url} target="_blank" rel="noreferrer">{all.length > 1 ? `Track box ${i + 1}` : 'Track'}</a>
+                        </Button>
+                      )}
+                    </div>))}
                 </div>
               ) : (
                 <p className="text-sm font-bold text-muted-foreground">

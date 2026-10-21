@@ -76,7 +76,7 @@ export async function handOver(fs: Firestore, t: string, o: any, actor: Actor, v
   return via.scan ? handoffByScan(fs, t, via.scan, actor) : handoffWithoutScan(fs, t, o.id, via.verifiedBy || 'Checked name and phone', actor);
 }
 
-export async function shipIt(fs: Firestore, t: string, o: any, actor: Actor, tracking: { carrier?: string; number?: string; url?: string }): Promise<Result> {
+export async function shipIt(fs: Firestore, t: string, o: any, actor: Actor, tracking: { carrier?: string; number?: string; url?: string; extraNumbers?: string[] }): Promise<Result> {
   const r = await markShipped(fs, t, o.id, tracking, actor);
   // Tracking typed from a label bought elsewhere: the carrier won't tell the customer, so we do.
   if (r.ok && !o.shippoTransactionId && (tracking.number || o.trackingNumber)) {

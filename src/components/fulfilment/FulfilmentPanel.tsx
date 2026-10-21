@@ -156,8 +156,9 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       }
       const labelFor = labeled.length ? orderForLabel(raw, labeled) : null;
       if (labelFor) {
-        await markLabelChecked(fs, tenantId, labelFor, actor);
-        show({ kind: 'ok', title: `Right box: ${orderNum(labelFor)}`, sub: `${firstName(labelFor.customerName)}’s label is on. It can go out.` });
+        const r = await markLabelChecked(fs, tenantId, labelFor, actor, raw);
+        if (r.total > 1 && !r.done) show({ kind: 'ok', title: `Box ${r.checked} of ${r.total}: ${orderNum(labelFor)}`, sub: `Scan the label on the other box${r.total - r.checked > 1 ? 'es' : ''}.` });
+        else show({ kind: 'ok', title: `Right box${r.total > 1 ? 'es' : ''}: ${orderNum(labelFor)}`, sub: r.total > 1 ? `All ${r.total} labels are on. They can go out.` : `${firstName(labelFor.customerName)}’s label is on. It can go out.` });
         return;
       }
       if (looksLikeTracking(raw) && labeled.length) { show({ kind: 'warn', title: 'This label isn’t for any box waiting to ship', sub: 'Check the box and the label before it goes out.' }); return; }

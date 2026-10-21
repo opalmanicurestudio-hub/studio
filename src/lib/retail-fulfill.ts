@@ -937,7 +937,7 @@ export async function cancelOrder(
 
 export async function markShipped(
   fs: Firestore, tenantId: string, orderId: string,
-  tracking: { carrier?: string; number?: string; url?: string }, actor: Actor
+  tracking: { carrier?: string; number?: string; url?: string; extraNumbers?: string[] }, actor: Actor
 ): Promise<{ ok: boolean; message: string }> {
   try {
     const done: any = await runTransaction(fs, async (txn) => {
@@ -959,6 +959,8 @@ export async function markShipped(
         trackingNumber: tracking.number || order.trackingNumber || null,
         trackingUrl: tracking.url || order.trackingUrl || null,
         carrier: tracking.carrier || order.carrier || null,
+        // More boxes, typed from labels bought elsewhere: one tracking number per box.
+        ...(tracking.extraNumbers && tracking.extraNumbers.length ? { extraTrackingNumbers: tracking.extraNumbers.slice(0, 9), packageCount: 1 + Math.min(9, tracking.extraNumbers.length) } : {}),
       });
       if (tracking.number) {
         txn.set(doc(collection(oRef, 'events')), evPayload('label_generated', actor, {

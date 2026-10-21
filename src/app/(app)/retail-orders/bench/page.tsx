@@ -208,8 +208,9 @@ export default function PackBenchPage() {
       if (target.kind === 'foreignLabel') { scanFeedback(false); toast({ variant: 'destructive', title: 'This label isn’t for any box waiting to ship', description: 'Check the box and the label before it goes out.' }); return; }
       const num = `#${String(target.order.orderNumber).padStart(4, '0')}`;
       if (target.kind === 'label') {
-        await markLabelChecked(firestore as Firestore, tenantId, target.order, actor).catch(() => {});
-        scanFeedback(true); toast({ title: `Right box: ${num}`, description: `${target.order.customerName || 'The customer'}’s label is on. It can go out.` }); return;
+        const r = await markLabelChecked(firestore as Firestore, tenantId, target.order, actor, value).catch(() => null);
+        scanFeedback(true);
+        toast(r && r.total > 1 && !r.done ? { title: `Box ${r.checked} of ${r.total}: ${num}`, description: `Scan the label on the other box${r.total - r.checked > 1 ? 'es' : ''}.` } : { title: `Right box${r && r.total > 1 ? 'es' : ''}: ${num}`, description: r && r.total > 1 ? `All ${r.total} labels are on. They can go out.` : `${target.order.customerName || 'The customer'}’s label is on. It can go out.` }); return;
       }
       if (target.order.id !== activeId && ['picking', 'packed'].includes(String(target.order.stage))) {
         setActiveId(target.order.id); scanFeedback(true);

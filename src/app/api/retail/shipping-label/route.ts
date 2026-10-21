@@ -231,6 +231,7 @@ export async function POST(req: NextRequest) {
     // full set for this rate so every box gets its own label + tracking.
     let extraLabelUrls: string[] = [];
     let extraTracking: string[] = [];
+    let extraTrackingUrls: string[] = [];
     try {
       const listRes = await fetch(`${SHIPPO}/transactions/?rate=${encodeURIComponent(rateId)}&results=25`, {
         headers: { Authorization: `ShippoToken ${apiKey}` },
@@ -239,6 +240,7 @@ export async function POST(req: NextRequest) {
       const all = (list.results || []).filter((t: any) => t.status === 'SUCCESS' && t.object_id !== txn.object_id);
       extraLabelUrls = all.map((t: any) => String(t.label_url || '')).filter(Boolean);
       extraTracking = all.map((t: any) => String(t.tracking_number || '')).filter(Boolean);
+      extraTrackingUrls = all.filter((t: any) => t.tracking_number).map((t: any) => String(t.tracking_url_provider || ''));
     } catch {
       // single-parcel shipments have nothing extra; a listing hiccup only
       // costs the extra-label buttons, never the purchase itself
@@ -250,6 +252,7 @@ export async function POST(req: NextRequest) {
       trackingUrl: String(txn.tracking_url_provider || ''),
       labelUrl: String(txn.label_url || ''),
       extraLabelUrls,
+      extraTrackingNumbers: extraTracking,
       packageCount: 1 + extraLabelUrls.length,
     };
 
@@ -279,7 +282,9 @@ export async function POST(req: NextRequest) {
       shippoTransactionId: String(txn.object_id || ''),
       extraLabelUrls,
       extraTrackingNumbers: extraTracking,
+      extraTrackingUrls,
       packageCount: result.packageCount,
+      labelsChecked: [],
     }, { merge: true });
     batch.set(evRef, {
       id: evRef.id, type: 'label_generated', at: new Date().toISOString(),
