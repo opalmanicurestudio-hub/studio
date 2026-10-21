@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     if (o.holdForReview === true && changePolicy(t.retailSettings).heldNeedsManager && !actor.isManager) return NextResponse.json({ ok: false, error: 'This order is held for review, so a manager needs to approve the change.' }, { status: 403 });
     // Orders sharing one box and label (lib/ship-together) can't change address one at a time.
     const shared = [...(Array.isArray(o.shippedWithOrderIds) ? o.shippedWithOrderIds : []), ...(o.shippedWithOrderId ? [o.shippedWithOrderId] : [])];
-    if (shared.length && (o.labelUrl || o.trackingNumber)) return NextResponse.json({ ok: false, error: `This order shares a box and label with another order, so its address can’t change on its own. Keep the old address and let ${who} know, or work it out with them in the order’s messages.` }, { status: 409 });
+    if (shared.length && (o.labelUrl || o.trackingNumber)) return NextResponse.json({ ok: false, error: `This order shares a box and label with another order, so its address can’t change on its own. Void the shared label on the ship sheet first (it comes off every order in the box), then approve the change. Or keep the old address and let ${who} know.` }, { status: 409 });
     // 1. Claim it, so two people answering at once can't both act. The order as it is at the claim is the one acted on.
     //    A claim left behind by an interrupted approval can be taken over after five minutes (well past the time the
     //    carrier calls below can take).

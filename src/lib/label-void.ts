@@ -19,10 +19,20 @@ export const LABEL_CLEARED = {
   extraLabelUrls: [] as string[], extraTrackingNumbers: [] as string[], extraTrackingUrls: [] as string[], labelsChecked: [] as string[], labelCheckedAt: null,
   labelVoidIds: [] as string[],
   // A voided label isn't waiting for a scan any more (lib/label-sweep), and it's on no carrier form (api/retail/close-day).
+  // What the morning check knew about it (seen moving, voids turned down) goes with it: a new label starts fresh.
   labelUnscanned: null, labelUnscannedOpen: false, manifestId: null, manifestedAt: null, labelVoiding: null,
+  labelSeenMoving: null, autoVoid: null,
 };
 
-export type VoidResult = { ok: boolean; error?: string; status?: string; count: number; voidedIds: string[]; trackingNumbers: string[] };
+/** An order that went in another order's box (lib/ship-together), once that box's label is voided: its copy goes too. */
+export const SHARED_CLEARED = {
+  trackingNumber: '', carrier: '', trackingUrl: '', labelUrl: '',
+  extraLabelUrls: [] as string[], extraTrackingNumbers: [] as string[], extraTrackingUrls: [] as string[], labelsChecked: [] as string[], labelCheckedAt: null,
+  labelFromOrderId: null, shippedWithOrderId: null, shipTogetherAt: null,
+};
+
+/** `uncertain`: some box got no answer at all (a timeout), so its refund may or may not have gone through. */
+export type VoidResult = { ok: boolean; error?: string; status?: string; count: number; voidedIds: string[]; trackingNumbers: string[]; uncertain?: boolean };
 
 export async function voidOrderLabels(db: any, tenantId: string, order: any, apiKey: string, opts: { alreadyVoided?: string[] } = {}): Promise<VoidResult> {
   const master = String(order?.shippoTransactionId || '').trim();
@@ -44,7 +54,7 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
     if (ids.length < 1 + extra) return { ok: false, error: 'Couldn’t find every box’s label to void, so none were voided. Try again in a minute.', count: 0, voidedIds: [], trackingNumbers };
   }
   const done = new Set((opts.alreadyVoided || []).map(String));
-  const failed: string[] = [];
+  const failed: string[] = []; let noAnswer = 0;
   let status = done.has(master) ? 'PENDING' : '';
   for (const id of ids) {
     if (done.has(id)) continue;
@@ -53,11 +63,12 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
     const said = String(d?.detail || d?.__all__?.[0] || d?.transaction?.[0] || JSON.stringify(d || {})).slice(0, 300);
     if (r && r.ok) { done.add(id); if (id === master) status = String(d.status || 'PENDING'); continue; }
     if (r && ALREADY.test(said) && !NOT_VOIDABLE.test(said)) { done.add(id); if (id === master) status = 'PENDING'; continue; }
+    if (!r) noAnswer++;
     failed.push(id);
   }
   const voidedIds = ids.filter((id) => done.has(id));
   if (failed.length) {
-    return { ok: false, error: voidedIds.length ? `${voidedIds.length} of ${ids.length} labels voided; the rest didn’t go through. Try again in a minute.` : 'The label couldn’t be voided. Try again in a minute.', count: voidedIds.length, voidedIds, trackingNumbers };
+    return { ok: false, error: voidedIds.length ? `${voidedIds.length} of ${ids.length} labels voided; the rest didn’t go through. Try again in a minute.` : 'The label couldn’t be voided. Try again in a minute.', count: voidedIds.length, voidedIds, trackingNumbers, uncertain: noAnswer > 0 };
   }
   await reversePostage(db, tenantId, master).catch(() => {});
   return { ok: true, status, count: ids.length, voidedIds, trackingNumbers };

@@ -78,9 +78,14 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     // The address (lib/address-flow): a change waiting for the team, or a question the customer hasn't answered in a day.
     if (['waiting', 'approving'].includes(String(o.addressRequest?.status)) && ['placed', 'paid', 'picking', 'packed'].includes(o.stage)) out.push({ key: `${o.id}-addr`, orderId: o.id, kind: 'address', text: o.labelUrl || o.shippoTransactionId ? `${who} changed the address after the label was bought` : `${who} asked to change the address` });
     if (o.addressConfirm?.status === 'waiting' && ['paid', 'picking', 'packed'].includes(o.stage) && ms(o.addressConfirm.askedAt) && now - ms(o.addressConfirm.askedAt) > 24 * 3600e3) out.push({ key: `${o.id}-conf`, orderId: o.id, kind: 'unconfirmed', text: `${who} hasn’t confirmed the address yet` });
-    // A label nobody has scanned for days (lib/label-sweep): find the box, or void the label and get the postage back.
-    if (o.labelUnscannedOpen === true && o.shippoTransactionId && ['packed', 'shipped'].includes(o.stage)) out.push({ key: `${o.id}-lbl`, orderId: o.id, kind: 'label', text: o.stage === 'shipped' ? `The carrier hasn’t scanned ${who}’s box` : `${who}’s label hasn’t been used` });
-    if (o.voidedLabelMoving?.open === true) out.push({ key: `${o.id}-vlm`, orderId: o.id, kind: 'voided', text: `A voided label for ${who} was scanned by the carrier` });
+    // A label someone should look at (lib/label-sweep): nobody has scanned it for days, a void of it didn't finish, or a
+    // cancelled order's label couldn't be voided automatically. Find the box, or void it and get the postage back.
+    if (o.labelUnscannedOpen === true && o.shippoTransactionId && ['packed', 'shipped', 'cancelled', 'refunded'].includes(o.stage)) {
+      const closed = ['cancelled', 'refunded'].includes(o.stage);
+      out.push({ key: `${o.id}-lbl`, orderId: o.id, kind: 'label', text: o.labelUnscanned?.why === 'void_unfinished' ? `Voiding ${who}’s label didn’t finish`
+        : closed ? `${who}’s ${o.stage === 'refunded' ? 'refunded' : 'cancelled'} order still has a label` : o.stage === 'shipped' ? `The carrier hasn’t scanned ${who}’s box` : `${who}’s label hasn’t been used` });
+    }
+    if (o.voidedLabelMoving?.open === true) out.push({ key: `${o.id}-vlm`, orderId: o.id, kind: 'voided', text: o.voidedLabelMoving.unsure ? `A label being voided for ${who} was scanned by the carrier` : `A voided label for ${who} was scanned by the carrier` });
     if (o.stage === 'paid' && o.holdUntilRestock === true) out.push({ key: `${o.id}-bo`, orderId: o.id, kind: 'backorder', text: `${who}’s order is waiting on stock` });
     if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });
   }

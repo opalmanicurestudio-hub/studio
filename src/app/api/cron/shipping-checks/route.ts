@@ -23,11 +23,13 @@ export async function GET(req: NextRequest) {
     const apiKey = String(s?.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
     if (!apiKey) return;
     try {
-      // Every shop shares one deadline, well inside the 60-second limit (a void cut off anyway is finished next morning).
+      // Every shop shares one deadline, well inside the 60-second limit: a shop stops starting work 25 seconds in, and
+      // no shop is started after 15, so each one gets time to work. A shop cut off is the first one next morning.
       const r = await sweepLabels(db, t.id, apiKey, { deadline: started + 45000 });
       counts.voided += r.voided; counts.flagged += r.flagged; counts.checked += r.checked;
+      if (r.cutOff) return { again: true };
     } catch (e: any) { console.error('[cron/shipping-checks]', t.id, String(e?.message || e).slice(0, 200)); }
-  }, { concurrency: 3, startedAt: started, budgetMs: 30000 });
+  }, { concurrency: 3, startedAt: started, budgetMs: 15000 });
   await heartbeat(db, 'shipping-checks');
   return NextResponse.json({ ok: true, ...counts, businesses: run.done, of: run.total, resumesAt: run.ranOut ? run.nextStart : null });
 }

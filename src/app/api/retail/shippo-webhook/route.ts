@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
         for (const vd of vs.docs) {
           const vo: any = vd.data() || {};
           if (vo.voidedLabelMoving?.trackingNumber === trackingNumber && vo.voidedLabelMoving?.open === false) continue;
-          await vd.ref.set({ voidedLabelMoving: { open: true, at: new Date().toISOString(), trackingNumber, status: String(status) } }, { merge: true }).catch(() => {});
+          await vd.ref.set({ voidedLabelMoving: { open: true, unsure: false, at: new Date().toISOString(), trackingNumber, status: String(status) } }, { merge: true }).catch(() => {});
           const ev = vd.ref.collection('events').doc(`voided-moving-${trackingNumber}`);
           await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'shippo', actorName: 'Carrier', meta: { kind: 'voided_label_moving', text: `The carrier scanned ${trackingNumber}, a label that was voided (${String(status).toLowerCase()})` } }, { merge: true }).catch(() => {});
         }
@@ -219,9 +219,14 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // A scan at last: it isn't an unused label after all (lib/label-sweep).
-        const moved = order.labelUnscannedOpen && ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'].includes(String(status));
-        await d.ref.set({ ...(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail }), ...(moved ? { labelUnscannedOpen: false } : {}) }, { merge: true });
+        // A scan at last: it isn't an unused label after all (lib/label-sweep). If a void of it never finished, the box
+        // is out on a label that may be refunded, so the team hears of it.
+        const scanned = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'].includes(String(status));
+        const moved = order.labelUnscannedOpen && scanned;
+        const doubtful = scanned && !!order.shippoTransactionId && !order.voidedLabelMoving?.open && order.voidedLabelMoving?.trackingNumber !== String(order.trackingNumber || '')
+          && (String(order.labelVoiding?.txn || '') === String(order.shippoTransactionId) || (order.labelUnscannedOpen === true && order.labelUnscanned?.why === 'void_unfinished'));
+        await d.ref.set({ ...(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail }), ...(moved ? { labelUnscannedOpen: false } : {}),
+          ...(doubtful ? { labelVoiding: null, voidedLabelMoving: { open: true, unsure: true, at: new Date().toISOString(), trackingNumber: String(order.trackingNumber || ''), status: String(status) } } : {}) }, { merge: true });
       } catch {
         // never let bookkeeping fail the webhook
       }

@@ -109,8 +109,12 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     setLoading(false);
     if (r.ok) onDone(many ? `${firstName(order.customerName)}’s ${group.length} orders are on their way in one shipment.${refundNote ? ` ${refundNote}` : ''}` : `${firstName(order.customerName)}’s order is on its way. They get tracking when the carrier scans it.`); else setErr(r.message);
   };
-  // Void the label (every box's): the wrong box, the wrong rate, or the address changed. The postage comes back.
+  // Void the label (every box's): the wrong box, the wrong rate, or the address changed. The postage comes back. A label
+  // shared by orders in one box comes off all of them. A void that didn't finish (Shippo never answered) is shown, so
+  // the label isn't used until it's sorted.
   const [voiding, setVoiding] = React.useState<'ask' | 'busy' | null>(null);
+  const sharedWith = Array.isArray(order.shippedWithOrderIds) ? order.shippedWithOrderIds.length : 0;
+  const voidOpen = !!order.shippoTransactionId && String(order.labelVoiding?.txn || '') === String(order.shippoTransactionId) && voiding !== 'busy';
   const voidLabel = async () => {
     setVoiding('busy'); setErr('');
     try { const d = await post({ action: 'void' }); setLabel(null); setRates([]); setVoiding(null); onToast?.(d.message || 'Label voided.'); }
@@ -144,13 +148,19 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
             {many && group.filter((g: any) => g.qrToken).map((g: any) => <Btn key={g.id} kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${g.id}?t=${encodeURIComponent(g.qrToken || '')}`, '_blank')}>{`Packing slip for #${String(g.orderNumber ?? '').padStart(4, '0')}`}</Btn>)}
             {refundNote && <p className="m-0 text-[14px]" style={{ color: C.ok }}>{refundNote}</p>}
             <Btn kind="primary" className="text-[17px]" disabled={loading || !!asked} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{many ? `Mark all ${group.length} orders as shipped` : label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
-            {!many && order.shippoTransactionId && (voiding ? (
+            {voidOpen && !voiding && (
+              <div className="rounded-2xl p-4" style={{ background: C.warnSoft, color: C.warn }}>
+                <p className="m-0 text-[15px] font-semibold">Voiding this label didn’t finish</p>
+                <p className="m-0 mt-1 text-[14px]">Shippo never confirmed it, so this label may no longer work. Void it again so the postage is sure to come back, then buy a new one.</p>
+              </div>)}
+            {!order.shippoTransactionId && order.labelFromOrderId && <p className="m-0 text-[14px]" style={muted}>This label was bought with another order in the same box. To void it, open that order.</p>}
+            {order.shippoTransactionId && (voiding ? (
               <div className="rounded-2xl p-4" style={{ background: C.soft }}>
                 <p className="m-0 text-[15px] font-semibold">Void {label.extraUrls?.length ? `all ${1 + label.extraUrls.length} labels` : 'this label'}?</p>
-                <p className="m-0 mt-1 text-[14px]" style={muted}>Only if it hasn’t gone out. The postage is refunded by the carrier, which can take a few days. Take the old label off the box.</p>
+                <p className="m-0 mt-1 text-[14px]" style={muted}>Only if it hasn’t gone out. The postage is refunded by the carrier, which can take a few days. Take the old label off the box.{sharedWith ? ` It covers ${sharedWith === 1 ? 'another order' : `${sharedWith} other orders`} in this box, so it comes off ${sharedWith === 1 ? 'both' : 'all of them'}.` : ''}</p>
                 <div className="mt-3 flex gap-2"><Btn kind="danger" className="flex-1" disabled={voiding === 'busy'} onClick={() => void voidLabel()}>{voiding === 'busy' ? 'Voiding…' : 'Void it'}</Btn><Btn kind="soft" className="flex-1" disabled={voiding === 'busy'} onClick={() => setVoiding(null)}>Keep it</Btn></div>
               </div>
-            ) : <Btn kind="plain" style={muted} onClick={() => setVoiding('ask')}>Void the label</Btn>)}
+            ) : <Btn kind={voidOpen ? 'soft' : 'plain'} style={voidOpen ? undefined : muted} onClick={() => setVoiding('ask')}>{voidOpen ? 'Void it again' : 'Void the label'}</Btn>)}
           </div>
         </div>
       ) : manual ? (

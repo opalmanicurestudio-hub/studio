@@ -64,21 +64,27 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb();
   const manifests = db.collection(`tenants/${tenantId}/shipManifests`);
 
-  // A form that failed: its orders come off it, so the next Close the day can include them.
+  // A form that failed: its orders come off it, so the next Close the day can include them. Done before the failure is
+  // recorded, and allowed to fail loudly: a form is only marked failed once its labels are free, so a form whose orders
+  // couldn't be freed is looked at again (history) instead of keeping its labels off every form after it.
   const unstamp = async (m: any) => {
-    const ids: string[] = Array.isArray(m.orderIds) ? m.orderIds.map(String) : [];
-    const batch = db.batch();
-    for (const id of ids) {
-      const ref = db.doc(`tenants/${tenantId}/retailOrders/${id}`);
-      const cur: any = (await ref.get()).data() || {};
-      if (cur.manifestId === m.id) batch.set(ref, { manifestId: null, manifestedAt: null }, { merge: true });
-    }
-    await batch.commit().catch(() => {});
+    const ids: string[] = (Array.isArray(m.orderIds) ? m.orderIds.map(String) : []).filter(Boolean);
+    if (!ids.length) return;
+    const refs = ids.map((id) => db.doc(`tenants/${tenantId}/retailOrders/${id}`));
+    const snaps: any[] = await db.getAll(...refs);
+    const batch = db.batch(); let n = 0;
+    snaps.forEach((snap: any, i: number) => { if (snap.exists && snap.data()?.manifestId === m.id) { batch.set(refs[i], { manifestId: null, manifestedAt: null }, { merge: true }); n++; } });
+    if (n) await batch.commit();
   };
+  const failedNow = (status: unknown) => String(status || '').toUpperCase() === 'ERROR';
 
   if (action === 'history') {
     const snap = await manifests.orderBy('createdAt', 'desc').limit(14).get();
     const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    // A form marked failed before its labels were freed (by an earlier version of this): they're freed now.
+    for (const m of rows.filter((x: any) => failedNow(x.status) && !x.freedAt).slice(0, 5)) {
+      try { await unstamp(m); const at = new Date().toISOString(); await manifests.doc(m.id).set({ freedAt: at }, { merge: true }); m.freedAt = at; } catch { /* next look */ }
+    }
     // Forms still being made: ask Shippo once more and keep what comes back.
     const waiting = rows.filter((m: any) => m.shippoManifestId && !(m.documents || []).length && !['ERROR', 'FAILED'].includes(String(m.status || '').toUpperCase()));
     if (waiting.length) {
@@ -88,10 +94,11 @@ export async function POST(req: NextRequest) {
         try {
           const got = await shippo(key, `/manifests/${encodeURIComponent(m.shippoManifestId)}`);
           const docs: string[] = Array.isArray(got.documents) ? got.documents.map(String) : [];
-          m.status = String(got.status || m.status || ''); m.documents = docs;
-          await manifests.doc(m.id).set({ status: m.status, documents: docs }, { merge: true });
-          // Shippo couldn't make it: its labels are free to go on the next form.
-          if (m.status.toUpperCase() === 'ERROR') await unstamp(m);
+          const status = String(got.status || m.status || '');
+          // Shippo couldn't make it: its labels are freed for the next form first, then it's marked failed.
+          const freed = failedNow(status) ? (await unstamp(m), { freedAt: new Date().toISOString() }) : {};
+          await manifests.doc(m.id).set({ status, documents: docs, ...freed }, { merge: true });
+          m.status = status; m.documents = docs; Object.assign(m, freed);
         } catch { /* next look */ }
       }
     }
@@ -216,14 +223,17 @@ export async function POST(req: NextRequest) {
         await batch.commit();
         // Then a little wait for the sheet.
         const m = await settle(made.m);
-        rec.status = String(m.status || rec.status || '');
-        rec.documents = Array.isArray(m.documents) ? m.documents.map(String) : rec.documents;
-        await ref.set({ status: rec.status, documents: rec.documents }, { merge: true });
-        if (rec.status.toUpperCase() === 'ERROR') {
+        const status = String(m.status || rec.status || '');
+        const documents = Array.isArray(m.documents) ? m.documents.map(String) : rec.documents;
+        if (failedNow(status)) {
+          // Its labels are freed first; if that fails, the form stays as it was and history frees them later.
           await unstamp(rec);
+          await ref.set({ status, documents, freedAt: new Date().toISOString() }, { merge: true });
           made.used.forEach((o: any) => failed.push({ orderId: o.id, error: 'Shippo couldn’t make the form' }));
           continue;
         }
+        rec.status = status; rec.documents = documents;
+        await ref.set({ status, documents }, { merge: true });
         out.push(rec);
       } catch (e: any) {
         chunk.forEach((o: any) => failed.push({ orderId: o.id, error: String(e?.message || 'Manifest failed') }));

@@ -2,13 +2,16 @@
 // one after another eventually runs out of time, and the businesses at the end of the list are never reached. This
 // runs several businesses at once, stops starting new ones shortly before the time limit, and remembers where it
 // stopped, so the next run starts there: everyone gets their turn, however many businesses there are.
+// A business whose own work was cut off by the time limit says so (it returns { again: true }), and the next run
+// starts with it, so the rest of its work isn't left until its turn comes round again. Only once: a business cut off
+// while it was already first waits for its turn like everyone else, so a busy one can't hold the others back.
 
 export interface FanoutResult { done: number; total: number; nextStart: number; ranOut: boolean }
 
 export async function forEachTenant(
   db: any,
   job: string,
-  fn: (t: { id: string; data: any }) => Promise<void>,
+  fn: (t: { id: string; data: any }) => Promise<void | { again?: boolean }>,
   opts: { concurrency?: number; budgetMs?: number; startedAt?: number } = {},
 ): Promise<FanoutResult> {
   const concurrency = Math.max(1, opts.concurrency ?? 6);
@@ -20,18 +23,23 @@ export async function forEachTenant(
   let start = 0;
   try { start = Math.max(0, Math.floor(Number((await cursorRef.get()).data()?.[job]) || 0)) % total; } catch { /* from the top */ }
   const order = [...docs.slice(start), ...docs.slice(0, start)];
-  let next = 0; let done = 0; let ranOut = false;
+  let next = 0; let done = 0; let ranOut = false; let again = -1;
   const worker = async () => {
     for (;;) {
       if (Date.now() > deadline) { ranOut = true; return; }
       const i = next++; if (i >= order.length) return;
       const d = order[i];
-      try { await fn({ id: d.id, data: d.data() || {} }); } catch (e: any) { console.error(`[${job}]`, d.id, String(e?.message || e).slice(0, 200)); }
+      try {
+        const r = await fn({ id: d.id, data: d.data() || {} });
+        if (r && r.again && i > 0 && (again < 0 || i < again)) again = i;
+      } catch (e: any) { console.error(`[${job}]`, d.id, String(e?.message || e).slice(0, 200)); }
       done++;
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, order.length) }, worker));
-  const nextStart = ranOut ? (start + done) % total : 0;
+  // Businesses run in order, so everything before `done` was reached; one cut off short is started with next time.
+  if (again >= 0) ranOut = true;
+  const nextStart = ranOut ? (start + (again >= 0 ? again : done)) % total : 0;
   try { await cursorRef.set({ [job]: nextStart, [`${job}At`]: new Date().toISOString() }, { merge: true }); } catch { /* next run starts from the top */ }
   return { done, total, nextStart, ranOut };
 }

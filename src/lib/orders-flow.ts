@@ -95,12 +95,18 @@ export async function cancelIt(fs: Firestore, t: string, o: any, actor: Actor, r
   // A label already bought for it: voided now, so the postage comes back. If this person can't void labels, the
   // morning check does it (lib/label-sweep).
   if (o.shippoTransactionId && o.qrToken) {
-    let voided = false;
+    let voided = false; let refused = '';
     try {
       const v = await fetch('/api/retail/shipping-label', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id, qrToken: o.qrToken, action: 'void', auto: true }) });
-      voided = v.ok;
+      voided = v.ok; if (!v.ok) refused = String((await v.json().catch(() => ({})))?.refused || '');
     } catch { /* overnight */ }
-    return { ...r, message: `${r.message} ${voided ? 'Its label was voided, so the postage comes back.' : 'Its label will be checked overnight and voided if it was never used.'}` };
+    // Why it wasn't voided decides what happens next: shared and USPS-form labels are never voided automatically.
+    const after = voided ? 'Its label was voided, so the postage comes back.'
+      : refused === 'shared' ? 'Its label also covers other orders in the same box, so it wasn’t voided.'
+      : refused === 'form' ? 'Its label is on a USPS form, so it wasn’t voided. If the box didn’t go out, void the label from the order.'
+      : refused === 'moving' ? 'The carrier has already scanned its box, so the label can’t be voided.'
+      : 'Its label will be checked overnight and voided if it was never used.';
+    return { ...r, message: `${r.message} ${after}` };
   }
   return r;
 }

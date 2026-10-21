@@ -64,9 +64,21 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
     } catch { setErr('That didn’t go through. Try again.'); }
     setBusy(false);
   };
-  // A label nobody has scanned for days (lib/label-sweep): void it for the postage, or say the box went out.
-  const unscannedLabel = order.labelUnscannedOpen === true && !!order.shippoTransactionId && ['packed', 'shipped'].includes(order.stage);
+  // A label someone should look at (lib/label-sweep): nobody has scanned it for days, a void of it didn't finish, or a
+  // cancelled order's label couldn't be voided automatically. Void it for the postage, or say what happened.
+  const unscannedLabel = order.labelUnscannedOpen === true && !!order.shippoTransactionId && ['packed', 'shipped', 'cancelled', 'refunded'].includes(order.stage);
   const day = (v: unknown) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'a few days ago'; };
+  const lw = String(order.labelUnscanned?.why || '');
+  const closedOrder = ['cancelled', 'refunded'].includes(order.stage);
+  const lbl = lw === 'void_unfinished'
+    ? (order.stage === 'shipped'
+      ? { title: 'Voiding this label didn’t finish', text: `A void was started ${day(order.labelUnscanned?.startedAt)}, before the box was marked shipped, and Shippo never confirmed it. Check the label in Shippo: if the refund went through, the carrier may charge the postage back.`, keep: 'Got it' }
+      : { title: 'Voiding this label didn’t finish', text: `A void was started ${day(order.labelUnscanned?.startedAt)} and Shippo never confirmed it, so this label may no longer work. Void it again so the postage is sure to come back, then buy a new one if the box is still going.`, keep: 'Keep the label' })
+    : closedOrder
+      ? { title: `This ${order.stage === 'refunded' ? 'refunded' : 'cancelled'} order still has a label`, text: `Bought ${day(order.labelUnscanned?.boughtAt)}. It couldn’t be voided automatically. If the box didn’t go out, void it here and the postage comes back.`, keep: 'Leave it' }
+      : order.stage === 'shipped'
+        ? { title: 'The carrier hasn’t scanned this box', text: `Marked shipped ${day(order.completedAt)}, with no carrier scan since. If the box is still here, hand it over: the label works for 30 days after it was bought.`, keep: 'It went out' }
+        : { title: 'This label hasn’t been used', text: lw === 'void_refused' ? `Bought ${day(order.labelUnscanned?.boughtAt)}. It couldn’t be voided automatically: if this box isn’t going out, void it here and the postage comes back.` : `Bought ${day(order.labelUnscanned?.boughtAt)}. If this box isn’t going out, void the label and the postage comes back.`, keep: 'It’s going out today' };
   const labelAction = async (action: 'void' | 'unscanned_ok' | 'voided_seen') => {
     setBusy(true); setErr('');
     try {
@@ -127,15 +139,15 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
             </div>)}
           {unscannedLabel && (
             <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
-              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{order.stage === 'shipped' ? 'The carrier hasn’t scanned this box' : 'This label hasn’t been used'}</p>
-              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{order.stage === 'shipped' ? `Marked shipped ${day(order.completedAt)}, with no carrier scan since. If the box is still here, hand it over: the label works for 30 days after it was bought.` : `Bought ${day(order.labelUnscanned?.boughtAt)}. If this box isn’t going out, void the label and the postage comes back.`}</p>
-              {order.stage === 'packed' && <Btn kind="primary" className="mt-3 h-11 w-full" disabled={busy} onClick={() => void labelAction('void')}>Void the label</Btn>}
-              <Btn kind="soft" className="mt-2 h-11 w-full" disabled={busy} onClick={() => void labelAction('unscanned_ok')}>{order.stage === 'shipped' ? 'It went out' : 'It’s going out today'}</Btn>
+              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{lbl.title}</p>
+              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{lbl.text}{order.stage !== 'shipped' && Array.isArray(order.shippedWithOrderIds) && order.shippedWithOrderIds.length ? ' This label covers other orders in the same box, so voiding it takes it off all of them.' : ''}</p>
+              {order.stage !== 'shipped' && <Btn kind="primary" className="mt-3 h-11 w-full" disabled={busy} onClick={() => void labelAction('void')}>Void the label</Btn>}
+              <Btn kind="soft" className="mt-2 h-11 w-full" disabled={busy} onClick={() => void labelAction('unscanned_ok')}>{lbl.keep}</Btn>
             </div>)}
           {order.voidedLabelMoving?.open === true && (
             <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
-              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>The carrier scanned a label that was voided</p>
-              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>Tracking {order.voidedLabelMoving.trackingNumber || ''} is moving. Check the label in Shippo: if the refund was turned down, the box is fine and on its way. If the refund went through, the carrier may charge the postage back.</p>
+              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{order.voidedLabelMoving.unsure ? 'The carrier scanned a label that was being voided' : 'The carrier scanned a label that was voided'}</p>
+              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{order.voidedLabelMoving.unsure ? `A void of tracking ${order.voidedLabelMoving.trackingNumber || ''} didn’t finish, and the carrier has scanned the box since.` : `Tracking ${order.voidedLabelMoving.trackingNumber || ''} is moving.`} Check the label in Shippo: if the refund was turned down, the box is fine and on its way. If the refund went through, the carrier may charge the postage back.</p>
               <Btn kind="soft" className="mt-3 h-11 w-full" disabled={busy} onClick={() => void labelAction('voided_seen')}>Got it</Btn>
             </div>)}
           {order.method === 'ship' && ['paid', 'picking', 'packed'].includes(order.stage) && <div className="mt-4"><AddressCard order={order} tenantId={tenantId} onToast={onToast} /></div>}
