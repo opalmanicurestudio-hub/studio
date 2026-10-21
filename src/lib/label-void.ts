@@ -39,7 +39,9 @@ export const SHARED_CLEARED = {
  *  nothing voided, so the label works as before. unknown: some box got no real answer (no response, a timeout, or a
  *  server error that may have come after Shippo made the refund), so it may or may not have gone through. `refusal` is
  *  Shippo's own words for a box it turned down; `total` is how many boxes the label has. */
-export type VoidResult = { ok: boolean; outcome: 'voided' | 'moving' | 'partial' | 'refused' | 'unknown'; error?: string; refusal?: string; status?: string; count: number; total: number; voidedIds: string[]; trackingNumbers: string[]; uncertain?: boolean };
+export type VoidResult = { ok: boolean; outcome: 'voided' | 'moving' | 'partial' | 'refused' | 'unknown'; error?: string; refusal?: string; status?: string; count: number; total: number; voidedIds: string[]; trackingNumbers: string[]; uncertain?: boolean;
+  /** Boxes that got no real answer, so may or may not be voided. */
+  unanswered?: number };
 
 export async function voidOrderLabels(db: any, tenantId: string, order: any, apiKey: string, opts: { alreadyVoided?: string[] } = {}): Promise<VoidResult> {
   const master = String(order?.shippoTransactionId || '').trim();
@@ -80,7 +82,7 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
     const outcome = inUse > 0 ? 'moving' : noAnswer > 0 ? 'unknown' : voidedIds.length ? 'partial' : 'refused';
     // Some boxes voided and nothing left in doubt: their share of the postage comes back, into the books now.
     if ((outcome === 'partial' || outcome === 'moving') && voidedIds.length) await reversePostage(db, tenantId, master, voidedIds.length / ids.length).catch(() => {});
-    return { ok: false, outcome, error: voidedIds.length ? `${voidedIds.length} of ${ids.length} labels voided; the rest didn’t go through. Try again in a minute.` : 'The label couldn’t be voided. Try again in a minute.', refusal: refusal.slice(0, 160), count: voidedIds.length, total: ids.length, voidedIds, trackingNumbers, uncertain: noAnswer > 0 };
+    return { ok: false, outcome, error: voidedIds.length ? `${voidedIds.length} of ${ids.length} labels voided; the rest didn’t go through. Try again in a minute.` : 'The label couldn’t be voided. Try again in a minute.', refusal: refusal.slice(0, 160), count: voidedIds.length, total: ids.length, voidedIds, trackingNumbers, uncertain: noAnswer > 0, unanswered: noAnswer };
   }
   await reversePostage(db, tenantId, master).catch(() => {});
   return { ok: true, outcome: 'voided', status, count: ids.length, total: ids.length, voidedIds, trackingNumbers };

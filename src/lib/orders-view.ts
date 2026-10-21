@@ -85,7 +85,7 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
       out.push({ key: `${o.id}-lbl`, orderId: o.id, kind: 'label', text: o.labelUnscanned?.why === 'void_unfinished' ? `Voiding ${who}’s label didn’t finish`
         : closed ? `${who}’s ${o.stage === 'refunded' ? 'refunded' : 'cancelled'} order still has a label` : o.stage === 'shipped' ? `The carrier hasn’t scanned ${who}’s box` : `${who}’s label hasn’t been used` });
     }
-    if (o.voidedLabelMoving?.open === true) out.push({ key: `${o.id}-vlm`, orderId: o.id, kind: 'voided', text: (Number(o.voidedLabelMoving.voidedBoxes) || 0) > 0 ? `One of ${who}’s boxes went out while its other labels were voided`
+    if (o.voidedLabelMoving?.open === true) out.push({ key: `${o.id}-vlm`, orderId: o.id, kind: 'voided', text: (Number(o.voidedLabelMoving.voidedBoxes) || 0) + (Number(o.voidedLabelMoving.unconfirmedBoxes) || 0) > 0 ? `A box of ${who}’s went out while other labels were being voided`
       : o.voidedLabelMoving.unsure ? `A label being voided for ${who} was scanned by the carrier` : `A voided label for ${who} was scanned by the carrier` });
     if (o.stage === 'paid' && o.holdUntilRestock === true) out.push({ key: `${o.id}-bo`, orderId: o.id, kind: 'backorder', text: `${who}’s order is waiting on stock` });
     if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });

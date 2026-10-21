@@ -105,11 +105,12 @@ export async function POST(req: NextRequest) {
       if ((await labelState(key, claim)) === 'moving') {
         await db.runTransaction(async (tx: any) => {
           const cur: any = (await tx.get(ref)).data() || {};
-          const begun = String(cur.shippoTransactionId || '') === labelTxn && String(cur.labelVoiding?.txn || '') === labelTxn;
+          const voidedBoxes = Array.isArray(cur.labelVoidIds) ? cur.labelVoidIds.length : 0;
+          const begun = String(cur.shippoTransactionId || '') === labelTxn && (String(cur.labelVoiding?.txn || '') === labelTxn || voidedBoxes > 0);
           const tn = String(cur.trackingNumber || '');
           const told = cur.voidedLabelMoving?.trackingNumber === tn && cur.voidedLabelMoving?.open === false;
           tx.set(ref, { labelSeenMoving: now,
-            ...(begun ? { labelVoiding: null, ...(told ? {} : { voidedLabelMoving: { open: true, unsure: true, at: now, trackingNumber: tn, voidedBoxes: 0 } }) } : {}),
+            ...(begun ? { labelVoiding: null, ...(told ? {} : { voidedLabelMoving: { open: true, unsure: true, at: now, trackingNumber: tn, voidedBoxes, unconfirmedBoxes: 0 } }) } : {}),
             ...(mine(cur.addressRequest) ? { addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } } : {}) }, { merge: true });
         }).catch(() => {});
         return NextResponse.json({ ok: false, error: `The carrier has already scanned this box, so its label can’t be voided. Keep the old address and let ${who} know it’s on its way.` }, { status: 409 });
@@ -137,7 +138,9 @@ export async function POST(req: NextRequest) {
           const same = String(cur.shippoTransactionId || '') === labelTxn;
           const tn = String(cur.trackingNumber || '');
           const told = cur.voidedLabelMoving?.trackingNumber === tn && cur.voidedLabelMoving?.open === false;
-          tx.set(ref, { ...(same ? { labelSeenMoving: now, labelVoiding: null, ...(v.voidedIds.length ? { labelVoidIds: v.voidedIds, ...(told ? {} : { voidedLabelMoving: { open: true, unsure: true, at: now, trackingNumber: tn, voidedBoxes: v.voidedIds.length } }) } : {}) } : {}),
+          const unconfirmed = Number(v.unanswered) || 0;
+          tx.set(ref, { ...(same ? { labelSeenMoving: now, labelVoiding: null, ...(v.voidedIds.length ? { labelVoidIds: v.voidedIds } : {}),
+            ...((v.voidedIds.length || unconfirmed) && !told ? { voidedLabelMoving: { open: true, unsure: true, at: now, trackingNumber: tn, voidedBoxes: v.voidedIds.length, unconfirmedBoxes: unconfirmed } } : {}) } : {}),
             ...(mine(cur.addressRequest) ? { addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } } : {}) }, { merge: true });
         }).catch(() => {});
         return NextResponse.json({ ok: false, error: `The carrier already has this box, so its label can’t be voided. Keep the old address and let ${who} know it’s on its way.` }, { status: 409 });

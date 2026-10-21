@@ -153,11 +153,13 @@ export async function voidIfUnused(db: any, tenantId: string, ref: any, order: a
   const state = await labelState(apiKey, order);
   if (state === 'moving') {
     const at = new Date().toISOString(); const tn = String(order.trackingNumber || '');
-    // A void of this label was already under way: the box is out on a label that may be refunded, so the team hears.
-    const begun = opts.finishing || String(order.labelVoiding?.txn || '') === txnId;
+    // A void of this label was already under way, or some of its boxes were voided: the box is out on a label that may
+    // be refunded, or its other boxes need new labels, so the team hears.
+    const voidedBoxes = Array.isArray(order.labelVoidIds) ? order.labelVoidIds.length : 0;
+    const begun = opts.finishing || String(order.labelVoiding?.txn || '') === txnId || voidedBoxes > 0;
     const told = order.voidedLabelMoving?.trackingNumber === tn && order.voidedLabelMoving?.open === false;
     await ref.set({ labelSeenMoving: at, labelUnscannedOpen: false, labelVoiding: null,
-      ...(begun && !told ? { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes: 0 } } : {}) }, { merge: true }).catch(() => {});
+      ...(begun && !told ? { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes, unconfirmedBoxes: 0 } } : {}) }, { merge: true }).catch(() => {});
     return { ok: false, refused: 'moving', error: 'The carrier has already scanned this label, so it can’t be voided.' };
   }
   // A packed box can still go out, so finishing its void needs the same proof an automatic void does.
@@ -186,9 +188,10 @@ export async function voidIfUnused(db: any, tenantId: string, ref: any, order: a
     // the order can be marked shipped), and if other boxes did void, the team hears they need new labels.
     const at = new Date().toISOString(); const tn = String(cur.trackingNumber || '');
     const told = cur.voidedLabelMoving?.trackingNumber === tn && cur.voidedLabelMoving?.open === false;
+    const unconfirmed = Number(v.unanswered) || 0;
     await ref.set({ labelSeenMoving: at, labelUnscannedOpen: false, labelVoiding: null, ...(v.voidedIds.length ? { labelVoidIds: v.voidedIds } : {}),
-      ...(v.voidedIds.length && !told ? { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes: v.voidedIds.length } } : {}) }, { merge: true }).catch(() => {});
-    return { ok: false, refused: 'moving', error: `The carrier already has ${v.total > 1 ? 'one of these boxes' : 'this box'}, so ${v.total > 1 ? 'its label' : 'the label'} can’t be voided.${v.voidedIds.length ? ` ${v.voidedIds.length} other box label${v.voidedIds.length === 1 ? ' was' : 's were'} voided, so ${v.voidedIds.length === 1 ? 'that box needs' : 'those boxes need'} a new label before going out.` : ''}` };
+      ...((v.voidedIds.length || unconfirmed) && !told ? { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes: v.voidedIds.length, unconfirmedBoxes: unconfirmed } } : {}) }, { merge: true }).catch(() => {});
+    return { ok: false, refused: 'moving', error: `The carrier already has ${v.total > 1 ? 'one of these boxes' : 'this box'}, so ${v.total > 1 ? 'its label' : 'the label'} can’t be voided.${v.voidedIds.length ? ` ${v.voidedIds.length} other box label${v.voidedIds.length === 1 ? ' was' : 's were'} voided, so ${v.voidedIds.length === 1 ? 'that box needs' : 'those boxes need'} a new label before going out.` : ''}${unconfirmed ? ` Shippo didn’t answer for ${unconfirmed === 1 ? 'another box' : `${unconfirmed} other boxes`}, so ${unconfirmed === 1 ? 'its label' : 'their labels'} may be voided: check in Shippo before ${unconfirmed === 1 ? 'it goes' : 'they go'} out.` : ''}` };
   }
   if (v.outcome === 'refused' || v.outcome === 'unknown') {
     // Shippo said no and nothing was voided: the label works as before, so the note comes off. No real answer for some
@@ -239,7 +242,7 @@ async function tellUnfinished(ref: any, o: any, now: number, reason?: string): P
     // A person decides from here, so no automatic void runs on this label again.
     autoVoid: { tries: AUTO_TRIES, at, error: String(reason || 'A void didn’t finish').slice(0, 200) },
     ...(scannedOnRecord(o)
-      ? (told ? {} : { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes: 0 } })
+      ? (told ? {} : { voidedLabelMoving: { open: true, unsure: true, at, trackingNumber: tn, voidedBoxes: Array.isArray(o.labelVoidIds) ? o.labelVoidIds.length : 0, unconfirmedBoxes: 0 } })
       : listed(o, at, 'void_unfinished', { startedAt: o.labelVoiding?.at || null, error: reason ? reason.slice(0, 200) : null })),
   }, { merge: true });
 }

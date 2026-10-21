@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
         for (const vd of vs.docs) {
           const vo: any = vd.data() || {};
           if (vo.voidedLabelMoving?.trackingNumber === trackingNumber && vo.voidedLabelMoving?.open === false) continue;
-          await vd.ref.set({ voidedLabelMoving: { open: true, unsure: false, voidedBoxes: 0, at: new Date().toISOString(), trackingNumber, status: String(status) } }, { merge: true }).catch(() => {});
+          await vd.ref.set({ voidedLabelMoving: { open: true, unsure: false, voidedBoxes: 0, unconfirmedBoxes: 0, at: new Date().toISOString(), trackingNumber, status: String(status) } }, { merge: true }).catch(() => {});
           const ev = vd.ref.collection('events').doc(`voided-moving-${trackingNumber}`);
           await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'shippo', actorName: 'Carrier', meta: { kind: 'voided_label_moving', text: `The carrier scanned ${trackingNumber}, a label that was voided (${String(status).toLowerCase()})` } }, { merge: true }).catch(() => {});
         }
@@ -224,9 +224,10 @@ export async function POST(req: NextRequest) {
         const scanned = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'].includes(String(status));
         const moved = order.labelUnscannedOpen && scanned;
         const doubtful = scanned && !!order.shippoTransactionId && !order.voidedLabelMoving?.open && order.voidedLabelMoving?.trackingNumber !== String(order.trackingNumber || '')
-          && (String(order.labelVoiding?.txn || '') === String(order.shippoTransactionId) || (order.labelUnscannedOpen === true && order.labelUnscanned?.why === 'void_unfinished'));
+          && (String(order.labelVoiding?.txn || '') === String(order.shippoTransactionId) || (order.labelUnscannedOpen === true && order.labelUnscanned?.why === 'void_unfinished')
+            || (Array.isArray(order.labelVoidIds) && order.labelVoidIds.length > 0));
         await d.ref.set({ ...(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail }), ...(moved ? { labelUnscannedOpen: false } : {}),
-          ...(doubtful ? { labelVoiding: null, voidedLabelMoving: { open: true, unsure: true, voidedBoxes: 0, at: new Date().toISOString(), trackingNumber: String(order.trackingNumber || ''), status: String(status) } } : {}) }, { merge: true });
+          ...(doubtful ? { labelVoiding: null, voidedLabelMoving: { open: true, unsure: true, voidedBoxes: Array.isArray(order.labelVoidIds) ? order.labelVoidIds.length : 0, unconfirmedBoxes: 0, at: new Date().toISOString(), trackingNumber: String(order.trackingNumber || ''), status: String(status) } } : {}) }, { merge: true });
       } catch {
         // never let bookkeeping fail the webhook
       }

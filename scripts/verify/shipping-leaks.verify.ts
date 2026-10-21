@@ -178,6 +178,16 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
   ok(!r.ok && r.refused === 'moving' && t.row().shippoTransactionId === 'tu' && !!t.row().labelSeenMoving && !t.row().voidedLabelMoving && t.row().labelVoiding === null,
     'one box, already used: nothing was refunded, so it simply stays on the order as out');
+  t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'Some Courier', stage: 'packed', labelUrl: 'u' });
+  tracks({}, { m: 'silent', m2: 'used' });
+  r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(!r.ok && r.refused === 'moving' && t.row().voidedLabelMoving?.open === true && t.row().voidedLabelMoving?.unconfirmedBoxes === 1 && /didn’t answer/.test(String(r.error)),
+    'a box already out and another Shippo didn’t answer for: the team is still told that box’s label may be voided');
+  t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'USPS', stage: 'packed', labelUrl: 'u', labelVoidIds: ['m'] });
+  tracks({ '14': moving, '15': pre });
+  r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(!r.ok && r.refused === 'moving' && t.row().voidedLabelMoving?.open === true && t.row().voidedLabelMoving?.voidedBoxes === 1,
+    'a box scanned after other boxes were voided: the warning counts the voided boxes, so it says they need new labels');
   t = solo({ shippoTransactionId: 'ts', trackingNumber: '12', carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
   tracks({ '12': pre }, { ts: 'silent' });
   await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
@@ -338,9 +348,11 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     { id: 'u', stage: 'packed', method: 'ship', customerName: 'Rae Kim', shippoTransactionId: 't', labelUnscannedOpen: true, labelUnscanned: { why: 'void_unfinished' } },
     { id: 'x', stage: 'cancelled', method: 'ship', customerName: 'Lee Ortiz', shippoTransactionId: 't', labelUnscannedOpen: true, labelUnscanned: { why: 'void_refused' } },
     { id: 'm', stage: 'shipped', method: 'ship', customerName: 'Ana Ruiz', voidedLabelMoving: { open: true, unsure: true } },
+    { id: 'v', stage: 'packed', method: 'ship', customerName: 'Joy Park', voidedLabelMoving: { open: true, unsure: true, voidedBoxes: 0, unconfirmedBoxes: 1 } },
   ], Date.now());
   ok(n2.find((x) => x.orderId === 'u')?.text === 'Voiding Rae’s label didn’t finish' && n2.find((x) => x.orderId === 'x')?.text === 'Lee’s cancelled order still has a label'
-    && n2.find((x) => x.orderId === 'm')?.text === 'A label being voided for Ana was scanned by the carrier', 'a void that didn’t finish, a cancelled order’s label left over, and a box out on a label being voided are listed');
+    && n2.find((x) => x.orderId === 'm')?.text === 'A label being voided for Ana was scanned by the carrier'
+    && n2.find((x) => x.orderId === 'v')?.text === 'A box of Joy’s went out while other labels were being voided', 'a void that didn’t finish, a cancelled order’s label left over, and a box out on a label being voided are listed');
 
   if (bad) { console.log(`\n${bad} failed`); process.exit(1); } else console.log('\nall good');
 })();

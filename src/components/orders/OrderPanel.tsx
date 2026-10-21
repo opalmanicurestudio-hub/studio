@@ -147,10 +147,12 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
             </div>)}
           {order.voidedLabelMoving?.open === true && (
             <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
-              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{(Number(order.voidedLabelMoving.voidedBoxes) || 0) > 0 ? 'One box went out while its other labels were voided' : order.voidedLabelMoving.unsure ? 'The carrier scanned a label that was being voided' : 'The carrier scanned a label that was voided'}</p>
-              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{(() => { const n = Number(order.voidedLabelMoving.voidedBoxes) || 0; return n > 0
-                ? `The carrier has one of this order’s boxes, and ${n} other box label${n === 1 ? ' was' : 's were'} voided. If ${n === 1 ? 'that box is' : 'those boxes are'} still here, ${n === 1 ? 'it needs' : 'they need'} a new label before going out.`
-                : `${order.voidedLabelMoving.unsure ? `A void of tracking ${order.voidedLabelMoving.trackingNumber || ''} didn’t finish, and the carrier has scanned the box since.` : `Tracking ${order.voidedLabelMoving.trackingNumber || ''} is moving.`} Check the label in Shippo: if the refund was turned down, the box is fine and on its way. If the refund went through, the carrier may charge the postage back.`; })()}</p>
+              {(() => { const n = Number(order.voidedLabelMoving.voidedBoxes) || 0; const u = Number(order.voidedLabelMoving.unconfirmedBoxes) || 0; return (<>
+              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{n + u > 0 ? 'A box went out while other labels were being voided' : order.voidedLabelMoving.unsure ? 'The carrier scanned a label that was being voided' : 'The carrier scanned a label that was voided'}</p>
+              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{n + u > 0
+                ? `The carrier has a box from this order.${n ? ` ${n} other box label${n === 1 ? ' was' : 's were'} voided.` : ''}${u ? ` Shippo didn’t answer for ${u === 1 ? 'another box' : `${u} other boxes`}, so ${u === 1 ? 'its label' : 'their labels'} may be voided too: check in Shippo.` : ''} Any box that’s still here and whose label was voided needs a new one bought in Shippo before it goes out; it won’t show on this order.`
+                : `${order.voidedLabelMoving.unsure ? `A void of tracking ${order.voidedLabelMoving.trackingNumber || ''} didn’t finish, and the carrier has scanned the box since.` : `Tracking ${order.voidedLabelMoving.trackingNumber || ''} is moving.`} Check the label in Shippo: if the refund was turned down, the box is fine and on its way. If the refund went through, the carrier may charge the postage back.`}</p>
+              </>); })()}
               <Btn kind="soft" className="mt-3 h-11 w-full" disabled={busy} onClick={() => void labelAction('voided_seen')}>Got it</Btn>
             </div>)}
           {order.method === 'ship' && ['paid', 'picking', 'packed'].includes(order.stage) && <div className="mt-4"><AddressCard order={order} tenantId={tenantId} onToast={onToast} /></div>}
