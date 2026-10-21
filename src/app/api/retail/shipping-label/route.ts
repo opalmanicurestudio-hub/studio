@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
   const qrToken = String(body.qrToken || '').trim();
   const action = String(body.action || '').trim();
 
-  if (!tenantId || !orderId || !qrToken || !['rates', 'purchase', 'void', 'unscanned_ok'].includes(action)) {
+  if (!tenantId || !orderId || !qrToken || !['rates', 'purchase', 'void', 'unscanned_ok', 'voided_seen'].includes(action)) {
     return NextResponse.json({ error: 'tenantId, orderId, qrToken, and a valid action are required' }, { status: 400 });
   }
 
@@ -128,47 +128,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, message: 'Noted. If it still isn’t scanned in a few days, check with the carrier.' });
     }
 
+    // A voided label the carrier scanned anyway (api/retail/shippo-webhook): seen, off Needs you.
+    if (action === 'voided_seen') {
+      await orderRef.set({ voidedLabelMoving: { ...(order.voidedLabelMoving || {}), open: false, seenAt: new Date().toISOString(), seenBy: auth.actor.name } }, { merge: true });
+      return NextResponse.json({ ok: true, message: 'Noted.' });
+    }
+
     if (action === 'void') {
-      // Marked shipped, but the carrier never scanned it: it never left, so the label can still come back.
-      if (order.stage === 'shipped' && body.unscanned === true) {
-        const { voidIfUnused } = await import('@/lib/label-sweep');
-        const r = await voidIfUnused(db, tenantId, orderRef, order, apiKey, 'the carrier never scanned it', { id: auth.actor.uid, name: auth.actor.name });
-        if (!r.ok) return NextResponse.json({ error: r.error }, { status: 409 });
-        return NextResponse.json({ ok: true, message: 'Label voided and the order is back to packed. The postage comes back to the shop.' });
-      }
+      // A box that has gone out keeps its label: once the carrier has it, only the carrier's own options are left.
       if (['shipped', 'handed_off', 'completed'].includes(order.stage)) {
         return NextResponse.json({ error: 'This order already shipped — the label can\u2019t be voided from here.' }, { status: 409 });
       }
-      const txnId = String(order.shippoTransactionId || '').trim();
-      if (!txnId) return NextResponse.json({ error: 'No purchased label is saved on this order.' }, { status: 400 });
-
-      // Every box's label (lib/label-void), and the postage record reversed. Boxes that voided are kept on the order
-      // when others didn't, so trying again finishes the job.
-      const { voidOrderLabels, LABEL_CLEARED } = await import('@/lib/label-void');
-      const { FieldValue } = await import('firebase-admin/firestore');
-      const v = await voidOrderLabels(db, tenantId, order, apiKey, { alreadyVoided: Array.isArray(order.labelVoidIds) ? order.labelVoidIds : [] });
-      if (!v.ok) {
-        if (v.voidedIds.length) await orderRef.set({ labelVoidIds: v.voidedIds }, { merge: true }).catch(() => {});
-        return NextResponse.json({ error: v.error }, { status: 502 });
-      }
-      const status = String(v.status || 'PENDING');
-
-      const evRef = orderRef.collection('events').doc();
-      const batch = db.batch();
-      batch.set(orderRef, { ...LABEL_CLEARED, labelVoidedAt: new Date().toISOString(), ...(v.trackingNumbers.length ? { voidedTracking: FieldValue.arrayUnion(...v.trackingNumbers) } : {}) }, { merge: true });
-      batch.set(evRef, {
-        id: evRef.id, type: 'note', at: new Date().toISOString(),
-        actorId: auth.actor.uid, actorName: auth.actor.name,
-        meta: { text: `${v.count > 1 ? `${v.count} labels` : 'Label'} voided — refund ${status.toLowerCase()} (carrier approval can take a few days)` },
-      });
-      await batch.commit();
-
-      return NextResponse.json({
-        ok: true,
-        message: status === 'SUCCESS'
-          ? 'Label voided — postage refunded.'
-          : 'Void requested — the carrier usually approves unused labels within a few days.',
-      });
+      if (!String(order.shippoTransactionId || '').trim()) return NextResponse.json({ error: 'No purchased label is saved on this order.' }, { status: 400 });
+      // Every box's label, checked against the carrier first (lib/label-sweep): by hand, refused only if the carrier has
+      // scanned it; automatically (body.auto, from cancelling), only when the carrier shows it unused and it's not on a
+      // USPS form. Boxes that voided are kept on the order if others didn't, so trying again finishes the job.
+      const { voidIfUnused } = await import('@/lib/label-sweep');
+      const r = await voidIfUnused(db, tenantId, orderRef, order, apiKey, body.auto === true ? 'the order was cancelled' : 'voided by hand',
+        { id: auth.actor.uid, name: auth.actor.name }, { byHand: body.auto !== true });
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 409 });
+      return NextResponse.json({ ok: true, message: 'Label voided. The carrier refunds the postage, usually within a couple of weeks.' });
     }
 
     const from = rs.shipFrom || {};

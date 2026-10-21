@@ -14,6 +14,7 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false }, { status: 401 });
   const db = getAdminDb();
+  const started = Date.now();
   const counts = { voided: 0, flagged: 0, checked: 0 };
   const run = await forEachTenant(db, 'shipping-checks', async (t) => {
     const rs = t.data?.retailSettings || {};
@@ -22,10 +23,11 @@ export async function GET(req: NextRequest) {
     const apiKey = String(s?.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
     if (!apiKey) return;
     try {
-      const r = await sweepLabels(db, t.id, apiKey);
+      // Every shop shares one deadline, well inside the 60-second limit (a void cut off anyway is finished next morning).
+      const r = await sweepLabels(db, t.id, apiKey, { deadline: started + 45000 });
       counts.voided += r.voided; counts.flagged += r.flagged; counts.checked += r.checked;
     } catch (e: any) { console.error('[cron/shipping-checks]', t.id, String(e?.message || e).slice(0, 200)); }
-  }, { concurrency: 3 });
+  }, { concurrency: 3, startedAt: started, budgetMs: 30000 });
   await heartbeat(db, 'shipping-checks');
   return NextResponse.json({ ok: true, ...counts, businesses: run.done, of: run.total, resumesAt: run.ranOut ? run.nextStart : null });
 }

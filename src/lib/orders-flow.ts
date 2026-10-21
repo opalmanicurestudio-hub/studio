@@ -97,10 +97,10 @@ export async function cancelIt(fs: Firestore, t: string, o: any, actor: Actor, r
   if (o.shippoTransactionId && o.qrToken) {
     let voided = false;
     try {
-      const v = await fetch('/api/retail/shipping-label', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id, qrToken: o.qrToken, action: 'void' }) });
+      const v = await fetch('/api/retail/shipping-label', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id, qrToken: o.qrToken, action: 'void', auto: true }) });
       voided = v.ok;
     } catch { /* overnight */ }
-    return { ...r, message: `${r.message} ${voided ? 'Its label was voided, so the postage comes back.' : 'Its label will be voided overnight, so the postage comes back.'}` };
+    return { ...r, message: `${r.message} ${voided ? 'Its label was voided, so the postage comes back.' : 'Its label will be checked overnight and voided if it was never used.'}` };
   }
   return r;
 }

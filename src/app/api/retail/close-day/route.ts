@@ -64,6 +64,18 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb();
   const manifests = db.collection(`tenants/${tenantId}/shipManifests`);
 
+  // A form that failed: its orders come off it, so the next Close the day can include them.
+  const unstamp = async (m: any) => {
+    const ids: string[] = Array.isArray(m.orderIds) ? m.orderIds.map(String) : [];
+    const batch = db.batch();
+    for (const id of ids) {
+      const ref = db.doc(`tenants/${tenantId}/retailOrders/${id}`);
+      const cur: any = (await ref.get()).data() || {};
+      if (cur.manifestId === m.id) batch.set(ref, { manifestId: null, manifestedAt: null }, { merge: true });
+    }
+    await batch.commit().catch(() => {});
+  };
+
   if (action === 'history') {
     const snap = await manifests.orderBy('createdAt', 'desc').limit(14).get();
     const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
@@ -78,6 +90,8 @@ export async function POST(req: NextRequest) {
           const docs: string[] = Array.isArray(got.documents) ? got.documents.map(String) : [];
           m.status = String(got.status || m.status || ''); m.documents = docs;
           await manifests.doc(m.id).set({ status: m.status, documents: docs }, { merge: true });
+          // Shippo couldn't make it: its labels are free to go on the next form.
+          if (m.status.toUpperCase() === 'ERROR') await unstamp(m);
         } catch { /* next look */ }
       }
     }
@@ -141,6 +155,7 @@ export async function POST(req: NextRequest) {
   };
   const now = new Date().toISOString();
   const started = Date.now();
+  const already: any[] = [];   // labels Shippo says are on a form already
   // Ask Shippo for one form; labels it turns away are dropped and the rest tried once more.
   const createForm = async (acct: string, shipmentDate: string, list: any[]): Promise<{ m: any; used: any[] } | null> => {
     let todo = list;
@@ -154,9 +169,16 @@ export async function POST(req: NextRequest) {
       const rejected = data?.transactions && typeof data.transactions === 'object' ? Object.keys(data.transactions) : [];
       const detail = String(data?.detail || (Array.isArray(data?.messages) ? data.messages.map((x: any) => x.text).join('; ') : '') || `HTTP ${res.status}`).slice(0, 200);
       if (!rejected.length) { todo.forEach((o: any) => failed.push({ orderId: o.id, error: detail })); return null; }
-      todo.filter((o: any) => rejected.includes(String(o.shippoTransactionId))).forEach((o: any) => failed.push({ orderId: o.id, error: `Shippo left it off the form: ${String(data.transactions[o.shippoTransactionId]?.reason || data.transactions[o.shippoTransactionId] || detail).slice(0, 120)}` }));
+      const why = (o: any) => String(data.transactions[o.shippoTransactionId]?.reason || data.transactions[o.shippoTransactionId] || detail);
+      for (const o of todo.filter((x: any) => rejected.includes(String(x.shippoTransactionId)))) {
+        // Already on a form (one made earlier that wasn't recorded): it's covered, so it's marked and not tried again.
+        if (/already_manifested/i.test(why(o))) { already.push(o); continue; }
+        failed.push({ orderId: o.id, error: `Shippo left it off the form: ${why(o).slice(0, 120)}` });
+      }
       todo = todo.filter((o: any) => !rejected.includes(String(o.shippoTransactionId)));
     }
+    // Still turned away after the second try: listed, so nothing goes missing quietly.
+    todo.forEach((o: any) => failed.push({ orderId: o.id, error: 'Shippo couldn’t make the form for it' }));
     return null;
   };
   // Shippo makes the form in the background: wait a little for the sheet (well inside the time limit).
@@ -177,12 +199,11 @@ export async function POST(req: NextRequest) {
       try {
         const made = await createForm(g.acct, chunk[0].shipmentDate, chunk);
         if (!made) continue;
-        const m = await settle(made.m);
-        const docs: string[] = Array.isArray(m.documents) ? m.documents.map(String) : [];
+        // Recorded and stamped the moment Shippo accepts it, before any waiting, so a form is never made and forgotten.
         const ref = manifests.doc();
-        const rec = {
-          id: ref.id, createdAt: now, carrier: 'USPS', shipmentDate: g.date, shippoManifestId: String(m.object_id || made.m.object_id || ''), status: String(m.status || ''),
-          documents: docs, orderIds: made.used.map((o: any) => o.id),
+        const rec: any = {
+          id: ref.id, createdAt: now, carrier: 'USPS', shipmentDate: g.date, shippoManifestId: String(made.m.object_id || ''), status: String(made.m.status || ''),
+          documents: Array.isArray(made.m.documents) ? made.m.documents.map(String) : [], orderIds: made.used.map((o: any) => o.id),
           orderNumbers: made.used.map((o: any) => o.orderNumber ?? null), count: made.used.length, byId: auth.actor.uid, byName: auth.actor.name,
         };
         const batch = db.batch();
@@ -193,11 +214,26 @@ export async function POST(req: NextRequest) {
           batch.set(ev, { id: ev.id, type: 'manifested', at: now, actorId: auth.actor.uid, actorName: auth.actor.name, meta: { manifestId: ref.id, carrier: 'USPS' } });
         });
         await batch.commit();
+        // Then a little wait for the sheet.
+        const m = await settle(made.m);
+        rec.status = String(m.status || rec.status || '');
+        rec.documents = Array.isArray(m.documents) ? m.documents.map(String) : rec.documents;
+        await ref.set({ status: rec.status, documents: rec.documents }, { merge: true });
+        if (rec.status.toUpperCase() === 'ERROR') {
+          await unstamp(rec);
+          made.used.forEach((o: any) => failed.push({ orderId: o.id, error: 'Shippo couldn’t make the form' }));
+          continue;
+        }
         out.push(rec);
       } catch (e: any) {
         chunk.forEach((o: any) => failed.push({ orderId: o.id, error: String(e?.message || 'Manifest failed') }));
       }
     }
+  }
+  if (already.length) {
+    const batch = db.batch();
+    already.forEach((o: any) => batch.set(o.ref, { manifestId: 'earlier', manifestedAt: now }, { merge: true }));
+    await batch.commit().catch(() => {});
   }
   const count = out.reduce((a, m) => a + m.count, 0);
   const making = out.some((m: any) => !(m.documents || []).length);

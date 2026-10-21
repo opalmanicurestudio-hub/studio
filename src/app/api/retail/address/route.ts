@@ -97,7 +97,18 @@ export async function POST(req: NextRequest) {
     if (labelTxn) {
       const { shippoKeyFor } = await import('@/lib/retail-secrets');
       const { voidOrderLabels } = await import('@/lib/label-void');
-      const v = await voidOrderLabels(db, tenantId, claim, await shippoKeyFor(db, tenantId, t), { alreadyVoided: Array.isArray(claim.labelVoidIds) ? claim.labelVoidIds : [] });
+      const { labelState } = await import('@/lib/label-sweep');
+      const key = await shippoKeyFor(db, tenantId, t);
+      // A box the carrier has already scanned has gone out: its label stays, and so does the address.
+      if ((await labelState(key, claim)) === 'moving') {
+        await db.runTransaction(async (tx: any) => {
+          const cur: any = (await tx.get(ref)).data() || {};
+          if (!mine(cur.addressRequest)) return;
+          tx.set(ref, { labelSeenMoving: now, addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } }, { merge: true });
+        }).catch(() => {});
+        return NextResponse.json({ ok: false, error: `The carrier has already scanned this box, so its label can’t be voided. Keep the old address and let ${who} know it’s on its way.` }, { status: 409 });
+      }
+      const v = await voidOrderLabels(db, tenantId, claim, key, { alreadyVoided: Array.isArray(claim.labelVoidIds) ? claim.labelVoidIds : [] });
       if (!v.ok) {
         await db.runTransaction(async (tx: any) => {
           const cur: any = (await tx.get(ref)).data() || {};

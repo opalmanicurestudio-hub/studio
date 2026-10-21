@@ -124,6 +124,23 @@ export async function POST(req: NextRequest) {
       if (ex && !ex.empty) { snap = ex; extraBox = true; }
     }
 
+    // A VOIDED LABEL THAT MOVES (lib/label-sweep, lib/label-void): the box went out on a label we asked to refund. The
+    // order no longer carries the number, so it's found through the numbers it voided, and flagged for the team.
+    if (snap.empty && ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'].includes(String(status))) {
+      const vs = await db.collection(`tenants/${tenantId}/retailOrders`)
+        .where('voidedTracking', 'array-contains', trackingNumber).limit(5).get().catch(() => null);
+      if (vs && !vs.empty) {
+        for (const vd of vs.docs) {
+          const vo: any = vd.data() || {};
+          if (vo.voidedLabelMoving?.trackingNumber === trackingNumber && vo.voidedLabelMoving?.open === false) continue;
+          await vd.ref.set({ voidedLabelMoving: { open: true, at: new Date().toISOString(), trackingNumber, status: String(status) } }, { merge: true }).catch(() => {});
+          const ev = vd.ref.collection('events').doc(`voided-moving-${trackingNumber}`);
+          await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'shippo', actorName: 'Carrier', meta: { kind: 'voided_label_moving', text: `The carrier scanned ${trackingNumber}, a label that was voided (${String(status).toLowerCase()})` } }, { merge: true }).catch(() => {});
+        }
+        return NextResponse.json({ ok: true, advanced: 0, notified: 0, voidedMoving: vs.size });
+      }
+    }
+
     // Return labels carry their own tracking numbers that never match an
     // order's outbound leg. When the order lookup comes up empty, check the
     // returns — the same carrier scans then drive the RETURN's journey, so

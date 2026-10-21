@@ -416,9 +416,10 @@ async function handleCheckout(req: NextRequest) {
       if (verifyQuote(tenantId, amount, service, exp, String(q.token || ''))) {
         const freeQualified = freeOver > 0 && subtotalCents >= freeOver;
         shippingCents = freeQualified ? 0 : amount;
-        shippingService = service;
-        // Not part of the signed quote (the price is), only which carrier's service it was, so the label matches.
-        shippingCarrier = String(q.carrier || '').slice(0, 40);
+        // Free shipping (the cart passed the shop's free-shipping amount) is the shop's standard service, whatever was
+        // picked before the cart qualified; otherwise the service they chose, and its carrier, so the label matches.
+        shippingService = freeQualified ? 'Free shipping' : service;
+        shippingCarrier = freeQualified ? '' : String(q.carrier || '').slice(0, 40);
       }
     }
   }

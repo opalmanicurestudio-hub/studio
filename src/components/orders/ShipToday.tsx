@@ -41,7 +41,8 @@ export function ShipToday({ fs, tenantId, orders, actor, rs, onClose, onToast }:
       if (stop || tries++ > 24) return;
       const r = await formsReady(tenantId, waitKey.split(','));
       if (stop) return;
-      if (r.documents.length) setClosed((c) => (c ? { ...c, documents: [...new Set([...c.documents, ...r.documents])], waitingIds: r.pending } : c));
+      setClosed((c) => (c ? { ...c, documents: [...new Set([...c.documents, ...r.documents])], waitingIds: r.pending,
+        message: r.failed && !c.message.includes('couldn’t make') ? `${c.message} Shippo couldn’t make ${r.failed > 1 ? 'some of the forms' : 'the form'}; those boxes go on the next one, and the carrier scans them meanwhile.` : c.message } : c));
       if (r.pending.length) setTimeout(() => void tick(), 5000);
     };
     const first = setTimeout(() => void tick(), 4000);

@@ -73,7 +73,12 @@ export function OrdersApp() {
   const [unscanned, setUnscanned] = React.useState<any[]>([]);
   React.useEffect(() => {
     if (!fs || !tenantId) return;
-    return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('labelUnscannedOpen', '==', true), limit(50)), (s) => setUnscanned(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setUnscanned([]));
+    // Two small lists merged: labels not scanned for days, and voided labels the carrier scanned anyway.
+    let a: any[] = []; let b: any[] = [];
+    const merge = () => setUnscanned([...a, ...b.filter((x) => !a.some((y) => y.id === x.id))]);
+    const u1 = onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('labelUnscannedOpen', '==', true), limit(50)), (s) => { a = s.docs.map((d) => ({ ...(d.data() as any), id: d.id })); merge(); }, () => { a = []; merge(); });
+    const u2 = onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('voidedLabelMoving.open', '==', true), limit(20)), (s) => { b = s.docs.map((d) => ({ ...(d.data() as any), id: d.id })); merge(); }, () => { b = []; merge(); });
+    return () => { u1(); u2(); };
   }, [fs, tenantId]);
   React.useEffect(() => {
     if (!fs || !tenantId || tab !== 'done') return;

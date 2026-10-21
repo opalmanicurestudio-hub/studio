@@ -66,7 +66,7 @@ export function packQueue(orders: any[], retailSettings: any, now = Date.now()) 
     .sort((a, b) => a.d - b.d).map((x) => x.o);
 }
 
-export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label'; text: string }
+export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label' | 'voided'; text: string }
 /** The few things a person has to decide, most urgent first. */
 export function needsYou(orders: any[], now = Date.now(), staleHours = 48): NeedItem[] {
   const out: NeedItem[] = [];
@@ -80,10 +80,11 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     if (o.addressConfirm?.status === 'waiting' && ['paid', 'picking', 'packed'].includes(o.stage) && ms(o.addressConfirm.askedAt) && now - ms(o.addressConfirm.askedAt) > 24 * 3600e3) out.push({ key: `${o.id}-conf`, orderId: o.id, kind: 'unconfirmed', text: `${who} hasn’t confirmed the address yet` });
     // A label nobody has scanned for days (lib/label-sweep): find the box, or void the label and get the postage back.
     if (o.labelUnscannedOpen === true && o.shippoTransactionId && ['packed', 'shipped'].includes(o.stage)) out.push({ key: `${o.id}-lbl`, orderId: o.id, kind: 'label', text: o.stage === 'shipped' ? `The carrier hasn’t scanned ${who}’s box` : `${who}’s label hasn’t been used` });
+    if (o.voidedLabelMoving?.open === true) out.push({ key: `${o.id}-vlm`, orderId: o.id, kind: 'voided', text: `A voided label for ${who} was scanned by the carrier` });
     if (o.stage === 'paid' && o.holdUntilRestock === true) out.push({ key: `${o.id}-bo`, orderId: o.id, kind: 'backorder', text: `${who}’s order is waiting on stock` });
     if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });
   }
-  const rank: Record<string, number> = { outside: 0, held: 1, address: 2, refund: 3, missing: 4, uncollected: 5, unconfirmed: 6, label: 7, backorder: 8 };
+  const rank: Record<string, number> = { outside: 0, held: 1, address: 2, voided: 3, refund: 4, missing: 5, uncollected: 6, unconfirmed: 7, label: 8, backorder: 9 };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
 

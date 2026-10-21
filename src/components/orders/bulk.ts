@@ -79,12 +79,14 @@ export async function closeDay(t: string): Promise<{ ok: boolean; message: strin
   } catch { return { ok: false, message: 'Couldn’t close the day. Check your connection.', documents: [], waitingIds: [] }; }
 }
 
-/** The sheets for forms that were still being made, once they're ready (empty until then). */
-export async function formsReady(t: string, ids: string[]): Promise<{ documents: string[]; pending: string[] }> {
+/** The sheets for forms that were still being made, once they're ready (empty until then); `failed` counts forms
+ *  Shippo couldn't make (their boxes go on the next one, and the carrier scans them meanwhile). */
+export async function formsReady(t: string, ids: string[]): Promise<{ documents: string[]; pending: string[]; failed: number }> {
   try {
     const r = await fetch('/api/retail/close-day', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, action: 'history' }) });
     const d = await r.json().catch(() => ({}));
     const mine = (d.manifests || []).filter((m: any) => ids.includes(String(m.id)));
-    return { documents: mine.flatMap((m: any) => m.documents || []), pending: mine.filter((m: any) => !(m.documents || []).length).map((m: any) => String(m.id)) };
-  } catch { return { documents: [], pending: ids }; }
+    const bad = (m: any) => ['ERROR', 'FAILED'].includes(String(m.status || '').toUpperCase());
+    return { documents: mine.flatMap((m: any) => m.documents || []), pending: mine.filter((m: any) => !(m.documents || []).length && !bad(m)).map((m: any) => String(m.id)), failed: mine.filter(bad).length };
+  } catch { return { documents: [], pending: ids, failed: 0 }; }
 }

@@ -19,7 +19,7 @@ export const LABEL_CLEARED = {
   extraLabelUrls: [] as string[], extraTrackingNumbers: [] as string[], extraTrackingUrls: [] as string[], labelsChecked: [] as string[], labelCheckedAt: null,
   labelVoidIds: [] as string[],
   // A voided label isn't waiting for a scan any more (lib/label-sweep), and it's on no carrier form (api/retail/close-day).
-  labelUnscanned: null, labelUnscannedOpen: false, manifestId: null, manifestedAt: null,
+  labelUnscanned: null, labelUnscannedOpen: false, manifestId: null, manifestedAt: null, labelVoiding: null,
 };
 
 export type VoidResult = { ok: boolean; error?: string; status?: string; count: number; voidedIds: string[]; trackingNumbers: string[] };
@@ -48,7 +48,7 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
   let status = done.has(master) ? 'PENDING' : '';
   for (const id of ids) {
     if (done.has(id)) continue;
-    const r = await fetch(`${SHIPPO}/refunds/`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ transaction: id, async: false }), signal: timeout(20000) }).catch(() => null);
+    const r = await fetch(`${SHIPPO}/refunds/`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ transaction: id, async: false }), signal: timeout(15000) }).catch(() => null);
     const d: any = r ? await r.json().catch(() => ({})) : {};
     const said = String(d?.detail || d?.__all__?.[0] || d?.transaction?.[0] || JSON.stringify(d || {})).slice(0, 300);
     if (r && r.ok) { done.add(id); if (id === master) status = String(d.status || 'PENDING'); continue; }
