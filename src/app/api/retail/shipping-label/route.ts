@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
       const r = await voidIfUnused(db, tenantId, orderRef, order, apiKey, body.auto === true ? 'the order was cancelled' : 'voided by hand',
         { id: auth.actor.uid, name: auth.actor.name }, { byHand: body.auto !== true });
       if (!r.ok) return NextResponse.json({ error: r.error, refused: r.refused || null }, { status: 409 });
-      return NextResponse.json({ ok: true, message: 'Label voided. The carrier refunds the postage, usually within a couple of weeks.' });
+      return NextResponse.json({ ok: true, message: r.note || 'Label voided. The carrier refunds the postage, usually within a couple of weeks.' });
     }
 
     const from = rs.shipFrom || {};

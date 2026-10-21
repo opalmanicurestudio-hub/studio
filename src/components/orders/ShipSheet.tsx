@@ -6,7 +6,7 @@
 // Insurance and signature follow the shop's shipping rules automatically (the label route applies them).
 import { isZplLabel, slipAfterLabel } from '@/lib/label-format';
 import * as React from 'react';
-import type { Firestore } from 'firebase/firestore';
+import { doc, onSnapshot, type Firestore } from 'firebase/firestore';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { shipIt } from '@/lib/orders-flow';
 import { firstName, money } from '@/lib/orders-view';
@@ -19,6 +19,7 @@ import { addressKey, oneLine, openRequest } from '@/lib/address-flow';
 import { paidServiceRate } from '@/lib/paid-service';
 import { togetherRefunds } from '@/lib/ship-together';
 import { cardRefundableCents } from '@/lib/retail-money';
+import { labelDoubt, labelHolderId } from '@/lib/label-doubt';
 
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
@@ -116,8 +117,21 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   // voided and others not) leaves a label that may no longer work: it's shown, and it can't be marked shipped.
   const [voiding, setVoiding] = React.useState<'ask' | 'busy' | null>(null);
   const sharedWith = Array.isArray(order.shippedWithOrderIds) ? order.shippedWithOrderIds.length : 0;
-  const inDoubt = !!order.shippoTransactionId && (String(order.labelVoiding?.txn || '') === String(order.shippoTransactionId) || (Array.isArray(order.labelVoidIds) && order.labelVoidIds.length > 0));
+  // An order in another order's box carries a copy of that order's label (lib/ship-together): it follows that label.
+  const holderId = labelHolderId(order);
+  const [holder, setHolder] = React.useState<any>(null);
+  React.useEffect(() => {
+    if (!holderId) { setHolder(null); return; }
+    return onSnapshot(doc(fs, `tenants/${tenantId}/retailOrders/${holderId}`), (s) => setHolder(s.exists() ? s.data() : null), () => setHolder(null));
+  }, [fs, tenantId, holderId]);
+  const doubt = labelDoubt(holderId ? holder : order);   // lib/label-doubt
+  const inDoubt = doubt !== null;
   const voidOpen = inDoubt && voiding !== 'busy';
+  const keepLabel = async () => {
+    setLoading(true); setErr('');
+    try { const d = await post({ action: 'unscanned_ok' }); onToast?.(d.message || 'Noted.'); } catch (e: any) { setErr(e.message); }
+    setLoading(false);
+  };
   const voidLabel = async () => {
     setVoiding('busy'); setErr('');
     try { const d = await post({ action: 'void' }); setLabel(null); setRates([]); setVoiding(null); onToast?.(d.message || 'Label voided.'); }
@@ -153,8 +167,10 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
             <Btn kind="primary" className="text-[17px]" disabled={loading || !!asked || inDoubt} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{many ? `Mark all ${group.length} orders as shipped` : label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
             {voidOpen && !voiding && (
               <div className="rounded-2xl p-4" style={{ background: C.warnSoft, color: C.warn }}>
-                <p className="m-0 text-[15px] font-semibold">Voiding this label didn’t finish</p>
-                <p className="m-0 mt-1 text-[14px]">It may no longer work, so it can’t be marked shipped. Void it again so the postage is sure to come back, then buy a new one.</p>
+                <p className="m-0 text-[15px] font-semibold">{holderId ? 'Voiding this box’s label didn’t finish' : 'Voiding this label didn’t finish'}</p>
+                <p className="m-0 mt-1 text-[14px]">{holderId ? 'The label it shares with another order may no longer work, so it can’t be marked shipped. Sort it out on that order first.'
+                  : `It may no longer work, so it can’t be marked shipped. Void it again so the postage is sure to come back, then buy a new one.${doubt === 'unfinished' ? ' If you’ve checked it in Shippo and it’s fine, keep it.' : ''}`}</p>
+                {!holderId && doubt === 'unfinished' && <Btn kind="soft" className="mt-3 w-full" disabled={loading} onClick={() => void keepLabel()}>Keep the label</Btn>}
               </div>)}
             {!order.shippoTransactionId && order.labelFromOrderId && <p className="m-0 text-[14px]" style={muted}>This label was bought with another order in the same box. To void it, open that order.</p>}
             {order.shippoTransactionId && (voiding ? (

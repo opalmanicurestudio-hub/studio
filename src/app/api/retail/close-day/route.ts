@@ -14,6 +14,7 @@ import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { labelInDoubt } from '@/lib/label-doubt';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -129,11 +130,9 @@ export async function POST(req: NextRequest) {
     // A relabelled order (its old label voided) has a new label to put on a form; manifestId is cleared with a void.
     .filter((o: any) => o.shippoTransactionId && !o.manifestId)
     .filter((o: any) => { const at = Date.parse(o.shipmentProtection?.decidedAt || o.shippedAt || o.packedAt || ''); return !Number.isFinite(at) || at >= since; });
-  // A label whose void didn't finish, or with some boxes voided (lib/label-sweep), may no longer work: it stays off the
-  // form until that's sorted on the order.
-  const inDoubt = (o: any) => String(o.labelVoiding?.txn || '') === String(o.shippoTransactionId) || (Array.isArray(o.labelVoidIds) && o.labelVoidIds.length > 0);
-  const held = waitingForForm.filter(inDoubt).length;
-  const candidates = waitingForForm.filter((o: any) => !inDoubt(o));
+  // A label that may no longer work (lib/label-doubt) stays off the form until that's sorted on the order.
+  const held = waitingForForm.filter(labelInDoubt).length;
+  const candidates = waitingForForm.filter((o: any) => !labelInDoubt(o));
   const heldLine = held ? ` ${held} label${held === 1 ? ' was' : 's were'} left off because voiding ${held === 1 ? 'it' : 'them'} didn’t finish; sort ${held === 1 ? 'that' : 'those'} out on the order before ${held === 1 ? 'it goes' : 'they go'} anywhere.` : '';
   const usps = candidates.filter((o: any) => isUsps(String(o.carrier || '')));
   const others = candidates.length - usps.length;

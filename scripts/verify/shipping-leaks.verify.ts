@@ -5,6 +5,7 @@ import { insuredParcels, splitInsurance, protectionFor } from '../../src/lib/shi
 import { paidServiceRate, choseService } from '../../src/lib/paid-service';
 import { AUTO_TRIES, formSince, labelState, retryDue, sweepLabels, trackingCarrier, voidIfUnused } from '../../src/lib/label-sweep';
 import { togetherRefunds } from '../../src/lib/ship-together';
+import { labelDoubt, labelHolderId, labelInDoubt } from '../../src/lib/label-doubt';
 import { forEachTenant } from '../../src/lib/cron-fanout';
 import { needsYou } from '../../src/lib/orders-view';
 
@@ -152,14 +153,32 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
   tracks({ '14': pre, '15': pre }, { m2: 'no' });
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
-  ok(!r.ok && r.refused === 'uncertain' && t.row().labelVoiding?.txn === 'm' && (t.row().labelVoidIds || []).join() === 'm' && t.row().shippoTransactionId === 'm',
-    'one box voided and the other refused: the label can’t ship as it is, so the note stays and the voided box is kept');
+  ok(r.ok && /1 of 2 labels voided/.test(String(r.note)) && /not eligible/.test(String(r.note)) && t.row().shippoTransactionId === '' && (t.row().labelVoidIds || []).length === 0 && t.row().labelVoiding === null && !labelInDoubt(t.row()),
+    'one box voided and Shippo said no to the other: the label can’t ship as it is, so it comes off the order (a new one can be bought) and the box Shippo wouldn’t refund is named');
+  t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
+  tracks({ '14': pre, '15': pre }, { m2: 'gateway' });
+  r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(!r.ok && r.refused === 'uncertain' && t.row().labelVoiding?.txn === 'm' && (t.row().labelVoidIds || []).join() === 'm' && labelDoubt(t.row()) === 'voiding',
+    'one box voided and no answer for the other: the note stays, the voided box is kept, and the label is in doubt until it’s voided again');
+  tracks({ '14': pre, '15': pre }, { m2: 'no' });
+  r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
+  ok(r.ok && refunds.join() === 'm2' && t.row().shippoTransactionId === '' && !labelInDoubt(t.row()), 'voiding it again settles it: only the box still to go is tried, and the label comes off');
   t = solo({ shippoTransactionId: 'ts', trackingNumber: '12', carrier: 'USPS', stage: 'packed', labelUrl: 'u' });
   tracks({ '12': pre }, { ts: 'silent' });
   await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
   const firstAt = t.row().labelVoiding.at;
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
   ok(t.row().labelVoiding?.tries === 2 && t.row().labelVoiding?.at === firstAt, 'trying again counts the try and keeps when the void began');
+
+  // A label that may no longer work (lib/label-doubt): the same answer for the ship sheet, marking shipped, the USPS form.
+  ok(labelDoubt({ shippoTransactionId: 'x', labelVoiding: { txn: 'x' } }) === 'voiding' && labelDoubt({ shippoTransactionId: 'x', labelVoiding: { txn: 'old' } }) === null
+    && labelDoubt({ shippoTransactionId: 'x', labelVoidIds: ['x'] }) === 'partial'
+    && labelDoubt({ shippoTransactionId: 'x', labelUnscannedOpen: true, labelUnscanned: { why: 'void_unfinished' } }) === 'unfinished'
+    && labelDoubt({ shippoTransactionId: 'x', labelUnscannedOpen: false, labelUnscanned: { why: 'void_unfinished', dismissedAt: 'x' } }) === null
+    && labelDoubt({ shippoTransactionId: 'x', labelUnscannedOpen: true, labelUnscanned: {} }) === null && labelDoubt({ labelVoiding: { txn: '' } }) === null,
+    'in doubt: a void under way or unanswered, some boxes voided, or a void the morning check handed over that nobody has decided on (kept: not in doubt)');
+  ok(labelHolderId({ labelFromOrderId: 'p', shippedWithOrderId: 'p' }) === 'p' && labelHolderId({ shippoTransactionId: 't', shippedWithOrderId: 'p' }) === '' && labelHolderId({}) === '',
+    'an order in another order’s box is checked against that order’s label');
 
   // Shared labels: never automatic; by hand, they come off every order in the box.
   let m = memDb({
@@ -214,6 +233,7 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     cancelledUnsure: { shippoTransactionId: 'cu', trackingNumber: 'ncu', carrier: 'USPS', stage: 'cancelled', shipmentProtection: { decidedAt: ago(2) } },
     cancelledWaiting: { shippoTransactionId: 'cw', trackingNumber: 'ncw', carrier: 'USPS', stage: 'cancelled', autoVoid: { tries: 2, at: ago(1) }, shipmentProtection: { decidedAt: ago(9) } },
     cancelledLastTry: { shippoTransactionId: 'cl', trackingNumber: 'ncl', carrier: 'USPS', stage: 'cancelled', autoVoid: { tries: 3, at: ago(4) }, shipmentProtection: { decidedAt: ago(9) } },
+    unfinishedOnForm: { shippoTransactionId: 'uf', trackingNumber: 'nuf', carrier: 'USPS', stage: 'cancelled', manifestId: 'm5', labelUnscanned: { at: ago(2), why: 'void_unfinished', dismissedAt: ago(1) }, labelUnscannedOpen: false, shipmentProtection: { decidedAt: ago(4) } },
     sharedCancelled: { shippoTransactionId: 'sc', trackingNumber: 'nsc', carrier: 'USPS', stage: 'cancelled', orderNumber: 40, shippedWithOrderIds: ['sharedMate'], shipmentProtection: { decidedAt: ago(3) } },
     sharedMate: { trackingNumber: 'nsc', stage: 'cancelled', orderNumber: 41, labelFromOrderId: 'sharedCancelled', shippedWithOrderId: 'sharedCancelled' },
     sharedStillGoing: { shippoTransactionId: 'sg', trackingNumber: 'nsg', carrier: 'USPS', stage: 'cancelled', shippedWithOrderIds: ['goingMate'], shipmentProtection: { decidedAt: ago(3) } },
@@ -244,6 +264,8 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     'a cancelled order’s label on a USPS form: never voided automatically, listed once for someone to void by hand');
   ok(!refunds.includes('sc') && rows.sharedCancelled.labelUnscanned?.on === 'shared' && rows.sharedCancelled.labelUnscannedOpen === true && !rows.sharedStillGoing.labelUnscanned && !refunds.includes('sg'),
     'a shared label whose orders are all cancelled is listed for someone; one with an order still going keeps its label, unlisted');
+  ok(rows.unfinishedOnForm.labelUnscanned?.why === 'void_unfinished' && rows.unfinishedOnForm.labelUnscanned?.dismissedAt && rows.unfinishedOnForm.labelUnscannedOpen === false,
+    'a void that didn’t finish, already decided on, isn’t relisted as a label that was never voided');
   ok(!refunds.includes('cu') && rows.cancelledUnsure.autoVoid?.tries === 1 && !rows.cancelledUnsure.labelUnscannedOpen, 'a cancelled label the tracking can’t confirm unused: the try is counted, tried again later');
   ok(rows.cancelledWaiting.autoVoid?.tries === 2, 'a try two days ago that waits four: not looked up today');
   ok(rows.cancelledLastTry.autoVoid?.tries === 4 && rows.cancelledLastTry.labelUnscanned?.why === 'void_refused' && rows.cancelledLastTry.labelUnscannedOpen === true, 'the last try turned down: listed under Needs you for someone to void by hand or leave');

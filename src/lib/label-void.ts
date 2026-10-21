@@ -31,15 +31,17 @@ export const SHARED_CLEARED = {
   labelFromOrderId: null, shippedWithOrderId: null, shipTogetherAt: null,
 };
 
-/** `uncertain`: some box got no real answer (no response, a timeout, or a server error that may have come after Shippo
- *  made the refund), so its refund may or may not have gone through. */
-export type VoidResult = { ok: boolean; error?: string; status?: string; count: number; voidedIds: string[]; trackingNumbers: string[]; uncertain?: boolean };
+/** How it ended. voided: every box. partial: some boxes voided and Shippo said no to the rest, so the label can't ship as
+ *  it is. refused: nothing voided, so the label works as before. unknown: some box got no real answer (no response, a
+ *  timeout, or a server error that may have come after Shippo made the refund), so it may or may not have gone through.
+ *  `refusal` is Shippo's own words for a box it turned down; `total` is how many boxes the label has. */
+export type VoidResult = { ok: boolean; outcome: 'voided' | 'partial' | 'refused' | 'unknown'; error?: string; refusal?: string; status?: string; count: number; total: number; voidedIds: string[]; trackingNumbers: string[]; uncertain?: boolean };
 
 export async function voidOrderLabels(db: any, tenantId: string, order: any, apiKey: string, opts: { alreadyVoided?: string[] } = {}): Promise<VoidResult> {
   const master = String(order?.shippoTransactionId || '').trim();
   const trackingNumbers = [order?.trackingNumber, ...(Array.isArray(order?.extraTrackingNumbers) ? order.extraTrackingNumbers : [])].map((x: any) => String(x || '').trim()).filter(Boolean);
-  if (!master) return { ok: true, count: 0, voidedIds: [], trackingNumbers: [] };
-  if (!apiKey) return { ok: false, error: 'Shippo isn’t connected, so the label can’t be voided here.', count: 0, voidedIds: [], trackingNumbers };
+  if (!master) return { ok: true, outcome: 'voided', count: 0, total: 0, voidedIds: [], trackingNumbers: [] };
+  if (!apiKey) return { ok: false, outcome: 'refused', error: 'Shippo isn’t connected, so the label can’t be voided here.', count: 0, total: 0, voidedIds: [], trackingNumbers };
   const auth = { Authorization: `ShippoToken ${apiKey}` };
   const ids = [master];
   const extra = Array.isArray(order?.extraLabelUrls) ? order.extraLabelUrls.length : 0;
@@ -52,10 +54,10 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
         for (const x of list?.results || []) if (x?.status === 'SUCCESS' && x.object_id && !ids.includes(String(x.object_id))) ids.push(String(x.object_id));
       }
     } catch { /* counted below */ }
-    if (ids.length < 1 + extra) return { ok: false, error: 'Couldn’t find every box’s label to void, so none were voided. Try again in a minute.', count: 0, voidedIds: [], trackingNumbers };
+    if (ids.length < 1 + extra) return { ok: false, outcome: 'refused', error: 'Couldn’t find every box’s label to void, so none were voided. Try again in a minute.', count: 0, total: 1 + extra, voidedIds: [], trackingNumbers };
   }
   const done = new Set((opts.alreadyVoided || []).map(String));
-  const failed: string[] = []; let noAnswer = 0;
+  const failed: string[] = []; let noAnswer = 0; let refusal = '';
   let status = done.has(master) ? 'PENDING' : '';
   for (const id of ids) {
     if (done.has(id)) continue;
@@ -65,12 +67,14 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
     if (r && r.ok) { done.add(id); if (id === master) status = String(d.status || 'PENDING'); continue; }
     if (r && ALREADY.test(said) && !NOT_VOIDABLE.test(said)) { done.add(id); if (id === master) status = 'PENDING'; continue; }
     if (!r || r.status >= 500 || r.status === 408) noAnswer++;
+    else if (!refusal) refusal = said;
     failed.push(id);
   }
   const voidedIds = ids.filter((id) => done.has(id));
   if (failed.length) {
-    return { ok: false, error: voidedIds.length ? `${voidedIds.length} of ${ids.length} labels voided; the rest didn’t go through. Try again in a minute.` : 'The label couldn’t be voided. Try again in a minute.', count: voidedIds.length, voidedIds, trackingNumbers, uncertain: noAnswer > 0 };
+    const outcome = noAnswer > 0 ? 'unknown' : voidedIds.length ? 'partial' : 'refused';
+    return { ok: false, outcome, error: voidedIds.length ? `${voidedIds.length} of ${ids.length} labels voided; the rest didn’t go through. Try again in a minute.` : 'The label couldn’t be voided. Try again in a minute.', refusal: refusal.slice(0, 160), count: voidedIds.length, total: ids.length, voidedIds, trackingNumbers, uncertain: noAnswer > 0 };
   }
   await reversePostage(db, tenantId, master).catch(() => {});
-  return { ok: true, status, count: ids.length, voidedIds, trackingNumbers };
+  return { ok: true, outcome: 'voided', status, count: ids.length, total: ids.length, voidedIds, trackingNumbers };
 }

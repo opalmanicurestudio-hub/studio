@@ -10,6 +10,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { changePolicy, oneLine, openRequest } from '@/lib/address-flow';
+import { labelInDoubt } from '@/lib/label-doubt';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
 export const dynamic = 'force-dynamic';
@@ -93,18 +94,23 @@ export async function POST(req: NextRequest) {
     // 2. Void every box's label. Boxes that voided are kept on the order if others didn't, and the claim is let go,
     //    so trying again picks up where it stopped (a label the carrier already refunded counts as voided).
     const labelTxn = String(claim.shippoTransactionId || '');
-    let voided = 0; let tracking: string[] = [];
+    let voided = 0; let tracking: string[] = []; let partialNote = '';
     if (labelTxn) {
       const { shippoKeyFor } = await import('@/lib/retail-secrets');
       const { voidOrderLabels } = await import('@/lib/label-void');
       const { labelState } = await import('@/lib/label-sweep');
       const key = await shippoKeyFor(db, tenantId, t);
-      // A box the carrier has already scanned has gone out: its label stays, and so does the address.
+      // A box the carrier has already scanned has gone out: its label stays, and so does the address. A void of it that an
+      // earlier approval started is over: if it went through, the box is out on a refunded label, so the team hears.
       if ((await labelState(key, claim)) === 'moving') {
         await db.runTransaction(async (tx: any) => {
           const cur: any = (await tx.get(ref)).data() || {};
-          if (!mine(cur.addressRequest)) return;
-          tx.set(ref, { labelSeenMoving: now, addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } }, { merge: true });
+          const begun = String(cur.shippoTransactionId || '') === labelTxn && String(cur.labelVoiding?.txn || '') === labelTxn;
+          const tn = String(cur.trackingNumber || '');
+          const told = cur.voidedLabelMoving?.trackingNumber === tn && cur.voidedLabelMoving?.open === false;
+          tx.set(ref, { labelSeenMoving: now,
+            ...(begun ? { labelVoiding: null, ...(told ? {} : { voidedLabelMoving: { open: true, unsure: true, at: now, trackingNumber: tn } }) } : {}),
+            ...(mine(cur.addressRequest) ? { addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } } : {}) }, { merge: true });
         }).catch(() => {});
         return NextResponse.json({ ok: false, error: `The carrier has already scanned this box, so its label can’t be voided. Keep the old address and let ${who} know it’s on its way.` }, { status: 409 });
       }
@@ -124,19 +130,23 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'That didn’t go through. Try again in a minute.' }, { status: 503 });
       }
       const v = await voidOrderLabels(db, tenantId, claim, key, { alreadyVoided: Array.isArray(claim.labelVoidIds) ? claim.labelVoidIds : [] });
-      if (!v.ok) {
-        // Shippo said no for every box and none voided: nothing is in doubt, so the note comes off. Otherwise it stays.
-        const doubt = !!v.uncertain || v.voidedIds.length > 0;
+      if (v.outcome === 'refused' || v.outcome === 'unknown') {
+        // Shippo said no and nothing was voided: the label works as before, so the note comes off. No real answer for
+        // some box: it may have gone through, so the note stays and the label can't ship until this is approved again.
+        const unknown = v.outcome === 'unknown';
         await db.runTransaction(async (tx: any) => {
           const cur: any = (await tx.get(ref)).data() || {};
           const same = String(cur.shippoTransactionId || '') === labelTxn;
-          tx.set(ref, { ...(same && v.voidedIds.length ? { labelVoidIds: v.voidedIds } : {}), ...(same && !doubt ? { labelVoiding: null } : {}),
+          tx.set(ref, { ...(same && v.voidedIds.length ? { labelVoidIds: v.voidedIds } : {}), ...(same && !unknown ? { labelVoiding: null } : {}),
             ...(mine(cur.addressRequest) ? { addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } } : {}) }, { merge: true });
         }).catch(() => {});
-        const error = !doubt ? v.error : v.uncertain ? 'Shippo didn’t answer in time, so the label may already be voided. Approve the change again in a minute to finish it, and don’t use the old label.' : `${v.error} Approve the change again to finish it, and don’t use the old label.`;
+        const error = unknown ? 'Shippo didn’t answer in time, so the label may already be voided. Approve the change again in a minute to finish it, and don’t use the old label.' : v.error;
         return NextResponse.json({ ok: false, error }, { status: 502 });
       }
-      voided = v.count; tracking = v.trackingNumbers;
+      // Every box voided, or some voided and Shippo said no to the rest: the old label can't ship either way, so the
+      // change goes ahead and a new label is bought for the new address.
+      voided = v.voidedIds.length; tracking = v.trackingNumbers;
+      if (v.outcome === 'partial') partialNote = ` Shippo wouldn’t void ${v.total - v.voidedIds.length === 1 ? 'one box’s label' : `${v.total - v.voidedIds.length} of the labels`}${v.refusal ? ` (${v.refusal})` : ''}, so that postage isn’t coming back.`;
     }
 
     // 3. Clear the voided label and put the new address on, in one write. If the claim was lost meanwhile, the voided
@@ -167,7 +177,7 @@ export async function POST(req: NextRequest) {
     if (!out.ok) return NextResponse.json(out, { status: 409 });
     await tell(db, tenantId, orderId, o, 'address_reply', 'Your new address is on your order',
       `We’ve changed the address on your order. It will ship to:<br><br><strong>${esc(oneLine(req0.to))}</strong>`, origin);
-    return NextResponse.json({ ok: true, voided, message: voided ? `The old label${voided > 1 ? 's are' : ' is'} voided and the postage is on its way back. Buy the new label, then put it over the old one.` : `${who}’s new address is on the order.` });
+    return NextResponse.json({ ok: true, voided, message: voided ? `The old label${voided > 1 ? 's are' : ' is'} voided and the postage is on its way back.${partialNote} Buy the new label, then put it over the old one.` : `${who}’s new address is on the order.` });
   }
 
   if (action === 'keep_old') {
@@ -176,10 +186,8 @@ export async function POST(req: NextRequest) {
       const cur: any = (await tx.get(ref)).data() || {};
       if (cur.addressRequest?.id === req0!.id && cur.addressRequest?.status === 'approving') return { ok: false, error: 'This change is being approved. If that was interrupted, approve it again to finish it.' };
       if (cur.addressRequest?.id !== req0!.id || cur.addressRequest?.status !== 'waiting') return { ok: false, error: 'Someone else already answered this.' };
-      // Some box labels already voided by an approval that stopped part way: the rest must go too before it can ship.
-      if (Array.isArray(cur.labelVoidIds) && cur.labelVoidIds.length && cur.shippoTransactionId) return { ok: false, error: 'Some of this order’s labels were already voided. Void the rest from the ship sheet first, then keep the old address.' };
-      // A void of the label that didn't finish (Shippo didn't answer): it may no longer work.
-      if (cur.shippoTransactionId && String(cur.labelVoiding?.txn || '') === String(cur.shippoTransactionId)) return { ok: false, error: 'Voiding this order’s label didn’t finish, so it may no longer work. Approve the change to finish it, or void the label from the ship sheet first, then keep the old address and buy a new label.' };
+      // A label that may no longer work (lib/label-doubt): a void of it didn't finish, or some of its boxes were voided.
+      if (labelInDoubt(cur)) return { ok: false, error: 'Voiding this order’s label didn’t finish, so it may no longer work. Approve the change to finish it, or sort the label out on the order first (void it, or keep it if it’s fine), then keep the old address.' };
       tx.set(ref, { addressRequest: { ...cur.addressRequest, status: 'kept', reply: reason || null, answeredAt: now, answeredBy: actor.uid, answeredByName: actor.name } }, { merge: true });
       const ev = ref.collection('events').doc();
       tx.set(ev, { id: ev.id, type: 'note', at: now, actorId: actor.uid, actorName: actor.name, meta: { kind: 'address_change_kept', text: `Kept the original address${reason ? `: ${reason}` : ''}` } });

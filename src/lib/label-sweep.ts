@@ -90,7 +90,7 @@ function listed(o: any, at: string, why: 'void_unfinished' | 'void_refused', ext
  *  cancelled. Listed once, so someone can void it by hand if the box didn't go out. A shared box with an order still
  *  going keeps its label. */
 async function listLeftover(db: any, tenantId: string, ref: any, o: any, now: number): Promise<boolean> {
-  if (!CLOSED.includes(String(o?.stage)) || o?.labelUnscanned?.why === 'void_refused' || scannedOnRecord(o)) return false;
+  if (!CLOSED.includes(String(o?.stage)) || ['void_refused', 'void_unfinished'].includes(String(o?.labelUnscanned?.why || '')) || scannedOnRecord(o)) return false;
   if (shared(o)) {
     const col = db.collection(`tenants/${tenantId}/retailOrders`);
     const sibs = await Promise.all(o.shippedWithOrderIds.map(String).filter(Boolean).slice(0, 10).map((id: string) => col.doc(id).get()));
@@ -119,7 +119,8 @@ const SYSTEM = { id: 'system', name: 'Daily check' };
  *  a USPS form. shared: other orders share it. shipped: part of its box is marked shipped. changed: the order changed
  *  while this ran. shippo: Shippo said no. uncertain: Shippo didn't answer, so the void may have gone through. */
 export type Refusal = 'moving' | 'unsure' | 'form' | 'shared' | 'shipped' | 'changed' | 'shippo' | 'uncertain';
-export type VoidOutcome = { ok: boolean; error?: string; voided?: number; refused?: Refusal };
+/** `note`: what to tell the person when some boxes were voided and Shippo said no to the rest (the label still came off). */
+export type VoidOutcome = { ok: boolean; error?: string; voided?: number; refused?: Refusal; note?: string };
 
 /**
  * Void an order's labels if they weren't used, and clear them from the order. Automatic voids (the default) need the
@@ -180,16 +181,19 @@ export async function voidIfUnused(db: any, tenantId: string, ref: any, order: a
   if (start.stop) return { ok: false, refused: 'changed', error: start.stop };
   const cur: any = start.c;
   const v = await voidOrderLabels(db, tenantId, cur, apiKey, { alreadyVoided: Array.isArray(cur.labelVoidIds) ? cur.labelVoidIds : [] });
-  if (!v.ok) {
-    // Shippo said no for every box and none was voided: nothing is in doubt, so the note comes off. No real answer for
-    // some box, or some boxes voided and others not: the label may no longer work, so the note stays (the void is
-    // finished the next morning or shown to someone, and the label can't ship meanwhile). Boxes that did void are kept,
-    // so trying again finishes the job.
-    const doubt = !!v.uncertain || v.voidedIds.length > 0;
-    await ref.set({ ...(v.voidedIds.length ? { labelVoidIds: v.voidedIds } : {}), ...(doubt ? {} : { labelVoiding: null }) }, { merge: true }).catch(() => {});
-    if (!doubt) return { ok: false, refused: 'shippo', error: v.error };
-    return { ok: false, refused: 'uncertain', error: v.uncertain ? 'Shippo didn’t answer in time, so this label may already be voided. Try again in a minute, and don’t use it until that goes through.' : `${v.error} Don’t use the label until that goes through.` };
+  if (v.outcome === 'refused' || v.outcome === 'unknown') {
+    // Shippo said no and nothing was voided: the label works as before, so the note comes off. No real answer for some
+    // box: it may have gone through, so the note stays (the void is finished the next morning or shown to someone, and
+    // the label can't ship meanwhile), and boxes that did void are kept, so trying again finishes the job.
+    const unknown = v.outcome === 'unknown';
+    await ref.set({ ...(v.voidedIds.length ? { labelVoidIds: v.voidedIds } : {}), ...(unknown ? {} : { labelVoiding: null }) }, { merge: true }).catch(() => {});
+    if (!unknown) return { ok: false, refused: 'shippo', error: v.error };
+    return { ok: false, refused: 'uncertain', error: 'Shippo didn’t answer in time, so this label may already be voided. Try again in a minute, and don’t use it until that goes through.' };
   }
+  // Every box voided, or some voided and Shippo said no to the rest. Either way the label can't ship as it is, so it comes
+  // off the order (a new one can be bought) and any box Shippo wouldn't refund is named.
+  const partial = v.outcome === 'partial';
+  const kept = partial ? ` Shippo wouldn’t void the other${v.total - v.voidedIds.length > 1 ? 's' : ''}${v.refusal ? ` (${v.refusal})` : ''}, so that postage isn’t coming back.` : '';
   const { FieldValue } = await import('firebase-admin/firestore');
   await db.runTransaction(async (tx: any) => {
     const c: any = (await tx.get(ref)).data() || {};
@@ -204,14 +208,16 @@ export async function voidIfUnused(db: any, tenantId: string, ref: any, order: a
     }, { merge: true });
     const also = copies.length ? ` It covered ${copies.map((s: any) => orderNo(s.data())).join(', ')} too.` : '';
     const ev = ref.collection('events').doc();
-    tx.set(ev, { id: ev.id, type: 'note', at: now, actorId: actor.id, actorName: actor.name, meta: { kind: 'label_voided', text: `${v.count > 1 ? `${v.count} labels` : 'Label'} voided: ${why}. The postage comes back to the shop.${also}` } });
+    tx.set(ev, { id: ev.id, type: 'note', at: now, actorId: actor.id, actorName: actor.name, meta: { kind: 'label_voided', text: partial
+      ? `${v.voidedIds.length} of ${v.total} labels voided: ${why}.${kept}${also}`
+      : `${v.count > 1 ? `${v.count} labels` : 'Label'} voided: ${why}. The postage comes back to the shop.${also}` } });
     for (const s of copies) {
       tx.set(s.ref, SHARED_CLEARED, { merge: true });
       const e = s.ref.collection('events').doc();
       tx.set(e, { id: e.id, type: 'note', at: now, actorId: actor.id, actorName: actor.name, meta: { kind: 'label_voided', text: `The label it shared with ${orderNo(c)} was voided: ${why}` } });
     }
   });
-  return { ok: true, voided: v.count };
+  return { ok: true, voided: v.voidedIds.length, ...(partial ? { note: `${v.voidedIds.length} of ${v.total} labels voided.${kept} The label is off the order, so you can buy a new one.` } : {}) };
 }
 
 /** A void that can't be finished here: the note comes off and someone is told. Its first try may have gone through, so
@@ -268,7 +274,7 @@ export async function sweepLabels(db: any, tenantId: string, apiKey: string, opt
     if (CLOSED.includes(stage)) {
       if (auto) jobs.push({ d, o, kind: 'cancelled', at: bought });
       // Never voided automatically: listed once for someone to void by hand (see listLeftover).
-      else if ((o.manifestId || shared(o)) && o.labelUnscanned?.why !== 'void_refused') jobs.push({ d, o, kind: 'leftover', at: bought });
+      else if ((o.manifestId || shared(o)) && !['void_refused', 'void_unfinished'].includes(String(o.labelUnscanned?.why || ''))) jobs.push({ d, o, kind: 'leftover', at: bought });
       continue;
     }
     const dismissed = !!o.labelUnscanned?.dismissedAt;
