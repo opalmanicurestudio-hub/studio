@@ -34,7 +34,8 @@ const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
 
 export function OrdersApp() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
-  const { selectedTenant, can } = useTenant() as any; const { user } = useUser() as any;
+  const { selectedTenant, can, role } = useTenant() as any; const { user } = useUser() as any;
+  const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const { inventory, staff } = useInventory() as any;
   const perms = useFulfilmentPerms();
   const tenantId = String(selectedTenant?.id || '');
@@ -143,7 +144,12 @@ export function OrdersApp() {
 
   const row = (o: any) => {
     const d = dueLine(o, rs, now);
-    const extra = o.isTest ? 'Test order' : o.stage === 'picking' && o.claimedByName ? `${o.claimedBy === actor.id ? 'You’re' : `${firstName(o.claimedByName)} is`} packing` : o.holdForReview ? 'Held for review' : o.stage === 'cancelled' ? 'Cancelled' : '';
+    const live = ['paid', 'picking', 'packed'].includes(String(o.stage));
+    const addrNote = !live || o.method !== 'ship' ? ''
+      : o.addressRequest?.status === 'waiting' ? 'Address change to approve'
+      : o.addressConfirm?.status === 'waiting' ? `Waiting on ${firstName(o.customerName)} to confirm the address`
+      : o.addressChanged && ['picking', 'packed', 'label'].includes(String(o.addressChanged.after)) && !o.labelUrl ? 'New address' : '';
+    const extra = o.isTest ? 'Test order' : o.stage === 'picking' && o.claimedByName ? `${o.claimedBy === actor.id ? 'You’re' : `${firstName(o.claimedByName)} is`} packing` : o.holdForReview ? 'Held for review' : o.stage === 'cancelled' ? 'Cancelled' : addrNote;
     const on = picked.has(o.id);
     const lead = selecting
       ? <span key={on ? 'on' : 'off'} className={`${on ? 'cf-anim-pop ' : ''}grid h-11 w-11 shrink-0 place-items-center`}><span className="grid h-6 w-6 place-items-center rounded-full border-2" style={on ? { background: C.ink, borderColor: C.ink } : { borderColor: '#c7c8cc' }}>{on ? Ic.check : null}</span></span>
@@ -199,7 +205,7 @@ export function OrdersApp() {
       {searching && !wide && <label className="mt-3 flex h-11 items-center gap-2 rounded-full px-4" style={{ background: C.soft }}><span style={muted}>{Ic.search}</span><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>}
       {needs.length > 0 && (
         <button type="button" onClick={() => needs.length === 1 ? setOpenId(needs[0].orderId) : setNeedsOpen(true)} className="mt-3.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-[15px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>
-          <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full${needs.some((n) => n.kind === 'outside') ? ' cf-anim-pulse' : ''}`} style={{ background: C.warn }} />{needs.length} need{needs.length === 1 ? 's' : ''} you</span>
+          <span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span className={`h-2 w-2 rounded-full${needs.some((n) => n.kind === 'outside') ? ' cf-anim-pulse' : ''}`} style={{ background: C.warn }} />{needs.length} need{needs.length === 1 ? 's' : ''} you</span>
           <span className="flex min-w-0 items-center gap-1.5 font-medium"><span className="truncate">{needs[0].text}</span>{Ic.chev}</span>
         </button>)}
       <div className="mt-3 lg:max-w-md"><Seg value={tab} onChange={(v) => { setTab(v); if (wide) setOpenId(null); }} options={[{ id: 'pack', label: `To pack ${counts.pack || ''}`.trim() }, { id: 'ready', label: `Ready ${counts.ready || ''}`.trim() }, { id: 'done', label: 'Done' }]} /></div>
@@ -216,7 +222,7 @@ export function OrdersApp() {
   });
 
   const panel = open && (
-    <OrderPanel key={open.id} fs={fs} tenantId={tenantId} order={open} actor={actor} rs={rs} photoFor={photoFor} canRefund={canRefund} inline={wide}
+    <OrderPanel key={open.id} fs={fs} tenantId={tenantId} order={open} actor={actor} rs={rs} photoFor={photoFor} canRefund={canRefund} isManager={isManager} inline={wide}
       onClose={() => setOpenId(null)} onPack={() => void beginPack(open)} onShip={() => setShipId(open.id)} onHandover={() => setHandId(open.id)} onToast={setToast} />);
 
   return (
@@ -237,7 +243,7 @@ export function OrdersApp() {
         onFinished={(m) => { setToast(m); setPackId(null); }} />}
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} shelf={shelfFor.get(missing.line.productId)} inventory={inventory || []} actor={actor} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); setToast(m); }} />}
       {shipGroup && byId.get(shipGroup[0]) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipGroup[0])} together={shipGroup.slice(1).map((id) => byId.get(id)).filter(Boolean)} inventory={inventory || []} rs={rs} actor={actor} onClose={() => setShipGroup(null)} onDone={(m) => { setShipGroup(null); setToast(m); }} />}
-      {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={inventory || []} rs={rs} actor={actor} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); setToast(m); }} />}
+      {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={inventory || []} rs={rs} actor={actor} onToast={setToast} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); setToast(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {selecting && <SelectBar fs={fs} tenantId={tenantId} picked={pickedOrders} actor={actor} rs={rs} perms={perms} onDone={endSelect} onToast={setToast} />}
       {shipToday && <ShipToday fs={fs} tenantId={tenantId} orders={orders} actor={actor} rs={rs} onClose={() => setShipToday(false)} onToast={setToast} />}

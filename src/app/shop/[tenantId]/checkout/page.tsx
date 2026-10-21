@@ -27,6 +27,7 @@ import {
 } from '@/lib/shop-cart';
 import { formatPromiseDay, preorderNotice } from '@/lib/preorder-terms';
 import { cn } from '@/lib/utils';
+import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
 
 type Method = 'counter' | 'curbside' | 'ship';
 
@@ -369,7 +370,27 @@ export default function CheckoutPage() {
     (!hasPreorder || preorderAgreed) &&
     (digitalOnlyCart || method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode));
 
-  const placeOrder = async () => {
+  // ── The address, checked with the carrier before they pay (components/shop/AddressReview) ──
+  // Only when something is worth asking: the carrier's version differs in a way that matters, an apartment number looks
+  // missing, or the carrier can't find it. Otherwise they go straight on to payment. The signed check travels with the
+  // order, so checkout doesn't ask the carrier again. Picking the carrier's version or adding a unit keeps the
+  // shipping option already chosen.
+  const shipsToAddress = method === 'ship' && !digitalOnlyCart;
+  const setAddrKeepingRate = (a: ReviewAddress) => {
+    const next = { ...addr, line1: a.line1, line2: a.line2, city: a.city, state: a.state, postalCode: a.postalCode };
+    if (quotesFresh) setQuotedFor(`${next.line1}|${next.city}|${next.state}|${next.postalCode}`.toLowerCase());
+    setAddr(next);
+  };
+  const ar = useAddressReview(tenantId, (o) => { void placeOrder({ token: o.token, unitAnswer: o.unitAnswer, address: { ...addr, ...o.address, name: addr.name } }); }, setAddrKeepingRate);
+  useEffect(() => { ar.setReview(null); }, [addrKey, addr.line2]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pay = async () => {
+    if (!canPlace || placing || ar.checking) return;
+    if (!shipsToAddress) { void placeOrder(); return; }
+    await ar.start({ name: addr.name, line1: addr.line1, line2: addr.line2, city: addr.city, state: addr.state, postalCode: addr.postalCode });
+  };
+  const editAddress = () => { ar.setReview(null); setTimeout(() => document.getElementById('ship-line1')?.focus(), 0); };
+
+  const placeOrder = async (extra?: { token?: string; unitAnswer?: 'added' | 'none'; address?: typeof addr }) => {
     if (!canPlace || placing) return;
     setPlacing(true);
     try {
@@ -393,7 +414,9 @@ export default function CheckoutPage() {
           ifUnavailable: digitalOnlyCart ? undefined : ifUnavailable,
           gift: !digitalOnlyCart && isGift ? { isGift: true, to: giftTo.trim(), message: giftMsg.trim() } : undefined,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
-          shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...addr, country: 'US' } : undefined,
+          shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...(extra?.address || addr), country: 'US' } : undefined,
+          addressCheckToken: method === 'ship' && !digitalOnlyCart && extra?.token ? extra.token : undefined,
+          unitAnswer: method === 'ship' && !digitalOnlyCart ? extra?.unitAnswer : undefined,
           shippingQuote: method === 'ship' && selectedQuote
             ? { amountCents: selectedQuote.amountCents, service: selectedQuote.service, exp: selectedQuote.exp, token: selectedQuote.token }
             : undefined,
@@ -563,7 +586,7 @@ export default function CheckoutPage() {
             <div className="space-y-3">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ship to</Label>
               <Input placeholder="Recipient name" aria-label="Recipient name" autoComplete="name" value={addr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, name: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
-              <Input placeholder="Street address" aria-label="Street address" autoComplete="address-line1" value={addr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line1: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
+              <Input id="ship-line1" placeholder="Street address" aria-label="Street address" autoComplete="address-line1" value={addr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line1: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
               <Input placeholder="Apt / suite (optional)" aria-label="Apartment or suite, optional" autoComplete="address-line2" value={addr.line2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line2: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
               <div className="grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
                 <Input placeholder="City" aria-label="City" autoComplete="address-level2" value={addr.city} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, city: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm col-span-1" />
@@ -834,13 +857,16 @@ export default function CheckoutPage() {
               <span>Tax</span><span>Calculated at checkout</span>
             </div>
             <Separator />
+            {ar.review ? (
+              <AddressReviewPanel ar={ar} busy={placing} continueLabel="Continue to payment" onEdit={editAddress} />
+            ) : (
             <Button
-              disabled={!canPlace || placing}
-              onClick={placeOrder}
+              disabled={!canPlace || placing || ar.checking}
+              onClick={() => void pay()}
               className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20"
             >
-              {placing ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - promoCents) + (promo?.freeShipping ? 0 : shippingCents) + tipCents)} + tax`}
-            </Button>
+              {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - promoCents) + (promo?.freeShipping ? 0 : shippingCents) + tipCents)} + tax`}
+            </Button>)}
             <p className="text-[9px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
               Secure payment &middot; You&apos;ll get a pickup QR code
             </p>

@@ -21,6 +21,8 @@ import { customerOutcomeHeadline, fulfilmentSummary } from '@/lib/fulfilment-sta
 import { clearCart } from '@/lib/shop-cart';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { cn } from '@/lib/utils';
+import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
+import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
@@ -59,6 +61,11 @@ interface StatusOrder {
   refundedCents: number; totalCents: number;
   timestamps: Record<string, string | null>;
   curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number; bringingOutAt?: string | null; bringingOutBy?: string; bringingOutPhoto?: string | null } | null;
+  shippingAddress?: { name?: string; line1: string; line2?: string; city: string; state: string; postalCode: string } | null;
+  addressConfirm?: { status: string; askedAt: string | null } | null;
+  addressRequest?: { status: string; to: any; at: string | null; reply: string | null; answeredAt: string | null } | null;
+  addressChange?: 'direct' | 'request' | 'carrier' | 'none'; addressChangeUntil?: 'label' | 'packing' | 'never';
+  addressVerdict?: string | null; addressUnitMissing?: boolean;
   shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null; extraTracking?: { number: string; url: string | null }[]; shippedWith?: string[]; shipTogetherRefundCents?: number;
 }
 
@@ -371,19 +378,42 @@ export default function OrderStatusPage() {
     return data;
   };
 
-  const submitAddressFix = async () => {
+  // THE ADDRESS (lib/address-flow): checked with the carrier before it's saved (components/shop/AddressReview), then
+  // straight onto the order or sent to the shop to approve, by the shop's policy. The answer comes back here.
+  const saveAddress = async (o: { token?: string; address: ReviewAddress }) => {
     if (!selfToken || fixSending) return;
     setFixSending(true);
     try {
-      const data = await selfServe({ action: 'update_address', address: fixAddr });
-      toast({ title: 'Address updated', description: data.message });
+      const data = await selfServe({ action: 'update_address', address: { ...fixAddr, ...o.address, name: fixAddr.name }, checkToken: o.token });
+      toast({ title: data.requested ? 'Sent to the shop' : 'Address saved', description: data.message });
       setFixOpen(false);
       load();
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Could not update the address', description: e?.message || 'Try again.' });
+      toast({ variant: 'destructive', title: 'Could not change the address', description: e?.message || 'Try again.' });
     } finally {
       setFixSending(false);
     }
+  };
+  const addrReview = useAddressReview(tenantId, (o) => { void saveAddress(o); }, (a) => setFixAddr((f) => ({ ...f, line1: a.line1, line2: a.line2, city: a.city, state: a.state, postalCode: a.postalCode })));
+  const submitAddressFix = () => {
+    if (!fixAddr.name.trim() || !fixAddr.line1.trim() || !fixAddr.city.trim() || !fixAddr.state.trim() || !fixAddr.postalCode.trim()) {
+      toast({ variant: 'destructive', title: 'Almost there', description: 'Fill in the name, street, city, state and ZIP code.' }); return;
+    }
+    void addrReview.start({ ...fixAddr });
+  };
+  const openAddressForm = () => {
+    const a = (order as any)?.shippingAddress || {};
+    setFixAddr({ name: String(a.name || ''), line1: String(a.line1 || ''), line2: String(a.line2 || ''), city: String(a.city || ''), state: String(a.state || ''), postalCode: String(a.postalCode || '') });
+    addrReview.setReview(null);
+    setFixOpen(true);
+  };
+  const [confirmSending, setConfirmSending] = useState(false);
+  const confirmAddress = async () => {
+    if (!selfToken || confirmSending) return;
+    setConfirmSending(true);
+    try { const data = await selfServe({ action: 'confirm_address' }); toast({ title: 'Thank you', description: data.message }); load(); }
+    catch (e: any) { toast({ variant: 'destructive', title: 'That didn’t go through', description: e?.message || 'Try again.' }); }
+    finally { setConfirmSending(false); }
   };
 
   const loadClaims = React.useCallback(async () => {
@@ -1059,6 +1089,7 @@ export default function OrderStatusPage() {
               </div>
               {order.trackingNumber ? (
                 <div className="space-y-2">
+                  {order.addressChange === 'carrier' && <p className="text-[11px] font-bold text-muted-foreground">Need it to go somewhere else? It’s with the carrier now, so the address can’t be changed here. Their tracking page shows what they can do, like holding it for pickup.</p>}
                   {(order.shippedWith?.length || 0) > 0 && <p className="text-sm">Shipped together with your order{(order.shippedWith?.length || 0) > 1 ? 's' : ''} {order.shippedWith!.join(' and ')}, in the same shipment.</p>}
                   {(order.shipTogetherRefundCents || 0) > 0 && <p className="text-sm" style={{ color: '#1f7a4d' }}>{fmt(order.shipTogetherRefundCents || 0)} shipping refunded: your orders went together, so this one’s shipping wasn’t needed.</p>}
                   {(order.extraTracking?.length || 0) > 0 && <p className="text-sm">Your order is coming in {1 + (order.extraTracking?.length || 0)} boxes, each with its own tracking.</p>}
@@ -1529,45 +1560,67 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {selfToken && order && order.method === 'ship' && ['placed', 'paid'].includes(order.stage) && (
-          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+        {selfToken && order && order.method === 'ship' && order.shippingAddress && (order.addressChange === 'direct' || order.addressChange === 'request' || order.addressRequest?.status === 'waiting') && (() => {
+          const asking = order.addressConfirm?.status === 'waiting';
+          const req = order.addressRequest;
+          const canChange = (order.addressChange === 'direct' || order.addressChange === 'request') && req?.status !== 'waiting';
+          const until = order.addressChangeUntil === 'packing' ? 'packing starts' : 'the shipping label is printed';
+          const why = order.addressVerdict === 'unconfirmed' || order.addressUnitMissing
+            ? 'The carrier couldn’t confirm it. If there’s an apartment or unit number, add it so your order isn’t held up.'
+            : order.addressVerdict === 'corrected' ? 'The carrier lists it a little differently. Check it, and fix it if anything’s off.'
+            : order.addressVerdict === 'undeliverable' ? 'The carrier couldn’t find it. Please check the street and ZIP code.'
+            : 'The shop wants to be sure it reaches you. Please check it before it ships.';
+          return (
+          <Card className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', asking && !fixOpen && 'border-foreground/70')}>
             <CardContent className="p-5 space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] font-black uppercase tracking-widest">Shipping to the right place?</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setFixOpen((v) => !v)}
-                  className="h-9 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
-                >
-                  {fixOpen ? 'Never mind' : 'Correct address'}
-                </Button>
+                <p className="text-[11px] font-black uppercase tracking-widest">{asking && !fixOpen ? 'Is this the right address?' : 'Shipping to'}</p>
+                {canChange && !asking && (
+                  <Button variant="outline" size="sm" onClick={() => (fixOpen ? setFixOpen(false) : openAddressForm())} className="h-9 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                    {fixOpen ? 'Never mind' : 'Change'}
+                  </Button>)}
               </div>
-              <p className="text-[11px] font-bold text-muted-foreground">
-                {order.shipCity ? `Currently headed to ${order.shipCity}. ` : ''}Typos happen — you can fix the address any time before packing starts.
-              </p>
+              {!fixOpen && (
+                <p className="text-sm font-bold leading-snug">{addressLinesOf(order.shippingAddress).map((l, i) => <React.Fragment key={i}>{i ? <br /> : null}{l}</React.Fragment>)}</p>)}
+              {asking && !fixOpen && (<>
+                <p className="text-[12px] font-bold text-muted-foreground">{why}</p>
+                <Button disabled={confirmSending} onClick={() => void confirmAddress()} className="w-full h-12 rounded-2xl font-black uppercase text-xs tracking-widest">
+                  {confirmSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Yes, ship it here'}
+                </Button>
+                {canChange && <Button variant="outline" onClick={openAddressForm} className="w-full h-12 rounded-2xl border-2 font-black uppercase text-xs tracking-widest">Fix the address</Button>}
+              </>)}
+              {req?.status === 'waiting' && (
+                <p className="rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-bold text-amber-900">You asked to change it to {oneLine(req.to)}. The shop will answer here.</p>)}
+              {req?.status === 'kept' && !fixOpen && (
+                <p className="rounded-xl bg-muted/50 px-3 py-2 text-[12px] font-bold">The shop kept this address{req.reply ? `: ${req.reply}` : '.'}</p>)}
+              {req?.status === 'done' && !fixOpen && (
+                <p className="rounded-xl bg-emerald-50 px-3 py-2 text-[12px] font-bold text-emerald-900">The shop changed it to the address you asked for.</p>)}
+              {!fixOpen && !asking && canChange && (
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  {order.addressChange === 'direct' ? `Typos happen. You can change it until ${until}.` : 'A change now goes to the shop to approve, and you’ll see their answer here.'}
+                </p>)}
               {fixOpen && (
                 <div className="space-y-2">
                   <Input placeholder="Recipient name" aria-label="Recipient name" autoComplete="name" value={fixAddr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, name: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
-                  <Input placeholder="Street address" aria-label="Street address" autoComplete="address-line1" value={fixAddr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, line1: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
-                  <Input placeholder="Apt / suite (optional)" aria-label="Apartment or suite, optional" autoComplete="address-line2" value={fixAddr.line2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, line2: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <Input id="fix-line1" placeholder="Street address" aria-label="Street address" autoComplete="address-line1" value={fixAddr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setFixAddr({ ...fixAddr, line1: e.target.value }); addrReview.setReview(null); }} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <Input placeholder="Apt / suite (optional)" aria-label="Apartment or suite, optional" autoComplete="address-line2" value={fixAddr.line2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setFixAddr({ ...fixAddr, line2: e.target.value }); addrReview.setReview(null); }} className="h-11 rounded-xl border-2 font-bold text-sm" />
                   <div className="grid grid-cols-3 gap-2">
-                    <Input placeholder="City" aria-label="City" autoComplete="address-level2" value={fixAddr.city} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, city: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
-                    <Input placeholder="State" aria-label="State" autoComplete="address-level1" value={fixAddr.state} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, state: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
-                    <Input placeholder="ZIP" aria-label="ZIP code" autoComplete="postal-code" inputMode="numeric" value={fixAddr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, postalCode: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                    <Input placeholder="City" aria-label="City" autoComplete="address-level2" value={fixAddr.city} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setFixAddr({ ...fixAddr, city: e.target.value }); addrReview.setReview(null); }} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                    <Input placeholder="State" aria-label="State" autoComplete="address-level1" value={fixAddr.state} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setFixAddr({ ...fixAddr, state: e.target.value }); addrReview.setReview(null); }} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                    <Input placeholder="ZIP" aria-label="ZIP code" autoComplete="postal-code" inputMode="numeric" value={fixAddr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setFixAddr({ ...fixAddr, postalCode: e.target.value }); addrReview.setReview(null); }} className="h-11 rounded-xl border-2 font-bold text-sm" />
                   </div>
-                  <Button
-                    disabled={fixSending}
-                    onClick={submitAddressFix}
-                    className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest"
-                  >
-                    {fixSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Save corrected address'}
-                  </Button>
+                  {addrReview.review ? (
+                    <AddressReviewPanel ar={addrReview} busy={fixSending} continueLabel={order.addressChange === 'direct' ? 'Save the new address' : 'Send it to the shop'} onEdit={() => { addrReview.setReview(null); setTimeout(() => document.getElementById('fix-line1')?.focus(), 0); }} />
+                  ) : (
+                    <Button disabled={fixSending || addrReview.checking} onClick={submitAddressFix} className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest">
+                      {fixSending || addrReview.checking ? <Loader className="h-4 w-4 animate-spin" /> : order.addressChange === 'direct' ? 'Save the new address' : 'Send it to the shop'}
+                    </Button>)}
+                  <p className="text-[11px] font-bold text-muted-foreground">It’s checked with the carrier first, so a typo can’t slip through.</p>
                 </div>
               )}
             </CardContent>
-          </Card>
-        )}
+          </Card>);
+        })()}
 
         {selfToken && order && promiseLate && (
           <Card className="border-2 border-amber-200 rounded-[2rem] overflow-hidden bg-amber-50/60">

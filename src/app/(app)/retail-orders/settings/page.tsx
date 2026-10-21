@@ -1064,37 +1064,13 @@ export default function RetailSettingsPage() {
               <p className="text-sm font-black uppercase tracking-tight">After the sale</p>
             </div>
 
-            <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
-              <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-tight">Check addresses at checkout</p>
-                <p className="text-[11px] font-bold text-muted-foreground">
-                  Asks the carriers whether the address exists while the customer can still fix it in ten
-                  seconds &mdash; rather than at the label, or a week later when the parcel comes back.
-                </p>
-              </div>
-              <Switch aria-label="Check addresses at checkout"
-                checked={rs.addressValidationEnabled === true}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, addressValidationEnabled: v })}
-              />
-            </div>
-
-            {rs.addressValidationEnabled && (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-tight">Refuse addresses the carriers cannot find</p>
-                  <p className="text-[11px] font-bold text-muted-foreground">
-                    Leave this off if you would rather take the order and sort it out by phone. Validators
-                    are wrong about new builds and rural routes, and a refused real address costs the whole
-                    sale &mdash; worse than an occasional redelivery. Either way the result is recorded on
-                    the order as evidence.
-                  </p>
-                </div>
-                <Switch aria-label="Refuse addresses the carriers cannot find"
-                  checked={rs.blockUndeliverableAddresses === true}
-                  onCheckedChange={(v: boolean) => setRs({ ...rs, blockUndeliverableAddresses: v })}
-                />
-              </div>
-            )}
+            <Link href="/retail-orders/policies" className="flex min-h-[56px] items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-xs font-black uppercase tracking-tight">Addresses</span>
+                <span className="block text-[11px] font-bold text-muted-foreground">Checking addresses with the carrier{rs.addressValidationEnabled ? ' (on)' : ' (off)'}, and how long customers can change theirs, are in Policies.</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
+            </Link>
 
             <Link href="/retail-orders/policies" className="flex min-h-[56px] items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3">
               <span className="min-w-0">

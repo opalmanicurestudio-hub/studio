@@ -86,6 +86,8 @@ interface CheckoutBody {
   gift?: { isGift?: boolean; to?: string; message?: string }; // a gift: who it's for and the message (lib/gift-orders)
   applyStoreCredit?: boolean;
   promoCode?: string;            // a promo code from Discounts that works in the shop (lib/promo-codes)
+  addressCheckToken?: string;    // the carrier check made before paying (api/retail/address-check), reused here
+  unitAnswer?: string;           // 'added' | 'none': what they said when asked for an apartment or unit number
   giftCode?: string;             // a gift card from this business: its balance comes off the order (lib/gift-cards)
   storeCreditCapCents?: number; // customer-set spend limit; omitted = use all
   // The customer's tick on the pre-order terms. Optional in the type because
@@ -444,12 +446,19 @@ async function handleCheckout(req: NextRequest) {
   // asked for that. A validator wrong about a new build costs a whole order,
   // which is worse than a rare redelivery.
   const addrPolicy = addressPolicy(rs);
+  // The check made while they were choosing (api/retail/address-check) is reused when it's for this exact address, so
+  // the carrier is asked once. What they did with it (took the carrier's version, said there's no unit) is kept.
+  const { checkFromToken } = await import('@/lib/address-flow-server');
+  const signed = method === 'ship' ? checkFromToken(tenantId, body.addressCheckToken, body.shippingAddress) : null;
+  const unitAnswer = body.unitAnswer === 'added' || body.unitAnswer === 'none' ? body.unitAnswer as 'added' | 'none' : undefined;
   const addressCheck = method === 'ship'
-    ? await validateAddress({
-        address: body.shippingAddress,
-        apiKey: await shippoKeyFor(db, tenantId),
-        policy: addrPolicy,
-      })
+    ? signed
+      ? { ...signed.check, choice: signed.picked, ...(unitAnswer ? { unitAnswer } : {}) }
+      : await validateAddress({
+          address: body.shippingAddress,
+          apiKey: await shippoKeyFor(db, tenantId),
+          policy: addrPolicy,
+        })
     : null;
 
   if (addressCheck && shouldBlock(addressCheck, addrPolicy)) {

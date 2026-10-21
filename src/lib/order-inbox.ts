@@ -15,7 +15,7 @@ const NUDGE_WINDOW_MS = 10 * 60 * 1000;
 export const ORDER_PAGE_KINDS = new Set([
   'order_confirmation', 'order_ready', 'order_shipped', 'order_delayed', 'delay_notice', 'carrier_delivered', 'order_short',
   'order_swap', 'order_id_check', 'preorder_eta', 'preorder_cancelled', 'refund_issued', 'return_label', 'return_received',
-  'claim_info_request', 'support_reply', 'support_received', 'order_uncollected',
+  'claim_info_request', 'support_reply', 'support_received', 'order_uncollected', 'address_confirm', 'address_reply',
 ]);
 /** Sent in full as well as posted: the receipt. */
 const FULL_TOO = new Set(['order_confirmation']);
@@ -43,6 +43,8 @@ export function nudgeLine(kind: string, num: string, shop: string, subject?: str
     case 'claim_info_request': return `We need a little more from you about your report on order ${num}.`;
     case 'support_reply': return `${shop} replied about your order ${num}.`;
     case 'order_uncollected': return `Your order ${num} is still waiting for pickup.`;
+    case 'address_confirm': return `Please check the address for your order ${num} before it ships.`;
+    case 'address_reply': return `${shop} answered about the address on your order ${num}.`;
     default: return subject ? String(subject) : `There’s an update on your order ${num}.`;
   }
 }

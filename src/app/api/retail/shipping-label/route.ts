@@ -117,22 +117,21 @@ export async function POST(req: NextRequest) {
       const txnId = String(order.shippoTransactionId || '').trim();
       if (!txnId) return NextResponse.json({ error: 'No purchased label is saved on this order.' }, { status: 400 });
 
-      const refund = await shippo(apiKey, '/refunds/', { transaction: txnId, async: false });
-      const status = String(refund.status || 'PENDING');
+      // Every box's label (lib/label-void), and the postage record reversed.
+      const { voidOrderLabels, LABEL_CLEARED } = await import('@/lib/label-void');
+      const v = await voidOrderLabels(db, tenantId, order, apiKey);
+      if (!v.ok) return NextResponse.json({ error: v.error }, { status: 502 });
+      const status = String(v.status || 'PENDING');
 
       const evRef = orderRef.collection('events').doc();
       const batch = db.batch();
-      batch.set(orderRef, {
-        trackingNumber: '', carrier: '', trackingUrl: '', labelUrl: '',
-        shippoTransactionId: '', labelVoidedAt: new Date().toISOString(),
-      }, { merge: true });
+      batch.set(orderRef, { ...LABEL_CLEARED, labelVoidedAt: new Date().toISOString() }, { merge: true });
       batch.set(evRef, {
         id: evRef.id, type: 'note', at: new Date().toISOString(),
-        actorId: 'shippo', actorName: 'Shippo',
-        meta: { text: `Label voided — refund ${status.toLowerCase()} (carrier approval can take a few days)` },
+        actorId: auth.actor.uid, actorName: auth.actor.name,
+        meta: { text: `${v.count > 1 ? `${v.count} labels` : 'Label'} voided — refund ${status.toLowerCase()} (carrier approval can take a few days)` },
       });
       await batch.commit();
-      await reversePostage(db, tenantId, txnId);
 
       return NextResponse.json({
         ok: true,
@@ -216,6 +215,7 @@ export async function POST(req: NextRequest) {
     // purchase: never a second label over one that is still live (it could never be voided afterwards).
     if (order.shippoTransactionId && order.labelUrl) return NextResponse.json({ error: 'This order already has a label. Void it first to buy a new one.' }, { status: 409 });
     if (['cancelled', 'completed'].includes(String(order.stage))) return NextResponse.json({ error: `This order is ${order.stage}.` }, { status: 409 });
+    if (order.addressRequest?.status === 'waiting') return NextResponse.json({ error: 'The customer asked to change the address. Answer that on the order first, so the label goes to the right place.' }, { status: 409 });
     const rateId = String(body.rateId || '').trim();
     if (!rateId) return NextResponse.json({ error: 'rateId is required' }, { status: 400 });
 

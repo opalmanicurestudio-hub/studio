@@ -9,12 +9,14 @@ import { dueLine, eventLine, firstName, methodLabel, money, orderNum, packProgre
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import type { Actor } from '@/lib/retail-fulfill';
 import { Btn, C, IconBtn, Sheet, Thumb, feel, muted, Ic } from './ui';
+import { AddressCard } from './AddressCard';
+import { changePolicy, oneLine, openRequest } from '@/lib/address-flow';
 
 const STEPS: Record<string, string[]> = { ship: ['New', 'Packing', 'Ready to ship', 'Shipped'], curbside: ['New', 'Packing', 'Ready', 'Picked up'], counter: ['New', 'Packing', 'Ready', 'Picked up'] };
 const stepIndex = (o: any) => ({ paid: 0, picking: 1, packed: o.method === 'ship' ? 2 : 1, ready: 2, arrived: 2, shipped: 3, handed_off: 3, completed: 3 } as Record<string, number>)[o.stage] ?? 0;
 
-export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund, onClose, onPack, onShip, onHandover, onToast, inline }: {
-  fs: Firestore; tenantId: string; order: any; actor: Actor; rs: any; photoFor: Map<string, string>; canRefund: boolean;
+export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund, isManager, onClose, onPack, onShip, onHandover, onToast, inline }: {
+  fs: Firestore; tenantId: string; order: any; actor: Actor; rs: any; photoFor: Map<string, string>; canRefund: boolean; isManager?: boolean;
   onClose: () => void; onPack: () => void; onShip: () => void; onHandover: () => void; onToast: (msg: string) => void; inline?: boolean;
 }) {
   const [tab, setTab] = React.useState<'order' | 'record'>('order');
@@ -22,7 +24,8 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const [confirm, setConfirm] = React.useState<'cancel' | 'refund' | null>(null);
   const [reason, setReason] = React.useState('');
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
-  React.useEffect(() => { setTab('order'); setErr(''); }, [order.id]);
+  const [keepOpen, setKeepOpen] = React.useState(false); const [keepWhy, setKeepWhy] = React.useState('');
+  React.useEffect(() => { setTab('order'); setErr(''); setKeepOpen(false); setKeepWhy(''); }, [order.id]);
   React.useEffect(() => {
     if (tab !== 'record') return;
     return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders/${order.id}/events`), orderBy('at', 'desc'), limit(120)), (s) => setEvents(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setEvents([]));
@@ -38,7 +41,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const terminal = ['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(order.stage);
 
   const main: { label: string; run: () => void } | null =
-    order.holdForReview ? null
+    order.holdForReview || (order.method === 'ship' && openRequest(order)) ? null
     : order.stage === 'paid' ? { label: 'Start packing', run: onPack }
     : order.stage === 'picking' ? { label: order.claimedBy && order.claimedBy !== actor.id ? `Take over from ${firstName(order.claimedByName)}` : 'Continue packing', run: onPack }
     : order.stage === 'packed' && order.method === 'ship' ? { label: order.labelUrl ? 'Mark as shipped' : 'Ship it', run: onShip }
@@ -48,6 +51,19 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
     : null;
 
   async function out() { setBusy(true); const r = await bringingOut(fs, tenantId, order, actor); setBusy(false); feel(r.ok); if (r.ok) onToast(`${who} has been told you’re on your way out.`); else setErr(r.message); }
+  // A customer's address change that came in after the label (or on a held order): one tap either way (api/retail/address).
+  const req = order.method === 'ship' ? openRequest(order) : null;
+  const labelled = !!(order.labelUrl || order.shippoTransactionId);
+  const managerOnly = !!req && order.holdForReview === true && changePolicy(rs).heldNeedsManager && !isManager;
+  const answerChange = async (action: 'approve_change' | 'keep_old') => {
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/api/retail/address', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, action, reason: keepWhy.trim() }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) { feel(true); setKeepOpen(false); onToast(d.message || 'Done.'); } else setErr(d.error || 'That didn’t go through. Try again.');
+    } catch { setErr('That didn’t go through. Try again.'); }
+    setBusy(false);
+  };
   const doCancel = async () => { setBusy(true); const r = await cancelIt(fs, tenantId, order, actor, reason.trim() || 'Cancelled by the shop'); setBusy(false); if (r.ok) { setConfirm(null); onToast(r.message); } else setErr(r.message); };
   const doRefund = async () => {
     setBusy(true); setErr('');
@@ -78,6 +94,26 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
               <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{money(pending)} to refund to {who}</p>
               {canRefund ? <Btn kind="primary" className="mt-3 h-11" onClick={() => setConfirm('refund')}>Review the refund</Btn> : <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>Waiting for someone allowed to send refunds.</p>}
             </div>)}
+          {req && (
+            <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
+              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{labelled ? `${who} changed the address after the label was bought` : `${who} asked to change the address`}</p>
+              <div className="mt-2 gap-x-2.5 gap-y-1.5 text-[14px]" style={{ display: 'grid', gridTemplateColumns: '44px 1fr' }}>
+                <span style={muted}>From</span><span style={{ color: C.muted, textDecoration: 'line-through' }}>{oneLine(order.shippingAddress)}</span>
+                <span style={muted}>To</span><span>{[req.to?.name && req.to.name !== order.shippingAddress?.name ? req.to.name : '', oneLine(req.to)].filter(Boolean).join(', ')}</span>
+              </div>
+              {req.check?.verdict === 'valid' && <p className="m-0 mt-2 text-[14px] font-semibold" style={{ color: C.ok }}>Confirmed by the carrier address check</p>}
+              {['unconfirmed', 'undeliverable', 'corrected'].includes(String(req.check?.verdict || '')) && <p className="m-0 mt-2 text-[14px]" style={{ color: C.warn }}>The carrier address check couldn’t confirm the new address.</p>}
+              {managerOnly ? <p className="m-0 mt-2 text-[14px]" style={{ color: C.warn }}>This order is held for review, so a manager approves the change.</p> : keepOpen ? (<>
+                <label className="mt-3 block text-[13px] font-semibold" style={muted}>Why it stays (they see this)<input value={keepWhy} onChange={(e) => setKeepWhy(e.target.value)} placeholder="For example: it’s already packed and on the truck" className="mt-1 h-12 w-full rounded-2xl border px-4 text-[17px] font-normal" style={{ borderColor: C.line, background: C.paper, color: C.ink }} /></label>
+                <Btn kind="primary" className="mt-3 h-11 w-full" disabled={busy} onClick={() => void answerChange('keep_old')}>Keep it and tell {who}</Btn>
+                <Btn kind="plain" className="mt-1 h-11 w-full" onClick={() => setKeepOpen(false)}>Back</Btn>
+              </>) : (<>
+                <Btn kind="primary" className="mt-3 h-11 w-full" disabled={busy} onClick={() => void answerChange('approve_change')}>{busy ? 'One moment…' : labelled ? 'Void label and buy a new one' : 'Use the new address'}</Btn>
+                <Btn kind="soft" className="mt-2 h-11 w-full" disabled={busy} onClick={() => setKeepOpen(true)}>Keep the old address</Btn>
+              </>)}
+              <p className="m-0 mt-2 text-[13px]" style={muted}>{labelled ? 'The unused label is refunded by the carrier. Then buy the new one and put it over the old label.' : `${who} sees your answer on their order page.`}</p>
+            </div>)}
+          {order.method === 'ship' && ['paid', 'picking', 'packed'].includes(order.stage) && <div className="mt-4"><AddressCard order={order} tenantId={tenantId} onToast={onToast} /></div>}
           <p className="m-0 mt-5 text-[13px] font-semibold" style={muted}>{['paid', 'picking'].includes(order.stage) ? `In the box · ${prog.done} of ${prog.total}` : 'Items'}</p>
           <div className="mt-1">
             {(order.lines || []).map((l: any) => {

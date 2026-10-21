@@ -28,11 +28,15 @@ import { effectiveUnitCents } from '@/lib/retail-swap';
 //     validated against what's still returnable per line; resolution limited
 //     to refund | store_credit (replacements stay a staff judgment call).
 //
-//   { action: 'update_address', tenantId, orderId, qrToken, address }
-//     Allowed ONLY while unpicked (placed | paid) on ship orders — the same
-//     window as cancel, because once a picker claims the order the label is
-//     minutes away. The old address is preserved in the event record, so a
-//     correction is an EVENT in the order's history, never an overwrite of it.
+//   { action: 'update_address', tenantId, orderId, qrToken, address, checkToken? }
+//     Checked with the carrier first (or the check the page already made, api/retail/address-check). Then, by the
+//     shop's policy (lib/address-flow changeMode): straight onto the order until the label is bought (or until
+//     packing starts, or never), otherwise a request staff approve in one tap. Held orders always ask, without
+//     saying why. Once it has shipped, only the carrier's own options are left. The old address is kept in the
+//     event record, so a correction is an EVENT in the order's history, never an overwrite of it.
+//
+//   { action: 'confirm_address', tenantId, orderId, qrToken }
+//     The shop asked "is this the right address?" and the customer says yes.
 //
 //   { action: 'resend_receipt', tenantId, orderId, qrToken }
 //     Re-sends the original confirmation email. Capped at 5 per order inside
@@ -74,7 +78,7 @@ export async function POST(req: NextRequest) {
 
   const client = requestForensics(req);
 
-  if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return', 'update_address', 'resend_receipt'].includes(action)) {
+  if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return', 'update_address', 'confirm_address', 'resend_receipt'].includes(action)) {
     return NextResponse.json({ error: 'Missing order details' }, { status: 400 });
   }
 
@@ -197,19 +201,25 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'update_address') {
-      const a = body.address || {};
-      const clean = {
-        name: String(a.name || '').trim().slice(0, 80),
-        line1: String(a.line1 || '').trim().slice(0, 120),
-        line2: String(a.line2 || '').trim().slice(0, 120),
-        city: String(a.city || '').trim().slice(0, 60),
-        state: String(a.state || '').trim().slice(0, 30),
-        postalCode: String(a.postalCode || '').trim().slice(0, 15),
-        country: 'US',
-      };
-      if (!clean.name || !clean.line1 || !clean.city || !clean.state || !clean.postalCode) {
-        return NextResponse.json({ error: 'Please fill in the full corrected address.' }, { status: 400 });
+      const { cleanAddress, changeMode, oneLine, sameAddress } = await import('@/lib/address-flow');
+      const clean = cleanAddress(body.address);
+      if (!clean) return NextResponse.json({ error: 'Please fill in the full corrected address.' }, { status: 400 });
+
+      const tSnap = await db.collection('tenants').doc(tenantId).get();
+      const tenant: any = tSnap.exists ? tSnap.data() : {};
+      const rs = tenant.retailSettings || {};
+      // The carrier check the page already made for this address, or a fresh one.
+      const { addressPolicy, validateAddress, shouldBlock, addressMessage } = await import('@/lib/address-validation');
+      const { checkFromToken } = await import('@/lib/address-flow-server');
+      const policy = addressPolicy(rs);
+      const signed = checkFromToken(tenantId, body.checkToken, clean);
+      let check: any = signed ? { ...signed.check, choice: signed.picked } : null;
+      if (!check) {
+        const { shippoKeyFor } = await import('@/lib/retail-secrets');
+        check = await validateAddress({ address: clean, apiKey: await shippoKeyFor(db, tenantId, tenant), policy });
       }
+      if (shouldBlock(check, policy)) return NextResponse.json({ error: addressMessage(check) }, { status: 422 });
+      const kept = check && check.verdict !== 'skipped' ? check : null;
 
       const result = await db.runTransaction(async (txn: any) => {
         const snap = await txn.get(orderRef);
@@ -219,25 +229,76 @@ export async function POST(req: NextRequest) {
         if (order.method !== 'ship') {
           return { status: 409, error: 'This order isn\u2019t being shipped, so there\u2019s no address to change.' };
         }
-        if (!CANCEL_STAGES.includes(order.stage)) {
-          return {
-            status: 409,
-            error: 'Packing has already started, so the address can no longer be changed online. Please send us a note below as soon as possible and we will do our best to update it.',
-          };
+        const { mode, why } = changeMode(order, rs);
+        if (mode === 'carrier') return { status: 409, error: 'It\u2019s already with the carrier, so the address can\u2019t be changed here. Their tracking page shows what they can do, like holding it for pickup.' };
+        if (mode === 'none') return { status: 409, error: 'This order can\u2019t be changed any more.' };
+        const now = new Date().toISOString();
+        if (sameAddress(order.shippingAddress, clean) && String(order.shippingAddress?.name || '').trim() === clean.name) {
+          if (order.addressConfirm?.status === 'waiting') txn.set(orderRef, { addressConfirm: { ...order.addressConfirm, status: 'confirmed', answeredAt: now } }, { merge: true });
+          return { status: 200, applied: true, message: 'That\u2019s already the address on your order.' };
+        }
+        // Asked to confirm (or confirmed the old one): a new address is their answer now.
+        const answered = ['waiting', 'confirmed'].includes(String(order.addressConfirm?.status || '')) ? { addressConfirm: { ...order.addressConfirm, status: 'fixed', answeredAt: now } } : {};
+        const evRef = orderRef.collection('events').doc();
+
+        if (mode === 'direct') {
+          txn.set(orderRef, {
+            shippingAddress: clean,
+            addressCheck: kept,
+            // Packing already started: the packer sees "New address" when they ship it.
+            addressChanged: { at: now, from: order.shippingAddress || null, by: 'customer', after: String(order.stage || '') },
+            ...(order.addressRequest?.status === 'waiting' ? { addressRequest: { ...order.addressRequest, status: 'replaced', answeredAt: now } } : {}),
+            ...answered,
+          }, { merge: true });
+          txn.set(evRef, {
+            id: evRef.id, type: 'address_updated', at: now,
+            actorId: 'customer', actorName: order.customerName || 'Customer',
+            meta: { from: order.shippingAddress || null, to: clean, selfServe: true, verdict: kept?.verdict || null, ...(client ? { client } : {}) },
+          });
+          return { status: 200, applied: true, message: `Saved. Your order will ship to ${oneLine(clean)}.` };
         }
 
-        txn.update(orderRef, { shippingAddress: clean });
-        const evRef = orderRef.collection('events').doc();
+        // A request: after the label, after packing started (if that's the shop's point), every change (if the shop
+        // asks for that), or a held order (never said to the customer).
+        const reqId = evRef.id;
+        txn.set(orderRef, {
+          addressRequest: { id: reqId, kind: 'change', status: 'waiting', to: clean, from: order.shippingAddress || null, check: kept, at: now, why },
+          ...answered,
+        }, { merge: true });
         txn.set(evRef, {
-          id: evRef.id, type: 'address_updated', at: new Date().toISOString(),
+          id: evRef.id, type: 'note', at: now,
           actorId: 'customer', actorName: order.customerName || 'Customer',
-          meta: { from: order.shippingAddress || null, to: clean, selfServe: true, ...(client ? { client } : {}) },
+          meta: { kind: 'address_change_requested', text: `Asked to change the address to ${oneLine(clean)}`, to: clean, ...(client ? { client } : {}) },
         });
-        return { status: 200 };
+        return {
+          status: 200, applied: false, requested: true,
+          message: why === 'label'
+            ? 'Your shipping label is already printed, so we\u2019ve sent the new address to the shop. You\u2019ll see their answer here.'
+            : why === 'packing'
+              ? 'Packing has started, so we\u2019ve sent the new address to the shop. You\u2019ll see their answer here.'
+              : 'We\u2019ve sent the new address to the shop. You\u2019ll see their answer here.',
+        };
       });
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
-      return NextResponse.json({ ok: true, message: 'Your address has been updated. Your package will ship to the corrected address.' });
+      return NextResponse.json({ ok: true, applied: (result as any).applied === true, requested: (result as any).requested === true, message: (result as any).message });
+    }
+
+    if (action === 'confirm_address') {
+      const result = await db.runTransaction(async (txn: any) => {
+        const snap = await txn.get(orderRef);
+        if (!snap.exists) return { status: 404, error: 'Order not found.' };
+        const order = snap.data() as any;
+        if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
+        if (order.addressConfirm?.status !== 'waiting') return { status: 200 };
+        const now = new Date().toISOString();
+        txn.set(orderRef, { addressConfirm: { ...order.addressConfirm, status: 'confirmed', answeredAt: now } }, { merge: true });
+        const evRef = orderRef.collection('events').doc();
+        txn.set(evRef, { id: evRef.id, type: 'note', at: now, actorId: 'customer', actorName: order.customerName || 'Customer', meta: { kind: 'address_confirmed', text: 'Confirmed the address', ...(client ? { client } : {}) } });
+        return { status: 200 };
+      });
+      if (result.status !== 200) return NextResponse.json({ error: (result as any).error }, { status: result.status });
+      return NextResponse.json({ ok: true, message: 'Thanks. We\u2019ll ship it to this address.' });
     }
 
     if (action === 'resend_receipt') {

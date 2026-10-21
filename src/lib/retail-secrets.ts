@@ -37,7 +37,13 @@ export async function setRetailSecrets(db: any, t: string, patch: Partial<Retail
   const next: RetailSecrets = { shippoApiKey: patch.shippoApiKey !== undefined ? String(patch.shippoApiKey).trim() : cur.shippoApiKey, wholesaleAccessCode: patch.wholesaleAccessCode !== undefined ? String(patch.wholesaleAccessCode).trim() : cur.wholesaleAccessCode };
   await ref(db, t).set({ ...next, updatedAt: new Date().toISOString() }, { merge: true });
   const f = publicFlags(next);
-  await db.doc(`tenants/${t}`).update({ 'retailSettings.shippoConnected': f.shippoConnected, 'retailSettings.shippoKeyLast4': f.shippoKeyLast4, 'retailSettings.wholesaleCodeSet': f.wholesaleCodeSet });
+  // A shop connecting its own Shippo account for the first time starts with carrier address checks on (Policies turns
+  // them off). Shops that already chose either way keep their choice.
+  let checksOn: Record<string, boolean> = {};
+  if (!cur.shippoApiKey && next.shippoApiKey) {
+    try { const rs: any = ((await db.doc(`tenants/${t}`).get()).data() || {}).retailSettings || {}; if (rs.addressValidationEnabled === undefined) checksOn = { 'retailSettings.addressValidationEnabled': true }; } catch { /* stays as it was */ }
+  }
+  await db.doc(`tenants/${t}`).update({ 'retailSettings.shippoConnected': f.shippoConnected, 'retailSettings.shippoKeyLast4': f.shippoKeyLast4, 'retailSettings.wholesaleCodeSet': f.wholesaleCodeSet, ...checksOn });
   return next;
 }
 

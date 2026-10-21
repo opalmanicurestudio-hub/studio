@@ -15,11 +15,12 @@ import { Btn, C, Sheet, muted } from './ui';
 import { openPrint } from '@/lib/open-print';
 import { labelProgress } from '@/lib/totes';
 import { AddressCard } from './AddressCard';
+import { oneLine } from '@/lib/address-flow';
 
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
 
-export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, onDone, together = [] }: { fs: Firestore; tenantId: string; order: any; inventory: any[]; rs: any; actor: Actor; onClose: () => void; onDone: (msg: string) => void; together?: any[] }) {
+export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, onDone, onToast, together = [] }: { fs: Firestore; tenantId: string; order: any; inventory: any[]; rs: any; actor: Actor; onClose: () => void; onDone: (msg: string) => void; onToast?: (msg: string) => void; together?: any[] }) {
   // SHIPPED TOGETHER (lib/ship-together): the customer's other orders going in the same box. The label is bought on this
   // order; the others get the same tracking, and the shipping they paid is refunded automatically.
   const group = [order, ...together];
@@ -90,12 +91,23 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     setLoading(false);
     if (r.ok) onDone(many ? `${firstName(order.customerName)}’s ${group.length} orders are on their way in one shipment.${refundNote ? ` ${refundNote}` : ''}` : `${firstName(order.customerName)}’s order is on its way. They get tracking when the carrier scans it.`); else setErr(r.message);
   };
+  // Void the label (every box's): the wrong box, the wrong rate, or the address changed. The postage comes back.
+  const [voiding, setVoiding] = React.useState<'ask' | 'busy' | null>(null);
+  const voidLabel = async () => {
+    setVoiding('busy'); setErr('');
+    try { const d = await post({ action: 'void' }); setLabel(null); setRates([]); setVoiding(null); onToast?.(d.message || 'Label voided.'); }
+    catch (e: any) { setErr(e.message); setVoiding('ask'); }
+  };
   const chosen = rates.find((r) => r.id === rate);
   const pill = (on: boolean) => ({ border: on ? `2px solid ${C.ink}` : `1px solid ${C.line}`, background: C.paper, color: C.ink } as React.CSSProperties);
 
   return (
     <Sheet title={many ? `Ship ${firstName(order.customerName)}’s ${group.length} orders together` : `Ship ${firstName(order.customerName)}’s order`} sub={order.shippingAddress ? `To ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode || ''}${many ? ` · ${group.map((g: any) => `#${String(g.orderNumber ?? '').padStart(4, '0')}`).join(' + ')}` : ''}` : undefined} onClose={onClose}>
-      <div className="mt-2"><AddressCard order={order} /></div>
+      <div className="mt-2"><AddressCard order={order} tenantId={tenantId} onToast={onToast} /></div>
+      {order.addressRequest?.status === 'waiting' && (
+        <div className="mt-2 rounded-2xl p-4 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>
+          <b className="font-semibold">{firstName(order.customerName)} asked to change the address</b> to {oneLine(order.addressRequest.to)}. Answer that on the order first, so the label goes to the right place.
+        </div>)}
       {many && (
         <div className="mt-2 rounded-2xl p-4" style={{ background: C.soft }}>
           <p className="m-0 text-[13px] font-semibold" style={muted}>In this shipment</p>
@@ -114,6 +126,13 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
             {many && group.filter((g: any) => g.qrToken).map((g: any) => <Btn key={g.id} kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${g.id}?t=${encodeURIComponent(g.qrToken || '')}`, '_blank')}>{`Packing slip for #${String(g.orderNumber ?? '').padStart(4, '0')}`}</Btn>)}
             {refundNote && <p className="m-0 text-[14px]" style={{ color: C.ok }}>{refundNote}</p>}
             <Btn kind="primary" className="text-[17px]" disabled={loading} onClick={() => void markShipped({ carrier: label.carrier, number: label.number, url: label.trackUrl })}>{many ? `Mark all ${group.length} orders as shipped` : label.extraUrls?.length ? 'Mark all boxes as shipped' : 'Mark as shipped'}</Btn>
+            {!many && order.shippoTransactionId && (voiding ? (
+              <div className="rounded-2xl p-4" style={{ background: C.soft }}>
+                <p className="m-0 text-[15px] font-semibold">Void {label.extraUrls?.length ? `all ${1 + label.extraUrls.length} labels` : 'this label'}?</p>
+                <p className="m-0 mt-1 text-[14px]" style={muted}>Only if it hasn’t gone out. The postage is refunded by the carrier, which can take a few days. Take the old label off the box.</p>
+                <div className="mt-3 flex gap-2"><Btn kind="danger" className="flex-1" disabled={voiding === 'busy'} onClick={() => void voidLabel()}>{voiding === 'busy' ? 'Voiding…' : 'Void it'}</Btn><Btn kind="soft" className="flex-1" disabled={voiding === 'busy'} onClick={() => setVoiding(null)}>Keep it</Btn></div>
+              </div>
+            ) : <Btn kind="plain" style={muted} onClick={() => setVoiding('ask')}>Void the label</Btn>)}
           </div>
         </div>
       ) : manual ? (

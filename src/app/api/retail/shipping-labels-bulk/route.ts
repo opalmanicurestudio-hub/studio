@@ -133,6 +133,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
       if (order.stage !== 'packed') { fail(`Not packed yet (${order.stage})`); continue; }
+      if (order.addressRequest?.status === 'waiting') { fail('The customer asked to change the address. Answer that on the order first.'); continue; }
       if (order.method !== 'ship' || !order.shippingAddress) { fail('Not a ship order'); continue; }
 
       const cust = order.shippingAddress;

@@ -948,6 +948,8 @@ export async function markShipped(
 
       const guard = canAdvance(order, 'shipped');
       if (!guard.ok) return { ok: false, message: guard.reason };
+      // The customer asked for a different address (lib/address-flow): it can't go out until someone answers that.
+      if ((order as any).addressRequest?.status === 'waiting') return { ok: false, message: `${String(order.customerName || 'The customer').split(' ')[0]} asked to change the address. Answer that on the order before it goes out.` };
 
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
       convertSaleInTxn(txn, fs, tenantId, order, itemSnaps, actor);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
+import { changeMode, changePolicy } from '@/lib/address-flow';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
 // GET ?tenantId=...&orderId=...
@@ -304,6 +305,19 @@ export async function GET(req: NextRequest) {
         : null,
       shipCity: order.shippingAddress ? `${order.shippingAddress.city}, ${order.shippingAddress.state}` : null,
       shippingAddress: order.shippingAddress || null,
+      /* The address flow (lib/address-flow): whether the shop asked them to confirm it, their change waiting for the
+       * shop (or its answer), and what a change would do now. Never why: a hold for review isn't shown. */
+      ...(order.method === 'ship' ? (() => {
+        const r = order.addressRequest || null;
+        return {
+          addressConfirm: order.addressConfirm ? { status: String(order.addressConfirm.status || ''), askedAt: order.addressConfirm.askedAt || null } : null,
+          addressRequest: r ? { status: String(r.status || ''), to: r.to || null, at: r.at || null, reply: r.reply || null, answeredAt: r.answeredAt || null } : null,
+          addressChange: changeMode(order, rs).mode,
+          addressChangeUntil: changePolicy(rs).until,
+          addressVerdict: order.addressCheck?.verdict || null,
+          addressUnitMissing: order.addressCheck?.unitMissing === true && !order.addressCheck?.unitAnswer,
+        };
+      })() : {}),
       customerEmail: order.customerEmail || '',
       storeCreditRequestedCents: order.storeCreditRequestedCents || 0,
       shipPromiseAt: order.shipPromiseAt || null,

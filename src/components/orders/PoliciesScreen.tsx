@@ -1,6 +1,7 @@
 'use client';
-// src/components/orders/PoliciesScreen.tsx — EVERY SHOP POLICY ON ONE SCREEN. Cancelling, returns, restocking fees by
-// condition, problem reports, refunds and the wording customers see. Each change saves on its own path the moment it's
+// src/components/orders/PoliciesScreen.tsx — EVERY SHOP POLICY ON ONE SCREEN. Cancelling, addresses (carrier checks and
+// how long customers can change theirs, lib/address-flow), returns, restocking fees by condition, problem reports,
+// refunds and the wording customers see. Each change saves on its own path the moment it's
 // made, so nothing here can overwrite a setting changed somewhere else. Managers change them; everyone else can read.
 import { rolesFor } from '@/lib/permissions';
 import { uncollectedPolicy } from '@/lib/retail-uncollected-policy';
@@ -69,6 +70,7 @@ export function PoliciesScreen() {
   const limits = (pol.refundLimits || {}) as Record<string, number>;
   const payer = rs.returnLabelPayer === 'shop' || rs.returnLabelPayer === 'customer' ? rs.returnLabelPayer : 'fault';
   const returnsOn = rs.returnsEnabled !== false;
+  const addrUntil: 'packing' | 'label' | 'never' = pol.addressChangeUntil === 'packing' || pol.addressChangeUntil === 'never' ? pol.addressChangeUntil : 'label';
 
   return (
     <div className="min-h-[100dvh] pb-24" style={{ background: C.paper, color: C.ink }}>
@@ -79,6 +81,17 @@ export function PoliciesScreen() {
         <Group title="Cancelling" foot="If an order misses its promised time, the customer can always cancel, whatever this says.">
           <Row label="Customers can cancel online"><Toggle label="Customers can cancel online" on={pol.cancelAllowed !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.cancelAllowed', v, 'Cancelling')} /></Row>
           <Row label="Up to" note="Hours after paying. 0 means until packing starts." last><NumberField label="Cancel window in hours" value={Number(pol.cancelWindowHours) || 0} unit="hours" disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.cancelWindowHours', Math.floor(n), 'Cancel window')} /></Row>
+        </Group>
+
+        <Group title="Addresses" foot="The old address stays in the order’s record. Once an order ships, it’s between the customer and the carrier: their tracking page shows what the carrier can do.">
+          <Row label="Check addresses with the carrier" note="At checkout and whenever an address changes. Shippo may charge a small fee for each check."><Toggle label="Check addresses with the carrier" on={rs.addressValidationEnabled === true} disabled={!canEdit} onChange={(v) => void save('retailSettings.addressValidationEnabled', v, 'Address checks')} /></Row>
+          {rs.addressValidationEnabled === true && <Row label="Refuse addresses the carrier can’t find" note="Off lets customers use them anyway, for new buildings and rural routes. You’ll see a warning when you ship."><Toggle label="Refuse addresses the carrier can’t find" on={rs.blockUndeliverableAddresses === true} disabled={!canEdit} onChange={(v) => void save('retailSettings.blockUndeliverableAddresses', v, 'Address checks')} /></Row>}
+          <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+            <p className="m-0 text-[17px]">Customer changes go straight through</p>
+            <div className="mt-2.5"><Seg value={addrUntil} onChange={(v) => void save('retailSettings.policies.addressChangeUntil', v, 'Address changes')} options={[{ id: 'packing', label: 'Until packing' }, { id: 'label', label: 'Until the label' }, { id: 'never', label: 'Never' }]} /></div>
+            <p className="m-0 mt-2 text-[13px]" style={muted}>{addrUntil === 'label' ? 'Until the label is bought, a change is checked and goes onto the order. After that it comes to you as a request, ready to approve in one tap.' : addrUntil === 'packing' ? 'Until packing starts, a change is checked and goes onto the order. After that it comes to you as a request, ready to approve in one tap.' : 'Every change comes to you as a request, ready to approve in one tap.'}</p>
+          </div>
+          <Row label="Held orders wait for a manager" note="An address change on an order held for review needs a manager’s OK." last><Toggle label="Held orders wait for a manager" on={pol.addressHeldNeedsManager !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.addressHeldNeedsManager', v, 'Address changes')} /></Row>
         </Group>
 
         <Group title="Returns" foot="Problems like damage or a wrong item can always be reported, even with returns off.">

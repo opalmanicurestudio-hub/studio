@@ -20,15 +20,24 @@
 // no assumed country. A shop that has configured nothing gets validation off
 // and a neutral policy, and nothing here knows or cares what is being sold.
 
+import { carrierAddress, meaningfulChanges, unitLooksMissing, type Address } from '@/lib/address-flow';
+
 export type AddressVerdict = 'valid' | 'corrected' | 'unconfirmed' | 'undeliverable' | 'skipped';
 
 export interface AddressCheck {
   verdict: AddressVerdict;
-  /** Carrier-normalised address when it differs from what was typed. */
+  /** The parts of the carrier's version that differ in a way that matters (lib/address-flow), or null. */
   suggestion: Record<string, string> | null;
+  /** The carrier's whole version, ready to use, when it differs in a way that matters. */
+  carrier?: Address | null;
+  /** No apartment or unit was given and it looks like one is needed (lib/address-flow). */
+  unitMissing?: boolean;
   /** Validator's own words, for the audit trail. */
   messages: string[];
   checkedAt: string;
+  /** What the customer did with the check: took the carrier's version, kept theirs, or said there's no unit. */
+  choice?: 'suggested' | 'typed';
+  unitAnswer?: 'added' | 'none';
 }
 
 export interface AddressPolicy {
@@ -65,23 +74,17 @@ function toShippo(address: any, country: string) {
   };
 }
 
-/** Only surface a correction the customer would actually care about. */
-function diffOf(typed: any, returned: any): Record<string, string> | null {
-  const norm = (v: unknown) => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const pairs: [string, string, string][] = [
-    ['line1', String(typed?.line1 || ''), String(returned?.street1 || '')],
-    ['line2', String(typed?.line2 || ''), String(returned?.street2 || '')],
-    ['city', String(typed?.city || ''), String(returned?.city || '')],
-    ['state', String(typed?.state || ''), String(returned?.state || '')],
-    // Compare only the first five of a ZIP — a validator adding +4 is not a
-    // correction worth interrupting anyone for.
-    ['postalCode', String(typed?.postalCode || '').slice(0, 5), String(returned?.zip || '').slice(0, 5)],
-  ];
+/** Only surface a correction the customer would actually care about (lib/address-flow): "Street" against "St",
+ *  capitals and a ZIP+4 the validator added are not worth interrupting anyone for. */
+function diffOf(typed: any, carrier: Address): Record<string, string> | null {
+  const changed = meaningfulChanges(typed || {}, carrier);
+  if (!changed.length) return null;
   const out: Record<string, string> = {};
-  for (const [key, was, now] of pairs) {
-    if (now && norm(was) !== norm(now)) out[key] = now;
+  for (const k of changed) {
+    if (k === 'street') { out.line1 = String(carrier.line1 || ''); if (carrier.line2) out.line2 = String(carrier.line2); }
+    else out[k] = String((carrier as any)[k] || '');
   }
-  return Object.keys(out).length > 0 ? out : null;
+  return out;
 }
 
 /**
@@ -117,16 +120,20 @@ export async function validateAddress(opts: {
     const checkedAt = new Date().toISOString();
 
     if (vr.is_valid === false) {
-      return { verdict: 'undeliverable', suggestion: null, messages, checkedAt };
+      return { verdict: 'undeliverable', suggestion: null, carrier: null, unitMissing: false, messages, checkedAt };
     }
     if (vr.is_valid !== true) {
-      return { verdict: 'unconfirmed', suggestion: null, messages, checkedAt };
+      return { verdict: 'unconfirmed', suggestion: null, carrier: null, unitMissing: unitLooksMissing(address, 'unconfirmed', messages), messages, checkedAt };
     }
 
-    const suggestion = diffOf(address, data);
+    const carrier = carrierAddress(address, data);
+    const suggestion = diffOf(address, carrier);
+    const verdict: AddressVerdict = suggestion ? 'corrected' : 'valid';
     return {
-      verdict: suggestion ? 'corrected' : 'valid',
+      verdict,
       suggestion,
+      carrier: suggestion ? carrier : null,
+      unitMissing: unitLooksMissing(address, verdict, messages),
       messages,
       checkedAt,
     };
