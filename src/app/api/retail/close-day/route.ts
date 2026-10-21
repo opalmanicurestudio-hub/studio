@@ -1,9 +1,15 @@
 // src/app/api/retail/close-day/route.ts — CLOSE THE DAY. Staff only.
 // POST { tenantId, action: 'manifest' } gathers every USPS label bought through Shippo that isn't on a manifest yet
-// (stage packed or shipped, label from the last 7 days), groups them by carrier account and asks Shippo for one
-// manifest per account: a single sheet the mail carrier scans instead of every box. Each order is stamped with the
-// manifest so it is never put on two. Other carriers don't use manifests; they are counted and left alone.
-// POST { tenantId, action: 'history' } lists the last 14 manifests.
+// (stage packed or shipped, label from the last 7 days) and asks Shippo for the USPS form (SCAN form): a single sheet
+// the mail carrier scans instead of every box. Shippo's rules, followed here:
+//   - every label on one form shares a carrier account and a ship date, so there's one form per account per day
+//     (a label bought yesterday gets yesterday's form instead of sinking today's)
+//   - a label Shippo turns away is dropped and the form is made without it (it's listed, and the carrier scans that box)
+//   - forms are made in the background: this waits a little for each one, and the history action fetches any still
+//     being made, so the sheet to print always turns up
+//   - at most 500 labels per form
+// Each order is stamped with its form so it is never put on two. Other carriers don't use these; they're counted.
+// POST { tenantId, action: 'history' } lists the last 14 forms (and finishes any still being made).
 import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
@@ -60,7 +66,22 @@ export async function POST(req: NextRequest) {
 
   if (action === 'history') {
     const snap = await manifests.orderBy('createdAt', 'desc').limit(14).get();
-    return NextResponse.json({ manifests: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) });
+    const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    // Forms still being made: ask Shippo once more and keep what comes back.
+    const waiting = rows.filter((m: any) => m.shippoManifestId && !(m.documents || []).length && !['ERROR', 'FAILED'].includes(String(m.status || '').toUpperCase()));
+    if (waiting.length) {
+      const tSnap = await db.collection('tenants').doc(tenantId).get();
+      const key = await shippoKeyFor(db, tenantId, tSnap.exists ? tSnap.data() : {});
+      for (const m of waiting.slice(0, 5)) {
+        try {
+          const got = await shippo(key, `/manifests/${encodeURIComponent(m.shippoManifestId)}`);
+          const docs: string[] = Array.isArray(got.documents) ? got.documents.map(String) : [];
+          m.status = String(got.status || m.status || ''); m.documents = docs;
+          await manifests.doc(m.id).set({ status: m.status, documents: docs }, { merge: true });
+        } catch { /* next look */ }
+      }
+    }
+    return NextResponse.json({ manifests: rows });
   }
 
   const tenantSnap = await db.collection('tenants').doc(tenantId).get();
@@ -84,15 +105,16 @@ export async function POST(req: NextRequest) {
   }
   const candidates = all.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
     .filter((o: any) => ['packed', 'shipped'].includes(String(o.stage)))
-    .filter((o: any) => o.shippoTransactionId && !o.manifestId && !o.labelVoidedAt)
+    // A relabelled order (its old label voided) has a new label to put on a form; manifestId is cleared with a void.
+    .filter((o: any) => o.shippoTransactionId && !o.manifestId)
     .filter((o: any) => { const at = Date.parse(o.shipmentProtection?.decidedAt || o.shippedAt || o.packedAt || ''); return !Number.isFinite(at) || at >= since; });
   const usps = candidates.filter((o: any) => isUsps(String(o.carrier || '')));
   const others = candidates.length - usps.length;
   if (usps.length === 0) return NextResponse.json({ ok: true, manifests: [], count: 0, others, message: others ? 'Nothing for USPS today. Other carriers scan each box at pickup.' : 'No labels waiting for a manifest.' });
 
-  const groups = new Map<string, any[]>();
+  // One form per carrier account per ship date (Shippo's rule), so each label is looked up for both.
+  const groups = new Map<string, { acct: string; date: string; list: any[] }>();
   const failed: { orderId: string; error: string }[] = [];
-  // Looked up several at a time, so a busy day still finishes well inside the time limit.
   const lookup = async (o: any) => {
     try {
       const txn = await shippo(apiKey, `/transactions/${encodeURIComponent(o.shippoTransactionId)}`);
@@ -100,7 +122,14 @@ export async function POST(req: NextRequest) {
       const rate = rateId ? await shippo(apiKey, `/rates/${encodeURIComponent(rateId)}`) : null;
       const acct = String(rate?.carrier_account || '');
       if (!acct) { failed.push({ orderId: o.id, error: 'No carrier account on this label' }); return; }
-      groups.set(acct, [...(groups.get(acct) || []), o]);
+      const shipmentId = typeof rate?.shipment === 'string' ? rate.shipment : rate?.shipment?.object_id;
+      const shipment = shipmentId ? await shippo(apiKey, `/shipments/${encodeURIComponent(shipmentId)}`) : null;
+      const when = String(shipment?.shipment_date || txn.object_created || new Date().toISOString());
+      const date = when.slice(0, 10);
+      const key = `${acct}|${date}`;
+      const g = groups.get(key) || { acct, date, list: [] as any[] };
+      g.list.push({ ...o, shipmentDate: when });
+      groups.set(key, g);
     } catch (e: any) { failed.push({ orderId: o.id, error: String(e?.message || 'Lookup failed') }); }
   };
   for (let i = 0; i < usps.length; i += 8) await Promise.all(usps.slice(i, i + 8).map(lookup));
@@ -111,36 +140,72 @@ export async function POST(req: NextRequest) {
     phone: from.phone || '', email: from.email || '',
   };
   const now = new Date().toISOString();
+  const started = Date.now();
+  // Ask Shippo for one form; labels it turns away are dropped and the rest tried once more.
+  const createForm = async (acct: string, shipmentDate: string, list: any[]): Promise<{ m: any; used: any[] } | null> => {
+    let todo = list;
+    for (let attempt = 0; attempt < 2 && todo.length; attempt++) {
+      const res = await fetch(`${SHIPPO}/manifests/`, {
+        method: 'POST', headers: { Authorization: `ShippoToken ${apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ carrier_account: acct, shipment_date: shipmentDate, address_from: addressFrom, transactions: todo.map((o: any) => o.shippoTransactionId), async: false }),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (res.ok) return { m: data, used: todo };
+      const rejected = data?.transactions && typeof data.transactions === 'object' ? Object.keys(data.transactions) : [];
+      const detail = String(data?.detail || (Array.isArray(data?.messages) ? data.messages.map((x: any) => x.text).join('; ') : '') || `HTTP ${res.status}`).slice(0, 200);
+      if (!rejected.length) { todo.forEach((o: any) => failed.push({ orderId: o.id, error: detail })); return null; }
+      todo.filter((o: any) => rejected.includes(String(o.shippoTransactionId))).forEach((o: any) => failed.push({ orderId: o.id, error: `Shippo left it off the form: ${String(data.transactions[o.shippoTransactionId]?.reason || data.transactions[o.shippoTransactionId] || detail).slice(0, 120)}` }));
+      todo = todo.filter((o: any) => !rejected.includes(String(o.shippoTransactionId)));
+    }
+    return null;
+  };
+  // Shippo makes the form in the background: wait a little for the sheet (well inside the time limit).
+  const settle = async (m: any) => {
+    let cur = m;
+    for (const wait of [3000, 5000, 8000, 12000]) {
+      if ((Array.isArray(cur?.documents) && cur.documents.length) || ['ERROR', 'SUCCESS'].includes(String(cur?.status || '').toUpperCase()) || Date.now() - started > 40000) break;
+      await new Promise((r) => setTimeout(r, wait));
+      try { cur = await shippo(apiKey, `/manifests/${encodeURIComponent(String(m.object_id))}`); } catch { break; }
+    }
+    return cur;
+  };
+
   const out: any[] = [];
-  for (const [acct, list] of groups) {
-    try {
-      const m = await shippo(apiKey, '/manifests/', {
-        carrier_account: acct, shipment_date: now, address_from: addressFrom,
-        transactions: list.map((o: any) => o.shippoTransactionId), async: false,
-      });
-      const docs: string[] = Array.isArray(m.documents) ? m.documents.map(String) : [];
-      const ref = manifests.doc();
-      const rec = {
-        id: ref.id, createdAt: now, carrier: 'USPS', shippoManifestId: String(m.object_id || ''), status: String(m.status || ''),
-        documents: docs, orderIds: list.map((o: any) => o.id),
-        orderNumbers: list.map((o: any) => o.orderNumber ?? null), count: list.length, byId: auth.actor.uid, byName: auth.actor.name,
-      };
-      const batch = db.batch();
-      batch.set(ref, rec);
-      list.forEach((o: any) => {
-        batch.set(o.ref, { manifestId: ref.id, manifestedAt: now }, { merge: true });
-        const ev = o.ref.collection('events').doc();
-        batch.set(ev, { id: ev.id, type: 'manifested', at: now, actorId: auth.actor.uid, actorName: auth.actor.name, meta: { manifestId: ref.id, carrier: 'USPS' } });
-      });
-      await batch.commit();
-      out.push(rec);
-    } catch (e: any) {
-      list.forEach((o: any) => failed.push({ orderId: o.id, error: String(e?.message || 'Manifest failed') }));
+  for (const g of [...groups.values()].sort((a, b) => a.date.localeCompare(b.date))) {
+    for (let i = 0; i < g.list.length; i += 500) {
+      const chunk = g.list.slice(i, i + 500);
+      try {
+        const made = await createForm(g.acct, chunk[0].shipmentDate, chunk);
+        if (!made) continue;
+        const m = await settle(made.m);
+        const docs: string[] = Array.isArray(m.documents) ? m.documents.map(String) : [];
+        const ref = manifests.doc();
+        const rec = {
+          id: ref.id, createdAt: now, carrier: 'USPS', shipmentDate: g.date, shippoManifestId: String(m.object_id || made.m.object_id || ''), status: String(m.status || ''),
+          documents: docs, orderIds: made.used.map((o: any) => o.id),
+          orderNumbers: made.used.map((o: any) => o.orderNumber ?? null), count: made.used.length, byId: auth.actor.uid, byName: auth.actor.name,
+        };
+        const batch = db.batch();
+        batch.set(ref, rec);
+        made.used.forEach((o: any) => {
+          batch.set(o.ref, { manifestId: ref.id, manifestedAt: now }, { merge: true });
+          const ev = o.ref.collection('events').doc();
+          batch.set(ev, { id: ev.id, type: 'manifested', at: now, actorId: auth.actor.uid, actorName: auth.actor.name, meta: { manifestId: ref.id, carrier: 'USPS' } });
+        });
+        await batch.commit();
+        out.push(rec);
+      } catch (e: any) {
+        chunk.forEach((o: any) => failed.push({ orderId: o.id, error: String(e?.message || 'Manifest failed') }));
+      }
     }
   }
   const count = out.reduce((a, m) => a + m.count, 0);
+  const making = out.some((m: any) => !(m.documents || []).length);
+  const left = failed.length ? ` ${failed.length} box${failed.length === 1 ? '' : 'es'} couldn’t go on it; the carrier scans ${failed.length === 1 ? 'that one' : 'those'} at pickup.` : '';
   return NextResponse.json({
-    ok: out.length > 0 || failed.length === 0, manifests: out, count, others, failed,
-    message: count ? `USPS manifest ready for ${count} box${count === 1 ? '' : 'es'}. Hand the carrier the sheet.` : 'The manifest didn’t go through. Your labels still work; the carrier can scan each box.',
+    ok: out.length > 0 || failed.length === 0, manifests: out, count, others, failed, making,
+    message: count
+      ? `${out.length > 1 ? `${out.length} USPS forms` : 'USPS form'} ${making ? 'being made' : 'ready'} for ${count} box${count === 1 ? '' : 'es'}${out.length > 1 ? ', one for each day the labels were bought' : ''}. Hand the carrier the sheet${out.length > 1 ? 's' : ''}.${left}`
+      : `The USPS form didn’t go through. Your labels still work; the carrier can scan each box.${left}`,
   });
 }

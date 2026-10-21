@@ -69,6 +69,12 @@ export function OrdersApp() {
     const u2 = onSnapshot(query(collection(fs, `tenants/${tenantId}/fulfillmentBatches`), where('active', '==', true)), (s) => setBatches(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setBatches([]));
     return () => { u1(); u2(); };
   }, [fs, tenantId]);
+  // Labels nobody has scanned for days (lib/label-sweep), shipped ones included: they belong under Needs you.
+  const [unscanned, setUnscanned] = React.useState<any[]>([]);
+  React.useEffect(() => {
+    if (!fs || !tenantId) return;
+    return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('labelUnscannedOpen', '==', true), limit(50)), (s) => setUnscanned(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setUnscanned([]));
+  }, [fs, tenantId]);
   React.useEffect(() => {
     if (!fs || !tenantId || tab !== 'done') return;
     return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('stage', 'in', DONE_STAGES), limit(80)), (s) => {
@@ -85,10 +91,10 @@ export function OrdersApp() {
   const photoFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const u = (Array.isArray(i.imageUrls) && i.imageUrls.find((x: any) => typeof x === 'string' && x.trim())) || (typeof i.imageUrl === 'string' && i.imageUrl.trim() ? i.imageUrl : ''); if (u) m.set(i.id, String(u)); }); return m; }, [inventory]);
   const shelfFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const s = String(i.storageLocation || i.shelf || i.binLocation || '').trim(); if (s) m.set(i.id, s); }); return m; }, [inventory]);
 
-  const byId = React.useMemo(() => new Map([...orders, ...done].map((o) => [o.id, o])), [orders, done]);
+  const byId = React.useMemo(() => new Map([...unscanned, ...done, ...orders].map((o) => [o.id, o])), [orders, done, unscanned]);
   const solo = React.useMemo(() => soloShop(staff || [], (m: any) => permissionsFor(m)), [staff]);
   const queue = React.useMemo(() => packQueue(orders, rs, now), [orders, rs, now]);
-  const needs = React.useMemo(() => needsYou(orders, now, Math.max(1, Number(rs.readyStaleHours) || 24)), [orders, now, rs.readyStaleHours]);
+  const needs = React.useMemo(() => needsYou([...orders, ...unscanned.filter((u) => !orders.some((o) => o.id === u.id))], now, Math.max(1, Number(rs.readyStaleHours) || 24)), [orders, unscanned, now, rs.readyStaleHours]);
   const counts = React.useMemo(() => ({ pack: orders.filter((o) => tabOf(o) === 'pack').length, ready: orders.filter((o) => tabOf(o) === 'ready').length }), [orders]);
   const list = React.useMemo(() => {
     const src = tab === 'done' ? done : orders.filter((o) => tabOf(o) === tab);

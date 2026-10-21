@@ -202,7 +202,9 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        await d.ref.set(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail }, { merge: true });
+        // A scan at last: it isn't an unused label after all (lib/label-sweep).
+        const moved = order.labelUnscannedOpen && ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'].includes(String(status));
+        await d.ref.set({ ...(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail }), ...(moved ? { labelUnscannedOpen: false } : {}) }, { merge: true });
       } catch {
         // never let bookkeeping fail the webhook
       }

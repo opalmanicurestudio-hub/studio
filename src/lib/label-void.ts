@@ -18,6 +18,8 @@ export const LABEL_CLEARED = {
   trackingNumber: '', carrier: '', trackingUrl: '', labelUrl: '', shippoTransactionId: '',
   extraLabelUrls: [] as string[], extraTrackingNumbers: [] as string[], extraTrackingUrls: [] as string[], labelsChecked: [] as string[], labelCheckedAt: null,
   labelVoidIds: [] as string[],
+  // A voided label isn't waiting for a scan any more (lib/label-sweep), and it's on no carrier form (api/retail/close-day).
+  labelUnscanned: null, labelUnscannedOpen: false, manifestId: null, manifestedAt: null,
 };
 
 export type VoidResult = { ok: boolean; error?: string; status?: string; count: number; voidedIds: string[]; trackingNumbers: string[] };

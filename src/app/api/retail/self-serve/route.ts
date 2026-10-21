@@ -167,6 +167,16 @@ export async function POST(req: NextRequest) {
       });
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
+      // A label already bought for it is voided now, so the postage comes back (lib/label-sweep); the morning check
+      // catches it otherwise.
+      try {
+        const after: any = (await orderRef.get()).data() || {};
+        if (after.shippoTransactionId) {
+          const { voidIfUnused } = await import('@/lib/label-sweep');
+          const { shippoKeyFor } = await import('@/lib/retail-secrets');
+          await voidIfUnused(db, tenantId, orderRef, after, await shippoKeyFor(db, tenantId), 'the order was cancelled', { id: 'customer', name: after.customerName || 'Customer' });
+        }
+      } catch { /* the morning check voids it */ }
       // Gift card and store credit used on the order go back too (lib/cancel-restore).
       const restored = await restoreNonCardPayment(db, tenantId, orderId, 'Customer cancellation').catch(() => ({ giftCents: 0, creditCents: 0 }));
       const restoredLine = [restored.giftCents ? `$${(restored.giftCents / 100).toFixed(2)} is back on your gift card` : '', restored.creditCents ? `$${(restored.creditCents / 100).toFixed(2)} store credit is back on your account` : ''].filter(Boolean).join(' and ');

@@ -3,6 +3,7 @@ import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { recordPostage } from '@/lib/postage';
 import { addressKey, openRequest } from '@/lib/address-flow';
+import { paidServiceRate } from '@/lib/paid-service';
 import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -172,7 +173,10 @@ export async function POST(req: NextRequest) {
         .filter((r: any) => Number.isFinite(r.amountCents) && r.amountCents > 0)
         .sort((a: any, b: any) => a.amountCents - b.amountCents);
       if (rates.length === 0) { fail(order.groundOnly ? 'Ground only, and no ground rate came back' : 'No rates came back'); continue; }
-      const cheapest = rates[0];
+      // The service the customer paid for at checkout (lib/paid-service); the cheapest only when they chose plain shipping.
+      const paid = paidServiceRate(rates, order.shippingService, order.shippingCarrier);
+      if (!paid.rate) { fail(`They paid for ${order.shippingService}, and it isn’t offered for this box today. Choose a service on its ship sheet.`); continue; }
+      const cheapest = paid.rate;
 
       const txn = await shippo(apiKey, '/transactions/', { rate: cheapest.id, label_file_type: shippoFileType(labelFormatOf(rs), { stack: true }), async: false });
       if (txn.status !== 'SUCCESS') {
@@ -214,7 +218,7 @@ export async function POST(req: NextRequest) {
             signature: decision.signature,
             insuranceCents: decision.insuranceCents,
             expectedWeightOz: weightOz,
-            text: `Bulk purchase — cheapest rate (${cheapest.provider} ${cheapest.service}, $${(cheapest.amountCents / 100).toFixed(2)})${decision.reasons.length ? ' · ' + decision.reasons.join(' · ') : ''}`,
+            text: `Bulk purchase — ${paid.how === 'matched' ? 'the service they paid for' : 'cheapest rate'} (${cheapest.provider} ${cheapest.service}, $${(cheapest.amountCents / 100).toFixed(2)})${decision.reasons.length ? ' · ' + decision.reasons.join(' · ') : ''}`,
           },
         });
         return true;

@@ -418,7 +418,7 @@ export default function CheckoutPage() {
           addressCheckToken: method === 'ship' && !digitalOnlyCart && extra?.token ? extra.token : undefined,
           unitAnswer: method === 'ship' && !digitalOnlyCart ? extra?.unitAnswer : undefined,
           shippingQuote: method === 'ship' && selectedQuote
-            ? { amountCents: selectedQuote.amountCents, service: selectedQuote.service, exp: selectedQuote.exp, token: selectedQuote.token }
+            ? { amountCents: selectedQuote.amountCents, service: selectedQuote.service, carrier: selectedQuote.carrier, exp: selectedQuote.exp, token: selectedQuote.token }
             : undefined,
           priceTier: wholesale ? 'wholesale' : 'retail',
           wholesaleCode: wholesale ? wholesaleCode : undefined,

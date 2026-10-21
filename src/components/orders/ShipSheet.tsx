@@ -16,6 +16,7 @@ import { openPrint } from '@/lib/open-print';
 import { labelProgress } from '@/lib/totes';
 import { AddressCard } from './AddressCard';
 import { addressKey, oneLine, openRequest } from '@/lib/address-flow';
+import { paidServiceRate } from '@/lib/paid-service';
 
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
@@ -58,6 +59,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   // Rates are priced for an address; when it changes, they're fetched again, and buying names the address they were for.
   const addrK = addressKey(order.shippingAddress);
   const [ratesFor, setRatesFor] = React.useState('');
+  const [paidId, setPaidId] = React.useState(''); const [paidMissing, setPaidMissing] = React.useState(false);
   const [manual, setManual] = React.useState(!(rs?.shippoConnected || rs?.shippoApiKey) && !label);
   const [mCarrier, setMCarrier] = React.useState(''); const [mNumber, setMNumber] = React.useState('');
   const [mExtra, setMExtra] = React.useState<string[]>([]);   // more boxes, one tracking number each
@@ -68,7 +70,12 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   };
   const loadRates = React.useCallback(async () => {
     if (manual || label) return; setLoading(true); setErr(''); setRates([]); setRate('');
-    try { const d = await post({ action: 'rates', parcels }); const rs2 = (d.rates || []).sort((a: Rate, b: Rate) => a.amountCents - b.amountCents); setRates(rs2); setRate(rs2[0]?.id || ''); setRatesFor(String(d.addressKey || '')); }
+    try {
+      const d = await post({ action: 'rates', parcels, ...(many ? { withOrderIds: together.map((g: any) => g.id) } : {}) }); const rs2: Rate[] = (d.rates || []).sort((a: Rate, b: Rate) => a.amountCents - b.amountCents);
+      // The service the customer paid for comes first (lib/paid-service); the cheapest when they chose plain shipping.
+      const paid = paidServiceRate(rs2, order.shippingService, order.shippingCarrier);
+      setRates(rs2); setRate((paid.rate || rs2[0])?.id || ''); setPaidId(paid.how === 'matched' ? paid.rate?.id || '' : ''); setPaidMissing(paid.how === 'missing'); setRatesFor(String(d.addressKey || ''));
+    }
     catch (e: any) { setErr(e.message); } setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parcelsKey, manual, label, addrK]);
@@ -76,7 +83,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
 
   const buy = async () => {
     setLoading(true); setErr('');
-    try { const d = await post({ action: 'purchase', rateId: rate, parcels, ...(ratesFor ? { addressKey: ratesFor } : {}) });
+    try { const d = await post({ action: 'purchase', rateId: rate, parcels, ...(ratesFor ? { addressKey: ratesFor } : {}), ...(many ? { withOrderIds: together.map((g: any) => g.id) } : {}) });
       const extraUrls: string[] = d.extraLabelUrls || [];
       setLabel({ url: d.labelUrl || '', carrier: d.carrier || '', number: d.trackingNumber || '', trackUrl: d.trackingUrl || '', extraUrls, extraNumbers: d.extraTrackingNumbers || [] });
       if (many) await joinGroup(null);
@@ -178,12 +185,13 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
             </div>))}
           {boxes.length < 10 && <Btn kind="plain" className="mt-2 w-full" onClick={addBox}>Add another box</Btn>}
           <p className="m-0 mt-4 text-[13px] font-semibold" style={muted}>Carrier{order.shippingCents ? ` · they paid ${money(order.shippingCents)} for shipping` : ''}</p>
+          {paidMissing && <p className="m-0 mt-2 rounded-2xl p-3 text-[14px]" style={{ background: C.warnSoft, color: C.warn }}>They paid for {order.shippingService}, and it isn’t offered for this box today. Choose the closest service.</p>}
           <div className="mt-2 flex flex-col gap-2">
             {loading && rates.length === 0 && <p className="m-0 py-3 text-[15px]" style={muted}>Getting rates…</p>}
             {rates.map((r, i) => (
               <button key={r.id} type="button" onClick={() => setRate(r.id)} className="flex items-center gap-3 rounded-2xl px-4 py-3 text-left" style={pill(rate === r.id)}>
                 <span className="h-5 w-5 shrink-0 rounded-full" style={{ border: rate === r.id ? `6px solid ${C.ink}` : `2px solid ${C.line}`, boxSizing: 'border-box' }} />
-                <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{r.provider} {r.service}</span><span className="block text-[13px]" style={muted}>{r.days ? `About ${r.days} day${r.days === 1 ? '' : 's'}` : 'Delivery time varies'}{i === 0 ? ' · cheapest' : ''}</span></span>
+                <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{r.provider} {r.service}</span><span className="block text-[13px]" style={muted}>{r.days ? `About ${r.days} day${r.days === 1 ? '' : 's'}` : 'Delivery time varies'}{r.id === paidId ? ' · what they paid for' : i === 0 ? ' · cheapest' : ''}</span></span>
                 <span className="text-[15px] font-semibold">{money(r.amountCents)}</span>
               </button>))}
           </div>

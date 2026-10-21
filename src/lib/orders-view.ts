@@ -38,6 +38,10 @@ export const itemCount = (o: any) => (o?.lines || []).reduce((a: number, l: any)
 export function dueLine(o: any, retailSettings: any, now = Date.now()): { text: string; late: boolean } {
   const st = String(o?.stage || '');
   if (st === 'arrived') return { text: 'Outside now', late: true };
+  // Orders that have gone (opened from Needs you, or the Done tab): when, not how late.
+  if (st === 'shipped') { const t = ms(o.completedAt); return { text: t ? `Shipped ${new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Shipped', late: false }; }
+  if (st === 'completed' || st === 'handed_off') return { text: 'Done', late: false };
+  if (st === 'cancelled' || st === 'refunded') return { text: 'Cancelled', late: false };
   if (st === 'ready') {
     const since = ms(o.readyAt);
     const days = since ? Math.floor((now - since) / 864e5) : 0;
@@ -46,7 +50,7 @@ export function dueLine(o: any, retailSettings: any, now = Date.now()): { text: 
   if (st === 'packed' && o.method === 'ship') return { text: o.labelUrl ? 'Label bought' : 'Needs a label', late: false };
   if (o.holdUntilRestock === true) return { text: 'Waiting on stock', late: false };
   const sla = slaFor(o, fulfilmentPolicy(retailSettings || {}), now);
-  if (sla.state === 'late') return { text: `${Math.max(1, Math.round(-sla.minutesRemaining))} min late`, late: true };
+  if (sla.state === 'late') { const m = Math.max(1, Math.round(-sla.minutesRemaining)); return { text: m < 90 ? `${m} min late` : m < 36 * 60 ? `${Math.round(m / 60)} hours late` : `${Math.round(m / 1440)} days late`, late: true }; }
   const due = new Date(sla.dueAtMs);
   const sameDay = new Date(now).toDateString() === due.toDateString();
   const tomorrow = new Date(now + 864e5).toDateString() === due.toDateString();
@@ -62,7 +66,7 @@ export function packQueue(orders: any[], retailSettings: any, now = Date.now()) 
     .sort((a, b) => a.d - b.d).map((x) => x.o);
 }
 
-export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed'; text: string }
+export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label'; text: string }
 /** The few things a person has to decide, most urgent first. */
 export function needsYou(orders: any[], now = Date.now(), staleHours = 48): NeedItem[] {
   const out: NeedItem[] = [];
@@ -74,10 +78,12 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     // The address (lib/address-flow): a change waiting for the team, or a question the customer hasn't answered in a day.
     if (['waiting', 'approving'].includes(String(o.addressRequest?.status)) && ['placed', 'paid', 'picking', 'packed'].includes(o.stage)) out.push({ key: `${o.id}-addr`, orderId: o.id, kind: 'address', text: o.labelUrl || o.shippoTransactionId ? `${who} changed the address after the label was bought` : `${who} asked to change the address` });
     if (o.addressConfirm?.status === 'waiting' && ['paid', 'picking', 'packed'].includes(o.stage) && ms(o.addressConfirm.askedAt) && now - ms(o.addressConfirm.askedAt) > 24 * 3600e3) out.push({ key: `${o.id}-conf`, orderId: o.id, kind: 'unconfirmed', text: `${who} hasn’t confirmed the address yet` });
+    // A label nobody has scanned for days (lib/label-sweep): find the box, or void the label and get the postage back.
+    if (o.labelUnscannedOpen === true && o.shippoTransactionId && ['packed', 'shipped'].includes(o.stage)) out.push({ key: `${o.id}-lbl`, orderId: o.id, kind: 'label', text: o.stage === 'shipped' ? `The carrier hasn’t scanned ${who}’s box` : `${who}’s label hasn’t been used` });
     if (o.stage === 'paid' && o.holdUntilRestock === true) out.push({ key: `${o.id}-bo`, orderId: o.id, kind: 'backorder', text: `${who}’s order is waiting on stock` });
     if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });
   }
-  const rank: Record<string, number> = { outside: 0, held: 1, address: 2, refund: 3, missing: 4, uncollected: 5, unconfirmed: 6, backorder: 7 };
+  const rank: Record<string, number> = { outside: 0, held: 1, address: 2, refund: 3, missing: 4, uncollected: 5, unconfirmed: 6, label: 7, backorder: 8 };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
 

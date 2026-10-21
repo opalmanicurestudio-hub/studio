@@ -116,6 +116,35 @@ export function shippoExtra(decision: ProtectionDecision): Record<string, unknow
   return Object.keys(extra).length > 0 ? extra : undefined;
 }
 
+/**
+ * Insurance shared across boxes, by weight, to the cent. Shippo insures EACH box for a shipment-level amount, so an
+ * order in three boxes would otherwise pay for its whole value three times over.
+ */
+export function splitInsurance(totalCents: number, weightsOz: number[]): number[] {
+  const total = Math.max(0, Math.round(Number(totalCents) || 0));
+  if (weightsOz.length <= 1) return [total];
+  const w = weightsOz.map((x) => Math.max(0, Number(x) || 0));
+  const basis = w.some((x) => x > 0) ? w : w.map(() => 1);
+  const sum = basis.reduce((a, b) => a + b, 0);
+  const parts = basis.map((b, i) => { const exact = (total * b) / sum; return { i, cents: Math.floor(exact), rem: exact - Math.floor(exact) }; });
+  let left = total - parts.reduce((a, p) => a + p.cents, 0);
+  for (const p of [...parts].sort((a, b) => b.rem - a.rem)) { if (left <= 0) break; p.cents++; left--; }
+  return parts.map((p) => p.cents);
+}
+
+/**
+ * The boxes and the shipment-level extras for Shippo. One box: insurance on the shipment, as always. Several boxes:
+ * each box carries its own share (Shippo takes a box's own amount over the shipment's), and the shipment carries none.
+ */
+export function insuredParcels<T extends { weight: string }>(decision: ProtectionDecision, parcels: T[]): { parcels: (T & { extra?: Record<string, unknown> })[]; extra: Record<string, unknown> | undefined } {
+  if (decision.insuranceCents <= 0 || parcels.length <= 1) return { parcels, extra: shippoExtra(decision) };
+  const shares = splitInsurance(decision.insuranceCents, parcels.map((p) => Number(p.weight) || 0));
+  return {
+    parcels: parcels.map((p, i) => (shares[i] > 0 ? { ...p, extra: { insurance: { amount: (shares[i] / 100).toFixed(2), currency: 'USD', content: 'Merchandise' } } } : p)),
+    extra: shippoExtra({ ...decision, insuranceCents: 0 }),
+  };
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
  * WEIGHT AS EVIDENCE
  *

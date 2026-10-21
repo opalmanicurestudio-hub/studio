@@ -64,6 +64,18 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
     } catch { setErr('That didn’t go through. Try again.'); }
     setBusy(false);
   };
+  // A label nobody has scanned for days (lib/label-sweep): void it for the postage, or say the box went out.
+  const unscannedLabel = order.labelUnscannedOpen === true && !!order.shippoTransactionId && ['packed', 'shipped'].includes(order.stage);
+  const day = (v: unknown) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'a few days ago'; };
+  const labelAction = async (action: 'void' | 'unscanned_ok') => {
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/api/retail/shipping-label', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, qrToken: order.qrToken || '', action, ...(action === 'void' && order.stage === 'shipped' ? { unscanned: true } : {}) }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { feel(true); onToast(d.message || 'Done.'); } else setErr(d.error || 'That didn’t go through. Try again.');
+    } catch { setErr('That didn’t go through. Try again.'); }
+    setBusy(false);
+  };
   const doCancel = async () => { setBusy(true); const r = await cancelIt(fs, tenantId, order, actor, reason.trim() || 'Cancelled by the shop'); setBusy(false); if (r.ok) { setConfirm(null); onToast(r.message); } else setErr(r.message); };
   const doRefund = async () => {
     setBusy(true); setErr('');
@@ -112,6 +124,13 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
                 <Btn kind="soft" className="mt-2 h-11 w-full" disabled={busy} onClick={() => setKeepOpen(true)}>Keep the old address</Btn>
               </>)}
               <p className="m-0 mt-2 text-[13px]" style={muted}>{labelled ? 'The unused label is refunded by the carrier. Then buy the new one and put it over the old label.' : `${who} sees your answer on their order page.`}</p>
+            </div>)}
+          {unscannedLabel && (
+            <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
+              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{order.stage === 'shipped' ? 'The carrier hasn’t scanned this box' : 'This label hasn’t been used'}</p>
+              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{order.stage === 'shipped' ? `Marked shipped ${day(order.completedAt)}, with no carrier scan since. If it never went out, void the label and the postage comes back.` : `Bought ${day(order.labelUnscanned?.boughtAt)}. If this box isn’t going out, void the label and the postage comes back.`}</p>
+              <Btn kind="primary" className="mt-3 h-11 w-full" disabled={busy} onClick={() => void labelAction('void')}>{order.stage === 'shipped' ? 'Void it, it never went out' : 'Void the label'}</Btn>
+              <Btn kind="soft" className="mt-2 h-11 w-full" disabled={busy} onClick={() => void labelAction('unscanned_ok')}>{order.stage === 'shipped' ? 'It went out' : 'It’s going out today'}</Btn>
             </div>)}
           {order.method === 'ship' && ['paid', 'picking', 'packed'].includes(order.stage) && <div className="mt-4"><AddressCard order={order} tenantId={tenantId} onToast={onToast} /></div>}
           <p className="m-0 mt-5 text-[13px] font-semibold" style={muted}>{['paid', 'picking'].includes(order.stage) ? `In the box · ${prog.done} of ${prog.total}` : 'Items'}</p>

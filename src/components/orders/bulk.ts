@@ -67,12 +67,24 @@ export async function setHold(fs: Firestore, t: string, orders: any[], actor: Ac
   return hold ? `${plural(todo.length, 'order')} held. They won’t be packed until someone releases them.` : `${plural(todo.length, 'order')} released to pack.`;
 }
 
-export async function closeDay(t: string): Promise<{ ok: boolean; message: string; documents: string[] }> {
+export async function closeDay(t: string): Promise<{ ok: boolean; message: string; documents: string[]; waitingIds: string[] }> {
   try {
     const r = await fetch('/api/retail/close-day', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, action: 'manifest' }) });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) return { ok: false, message: d.error || 'Couldn’t close the day. Try again.', documents: [] };
+    if (!r.ok) return { ok: false, message: d.error || 'Couldn’t close the day. Try again.', documents: [], waitingIds: [] };
     const docs: string[] = (d.manifests || []).flatMap((m: any) => m.documents || []);
-    return { ok: !!d.ok, message: `${d.message || ''}${d.others ? ` ${plural(d.others, 'box', 'boxes')} on other carriers get scanned at pickup.` : ''}`.trim(), documents: docs };
-  } catch { return { ok: false, message: 'Couldn’t close the day. Check your connection.', documents: [] }; }
+    // Forms Shippo is still making: Ship today keeps asking until their sheets turn up (formsReady).
+    const waitingIds: string[] = (d.manifests || []).filter((m: any) => !(m.documents || []).length).map((m: any) => String(m.id));
+    return { ok: !!d.ok, message: `${d.message || ''}${d.others ? ` ${plural(d.others, 'box', 'boxes')} on other carriers get scanned at pickup.` : ''}`.trim(), documents: docs, waitingIds };
+  } catch { return { ok: false, message: 'Couldn’t close the day. Check your connection.', documents: [], waitingIds: [] }; }
+}
+
+/** The sheets for forms that were still being made, once they're ready (empty until then). */
+export async function formsReady(t: string, ids: string[]): Promise<{ documents: string[]; pending: string[] }> {
+  try {
+    const r = await fetch('/api/retail/close-day', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, action: 'history' }) });
+    const d = await r.json().catch(() => ({}));
+    const mine = (d.manifests || []).filter((m: any) => ids.includes(String(m.id)));
+    return { documents: mine.flatMap((m: any) => m.documents || []), pending: mine.filter((m: any) => !(m.documents || []).length).map((m: any) => String(m.id)) };
+  } catch { return { documents: [], pending: ids }; }
 }

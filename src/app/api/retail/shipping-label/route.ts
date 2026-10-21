@@ -8,7 +8,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { addressKey, openRequest } from '@/lib/address-flow';
 
 import {
-  insurableValueCents, protectionFor, protectionPolicy, shippoExtra,
+  insurableValueCents, insuredParcels, protectionFor, protectionPolicy,
 } from '@/lib/shipment-protection';
 
 // ─── /api/retail/shipping-label/route.ts ──────────────────────────────────────
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
   const qrToken = String(body.qrToken || '').trim();
   const action = String(body.action || '').trim();
 
-  if (!tenantId || !orderId || !qrToken || !['rates', 'purchase', 'void'].includes(action)) {
+  if (!tenantId || !orderId || !qrToken || !['rates', 'purchase', 'void', 'unscanned_ok'].includes(action)) {
     return NextResponse.json({ error: 'tenantId, orderId, qrToken, and a valid action are required' }, { status: 400 });
   }
 
@@ -106,12 +106,36 @@ export async function POST(req: NextRequest) {
   if (!mayShip(auth.actor)) return NextResponse.json({ error: SHIP_DENIED }, { status: 403 });
 
   const apiKey = await shippoKeyFor(db, tenantId, tenant);
+  // Orders going in the same box (lib/ship-together): the box carries all their goods, so it's insured for all of them.
+  const withIds: string[] = (Array.isArray(body.withOrderIds) ? body.withOrderIds : []).map(String).filter((id: string) => id && id !== orderId).slice(0, 9);
+  const together = withIds.length
+    ? (await Promise.all(withIds.map((id) => db.collection(`tenants/${tenantId}/retailOrders`).doc(id).get())))
+        .filter((d: any) => d.exists).map((d: any) => d.data() as any)
+        .filter((o: any) => String(o.customerEmail || '').trim().toLowerCase() === String(order.customerEmail || '').trim().toLowerCase())
+    : [];
+  const boxOrder = together.length ? { ...order, lines: [...(order.lines || []), ...together.flatMap((o: any) => o.lines || [])] } : order;
   if (!apiKey) {
     return NextResponse.json({ error: 'Shippo is not connected — add your API key in Shop Settings.' }, { status: 400 });
   }
 
   try {
+    // A label nobody has scanned for days (lib/label-sweep), and the box did go out: stop asking.
+    if (action === 'unscanned_ok') {
+      const now = new Date().toISOString();
+      await orderRef.set({ labelUnscanned: { ...(order.labelUnscanned || {}), dismissedAt: now, dismissedBy: auth.actor.name }, labelUnscannedOpen: false }, { merge: true });
+      const ev = orderRef.collection('events').doc();
+      await ev.set({ id: ev.id, type: 'note', at: now, actorId: auth.actor.uid, actorName: auth.actor.name, meta: { kind: 'label_unscanned_ok', text: 'Confirmed the box went out, though the carrier hasn’t scanned it yet' } });
+      return NextResponse.json({ ok: true, message: 'Noted. If it still isn’t scanned in a few days, check with the carrier.' });
+    }
+
     if (action === 'void') {
+      // Marked shipped, but the carrier never scanned it: it never left, so the label can still come back.
+      if (order.stage === 'shipped' && body.unscanned === true) {
+        const { voidIfUnused } = await import('@/lib/label-sweep');
+        const r = await voidIfUnused(db, tenantId, orderRef, order, apiKey, 'the carrier never scanned it', { id: auth.actor.uid, name: auth.actor.name });
+        if (!r.ok) return NextResponse.json({ error: r.error }, { status: 409 });
+        return NextResponse.json({ ok: true, message: 'Label voided and the order is back to packed. The postage comes back to the shop.' });
+      }
       if (['shipped', 'handed_off', 'completed'].includes(order.stage)) {
         return NextResponse.json({ error: 'This order already shipped — the label can\u2019t be voided from here.' }, { status: 409 });
       }
@@ -186,11 +210,13 @@ export async function POST(req: NextRequest) {
       // Signature and insurance are priced by the carrier on the shipment, so
       // they are added HERE and not at purchase — otherwise staff would be
       // shown one price and charged another.
-      const decision = protectionFor(order, protectionPolicy(rs));
-      const extra = withOrderRef(shippoExtra(decision), rs, order);
+      const decision = protectionFor(boxOrder, protectionPolicy(rs));
+      // Several boxes: each is insured for its own share of the goods, never the whole value again (lib/shipment-protection).
+      const insured = insuredParcels(decision, parcels);
+      const extra = withOrderRef(insured.extra, rs, order);
 
       const shipment = await shippo(apiKey, '/shipments/', {
-        address_from: addressFrom, address_to: addressTo, parcels, async: false,
+        address_from: addressFrom, address_to: addressTo, parcels: insured.parcels, async: false,
         ...(extra ? { extra } : {}),
       });
       const rates = groundFilter(shipment.rates || [], order.groundOnly === true)
@@ -270,7 +296,7 @@ export async function POST(req: NextRequest) {
     // The weight the system expected, from the per-item weights the board
     // summed. Written at purchase because it cannot be reconstructed later,
     // and because a carrier-scanned weight is meaningless without it.
-    const purchaseDecision = protectionFor(order, protectionPolicy(rs));
+    const purchaseDecision = protectionFor(boxOrder, protectionPolicy(rs));
     const expectedWeightOz = (Array.isArray(body.parcels) && body.parcels.length > 0
       ? body.parcels
       : [body.parcel || {}]
@@ -286,7 +312,7 @@ export async function POST(req: NextRequest) {
         shipmentProtection: {
           signature: purchaseDecision.signature,
           insuranceCents: purchaseDecision.insuranceCents,
-          insurableValueCents: insurableValueCents(order),
+          insurableValueCents: insurableValueCents(boxOrder),
           expectedWeightOz,
           decidedAt: new Date().toISOString(),
         },

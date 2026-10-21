@@ -99,7 +99,7 @@ interface CheckoutBody {
   // hidden inside the repo-wide noise. Declaring them changes no behaviour.
   tipCents?: number;
   pickupAt?: string;
-  shippingQuote?: { amountCents?: number; service?: string; exp?: number; token?: string };
+  shippingQuote?: { amountCents?: number; service?: string; carrier?: string; exp?: number; token?: string };
   tenantId?: string;
   items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
   method?: string;
@@ -397,6 +397,7 @@ async function handleCheckout(req: NextRequest) {
 
   let shippingCents = 0;
   let shippingService = '';
+  let shippingCarrier = '';
   if (method === 'ship' && !digitalOnly) {
     const flat = Math.round((Number(rs.flatShippingDollars) || 0) * 100);
     const freeOver = Math.round((Number(rs.freeShippingOverDollars) || 0) * 100);
@@ -416,6 +417,8 @@ async function handleCheckout(req: NextRequest) {
         const freeQualified = freeOver > 0 && subtotalCents >= freeOver;
         shippingCents = freeQualified ? 0 : amount;
         shippingService = service;
+        // Not part of the signed quote (the price is), only which carrier's service it was, so the label matches.
+        shippingCarrier = String(q.carrier || '').slice(0, 40);
       }
     }
   }
@@ -529,6 +532,7 @@ async function handleCheckout(req: NextRequest) {
     taxMode: stripeTax ? 'stripe' : 'flat',
     shippingCents,
     shippingService,
+    ...(shippingCarrier ? { shippingCarrier } : {}),
     refundedCents: 0,
     storeCreditRequestedCents: 0,
     tipCents,

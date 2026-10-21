@@ -87,9 +87,20 @@ export async function shipIt(fs: Firestore, t: string, o: any, actor: Actor, tra
 
 export async function cancelIt(fs: Firestore, t: string, o: any, actor: Actor, reason: string): Promise<Result> {
   const r = await cancelOrder(fs, t, o.id, actor, reason);
+  if (!r.ok) return r;
   // Gift card and store credit used on the order go back to the customer (lib/cancel-restore).
-  if (r.ok && ((Number(o.giftCardCents) || 0) > 0 || (Number(o.storeCreditRequestedCents) || 0) > 0)) {
+  if ((Number(o.giftCardCents) || 0) > 0 || (Number(o.storeCreditRequestedCents) || 0) > 0) {
     try { await fetch('/api/retail/cancel-restore', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id }) }); } catch { /* the nightly check catches up */ }
+  }
+  // A label already bought for it: voided now, so the postage comes back. If this person can't void labels, the
+  // morning check does it (lib/label-sweep).
+  if (o.shippoTransactionId && o.qrToken) {
+    let voided = false;
+    try {
+      const v = await fetch('/api/retail/shipping-label', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id, qrToken: o.qrToken, action: 'void' }) });
+      voided = v.ok;
+    } catch { /* overnight */ }
+    return { ...r, message: `${r.message} ${voided ? 'Its label was voided, so the postage comes back.' : 'Its label will be voided overnight, so the postage comes back.'}` };
   }
   return r;
 }
