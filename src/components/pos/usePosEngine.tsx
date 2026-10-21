@@ -10,6 +10,7 @@
 
 import { useToday, useTransactionsInRange } from '@/hooks/use-transactions';
 import { useAppointmentWindow, useClientVisits } from '@/hooks/use-appointments';
+import { useClientsByIds } from '@/hooks/use-clients';
 import { writePartHandoff } from '@/lib/part-handoff';
 import { arrivalFields } from '@/lib/check-in';
 import { addOnIdsOf } from '@/lib/prep-checkout';
@@ -258,7 +259,7 @@ export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string,
 
 export function usePosEngine() {
   const isMobile = useIsMobile();
-  const { inventory, services, clients, walkIns, staff, memberships, packages, resources, discounts, tillSessions, isLoading: ctxLoading } = useInventory();
+  const { inventory, services, walkIns, staff, memberships, packages, resources, discounts, tillSessions, isLoading: ctxLoading } = useInventory();
   // The shared working window (hooks/use-appointments): today's visits, the queue and upcoming conflicts, not all history.
   const { appointments: appointmentsFromInventory, isLoading: apptLoading } = useAppointmentWindow();
   const isInventoryLoading = ctxLoading || apptLoading;
@@ -272,6 +273,14 @@ export function usePosEngine() {
 
   const [selectedAppointmentIds, setSelectedAppointmentIds] = useState<Set<string>>(new Set());
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  // Today's people (visits from yesterday to tomorrow, the walk-in queue) and whoever is chosen at the till, read by id —
+  // finding anyone else is a search (hooks/use-clients).
+  const posClientIds = useMemo(() => { const now = Date.now(), lo = now - 36 * 3600_000, hi = now + 36 * 3600_000; const out: string[] = [];
+    for (const a of (appointmentsFromInventory || []) as any[]) { const t = a.startTime instanceof Date ? a.startTime.getTime() : 0; if (a.clientId && t >= lo && t <= hi) out.push(String(a.clientId)); }
+    for (const w of (walkIns || []) as any[]) if (w?.clientId) out.push(String(w.clientId));
+    if (selectedClientId) out.push(String(selectedClientId));
+    return out; }, [appointmentsFromInventory, walkIns, selectedClientId]);
+  const { clients } = useClientsByIds(posClientIds);
   const [retailItems, setRetailItems] = useState<any[]>([]);
   const [tipAmount, setTipAmount] = useState(0);
   const [tipAllocations, setTipAllocations] = useState<Record<string, number>>({});
@@ -303,6 +312,7 @@ export function usePosEngine() {
     const id = (selectedClientId as any) || null;
     if (!id || preTickedFor.current.has(id)) return;
     const c: any = (clients || []).find((x: any) => x.id === id);
+    if (!c) return;   // still loading; this runs again when they arrive
     const ids: string[] = (c?.unpaidFees || []).map((f: any) => f?.feeId).filter(Boolean);
     preTickedFor.current.add(id);
     if (ids.length) setAppliedAdjustments((prev) => new Set([...Array.from(prev), ...ids]));

@@ -3,7 +3,7 @@
 // has. Every record goes through the same view as the shared list (renters' own clients hidden, contact privacy
 // applied), so a screen can't tell the difference.
 import { useEffect, useMemo, useState } from 'react';
-import { collection, doc, documentId, limit, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, documentId, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { useFirebase, useMemoFirebase } from '@/firebase/provider';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { useDoc } from '@/firebase/firestore/use-doc';
@@ -83,5 +83,14 @@ export function useClientsOwing(): { clients: Client[]; isLoading: boolean } {
   const q = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'clients'), where('outstandingBalance', '>', 0)) : null), [firestore, tenantId]);
   const r = useCollection<any>(q);
   const clients = useMemo(() => (r.data ? r.data.map(view).filter(Boolean) : NONE), [r.data, view]);
+  return { clients, isLoading: !!q && (r.isLoading || (r.data == null && !r.error)) };
+}
+
+/** The business's biggest spenders (lifetime value), for a picker before anything is typed. */
+export function useTopClients(n = 6, enabled = true): { clients: Client[]; isLoading: boolean } {
+  const { firestore, tenantId, view } = useTenantDb();
+  const q = useMemoFirebase(() => (enabled && firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'clients'), orderBy('lifetimeValue', 'desc'), limit(n + 10)) : null), [enabled, firestore, tenantId, n]);
+  const r = useCollection<any>(q);
+  const clients = useMemo(() => (r.data ? r.data.map(view).filter(Boolean).slice(0, n) : NONE), [r.data, view, n]);
   return { clients, isLoading: !!q && (r.isLoading || (r.data == null && !r.error)) };
 }

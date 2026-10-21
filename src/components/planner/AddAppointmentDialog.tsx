@@ -71,6 +71,7 @@ import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useAppointmentsOnDay } from '@/hooks/use-appointments';
+import { useClient, useClientSearch, useDebounced } from '@/hooks/use-clients';
 import { collection, doc, writeBatch, increment, arrayUnion, query, where, getDocs } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -127,7 +128,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const { firestore } = useFirebase();
   const { user } = useUser();
   const { selectedTenant, role } = useTenant();
-  const { services, staff, pricingTiers, clients, scheduleProfiles, events: eventsFromDB } = useInventory();
+  const { services, staff, pricingTiers, scheduleProfiles, events: eventsFromDB } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
 
@@ -195,7 +196,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const watchTierId = watch('selectedTierId');
   const watchOverride = watch('overrideBusinessHours');
 
-  const selectedClient = useMemo(() => clients?.find(c => c.id === watchClientId), [clients, watchClientId]);
+  const { client: selectedClientDoc } = useClient(watchClientId && watchClientId !== 'new' ? watchClientId : null);   // just the chosen client
+  const selectedClient = selectedClientDoc || undefined;
   const selectedService = useMemo(() => services?.find(s => s.id === watchServiceId), [services, watchServiceId]);
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
 
@@ -479,12 +481,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     </div>
   );
 
-  const filteredClients = useMemo(() => {
-      if (!clients) return [];
-      if (!clientSearch.trim()) return clients.slice(0, 10);
-      const s = clientSearch.toLowerCase();
-      return clients.filter(c => (c.name || '').toLowerCase().includes(s) || (c.email && c.email.toLowerCase().includes(s)) || (c.phone && c.phone.includes(s)));
-  }, [clients, clientSearch]);
+  // Searched on the server as you type (hooks/use-clients): name, email or phone.
+  const clientSearchSettled = useDebounced(clientSearch, 200);
+  const { clients: filteredClients } = useClientSearch(clientSearchSettled, 10);
 
   const currentAssignedPro = useMemo(() => staff?.find(s => s.id === assignedStaffId), [staff, assignedStaffId]);
 

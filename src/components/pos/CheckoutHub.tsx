@@ -44,6 +44,7 @@ import { GiftCardPanel } from '@/components/pos/GiftCardPanel';
 import { brandAccent } from '@/lib/brand-accent';
 import { deskScript, shopSettings } from '@/lib/gift-designs';
 import { liveOffer, todayIn } from '@/lib/gift-offers';
+import { useClientSearch, useDebounced } from '@/hooks/use-clients';
 
 // The card reader, where the desk has started one (null otherwise).
 const useTerminalSafe = (): any => useTerminalOptional();
@@ -495,18 +496,22 @@ export const CheckoutHub = ({
   const checkoutConsentForm = null;
   const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
 
+  // Searched on the server as well (hooks/use-clients), so anyone can be found.
+  const payerSettled = useDebounced(isGroupCheckout ? '' : clientSearch, 200);
+  const { clients: payerFound } = useClientSearch(payerSettled, 20);
   const filteredPayerOptions = useMemo(() => {
     // Group checkout: only show clients from selected appointments
     // Individual checkout: search the full client list
     const listToFilter = isGroupCheckout ? (payerOptions || []) : (clients || []);
     if (!clientSearch.trim()) return listToFilter.slice(0, 8);
     const search = clientSearch.toLowerCase();
-    return listToFilter.filter((c: Client) =>
-      c.name.toLowerCase().includes(search) ||
+    const local = listToFilter.filter((c: Client) =>
+      String(c.name || '').toLowerCase().includes(search) ||
       (c.email && c.email.toLowerCase().includes(search)) ||
-      (c.phone && c.phone.includes(search))
-    ).slice(0, 20);
-  }, [payerOptions, clients, clientSearch, isGroupCheckout]);
+      (c.phone && c.phone.includes(search)));
+    if (isGroupCheckout) return local.slice(0, 20);
+    const m = new Map<string, Client>(); [...payerFound, ...local].forEach((c: Client) => m.set(c.id, c)); return [...m.values()].slice(0, 20);
+  }, [payerOptions, clients, clientSearch, isGroupCheckout, payerFound]);
 
   const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
     if (newQuantity <= 0) onCartChange(cart.filter((item: any) => item.id !== itemId));

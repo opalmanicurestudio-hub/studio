@@ -2,6 +2,7 @@
 
 import { useTransactionsInRange } from '@/hooks/use-transactions';
 import { useAppointmentsInRange, useAppointmentById } from '@/hooks/use-appointments';
+import { useClient, useClientsByIds } from '@/hooks/use-clients';
 import { writePartHandoff } from '@/lib/part-handoff';
 import { startBlocker } from '@/lib/visit-requests';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
@@ -121,7 +122,7 @@ function PlannerPageContent() {
   const router = useRouter();
 
   const {
-      inventory, clients, services, staff: allStaff, events: eventsFromInventory,
+      inventory, services, staff: allStaff, events: eventsFromInventory,
       walkIns, billDefinitions, billInstances, memberships, packages, isLoading: ctxLoading
   } = useInventory();
   // The shared working window plus the month on screen (when it's further back): never the whole history.
@@ -132,6 +133,15 @@ function PlannerPageContent() {
   const linkedId = searchParams?.get('visit') || searchParams?.get('rebook_apt_id') || null;
   const { appointment: linkedAppointment } = useAppointmentById(linkedId && !rangeAppointments.some((a: any) => a.id === linkedId) ? linkedId : null);
   const appointments: Appointment[] = useMemo(() => (linkedAppointment && !rangeAppointments.some((a: any) => a.id === linkedAppointment.id) ? [...rangeAppointments, linkedAppointment] : rangeAppointments), [rangeAppointments, linkedAppointment]);
+  // The clients on the calendar this month (and whoever is open or waiting), read by id — not every client.
+  const plannerClientIds = useMemo(() => { const lo = apFrom.getTime(), hi = apTo.getTime(); const out: string[] = [];
+    for (const a of appointments as any[]) { const t = a.startTime instanceof Date ? a.startTime.getTime() : 0; if (a.clientId && t >= lo && t < hi) out.push(String(a.clientId)); }
+    for (const w of (walkIns || []) as any[]) if (w?.clientId) out.push(String(w.clientId));
+    return out; }, [appointments, walkIns, apFrom, apTo]);
+  const { clients: plannerClients } = useClientsByIds(plannerClientIds);
+  const [extraClientId, setExtraClientId] = useState<string | null>(null);
+  const { client: extraClient } = useClient(extraClientId && !plannerClients.some((c: any) => c.id === extraClientId) ? extraClientId : null);
+  const clients = useMemo(() => (extraClient ? [...plannerClients, extraClient] : plannerClients), [plannerClients, extraClient]);
   const apptsSeen = useRef(false); if (!apptLoading) apptsSeen.current = true;
   const isLoading = ctxLoading || (apptLoading && !apptsSeen.current);   // first load only; moving between months stays quiet
 
@@ -448,6 +458,7 @@ function PlannerPageContent() {
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  useEffect(() => { setExtraClientId((selectedAppointment as any)?.clientId || null); }, [(selectedAppointment as any)?.clientId]);   // the open visit's client, even from another month
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedBill, setSelectedBill] = useState<any | null>(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);

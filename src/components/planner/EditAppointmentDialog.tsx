@@ -77,6 +77,7 @@ import { SelectAddOnsDialog } from '../services/SelectAddOnsDialog';
 import { Card, CardContent } from '../ui/card';
 import { useInventory } from '@/context/InventoryContext';
 import { useAppointmentsOnDay } from '@/hooks/use-appointments';
+import { useClient } from '@/hooks/use-clients';
 import { BrowseProductsDialog } from '../services/BrowseProductsDialog';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
@@ -582,7 +583,8 @@ const EditAppointmentForm = ({
 
 export const EditAppointmentDialog = ({ open, onOpenChange, appointment, clients, services, onConfirm }: { open: boolean, onOpenChange: (open: boolean) => void, appointment: Appointment, clients: Client[], services: Service[], appointments: Appointment[], onConfirm: (apt: Appointment) => void }) => {
   const isMobile = useIsMobile();
-  const client = clients.find(c => c.id === appointment.clientId);
+  const { client: loadedClient } = useClient(clients.some(c => c.id === appointment.clientId) ? null : appointment.clientId);   // read on its own when the screen doesn't have it
+  const client = clients.find(c => c.id === appointment.clientId) || loadedClient;
 
   if (!client) return null;
 

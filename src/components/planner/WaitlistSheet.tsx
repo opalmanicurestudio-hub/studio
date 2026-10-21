@@ -39,6 +39,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { useClientsByIds } from '@/hooks/use-clients';
 import {
   Hourglass, Send, Check, X, Phone, Mail, Loader, CalendarDays,
   Store, Monitor, StickyNote, BellRing, UserRound, Inbox,
@@ -109,8 +110,10 @@ export function WaitlistSheet({
   // even before the Firestore snapshot catches up.
   const [optimistic, setOptimistic] = useState<Record<string, any>>({});
 
+  // The clients on the list, read by id (the screen may not have every client loaded).
+  const { clients: listedClients } = useClientsByIds((entries || []).map((e: any) => e?.clientId));
   const rows = useMemo(() => {
-    const clientById = new Map((clients || []).map((c: any) => [c.id, c]));
+    const clientById = new Map([...(listedClients || []), ...(clients || [])].map((c: any) => [c.id, c]));
     const serviceById = new Map((services || []).map((s: any) => [s.id, s]));
     const staffById = new Map((staff || []).map((s: any) => [s.id, s]));
 
@@ -140,7 +143,7 @@ export function WaitlistSheet({
         const bt = safeDate(b.e.createdAt)?.getTime() ?? 0;
         return at - bt;
       });
-  }, [entries, clients, services, staff, optimistic]);
+  }, [entries, clients, listedClients, services, staff, optimistic]);
 
   const openRows = rows.filter((r) => r.isOpen);
   const closedRows = rows.filter((r) => !r.isOpen).reverse().slice(0, 25);

@@ -15,6 +15,7 @@ function Face({ client, size = 40, on }: { client: Client; size?: number; on?: b
     : <span className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold" style={{ width: size, height: size, fontSize: size > 40 ? 15 : 12.5, background: on ? C.accent : C.soft, color: on ? C.accentInk : C.ink }}>{initialsOf(client.name || '')}</span>;
 }
 import { type Client } from '@/lib/data';
+import { useClient, useClientSearch, useDebounced, useTopClients } from '@/hooks/use-clients';
 
 function ClientBadges({ client }: { client: Client }) {
   const hasCard  = !!hasRealCard(client);
@@ -59,19 +60,26 @@ interface GuestSearchProps {
 export function GuestSearch({ clients, selectedClientId, onSelect, onAddNew, payerOptions, isGroupCheckout = false, walkInMode = false }: GuestSearchProps) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const selectedClient = useMemo(() => clients.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+  const { client: loadedSelected } = useClient(selectedClientId && !clients.some(c => c.id === selectedClientId) ? selectedClientId : null);
+  const selectedClient = useMemo(() => clients.find(c => c.id === selectedClientId) || loadedSelected || undefined, [clients, selectedClientId, loadedSelected]);
+  // Anyone can be found by searching on the server (hooks/use-clients); before typing, the biggest spenders.
+  const settled = useDebounced(isGroupCheckout ? '' : query, 200);
+  const { clients: found } = useClientSearch(settled, 12);
+  const { clients: top } = useTopClients(6, !isGroupCheckout);
   const searchPool = isGroupCheckout ? (payerOptions || []) : clients;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return [...searchPool].sort((a, b) => safeNumber(b.lifetimeValue) - safeNumber(a.lifetimeValue)).slice(0, 6);
     const digits = q.replace(/\D/g, '');
-    return searchPool.filter(c =>
+    const local = (pool: Client[]) => pool.filter(c =>
       c.name?.toLowerCase().includes(q) ||
       c.email?.toLowerCase().includes(q) ||
-      (digits && c.phone?.replace(/\D/g, '').includes(digits))
-    ).slice(0, 12);
-  }, [searchPool, query]);
+      (digits && c.phone?.replace(/\D/g, '').includes(digits)));
+    const uniq = (xs: Client[]) => { const m = new Map<string, Client>(); xs.forEach((c) => m.set(c.id, c)); return [...m.values()]; };
+    if (isGroupCheckout) return !q ? [...searchPool].sort((a, b) => safeNumber(b.lifetimeValue) - safeNumber(a.lifetimeValue)).slice(0, 6) : local(searchPool).slice(0, 12);
+    if (!q) return uniq([...top, ...[...searchPool].sort((a, b) => safeNumber(b.lifetimeValue) - safeNumber(a.lifetimeValue))]).slice(0, 6);
+    return uniq([...found, ...local(searchPool)]).slice(0, 12);
+  }, [searchPool, query, found, top, isGroupCheckout]);
 
   const compact = filtered.length > 4;
   const fmtPhone = (p?: string) => { const d = String(p || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p || ''; };

@@ -8,6 +8,7 @@
 //   save for a call-back at any point · resume one · confirmation: copy link, resend, share, print
 import { extraMinutesFor, extraChargeCents, minutesLabel } from '@/lib/client-timing';
 import * as React from 'react';
+import { useClient, useClientSearch, useDebounced } from '@/hooks/use-clients';
 import { getAuth } from 'firebase/auth';
 import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
@@ -85,18 +86,24 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     setNotes(''); setPrivateNotes(''); setReminder(''); setError(null); setDone(null); setCbOpen(false); setDraftId(null);
   }, []);
 
+  // A client chosen by id (prefill, a saved call-back): taken from the screen's list when it has them, else read on its own.
+  const [wantClientId, setWantClientId] = React.useState<string | null>(null);
+  const { client: loadedClient } = useClient(wantClientId);
+  React.useEffect(() => { if (loadedClient && loadedClient.id === wantClientId) { setClient(loadedClient as any); setWantClientId(null); } }, [loadedClient, wantClientId]);
+  const pickClientById = (id: string) => { const c = (clients || []).find((x: any) => x.id === id); if (c) { setClient(c); setWantClientId(null); } else setWantClientId(id); };
+
   // Resume a saved call-back (this sheet's own snapshot, or the old form's).
   React.useEffect(() => {
     if (!open) return;
     if (!resume) { reset();
-      if (prefill) { const c = prefill.clientId ? clients.find((x) => x.id === prefill.clientId) : null; if (c) setClient(c);
+      if (prefill) { if (prefill.clientId) pickClientById(prefill.clientId);
         if (prefill.serviceId) setServiceId(prefill.serviceId); if (prefill.addOnIds?.length) setAddOnIds(prefill.addOnIds); if (prefill.staffId) setStaffId(prefill.staffId);
         if (prefill.date && prefill.date >= todayStr()) setDate(prefill.date); if (prefill.time) setTime(prefill.time); if (prefill.mode) setMode(prefill.mode); if (prefill.guests?.length) setGuests(prefill.guests.map((g) => ({ name: '', phone: '', serviceId: g.serviceId, staffId: g.staffId }))); }
       return; }
     reset(); setDraftId(resume.id || null);
     const s = resume.snapshot || {};
     if (resume.snapshotKind === 'staff_book_sheet') {
-      if (s.clientId) setClient(clients.find((c) => c.id === s.clientId) || null);
+      if (s.clientId) pickClientById(s.clientId);
       if (s.isNew) { setIsNew(true); setNName(s.nName || ''); setNPhone(s.nPhone || ''); setNEmail(s.nEmail || ''); }
       setServiceId(s.serviceId || ''); setAddOnIds(s.addOnIds || []); setLenAdj(Number(s.lenAdj) || 0); setPrice(s.price || '');
       setStaffId(s.staffId || 'any'); if (s.date && s.date >= todayStr()) setDate(s.date); setTime(s.time || '');
@@ -104,8 +111,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
       setNotes(s.notes || ''); setPrivateNotes(s.privateNotes || ''); setPromo(s.promo || ''); setPlace(s.place || '');
     } else {
       // The old quick-book form's snapshot — carry over what maps.
-      const c = resume.clientId ? clients.find((x) => x.id === resume.clientId) : null;
-      if (c) setClient(c); else { setIsNew(true); setNName(resume.callerName && resume.callerName !== 'Unknown caller' ? resume.callerName : (s.newClientName || '')); setNPhone(resume.callerPhone || s.newClientPhone || ''); setNEmail(resume.callerEmail || s.newClientEmail || ''); }
+      if (resume.clientId) pickClientById(resume.clientId); else { setIsNew(true); setNName(resume.callerName && resume.callerName !== 'Unknown caller' ? resume.callerName : (s.newClientName || '')); setNPhone(resume.callerPhone || s.newClientPhone || ''); setNEmail(resume.callerEmail || s.newClientEmail || ''); }
       setServiceId(s.selectedService || ''); setAddOnIds(s.addOnIds || []); setStaffId(s.selectedStaff || 'any');
       if (s.aptDate && s.aptDate >= todayStr()) setDate(s.aptDate); setTime(s.aptTime || ''); setNotes(s.clientNotes || ''); setPrivateNotes(s.internalNotes || resume.note || '');
     }
@@ -133,16 +139,24 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     setLenAdj(clientExtra); if (clientExtraCents > 0) setPrice(String(((Number(svc?.price) || 0) + clientExtraCents / 100).toFixed(2))); setTimingApplied(key);
   }, [client?.id, serviceId, clientExtra, clientExtraCents]); // eslint-disable-line react-hooks/exhaustive-deps
   const qualified = React.useMemo(() => (staff || []).filter((m: any) => m.isActive !== false && m.active !== false && (!svc?.staffIds?.length || svc.staffIds.includes(m.id))), [staff, svc]);
+  // Finding the client: searched on the server (hooks/use-clients), plus any list the screen already had.
+  const qSettled = useDebounced(q.trim().length >= 2 ? q : '', 200);
+  const { clients: found } = useClientSearch(qSettled, 6);
   const matches = React.useMemo(() => {
     const t = q.trim().toLowerCase(); if (t.length < 2) return [];
     const d = digits(t);
-    return (clients || []).filter((c: any) => String(c.name || '').toLowerCase().includes(t) || (d.length >= 3 && digits(c.phone).includes(d)) || String(c.email || '').toLowerCase().includes(t)).slice(0, 6);
-  }, [q, clients]);
+    const local = (clients || []).filter((c: any) => String(c.name || '').toLowerCase().includes(t) || (d.length >= 3 && digits(c.phone).includes(d)) || String(c.email || '').toLowerCase().includes(t));
+    const m = new Map<string, any>(); for (const c of [...found, ...local]) m.set(c.id, c); return [...m.values()].slice(0, 6);
+  }, [q, clients, found]);
+  // Someone new who may already be a client: same number, same email, or the same full name.
+  const dupeTerm = useDebounced(!isNew ? '' : digits(nPhone).length >= 7 ? digits(nPhone).slice(-7) : nEmail.trim().includes('@') ? nEmail.trim() : nName.trim().length > 3 ? nName.trim() : '', 300);
+  const { clients: dupeHits } = useClientSearch(dupeTerm, 10);
   const dupes = React.useMemo(() => {
     if (!isNew) return [];
     const p = digits(nPhone), e = nEmail.trim().toLowerCase(), n = nName.trim().toLowerCase();
-    return (clients || []).filter((c: any) => (p.length >= 7 && digits(c.phone).endsWith(p.slice(-7))) || (e && String(c.email || '').toLowerCase() === e) || (n.length > 3 && String(c.name || '').toLowerCase() === n)).slice(0, 3);
-  }, [isNew, nPhone, nEmail, nName, clients]);
+    const same = (c: any) => (p.length >= 7 && digits(c.phone).endsWith(p.slice(-7))) || (e && String(c.email || '').toLowerCase() === e) || (n.length > 3 && String(c.name || '').toLowerCase() === n);
+    const m = new Map<string, any>(); for (const c of [...dupeHits, ...(clients || [])]) if (same(c)) m.set(c.id, c); return [...m.values()].slice(0, 3);
+  }, [isNew, nPhone, nEmail, nName, clients, dupeHits]);
   const owes = Number(client?.outstandingBalance) || 0;
   const owesRule = unpaidFeeRuleOf(tenant);                      // next_visit · keep_booking · before_booking
   const owesBlocks = owes > 0 && owesRule === 'before_booking' && !owesOk;

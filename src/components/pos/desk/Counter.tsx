@@ -13,6 +13,8 @@ import { moduleEnabled } from '@/lib/modules';
 import { CheckoutHub } from '@/components/pos/CheckoutHub';
 import { PosCatalog } from '@/components/pos/PosCatalog';
 import { Btn, Pill, Empty, Panel } from './kit';
+import { useClientSearch, useDebounced } from '@/hooks/use-clients';
+import { useClientVisits } from '@/hooks/use-appointments';
 
 const toDate = (v: any): Date | null => { if (!v) return null; try { const d = v?.toDate ? v.toDate() : v instanceof Date ? v : typeof v === 'string' ? parseISO(v) : new Date(v); return isNaN(d.getTime()) ? null : d; } catch { return null; } };
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
@@ -24,14 +26,19 @@ export function Counter({ e, onFollowUp }: { e: any; onFollowUp?: (visit: any) =
   const clients: any[] = e.clients || [];
   const client = e.selectedClientId ? clients.find((c) => c.id === e.selectedClientId) : null;
 
+  // Found by searching on the server (hooks/use-clients), plus today's people already on screen.
+  const settled = useDebounced(q.trim().length >= 2 ? q : '', 200);
+  const { clients: found } = useClientSearch(settled, 8);
   const results = useMemo(() => {
     const n = q.trim().toLowerCase(); if (n.length < 2) return [];
     const digits = n.replace(/\D/g, '');
-    return clients.filter((c) => `${c.name || ''} ${c.email || ''}`.toLowerCase().includes(n) || (digits.length >= 3 && String(c.phone || '').replace(/\D/g, '').includes(digits))).slice(0, 8);
-  }, [q, clients]);
+    const local = clients.filter((c) => `${c.name || ''} ${c.email || ''}`.toLowerCase().includes(n) || (digits.length >= 3 && String(c.phone || '').replace(/\D/g, '').includes(digits)));
+    const m = new Map<string, any>(); [...found, ...local].forEach((c: any) => m.set(c.id, c)); return [...m.values()].slice(0, 8);
+  }, [q, clients, found]);
 
-  // Their appointments: today's ready-to-pay (to add), visit history (to know them)
-  const theirs = useMemo(() => (client ? (e.appointmentsFromInventory || []).filter((a: any) => a.clientId === client.id) : []), [client, e.appointmentsFromInventory]);
+  // Their appointments: today's ready-to-pay (to add), visit history (to know them) — their whole history, read for them.
+  const { appointments: theirVisits } = useClientVisits(client?.id || null);
+  const theirs = useMemo(() => { if (!client) return []; const m = new Map<string, any>(); for (const a of [...theirVisits, ...(e.appointmentsFromInventory || []).filter((a: any) => a.clientId === client.id)]) m.set(a.id, a); return [...m.values()]; }, [client, theirVisits, e.appointmentsFromInventory]);
   const readyToday = theirs.filter((a: any) => a.status === 'ready_for_checkout');
   const past = theirs.filter((a: any) => a.status === 'completed').map((a: any) => toDate(a.startTime)).filter(Boolean).sort((a: any, b: any) => b - a) as Date[];
   const upcoming = theirs.filter((a: any) => { const d = toDate(a.startTime); return d && d > new Date() && !['cancelled', 'canceled'].includes(String(a.status)); }).sort((a: any, b: any) => (toDate(a.startTime)!.getTime() - toDate(b.startTime)!.getTime()))[0];

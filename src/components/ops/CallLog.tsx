@@ -7,6 +7,7 @@ import { getAuth } from 'firebase/auth';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
 import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
 import { callbackReasonsFor } from '@/lib/callback-reasons';
+import { useClientSearch, useDebounced } from '@/hooks/use-clients';
 
 async function callsPost(body: any) {
   const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
@@ -44,8 +45,11 @@ export function LogCallSheet({ open, onClose, tenantId, tenant, clients, staff, 
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState<string | null>(null); const [done, setDone] = React.useState<string | null>(null);
   const reset = () => { setQ(''); setClient(null); setName(''); setPhone(''); setApptId(''); setReason(''); setSummary(''); setPrivateNote(''); setOutcome('message'); setTo([]); setAsk(''); setDueAt(''); setSendLink(''); setPromised(''); setErr(null); setDone(null); };
   React.useEffect(() => { if (open) reset(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const settled = useDebounced(q.trim().length >= 2 ? q : '', 200);
+  const { clients: found } = useClientSearch(settled, 5);   // anyone, searched on the server (hooks/use-clients)
   const matches = React.useMemo(() => { const t = q.trim().toLowerCase(); if (t.length < 2) return []; const d = t.replace(/\D/g, '');
-    return (clients || []).filter((c: any) => String(c.name || '').toLowerCase().includes(t) || (d.length >= 3 && String(c.phone || '').replace(/\D/g, '').includes(d))).slice(0, 5); }, [q, clients]);
+    const local = (clients || []).filter((c: any) => String(c.name || '').toLowerCase().includes(t) || (d.length >= 3 && String(c.phone || '').replace(/\D/g, '').includes(d)));
+    const m = new Map<string, any>(); [...found, ...local].forEach((c: any) => m.set(c.id, c)); return [...m.values()].slice(0, 5); }, [q, clients, found]);
   const theirAppts = React.useMemo(() => (client ? (appointments || []).filter((a: any) => a.clientId === client.id && Date.parse(a.startTime) > Date.now() - 864e5 && !['cancelled', 'canceled'].includes(String(a.status))).sort((x: any, y: any) => Date.parse(x.startTime) - Date.parse(y.startTime)).slice(0, 4) : []), [client, appointments]);
   if (!open) return null;
   const team = (staff || []).filter((m: any) => m.isActive !== false);
