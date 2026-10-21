@@ -442,10 +442,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (calc.groupDiscount > 0) clientUpd.teamDiscountUsage = client.teamDiscountUsage?.month === gMonth ? { month: gMonth, amount: FieldValue.increment(calc.groupDiscount) } : { month: gMonth, amount: calc.groupDiscount };
   // A package session / membership perk comes off the account of whoever used it.
   const usedBy: any = redeemedOffer ? (visits.map((v) => ({ v, has: [v.service?.id, ...(v.addOnServices || []).map((x: any) => x.id)].includes(redeemedOffer.itemId) })).find((x) => x.has) ? whoHad(visits.find((v) => [v.service?.id, ...(v.addOnServices || []).map((x: any) => x.id)].includes(redeemedOffer.itemId))) : client) : client;
+  // Each redemption is also copied into the business's redemption log, which the membership ledger watches live.
+  const logRedemption = (ref: any, data: any) => { batch.set(ref, data); batch.set(db.doc(`${T}/redemptionLog/${ref.id}`), { ...data, at: data.redeemedAt || data.date || now, clientPath: ref.path }); };
   if (redeemedOffer && usedBy.id !== clientId) {
     const rr = db.collection(`${T}/clients/${usedBy.id}/redemptions`).doc();
     const offeringName = redeemedOffer.type === 'membership' ? memberships.find((m: any) => m.id === redeemedOffer.id)?.name : packages.find((p: any) => p.id === redeemedOffer.id)?.name;
-    batch.set(rr, clean({ id: rr.id, clientId: usedBy.id, paidBy: clientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, redeemedAt: now, checkoutSessionId, appointmentId: apptIds[0] || null }));
+    logRedemption(rr, clean({ id: rr.id, clientId: usedBy.id, paidBy: clientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, redeemedAt: now, checkoutSessionId, appointmentId: apptIds[0] || null }));
     batch.set(db.doc(`${T}/clients/${usedBy.id}`), redeemedOffer.type === 'package'
       ? { activePackages: (usedBy.activePackages || []).map((p: any) => (p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: num(p.sessionsRemaining) - 1 } : p)).filter((p: any) => num(p.sessionsRemaining) > 0) }
       : { subscription: { perkUsage: { [String(redeemedOffer.itemId)]: FieldValue.increment(1) }, perkLastUsed: now } }, { merge: true });
@@ -453,7 +455,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (redeemedOffer && usedBy.id === clientId) {
     const rr = db.collection(`${T}/clients/${clientId}/redemptions`).doc();
     const offeringName = redeemedOffer.type === 'membership' ? memberships.find((m: any) => m.id === redeemedOffer.id)?.name : packages.find((p: any) => p.id === redeemedOffer.id)?.name;
-    batch.set(rr, clean({ id: rr.id, clientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, serviceName: svc(String(redeemedOffer.itemId))?.name || null, redeemedAt: now, checkoutSessionId, appointmentId: apptIds[0] || null }));
+    logRedemption(rr, clean({ id: rr.id, clientId, type: redeemedOffer.type, offeringId: redeemedOffer.id, offeringName: offeringName || 'Offer', serviceId: redeemedOffer.itemId, serviceName: svc(String(redeemedOffer.itemId))?.name || null, redeemedAt: now, checkoutSessionId, appointmentId: apptIds[0] || null }));
     if (redeemedOffer.type === 'package') clientUpd.activePackages = (client.activePackages || []).map((p: any) => (p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: num(p.sessionsRemaining) - 1 } : p)).filter((p: any) => num(p.sessionsRemaining) > 0);
     else { clientUpd[`subscription.perkUsage.${redeemedOffer.itemId}`] = FieldValue.increment(1); clientUpd['subscription.perkLastUsed'] = now; }
   }

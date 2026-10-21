@@ -183,7 +183,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: refreshRecent, isLoading: refreshRecentLoading } = useCollection<RefreshmentRequest>(useMemoFirebase(() => tenantId && wanted.refreshmentRequests ? query(collection(firestore, 'tenants', tenantId, 'refreshmentRequests'), where('requestedAt', '>=', wiSince)) : null, [firestore, tenantId, wanted.refreshmentRequests, wiSince]));
   const refreshmentRequests = useMemo(() => { if (refreshOpen == null && refreshRecent == null) return null; const m = new Map<string, any>(); for (const r of [...(refreshRecent || []), ...(refreshOpen || [])]) m.set((r as any).id, r); return [...m.values()] as RefreshmentRequest[]; }, [refreshOpen, refreshRecent]);
   
-  const { data: redemptions, isLoading: redemptionsLoading, error: redemptionsError } = useCollection<Redemption>(useMemoFirebase(() => !firestore || !tenantId || !wanted.redemptions ? null : collectionGroup(firestore, 'redemptions'), [firestore, tenantId, wanted.redemptions]));
+  // Redemptions: per client (tenants/{t}/clients/{c}/redemptions) or the business's live log (hooks/use-redemptions).
+  const redemptions: Redemption[] | null = null; const redemptionsLoading = false; const redemptionsError = null;
 
   // Visit-link copies only for the visits around today (lib/appointment-merge: older ones change nothing on screen).
   const checkInTokens = useMemo(() => liveTokens([appointmentsFromDB, apptWin.list]), [appointmentsFromDB, apptWin.list]);

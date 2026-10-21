@@ -99,6 +99,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import Link from 'next/link';
+import { useRedemptionLog } from '@/hooks/use-redemptions';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -400,7 +401,9 @@ export const MembershipLedger = () => {
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
-  const { subscriptionInstances, clients, memberships, redemptions, isLoading: ctxLoading } = useInventory();
+  const { subscriptionInstances, clients, memberships, isLoading: ctxLoading } = useInventory();
+  // The live redemption log (hooks/use-redemptions): newest first, more on request.
+  const { redemptions, hasMore: moreRedemptions, loadMore: loadMoreRedemptions } = useRedemptionLog(100);
   const { transactions, isLoading: txLoading } = useTransactionsInCategories(MEMBERSHIP_CATEGORIES);
   const isLoading = ctxLoading || txLoading;
 
@@ -435,9 +438,9 @@ export const MembershipLedger = () => {
         .filter(r => {
             const client = clients.find(c => c.id === r.clientId);
             return !searchTerm.trim() || 
-                   client?.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                   r.offeringName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                   r.serviceName.toLowerCase().includes(searchTerm.toLowerCase());
+                   String(client?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                   String(r.offeringName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                   String(r.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase());
         })
         .sort((a,b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [redemptions, searchTerm, clients]);
@@ -799,7 +802,7 @@ export const MembershipLedger = () => {
                                                             <p className="font-black uppercase tracking-tight text-xs text-foreground">{r.serviceName}</p>
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell className="text-left font-black uppercase text-[10px] text-foreground/80">{rClient?.name || 'Guest'}</TableCell>
+                                                    <TableCell className="text-left font-black uppercase text-[10px] text-foreground/80">{rClient?.name || r.clientName || 'Guest'}</TableCell>
                                                     <TableCell className="text-left">
                                                         <Badge 
                                                             variant={r.isForfeit ? "destructive" : r.isRollover ? "outline" : "secondary"} 
@@ -816,6 +819,7 @@ export const MembershipLedger = () => {
                                         )}
                                     </TableBody>
                                 </Table>
+                                {moreRedemptions && <div className="flex justify-center p-4"><Button variant="outline" onClick={loadMoreRedemptions} className="rounded-full">Show older redemptions</Button></div>}
                             </div>
                         )}
                     </ScrollArea>

@@ -1022,6 +1022,8 @@ function PlannerPageContent() {
       if (!r?.ok) toast({ variant: 'destructive', title: 'The deposit wasn’t refunded', description: r?.error || 'Refund it from the client’s record.' });
     }
     const batch = writeBatch(firestore);
+    // Each redemption is also copied into the business's redemption log, which the membership ledger watches live.
+    const logRedemption = (ref: any, data: any) => { batch.set(ref, data); batch.set(doc(firestore, 'tenants', tenantId, 'redemptionLog', ref.id), { ...data, at: data.date || data.redeemedAt || new Date().toISOString(), clientPath: ref.path }); };
 
     batch.update(appointmentRef, sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount, cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') }));
     if (selectedAppointment.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }), { merge: true });
@@ -1081,7 +1083,7 @@ function PlannerPageContent() {
                 const currentUsage = currentClient.subscription?.perkUsage || {};
                 batch.update(clientRef, { 'subscription.perkUsage': { ...currentUsage, [perkId]: (currentUsage[perkId] || 0) + 1 }, 'subscription.perkLastUsed': now });
                 const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
-                batch.set(redemptionRef, sanitizeForFirestore({ id: redemptionRef.id, clientId: currentClient.id, type: 'membership', offeringId: membership!.id, offeringName: membership!.name, serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true }));
+                logRedemption(redemptionRef, sanitizeForFirestore({ id: redemptionRef.id, clientId: currentClient.id, type: 'membership', offeringId: membership!.id, offeringName: membership!.name, serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true }));
             }
         }
         const activePack = currentClient.activePackages?.find(p => { const pkgDef = (packages || []).find(pkg => pkg.id === p.packageId); return pkgDef?.serviceId === selectedAppointment.serviceId; });
@@ -1090,7 +1092,7 @@ function PlannerPageContent() {
             batch.update(clientRef, { activePackages: nextPackages });
             const redemptionRef = doc(collection(firestore, `tenants/${tenantId}/clients/${currentClient.id}/redemptions`));
             const pkgDef = packages.find(pkg => pkg.id === activePack.packageId);
-            batch.set(redemptionRef, sanitizeForFirestore({ id: redemptionRef.id, clientId: currentClient.id, type: 'package', offeringId: activePack.packageId, offeringName: pkgDef?.name || 'Package', serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true }));
+            logRedemption(redemptionRef, sanitizeForFirestore({ id: redemptionRef.id, clientId: currentClient.id, type: 'package', offeringId: activePack.packageId, offeringName: pkgDef?.name || 'Package', serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true }));
         }
     }
 
