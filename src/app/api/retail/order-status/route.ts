@@ -5,6 +5,7 @@ import { changeMode, changePolicy } from '@/lib/address-flow';
 import { busyLineFor, customerDates, scheduleFrom } from '@/lib/ship-promise';
 import { dayKey, tenantTimeZone } from '@/lib/tenant-time';
 import { liveSlots } from '@/lib/label-boxes';
+import { effectiveUnitCents, swapLines } from '@/lib/retail-swap';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
 // GET ?tenantId=...&orderId=...
@@ -260,13 +261,21 @@ export async function GET(req: NextRequest) {
         swapForName: l.swapForName || '',
         lineDiscountCents: Number(l.lineDiscountCents) || 0,
       })),
-      /* A question waiting for the customer: can we swap an out-of-stock item? Only what they need to answer. */
-      swapOffer: order.swapOffer?.status === 'waiting' ? {
-        lineName: order.swapOffer.lineName, expiresAt: order.swapOffer.expiresAt,
-        sub: { name: order.swapOffer.sub?.name || '', unitPriceCents: Number(order.swapOffer.sub?.unitPriceCents) || 0, imageUrl: order.swapOffer.sub?.imageUrl || '' },
-        origUnitCents: Number((order.lines || []).find((l: any) => l.lineId === order.swapOffer.lineId)?.unitPriceCents) || 0,
-        qty: (() => { const l = (order.lines || []).find((x: any) => x.lineId === order.swapOffer.lineId) || {}; return Math.max(1, (Number(l.qtyOrdered) || 0) - (Number(l.qtyScanned) || 0) - (Number(l.qtyShorted) || 0)); })(),
-      } : null,
+      /* A question waiting for the customer: can we swap an out-of-stock item? Only what they need to answer, only
+       * while it still applies (an order still being packed, an item still to send), and the refund it would give is
+       * the one the swap itself works out (lib/retail-swap): what they paid after any promo, with its tax. */
+      swapOffer: (() => {
+        const so = order.swapOffer; if (so?.status !== 'waiting' || !['paid', 'picking'].includes(String(order.stage))) return null;
+        const l: any = (order.lines || []).find((x: any) => x.lineId === so.lineId);
+        const qty = l ? (Number(l.qtyOrdered) || 0) - (Number(l.qtyScanned) || 0) - (Number(l.qtyShorted) || 0) : 0;
+        if (qty <= 0) return null;
+        let refundCents = 0; try { refundCents = swapLines(order, so.lineId, so.sub, 'preview').refundCents; } catch { refundCents = 0; }
+        return {
+          lineName: so.lineName, expiresAt: so.expiresAt,
+          sub: { name: so.sub?.name || '', unitPriceCents: Number(so.sub?.unitPriceCents) || 0, imageUrl: so.sub?.imageUrl || '' },
+          origUnitCents: effectiveUnitCents(l), qty, refundCents,
+        };
+      })(),
       ifUnavailable: order.ifUnavailable || 'refund',
       idCheckStatus: order.idCheck?.status || null,
       pendingRefundCents: Number(order.pendingRefundCents) || 0,

@@ -24,7 +24,8 @@ export function orderNow(o: any, help: any = {}): Now | null {
   // A refund waiting to be sent is approved, not yet on its way: the refund email says when it goes.
   const refund = (Number(o.pendingRefundCents) || 0) > 0 ? `A refund of ${money(o.pendingRefundCents)} is approved. We’ll let you know when it’s on its way.` : '';
   if (o.swapOffer) {
-    const s = o.swapOffer; const diff = Math.max(0, (Number(s.origUnitCents) || 0) - (Number(s.sub?.unitPriceCents) || 0)) * (Number(s.qty) || 1);
+    // The refund the swap would really give (worked out on the server, with tax), or the price gap when that's missing.
+    const s = o.swapOffer; const diff = s.refundCents != null ? Math.max(0, Number(s.refundCents) || 0) : Math.max(0, (Number(s.origUnitCents) || 0) - (Number(s.sub?.unitPriceCents) || 0)) * (Number(s.qty) || 1);
     return { tone: 'act', title: `We’re out of ${s.lineName}`, body: `We can send ${s.sub?.name} instead${diff ? `, and refund the ${money(diff)} difference` : ', at no extra cost'}. If we don’t hear from you, we’ll refund it so your order isn’t held up.`, action: { label: 'Choose', kind: 'swap' } };
   }
   if (o.stage === 'placed') return { tone: 'calm', title: 'Confirming your payment', body: 'This takes a few seconds and updates by itself.' };

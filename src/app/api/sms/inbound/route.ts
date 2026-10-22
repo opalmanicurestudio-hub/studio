@@ -102,11 +102,13 @@ export async function POST(req: NextRequest) {
     try {
       const { swapReply } = await import('@/lib/retail-swap'); const ans = swapReply(body);
       if (ans && fromDigits.length >= 10) {
-        const waiting = await db.collection(`tenants/${tenantId}/retailOrders`).where('swapPendingPhone', '==', fromDigits.slice(-10)).limit(2).get();
-        if (waiting.size === 1) {
-          const { decideSwap } = await import('@/lib/retail-swap-server');
+        const { decideSwap, offerStillOpen } = await import('@/lib/retail-swap-server');
+        // Only questions that still apply: one left over on an order that was cancelled or sent can't take the answer.
+        const waiting = (await db.collection(`tenants/${tenantId}/retailOrders`).where('swapPendingPhone', '==', fromDigits.slice(-10)).limit(5).get())
+          .docs.filter((d: any) => offerStillOpen(d.data()));
+        if (waiting.length === 1) {
           const origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
-          const r = await decideSwap(db, tenantId, waiting.docs[0].id, ans === 'yes', 'text', origin);
+          const r = await decideSwap(db, tenantId, waiting[0].id, ans === 'yes', 'text', origin);
           try { const { sendTenantSms } = await import('@/lib/sms'); await sendTenantSms(db, tenantId, from, r.message); } catch { /* the order page shows it */ }
           return twimlOk();
         }

@@ -129,11 +129,40 @@ export async function offerSwap(db: any, t: string, orderId: string, lineId: str
   return { ok: true, asked: true, message: `Asked ${first}. They have ${SWAP_ANSWER_HOURS} hours to answer; no answer means a refund.` };
 }
 
+/** A question about a swap still needs an answer: it's waiting, the order is still being packed, and the item still
+ *  has units to send. One that stopped applying (the order was cancelled or sent, the item was found or refunded) is
+ *  closed rather than left waiting. */
+export function offerStillOpen(o: any): boolean {
+  const offer = o?.swapOffer;
+  if (!offer || offer.status !== 'waiting' || !OPEN_STAGES.includes(String(o?.stage || ''))) return false;
+  const line = (o.lines || []).find((l: any) => l.lineId === offer.lineId);
+  return !!line && (Number(line.qtyOrdered) || 0) - (Number(line.qtyScanned) || 0) - (Number(line.qtyShorted) || 0) > 0;
+}
+
+/** Closes a question that no longer applies, so it stops showing on the order page and a YES or NO text can't land
+ *  on it (the reply finds the customer's order by the number waiting for an answer). */
+export async function closeOffer(db: any, t: string, orderId: string, why: string): Promise<boolean> {
+  const ref = orderRef(db, t, orderId);
+  try {
+    return await db.runTransaction(async (tx: any) => {
+      const s = await tx.get(ref); if (!s.exists) return false;
+      const o: any = s.data() || {};
+      if (o.swapOffer?.status !== 'waiting' || offerStillOpen(o)) return false;
+      tx.update(ref, { swapOffer: { ...o.swapOffer, status: 'closed', closedAt: new Date().toISOString(), closedWhy: why }, swapPendingPhone: null });
+      return true;
+    });
+  } catch { return false; }
+}
+
 /** The customer's answer, from their order page or a text. A late answer after the shop has moved on changes nothing. */
 export async function decideSwap(db: any, t: string, orderId: string, accept: boolean, via: 'page' | 'text', origin: string): Promise<{ ok: boolean; message: string }> {
   const snap = await orderRef(db, t, orderId).get(); if (!snap.exists) return { ok: false, message: 'Order not found.' };
   const o = { ...(snap.data() as any), id: orderId };
   const offer = o.swapOffer; if (!offer || offer.status !== 'waiting') return { ok: false, message: 'There’s nothing waiting for an answer on this order.' };
+  if (!offerStillOpen(o)) {
+    await closeOffer(db, t, orderId, 'no longer needed');
+    return { ok: false, message: `${offer.lineName || 'That item'} has already been sorted out on your order, so there’s nothing to choose any more.` };
+  }
   const who = { id: 'customer', name: String(o.customerName || 'Customer') };
   const r = accept ? await applySwap(db, t, orderId, offer.lineId, offer.sub, who, via === 'text' ? 'customer said yes by text' : 'customer said yes')
     : await refundInstead(db, t, orderId, offer.lineId, who, 'Customer chose a refund');
@@ -145,12 +174,16 @@ export async function decideSwap(db: any, t: string, orderId: string, accept: bo
     : `No problem, we’ve taken ${offer.lineName} off your order. ${refundWords(r.refundCents || 0, sent)}` };
 }
 
-/** Answers that never came: refund those items so the orders can go. Run by the shop's regular job. */
+/** Answers that never came: refund those items so the orders can go. Run by the shop's regular job. A question that
+ *  stopped applying (the order was cancelled or sent, the item found) is closed, so it neither waits forever nor
+ *  crowds out the ones that need an answer. */
 export async function expireSwapOffers(db: any, t: string): Promise<number> {
   const snap = await db.collection(`tenants/${t}/retailOrders`).where('swapOffer.status', '==', 'waiting').limit(50).get();
   let n = 0;
   for (const d of snap.docs) {
-    const o = d.data() as any; if (Date.parse(o.swapOffer?.expiresAt || '') > Date.now()) continue;
+    const o = { ...(d.data() as any), id: d.id };
+    if (!offerStillOpen(o)) { await closeOffer(db, t, d.id, ['paid', 'picking'].includes(String(o.stage)) ? 'item sorted out' : `order ${o.stage}`); continue; }
+    if (Date.parse(o.swapOffer?.expiresAt || '') > Date.now()) continue;
     const r = await refundInstead(db, t, d.id, o.swapOffer.lineId, { id: 'system', name: 'Automatic' }, 'No answer about a swap'); if (!r.ok) continue; n++;
     const base = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
     // Within the shop's automatic amount it goes back now, before the customer is told, so the notice can say it went.

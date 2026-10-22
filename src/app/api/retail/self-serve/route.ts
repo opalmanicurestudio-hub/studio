@@ -175,12 +175,16 @@ export async function POST(req: NextRequest) {
         const pending = follow ? followUpCancelCents(order, parent, payer) : plan!.pendingCents;
         const now = new Date().toISOString();
 
+        // A question about swapping one of its items no longer applies: closed, so it stops showing and a YES or NO
+        // text can't land on it.
+        const closeSwap = (o: any) => (o?.swapOffer?.status === 'waiting' ? { swapOffer: { ...o.swapOffer, status: 'closed', closedAt: now, closedWhy: 'order cancelled' }, swapPendingPhone: null } : {});
         txn.update(orderRef, {
           stage: 'cancelled',
           cancelledAt: now,
           cancelReason: reason ? `Customer: ${reason}` : 'Cancelled by customer',
           pendingRefundCents: follow ? already + pending : Math.max(pending, already),
           batchId: null, claimedBy: null, claimedByName: null,
+          ...closeSwap(order),
         });
         const evRef = orderRef.collection('events').doc();
         txn.set(evRef, {
@@ -195,6 +199,7 @@ export async function POST(req: NextRequest) {
             stage: 'cancelled', cancelledAt: now,
             cancelReason: `Cancelled with order #${order.orderNumber} by the customer`,
             batchId: null, claimedBy: null, claimedByName: null,
+            ...closeSwap(f),
           });
           const fEv = fRef.collection('events').doc();
           txn.set(fEv, {
