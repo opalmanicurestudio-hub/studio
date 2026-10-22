@@ -12,7 +12,7 @@
 // enforcement; the UI mirror keeps the refusal friendly).
 
 import { openPrint } from '@/lib/open-print';
-import { collection, onSnapshot, type Firestore } from 'firebase/firestore';
+import { collection, limit, onSnapshot, orderBy, query, where, type Firestore } from 'firebase/firestore';
 import { ArrowLeft, ChartColumn, Clock, Copy, ExternalLink, FileStack, Loader, Printer, Shield, ShieldOff, ShieldQuestion, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -68,14 +68,17 @@ export default function InventoryExceptionsPage() {
   const [view, setView] = useState<'ledger' | 'analytics'>('ledger');
   const analytics = useMemo(() => lossAnalytics(rows, 90), [rows]);
 
+  // The last year of losses, newest first and at most 1,500: enough for this month, the 90-day picture and any
+  // carrier claim still inside its window, without reading every loss the shop has ever had on each change.
   useEffect(() => {
     if (!firestore || !tenantId) return;
-    return onSnapshot(collection(firestore as Firestore, `tenants/${tenantId}/inventoryExceptions`), (snap) => {
+    const since = new Date(Date.now() - 365 * 864e5).toISOString();
+    return onSnapshot(query(collection(firestore as Firestore, `tenants/${tenantId}/inventoryExceptions`), where('at', '>=', since), orderBy('at', 'desc'), limit(1500)), (snap) => {
       setRows(snap.docs
         .map((d) => ({ id: d.id, ...(d.data() as any) }))
         .sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))));
       setLoading(false);
-    });
+    }, () => setLoading(false));
   }, [firestore, tenantId]);
 
   const totals = useMemo(() => {

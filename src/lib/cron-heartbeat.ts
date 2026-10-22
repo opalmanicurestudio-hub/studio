@@ -10,6 +10,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 export const SCHEDULED_JOBS: { name: string; label: string; everyHours: number }[] = [
   { name: 'reminders', label: 'Reminders & reconnect', everyHours: 24 },
   { name: 'nightly', label: 'Nightly books, rent & bills', everyHours: 24 },
+  { name: 'retail-nightly', label: 'Nightly shop checks: stock, returns, gift cards, parcels', everyHours: 24 },
   { name: 'autopay-leases', label: 'Rent autopay', everyHours: 24 },
   { name: 'campaigns', label: 'Scheduled campaigns & automations', everyHours: 24 },
   { name: 'hq', label: 'HQ onboarding nudges', everyHours: 24 },

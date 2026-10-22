@@ -5,6 +5,14 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/cron/retail-nightly",
+      "schedule": "10 6 * * *"
+    },
+    {
+      "path": "/api/cron/retail-nightly",
+      "schedule": "40 6 * * *"
+    },
+    {
       "path": "/api/cron/nightly",
       "schedule": "0 7 * * *"
     },

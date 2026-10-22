@@ -29,17 +29,8 @@ import { resolveLeavePolicy, leaveCovering, rentUnderLeave, leavesDueToEnd, addD
 import { ticketAcknowledged, respondByFor } from '@/lib/maintenance';
 import { staffMirrorFields, mirrorDiffers } from '@/lib/renter-identity';
 import { sweepNoShows } from '@/lib/no-show';
-import { reconcileReservations } from '@/lib/stock-reconcile';
-import { alertExpiringStock } from '@/lib/expiry-alerts';
-import { syncRenterCreditsForOrder } from '@/lib/renter-sales-server';
-import { restoreNonCardPayment } from '@/lib/cancel-restore';
-import { roomCents } from '@/lib/non-card-back';
-import { sweepStaleCurbside } from '@/lib/stock-reconcile';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
-import {
-  sweepExpiredRequests, sweepPendingRequestNudge, sweepRecoveryDeadlines, sweepUnpaidAccepted,
-  sweepStalledShipments, sweepStaleCases,
-} from '@/lib/retail-sweeps';
+import { sweepExpiredRequests, sweepPendingRequestNudge, sweepUnpaidAccepted } from '@/lib/retail-sweeps';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -1391,42 +1382,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── STOCK: heal leaked reservations ────────────────────────────────────
-  // A hold that never released hides stock from everyone with no symptom.
-  // Recomputing from live orders each night means that bug class fixes
-  // itself instead of quietly compounding. Silent when nothing is wrong.
-  const stockTotals = { tenants: 0, corrected: 0, unitsFreed: 0, unitsHeld: 0 };
-  for (const tDoc of allTenantsSnap.docs) {
-    try {
-      const r = await reconcileReservations(db, tDoc.id);
-      // Renters' online-shop credits: catch any order a screen didn't sync (lib/renter-sales-server).
-      try { const ro = await db.collection(`tenants/${tDoc.id}/retailOrders`).where('hasRenterItems', '==', true).limit(500).get(); let ch = 0; for (const d of ro.docs) ch += await syncRenterCreditsForOrder(db, tDoc.id, d.id, 'Nightly check'); if (ch) results[`renterCredits:${tDoc.id}`] = { changed: ch }; } catch { /* next night */ }
-      // Cancelled orders that used a gift card or store credit: make sure it went back (lib/cancel-restore; once each).
-      // Read by when they were cancelled (the last 30 days), so checkouts left unpaid can't crowd out real ones.
-      try { const since = new Date(Date.now() - 30 * 86400e3).toISOString(); const co = await db.collection(`tenants/${tDoc.id}/retailOrders`).where('cancelledAt', '>=', since).limit(500).get(); for (const d of co.docs) { const o: any = d.data() || {}; if (o.stage === 'cancelled' && !o.nonCardRestoredAt && roomCents(o) > 0) await restoreNonCardPayment(db, tDoc.id, d.id, 'Nightly check'); } } catch { /* next night */ }
-      // Returns started and never sent back, past the shop's limit: closed, and the customer told (lib/return-close).
-      try { const { closeStaleReturns } = await import('@/lib/return-close'); const cr = await closeStaleReturns(db, tDoc.id, tDoc.data()); if (cr > 0) results[`returnsClosed:${tDoc.id}`] = { closed: cr }; } catch { /* next night */ }
-      // Batches expiring within 30 days, or today: one alert each (lib/expiry-alerts).
-      try { const ex = await alertExpiringStock(db, tDoc.id); if (ex > 0) results[`expiry:${tDoc.id}`] = { alerts: ex }; } catch { /* next night */ }
-      // Anyone still showing as "outside" hours later did not get their order.
-      const stale = await sweepStaleCurbside(db, tDoc.id);
-      if (stale.flagged > 0) results[`curbside:${tDoc.id}`] = stale;
-      if (r.corrected > 0) {
-        stockTotals.tenants += 1;
-        stockTotals.corrected += r.corrected;
-        stockTotals.unitsFreed += r.unitsFreed;
-        stockTotals.unitsHeld += r.unitsHeld;
-        results[`stock:${tDoc.id}`] = r;
-      }
-    } catch (e) {
-      results[`stock:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
-    }
-  }
+  // ── STOCK AND THE SHOP: their own nightly run now (api/cron/retail-nightly), so a long night here can't cut them
+  // off: stock holds, gift cards and credit back on cancellations, returns never sent, expiring stock, curbside,
+  // parcels that stopped moving, claim windows and stale cases.
 
-  // ── RETAIL: the three things only a clock can notice ───────────────────
-  // A parcel that stopped scanning, a filed claim whose window is closing,
-  // and a resolved case nobody has touched. Each is marker-guarded inside
-  // the sweep, so a re-run of this cron sends nothing twice.
   // ── NOTHING LEFT OPEN AFTER ITS TIME (lib/stale-sweep): visits never finished, shift and booking requests whose
   // day has gone, calls nobody closed, notices past their expiry.
   for (const tDoc of allTenantsSnap.docs) {
@@ -1435,36 +1394,26 @@ export async function GET(req: NextRequest) {
     catch (e) { results[`stale:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) }; }
   }
 
-  const retailTotals = { stalled: 0, stalledEmailed: 0, deadlines: 0, deadlineDigests: 0, casesClosed: 0, requestsExpired: 0, requestNudges: 0, unpaidHandled: 0 };
+  // ── Booking requests: expire what died, nudge about what hasn't, and accepted bookings whose deposit never landed
+  // (retry, remind, release). Each is marker-guarded inside the sweep, so a re-run sends nothing twice.
+  const requestTotals = { requestsExpired: 0, requestNudges: 0, unpaidHandled: 0 };
   for (const tDoc of allTenantsSnap.docs) {
     try {
-      const [stall, deadlines, cases, expired, nudge, unpaid] = await Promise.all([
-        sweepStalledShipments(db, tDoc.id),
-        sweepRecoveryDeadlines(db, tDoc.id),
-        sweepStaleCases(db, tDoc.id),
-        // Booking requests: expire what died, then nudge about what has not.
+      const [expired, nudge, unpaid] = await Promise.all([
         sweepExpiredRequests(db, tDoc.id),
         sweepPendingRequestNudge(db, tDoc.id),
-        // Accepted bookings whose deposit never landed: retry, remind, release.
         sweepUnpaidAccepted(db, tDoc.id),
       ]);
-      retailTotals.stalled += stall.actioned;
-      retailTotals.stalledEmailed += stall.emailed;
-      retailTotals.deadlines += deadlines.actioned;
-      retailTotals.deadlineDigests += deadlines.emailed;
-      retailTotals.casesClosed += cases.actioned;
-      retailTotals.requestsExpired += expired.actioned;
-      retailTotals.requestNudges += nudge.emailed;
-      retailTotals.unpaidHandled += unpaid.actioned;
-      if (stall.actioned || deadlines.actioned || cases.actioned || expired.actioned || nudge.emailed || unpaid.actioned) {
-        results[`retail:${tDoc.id}`] = { stall, deadlines, cases, expired, nudge, unpaid };
-      }
+      requestTotals.requestsExpired += expired.actioned;
+      requestTotals.requestNudges += nudge.emailed;
+      requestTotals.unpaidHandled += unpaid.actioned;
+      if (expired.actioned || nudge.emailed || unpaid.actioned) results[`requests:${tDoc.id}`] = { expired, nudge, unpaid };
     } catch (e) {
-      results[`retail:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+      results[`requests:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· profile mirrors', profileMirrorsSynced, '· rental days granted', rentalDaysGranted, '· tours flagged', toursFlagged, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals, '· retail sweeps', retailTotals);
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· lease windows synced', leaseWindowsSynced, '· profile mirrors', profileMirrorsSynced, '· rental days granted', rentalDaysGranted, '· tours flagged', toursFlagged, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· booking requests', requestTotals);
   // ── Repeat bookings: take each visit's scheduled deposit when it's due (Booking policies → Repeat bookings).
   // A failure never touches the rest of the series; it follows the business's choice for that one visit.
   let seriesDepositsTaken = 0, seriesDepositsFailed = 0;
@@ -1527,5 +1476,5 @@ export async function GET(req: NextRequest) {
       try { const { monthReviewNotice } = await import('@/lib/month-review'); await monthReviewNotice(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] month review', tDoc.id, e); }
       if ((tDoc.data() as any)?.loyalty?.on === true) { try { const { expirySweep } = await import('@/lib/loyalty-server'); await expirySweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] loyalty', tDoc.id, e); } }
       if ((tDoc.data() as any)?.makingItRight?.reviews?.on) { try { await reviewSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] reviews', tDoc.id, e); } } } } catch (e) { console.error('[nightly] mir reports', e); }
-  return NextResponse.json({ ok: true, timingGroups, mirReports, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, retailTotals, results });
+  return NextResponse.json({ ok: true, timingGroups, mirReports, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, requestTotals, results });
 }

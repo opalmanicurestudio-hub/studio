@@ -102,13 +102,36 @@ export function OrdersApp() {
   // Orders a label has put under Needs you, shipped and closed ones included (labels nobody has scanned, voids that
   // didn't finish, boxes waiting for a new label, refunds turned down, carrier adjustments).
   const unscanned = useLabelFlagOrders(fs, tenantId);
+  // DONE: the most recently finished orders and the most recently cancelled ones, newest first, each read by its own
+  // date (one field each, so no index to set up). A checkout left unpaid isn't an order anyone finished.
+  const [doneSent, setDoneSent] = React.useState<any[]>([]); const [doneCancelled, setDoneCancelled] = React.useState<any[]>([]);
   React.useEffect(() => {
     if (!fs || !tenantId || tab !== 'done') return;
-    return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('stage', 'in', DONE_STAGES), limit(80)), (s) => {
-      const t = (o: any) => Date.parse(String(o.completedAt || o.cancelledAt || o.paidAt || o.placedAt || '')) || 0;
-      setDone(s.docs.map((d) => ({ ...(d.data() as any), id: d.id })).sort((a, b) => t(b) - t(a)));
-    }, () => setDone([]));
+    const col = collection(fs, `tenants/${tenantId}/retailOrders`);
+    const rows = (s: any) => s.docs.map((d: any) => ({ ...(d.data() as any), id: d.id })).filter((o: any) => DONE_STAGES.includes(String(o.stage)));
+    const u1 = onSnapshot(query(col, orderBy('completedAt', 'desc'), limit(80)), (s) => setDoneSent(rows(s)), () => setDoneSent([]));
+    const u2 = onSnapshot(query(col, orderBy('cancelledAt', 'desc'), limit(40)), (s) => setDoneCancelled(rows(s).filter((o: any) => o.paidAt || Number(o.orderNumber) > 0)), () => setDoneCancelled([]));
+    return () => { u1(); u2(); };
   }, [fs, tenantId, tab]);
+  // Search reaches past those: an order number, or an email, is looked up directly.
+  const [found, setFound] = React.useState<any[]>([]);
+  React.useEffect(() => {
+    if (!fs || !tenantId || tab !== 'done') { setFound([]); return; }
+    const s = q.trim().replace(/^#/, ''); const n = /^\d{1,9}$/.test(s) ? Number(s) : 0; const email = /@/.test(s) ? s : '';
+    if (!n && !email) { setFound([]); return; }
+    const col = collection(fs, `tenants/${tenantId}/retailOrders`);
+    const t = setTimeout(() => {
+      const asks = n ? [query(col, where('orderNumber', '==', n), limit(10))] : [...new Set([email, email.toLowerCase()])].map((e) => query(col, where('customerEmail', '==', e), limit(20)));
+      void Promise.all(asks.map((a) => getDocs(a).catch(() => null)))
+        .then((snaps) => setFound(snaps.flatMap((x: any) => (x ? x.docs.map((d: any) => ({ ...(d.data() as any), id: d.id })) : [])).filter((o: any) => DONE_STAGES.includes(String(o.stage)))));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [fs, tenantId, tab, q]);
+  React.useEffect(() => {
+    const t = (o: any) => Date.parse(String(o.completedAt || o.cancelledAt || o.paidAt || o.placedAt || '')) || 0;
+    const m = new Map<string, any>(); for (const o of [...doneSent, ...doneCancelled, ...found]) m.set(o.id, o);
+    setDone([...m.values()].sort((a, b) => t(b) - t(a)));
+  }, [doneSent, doneCancelled, found]);
   React.useEffect(() => {
     if (!fs || !tenantId) return;
     const run = () => { void sweepStaleClaims(fs, tenantId).catch(() => 0); };
