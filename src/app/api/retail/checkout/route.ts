@@ -821,7 +821,7 @@ async function handleCheckout(req: NextRequest) {
             ...(digitalOnly ? { completedAt: new Date().toISOString() } : {}),
             isDraft: false,
             orderNumber: assignedNumber, qrToken,
-            storeCreditRequestedCents: chargeable,
+            storeCreditRequestedCents: chargeable, creditSpentCents: chargeable - remaining,
             paidVia: 'store_credit',
           });
           const evRef = orderRef.collection('events').doc();

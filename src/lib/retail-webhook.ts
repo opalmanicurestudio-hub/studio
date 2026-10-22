@@ -352,9 +352,8 @@ export async function handleRetailOrderPaid(
           ? `Store credit: $${(consumed / 100).toFixed(2)} of the $${(requestedCredit / 100).toFixed(2)} discount was still available \u2014 $${(remaining / 100).toFixed(2)} shortfall needs a look`
           : `Store credit applied \u2014 $${(consumed / 100).toFixed(2)} redeemed` },
       });
-      if (remaining > 0) {
-        consumeBatch.set(orderRef, { creditShortfallCents: remaining }, { merge: true });
-      }
+      // What was really spent, so a cancellation gives back exactly that (lib/cancel-restore).
+      consumeBatch.set(orderRef, { creditSpentCents: consumed, ...(remaining > 0 ? { creditShortfallCents: remaining } : {}) }, { merge: true });
       await consumeBatch.commit();
     } catch (e: any) {
       console.error('[retail-webhook] store-credit consumption failed:', e?.message);

@@ -9,7 +9,11 @@ export async function restoreNonCardPayment(db: any, t: string, orderId: string,
     const o: any = s.data() || {};
     if (o.stage !== 'cancelled' || o.nonCardRestoredAt) return null;
     const giftCents = o.giftSpentAt && o.giftCardId ? Math.max(0, Number(o.giftCardCents) || 0) : 0;
-    const creditCents = Math.max(0, (Number(o.storeCreditRequestedCents) || 0) - (Number(o.creditShortfallCents) || 0));
+    // Store credit comes back only if it was spent. It's taken when the order is paid (creditSpentCents), never on a
+    // checkout that was left unpaid: that order is cancelled when its payment page expires, and gives nothing back.
+    // An order paid before the amount spent was recorded gives back what was asked for, less any shortfall.
+    const creditCents = o.creditSpentCents != null ? Math.max(0, Number(o.creditSpentCents) || 0)
+      : o.paidAt ? Math.max(0, (Number(o.storeCreditRequestedCents) || 0) - (Number(o.creditShortfallCents) || 0)) : 0;
     if (!giftCents && !creditCents) return null;
     tx.update(ref, { nonCardRestoredAt: new Date().toISOString(), nonCardRestored: { giftCents, creditCents } });
     return { o, giftCents, creditCents };
