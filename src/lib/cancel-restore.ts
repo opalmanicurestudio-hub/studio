@@ -7,7 +7,8 @@
 // everything due has gone back. Server only.
 import { giveBackLine, readGift, roomCents, saleBooked, withNonCardRecord, writeGiveBack } from './non-card-back';
 import { ensureNonCardRecord } from './non-card-record';
-import { cancelWithFollowUps, familyRefundableCents, followUpsOf } from './order-family';
+import { cancelWithFollowUps, familyRefundableCents, followUpsOf, isFollowUp } from './order-family';
+import { returnCreditGiven } from './return-credit';
 
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
 
@@ -31,10 +32,12 @@ export async function restoreNonCardPayment(db: any, t: string, orderId: string,
     // Nothing (more) to give back that way: marked, so it isn't looked at again.
     if (room <= 0) { tx.update(ref, { nonCardRestoredAt: new Date().toISOString() }); return; }
     // What the shop still holds for the order, card and gift card or credit together, less what the customer keeps
-    // from orders made from it and every refund already queued (those go back card first): the rest goes back now.
+    // from orders made from it, store credit already given for a return, and every refund already queued (those go back
+    // card first): the rest goes back now.
     const fam = await followUpsOf((r: any) => tx.get(r), col, orderId);
+    const credited = await returnCreditGiven((r: any) => tx.get(r), db, t, orderId, fam.filter((f: any) => isFollowUp(f)).map((f: any) => String(f.id)));
     const { spokenCents } = cancelWithFollowUps(o, fam, () => false);
-    const want = Math.min(room, Math.max(0, familyRefundableCents(o, fam) + room - spokenCents - c0(o.pendingRefundCents)));
+    const want = Math.min(room, Math.max(0, familyRefundableCents(o, fam) + room - spokenCents - credited - c0(o.pendingRefundCents)));
     const gift = want > 0 ? await readGift(tx, db, t, o) : null;
     const num = `#${String(o.orderNumber ?? '').padStart(4, '0')}`;
     const at = new Date().toISOString();

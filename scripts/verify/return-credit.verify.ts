@@ -4,7 +4,8 @@
 // including credit given before the server kept count), to that order's customer, or for a gift exchange to the person
 // the server recorded when it was started. It's issued once. The returns desk asks the server for it rather than
 // writing it, a renter can't settle the shop's returns, and the rules no longer let a browser add credit marked as for
-// a return, or move a backorder or replacement to another order.
+// a return, or move a backorder or replacement to another order. The credit counts as given back wherever money goes
+// back for the order: a card refund or a cancellation can't give the same money again.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/return-credit.verify.ts
 import Module from 'module';
 import { makeDb, check, failures } from './fake-db';
@@ -31,9 +32,18 @@ const web: any = {
   where: (k: string, op: string, v: any) => ({ t: 'where', k, op, v }), limit: (n: number) => ({ t: 'limit', n }), orderBy: () => ({ t: 'orderBy' }),
   getDocs: async (q: any) => { let c: any = db.collection(q.path); for (const x of q.cons || []) { if (x?.t === 'where') c = c.where(x.k, x.op, x.v); if (x?.t === 'limit') c = c.limit(x.n); } const s = await c.get(); return { docs: s.docs.map((d: any) => ({ id: d.id, data: () => d.data(), exists: () => true })), empty: s.empty, size: s.size }; },
 };
+const stripeCalls: any[] = [];
+function StripeMock(this: any) {
+  return { refunds: {
+    create: async (params: any) => { stripeCalls.push(params); return { id: `re_${stripeCalls.length}`, amount: params.amount, metadata: params.metadata, status: 'succeeded', payment_intent: params.payment_intent }; },
+    list: async () => ({ data: [] }),
+  } };
+}
 const M: any = Module as any;
 const load = M._load;
 M._load = function (request: string, ...rest: any[]) {
+  if (request === 'stripe') return StripeMock;
+  if (request === '@/lib/email-shell') return { brandedEmail: (_b: any, html: string) => html, emailButton: (link: string) => `<a href="${link}">`, getEmailBrand: async () => ({ shopName: 'Opal' }) };
   if (request === 'firebase/firestore') return web;
   if (request === '@/lib/firebase-admin') return { getAdminDb: () => db };
   if (request === '@/lib/staff-auth') return { verifyStaffActor: async () => (signedIn ? { ok: true, actor, tenant: {} } : { ok: false, error: 'Sign in to record that decision.', status: 401 }) };
@@ -177,6 +187,44 @@ const fresh = async (x: any = {}) => {
   await db.doc(`${T}/retailReturns/r10`).set(ret('r10', 1));
   const res2: any = await Rt.resolveReturn(webFs, 't1', { ...(await get(`${T}/retailReturns/r10`)), id: 'r10' } as any, { id: 'k1', name: 'Kai Park' });
   check('…and when nothing is left to give, it’s checked in without a “credit issued” email', res2.ok && /No store credit was issued/.test(res2.message) && !notified.includes('r10'), { res2, notified });
+
+  // ── The credit counts wherever money goes back ──
+  const { POST: refundPOST } = await import('../../src/app/api/retail/refund/route');
+  process.env.STRIPE_SECRET_KEY = 'sk_test';
+  const refund = () => refundPOST({ json: async () => ({ tenantId: 't1', orderId: 'o1', qrToken: 'qr1' }), headers: { get: () => null }, nextUrl: { origin: 'https://shop.example' } } as any) as any;
+  await fresh();
+  await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
+  await db.doc(`${T}/retailReturns/ra`).set(ret('ra', 4));
+  r = await send('ra');
+  // The same four polishes, on a second return settled as a refund: $60.48 waiting to go back to the card.
+  await db.doc(`${T}/retailOrders/o1`).set({ pendingRefundCents: 6048 }, { merge: true });
+  actor = { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: ['checkout.refund'] };
+  stripeCalls.length = 0;
+  let rf = await refund();
+  check('all four polishes given as $60.48 store credit: a card refund for the same money is refused, nothing goes to the card',
+    r.body.creditCents === 6048 && rf.status === 409 && stripeCalls.length === 0 && /store credit for a return/.test(rf.body.error), { credit: r.body, rf: rf.body });
+  await fresh();
+  await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
+  await db.doc(`${T}/retailReturns/rc`).set(ret('rc', 1));
+  r = await send('rc');
+  await db.doc(`${T}/retailOrders/o1`).set({ pendingRefundCents: 6048 }, { merge: true });
+  actor = { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: ['checkout.refund'] };
+  stripeCalls.length = 0;
+  rf = await refund();
+  check('one polish given as $15.12 credit: refunding the whole order sends $45.36 to the card, and says why the rest stays',
+    rf.status === 200 && stripeCalls.length === 1 && stripeCalls[0].amount === 4536 && rf.body.overCardCents === 1512 && /store credit given for a return counts/.test(rf.body.message), rf.body);
+
+  // Paid with a $20 gift card; a $10 return was given as store credit; then the order is cancelled.
+  const { restoreNonCardPayment } = await import('../../src/lib/cancel-restore');
+  await fresh({ lines: [{ ...line, unitPriceCents: 1000, promoCents: 0, qtyOrdered: 2 }], subtotalCents: 2000, discountCents: 0, taxCents: 0, totalCents: 2000, chargedCents: 0, stripePaymentIntentId: null, giftCardId: 'g1', giftCardCode: 'GIFT-1', giftCardCents: 2000, giftSpentAt: '2026-10-20T15:00:00Z', paidVia: 'gift_card' });
+  await db.doc(`${T}/private/nonCardPaid/orders/o1`).set({ at: '2026-10-20T15:00:00Z', giftCents: 2000, giftCardId: 'g1' });
+  await db.doc(`${T}/giftCards/g1`).set({ id: 'g1', code: 'GIFT-1', balanceCents: 0, status: 'active', history: [] });
+  await db.doc(`${T}/retailReturns/rg`).set(ret('rg', 1, { storeCreditCents: 1000 }));
+  r = await send('rg');
+  await db.doc(`${T}/retailOrders/o1`).set({ stage: 'cancelled', cancelledAt: new Date().toISOString() }, { merge: true });
+  const back = await restoreNonCardPayment(db, 't1', 'o1', 'Order cancelled');
+  check('a $20 gift card order with $10 already given as credit for a return: cancelling it puts $10 back on the gift card, not $20',
+    r.body.creditCents === 1000 && back.giftCents === 1000 && (await get(`${T}/giftCards/g1`)).balanceCents === 1000, { credit: r.body, back });
 
   // ── The rules ──
   const fsMod = await import('fs');

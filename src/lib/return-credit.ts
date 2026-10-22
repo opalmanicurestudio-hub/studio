@@ -23,6 +23,26 @@ export const giftReturnRef = (db: any, t: string, returnId: string) => db.doc(`t
 /** Store credit given for returns on an order and everything made from it, as the server counted it. */
 const tallyRef = (db: any, t: string, payerId: string) => db.doc(`tenants/${t}/private/returnCredits/orders/${payerId}`);
 
+/** Store credit already given for returns on the order paid on (`payerId`) and the orders made from it (`familyIds`): as
+ *  the server counted it, or as the credit itself shows (returns settled before the server kept count), whichever is
+ *  more. It counts as given back wherever money goes back for the order (lib/cancel-restore, api/retail/refund). `get`
+ *  is the database's own (a transaction's, inside one). */
+export async function returnCreditGiven(get: (r: any) => Promise<any>, db: any, t: string, payerId: string, familyIds: string[], exceptReturnId?: string): Promise<number> {
+  const T = `tenants/${t}`;
+  const tally = await get(tallyRef(db, t, payerId));
+  const retIds: string[] = [];
+  for (const ids of chunks([payerId, ...familyIds.filter((x) => x && x !== payerId)], 30)) {
+    const q = await get(db.collection(`${T}/retailReturns`).where('orderId', 'in', ids).limit(300));
+    for (const d of q?.docs || []) if (d.id !== exceptReturnId) retIds.push(String(d.id));
+  }
+  let shown = 0;
+  for (const ids of chunks(retIds, 30)) {
+    const q = await get(db.collection(`${T}/depositCredits`).where('sourceRetailReturnId', 'in', ids).limit(300));
+    for (const d of q?.docs || []) shown += c0(d.data()?.amountCents);
+  }
+  return Math.max(c0(tally?.exists ? tally.data()?.cents : 0), shown);
+}
+
 export type CreditActor = { uid: string; name: string; isManager?: boolean };
 export type CreditResult = { ok: boolean; message: string; status?: number; creditCents?: number; cappedCents?: number; orderQrToken?: string; already?: boolean };
 
@@ -70,27 +90,15 @@ export async function resolveCreditReturn(db: any, t: string, returnId: string, 
     const payerId = String(payer.id);
     const family = (await followUpsOf(get, col, payerId)).filter((f: any) => isFollowUp(f));
     const payerT = await withNonCardRecord(get, db, t, payerId, payer);
-    const tally = await get(tallyRef(db, t, payerId));
     // A gift exchange: the server's record says so, whatever the return itself now says.
     const giftRec = await get(giftReturnRef(db, t, returnId));
     const gift = !!giftRec?.exists || ret.isGiftReturn === true || !!ret.giftRecipient;
-    // Credit already given for the order's other returns: as the server counted it, or as the credit itself shows (for
-    // returns settled before the server kept count).
-    const retIds: string[] = [];
-    for (const ids of chunks([payerId, ...family.map((f: any) => String(f.id))], 30)) {
-      const q = await get(db.collection(`${T}/retailReturns`).where('orderId', 'in', ids).limit(300));
-      for (const d of q?.docs || []) if (d.id !== returnId) retIds.push(String(d.id));
-    }
-    let shown = 0;
-    for (const ids of chunks(retIds, 30)) {
-      const q = await get(db.collection(`${T}/depositCredits`).where('sourceRetailReturnId', 'in', ids).limit(300));
-      for (const d of q?.docs || []) shown += c0(d.data()?.amountCents);
-    }
+    // Credit already given for the order's other returns.
+    const soFar = await returnCreditGiven(get, db, t, payerId, family.map((f: any) => String(f.id)), returnId);
 
     // What's left of what was paid: what the card paid and what the server recorded the gift card and store credit paying
     // (the tip aside), less every refund made or waiting across the order and everything made from it, what went back on
     // a gift card or as credit, and credit for other returns.
-    const soFar = Math.max(c0(tally?.exists ? tally.data()?.cents : 0), shown);
     const np = nonCardPaid(payerT);
     const paid = Math.max(0, cardPaidCents(payerT) + np.giftCents + np.creditCents - c0(payer.tipCents));
     const everyOrder = [payer, ...family];

@@ -2,6 +2,7 @@ import { refundAllowed } from '@/lib/money-limits';
 import { familyRefundableCents, followUpLabel, followUpsOf, isFollowUp, payingOrder, sameCustomer } from '@/lib/order-family';
 import { giveBackLine, readGift, roomCents, saleBooked, withNonCardRecord, writeGiveBack } from '@/lib/non-card-back';
 import { ensureNonCardRecord } from '@/lib/non-card-record';
+import { returnCreditGiven } from '@/lib/return-credit';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -175,10 +176,13 @@ export async function POST(req: NextRequest) {
     ? `${follow ? 'The original order' : 'This order'} shows ${money(unconfirmed)} paid by gift card or store credit that couldn’t be matched to the gift card or the customer’s credit, so that part doesn’t go back on its own: if it was paid, give it back by hand.`
     : '';
   const payer0T = await withNonCardRecord(read, db, tenantId, payerId, payer0);
-  const room0 = piId ? familyRefundableCents(payer0T, await followUpsOf(read, col, payerId)) : 0;
+  const family0 = await followUpsOf(read, col, payerId);
+  const room0 = piId ? familyRefundableCents(payer0T, family0) : 0;
   const other0 = roomCents(payer0T);
+  // Store credit already given for a return on the order (or one made from it) counts as given back (lib/return-credit).
+  const credited0 = await returnCreditGiven(read, db, tenantId, payerId, family0.filter((f: any) => isFollowUp(f)).map((f: any) => String(f.id)));
   if (limitFor) {
-    const allowed = limitFor(Math.min(pendingNow, room0 + other0));
+    const allowed = limitFor(Math.min(pendingNow, Math.max(0, room0 + other0 - credited0)));
     if (!allowed.ok) return NextResponse.json({ error: allowed.message, limitCents: allowed.limit }, { status: 403 });
   }
   if (!piId && other0 <= 0) {
@@ -198,7 +202,7 @@ export async function POST(req: NextRequest) {
   const oRef = col.doc(orderId);
   const pRef = col.doc(payerId);
   const held = (l: any) => !!l && Date.parse(l.at || '') > Date.now() - HOLD_MS;
-  let cents = 0; let other = 0; let seq = 0; let overCard = 0; let refundId = '';
+  let cents = 0; let other = 0; let seq = 0; let overCard = 0; let refundId = ''; let credited = credited0;
   const mine = (l: any) => !!l && l.forOrderId === orderId && Number(l.seq) === seq;
 
   // A REFUND THAT MAY HAVE GONE THROUGH WITHOUT BEING RECORDED: an earlier try claimed it under the next number and was
@@ -244,6 +248,7 @@ export async function POST(req: NextRequest) {
         const payer = await withNonCardRecord((r: any) => tx.get(r), db, tenantId, payerId, follow ? { ...(pSnap.data() || {}), id: payerId } : { ...cur, id: orderId });
         const family = (await followUpsOf((r: any) => tx.get(r), col, payerId)).map((f: any) => (f.id === orderId ? { ...cur, id: orderId } : f));
         const autoSnap = policyPath ? await tx.get(autoRef) : null;
+        credited = await returnCreditGiven((r: any) => tx.get(r), db, tenantId, payerId, family.filter((f: any) => isFollowUp(f)).map((f: any) => String(f.id)));
         if (held(cur.refundInFlight) || (follow && held(payer.refundInFlight))) throw new Error('busy');
         // The card first, never more than it can take back (whatever has already gone back to it for any order in
         // the family is spoken for); then the gift card or store credit the order was paid with, within that.
@@ -251,8 +256,12 @@ export async function POST(req: NextRequest) {
         if (pending <= 0) throw new Error('none');
         if (autoCap && pending > autoCap) throw new Error('over');
         if (policyPath && pending + autoUsed(autoSnap) > autoCap) throw new Error('over');
-        cents = piId ? Math.min(pending, familyRefundableCents(payer, family)) : 0;
-        other = Math.min(pending - cents, roomCents(payer));
+        // In all, never more than is left of what was paid: store credit already given for a return counts as given back.
+        const cardRoom = piId ? familyRefundableCents(payer, family) : 0;
+        const otherRoom = roomCents(payer);
+        const overall = Math.max(0, cardRoom + otherRoom - credited);
+        cents = Math.min(pending, cardRoom, overall);
+        other = Math.min(pending - cents, otherRoom, overall - cents);
         if (cents + other <= 0) throw new Error('nocard');
         const allowed = limitFor ? limitFor(cents + other) : { ok: true as const };
         if (!allowed.ok) { limitHit = { message: allowed.message, limit: allowed.limit }; throw new Error('limit'); }
@@ -264,7 +273,13 @@ export async function POST(req: NextRequest) {
       });
     } catch (e: any) {
       if (e?.message === 'busy') return NextResponse.json({ error: follow ? 'A refund for this customer’s order is already being sent. Give it a moment.' : 'A refund on this order is already being sent. Give it a moment.' }, { status: 409 });
-      if (e?.message === 'nocard') return NextResponse.json({ error: unconfirmedLine || (follow ? 'Everything paid on the original order has already gone back the way it was paid.' : 'Everything paid on this order has already gone back the way it was paid.') }, { status: 409 });
+      if (e?.message === 'nocard') {
+        return NextResponse.json({
+          error: unconfirmedLine || (credited > 0
+            ? `Everything paid on ${follow ? 'the original order' : 'this order'} has already gone back: refunded, or given as store credit for a return.`
+            : follow ? 'Everything paid on the original order has already gone back the way it was paid.' : 'Everything paid on this order has already gone back the way it was paid.'),
+        }, { status: 409 });
+      }
       if (e?.message === 'none') return NextResponse.json({ error: 'No refund is pending on this order.' }, { status: 409 });
       if (e?.message === 'over') return NextResponse.json({ error: 'This is more than your automatic amount allows for this order, so someone allowed to refund needs to send it.' }, { status: 403 });
       if (e?.message === 'limit' && limitHit) return NextResponse.json({ error: (limitHit as any).message, limitCents: (limitHit as any).limit }, { status: 403 });
@@ -487,7 +502,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true, refundId, amountCents: total, cardCents: cents, otherCents: given, leftCents: left, overCardCents: overCard,
     message: overCard > 0
-      ? `${sent} The other ${money(overCard)} ${unconfirmedLine ? `stays on the order. ${unconfirmedLine}` : 'is more than is left of what they paid, so it stays on the order for a look.'}`
+      ? `${sent} The other ${money(overCard)} ${unconfirmedLine ? `stays on the order. ${unconfirmedLine}` : `is more than is left of what they paid${credited > 0 ? ' (store credit given for a return counts)' : ''}, so it stays on the order for a look.`}`
       : sent,
   });
 }
