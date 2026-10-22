@@ -248,7 +248,8 @@ export type CarrierItem = { order: any; kind: 'returned' | 'failed' | 'stalled';
 export function carrierItem(o: any, tz: string, now = Date.now()): CarrierItem | null {
   const ci = o?.carrierIssue;
   if (!ci || ci.open !== true || o.shippedWithOrderId || o.labelFromOrderId) return null;
-  if (Date.parse(String(ci.snoozeUntil || '')) > now) return null;
+  // "Wait 3 more days" is for a parcel gone quiet: a new problem (going back, a failed delivery) shows straight away.
+  if (ci.status === 'STALLED' && Date.parse(String(ci.snoozeUntil || '')) > now) return null;
   const who = firstName(o.customerName);
   const num = orderNum(o);
   const carrier = carrierName(o.carrier || ci.carrier) || 'The carrier';

@@ -7,9 +7,10 @@
 //     scan and a lost one within 60 days of shipping; a carrier claim follows the carrier's window (lib/exception-doc)
 //   · the claim's story, from reported to paid, and the details to paste into a claim form
 //   · the month: lost, recovered, net, where it went, and one change worth making
-import { claimWindowFor, suggestedDeadline } from './exception-doc';
+import { claimWindowFor } from './exception-doc';
 import { carrierName } from './ship-promise';
 import { SHIPPO_INSURANCE_RATE } from './ship-run';
+import { addDays, dayKey, endOfDay } from './tenant-time';
 
 const DAY = 86400e3;
 /** Where Shippo's shipments are listed; a shipment's sidebar has "File a claim" for an insured one. */
@@ -22,7 +23,6 @@ export const INSURED_LOST_DAYS = 60;
 export const CARRIER_INCLUDED_CENTS = 10000;
 
 const ms = (v: unknown) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : NaN; };
-const iso = (t: number) => new Date(t).toISOString();
 const money = (c: number) => `$${(Math.round(Number(c) || 0) / 100).toFixed(2)}`;
 const whole = (c: number) => (Math.round(c) % 100 === 0 ? `$${Math.round(c) / 100}` : money(c));
 const first = (n: unknown) => String(n || '').trim().split(/\s+/)[0] || 'The customer';
@@ -53,22 +53,44 @@ export function coverFor(exc: any, order?: any): Cover {
     portalUrl: w.url, portalLabel: `Open the claim with ${carrier}` };
 }
 
-/** Whether the carrier delivered it (so the claim is "delivered, but it isn't there"). */
+/** When the carrier marked it delivered: the order's date, the loss record's, or the carrier's delivered scan. */
 const deliveredAtOf = (exc: any, order?: any): number => {
   const d = ms(order?.deliveredAt || exc?.deliveredAt);
-  return Number.isFinite(d) ? d : NaN;
+  if (Number.isFinite(d)) return d;
+  const trail = order?.carrierTrail;
+  if (String(trail?.carrierStatus || order?.carrierStatus || '').toUpperCase() === 'DELIVERED') return ms(trail?.carrierStatusAt);
+  return NaN;
 };
 
-/** The day to file by, or null when the ship date isn't known (a guessed deadline is worse than none). */
-export function fileBy(exc: any, order?: any): string | null {
+/** The end of the day `days` calendar days after `t`, in the shop's time zone (a deadline is a day, not 24-hour blocks). */
+const daysAfter = (t: number, days: number, tz: string) => endOfDay(addDays(dayKey(new Date(t), tz), days), tz).toISOString();
+
+/**
+ * The day to file by, at the end of that day in the shop's time zone (`tz`), or null when the ship date isn't known (a
+ * guessed deadline is worse than none). A box marked delivered but missing, with no delivery date known, takes the
+ * earliest it could be due: 15 days from shipping, never the 60 days for a lost one.
+ */
+export function fileBy(exc: any, order?: any, tz = 'UTC'): string | null {
   const cover = coverFor(exc, order);
   const shipped = ms(exc?.shippedAt || order?.completedAt || order?.shippedAt);
+  const reason = String(exc?.reason || '');
   if (cover.by === 'shippo') {
     const delivered = deliveredAtOf(exc, order);
-    if (Number.isFinite(delivered) && exc?.reason !== 'carrier_lost') return iso(delivered + INSURED_DELIVERED_DAYS * DAY);
-    return Number.isFinite(shipped) ? iso(shipped + INSURED_LOST_DAYS * DAY) : null;
+    if (Number.isFinite(delivered) && reason !== 'carrier_lost') return daysAfter(delivered, INSURED_DELIVERED_DAYS, tz);
+    if (reason === 'stolen_after_delivery') return Number.isFinite(shipped) ? daysAfter(shipped, INSURED_DELIVERED_DAYS, tz) : null;
+    return Number.isFinite(shipped) ? daysAfter(shipped, INSURED_LOST_DAYS, tz) : null;
   }
-  return Number.isFinite(shipped) ? suggestedDeadline(iso(shipped), exc?.carrier || order?.carrier) : null;
+  return Number.isFinite(shipped) ? daysAfter(shipped, claimWindowFor(exc?.carrier || order?.carrier).days, tz) : null;
+}
+
+/** A box reported lost that turned up after all: the carrier delivered it, or is bringing it back, after the report. */
+export function turnedUp(exc: any, order?: any): boolean {
+  if (String(exc?.reason || '') !== 'carrier_lost' || !order) return false;
+  const at = ms(exc?.at);
+  const delivered = deliveredAtOf(exc, order);
+  if (Number.isFinite(delivered) && (!Number.isFinite(at) || delivered > at)) return true;
+  const st = String(order?.carrierTrail?.carrierStatus || order?.carrierStatus || '').toUpperCase();
+  return st === 'RETURNED' && (!Number.isFinite(at) || ms(order?.carrierTrail?.carrierStatusAt) > at);
 }
 
 export type ClaimStage = 'to_file' | 'filed' | 'approved' | 'paid' | 'denied' | 'closed';
@@ -101,13 +123,16 @@ export type ClaimToFile = { exc: any; order: any | null; by: string | null; due:
 
 /**
  * Claims to file, for Needs you: the next file-by date first, any due in the next week (or past it) on top. `day`
- * formats a date the shop's way ('Nov 20').
+ * formats a date the shop's way ('Nov 20'); `tz` is the shop's time zone. A box reported lost that turned up after all
+ * isn't one, nor (unless `all`, for the Lost and recovered screen) is a claim whose date passed more than two weeks ago.
  */
-export function claimsToFile(rows: any[], ordersById: Map<string, any>, day: (iso: string) => string, now = Date.now()): ClaimToFile[] {
+export function claimsToFile(rows: any[], ordersById: Map<string, any>, day: (iso: string) => string, now = Date.now(), tz = 'UTC', opts: { all?: boolean } = {}): ClaimToFile[] {
   return rows.filter((r) => claimStage(r) === 'to_file' && RECOVERABLE.has(String(r.reason)))
+    .filter((r) => !turnedUp(r, r.orderId ? ordersById.get(String(r.orderId)) : null))
+    .filter((r) => { if (opts.all) return true; const by = fileBy(r, r.orderId ? ordersById.get(String(r.orderId)) : null, tz); return !by || ms(by) >= now - 14 * DAY; })
     .map((exc) => {
       const order = exc.orderId ? ordersById.get(String(exc.orderId)) || null : null;
-      const by = fileBy(exc, order);
+      const by = fileBy(exc, order, tz);
       const cover = coverFor(exc, order);
       return {
         exc, order, by, due: dueState(by, now),
@@ -188,16 +213,18 @@ export type MonthLoss = {
  */
 export function monthLoss(rows: any[], month: string, opts: {
   monthOf: (iso: string) => string; now?: number; unusedRefundedCents?: number; shippedValues?: number[];
-  insuranceOn?: boolean; insureOverCents?: number; requireScan?: boolean; ordersById?: Map<string, any>;
+  insuranceOn?: boolean; insureOverCents?: number; requireScan?: boolean; ordersById?: Map<string, any>; tz?: string;
 }): MonthLoss {
   const now = opts.now ?? Date.now();
+  const tz = opts.tz || 'UTC';
   const mine = rows.filter((r) => r?.orderId && opts.monthOf(String(r.at || '')) === month);
   const lostCents = mine.reduce((a, r) => a + lossOf(r), 0);
-  const recoveredCents = rows.reduce((a, r) => a + (Array.isArray(r?.recovery?.events) ? r.recovery.events : [])
+  // Money back on the same losses: an order's parcel, not a supplier's credit on a stock write-off.
+  const recoveredCents = rows.filter((r) => r?.orderId).reduce((a, r) => a + (Array.isArray(r?.recovery?.events) ? r.recovery.events : [])
     .filter((e: any) => e?.action === 'payment' && opts.monthOf(String(e.at || '')) === month)
     .reduce((s: number, e: any) => s + (Number(e.amountCents) || 0), 0), 0);
   const open = rows.filter((r) => isOpenClaim(r) && RECOVERABLE.has(String(r.reason)));
-  const dueSoon = open.filter((r) => claimStage(r) === 'to_file' && ['soon', 'overdue'].includes(dueState(fileBy(r, opts.ordersById?.get(String(r.orderId))), now))).length;
+  const dueSoon = open.filter((r) => claimStage(r) === 'to_file' && ['soon', 'overdue'].includes(dueState(fileBy(r, opts.ordersById?.get(String(r.orderId)), tz), now))).length;
   const byKind = new Map<string, number>();
   for (const r of mine) byKind.set(lossKind(r.reason), (byKind.get(lossKind(r.reason)) || 0) + lossOf(r));
   const top = Math.max(1, ...byKind.values());
@@ -219,7 +246,7 @@ export function monthLoss(rows: any[], month: string, opts: {
   }
   const mistakes = mine.filter((r) => lossKind(r.reason) === 'Packing mistakes');
   if (mistakes.length >= 2 && !opts.requireScan) worth.push(`${mistakes.length} packing mistakes this month (${whole(mistakes.reduce((a, r) => a + lossOf(r), 0))}). Scanning each item at the bench catches most of them.`);
-  const lapsed = rows.filter((r) => claimStage(r) === 'to_file' && RECOVERABLE.has(String(r.reason)) && dueState(fileBy(r, opts.ordersById?.get(String(r.orderId))), now) === 'overdue');
+  const lapsed = rows.filter((r) => claimStage(r) === 'to_file' && RECOVERABLE.has(String(r.reason)) && !turnedUp(r, opts.ordersById?.get(String(r.orderId))) && dueState(fileBy(r, opts.ordersById?.get(String(r.orderId)), tz), now) === 'overdue');
   if (lapsed.length) worth.push(`${lapsed.length} ${lapsed.length === 1 ? 'claim is' : 'claims are'} past the date to file by (${whole(lapsed.reduce((a, r) => a + lossOf(r), 0))}). File today, or close ${lapsed.length === 1 ? 'it' : 'them'}.`);
 
   return {

@@ -213,6 +213,10 @@ export async function POST(req: NextRequest) {
     if (!CLAIM_STAGES.includes(order.stage)) {
       return NextResponse.json({ error: 'Problems can be reported once the order has been picked up, delivered, or shipped.' }, { status: 409 });
     }
+    // The shop already sent a new one for a parcel that stopped moving: that's the answer to "it never arrived".
+    if (type === 'not_received' && order.replacementOrderId) {
+      return NextResponse.json({ error: 'The shop has already sent you a replacement for this order. Its tracking is on your order page.' }, { status: 409 });
+    }
 
     const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
 

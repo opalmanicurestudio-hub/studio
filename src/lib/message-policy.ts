@@ -565,7 +565,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
   },
   {
     id: 'order_delayed', group: 'Retail', label: 'Delivery running late',
-    when: 'The carrier moves its own delivery estimate, or a parcel stops scanning.',
+    when: 'The carrier moves its own delivery estimate. (A parcel that stops scanning shows under Needs you, where the team chooses what to tell the customer.)',
     channels: ['email'], canDisable: true,
     tokens: ['{{client_first}}', '{{order_number}}', '{{carrier}}', '{{when}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],

@@ -123,6 +123,8 @@ export interface InventoryExceptionInput {
    *  unknown/legacy. The File-claim form and analytics both read this. */
   insuredCents?: number | null;
   shippedAt?: string | null;
+  /** When the carrier marked it delivered, for a box gone from the porch (its claim window counts from then). */
+  deliveredAt?: string | null;
   responsibleParty: 'customer' | 'carrier' | 'supplier' | 'internal' | 'unknown';
   /** The ledger transaction that recognised the landed cost, when one was
    *  written — the anti-double-deduction link. Absent = not yet ledgered. */
@@ -160,6 +162,7 @@ export function buildExceptionDoc(input: InventoryExceptionInput, tenantId: stri
     carrier: input.carrier || null,
     insuredCents: input.insuredCents ?? null,
     shippedAt: input.shippedAt || null,
+    deliveredAt: input.deliveredAt || null,
     responsibleParty: input.responsibleParty,
     ledgerTxnId: input.ledgerTxnId || null,
     note: input.note ? String(input.note).slice(0, 600) : null,

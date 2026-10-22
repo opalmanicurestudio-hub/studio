@@ -252,6 +252,21 @@ export async function POST(req: NextRequest) {
         // never let bookkeeping fail the webhook
       }
 
+      // A parcel a replacement went out for that turned up after all (delivered, or coming back to the shop): its claim
+      // to file is closed, so nobody files "lost in transit" for a box that arrived (lib/lost-recovered).
+      if (order.replacementOrderId && ['DELIVERED', 'RETURNED'].includes(String(status))) {
+        try {
+          const excRef = db.doc(`tenants/${tenantId}/inventoryExceptions/lost-${d.id}`);
+          await db.runTransaction(async (tx: any) => {
+            const e = await tx.get(excRef);
+            const rec: any = e.exists ? e.data()?.recovery || null : null;
+            if (!rec || rec.status !== 'candidate') return;
+            const at = new Date().toISOString();
+            tx.set(excRef, { recovery: { ...rec, status: 'abandoned', events: [...(Array.isArray(rec.events) ? rec.events : []), { at, by: 'Carrier', action: 'abandon', note: status === 'DELIVERED' ? 'It was delivered after all' : 'It’s coming back to the shop' }] } }, { merge: true });
+          });
+        } catch { /* the claim stays to file; the screens leave out one that turned up */ }
+      }
+
       /* THE DELAY THE CUSTOMER HEARS ABOUT FIRST. Shippo's track payload
        * carries both the carrier's ORIGINAL promise and its CURRENT eta.
        * When the current one slips a full day or more past the original —

@@ -171,6 +171,13 @@ export default function RetailClaimsPage() {
             let insuredCents: number | null = null;
             let shippedAt: string | null = null;
             let delivered = false;
+            let deliveredAt: string | null = null;
+            let contents: string | null = null;
+            // A parcel already replaced from Needs you has its loss recorded once, on the replacement (lost-<order>).
+            if (c.type === 'not_received') {
+              const lost = await getDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventoryExceptions/lost-${c.orderId}`));
+              if (lost.exists()) return;
+            }
             const oSnap = await getDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders/${c.orderId}`));
             if (oSnap.exists()) {
               const o = oSnap.data() as any;
@@ -178,8 +185,11 @@ export default function RetailClaimsPage() {
               carrier = o.carrier || null;
               insuredCents = o.shipmentProtection ? (Number(o.shipmentProtection.insuranceCents) || 0) : null;
               shippedAt = o.completedAt || o.shipmentProtection?.decidedAt || null;
-              // The carrier marked it delivered: "it never arrived" is then gone from the porch, which only insurance covers.
-              delivered = !!o.deliveredAt || String(o.carrierTrail?.status || o.carrierTrail?.carrierStatus || '').toUpperCase() === 'DELIVERED';
+              // The carrier marked it delivered: "it never arrived" is then gone from the porch, which only insurance covers,
+              // and its claim window counts from the delivery scan.
+              const trailDelivered = String(o.carrierTrail?.status || o.carrierTrail?.carrierStatus || '').toUpperCase() === 'DELIVERED';
+              delivered = !!o.deliveredAt || trailDelivered;
+              deliveredAt = o.deliveredAt || (trailDelivered ? o.carrierTrail?.carrierStatusAt || null : null);
               const line = (o.lines || []).find((l: any) => l.lineId === lineId);
               if (line) {
                 productId = line.productId || null;
@@ -189,7 +199,14 @@ export default function RetailClaimsPage() {
                   if (iSnap.exists()) costPerUnit = Number((iSnap.data() as any).costPerUnit) || null;
                 }
               } else if (c.type === 'not_received') {
-                qty = (o.lines || []).reduce((a: number, l: any) => a + Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)), 0) || qty;
+                // The whole box: one record for its contents, at what the goods cost (their price when a cost isn't set).
+                const sent = (o.lines || []).filter((l: any) => l && l.digital !== true).map((l: any) => ({ l, q: Math.max(0, (Number(l.qtyOrdered) || 0) - (Number(l.qtyShorted) || 0)) })).filter((x: any) => x.q > 0);
+                const costs = await Promise.all(sent.map((x: any) => (x.l.productId ? getDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory/${x.l.productId}`)).then((d) => (d.exists() ? Number((d.data() as any).costPerUnit) || 0 : 0)).catch(() => 0) : Promise.resolve(0))));
+                const units = sent.reduce((a: number, x: any) => a + x.q, 0);
+                qty = 1;
+                retailPer = sent.reduce((a: number, x: any) => a + (Number(x.l.unitPriceCents) || 0) * x.q, 0) || null;
+                costPerUnit = costs.every((cst) => cst > 0) && sent.length ? sent.reduce((a: number, x: any, i: number) => a + costs[i] * x.q, 0) : null;
+                contents = `Order #${String(c.orderNumber ?? o.orderNumber ?? '').padStart(4, '0')} contents (${units} item${units === 1 ? '' : 's'})`;
               }
             }
             await recordInventoryException(firestore as Firestore, tenantId, {
@@ -203,7 +220,7 @@ export default function RetailClaimsPage() {
               qty,
               productId,
               sku: c.lineSku || null,
-              name: c.lineName || `Order #${String(c.orderNumber ?? '').padStart(4, '0')} contents`,
+              name: contents || c.lineName || `Order #${String(c.orderNumber ?? '').padStart(4, '0')} contents`,
               costPerUnitDollars: costPerUnit,
               retailPerUnitCents: retailPer,
               orderId: c.orderId,
@@ -213,6 +230,7 @@ export default function RetailClaimsPage() {
               carrier,
               insuredCents,
               shippedAt,
+              deliveredAt,
               responsibleParty: c.type === 'not_received' || c.type === 'damaged' ? 'carrier'
                 : c.type === 'wrong_item' ? 'internal' : 'unknown',
               note: c.description || null,

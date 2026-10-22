@@ -6,7 +6,8 @@ import { makePrintKey } from '@/lib/print-key';
 const SCOPES: Record<string, (caps: string[], isManager: boolean) => boolean> = {
   'loss-recovery': (c, m) => m || c.includes('money.view'),
   evidence: () => true,
-  'claim-pack': () => true,
+  // A claim pack has the customer's details and what they paid: for the people who file claims.
+  'claim-pack': (c, m) => m || c.includes('money.view'),
   orders: () => true,
 };
 

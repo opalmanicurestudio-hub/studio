@@ -159,7 +159,7 @@ export function OrdersApp() {
   const [claimRows, setClaimRows] = React.useState<any[]>([]);
   React.useEffect(() => {
     if (!fs || !tenantId || !claimReminders) { setClaimRows([]); return; }
-    return onSnapshot(query(collection(fs, `tenants/${tenantId}/inventoryExceptions`), where('recovery.status', '==', 'candidate'), limit(60)),
+    return onSnapshot(query(collection(fs, `tenants/${tenantId}/inventoryExceptions`), where('recovery.status', '==', 'candidate'), limit(200)),
       (s) => setClaimRows(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setClaimRows([]));
   }, [fs, tenantId, claimReminders]);
   // Their orders (shipped ones aren't in the live lists): read once each, again when the list of orders changes.
@@ -172,7 +172,7 @@ export function OrdersApp() {
       .then((list) => { if (live) setClaimOrders(new Map(list.filter(Boolean).map((o: any) => [o.id, o]))); });
     return () => { live = false; };
   }, [fs, tenantId, claimOrderKey]);
-  const claims = React.useMemo(() => claimsToFile(claimRows, claimOrders, (v) => monthDay(v, shopZone), now), [claimRows, claimOrders, shopZone, now]);
+  const claims = React.useMemo(() => claimsToFile(claimRows, claimOrders, (v) => monthDay(v, shopZone), now, shopZone), [claimRows, claimOrders, shopZone, now]);
   const [claimId, setClaimId] = React.useState<string | null>(null);
   // A parcel gone quiet opens its choices (send a replacement, tell the customer, or wait), not the order.
   const [stalledId, setStalledId] = React.useState<string | null>(null);

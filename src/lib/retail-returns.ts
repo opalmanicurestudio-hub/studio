@@ -9,6 +9,7 @@ import {
 import { nanoid } from 'nanoid';
 
 import { buildExceptionDoc } from '@/lib/inventory-exceptions';
+import { buildEntry } from '@/lib/stock-ledger';
 
 import {
   buildEvent, isReturnReceivable, parseOrderQr, returnRefundCents,
@@ -283,6 +284,12 @@ export async function resolveReturn(
        * configured at the moment of resolution, not a stale client copy. */
       const tSnap = await txn.get(doc(fs, 'tenants', tenantId));
       const pol = ((tSnap.exists() ? (tSnap.data() as any).retailSettings : {})?.policies) || {};
+      // A replacement holds its stock the moment it's made, as a paid order does (shipping it releases the hold), so
+      // its products are read now, with every other read.
+      const replPids = fresh.resolution === 'replacement'
+        ? [...new Set(fresh.lines.filter((l) => l.disposition).map((l) => order.lines.find((x) => x.lineId === l.lineId)).filter((x: any) => x && x.productId && x.digital !== true).map((x: any) => String(x.productId)))]
+        : [];
+      const replSnaps = await Promise.all(replPids.map((pid) => txn.get(doc(fs, `tenants/${tenantId}/inventory/${pid}`))));
 
       const now = new Date().toISOString();
       let summary = '';
@@ -351,7 +358,7 @@ export async function resolveReturn(
             const orig = order.lines.find((x) => x.lineId === l.lineId)!;
             return {
               ...orig, lineId: `line-${nanoid(8)}`, qtyOrdered: l.qty,
-              qtyScanned: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending', shortReason: '',
+              qtyScanned: 0, qtyPacked: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending', shortReason: '', preorder: false,
             };
           });
         txn.set(childRef, JSON.parse(JSON.stringify({
@@ -368,6 +375,19 @@ export async function resolveReturn(
           placedAt: now, paidAt: now,
         })));
         txn.set(doc(collection(oRef, 'events')), evPayload('replacement_created', actor, { childOrderId: childRef.id }));
+        replPids.forEach((pid, i) => {
+          const s = replSnaps[i];
+          const q = replLines.filter((x: any) => String(x.productId || '') === pid).reduce((a: number, x: any) => a + (Number(x.qtyOrdered) || 0), 0);
+          if (!s.exists() || q <= 0) return;
+          const item = s.data() as any;
+          const after = Math.max(0, Number(item.stockReserved) || 0) + q;
+          txn.update(doc(fs, `tenants/${tenantId}/inventory/${pid}`), { stockReserved: after });
+          txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), buildEntry({
+            productId: pid, type: 'reserved', field: 'stockReserved', delta: q, unit: item.unit || 'units',
+            reason: `Held for a replacement of order #${String(order.orderNumber ?? '').padStart(4, '0')}`, actorId: actor.id, actorName: actor.name,
+            ref: { kind: 'order', id: childRef.id }, balanceAfter: after,
+          }));
+        });
         summary = 'Replacement order created — it goes through the same scan gates';
       }
 

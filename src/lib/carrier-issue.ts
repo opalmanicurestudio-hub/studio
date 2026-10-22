@@ -20,7 +20,7 @@ export function carrierIssueUpdate(order: any, trackingNumber: string, status: s
     return {
       // Every field written, so nothing from an earlier problem (who saw it, when it closed) carries over.
       carrierIssue: { open: true, status: st, detail: String(update?.detail || ''), carrier: carrierName(order?.carrier || update?.carrier), tracking: trackingNumber, at: update?.statusAt || null, key,
-        quietDays: null, unscanned: null, customerTold: null, seenAt: null, seenBy: null, closedAt: null, closedBy: null },
+        quietDays: null, unscanned: null, customerTold: null, toldAt: null, snoozeUntil: null, outcome: null, seenAt: null, seenBy: null, closedAt: null, closedBy: null },
       carrierIssueKeys: [...raised, key].slice(-20),
     };
   }

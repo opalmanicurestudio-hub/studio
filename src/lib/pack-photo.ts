@@ -87,7 +87,9 @@ export function packPhotoRequired(order: any, policy: PackPhotoPolicy): boolean 
 
 /**
  * An insured parcel is packed the way its insurer asks and photographed open before it is sealed, so a damage claim
- * holds up. Shippo's insurance asks for a corrugated box, at least 2 inches of padding between the goods and all six
+ * holds up. The one exception to the photos being off by default above: insurance is something the shop turns on, and
+ * this is shown and switchable beside it (Policies → Protection), because an insurer can turn a damage claim down
+ * without proof of how the box was packed. Shippo's insurance asks for a corrugated box, at least 2 inches of padding between the goods and all six
  * sides, and a double-walled box over 10 lb. On for every insured ship order unless the shop turns it off (Policies →
  * Protection: retailSettings.policies.insuredPackCheck). Insured: its label was bought insured, or, before there is a
  * label, the shop's insurance rule will insure it (lib/shipment-protection).

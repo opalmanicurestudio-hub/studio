@@ -11,7 +11,7 @@ import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { openPrint } from '@/lib/open-print';
 import { advanceRecovery } from '@/lib/inventory-exceptions';
-import { boxTrail, tail } from '@/lib/label-boxes';
+import { boxTrail, labelSlots, tail } from '@/lib/label-boxes';
 import { carrierName } from '@/lib/ship-promise';
 import { choseService } from '@/lib/paid-service';
 import { firstName, money, orderNum } from '@/lib/orders-view';
@@ -42,6 +42,8 @@ export function StalledSheet({ fs, tenantId, order, tz, canReplace, insureOverCe
   const told = ci.customerTold === true;
   const shipped = order.completedAt || order.shippedAt || '';
   const lastDay = lastAt ? monthDay(lastAt, tz) : '';
+  const boxes = labelSlots(order).filter((x) => !x.voided).length;
+  const riders = Array.isArray(order.shippedWithOrderIds) ? order.shippedWithOrderIds.length : 0;
 
   const message = async (text: string): Promise<boolean> => {
     try {
@@ -92,6 +94,7 @@ export function StalledSheet({ fs, tenantId, order, tz, canReplace, insureOverCe
           : <p className="m-0 text-[14px]" style={muted}>A manager, or someone who can give refunds, sends a replacement.</p>}
         <Btn kind="soft" className="h-12 w-full text-[15px]" style={{ background: C.paper }} disabled={!!busy} onClick={() => void tell()}>{busy === 'tell' ? 'Sending…' : told ? `Tell ${who} again` : `Tell ${who} we’re on it`}</Btn>
         <Btn kind="plain" className="h-11 w-full text-[15px]" disabled={!!busy} onClick={() => void wait()}>Wait 3 more days</Btn>
+        {(boxes > 1 || riders > 0) && <span className="text-[13px] leading-snug">{boxes > 1 ? `This order went in ${boxes} boxes, and a replacement sends everything again.` : ''}{riders > 0 ? `${boxes > 1 ? ' ' : ''}${riders === 1 ? 'Another order' : `${riders} other orders`} rode in the same box: ${riders === 1 ? 'its items go' : 'their items go'} in the replacement too.` : ''}</span>}
         <span className="text-[13px] leading-snug" style={muted}>A replacement starts a claim for the first box, so you can get the cost back {insured > 0 ? `from Shippo’s insurance (${whole(insured)})` : `from ${carrier} (up to the included $100)`}.</span>
       </div>
     </Sheet>);
@@ -106,7 +109,7 @@ export function ClaimSheet({ fs, tenantId, exc, order, tz, canFile, actor, onClo
   const [amount, setAmount] = React.useState('');
   const stage = claimStage(exc);
   const cover = coverFor(exc, order);
-  const by = fileBy(exc, order);
+  const by = fileBy(exc, order, tz);
   const due = dueState(by);
   const day = (v: string) => monthDay(v, tz);
   const who = firstName(order?.customerName);
@@ -144,7 +147,7 @@ export function ClaimSheet({ fs, tenantId, exc, order, tz, canFile, actor, onClo
             ? <a href={cover.portalUrl} target="_blank" rel="noreferrer" className="cf-press inline-flex h-11 w-full items-center justify-center rounded-full text-[15px] font-semibold" style={{ border: `1px solid ${C.ink}`, color: C.ink }}>1. {cover.portalLabel}</a>
             : <p className="m-0 text-[14px]" style={muted}>1. Open a claim with {cover.who}.</p>}
           <Btn kind="plain" className="h-11 w-full text-[15px]" style={{ border: `1px solid ${C.ink}` }} onClick={() => void copy()}>2. Copy the details</Btn>
-          <Btn kind="plain" className="h-11 w-full text-[15px]" style={{ border: `1px solid ${C.ink}` }} onClick={() => void pack()}>3. Download the claim pack</Btn>
+          {canFile && <Btn kind="plain" className="h-11 w-full text-[15px]" style={{ border: `1px solid ${C.ink}` }} onClick={() => void pack()}>3. Download the claim pack</Btn>}
         </div>
         <p className="m-0 mt-2 text-[13px] leading-snug" style={muted}>The claim pack has the packing photos, the weights, every carrier scan, what {who} paid{exc.note ? ` and ${order?.customerName ? 'their' : 'the'} report` : ''}.{cover.by === 'shippo' ? ' In Shippo, find the shipment by its tracking number and choose File a claim.' : ''}</p>
         {canFile ? (<>

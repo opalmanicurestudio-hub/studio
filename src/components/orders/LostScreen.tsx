@@ -5,7 +5,7 @@
 // claim opens its sheet (file it, or follow it to paid). Stock write-offs and supplier losses stay in the loss ledger.
 import * as React from 'react';
 import Link from 'next/link';
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where, type Firestore } from 'firebase/firestore';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { dayKey, tenantTimeZone } from '@/lib/tenant-time';
@@ -53,7 +53,7 @@ export function LostScreen() {
   React.useEffect(() => {
     if (!fs || !tenantId) return;
     const since = new Date(Date.now() - 400 * 86400e3).toISOString();
-    return onSnapshot(query(collection(fs, `tenants/${tenantId}/inventoryExceptions`), where('at', '>=', since), limit(1500)),
+    return onSnapshot(query(collection(fs, `tenants/${tenantId}/inventoryExceptions`), where('at', '>=', since), orderBy('at', 'desc'), limit(1500)),
       (s) => setRows(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setRows([]));
   }, [fs, tenantId]);
   // The orders behind the month's losses and every open claim (names, delivery times), read once each.
@@ -84,8 +84,8 @@ export function LostScreen() {
   }, [fs, tenantId, month, monthOf]);
 
   const pol = protectionPolicy(rs);
-  const m = rows ? monthLoss(rows, month, { monthOf, unusedRefundedCents: refunded, shippedValues, insuranceOn: pol.insuranceEnabled, insureOverCents: pol.insuranceOverCents, requireScan: rs.requireScan === true, ordersById: orders }) : null;
-  const toFile = rows ? claimsToFile(rows, orders, (v) => monthDay(v, tz)) : [];
+  const m = rows ? monthLoss(rows, month, { monthOf, unusedRefundedCents: refunded, shippedValues, insuranceOn: pol.insuranceEnabled, insureOverCents: pol.insuranceOverCents, requireScan: rs.requireScan === true, ordersById: orders, tz }) : null;
+  const toFile = rows ? claimsToFile(rows, orders, (v) => monthDay(v, tz), Date.now(), tz, { all: true }) : [];
   const following = (rows || []).filter((r) => RECOVERABLE.has(String(r.reason)) && ['filed', 'approved'].includes(claimStage(r)));
   const closedThisMonth = (rows || []).filter((r) => RECOVERABLE.has(String(r.reason)) && ['paid', 'denied'].includes(claimStage(r)) && monthOf(String(r.recovery?.events?.slice(-1)?.[0]?.at || r.at || '')) === month);
   const openExc = open ? (rows || []).find((r) => r.id === open) || null : null;
