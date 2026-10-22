@@ -51,7 +51,7 @@ import { formatDay } from '@/lib/tenant-time';
 // "@types/qrcode": "^1.5.5" in devDependencies to package.json.
 
 interface StatusLine {
-  lineId?: string; productId?: string; name: string; qtyOrdered: number; qtyShorted: number; qtyReturned?: number;
+  lineId?: string; productId?: string; name: string; qtyOrdered: number; qtyShorted: number; qtyReturned?: number; qtyClaimed?: number;
   unitPriceCents: number; status: string;
 }
 interface StatusOrder {
@@ -2052,8 +2052,8 @@ export default function OrderStatusPage() {
                     </p>
                   )}
                   <div className="space-y-2">
-                    {order.lines.filter((l) => l.lineId && (l as any).digital !== true && (l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0)) > 0).map((l) => {
-                      const max = l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0);
+                    {order.lines.filter((l) => l.lineId && (l as any).digital !== true && (l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0) - (l.qtyClaimed || 0)) > 0).map((l) => {
+                      const max = l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0) - (l.qtyClaimed || 0);
                       const q = retQty[l.lineId as string] || 0;
                       return (
                         <div key={l.lineId} className="rounded-2xl border-2 p-3 space-y-2">

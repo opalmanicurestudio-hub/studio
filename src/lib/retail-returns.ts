@@ -96,7 +96,8 @@ export async function openReturn(
   for (const sel of selections.filter((s) => s.qty > 0)) {
     const orig = order.lines.find((l) => l.lineId === sel.lineId);
     if (!orig) return { ok: false, message: 'Line not found on the order.' };
-    const returnable = Math.max(0, (Number(orig.qtyOrdered) || 0) - (Number(orig.qtyShorted) || 0) - (Number(orig.qtyReturned) || 0) - reservedByOpenReturns(openReturns, orig.lineId));
+    // Not shorted, not returned, not refunded through a claim (qtyClaimed), not on its way back already.
+    const returnable = Math.max(0, (Number(orig.qtyOrdered) || 0) - (Number(orig.qtyShorted) || 0) - (Number(orig.qtyReturned) || 0) - (Number((orig as any).qtyClaimed) || 0) - reservedByOpenReturns(openReturns, orig.lineId));
     if (sel.qty > returnable) {
       return { ok: false, message: `Only ${returnable} of ${orig.name} can still be returned.` };
     }

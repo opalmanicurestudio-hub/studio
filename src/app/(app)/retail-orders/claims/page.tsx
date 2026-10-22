@@ -137,7 +137,14 @@ export default function RetailClaimsPage() {
           txn.update(claimRef, { status: 'resolved', resolution: 'refund', resolutionCents: cents, decidedAt: now, decidedBy: 'staff', ...(cents !== asked ? { partialOfCents: asked } : {}) });
           if (orderSnap.exists()) {
             const o = orderSnap.data() as any;
-            txn.update(orderRef, { pendingRefundCents: Math.max(0, Number(o.pendingRefundCents) || 0) + cents });
+            // The units this claim settles can't be returned or claimed again (qtyClaimed): its own item, or for an order
+            // that never arrived, everything still on it.
+            const n = (v: any) => Math.max(0, Number(v) || 0);
+            const open = (l: any) => Math.max(0, n(l.qtyOrdered) - n(l.qtyShorted) - n(l.qtyReturned));
+            const lines = (Array.isArray(o.lines) ? o.lines : []).map((l: any) => (cur.lineId
+              ? (l.lineId === cur.lineId ? { ...l, qtyClaimed: Math.min(open(l), n(l.qtyClaimed) + Math.max(1, n(cur.qty))) } : l)
+              : { ...l, qtyClaimed: Math.max(n(l.qtyClaimed), open(l)) }));
+            txn.update(orderRef, { pendingRefundCents: Math.max(0, Number(o.pendingRefundCents) || 0) + cents, lines: JSON.parse(JSON.stringify(lines)) });
           }
         } else {
           txn.update(claimRef, { status: 'declined', resolution: 'declined', decidedAt: now, decidedBy: 'staff', declineReason: declineWhy.trim().slice(0, 400) });

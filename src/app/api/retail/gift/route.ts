@@ -30,7 +30,7 @@ async function load(tenantId: string, orderId: string, g: string) {
 
 function itemsOf(order: any, open: any[]) {
   return (order.lines || []).filter((l: any) => l.digital !== true).map((l: any) => {
-    const left = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyReturned || 0) - reservedByOpenReturns(open, l.lineId));
+    const left = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyReturned || 0) - (Number(l.qtyClaimed) || 0) - reservedByOpenReturns(open, l.lineId));
     const elig = canReturnLine(l, 'changed_mind' as any);
     return { lineId: l.lineId, name: `${l.name}${l.optionsLabel ? ` · ${l.optionsLabel}` : ''}`, qty: left, finalSale: !elig.allowed, finalSaleNote: elig.allowed ? '' : String((elig as any).message || '') };
   }).filter((x: any) => x.qty > 0 || x.finalSale);
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     const qty = Math.floor(Number(s?.qty) || 0); if (qty <= 0) continue;
     const orig = (r.order.lines || []).find((l: any) => l.lineId === s.lineId);
     if (!orig || orig.digital === true) return NextResponse.json({ error: 'That item isn’t part of this gift.' }, { status: 400 });
-    const left = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - reservedByOpenReturns(r.open, orig.lineId));
+    const left = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - (Number(orig.qtyClaimed) || 0) - reservedByOpenReturns(r.open, orig.lineId));
     if (qty > left) return NextResponse.json({ error: `Only ${left} of ${orig.name} can still be exchanged.` }, { status: 400 });
     const reason = REASONS.includes(s.reason) ? s.reason : 'changed_mind';
     const elig = canReturnLine(orig, reason as any);

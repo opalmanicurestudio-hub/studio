@@ -124,7 +124,7 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
     }
     if (p.kind === 'claim') return <Card key={p.key} p={p}>
       {p.ref.description ? <p className="m-0 mb-3 text-[15px]">“{String(p.ref.description).slice(0, 240)}”</p> : null}
-      {Array.isArray(p.ref.evidence?.photoUrls) && p.ref.evidence.photoUrls.length > 0 && <div className="mb-3 flex gap-2">{p.ref.evidence.photoUrls.slice(0, 4).map((u: string) => <img key={u} src={u} alt="Customer photo" className="h-16 w-16 rounded-xl object-cover" />)}</div>}
+      {Array.isArray(p.ref.photoUrls) && p.ref.photoUrls.length > 0 && <div className="mb-3 flex gap-2">{p.ref.photoUrls.slice(0, 4).map((u: string) => <img key={u} src={u} alt="Customer photo" className="h-16 w-16 rounded-xl object-cover" />)}</div>}
       <Link href="/retail-orders/claims" className="cf-press inline-flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold" style={{ background: C.ink, color: C.paper }}>Decide in Claims</Link>
     </Card>;
     if (p.kind === 'held') {

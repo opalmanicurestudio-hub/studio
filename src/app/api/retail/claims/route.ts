@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requestForensics } from '@/lib/request-forensics';
 import { effectiveUnitCents } from '@/lib/retail-swap';
+import { taxShareCents } from '@/lib/restocking';
+import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { followUpItemsCents, isFollowUp, payingOrder } from '@/lib/order-family';
 import { autoRefund, refundWords } from '@/lib/auto-refund';
 
@@ -269,11 +271,22 @@ export async function POST(req: NextRequest) {
     // own, so it's worth what was paid for its items on the order it came from (lib/order-family), whose tax figures
     // an older one is read for.
     const ordersCol = db.collection(`tenants/${tenantId}/retailOrders`);
+    // An item is worth what was paid for it, with its tax (lib/restocking), for the units still the customer's to claim:
+    // not returned, not already refunded through another claim (qtyClaimed), not on their way back in an open return.
+    const openReturns = line ? (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(30).get()).docs.map((d: any) => d.data()) : [];
+    const claimableOf = (l: any) => Math.max(0, (Number(l?.qtyOrdered) || 0) - (Number(l?.qtyShorted) || 0) - (Number(l?.qtyReturned) || 0) - (Number(l?.qtyClaimed) || 0) - reservedByOpenReturns(openReturns, String(l?.lineId || '')));
+    const units = line ? Math.min(qty, claimableOf(line)) : 0;
+    if (line && units <= 0) {
+      return NextResponse.json({ error: 'That item has already been returned or refunded. If something is still wrong, send us a message below.' }, { status: 409 });
+    }
+    // Anything already refunded or waiting to be refunded on the order isn't claimed twice.
+    const settled = Math.max(0, Number(order.refundedCents) || 0) + Math.max(0, Number(order.refundedOtherCents) || 0) + Math.max(0, Number(order.pendingRefundCents) || 0);
+    const lineItems = line ? units * effectiveUnitCents(line) : 0;
     const claimValueCents = line
-      ? Math.min(qty, lineTarget || qty) * effectiveUnitCents(line)
+      ? lineItems + taxShareCents(order, lineItems)
       : isFollowUp(order)
-        ? followUpItemsCents(order, order.taxBasis ? undefined : await payingOrder((r: any) => r.get(), ordersCol, { ...order, id: orderId }).catch(() => null))
-        : Math.max(0, Number(order.totalCents) || 0);
+        ? Math.max(0, followUpItemsCents(order, order.taxBasis ? undefined : await payingOrder((r: any) => r.get(), ordersCol, { ...order, id: orderId }).catch(() => null)) - settled)
+        : Math.max(0, (Number(order.totalCents) || 0) - settled);
 
     // ── Risk + routing ──
     const priorClaims = await db.collection(`tenants/${tenantId}/retailClaims`)
@@ -309,7 +322,7 @@ export async function POST(req: NextRequest) {
       orderNumber: order.orderNumber ?? null,
       customerName: String(order.customerName || ''),
       customerEmail: String(order.customerEmail || ''),
-      type, qty,
+      type, qty: line ? units : qty,
       lineId: lineId || null,
       lineName: line ? String(line.name || '') : null,
       lineSku: line ? String(line.sku || '') : null,
@@ -328,27 +341,39 @@ export async function POST(req: NextRequest) {
       decidedBy: autoApprove ? 'auto (evidence + shop rules)' : null,
     };
 
-    const batch = db.batch();
-    batch.set(claimRef, JSON.parse(JSON.stringify(claim)));
+    // In one transaction with the order, so an approval queues the refund on the order as it is now, and the units it
+    // settles (qtyClaimed) can't be returned or claimed again. Should the order have changed since it was read (a return
+    // checked in meanwhile), a person decides instead.
     const evRef = orderRef.collection('events').doc();
-    batch.set(evRef, {
-      id: evRef.id, type: 'note', at: now,
-      actorId: 'customer', actorName: claim.customerName || 'Customer',
-      meta: { text: `Claim opened: ${type}${line ? ` — ${line.name} ×${qty}` : ''}${autoApprove ? ' (auto-approved, refund queued)' : ' (in review)'}`, ...(client ? { client } : {}) },
-    });
-    if (autoApprove) {
-      batch.update(orderRef, {
-        pendingRefundCents: Math.max(0, Number(order.pendingRefundCents) || 0) + claimValueCents,
+    const filed = await db.runTransaction(async (tx: any) => {
+      const [cSnap, oSnap] = [await tx.get(claimRef), await tx.get(orderRef)];
+      if (cSnap.exists) return { dup: cSnap.data() as any, approved: false };
+      const fresh: any = oSnap.exists ? oSnap.data() || {} : {};
+      const freshLines: any[] = Array.isArray(fresh.lines) ? fresh.lines : [];
+      const approved = autoApprove && !!line && claimableOf(freshLines.find((l: any) => l.lineId === lineId)) >= units;
+      const doc = approved ? claim : { ...claim, status: 'in_review', resolution: null, resolutionCents: null, decidedAt: null, decidedBy: null };
+      tx.set(claimRef, JSON.parse(JSON.stringify(doc)));
+      tx.set(evRef, {
+        id: evRef.id, type: 'note', at: now,
+        actorId: 'customer', actorName: claim.customerName || 'Customer',
+        meta: { text: `Claim opened: ${type}${line ? ` — ${line.name} ×${units}` : ''}${approved ? ' (auto-approved, refund queued)' : ' (in review)'}`, ...(client ? { client } : {}) },
       });
-    }
-    await batch.commit();
+      if (approved) {
+        tx.update(orderRef, {
+          pendingRefundCents: Math.max(0, Number(fresh.pendingRefundCents) || 0) + claimValueCents,
+          lines: JSON.parse(JSON.stringify(freshLines.map((l: any) => (l.lineId === lineId ? { ...l, qtyClaimed: (Number(l.qtyClaimed) || 0) + units } : l)))),
+        });
+      }
+      return { dup: null, approved };
+    });
+    if (filed.dup) return NextResponse.json({ ok: true, status: filed.dup.status, message: 'This report is already on file, and our team has it.' });
     // Approved by the shop's rules: within the shop's automatic amount the refund goes back now (lib/auto-refund).
-    const sent = autoApprove ? await autoRefund(db, tenantId, orderId, req.nextUrl?.origin) : null;
+    const sent = filed.approved ? await autoRefund(db, tenantId, orderId, req.nextUrl?.origin) : null;
 
     return NextResponse.json({
       ok: true,
-      status: claim.status,
-      message: autoApprove
+      status: filed.approved ? 'auto_resolved' : 'in_review',
+      message: filed.approved
         ? `Approved: our packing record backs you up. ${refundWords(claimValueCents, sent)}`
         : 'Reported. The shop is checking it against the packing record and will follow up by email.',
     });

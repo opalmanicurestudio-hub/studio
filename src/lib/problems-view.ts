@@ -76,7 +76,7 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
   for (const c of src.claims || []) {
     if (!OPEN_CLAIM.has(String(c.status || '')) || !c.orderId) continue;
     const at = ms(c.openedAt);
-    push({ key: `c-${c.id}`, kind: 'claim', orderId: c.orderId, title: `Says ${c.lineName || 'an item'} ${CLAIM_WORDS[String(c.type)] || 'has a problem'}`, detail: `${c.claimValueCents ? `${money(c.claimValueCents)} · ` : ''}${Array.isArray(c.evidence?.photoUrls) && c.evidence.photoUrls.length ? 'Photo attached · ' : ''}${ago(at, now)}`, at, urgent: false, ref: c });
+    push({ key: `c-${c.id}`, kind: 'claim', orderId: c.orderId, title: `Says ${c.lineName || 'an item'} ${CLAIM_WORDS[String(c.type)] || 'has a problem'}`, detail: `${c.claimValueCents ? `${money(c.claimValueCents)} · ` : ''}${Array.isArray(c.photoUrls) && c.photoUrls.length ? `${c.photoUrls.length === 1 ? 'Photo' : `${c.photoUrls.length} photos`} attached · ` : ''}${ago(at, now)}`, at, urgent: false, ref: c });
   }
   for (const r of src.returns || []) {
     if (!['open', 'received'].includes(String(r.status)) || !r.orderId) continue;

@@ -442,7 +442,8 @@ export async function POST(req: NextRequest) {
         }, { status: 409 });
       }
       if (openReturns === null) { try { openReturns = (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(50).get()).docs.map((d: any) => d.data()); } catch { openReturns = []; } }
-      const returnable = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - reservedByOpenReturns(openReturns || [], orig.lineId));
+      // Not shorted, not returned, not refunded through a claim (qtyClaimed), not on its way back already.
+      const returnable = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - (Number((orig as any).qtyClaimed) || 0) - reservedByOpenReturns(openReturns || [], orig.lineId));
       if (qty > returnable) {
         return NextResponse.json({ error: `Only ${returnable} of ${orig.name} can still be returned.` }, { status: 400 });
       }
