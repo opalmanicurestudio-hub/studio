@@ -1,7 +1,8 @@
 'use client';
 // src/components/orders/Today.tsx — TODAY, AT A GLANCE (lib/ship-day): the cutoff and how long is left, the next carrier
 // pickup, what has to ship today and how much of it is packed, and four counts that open what needs someone: Late, At
-// risk, Labels, Carrier.
+// risk, Labels, Carrier. On a very narrow screen (a phone split beside another app, as on the iPhone Duo) the counts sit
+// two by two so every label reads in full.
 import * as React from 'react';
 import Link from 'next/link';
 import type { DayPicture } from '@/lib/ship-day';
@@ -51,15 +52,15 @@ export function TodayCard({ day, labels, onOpen, onPackNext, canPack, nextShipWo
           <span className="block h-2 overflow-hidden rounded-full" style={{ background: C.soft }} role="progressbar" aria-valuemin={0} aria-valuemax={ship.total} aria-valuenow={done} aria-label="Packed for today">
             <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: C.mint, transition: 'width .4s ease' }} />
           </span>
-          <span className="flex justify-between gap-2.5 text-[14px] leading-snug">
-            <span>Ship {day.shipsToday ? 'today' : nextShipWord}: {ship.total}</span>
-            <span className="shrink-0 text-right">{[ship.sent ? `${ship.sent} sent` : '', `${ship.packed} packed`, `${ship.toGo} to go`].filter(Boolean).join(' · ')}</span>
+          <span className="flex flex-wrap justify-between gap-x-2.5 gap-y-0.5 text-[14px] leading-snug">
+            <span className="whitespace-nowrap">Ship {day.shipsToday ? 'today' : nextShipWord}: {ship.total}</span>
+            <span className="text-right">{[ship.sent ? `${ship.sent} sent` : '', `${ship.packed} packed`, `${ship.toGo} to go`].filter(Boolean).join(' · ')}</span>
           </span>
         </>)}
         {ship.total === 0 && day.shipsToday && <span className="text-[14px]" style={muted}>Nothing has to ship today.</span>}
         {canPack && onPackNext && ship.toGo > 0 && <Btn kind="primary" className="mt-1 h-11 w-full" onClick={onPackNext}>Pack the next one</Btn>}
       </div>
-      <div className="mt-2 flex gap-2">
+      <div className="mt-2 grid grid-cols-2 gap-2 min-[360px]:grid-cols-4">
         <Count n={day.late.length} label="Late" warn onClick={() => onOpen('late')} />
         <Count n={day.atRisk.length} label="At risk" onClick={() => onOpen('risk')} />
         <Count n={labels} label="Labels" onClick={() => onOpen('labels')} />

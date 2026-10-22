@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
         const staff = safeStaff(v.staffId, (await staffWithPay(db, tenantId, v.staffId)) || sd);
         let customToken: string | null = null;
         try { customToken = await getAdminAuth().createCustomToken(`portal:${tenantId}:${staff.id}`, { tenantId, staffId: staff.id, role: staff.role, isRenter: staff.isRenter, portal: true }); } catch { customToken = null; }
-        await logAuditAdmin(db, tenantId, { action: 'portal.login', targetType: 'staff', targetId: staff.id, summary: `${staff.name || 'Team member'} signed in with Face ID`, actor: { type: 'user', id: staff.id, name: staff.name, role: staff.role } });
+        await logAuditAdmin(db, tenantId, { action: 'portal.login', targetType: 'staff', targetId: staff.id, summary: `${staff.name || 'Team member'} signed in with their phone instead of a PIN`, actor: { type: 'user', id: staff.id, name: staff.name, role: staff.role } });
         return NextResponse.json({ ok: true, staff, customToken });
       }
       // Adding, listing and removing this person's phones: they must already be signed in.
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       if (action === 'passkey-register-options') { const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
         return NextResponse.json({ ok: true, ...(await pk.registrationOptions(db, tenantId, { id: me.staffId, name: me.name }, rp, t.name || t.businessName || '')) }); }
       if (action === 'passkey-register') { const r = await pk.registrationVerify(db, tenantId, me.staffId, String(body.challengeId || ''), body.response, rp, String(body.name || ''));
-        if (r.ok) await logAuditAdmin(db, tenantId, { action: 'portal.passkey_added', targetType: 'staff', targetId: me.staffId, summary: `${me.name} turned on Face ID sign-in on a phone`, actor: { type: 'user', id: me.staffId, name: me.name, role: me.role } });
+        if (r.ok) await logAuditAdmin(db, tenantId, { action: 'portal.passkey_added', targetType: 'staff', targetId: me.staffId, summary: `${me.name} turned on signing in with their phone instead of a PIN`, actor: { type: 'user', id: me.staffId, name: me.name, role: me.role } });
         return NextResponse.json(r, { status: r.ok ? 200 : 400 }); }
       if (action === 'passkey-list') return NextResponse.json({ ok: true, passkeys: await pk.listPasskeys(db, tenantId, me.staffId) });
       if (action === 'passkey-remove') return NextResponse.json(await pk.removePasskey(db, tenantId, me.staffId, String(body.id || '').slice(0, 300)));

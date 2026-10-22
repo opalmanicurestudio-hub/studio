@@ -1,5 +1,5 @@
 'use client';
-// Face ID / fingerprint sign-in on a person's own phone (lib/passkeys). The phone's lock checks it's them; the server
+// Face ID, Touch ID or fingerprint sign-in on a person's own phone (lib/passkeys). The phone's lock checks it's them; the server
 // checks the phone. Nothing is stored here except a note that this phone has been set up for this person.
 import * as React from 'react';
 import { browserSupportsWebAuthn, startAuthentication, startRegistration } from '@simplewebauthn/browser';
@@ -7,13 +7,15 @@ import { browserSupportsWebAuthn, startAuthentication, startRegistration } from 
 const NOTE = (t: string) => `cf_portal_passkey_${t}`;
 const read = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const write = (k: string, v: string | null) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* private mode */ } };
-export const faceLabel = () => (typeof navigator !== 'undefined' && /iPhone|iPad|Macintosh/.test(navigator.userAgent) ? 'Face ID' : 'fingerprint');
+// A web page can't tell which an Apple device has (the iPhone Duo, an iPhone SE and many iPads and Macs use Touch ID),
+// so it names both.
+export const faceLabel = () => (typeof navigator !== 'undefined' && /iPhone|iPad|Macintosh/.test(navigator.userAgent) ? 'Face ID or Touch ID' : 'fingerprint');
 export const passkeyOnPhone = (tenantId: string, staffId?: string | null) => { try { return browserSupportsWebAuthn() && !!staffId && read(NOTE(tenantId)) === staffId; } catch { return false; } };
 const post = async (body: any, token?: string | null) => fetch('/api/portal/auth', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'Couldn’t reach the sign-in service.' }));
 
 /** Signs in with this phone's passkey. Returns the person (already signed in to the app) or a message to show. */
 export async function signInWithPasskey(tenantId: string): Promise<{ ok: true; staff: any } | { ok: false; error: string; cancelled?: boolean }> {
-  const o: any = await post({ action: 'passkey-options', tenantId }); if (!o?.ok) return { ok: false, error: o?.error || 'Face ID sign-in isn’t available right now.' };
+  const o: any = await post({ action: 'passkey-options', tenantId }); if (!o?.ok) return { ok: false, error: o?.error || 'Signing in with your phone isn’t available right now.' };
   let response: any; try { response = await startAuthentication({ optionsJSON: o.options }); } catch { return { ok: false, error: '', cancelled: true }; }
   const d: any = await post({ action: 'passkey-login', tenantId, challengeId: o.challengeId, response });
   if (!d?.ok || !d.staff || !d.customToken) { if (/isn’t set up/.test(String(d?.error || ''))) write(NOTE(tenantId), null); return { ok: false, error: d?.error || 'Sign-in didn’t finish. Use your PIN.' }; }
@@ -22,7 +24,7 @@ export async function signInWithPasskey(tenantId: string): Promise<{ ok: true; s
   write(NOTE(tenantId), d.staff.id); return { ok: true, staff: d.staff };
 }
 
-/** "Sign in with Face ID on this phone": add it, see the phones you've added, remove one. For their account page. */
+/** "Sign in with Face ID or Touch ID on this phone": add it, see the phones you've added, remove one. For their account page. */
 export function PasskeySetup({ tenantId, staffId }: { tenantId: string; staffId: string }) {
   const [list, setList] = React.useState<any[] | null>(null); const [busy, setBusy] = React.useState(false); const [msg, setMsg] = React.useState('');
   const [here, setHere] = React.useState(false); const [ok, setOk] = React.useState(false);

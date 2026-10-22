@@ -56,12 +56,12 @@ export async function authenticationOptions(db: any, tenantId: string, rp: { rpI
 export async function authenticationVerify(db: any, tenantId: string, challengeId: string, response: any, rp: { rpID: string; origin: string }) {
   const c = await takeChallenge(db, tenantId, challengeId, 'auth'); if (!c) return { ok: false as const, error: 'That took too long. Try again.' };
   const credId = String(response?.id || ''); if (!credId) return { ok: false as const, error: 'Sign-in didn’t finish.' };
-  const link: any = (await db.doc(`${S(tenantId)}/${pkKey(credId)}`).get()).data(); if (!link?.staffId) return { ok: false as const, error: 'This phone isn’t set up for Face ID here any more. Sign in with your PIN.' };
+  const link: any = (await db.doc(`${S(tenantId)}/${pkKey(credId)}`).get()).data(); if (!link?.staffId) return { ok: false as const, error: 'This phone isn’t set up for signing in here any more. Sign in with your PIN.' };
   const ref = db.doc(`${S(tenantId)}/${link.staffId}`); const list: any[] = ((await ref.get()).data() as any)?.passkeys || []; const pk = list.find((p) => p.id === credId);
-  if (!pk) return { ok: false as const, error: 'This phone isn’t set up for Face ID here any more. Sign in with your PIN.' };
+  if (!pk) return { ok: false as const, error: 'This phone isn’t set up for signing in here any more. Sign in with your PIN.' };
   let v: any; try { v = await verifyAuthenticationResponse({ response, expectedChallenge: c.challenge, expectedOrigin: rp.origin, expectedRPID: rp.rpID, requireUserVerification: true,
-    credential: { id: pk.id, publicKey: new Uint8Array(Buffer.from(pk.publicKey, 'base64url')), counter: Number(pk.counter) || 0, transports: pk.transports || undefined } }); } catch { return { ok: false as const, error: 'Face ID sign-in didn’t check out. Use your PIN.' }; }
-  if (!v?.verified) return { ok: false as const, error: 'Face ID sign-in didn’t check out. Use your PIN.' };
+    credential: { id: pk.id, publicKey: new Uint8Array(Buffer.from(pk.publicKey, 'base64url')), counter: Number(pk.counter) || 0, transports: pk.transports || undefined } }); } catch { return { ok: false as const, error: 'Signing in with your phone didn’t check out. Use your PIN.' }; }
+  if (!v?.verified) return { ok: false as const, error: 'Signing in with your phone didn’t check out. Use your PIN.' };
   await ref.set({ passkeys: list.map((p) => (p.id === credId ? { ...p, counter: v.authenticationInfo.newCounter, lastUsedAt: new Date().toISOString() } : p)) }, { merge: true });
   return { ok: true as const, staffId: String(link.staffId) };
 }
