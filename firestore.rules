@@ -150,15 +150,17 @@ service cloud.firestore {
         .get('retailSettings', {})
         .get('staffCreditCapCents', 2500);
     }
+    // STORE CREDIT. The team adds it by hand (a goodwill credit, a deposit): managers any amount, anyone else up to the
+    // shop's limit. Credit for a return is issued only by the server (lib/return-credit), worked out from what was paid,
+    // so nothing from a browser can be marked as one.
     match /tenants/{tenantId}/depositCredits/{creditId} {
       allow read: if isStaff(tenantId);
-      allow create: if isManager(tenantId) || (
-        isStaff(tenantId) && (
-          ('sourceRetailReturnId' in request.resource.data) ||
-          (request.resource.data.amountCents is int
-            && request.resource.data.amountCents <= staffCreditCapCents(tenantId))
-        )
-      );
+      allow create: if (isManager(tenantId) || (
+          isStaff(tenantId)
+          && request.resource.data.amountCents is int
+          && request.resource.data.amountCents <= staffCreditCapCents(tenantId)
+        ))
+        && !request.resource.data.keys().hasAny(['sourceRetailReturnId', 'returnForOrderId']);
       allow update, delete: if isManager(tenantId);
     }
     match /tenants/{tenantId}/serviceSessions/{sessionId} {
@@ -611,16 +613,17 @@ service cloud.firestore {
     // SHOP ORDERS. The team runs fulfilment from the browser (claim, scan, pack, shelf, hand over, ship, short, return), so
     // the team can update orders, but never the money, identity or verification fields: what was charged and refunded,
     // the order total, the customer's email and pickup code, the payment ids, the risk check and holds set by the
-    // payment step, and swap questions (all written by the server). Shorts, cancels and returns change the refund owed
-    // from the browser; the money itself only moves on the server, where it's capped at what the card paid and the
-    // person's refund limit. Only managers release a hold or mark a refund as done by hand. New orders from the browser are the zero-value follow-ups the engine makes
-    // (a backorder, a replacement, a split); paid orders are only ever created by checkout on the server.
+    // payment step, swap questions (all written by the server), and which order a backorder or replacement was made from.
+    // Shorts, cancels and returns change the refund owed from the browser; the money itself only moves on the server,
+    // where it's capped at what the card paid and the person's refund limit. Only managers release a hold or mark a refund
+    // as done by hand. New orders from the browser are the zero-value follow-ups the engine makes (a backorder, a
+    // replacement, a split); paid orders are only ever created by checkout on the server.
     function orderLockedKeys() {
       return ['chargedCents', 'totalCents', 'subtotalCents', 'taxCents', 'shippingCents', 'tipCents', 'qrToken', 'customerEmail', 'clientId',
               'orderNumber', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq', 'lastStripeRefundId',
               'riskCheck', 'holdAuto', 'idCheck', 'swapOffer', 'swapPendingPhone', 'giftSpentAt', 'giftCardCents', 'giftCardId',
               'storeCreditRequestedCents', 'creditShortfallCents', 'nonCardRestoredAt', 'nonCardRestored', 'isTest', 'policySnapshot',
-              'refundedOtherCents'];
+              'refundedOtherCents', 'parentOrderId'];
     }
     // What a new order from the browser may never carry: those follow-ups have no payment of their own, so nothing about
     // a payment, a gift card or store credit, or a refund already made can be set on one. Only checkout on the server

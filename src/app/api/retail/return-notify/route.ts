@@ -67,8 +67,14 @@ export async function POST(req: NextRequest) {
 
     const orderSnap = await db.doc(`tenants/${tenantId}/retailOrders/${ret.orderId}`).get();
     const order = orderSnap.exists ? (orderSnap.data() as any) : {};
-    // A gift return is told to the person who received the gift, never to the person who sent it.
-    const gr = ret.giftRecipient && typeof ret.giftRecipient === 'object' ? ret.giftRecipient : null;
+    // A gift return is told to the person who received the gift, never to the person who sent it: as the server recorded
+    // them when the exchange was started (lib/return-credit), or as the return says for one started before that.
+    let gr: any = ret.giftRecipient && typeof ret.giftRecipient === 'object' ? ret.giftRecipient : null;
+    try {
+      const g = await db.doc(`tenants/${tenantId}/private/giftReturns/returns/${returnId}`).get();
+      const gd: any = g.exists ? g.data() || {} : null;
+      if (gd?.email) gr = { name: gd.name || '', email: gd.email };
+    } catch { /* the return's own */ }
     const to = str(gr ? gr.email : order.customerEmail, 200);
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
@@ -102,7 +108,12 @@ export async function POST(req: NextRequest) {
         </div>
         <p style="font-size:13px;color:#334155;line-height:1.6">We will email you as soon as it is sent. Card refunds typically appear within 5 to 10 business days after that, depending on your bank. Anything you paid by gift card or store credit goes back that way.</p>`;
     } else if (resolution === 'store_credit') {
-      const cents = ret.creditNetCents != null ? Math.max(0, Number(ret.creditNetCents) || 0) : Math.max(0, (Number(ret.storeCreditCents) || 0) - labelDeduct);
+      // The credit the server issued for it (lib/return-credit), or for a return settled before that, what it recorded.
+      let cents = ret.creditNetCents != null ? Math.max(0, Number(ret.creditNetCents) || 0) : Math.max(0, (Number(ret.storeCreditCents) || 0) - labelDeduct);
+      try {
+        const issued = await db.doc(`tenants/${tenantId}/depositCredits/return_${returnId}`).get();
+        if (issued.exists) cents = Math.max(0, Number((issued.data() as any)?.amountCents) || 0);
+      } catch { /* as recorded on the return */ }
       // Claim the credit's own grant email so the two paths can never both send.
       let balanceCents = cents;
       try {

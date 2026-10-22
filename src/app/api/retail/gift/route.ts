@@ -97,6 +97,9 @@ export async function POST(req: NextRequest) {
     storeCreditCents: value, giftRecipient: { name, email }, isGiftReturn: true,
     openedBy: `Gift recipient — ${name}`, openedAt: now,
   })));
+  // Who the credit is for, kept where only the server writes: the return itself can be edited from the team's screens,
+  // so the credit goes to this person, never to an email changed there (lib/return-credit).
+  batch.set(db.doc(`tenants/${tenantId}/private/giftReturns/returns/${retRef.id}`), { name, email, orderId, valueCents: value, at: now });
   const ev = orderRef.collection('events').doc();
   batch.set(ev, { id: ev.id, type: 'return_opened', at: now, actorId: 'gift_recipient', actorName: name, meta: { returnId: retRef.id, units: lines.reduce((a, l) => a + l.qty, 0), gift: true } });
   await batch.commit();

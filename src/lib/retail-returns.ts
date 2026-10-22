@@ -1,6 +1,7 @@
 'use client';
 
 import { syncRenterCredits } from './renter-credit-client';
+import { staffAuthHeader } from './staff-fetch';
 import { restockingFee } from './restocking';
 import { lineFor, taxBasisOf } from './order-family';
 import { releaseCoverableBackorders } from './retail-fulfill';
@@ -30,6 +31,8 @@ import { canReturnLine } from '@/lib/return-eligibility';
 //   2. Promised refunds can't be forgotten — resolve(refund) adds to the
 //      order's pendingRefundCents, which the board's amber banner surfaces
 //      until someone executes it in Stripe and taps "Mark refunded".
+// Store credit for a return is issued by the server (lib/return-credit), never
+// written from here.
 
 export interface Actor { id: string; name: string; }
 
@@ -297,14 +300,15 @@ export async function receiveReturnLine(
 export async function resolveReturn(
   fs: Firestore, tenantId: string, ret: ReturnDoc, actor: Actor
 ): Promise<{ ok: boolean; message: string; refundQueuedCents?: number; orderQrToken?: string }> {
-  let issuedCreditId: string | null = null;
   try {
-    const result = await runTransaction(fs, async (txn) => {
+    const result: any = await runTransaction(fs, async (txn) => {
       const rRef = doc(returnCol(fs, tenantId), ret.id);
       const rSnap = await txn.get(rRef);
       if (!rSnap.exists()) return { ok: false, message: 'Return not found.' };
       const fresh = { ...(rSnap.data() as RetailReturn), id: ret.id };
       if (fresh.status === 'resolved') return { ok: false, message: 'Already resolved.' };
+      // Store credit is worked out and issued by the server (below).
+      if (fresh.resolution === 'store_credit') return { ok: true, message: '', byServer: true };
 
       const gate = isReturnReceivable(fresh);
       if (!gate.ok) return { ok: false, message: gate.reason };
@@ -371,26 +375,6 @@ export async function resolveReturn(
         summary = `Refund of $${(cents / 100).toFixed(2)} queued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''}${feeCents ? ` ($${(feeCents / 100).toFixed(2)} restocking fee)` : ''}`;
       }
 
-      let creditNetCents = 0;
-      if (fresh.resolution === 'store_credit') {
-        const gross = Math.max(fresh.storeCreditCents || 0, paidBack);
-        const cents = Math.max(0, gross - labelDeduct);
-        creditNetCents = cents;
-        txn.update(rRef, { creditNetCents: cents });
-        const creditRef = doc(collection(fs, `tenants/${tenantId}/depositCredits`));
-        issuedCreditId = creditRef.id;
-        txn.set(creditRef, {
-          id: creditRef.id, tenantId,
-          // A gift return's credit belongs to the person who received the gift.
-          clientId: (fresh as any).giftRecipient ? null : order.clientId || null,
-          clientEmail: String((fresh as any).giftRecipient?.email || order.customerEmail || '').toLowerCase().trim(),
-          clientName: (fresh as any).giftRecipient?.name || order.customerName || 'Guest',
-          amountCents: cents, status: 'available',
-          sourceRetailReturnId: ret.id, createdAt: now,
-        });
-        summary = `$${(cents / 100).toFixed(2)} store credit issued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''} — spendable at POS checkout`;
-      }
-
       if (fresh.resolution === 'replacement') {
         const childRef = doc(orderCol(fs, tenantId));
         const replLines = fresh.lines
@@ -440,7 +424,7 @@ export async function resolveReturn(
           returnId: ret.id, resolution: fresh.resolution, resolvedAt: now,
           unitsReturned: unitsBack,
           refundCents: fresh.resolution === 'refund' ? refundNetCents : 0,
-          creditCents: fresh.resolution === 'store_credit' ? creditNetCents : 0,
+          creditCents: 0,
           labelDeductCents: labelDeduct,
           restockingFeeCents: feeCents,
         },
@@ -458,15 +442,31 @@ export async function resolveReturn(
      * replacement shipment that's now in the queue. Fire-and-forget: the
      * resolution is committed either way, and the route dedupes on the
      * return doc so a retry can't double-send. */
-    if (result.ok) {
+    let out = result;
+    let notify = !!result.ok;
+    if (result.ok && result.byServer) {
+      // STORE CREDIT: the server works out how much and who it's for, and settles the return in the same step.
+      const r = await fetch('/api/retail/return-credit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+        body: JSON.stringify({ tenantId, returnId: ret.id }),
+      });
+      const d: any = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) return { ok: false, message: d.error || d.message || 'The store credit couldn’t be issued just now. Nothing was added, so try again.' };
+      out = { ok: true, message: d.message || 'Return resolved', refundQueuedCents: 0, orderQrToken: String(d.orderQrToken || '') };
+      // Nothing was issued (everything paid had already gone back): no "credit issued" email.
+      notify = (Number(d.creditCents) || 0) > 0;
+    }
+    if (out.ok) {
       // A returned renter's product takes its share back off their rent credit (lib/renter-sales).
       syncRenterCredits(tenantId, { id: ret.orderId }, true);
+    }
+    if (notify) {
       void fetch('/api/retail/return-notify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, returnId: ret.id }),
       }).catch(() => undefined);
     }
-    return result;
+    return out;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not resolve the return.' };
   }

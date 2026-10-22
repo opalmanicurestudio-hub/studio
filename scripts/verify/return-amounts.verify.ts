@@ -43,6 +43,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };
   if (request === '@/lib/email-shell') return { brandedEmail: (_b: any, html: string) => html, emailButton: (link: string) => `<a href="${link}">`, getEmailBrand: async () => ({ shopName: 'Opal' }) };
   if (request === '@/lib/route-guard') return { staffOrServer: async () => true, requireCan: async () => ({ actor: { isRenter: false } }) };
+  if (request === '@/lib/staff-auth') return { verifyStaffActor: async () => ({ ok: true, actor: { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: [] }, tenant: {} }) };
   if (request === '@/lib/cancel-restore') return { restoreNonCardPayment: async () => ({ giftCents: 0, creditCents: 0 }) };
   if (request === '@/lib/retail-webhook') return { sendOrderConfirmation: async () => ({}) };
   if (request === '@/lib/request-forensics') return { requestForensics: () => null };
@@ -50,7 +51,14 @@ M._load = function (request: string, ...rest: any[]) {
   if (request.endsWith('renter-credit-client')) return { syncRenterCredits: () => undefined };
   return load.call(this, request, ...rest);
 };
-(globalThis as any).fetch = async (url: any, init?: any) => { fetches.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null }); return { ok: true, json: async () => ({}) }; };
+// The returns desk asks the server for store credit (api/retail/return-credit): that call goes to the real route.
+let creditPOST: any = null;
+(globalThis as any).fetch = async (url: any, init?: any) => {
+  const body = init?.body ? JSON.parse(init.body) : null;
+  fetches.push({ url: String(url), body });
+  if (String(url).endsWith('/api/retail/return-credit') && creditPOST) { const r = await creditPOST({ json: async () => body, headers: { get: () => null } }); return { ok: r.status === 200, status: r.status, json: async () => r.body }; }
+  return { ok: true, json: async () => ({}) };
+};
 process.env.RESEND_API_KEY = 'rk'; process.env.NOTIFY_FROM_EMAIL = 'shop@example.com';
 
 const T = 'tenants/t1';
@@ -89,6 +97,7 @@ const fresh = async (rs: any = {}, x: any = {}) => {
 
   // ── Settling a return ──
   const Rt = await import('../../src/lib/retail-returns');
+  creditPOST = (await import('../../src/app/api/retail/return-credit/route')).POST;
   const staff = { id: 'm1', name: 'Rae Moss' };
   await fresh({ policies: pol });
   await db.doc(`${T}/retailReturns/ret1`).set({ id: 'ret1', orderId: 'o1', orderNumber: 1070, resolution: 'refund', status: 'received', refundCents: 1400, openedBy: 'Customer — Sam Lee', lines: [{ lineId: 'A', sku: 'GEL', name: 'Gel polish', qty: 1, reason: 'changed_mind', disposition: 'restock' }] });
