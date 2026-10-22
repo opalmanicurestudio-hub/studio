@@ -7,7 +7,8 @@ import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { markMissing } from '@/lib/orders-flow';
 import { firstName, money } from '@/lib/orders-view';
-import { IF_UNAVAILABLE, normaliseIfUnavailable, similarItems, SWAP_ANSWER_HOURS } from '@/lib/retail-swap';
+import { IF_UNAVAILABLE, effectiveUnitCents, normaliseIfUnavailable, similarItems, SWAP_ANSWER_HOURS } from '@/lib/retail-swap';
+import { taxShareCents } from '@/lib/restocking';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import type { Actor } from '@/lib/retail-fulfill';
 import { Btn, C, Sheet, Thumb, muted } from './ui';
@@ -22,7 +23,10 @@ export function MissingSheet({ fs, tenantId, order, line, shelf, inventory = [],
   const [pick, setPick] = React.useState<string>(options[0]?.productId || '');
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const who = firstName(order.customerName);
-  const amount = owed * (Number(line.unitPriceCents) || 0);
+  // What each unit was paid, after any promo code, and the tax on it: what a refund or a cheaper swap gives back.
+  const paid = effectiveUnitCents(line);
+  const back = (cents: number) => cents + taxShareCents(order, cents);
+  const amount = back(owed * paid);
   const askFirst = pref !== 'similar';
   const chosen = options.find((o) => o.productId === pick);
 
@@ -60,7 +64,7 @@ export function MissingSheet({ fs, tenantId, order, line, shelf, inventory = [],
             {options.map((o) => (
               <button key={o.productId} type="button" onClick={() => setPick(o.productId)} className="cf-press flex items-center gap-3 rounded-2xl p-2 text-left" style={{ background: pick === o.productId ? C.soft : 'transparent' }}>
                 <Thumb src={o.imageUrl} size={40} />
-                <span className="min-w-0 flex-1"><span className="block truncate text-[15px] font-semibold">{o.name}</span><span className="block text-[13px]" style={muted}>{money(o.unitPriceCents)}{o.unitPriceCents < (Number(line.unitPriceCents) || 0) ? `, refunds ${money(((Number(line.unitPriceCents) || 0) - o.unitPriceCents) * owed)}` : o.unitPriceCents > (Number(line.unitPriceCents) || 0) ? ', shop covers the difference' : ''}</span></span>
+                <span className="min-w-0 flex-1"><span className="block truncate text-[15px] font-semibold">{o.name}</span><span className="block text-[13px]" style={muted}>{money(o.unitPriceCents)}{o.unitPriceCents < paid ? `, refunds ${money(back((paid - o.unitPriceCents) * owed))}` : o.unitPriceCents > paid ? ', shop covers the difference' : ''}</span></span>
                 {pick === o.productId && <span className="text-[13px] font-semibold">Chosen</span>}
               </button>))}
           </div>))}

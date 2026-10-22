@@ -81,12 +81,13 @@ export function parcelArrived(o: any): boolean {
     || (o?.method === 'ship' && o?.stage === 'completed');
 }
 
-/** The paying order has already given back everything: it was cancelled (its refund was all its card paid, the items
- *  on its follow-ups included) or its card has been refunded in full. */
+/** The paying order has already given back everything: it was cancelled (its refund was all its card paid and its gift
+ *  card or credit went back, the items on its follow-ups included), or the whole order was refunded to the card. An
+ *  order part paid by gift card or store credit is never settled by card refunds alone: that part is still theirs. */
 function settled(p: any): boolean {
   if (!p) return false;
   if (['cancelled', 'refunded'].includes(String(p.stage || ''))) return true;
-  const paid = cardPaidCents(p);
+  const paid = Math.max(cardPaidCents(p), cents(p.totalCents));
   return paid > 0 && cents(p.refundedCents) >= paid;
 }
 
@@ -105,8 +106,10 @@ const SENT_STAGES = ['shipped', 'handed_off', 'completed'];
 
 /** Cancelling the order the customer paid on. Its follow-ups that haven't gone out are cancelled with it, their items
  *  refunded on this order, and its card gets back everything it hasn't had back yet, less what's already queued on the
- *  follow-ups and what the customer keeps from any that went out. `followUps` are every order made from it. */
-export function cancelWithFollowUps(payer: any, followUps: any[]): { cancel: any[]; pendingCents: number } {
+ *  follow-ups and what the customer keeps from any that went out. `followUps` are every order made from it;
+ *  `cancellable` narrows which open ones may go (a customer can't cancel one that's being packed): one that stays is
+ *  counted as theirs, like one that went out. */
+export function cancelWithFollowUps(payer: any, followUps: any[], cancellable: (f: any) => boolean = () => true): { cancel: any[]; pendingCents: number } {
   const payerId = String(payer?.id || '');
   const seen = new Set<string>();
   const fam = (followUps || []).filter((f) => {
@@ -119,11 +122,13 @@ export function cancelWithFollowUps(payer: any, followUps: any[]): { cancel: any
   const cancel: any[] = [];
   for (const f of fam) {
     const stage = String(f.stage || '');
-    // Gone out: the customer has those items, less what's been refunded for them already (refunds already off the room).
-    if (SENT_STAGES.includes(stage)) { spoken += Math.max(0, followUpItemsCents(f, payer, { lessReturned: false }) - cents(f.refundedCents)); continue; }
-    // Not gone out: anything queued on it goes back on its own; its items come back with this order.
+    const goes = OPEN_STAGES.includes(stage) && cancellable(f);
+    // Gone out, or going out: the customer has those items, less what's been refunded for them already (those refunds
+    // are already off the room). Anything still queued on it goes back on its own.
+    if (SENT_STAGES.includes(stage) || (OPEN_STAGES.includes(stage) && !goes)) { spoken += Math.max(0, followUpItemsCents(f, payer, { lessReturned: false }) - cents(f.refundedCents)); continue; }
+    // Not going out: anything queued on it goes back on its own; its items come back with this order.
     spoken += cents(f.pendingRefundCents);
-    if (OPEN_STAGES.includes(stage)) cancel.push(f);
+    if (goes) cancel.push(f);
   }
   return { cancel, pendingCents: Math.max(0, familyRefundableCents(payer, fam) - spoken) };
 }

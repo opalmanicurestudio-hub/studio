@@ -147,8 +147,10 @@ export async function POST(req: NextRequest) {
         }
         // The order they paid on: its backorder or pre-order items still to come are cancelled with it, and the card
         // gets back what it hasn't had back across all of them, so nothing is refunded twice.
+        // Only the ones they could cancel themselves go: one already being packed ships, and counts as theirs.
         const fam = follow ? [] : await followUpsOf((r: any) => txn.get(r), ordersCol, orderId);
-        const plan = follow ? null : cancelWithFollowUps({ ...order, id: orderId }, fam);
+        const plan = follow ? null : cancelWithFollowUps({ ...order, id: orderId }, fam,
+          (f: any) => (isPromiseLate(f) || delayNotified(f) ? LATE_CANCEL_STAGES : CANCEL_STAGES).includes(String(f.stage || '')));
         const going: any[] = [{ ...order, id: orderId }, ...(plan?.cancel || [])];
 
         // Reads before writes: release the stock held for them. It's held from payment until handoff or shipping, so a

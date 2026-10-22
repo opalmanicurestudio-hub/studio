@@ -136,10 +136,13 @@ export async function POST(req: NextRequest) {
   // A REFUND THAT MAY HAVE GONE THROUGH WITHOUT BEING RECORDED: an earlier try claimed it under the next number and was
   // cut off before writing it to the order (its hold has lapsed, the number unused). Stripe is asked first. A refund it
   // made for this order and number is recorded as it is; when there is none, a new one goes out under a fresh number,
-  // so it can never be mistaken for the one that didn't happen.
+  // so it can never be mistaken for the one that didn't happen. When a refund has been recorded on the order since
+  // that try (someone marked it done by hand, which can't clear the hold), it was that one: nothing is recorded twice.
   let recordOnly = false; let floorSeq = 0;
   const lapsed = order.refundInFlight;
-  if (lapsed && !held(lapsed) && Number(lapsed.seq) === (Number(order.refundSeq) || 0) + 1 && Number(lapsed.cents) > 0) {
+  const recordedSince = lapsed?.refundedBefore != null && (Number(order.refundedCents) || 0) !== Number(lapsed.refundedBefore);
+  if (lapsed && !held(lapsed) && recordedSince) floorSeq = Math.max(floorSeq, Number(lapsed.seq) || 0);
+  else if (lapsed && !held(lapsed) && Number(lapsed.seq) === (Number(order.refundSeq) || 0) + 1 && Number(lapsed.cents) > 0) {
     let found: any = null;
     try {
       const list: any = await stripe.refunds.list({ payment_intent: piId, limit: 100 } as any, { stripeAccount: tenant.stripeAccountId });
@@ -173,7 +176,7 @@ export async function POST(req: NextRequest) {
         if (!allowed.ok) { limitHit = { message: allowed.message, limit: allowed.limit }; throw new Error('limit'); }
         overCard = pending - cents;
         seq = Math.max((Number(cur.refundSeq) || 0) + 1, floorSeq + 1);
-        const lock = { cents, seq, at: new Date().toISOString(), by: actor.uid };
+        const lock = { cents, seq, at: new Date().toISOString(), by: actor.uid, refundedBefore: Number(cur.refundedCents) || 0 };
         tx.update(oRef, { refundInFlight: lock });
         if (follow) tx.update(pRef, { refundInFlight: { ...lock, forOrderId: orderId } });
       });
@@ -227,7 +230,9 @@ export async function POST(req: NextRequest) {
       await db.runTransaction(async (tx: any) => {
         const cur = (await tx.get(oRef)).data() || {};
         const p = follow ? (await tx.get(pRef)).data() || {} : null;
-        if ((Number(cur.refundSeq) || 0) >= seq) { already = true; return; }
+        // Written down already: by another tap (on the first try), or by this request's own earlier try, whose write
+        // went through though it reported an error (on a later one), which still owes the points and the email.
+        if ((Number(cur.refundSeq) || 0) >= seq) { already = attempt === 0; left = Math.max(0, Number(cur.pendingRefundCents) || 0); return; }
         left = Math.max(0, (Number(cur.pendingRefundCents) || 0) - cents);
         tx.update(oRef, {
           pendingRefundCents: left,
@@ -276,7 +281,7 @@ export async function POST(req: NextRequest) {
       message: `${money(cents)} has gone back through Stripe, but it couldn’t be saved on the order yet. Tap send again in two minutes to record it. It won’t be sent twice.`,
     });
   }
-  if (already) return NextResponse.json({ ok: true, refundId, amountCents: cents, leftCents: Number(order.pendingRefundCents) || 0, overCardCents: 0, message: 'That refund was already recorded on the order.' });
+  if (already) return NextResponse.json({ ok: true, refundId, amountCents: cents, leftCents: left, overCardCents: 0, message: 'That refund was already recorded on the order.' });
 
   // Loyalty: a refund takes back the points those products earned (lib/loyalty-server), on the sale that earned them.
   try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: `order_${payerId}`, refundCents: cents, refundId, by: 'Refund' }); } catch { /* best effort */ }

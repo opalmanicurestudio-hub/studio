@@ -107,7 +107,10 @@ export async function offerSwap(db: any, t: string, orderId: string, lineId: str
   const line = (o.lines || []).find((l: any) => l.lineId === lineId); if (!line) return { ok: false, message: 'That item isn’t on this order.' };
   const first = String(o.customerName || '').split(' ')[0] || 'there';
   const pref = normaliseIfUnavailable(o.ifUnavailable);
-  const orig = Number(line.unitPriceCents) || 0; const cheaper = sub.unitPriceCents < orig;
+  // What a swap gives back is what the swap itself works out (lib/retail-swap): the price paid, after any promo, less
+  // the replacement's, with its tax. The message says the same amount.
+  let back = 0; try { back = swapLines(o, lineId, sub, 'preview').refundCents; } catch { back = 0; }
+  const cheaper = back > 0;
   if (pref === 'similar' && !forceAsk) {
     const r = await applySwap(db, t, orderId, lineId, sub, actor, 'customer chose swaps at checkout');
     if (r.ok) await tell(db, t, o, origin, `we were out of ${line.name}, so we've packed ${sub.name} instead, as you asked.${r.refundCents ? ` ${money(r.refundCents)} is coming back to you.` : ''}`, `Order #${String(o.orderNumber).padStart(4, '0')}: a swap in your order`, 'A swap in your order', [`Hi ${first},`, `We were out of ${line.name}, so we have packed ${sub.name} instead, as you asked at checkout.`, r.refundCents ? `It costs less, so ${money(r.refundCents)} is coming back to the card you paid with.` : 'There is nothing extra to pay.', 'If you would rather have a refund, reply to this email or open your order and let us know.']);
@@ -118,7 +121,7 @@ export async function offerSwap(db: any, t: string, orderId: string, lineId: str
   await orderRef(db, t, orderId).set({ swapOffer: offer, swapPendingPhone: last10(o.customerPhone || '') || null }, { merge: true });
   const ev = orderRef(db, t, orderId).collection('events').doc();
   await ev.set({ id: ev.id, type: 'note', at: offer.at, actorId: actor.id, actorName: actor.name, meta: { kind: 'swap_offered', text: `Asked ${first} about swapping ${line.name} for ${sub.name}` } });
-  const extra = cheaper ? ` and refund the ${money((orig - sub.unitPriceCents) * Math.max(1, (Number(line.qtyOrdered) || 1) - (Number(line.qtyScanned) || 0) - (Number(line.qtyShorted) || 0)))} difference` : ' at no extra cost';
+  const extra = cheaper ? ` and refund the ${money(back)} difference` : ' at no extra cost';
   await tell(db, t, o, origin, `we're out of ${line.name}. We can send ${sub.name} instead${extra}. Reply YES to swap or NO for a refund.`, `Order #${String(o.orderNumber).padStart(4, '0')}: can we swap one item?`, 'Can we swap one item?', [`Hi ${first},`, `We are out of ${line.name}. We can send ${sub.name} instead${extra}.`, `Open your order to choose, or reply YES or NO to our text. If we don't hear back within ${SWAP_ANSWER_HOURS} hours, we will refund that item so your order isn't held up.`]);
   return { ok: true, asked: true, message: `Asked ${first}. They have ${SWAP_ANSWER_HOURS} hours to answer; no answer means a refund.` };
 }
