@@ -20,7 +20,7 @@ import {
 } from '@/lib/retail-orders';
 import { buildEntry } from '@/lib/stock-ledger';
 import { effectiveUnitCents } from '@/lib/retail-swap';
-import { labelHolderId, labelInDoubt } from '@/lib/label-doubt';
+import { labelDoubt, labelHolderId } from '@/lib/label-doubt';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // Client-side fulfillment actions for the board. Every state change runs in a
@@ -960,7 +960,10 @@ export async function markShipped(
       // label, so it's that order's label that's checked.
       const holderId = labelHolderId(order);
       const holder: any = holderId ? ((await txn.get(doc(orderCol(fs, tenantId), holderId))).data() || null) : order;
-      if (holder && labelInDoubt(holder)) return { ok: false, message: holderId ? 'Voiding the label this box shares with another order didn’t finish, so it may no longer work. Sort it out on that order before it goes out.' : 'Voiding this label didn’t finish, so it may no longer work. Void it again on the ship sheet and buy a new one before it goes out.' };
+      const doubt = holder ? labelDoubt(holder) : null;
+      // A box whose label was voided (lib/label-boxes) needs its new label first, so it never leaves on the old one.
+      if (doubt === 'relabel') return { ok: false, message: holderId ? 'A box in the shipment this order shares has a voided label. Sort it out on that order before it goes out.' : 'One of these boxes has a voided label. Buy its new label on the ship sheet, or take that box off the order, before it goes out.' };
+      if (doubt) return { ok: false, message: holderId ? 'Voiding the label this box shares with another order didn’t finish, so it may no longer work. Sort it out on that order before it goes out.' : 'Voiding this label didn’t finish, so it may no longer work. Void it again on the ship sheet and buy a new one before it goes out.' };
       // A tracking number from a label that was voided (lib/label-void) would send the customer a dead link.
       const voidedNums: string[] = Array.isArray((order as any).voidedTracking) ? (order as any).voidedTracking.map(String) : [];
       if (voidedNums.length && [tracking.number, ...(tracking.extraNumbers || [])].some((n) => n && voidedNums.includes(String(n).trim()))) return { ok: false, message: 'That label was voided. Buy a new one before it goes out.' };

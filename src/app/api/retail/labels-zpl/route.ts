@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkPrintKey } from '@/lib/print-key';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { isZplLabel } from '@/lib/label-format';
+import { liveSlots } from '@/lib/label-boxes';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,8 @@ export async function GET(req: NextRequest) {
     .sort((a: any, b: any) => (Number(a.orderNumber) || 0) - (Number(b.orderNumber) || 0));
   const parts: string[] = []; const seen = new Set<string>();   // orders shipped together share a label: printed once
   for (const o of orders) {
-    const urls = [String(o.labelUrl), ...((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isZplLabel(u) && /^https:\/\//.test(u))];
+    // A box whose label was voided (lib/label-boxes) prints nothing until it has its new one.
+    const urls = liveSlots(o).map((b) => b.labelUrl).filter((u) => isZplLabel(u) && /^https:\/\//.test(u));
     for (const u of urls) {
       if (seen.has(u)) continue; seen.add(u);
       try { const r = await fetch(u); if (r.ok) parts.push((await r.text()).trim()); } catch { /* a missing label is listed on the stack page */ }

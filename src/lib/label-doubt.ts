@@ -1,14 +1,19 @@
 // src/lib/label-doubt.ts — A LABEL THAT MAY NO LONGER WORK. Pure, so the server and the browser share one answer.
 // Until it's sorted, the label can't be marked shipped (lib/retail-fulfill, ShipSheet), go on a USPS form
-// (api/retail/close-day), or stay on an order kept at its old address (api/retail/address). Three ways it happens:
+// (api/retail/close-day), or stay on an order kept at its old address (api/retail/address). Four ways it happens:
 //   voiding    — a void of it is under way, or Shippo never answered (lib/label-sweep writes `labelVoiding` first)
-//   partial    — some of its boxes were voided and the rest not yet
+//   relabel    — one box's label was voided and the others' weren't, and which box is which is known (lib/label-boxes):
+//                that box needs a new label, or to come off the order, before it goes out. Held back even once another
+//                box is with the carrier, so a box never leaves on a voided label.
+//   partial    — some of its boxes were voided and the rest not yet, on a label whose boxes can't be told apart
 //   unfinished — the morning check handed a void that didn't finish to the team, and nobody has decided yet
-// Each has a way out: voiding it again settles the first two; the third also clears when someone keeps the label. Once
-// the carrier has scanned the box it's out of the shop whatever happened, so it isn't held back: the "being voided"
-// warning (voidedLabelMoving) covers what's left to check about the money.
+// Each has a way out: voiding it again settles voiding and partial; a box gets a new label (or comes off) for relabel;
+// the last also clears when someone keeps the label. Otherwise, once the carrier has scanned the box it's out of the
+// shop whatever happened, so it isn't held back: the "being voided" warning (voidedLabelMoving) covers what's left to
+// check about the money.
+import { voidedSlots } from './label-boxes';
 
-export type LabelDoubt = 'voiding' | 'partial' | 'unfinished';
+export type LabelDoubt = 'voiding' | 'relabel' | 'partial' | 'unfinished';
 
 const SCANNED = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'];
 
@@ -22,11 +27,19 @@ export function trailStatus(o: any): string {
 export function labelDoubt(o: any): LabelDoubt | null {
   const txn = String(o?.shippoTransactionId || '');
   if (!txn) return null;
-  if (o?.labelSeenMoving || SCANNED.includes(trailStatus(o))
-    || Object.values(o?.boxStatus || {}).some((s: any) => SCANNED.includes(String(s).toUpperCase()))) return null;
-  if (String(o?.labelVoiding?.txn || '') === txn) return 'voiding';
+  const moving = !!o?.labelSeenMoving || SCANNED.includes(trailStatus(o))
+    || Object.values(o?.boxStatus || {}).some((s: any) => SCANNED.includes(String(s).toUpperCase()));
+  const voiding = String(o?.labelVoiding?.txn || '') === txn;
+  const unfinished = o?.labelUnscannedOpen === true && o?.labelUnscanned?.why === 'void_unfinished';
+  const relabel = voidedSlots(o).length > 0;
+  // A void still under way, or one the morning check handed over, is settled first: a box whose void got no answer may
+  // already be refunded, so no box gets a new label until someone has voided it again or kept it.
+  if (voiding && !moving) return 'voiding';
+  if (unfinished && relabel && !moving) return 'unfinished';
+  if (relabel) return 'relabel';
+  if (moving) return null;
   if (Array.isArray(o?.labelVoidIds) && o.labelVoidIds.length > 0) return 'partial';
-  if (o?.labelUnscannedOpen === true && o?.labelUnscanned?.why === 'void_unfinished') return 'unfinished';
+  if (unfinished) return 'unfinished';
   return null;
 }
 

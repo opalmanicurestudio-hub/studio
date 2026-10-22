@@ -6,6 +6,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
+import { useLabelFlagOrders } from './use-label-flags';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useFulfilmentPerms } from '@/hooks/use-fulfilment-perms';
@@ -54,7 +55,10 @@ export function ProblemsApp() {
   }, [fs, tenantId]);
 
   const shopZone = tenantTimeZone(selectedTenant);
-  const groups = React.useMemo(() => buildProblems({ orders, refundOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24), timeZone: shopZone }), [orders, refundOrders, tickets, claims, returns, now, rs.readyStaleHours, shopZone]);
+  // Orders a label has put under Needs you, whatever their stage (shipped and closed ones too).
+  const flagged = useLabelFlagOrders(fs, tenantId);
+  const all = React.useMemo(() => [...orders, ...flagged.filter((f) => !orders.some((o) => o.id === f.id))], [orders, flagged]);
+  const groups = React.useMemo(() => buildProblems({ orders: all, refundOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24), timeZone: shopZone }), [all, refundOrders, tickets, claims, returns, now, rs.readyStaleHours, shopZone]);
   React.useEffect(() => { if (wide && !openId && groups.length) setOpenId(groups[0].orderId); }, [wide, openId, groups]);
   const open = openId ? groups.find((g) => g.orderId === openId) || null : null;
   React.useEffect(() => { if (openId && !open && !loading && !wide) setOpenId(null); }, [openId, open, loading, wide]);

@@ -16,6 +16,7 @@ export const ORDER_PAGE_KINDS = new Set([
   'order_confirmation', 'order_ready', 'order_shipped', 'order_delayed', 'delay_notice', 'carrier_delivered', 'order_short',
   'order_swap', 'order_id_check', 'preorder_eta', 'preorder_cancelled', 'refund_issued', 'return_label', 'return_received',
   'claim_info_request', 'support_reply', 'support_received', 'order_uncollected', 'address_confirm', 'address_reply',
+  'shop_message',
 ]);
 /** Sent in full as well as posted: the receipt. */
 const FULL_TOO = new Set(['order_confirmation']);
@@ -45,6 +46,7 @@ export function nudgeLine(kind: string, num: string, shop: string, subject?: str
     case 'order_uncollected': return `Your order ${num} is still waiting for pickup.`;
     case 'address_confirm': return `Please check the address for your order ${num} before it ships.`;
     case 'address_reply': return `${shop} answered about the address on your order ${num}.`;
+    case 'shop_message': return `${shop} sent you a message about your order ${num}.`;
     default: return subject ? String(subject) : `There’s an update on your order ${num}.`;
   }
 }
@@ -113,8 +115,11 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
   // words are different news: a second new date is its own card and its own nudge, even minutes after the first.
   const custom = String(input.nudgeLine || '').replace(/\s+/g, ' ').trim().slice(0, 220);
   const lineFor = () => custom || nudgeLine(kind, num, shop, input.subject);
-  let h = 0; for (let i = 0; i < custom.length; i++) h = (h * 31 + custom.charCodeAt(i)) | 0;
-  const newsKey = custom ? `${kind}-${(h >>> 0).toString(36)}` : kind;
+  // A caller can also say what makes it its own news (a message from the shop: its whole text), so two messages with
+  // the same opening line are two cards and two nudges.
+  const distinct = input.cardKey ? `${custom}|${String(input.cardKey)}` : custom;
+  let h = 0; for (let i = 0; i < distinct.length; i++) h = (h * 31 + distinct.charCodeAt(i)) | 0;
+  const newsKey = custom || input.cardKey ? `${kind}-${(h >>> 0).toString(36)}` : kind;
 
   // 1. The full message, on the order page. Text and email versions of the same news fill one card.
   if (!THREAD_KINDS.has(kind)) {

@@ -4,6 +4,7 @@ import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
 import { changeMode, changePolicy } from '@/lib/address-flow';
 import { customerDates } from '@/lib/ship-promise';
 import { tenantTimeZone } from '@/lib/tenant-time';
+import { liveSlots } from '@/lib/label-boxes';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
 // GET ?tenantId=...&orderId=...
@@ -331,12 +332,13 @@ export async function GET(req: NextRequest) {
       // A label the carrier hasn't scanned for days (the morning check): the box counts as not sent yet.
       labelStuck: order.labelUnscannedOpen === true,
       hasPreorder: order.hasPreorder === true,
-      trackingNumber: order.trackingNumber || null,
-      trackingUrl: order.trackingUrl || null,
+      // Only boxes whose labels work (lib/label-boxes): a box waiting for its new label shows once it has it.
+      trackingNumber: liveSlots(order)[0]?.tracking || null,
+      trackingUrl: liveSlots(order)[0]?.trackingUrl || null,
       shippedWith,
       shipTogetherRefundCents: Number(order.shipTogetherRefundCents) || 0,
       // More boxes: one tracking number (and link, when the carrier gave one) per box.
-      extraTracking: (Array.isArray(order.extraTrackingNumbers) ? order.extraTrackingNumbers : []).slice(0, 9).map((n: any, i: number) => ({ number: String(n || ''), url: String((order.extraTrackingUrls || [])[i] || '') || null })).filter((x: any) => x.number),
+      extraTracking: liveSlots(order).slice(1, 10).map((b) => ({ number: b.tracking, url: b.trackingUrl || null })).filter((x: any) => x.number),
       carrier: order.carrier || null,
     },
     queuePosition,

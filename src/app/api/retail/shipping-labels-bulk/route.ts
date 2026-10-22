@@ -7,6 +7,8 @@ import { paidServiceRate } from '@/lib/paid-service';
 import { groundFilter } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { claimLabelBuy, labelsCol, newLabelRecord, releaseLabelBuy } from '@/lib/label-records';
+import { labelKey } from '@/lib/label-boxes';
 
 import {
   insurableValueCents, protectionFor, protectionPolicy, shippoExtra,
@@ -27,7 +29,10 @@ import {
 // pages — PNGs lay out as pages; PDFs don't embed. Auth is per-order link
 // possession (qrToken), same bar as the single route; an order that fails
 // (missing address, no rates) is reported and skipped, never blocking the
-// rest. Sequential on purpose — Shippo rate-limits bursts.
+// rest. Sequential on purpose — Shippo rate-limits bursts. Each order is
+// claimed before its label is bought (lib/label-records), so an order someone
+// is buying a label for on its own ship sheet is skipped, not bought twice,
+// and each label gets its record like any other.
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -139,6 +144,14 @@ export async function POST(req: NextRequest) {
       if (order.stage !== 'packed') { fail(`Not packed yet (${order.stage})`); continue; }
       if (openRequest(order)) { fail('The customer asked to change the address. Answer that on the order first.'); continue; }
       if (order.method !== 'ship' || !order.shippingAddress) { fail('Not a ship order'); continue; }
+      // Claimed, and checked again as the order is now: a label bought on its own ship sheet a moment ago is seen here.
+      const claim = await claimLabelBuy(db, snap.ref, auth.actor.name, Date.now(), (cur) => (cur.trackingNumber || cur.labelUrl ? 'It got a label meanwhile' : openRequest(cur) ? 'The customer asked to change the address. Answer that on the order first.' : null));
+      if ('error' in claim) {
+        if (/label meanwhile/.test(claim.error)) { results.push({ orderId, ok: true, skipped: true, message: 'Already has a label' }); continue; }
+        fail(claim.error); continue;
+      }
+      const token = claim.token;
+      try {
 
       const cust = order.shippingAddress;
       const addressTo = {
@@ -183,14 +196,22 @@ export async function POST(req: NextRequest) {
         fail((txn.messages || []).map((m: any) => m.text).join('; ') || 'Label purchase failed');
         continue;
       }
+      const box = { txn: String(txn.object_id || ''), tracking: String(txn.tracking_number || ''), labelUrl: String(txn.label_url || ''), trackingUrl: String(txn.tracking_url_provider || ''),
+        parcel: { lengthIn: parcelDefaults.lengthIn, widthIn: parcelDefaults.widthIn, heightIn: parcelDefaults.heightIn, weightOz } };
+      const labelId = labelKey(box.txn);
 
       const now = new Date().toISOString();
       const orderRef = snap.ref;
       const evRef = orderRef.collection('events').doc();
       const boughtFor = addressKey(order.shippingAddress);
-      const saved = await db.runTransaction(async (tx: any) => {
+      const save = async (tx: any) => {
         const cur: any = (await tx.get(orderRef)).data() || {};
         if (addressKey(cur.shippingAddress) !== boughtFor || openRequest(cur) || (cur.shippoTransactionId && cur.labelUrl)) return false;
+        tx.set(db.doc(`${labelsCol(tenantId)}/${labelId}`), newLabelRecord({
+          id: labelId, order: cur, orderId, carrier: String(cheapest.provider || 'Carrier'), service: String(cheapest.service || ''), rateId: cheapest.id,
+          boxes: [box], amountCents: cheapest.amountCents, protection: { signature: decision.signature, insuranceCents: decision.insuranceCents },
+          at: now, by: { id: auth.actor.uid, name: auth.actor.name }, how: 'bulk',
+        }));
         tx.set(orderRef, {
           shipmentProtection: {
             signature: decision.signature,
@@ -206,7 +227,10 @@ export async function POST(req: NextRequest) {
           shippoTransactionId: String(txn.object_id || ''),
           extraLabelUrls: [],
           extraTrackingNumbers: [],
+          extraTrackingUrls: [],
           packageCount: 1,
+          labelsChecked: [], labelCheckedAt: null,
+          labelTxns: [box.txn], labelRecs: [labelId], labelVoidIds: [], relabelOpen: false,
         }, { merge: true });
         tx.set(evRef, {
           id: evRef.id, type: 'label_generated', at: now,
@@ -222,15 +246,27 @@ export async function POST(req: NextRequest) {
           },
         });
         return true;
-      });
+      };
+      // A save the database didn't answer may have gone through all the same: the order says which.
+      let saved: boolean | null;
+      try { saved = await db.runTransaction(save); }
+      catch (e: any) {
+        const { carriesLabel } = await import('@/lib/label-void');
+        saved = await carriesLabel(orderRef, box.txn);
+        if (saved === null) {
+          console.error('[shipping-labels-bulk] bought, save unknown', tenantId, orderId, box.txn, String(e?.message || e).slice(0, 200));
+          fail('The label was bought, but saving it to the order didn’t go through. Open the order before buying another.');
+          continue;
+        }
+      }
       if (!saved) {
         // The address changed (or a change came in) while this label was being bought: give it straight back.
-        const { voidOrderLabels } = await import('@/lib/label-void');
-        await voidOrderLabels(db, tenantId, { shippoTransactionId: String(txn.object_id || '') }, apiKey).catch(() => null);
-        fail('The address changed while the label was being bought, so it was voided. Buy it again from the order.');
+        const { voidUnsavedLabel } = await import('@/lib/label-void');
+        const v = await voidUnsavedLabel(db, tenantId, apiKey, { orderId, order, boxes: [box], cents: cheapest.amountCents, carrier: String(cheapest.provider || 'Carrier'), service: String(cheapest.service || ''), rateId: cheapest.id, by: { id: auth.actor.uid, name: auth.actor.name }, how: 'bulk' }).catch(() => null);
+        fail(`The order changed while the label was being bought (the address, or another label), so ${v?.outcome === 'voided' ? 'it was voided' : 'it wasn’t saved, and voiding it is asked again each morning until the refund comes through'}. Buy it again from the order.`);
         continue;
       }
-      await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, String(txn.object_id || ''), cheapest.amountCents, String(cheapest.provider || 'Carrier'));
+      await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, box.txn, cheapest.amountCents, String(cheapest.provider || 'Carrier'));
 
       results.push({
         orderId, ok: true,
@@ -240,6 +276,7 @@ export async function POST(req: NextRequest) {
         costCents: cheapest.amountCents,
         weightOz,
       });
+      } finally { await releaseLabelBuy(db, snap.ref, token); }
     } catch (e: any) {
       fail(String(e?.message || 'Failed').slice(0, 200));
     }

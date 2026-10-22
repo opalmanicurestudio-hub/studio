@@ -5,6 +5,7 @@ import {
   deliveryEvidence, readShippoStatus, sendCarrierUpdate, shouldNotify,
 } from '@/lib/shipping-notify';
 import { protectionPolicy, weightVerdict } from '@/lib/shipment-protection';
+import { labelSlots, voidedSlots } from '@/lib/label-boxes';
 
 // ─── /api/retail/shippo-webhook/route.ts ──────────────────────────────────────
 // Auto-delivered: Shippo POSTs tracking updates here; when the carrier says
@@ -191,12 +192,24 @@ export async function POST(req: NextRequest) {
 
     for (const d of snap.docs) {
       const order = d.data() as any;
+      // A box whose label was voided while the order's other boxes kept theirs (lib/label-boxes): it shouldn't move.
+      // If it does, it went out on a voided label, so the team hears; nothing else about the order changes.
+      if (voidedSlots(order).some((s) => s.tracking === trackingNumber)) {
+        if (['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'].includes(String(status)) && !(order.voidedLabelMoving?.trackingNumber === trackingNumber && order.voidedLabelMoving?.open === false)) {
+          await d.ref.set({ voidedLabelMoving: { open: true, unsure: false, voidedBoxes: 0, unconfirmedBoxes: 0, at: new Date().toISOString(), trackingNumber, status: String(status) } }, { merge: true }).catch(() => {});
+          const ev = d.ref.collection('events').doc(`voided-moving-${trackingNumber}`);
+          await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'shippo', actorName: 'Carrier', meta: { kind: 'voided_label_moving', text: `The carrier scanned ${trackingNumber}, a box label that was voided (${String(status).toLowerCase()})` } }, { merge: true }).catch(() => {});
+        }
+        continue;
+      }
       const extras: string[] = Array.isArray(order.extraTrackingNumbers) ? order.extraTrackingNumbers.map(String) : [];
       const multi = extras.length > 0;
       // Each box's latest status, this scan included.
       const boxStatus: Record<string, string> = { ...(order.boxStatus || {}), [trackingNumber]: String(status) };
       if (multi) { try { await d.ref.set({ boxStatus: { [trackingNumber]: String(status) } }, { merge: true }); } catch { /* evidence below still lands */ } }
-      const allBoxes = [String(order.trackingNumber || ''), ...extras].filter(Boolean);
+      // Every box on the order, a box waiting for its new label included (it hasn't arrived, so neither has the order);
+      // once it has its new label, its new number is the one waited on. A box taken off the order isn't on it.
+      const allBoxes = labelSlots(order).map((s) => s.tracking).filter(Boolean);
       const allDelivered = allBoxes.every((t) => boxStatus[t] === 'DELIVERED' || (t === trackingNumber && status === 'DELIVERED'));
 
       // Evidence is recorded for EVERY scan, including ones that send no email

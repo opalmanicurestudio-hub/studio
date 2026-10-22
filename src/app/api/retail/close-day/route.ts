@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
   // A label that may no longer work (lib/label-doubt) stays off the form until that's sorted on the order.
   const held = waitingForForm.filter(labelInDoubt).length;
   const candidates = waitingForForm.filter((o: any) => !labelInDoubt(o));
-  const heldLine = held ? ` ${held} label${held === 1 ? ' was' : 's were'} left off because voiding ${held === 1 ? 'it' : 'them'} didn’t finish; sort ${held === 1 ? 'that' : 'those'} out on the order before ${held === 1 ? 'it goes' : 'they go'} anywhere.` : '';
+  const heldLine = held ? ` ${held} label${held === 1 ? ' was' : 's were'} left off because ${held === 1 ? 'it isn’t' : 'they aren’t'} ready to go (a void that didn’t finish, or a box waiting for its new label); sort ${held === 1 ? 'that' : 'those'} out on the order before ${held === 1 ? 'it goes' : 'they go'} anywhere.` : '';
   const usps = candidates.filter((o: any) => isUsps(String(o.carrier || '')));
   const others = candidates.length - usps.length;
   if (usps.length === 0) return NextResponse.json({ ok: true, manifests: [], count: 0, others, held, message: `${others ? 'Nothing for USPS today. Other carriers scan each box at pickup.' : 'No labels waiting for a manifest.'}${heldLine}` });

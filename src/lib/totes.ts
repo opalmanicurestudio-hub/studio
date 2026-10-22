@@ -6,6 +6,7 @@
 // Also here: matching a scanned shipping-label barcode to its order, so the right label goes on the right box.
 // Carrier barcodes often wrap the tracking number (USPS adds a 420 + ZIP prefix), so the match is "ends with".
 import { arrayUnion, collection, doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
+import { liveTracking } from './label-boxes';
 
 export const MAX_TOTES = 99;
 
@@ -48,7 +49,7 @@ export function looksLikeTracking(raw: unknown): boolean {
 
 export function labelMatchesOrder(scanned: unknown, order: any): boolean {
   const s = digits(scanned);
-  const nums = [order?.trackingNumber, ...(Array.isArray(order?.extraTrackingNumbers) ? order.extraTrackingNumbers : [])].map(digits).filter((t) => t.length >= 8);
+  const nums = labelBoxes(order).map(digits);
   return nums.some((t) => s === t || s.endsWith(t));
 }
 
@@ -81,9 +82,10 @@ export function benchScanTarget(raw: unknown, orders: any[]): { kind: 'tote' | '
   return null;
 }
 
-/** Every box's tracking number on an order (one label per box). */
+/** Every box's tracking number on an order (one label per box). A box whose label was voided (lib/label-boxes) isn't
+ *  one: its old label must not pass the bench check, and the box counts again once it has its new one. */
 export function labelBoxes(order: any): string[] {
-  return [order?.trackingNumber, ...(Array.isArray(order?.extraTrackingNumbers) ? order.extraTrackingNumbers : [])].map((t) => String(t || '').trim()).filter((t) => digits(t).length >= 8);
+  return liveTracking(order).filter((t) => digits(t).length >= 8);
 }
 
 /** Which box a scanned label is (its tracking number), or null. */

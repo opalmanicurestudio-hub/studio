@@ -47,11 +47,19 @@ export async function POST(req: NextRequest) {
       const p: any = orders[0];
       const label = manual
         ? { trackingNumber: manual.number, carrier: manual.carrier || null, trackingUrl: null, extraTrackingNumbers: manual.extra, packageCount: 1 + manual.extra.length }
-        : { trackingNumber: p.trackingNumber || null, carrier: p.carrier || null, trackingUrl: p.trackingUrl || null, labelUrl: p.labelUrl || null, extraLabelUrls: p.extraLabelUrls || [], extraTrackingNumbers: p.extraTrackingNumbers || [], extraTrackingUrls: p.extraTrackingUrls || [], packageCount: Number(p.packageCount) || 1 };
+        : { trackingNumber: p.trackingNumber || null, carrier: p.carrier || null, trackingUrl: p.trackingUrl || null, labelUrl: p.labelUrl || null, extraLabelUrls: p.extraLabelUrls || [], extraTrackingNumbers: p.extraTrackingNumbers || [], extraTrackingUrls: p.extraTrackingUrls || [], packageCount: Number(p.packageCount) || 1,
+            // Each box's label, so a box whose label is voided later is told apart on these orders too (lib/label-boxes).
+            labelTxns: p.labelTxns || [], labelVoidIds: p.labelVoidIds || [] };
       if (!label.trackingNumber) throw new Error('Buy the label or type the tracking number first.');
       refunds = orders[0].shippedWithOrderIds ? {} : togetherRefunds(orders, cardRefundableCents);
       const at = new Date().toISOString();
       tx.set(refs[0], { ...(manual ? label : {}), shippedWithOrderIds: ids.slice(1), shipTogetherAt: at }, { merge: true });
+      // The label's record (lib/label-records) names every order in the box.
+      const recs = [...new Set((Array.isArray(p.labelRecs) ? p.labelRecs : []).map(String).filter(Boolean))];
+      if (!manual && recs.length) {
+        const { FieldValue } = await import('firebase-admin/firestore');
+        for (const r of recs) tx.set(db.doc(`tenants/${tenantId}/shippingLabels/${r}`), { orderIds: FieldValue.arrayUnion(...ids.slice(1)) }, { merge: true });
+      }
       orders.slice(1).forEach((o: any, i: number) => {
         const r = refunds[o.id] || 0;
         tx.set(refs[i + 1], { ...label, labelFromOrderId: p.id, shippedWithOrderId: p.id, shipTogetherAt: at, labelsChecked: p.labelsChecked || [], ...(p.labelCheckedAt ? { labelCheckedAt: p.labelCheckedAt } : {}),

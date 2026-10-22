@@ -28,6 +28,7 @@ export function makeDb() {
     get: async () => ({ exists: store.has(path), id: path.split('/').pop(), ref: ref(path), data: () => clone(store.get(path)) }),
     set: async (v: Doc, o?: any) => { store.set(path, o?.merge ? apply(store.get(path) || {}, v, true) : apply({}, v)); },
     update: async (v: Doc) => { if (!store.has(path)) throw new Error(`no doc ${path}`); store.set(path, apply(store.get(path)!, v)); },
+    create: async (v: Doc) => { if (store.has(path)) throw new Error(`already exists ${path}`); store.set(path, apply({}, v)); },
     delete: async () => { store.delete(path); },
     collection: (c: string) => col(`${path}/${c}`) });
   const cmp = (op: string, a: any, b: any) => op === '==' ? a === b : op === '!=' ? a !== b && a !== undefined : op === '<=' ? a != null && a <= b : op === '<' ? a != null && a < b : op === '>=' ? a != null && a >= b : op === '>' ? a != null && a > b : op === 'in' ? (b as any[]).includes(a) : op === 'array-contains' ? Array.isArray(a) && a.includes(b) : false;

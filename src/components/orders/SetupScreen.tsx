@@ -30,6 +30,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     ['/retail-orders/support', 'Message inbox', 'Every message, with store credit and reply drafts'],
   ] },
   { title: 'Busy days', items: [
+    ['/retail-orders/labels', 'Labels', 'Labels to buy or fix, refunds on the way, carrier adjustments'],
     ['/retail-orders/waves', 'Wave picking', 'Pick many orders in one walk'],
     ['/retail-orders/bench', 'Pack bench', 'A station screen for packing all day'],
     ['/retail-orders/bins', 'Bins and totes', 'Where products live, shelf labels and tote tags'],

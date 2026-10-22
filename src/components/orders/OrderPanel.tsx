@@ -14,6 +14,9 @@ import type { Actor } from '@/lib/retail-fulfill';
 import { Btn, C, IconBtn, Sheet, Thumb, feel, muted, Ic } from './ui';
 import { AddressCard } from './AddressCard';
 import { changePolicy, oneLine, openRequest } from '@/lib/address-flow';
+import { LabelHistory, labelTotals, useLabelRecords } from './LabelHistory';
+import { slotsKnown, tail, voidedSlots } from '@/lib/label-boxes';
+import { labelDoubt } from '@/lib/label-doubt';
 
 const STEPS: Record<string, string[]> = { ship: ['New', 'Packing', 'Ready to ship', 'Shipped'], curbside: ['New', 'Packing', 'Ready', 'Picked up'], counter: ['New', 'Packing', 'Ready', 'Picked up'] };
 const stepIndex = (o: any) => ({ paid: 0, picking: 1, packed: o.method === 'ship' ? 2 : 1, ready: 2, arrived: 2, shipped: 3, handed_off: 3, completed: 3 } as Record<string, number>)[o.stage] ?? 0;
@@ -28,7 +31,12 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const [reason, setReason] = React.useState('');
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const [keepOpen, setKeepOpen] = React.useState(false); const [keepWhy, setKeepWhy] = React.useState('');
-  React.useEffect(() => { setTab('order'); setErr(''); setKeepOpen(false); setKeepWhy(''); }, [order.id]);
+  const [labelsOpen, setLabelsOpen] = React.useState(false);
+  const [msg, setMsg] = React.useState<string | null>(null);
+  React.useEffect(() => { setTab('order'); setErr(''); setKeepOpen(false); setKeepWhy(''); setLabelsOpen(false); setMsg(null); }, [order.id]);
+  // Every label the order has had (lib/label-records), for the Shipping labels sheet and its money.
+  const recs = useLabelRecords(fs, tenantId, order.method === 'ship' ? order.id : '');
+  const labelMoney = labelTotals(recs || []);
   React.useEffect(() => {
     if (tab !== 'record') return;
     return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders/${order.id}/events`), orderBy('at', 'desc'), limit(120)), (s) => setEvents(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))), () => setEvents([]));
@@ -100,7 +108,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
       : order.stage === 'shipped'
         ? { title: 'The carrier hasn’t scanned this box', text: `Marked shipped ${day(order.completedAt)}, with no carrier scan since. If the box is still here, hand it over: the label works for 30 days after it was bought.`, keep: 'It went out' }
         : { title: 'This label hasn’t been used', text: lw === 'void_refused' ? `Bought ${day(order.labelUnscanned?.boughtAt)}. It couldn’t be voided automatically: if this box isn’t going out, void it here and the postage comes back.` : `Bought ${day(order.labelUnscanned?.boughtAt)}. If this box isn’t going out, void the label and the postage comes back.`, keep: 'It’s going out today' };
-  const labelAction = async (action: 'void' | 'unscanned_ok' | 'voided_seen') => {
+  const labelAction = async (action: 'void' | 'unscanned_ok' | 'voided_seen' | 'refund_seen' | 'charge_seen') => {
     setBusy(true); setErr('');
     try {
       const r = await fetch('/api/retail/shipping-label', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, qrToken: order.qrToken || '', action }) });
@@ -109,6 +117,23 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
     } catch { setErr('That didn’t go through. Try again.'); }
     setBusy(false);
   };
+  // A message from the shop, on the customer's order page (api/retail/order-message).
+  const sendMsg = async () => {
+    if (!msg || !msg.trim()) { setErr('Write the message first.'); return; }
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/api/retail/order-message', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, text: msg.trim() }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) { feel(true); setMsg(null); onToast(d.message || 'Sent.'); } else setErr(d.error || 'That didn’t go through. Try again.');
+    } catch { setErr('That didn’t go through. Try again.'); }
+    setBusy(false);
+  };
+  const reachable = !!(order.customerEmail || order.customerPhone);
+  // A box whose label was voided while the others kept theirs (lib/label-boxes): it needs a new label, or to come off.
+  const relabel = order.method === 'ship' && slotsKnown(order) && labelDoubt(order) === 'relabel' ? voidedSlots(order) : [];
+  const denied = order.labelRefundDenied?.open === true ? order.labelRefundDenied : null;
+  const deniedRec = denied ? (recs || []).find((r) => r.id === denied.labelId) : null;
+  const charge = order.labelCharge?.open === true ? order.labelCharge : null;
   const doCancel = async () => { setBusy(true); const r = await cancelIt(fs, tenantId, order, actor, reason.trim() || 'Cancelled by the shop'); setBusy(false); if (r.ok) { setConfirm(null); onToast(r.message); } else setErr(r.message); };
   const doRefund = async () => {
     setBusy(true); setErr('');
@@ -182,10 +207,43 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
               {(() => { const n = Number(order.voidedLabelMoving.voidedBoxes) || 0; const u = Number(order.voidedLabelMoving.unconfirmedBoxes) || 0; return (<>
               <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{n + u > 0 ? 'A box went out while other labels were being voided' : order.voidedLabelMoving.unsure ? 'The carrier scanned a label that was being voided' : 'The carrier scanned a label that was voided'}</p>
               <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{n + u > 0
-                ? `The carrier has a box from this order.${n ? ` ${n} other box label${n === 1 ? ' was' : 's were'} voided.` : ''}${u ? ` Shippo didn’t answer for ${u === 1 ? 'another box' : `${u} other boxes`}, so ${u === 1 ? 'its label' : 'their labels'} may be voided too: check in Shippo.` : ''} Any box that’s still here and whose label was voided needs a new one bought in Shippo before it goes out; it won’t show on this order.`
+                ? `The carrier has a box from this order.${n ? ` ${n} other box label${n === 1 ? ' was' : 's were'} voided.` : ''}${u ? ` Shippo didn’t answer for ${u === 1 ? 'another box' : `${u} other boxes`}, so ${u === 1 ? 'its label' : 'their labels'} may be voided too: check in Shippo.` : ''} ${relabel.length ? 'Any box that’s still here and whose label was voided needs a new one before it goes out: buy it on the ship sheet.' : 'Any box that’s still here and whose label was voided needs a new one bought in Shippo before it goes out; it won’t show on this order.'}`
                 : `${order.voidedLabelMoving.unsure ? `A void of tracking ${order.voidedLabelMoving.trackingNumber || ''} didn’t finish, and the carrier has scanned the box since.` : `Tracking ${order.voidedLabelMoving.trackingNumber || ''} is moving.`} Check the label in Shippo: if the refund was turned down, the box is fine and on its way. If the refund went through, the carrier may charge the postage back.`}</p>
               </>); })()}
-              <Btn kind="soft" className="mt-3 h-11 w-full" disabled={busy} onClick={() => void labelAction('voided_seen')}>Got it</Btn>
+              {relabel.length > 0 && <Btn kind="primary" className="mt-3 h-11 w-full" onClick={onShip}>Buy {relabel.length === 1 ? `box ${relabel[0].slot + 1}’s` : 'the'} new label</Btn>}
+              <Btn kind="soft" className="mt-2 h-11 w-full" disabled={busy} onClick={() => void labelAction('voided_seen')}>Got it</Btn>
+            </div>)}
+          {relabel.length > 0 && order.voidedLabelMoving?.open !== true && ['paid', 'picking', 'packed', 'shipped'].includes(order.stage) && (
+            <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
+              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{relabel.length === 1 ? `Box ${relabel[0].slot + 1} needs a new label` : `${relabel.length} boxes need new labels`}</p>
+              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{relabel.length === 1 ? `Its label (${tail(relabel[0].tracking)}) was voided while the other box${(order.packageCount || 2) > 2 ? 'es' : ''} kept theirs.` : 'Their labels were voided while the other boxes kept theirs.'} Buy {relabel.length === 1 ? 'its' : 'their'} new label{relabel.length === 1 ? '' : 's'} on the ship sheet, or take {relabel.length === 1 ? 'it' : 'them'} off the order there. It can’t be marked shipped until then.</p>
+              <Btn kind="primary" className="mt-3 h-11 w-full" onClick={onShip}>Open the ship sheet</Btn>
+            </div>)}
+          {denied && (
+            <div className="mt-4 rounded-[18px] p-4" style={{ border: `2px solid ${C.ink}` }}>
+              <p className="m-0 text-[16px] font-semibold">A refund was turned down</p>
+              <p className="m-0 mt-1 text-[14px]" style={muted}>Shippo turned down the refund for the label{denied.tracking ? ` ending ${String(denied.tracking).slice(-4)}` : ''}. That means the carrier scanned it, so the {money(Number(denied.cents) || 0)} stays in the books as postage.</p>
+              {deniedRec && (
+                <div className="mt-3 flex flex-col gap-2">
+                  {[deniedRec.voidedAt ? { t: `Voided${deniedRec.voidWhy ? `: ${String(deniedRec.voidWhy).replace(/^voided by hand/, 'by hand')}` : ''}`, at: deniedRec.voidedAt, tone: 'plain' } : deniedRec.replacedBy ? { t: 'Replaced with a new label', at: deniedRec.replacedAt, tone: 'plain' } : null,
+                    { t: 'Refund requested', at: deniedRec.refunds?.[denied.txn]?.requestedAt, tone: 'plain' },
+                    { t: 'Turned down: the carrier scanned it', at: denied.at, tone: 'warn' }].filter(Boolean).map((x: any, i: number) => (
+                    <div key={i} className="flex items-start gap-3"><span className="mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: x.tone === 'warn' ? C.warn : C.line }} /><span className="flex-1"><span className="block text-[14.5px]">{x.t}</span><span className="block text-[12.5px]" style={muted}>{day(x.at)}</span></span></div>))}
+                </div>)}
+              <p className="m-0 mt-2 text-[12.5px]" style={muted}>If that box went out, {who} may get two boxes. Check with {who} before sending anything else.</p>
+              <div className="mt-3 flex gap-2">
+                {reachable && <Btn kind="soft" className="h-11 flex-1" onClick={() => setMsg(`Hi ${who}, a quick check on your order ${orderNum(order)}: an earlier box may have gone out as well as the one you’re expecting. If two arrive, let us know here and we’ll sort it out.`)}>Message {who}</Btn>}
+                <Btn kind="soft" className="h-11 flex-1" disabled={busy} onClick={() => void labelAction('refund_seen')}>Got it</Btn>
+              </div>
+            </div>)}
+          {charge && (
+            <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
+              <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>Carrier adjustment: {Number(charge.cents) > 0 ? '+' : '−'}{money(Math.abs(Number(charge.cents) || 0))}</p>
+              <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{Number(charge.cents) > 0 ? `${order.carrier || 'The carrier'} charged more for this shipment after the label was bought, usually because it weighed or measured a box differently.` : `${order.carrier || 'The carrier'} gave some postage back on this shipment.`} Recorded in Money as shipping.</p>
+              <div className="mt-3 flex gap-2">
+                <Btn kind="soft" className="h-11 flex-1" style={{ background: C.paper }} onClick={() => setLabelsOpen(true)}>See the labels</Btn>
+                <Btn kind="soft" className="h-11 flex-1" style={{ background: C.paper }} disabled={busy} onClick={() => void labelAction('charge_seen')}>Got it</Btn>
+              </div>
             </div>)}
           {order.method === 'ship' && ['paid', 'picking', 'packed'].includes(order.stage) && <div className="mt-4"><AddressCard order={order} tenantId={tenantId} onToast={onToast} /></div>}
           <p className="m-0 mt-5 text-[13px] font-semibold" style={muted}>{['paid', 'picking'].includes(order.stage) ? `In the box · ${prog.done} of ${prog.total}` : 'Items'}</p>
@@ -207,8 +265,14 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
             {order.method === 'curbside' && order.curbside?.spotOrVehicle && <div><p className="m-0 text-[13px] font-semibold" style={muted}>Outside</p><p className="m-0 mt-0.5">{order.curbside.spotOrVehicle}</p></div>}
             <div><p className="m-0 text-[13px] font-semibold" style={muted}>Total</p><p className="m-0 mt-0.5">{money(order.totalCents)}{(order.refundedCents || 0) > 0 ? ` · ${money(order.refundedCents)} refunded` : ''}</p></div>
           </div>
+          {order.method === 'ship' && recs && recs.length > 0 && (
+            <button type="button" onClick={() => setLabelsOpen(true)} className="cf-press mt-4 flex min-h-[56px] w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left" style={{ background: C.soft, color: C.ink }}>
+              <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">Shipping labels</span><span className="block text-[13px]" style={muted}>{recs.length} label{recs.length === 1 ? '' : 's'} · postage {money(labelMoney.postage)}{labelMoney.waiting ? ` · ${money(labelMoney.waiting)} on the way back` : ''}{labelMoney.charges ? ` · ${money(labelMoney.charges)} extra` : ''}</span></span>
+              <span style={muted}>{Ic.chev}</span>
+            </button>)}
           <div className="mt-5 grid grid-cols-2 gap-2">
             {order.qrToken && order.method !== 'digital' && <Btn kind="soft" onClick={() => window.open(`/print/packing-slip/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken || '')}`, '_blank')}>Print slip</Btn>}
+            {reachable && <Btn kind="soft" onClick={() => setMsg('')}>Message {who}</Btn>}
             {!terminal && <Btn kind="danger" onClick={() => setConfirm('cancel')}>Cancel order</Btn>}
           </div>
         </>) : (
@@ -242,6 +306,15 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
             <span style={muted}>{who} gets</span><span>An email with the amount and when to expect it</span>
           </div>
           <Btn kind="danger" className="mt-4 w-full text-[17px]" disabled={busy} onClick={() => void doRefund()}>Send {money(pending)} refund</Btn>
+          {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}
+        </Sheet>)}
+      {labelsOpen && <LabelHistory order={order} recs={recs} onClose={() => setLabelsOpen(false)} />}
+      {msg !== null && (
+        <Sheet title={`Message ${who}`} sub="It goes on their order page, and they get a text or email to look. They answer there." onClose={() => setMsg(null)}>
+          <label className="mt-2 block text-[13px] font-semibold" style={muted}>Message
+            <textarea value={msg} maxLength={1500} rows={5} onChange={(e) => setMsg(e.target.value)} placeholder={`For example: your order ${orderNum(order)} has a new tracking number`} className="mt-1 w-full rounded-2xl border px-4 py-3 text-[17px] font-normal" style={{ borderColor: C.line, background: C.paper, color: C.ink }} />
+          </label>
+          <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={busy || !msg.trim()} onClick={() => void sendMsg()}>{busy ? 'Sending…' : 'Send'}</Btn>
           {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}
         </Sheet>)}
       {newDate && (

@@ -31,6 +31,7 @@ import { bringingOut } from '@/lib/orders-flow';
 import { shipTogetherGroups, togetherRefunds } from '@/lib/ship-together';
 import { cardRefundableCents } from '@/lib/retail-money';
 import { addressLines } from './AddressCard';
+import { useLabelFlagOrders } from './use-label-flags';
 
 const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
 
@@ -72,17 +73,9 @@ export function OrdersApp() {
     const u2 = onSnapshot(query(collection(fs, `tenants/${tenantId}/fulfillmentBatches`), where('active', '==', true)), (s) => setBatches(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setBatches([]));
     return () => { u1(); u2(); };
   }, [fs, tenantId]);
-  // Labels nobody has scanned for days (lib/label-sweep), shipped ones included: they belong under Needs you.
-  const [unscanned, setUnscanned] = React.useState<any[]>([]);
-  React.useEffect(() => {
-    if (!fs || !tenantId) return;
-    // Two small lists merged: labels not scanned for days, and voided labels the carrier scanned anyway.
-    let a: any[] = []; let b: any[] = [];
-    const merge = () => setUnscanned([...a, ...b.filter((x) => !a.some((y) => y.id === x.id))]);
-    const u1 = onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('labelUnscannedOpen', '==', true), limit(50)), (s) => { a = s.docs.map((d) => ({ ...(d.data() as any), id: d.id })); merge(); }, () => { a = []; merge(); });
-    const u2 = onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('voidedLabelMoving.open', '==', true), limit(20)), (s) => { b = s.docs.map((d) => ({ ...(d.data() as any), id: d.id })); merge(); }, () => { b = []; merge(); });
-    return () => { u1(); u2(); };
-  }, [fs, tenantId]);
+  // Orders a label has put under Needs you, shipped and closed ones included (labels nobody has scanned, voids that
+  // didn't finish, boxes waiting for a new label, refunds turned down, carrier adjustments).
+  const unscanned = useLabelFlagOrders(fs, tenantId);
   React.useEffect(() => {
     if (!fs || !tenantId || tab !== 'done') return;
     return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('stage', 'in', DONE_STAGES), limit(80)), (s) => {
@@ -141,7 +134,8 @@ export function OrdersApp() {
   const keepSeparate = async (g: any[]) => { try { await fetch('/api/retail/ship-together', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'decline', orderIds: g.map((o) => o.id) }) }); } catch { /* the card stays */ } };
   const outside = tab === 'ready' && !q ? orders.filter((o) => o.stage === 'arrived') : [];
 
-  React.useEffect(() => { const id = new URLSearchParams(window.location.search).get('order'); if (id) setOpenId(id); }, []);
+  // ?order=<id> opens that order; ?ship=today opens Ship today (the Labels screen's "Buy labels").
+  React.useEffect(() => { const q = new URLSearchParams(window.location.search); const id = q.get('order'); if (id) setOpenId(id); if (q.get('ship') === 'today') setShipToday(true); }, []);
   const open = openId ? byId.get(openId) || null : null;
   const packing = packId ? byId.get(packId) || null : null;
   React.useEffect(() => { if (packId && packing && !['paid', 'picking', 'packed'].includes(packing.stage)) setPackId(null); }, [packId, packing]);

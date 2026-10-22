@@ -4,6 +4,8 @@
 //   "Needs you": the few things a person has to decide, each pointing at one order.
 import { fulfilmentPolicy, slaFor } from '@/lib/retail-orders';
 import { dayKey, formatShortDay, formatTime } from '@/lib/tenant-time';
+import { voidedSlots } from '@/lib/label-boxes';
+import { labelDoubt } from '@/lib/label-doubt';
 
 export type OrdersTab = 'pack' | 'ready' | 'done';
 export const ACTIVE_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
@@ -79,7 +81,7 @@ export function packQueue(orders: any[], retailSettings: any, now = Date.now(), 
     .sort((a, b) => a.d - b.d).map((x) => x.o);
 }
 
-export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'late'; text: string }
+export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'late' | 'relabel' | 'refundDenied' | 'charge'; text: string }
 /** The few things a person has to decide, most urgent first. */
 export function needsYou(orders: any[], now = Date.now(), staleHours = 48): NeedItem[] {
   const out: NeedItem[] = [];
@@ -100,6 +102,11 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     }
     if (o.voidedLabelMoving?.open === true) out.push({ key: `${o.id}-vlm`, orderId: o.id, kind: 'voided', text: (Number(o.voidedLabelMoving.voidedBoxes) || 0) + (Number(o.voidedLabelMoving.unconfirmedBoxes) || 0) > 0 ? `A box of ${who}’s went out while other labels were being voided`
       : o.voidedLabelMoving.unsure ? `A label being voided for ${who} was scanned by the carrier` : `A voided label for ${who} was scanned by the carrier` });
+    // Labels (lib/label-boxes, lib/label-records): a box whose label was voided needs a new one; a refund Shippo turned
+    // down (the box may have gone out); a carrier's later adjustment to the postage, for the record.
+    if (o.relabelOpen === true && o.voidedLabelMoving?.open !== true && ['paid', 'picking', 'packed', 'shipped'].includes(o.stage) && voidedSlots(o).length && labelDoubt(o) === 'relabel') out.push({ key: `${o.id}-rlb`, orderId: o.id, kind: 'relabel', text: `A box of ${who}’s needs a new label` });
+    if (o.labelRefundDenied?.open === true) out.push({ key: `${o.id}-rfd`, orderId: o.id, kind: 'refundDenied', text: `A label refund for ${who} was turned down` });
+    if (o.labelCharge?.open === true) { const c = Number(o.labelCharge.cents) || 0; out.push({ key: `${o.id}-chg`, orderId: o.id, kind: 'charge', text: `${o.carrier || 'The carrier'} adjusted ${who}’s postage: ${c > 0 ? '+' : '−'}${money(Math.abs(c))}` }); }
     if (o.stage === 'paid' && o.holdUntilRestock === true) out.push({ key: `${o.id}-bo`, orderId: o.id, kind: 'backorder', text: `${who}’s order is waiting on stock` });
     // Late (lib/late-notices): an order that missed its date and needs someone to decide what to tell the customer, or
     // one past the date its customer was promised with nothing shipped (they can cancel for a full refund now).
@@ -109,7 +116,7 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     }
     if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });
   }
-  const rank: Record<string, number> = { outside: 0, held: 1, late: 2, address: 3, voided: 4, refund: 5, missing: 6, uncollected: 7, unconfirmed: 8, label: 9, backorder: 10 };
+  const rank: Record<string, number> = { outside: 0, held: 1, late: 2, address: 3, voided: 4, relabel: 4, refundDenied: 5, refund: 5, missing: 6, uncollected: 7, unconfirmed: 8, label: 9, backorder: 10, charge: 11 };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
 

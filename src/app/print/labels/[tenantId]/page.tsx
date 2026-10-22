@@ -4,6 +4,11 @@ import { SMART_SLIP_CSS, SmartSlip } from '@/components/print/SmartSlip';
 import { printOrigin } from '@/components/print/slip';
 import { slipFor } from '@/lib/order-slip-server';
 import { isPngLabel, isZplLabel, labelFormatOf, slipAfterLabel } from '@/lib/label-format';
+import { liveSlots } from '@/lib/label-boxes';
+
+// The labels that still work, one per box: a box whose label was voided (lib/label-boxes) prints nothing until it has
+// its new one.
+const liveUrls = (o: any): string[] => liveSlots(o).map((s) => s.labelUrl).filter(Boolean);
 
 /**
  * /print/labels/[tenantId]?ids=orderId,orderId,… — the label STACK.
@@ -72,7 +77,7 @@ export default async function PrintLabelsPage({
   const pdfs = entries.filter((o: any) => !isPngLabel(o.labelUrl) && !isZplLabel(o.labelUrl));
   // Orders shipped together share one label: it prints once, and each order's slip follows it.
   const printedLabels = new Set<string>();
-  const pngCount = new Set(pngs.flatMap((o: any) => [o.labelUrl, ...((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isPngLabel(u))])).size;   // one per box
+  const pngCount = new Set(pngs.flatMap((o: any) => liveUrls(o).filter((u) => isPngLabel(u)))).size;   // one per box
   const origin = withSlip ? await printOrigin() : '';
   const slips = new Map<string, Awaited<ReturnType<typeof slipFor>>>();
   if (withSlip) for (const o of pngs) { try { slips.set(o.id, await slipFor(db, tenantId, o.id, o, tenantData, origin, paper ? 'half' : '4x6')); } catch { /* the label still prints */ } }
@@ -109,7 +114,7 @@ export default async function PrintLabelsPage({
           {zplHref ? <a href={zplHref} style={{ color: '#fff', fontWeight: 800 }}>Download printer file</a> : null}
           <button type="button" data-print>Print stack</button>
         </div>
-        {pngs.map((o: any) => { const all = [o.labelUrl, ...((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).filter((u) => isPngLabel(u))].filter((u) => !printedLabels.has(u)); all.forEach((u) => printedLabels.add(u)); return (
+        {pngs.map((o: any) => { const all = liveUrls(o).filter((u) => isPngLabel(u) && !printedLabels.has(u)); all.forEach((u) => printedLabels.add(u)); return (
           <React.Fragment key={o.id}>
           {all.map((u: string, i: number) => (
           <div className="label" key={u}>
@@ -128,8 +133,8 @@ export default async function PrintLabelsPage({
             <h1>PDF labels — open and print separately</h1>
             {pdfs.map((o: any) => (
               <p key={o.id}>
-                #{String(o.orderNumber ?? '').padStart(4, '0')} — <a href={o.labelUrl}>{o.labelUrl}</a>
-                {((Array.isArray(o.extraLabelUrls) ? o.extraLabelUrls : []) as string[]).map((u, i) => <React.Fragment key={u}><br />Box {i + 2}: <a href={u}>{u}</a></React.Fragment>)}
+                #{String(o.orderNumber ?? '').padStart(4, '0')}
+                {liveSlots(o).filter((b) => b.labelUrl).map((b) => <React.Fragment key={b.labelUrl}><br />{liveSlots(o).length > 1 ? `Box ${b.slot + 1}: ` : ''}<a href={b.labelUrl}>{b.labelUrl}</a></React.Fragment>)}
               </p>
             ))}
           </div>

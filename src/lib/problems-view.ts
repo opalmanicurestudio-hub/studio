@@ -5,14 +5,14 @@
 import { firstName, money, needsYou, orderNum } from './orders-view';
 import { dayLabel, promisedDay } from './ship-promise';
 
-export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'held' | 'backorder' | 'uncollected' | 'late' | 'address' | 'unconfirmed' | 'label' | 'voided';
+export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'held' | 'backorder' | 'uncollected' | 'late' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'relabel' | 'refundDenied' | 'charge';
 export interface Problem { key: string; kind: ProblemKind; orderId: string; title: string; detail: string; at: number; urgent: boolean; ref: any }
 export interface ProblemGroup { orderId: string; num: string; customerName: string; items: Problem[]; at: number; urgent: boolean; order: any | null }
 
 const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
 const ago = (t: number, now: number) => { if (!t) return ''; const m = Math.max(0, Math.round((now - t) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const CLAIM_WORDS: Record<string, string> = { missing: 'is missing', damaged: 'arrived damaged', wrong_item: 'is the wrong item', not_received: 'never arrived', defective: 'doesn’t work' };
-const RANK: Record<ProblemKind, number> = { outside: 0, message: 1, late: 2, claim: 3, refund: 4, held: 5, address: 6, voided: 7, return: 8, uncollected: 9, unconfirmed: 10, label: 11, backorder: 12 };
+const RANK: Record<ProblemKind, number> = { outside: 0, message: 1, late: 2, claim: 3, refund: 4, held: 5, address: 6, voided: 7, relabel: 7, refundDenied: 8, return: 8, uncollected: 9, unconfirmed: 10, label: 11, backorder: 12, charge: 13 };
 const OPEN_CLAIM = new Set(['in_review', 'needs_info', 'info_requested', 'open']);
 
 export function lastCustomerAt(t: any): number {
@@ -37,7 +37,8 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
   for (const n of needsYou(src.orders, now, src.staleHours ?? 48)) {
     if (n.kind === 'refund' || n.kind === 'missing') continue;
     const o = byOrder.get(n.orderId) || {};
-    const at = n.kind === 'outside' ? ms(o.curbside?.arrivedAt) : n.kind === 'uncollected' ? ms(o.readyAt) : n.kind === 'held' ? ms(o.heldAt || o.paidAt) : n.kind === 'late' ? ms(o.shipPromiseAt) || ms(o.paidAt) : ms(o.paidAt);
+    const at = n.kind === 'outside' ? ms(o.curbside?.arrivedAt) : n.kind === 'uncollected' ? ms(o.readyAt) : n.kind === 'held' ? ms(o.heldAt || o.paidAt) : n.kind === 'late' ? ms(o.shipPromiseAt) || ms(o.paidAt)
+      : n.kind === 'refundDenied' ? ms(o.labelRefundDenied?.at) : n.kind === 'charge' ? ms(o.labelCharge?.at) : ms(o.paidAt);
     const tz = String(o.promise?.timeZone || src.timeZone || 'UTC');
     const day = n.kind === 'late' ? (o.lateNeedsStaff?.missed || promisedDay(o, tz)) : null;
     const notices = Number(o.autoDelayNotices) || 0;
@@ -50,7 +51,10 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
       : n.kind === 'address' ? 'Approve it, or answer them, on the order'
       : n.kind === 'unconfirmed' ? 'Asked over a day ago, no answer yet'
       : n.kind === 'label' ? 'Find the box, or void the label to get the postage back'
-      : n.kind === 'voided' ? 'A voided box needs a new label, bought in Shippo'
+      : n.kind === 'voided' ? (Array.isArray(o.labelTxns) && o.labelTxns.length ? 'Check the boxes on the ship sheet' : 'A voided box needs a new label, bought in Shippo')
+      : n.kind === 'relabel' ? 'Buy its new label on the ship sheet, or take the box off the order'
+      : n.kind === 'refundDenied' ? 'The carrier scanned a voided label. Check with them before sending anything else.'
+      : n.kind === 'charge' ? 'Recorded in Money as shipping'
       : 'Packs once the stock is in';
     push({ key: n.key, kind: n.kind as ProblemKind, orderId: n.orderId, title: n.text, detail, at, urgent: n.kind === 'outside', ref: o });
   }

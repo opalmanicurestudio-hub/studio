@@ -109,9 +109,9 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
           get: async () => { const docs = Object.keys(rows).map((id) => ({ id, ref: refOf(id), data: () => rows[id] })); return { docs, size: docs.length }; },
         }) }) }),
       }),
-      doc: (path: string) => ({ id: String(path).split('/').pop(), get: async () => ({ id: String(path).split('/').pop(), exists: path in paths, data: () => paths[path] }),
+      doc: (path: string) => ({ __path: path, id: String(path).split('/').pop(), get: async () => ({ id: String(path).split('/').pop(), exists: path in paths, data: () => paths[path] }),
         create: async (v: any) => { if (path in paths) throw new Error('already exists'); paths[path] = v; } }),
-      runTransaction: async (fn: any) => fn({ get: (r: any) => r.get(), set: (r: any, v: any) => { if (r?.__event) events.push(v); else rows[r.id] = { ...(rows[r.id] || {}), ...v }; } }),
+      runTransaction: async (fn: any) => fn({ get: (r: any) => r.get(), set: (r: any, v: any) => { if (r?.__event) events.push(v); else if (r?.__path) paths[r.__path] = { ...(paths[r.__path] || {}), ...v }; else rows[r.id] = { ...(rows[r.id] || {}), ...v }; } }),
     };
     return { rows, db, refOf, events, paths };
   };
@@ -157,7 +157,10 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     { 'tenants/shop/transactions/postage-m': { amount: 12.4, description: 'Postage: order #0012' } });
   tracks({ '14': pre, '15': pre }, { m2: 'no' });
   r = await voidIfUnused(t.db, 'shop', t.ref, t.row(), 'k', 'voided by hand', undefined, { byHand: true });
-  ok(t.paths['tenants/shop/transactions/postage-void-m']?.amount === 6.2, 'the box that was voided: its share of the postage goes into the books as money coming back');
+  ok(t.paths['tenants/shop/shippingLabels/m']?.refunds?.m?.cents === 620 && t.paths['tenants/shop/shippingLabels/m']?.refunds?.m?.status === 'requested'
+    && t.paths['tenants/shop/shippingLabels/m']?.refunds?.m2?.status === 'refused' && /not eligible/.test(t.paths['tenants/shop/shippingLabels/m']?.refunds?.m2?.why)
+    && t.paths['tenants/shop/shippingLabels/m']?.refundCents === 620 && !t.paths['tenants/shop/transactions/postage-void-m'],
+    'the box that was voided: its refund is asked for and written down at its share of the postage (the books wait for Shippo to confirm it); the box Shippo wouldn’t void is written down as postage not coming back');
   ok(r.ok && /1 of 2 labels voided/.test(String(r.note)) && /not eligible/.test(String(r.note)) && t.row().shippoTransactionId === '' && (t.row().labelVoidIds || []).length === 0 && t.row().labelVoiding === null && !labelInDoubt(t.row()),
     'one box voided and Shippo said no to the other: the label can’t ship as it is, so it comes off the order (a new one can be bought) and the box Shippo wouldn’t refund is named');
   t = solo({ shippoTransactionId: 'm', trackingNumber: '14', extraTrackingNumbers: ['15'], extraLabelUrls: ['u2'], carrier: 'USPS', stage: 'packed', labelUrl: 'u' });

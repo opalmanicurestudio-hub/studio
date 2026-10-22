@@ -71,6 +71,10 @@
     {
       "path": "/api/cron/late-notices",
       "schedule": "25 * * * *"
+    },
+    {
+      "path": "/api/cron/label-money",
+      "schedule": "45 11 * * *"
     }
   ]
 }
