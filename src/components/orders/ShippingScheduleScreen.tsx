@@ -124,6 +124,14 @@ type BusyDraft = {
 
 /** A line customers read during a busy period: on or off, and its words. */
 function LineEdit({ label, note, line, onChange, preview, last }: { label: string; note: string; line: BusyLine; onChange: (l: BusyLine) => void; preview: string; last?: boolean }) {
+  // The box grows to fit the whole line, however it's worded.
+  const box = React.useRef<HTMLTextAreaElement>(null);
+  React.useEffect(() => {
+    const fit = () => { const t = box.current; if (t) { t.style.height = 'auto'; t.style.height = `${t.scrollHeight}px`; } };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, [line.text, line.on]);
   return (
     <div className="py-3 pl-4 pr-4" style={last ? undefined : { borderBottom: `1px solid ${C.line}` }}>
       <div className="flex items-center gap-3">
@@ -131,7 +139,7 @@ function LineEdit({ label, note, line, onChange, preview, last }: { label: strin
         <Toggle label={label} on={line.on} onChange={(v) => onChange({ ...line, on: v })} />
       </div>
       {line.on && (<>
-        <textarea aria-label={`${label} wording`} value={line.text} maxLength={240} rows={2} onChange={(e) => onChange({ ...line, text: e.target.value })}
+        <textarea ref={box} aria-label={`${label} wording`} value={line.text} maxLength={240} rows={2} onChange={(e) => onChange({ ...line, text: e.target.value })}
           className="mt-2.5 block w-full resize-none rounded-xl border-0 px-3 py-2.5 text-[15px] leading-snug outline-none ring-0 focus:ring-0" style={{ background: C.paper, color: C.ink }} />
         <p className="m-0 mt-1.5 text-[13px] leading-snug" style={muted}>{preview ? `Reads: ${preview}` : 'Nothing to show yet: fill in the blanks it uses.'}</p>
       </>)}
