@@ -1694,7 +1694,7 @@ export default function RetailSettingsPage() {
                                     toast({ title: 'Nothing to cancel', description: 'No open pre-orders on this product.' });
                                     return;
                                   }
-                                  const ok = window.confirm(`Cancel this run? ${peek.orders} customer order(s), $${(peek.refundCents / 100).toFixed(2)} to refund. Each person is emailed and their refund is queued for you to send in Stripe.`);
+                                  const ok = window.confirm(`Cancel this run? ${peek.orders} customer order(s), $${(peek.refundCents / 100).toFixed(2)} to refund. Each person is emailed. Refunds within your automatic amount go back on their own; the rest wait on Problems for someone allowed to send them.`);
                                   if (!ok) return;
                                   const why = window.prompt('Tell them why (goes in the email word for word):') || '';
                                   const res = await fetch('/api/retail/preorder-run-cancel', {
@@ -1704,7 +1704,7 @@ export default function RetailSettingsPage() {
                                   });
                                   const data = await res.json();
                                   if (!res.ok) toast({ variant: 'destructive', title: 'Not cancelled', description: data.error || 'Try again.' });
-                                  else toast({ title: 'Run cancelled', description: `${data.orders} order(s), $${(data.refundCents / 100).toFixed(2)} queued for refund, ${data.emailed} emailed.` });
+                                  else toast({ title: 'Run cancelled', description: `${data.orders} order(s), $${(data.refundCents / 100).toFixed(2)} to refund${data.sentCents ? `, $${(data.sentCents / 100).toFixed(2)} of it sent back already` : ''}, ${data.emailed} emailed.` });
                                 } catch {
                                   toast({ variant: 'destructive', title: 'Not cancelled', description: 'Check your connection and try again.' });
                                 } finally {

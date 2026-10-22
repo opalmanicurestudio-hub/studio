@@ -789,10 +789,15 @@ async function handleCheckout(req: NextRequest) {
 
           const assignedNumber = ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
           txn.set(counterRef, { value: assignedNumber }, { merge: true });
+          // As a card payment does (lib/retail-webhook): shelf items are held, adding up two lines of one item, and a
+          // pre-order takes a place in its run rather than shelf stock that doesn't exist yet.
+          const addHeld = new Map<string, number>(); const addRun = new Map<string, number>();
           itemSnaps.forEach((snap: any, i: number) => {
             if (!snap.exists) return;
             if (lines[i].digital === true) return;
-            txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + lines[i].qtyOrdered });
+            const pid = String(lines[i].productId); const q = Number(lines[i].qtyOrdered) || 0;
+            if (lines[i].preorder === true) { txn.update(itemRefs[i], { preorderSold: Math.max(0, Math.floor(Number(snap.data().preorderSold) || 0)) + (addRun.get(pid) || 0) + q }); addRun.set(pid, (addRun.get(pid) || 0) + q); return; }
+            txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + (addHeld.get(pid) || 0) + q }); addHeld.set(pid, (addHeld.get(pid) || 0) + q);
           });
 
           let remaining = chargeable;
@@ -895,8 +900,13 @@ async function handleCheckout(req: NextRequest) {
             const itemSnaps = await Promise.all(itemRefs.map((r: any) => txn.get(r)));
             const assignedNumber = ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
             txn.set(counterRef, { value: assignedNumber }, { merge: true });
+            // As a card payment does (lib/retail-webhook): shelf items are held, adding up two lines of one item, and a
+            // pre-order takes a place in its run rather than shelf stock that doesn't exist yet.
+            const addHeld = new Map<string, number>(); const addRun = new Map<string, number>();
             itemSnaps.forEach((snap: any, i: number) => { if (!snap.exists || lines[i].digital === true) return;
-              txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + lines[i].qtyOrdered }); });
+              const pid = String(lines[i].productId); const q = Number(lines[i].qtyOrdered) || 0;
+              if (lines[i].preorder === true) { txn.update(itemRefs[i], { preorderSold: Math.max(0, Math.floor(Number(snap.data().preorderSold) || 0)) + (addRun.get(pid) || 0) + q }); addRun.set(pid, (addRun.get(pid) || 0) + q); return; }
+              txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + (addHeld.get(pid) || 0) + q }); addHeld.set(pid, (addHeld.get(pid) || 0) + q); });
             const now = new Date().toISOString();
             txn.update(orderRef, { stage: digitalOnly ? 'completed' : 'paid', paidAt: now, ...(digitalOnly ? { completedAt: now } : {}), isDraft: false,
               orderNumber: assignedNumber, qrToken: makeQrToken(orderId), paidVia: 'gift_card', storeCreditRequestedCents: 0,
