@@ -31,8 +31,41 @@ export type PickupRule = {
 /** Days the shop isn't shipping: a vacation, inventory day, a trade show. Both ends included. */
 export type Closure = { from: string; to: string; label?: string };
 
-/** A stretch of extra time while orders run heavy (the engine honours it; it is set up in a later screen). */
-export type BusyPeriod = { from: string; to: string; extraDays: number; cutoff?: string; name?: string };
+/** One thing customers read while a busy period is on, in the shop's own words (see busyText for what fills in). */
+export type BusyLine = { on: boolean; text: string };
+
+/**
+ * A stretch of extra time while orders run heavy: extra processing days for orders that start in it, an earlier
+ * cutoff, what the team can ship a day with the extra hands scheduled, and what customers read (the shop banner, a
+ * line on the product page and at checkout, a line in the order email and on the order page). Set up under Shipping
+ * schedule, Busy periods; one of the capacity suggestions can add a short one (`auto`).
+ */
+export type BusyPeriod = {
+  from: string; to: string; extraDays: number; cutoff?: string; name?: string;
+  /** Its own name for changes made to it, so one change never overwrites another (api/retail/ship-schedule). */
+  id?: string;
+  /** Orders a day the team can ship during it; the usual capacity when unset. */
+  capacity?: number;
+  banner?: BusyLine; product?: BusyLine; email?: BusyLine;
+  /** The last day to order in time for an occasion ('Christmas'), for {last order day} and {occasion}. */
+  lastOrder?: { day: string; occasion: string };
+  /** Added for capacity (a suggestion someone picked, or by itself where the shop allows it) rather than set up by
+   *  hand: one more day for new orders, or an earlier cutoff. */
+  auto?: 'more_time' | 'early_cutoff';
+};
+
+/** How many orders a day the team can ship, and what happens when more are due than that (lib/capacity). */
+export type CapacityRules = {
+  /** 'team': worked out from the team's own busier days; 'fixed': `perDay`. */
+  mode: 'team' | 'fixed';
+  perDay: number;
+  /** Over-capacity days go under Needs you, with the changes that would fix them. */
+  tell: boolean;
+  /** New orders get one more day by themselves while a coming day is over. Off unless the shop turns it on. */
+  autoMoreTime: boolean;
+  /** The day someone ended or removed one of those by hand: none is added again that day. */
+  pausedOn?: string;
+};
 
 export type ShipSchedule = {
   /** Ship days after processing starts. 0 = the same day for orders before the cutoff. */
@@ -52,6 +85,7 @@ export type ShipSchedule = {
   /** "Order in the next 2 h 13 min" on product pages. Off until a shop turns it on. */
   countdown: boolean;
   busy: BusyPeriod[];
+  capacity: CapacityRules;
   /** Ship-by and arrival dates shown to customers. Off until the shop turns it on, so nobody is promised a default. */
   showDates: boolean;
   /** When the schedule was last changed. */
@@ -69,11 +103,14 @@ export const DEFAULT_SCHEDULE: ShipSchedule = {
   standardTransit: { min: 2, max: 5 },
   countdown: false,
   busy: [],
+  capacity: { mode: 'team', perDay: 0, tell: true, autoMoreTime: false },
   showDates: false,
   savedAt: null,
 };
 
 export const MAX_PROCESSING_DAYS = 30;
+/** Busy periods kept on a schedule at once. */
+export const MAX_BUSY = 20;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -126,18 +163,30 @@ export function normalizeSchedule(raw: any, legacy?: { shipProcessingHours?: any
       return { from: from <= to ? from : to, to: from <= to ? to : from, ...(c.label ? { label: String(c.label).slice(0, 60) } : {}) };
     })
     .slice(0, 60);
+  const line = (l: any): BusyLine | undefined => (l && typeof l === 'object' && String(l.text || '').trim()
+    ? { on: l.on === true, text: String(l.text).trim().slice(0, 240) } : undefined);
   const busy: BusyPeriod[] = (Array.isArray(r.busy) ? r.busy : [])
     .filter((b: any) => b && isDay(b.from) && isDay(b.to || b.from))
     .map((b: any) => {
       const from = String(b.from), to = String(b.to || b.from);
+      const cap = int(b.capacity, 0, 5000, 0);
+      const banner = line(b.banner), product = line(b.product), email = line(b.email);
       return {
         from: from <= to ? from : to, to: from <= to ? to : from,
         extraDays: int(b.extraDays, 0, MAX_PROCESSING_DAYS, 0),
         ...(TIME_RE.test(String(b.cutoff || '')) ? { cutoff: String(b.cutoff) } : {}),
         ...(b.name ? { name: String(b.name).slice(0, 60) } : {}),
+        ...(cap > 0 ? { capacity: cap } : {}),
+        ...(banner ? { banner } : {}), ...(product ? { product } : {}), ...(email ? { email } : {}),
+        ...(b.lastOrder && isDay(b.lastOrder.day) && String(b.lastOrder.occasion || '').trim() ? { lastOrder: { day: String(b.lastOrder.day), occasion: String(b.lastOrder.occasion).trim().slice(0, 40) } } : {}),
+        ...(b.auto === 'more_time' || b.auto === 'early_cutoff' ? { auto: b.auto } : {}),
+        // One saved before periods had their own names gets one from its days, so a change can still find it.
+        id: /^[A-Za-z0-9_-]{1,40}$/.test(String(b.id || '')) ? String(b.id) : `x${(from <= to ? from : to).replace(/-/g, '')}${(from <= to ? to : from).replace(/-/g, '')}`,
       };
     })
-    .slice(0, 20);
+    // The newest twenty: one just added always stays (old ones are cleared out as the list is saved).
+    .slice(-MAX_BUSY);
+  const cap = r.capacity && typeof r.capacity === 'object' ? r.capacity : {};
   const tMin = int(r.standardTransit?.min, 1, 60, DEFAULT_SCHEDULE.standardTransit.min);
   const tMax = int(r.standardTransit?.max, tMin, 90, Math.max(tMin, DEFAULT_SCHEDULE.standardTransit.max));
   return {
@@ -153,6 +202,7 @@ export function normalizeSchedule(raw: any, legacy?: { shipProcessingHours?: any
     standardTransit: { min: tMin, max: tMax },
     countdown: r.countdown === true,
     busy,
+    capacity: { mode: cap.mode === 'fixed' ? 'fixed' : 'team', perDay: int(cap.perDay, 0, 5000, 0), tell: cap.tell !== false, autoMoreTime: cap.autoMoreTime === true, ...(isDay(cap.pausedOn) ? { pausedOn: String(cap.pausedOn) } : {}) },
     showDates: r.showDates === true,
     savedAt: typeof r.savedAt === 'string' && r.savedAt ? r.savedAt : null,
   };
@@ -258,18 +308,112 @@ const minutesOf = (hhmm: string) => {
   return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
 };
 
-/** The busy period that day falls in, if any. */
+/** The busy period that day falls in, if any (one set up by hand before one a capacity suggestion added). */
 export function busyOn(day: string, schedule: ShipSchedule): BusyPeriod | null {
-  return schedule.busy.find((b) => b.from <= day && day <= b.to) || null;
+  const on = schedule.busy.filter((b) => b.from <= day && day <= b.to);
+  return on.find((b) => !b.auto) || on[0] || null;
+}
+
+/** The extra processing days and the cutoff that apply on a day: the largest of the busy periods set up by hand that
+ *  day (two that overlap don't add up), plus any extra day a capacity suggestion gave new orders; and the earliest
+ *  cutoff among them. */
+function busyRules(day: string, schedule: ShipSchedule): { extraDays: number; cutoff: string | null } {
+  const on = schedule.busy.filter((b) => b.from <= day && day <= b.to);
+  const cutoffs = on.map((b) => b.cutoff).filter((c): c is string => !!c).sort();
+  const byHand = Math.max(0, ...on.filter((b) => !b.auto).map((b) => b.extraDays || 0));
+  const auto = on.filter((b) => b.auto).reduce((n, b) => n + (b.extraDays || 0), 0);
+  return { extraDays: byHand + auto, cutoff: cutoffs[0] || null };
+}
+
+/** The business days an order placed on a day takes during a busy period, or the usual. */
+export function busyDays(day: string, schedule: ShipSchedule): number {
+  return schedule.processingDays + busyRules(day, schedule).extraDays;
+}
+
+/** The busy periods as they're saved with room for one more: ones that ended over a month ago are cleared out, and
+ *  while the list is full the one that ended longest ago makes way. Null when every one is on or still to come, so
+ *  one the shop set up is never pushed out. */
+export function busyWithRoom(list: BusyPeriod[], today: string): BusyPeriod[] | null {
+  let keep = list.filter((b) => b.to >= plusDays(today, -31));
+  while (keep.length >= MAX_BUSY) {
+    const over = keep.filter((b) => b.to < today).sort((a, b) => (a.to < b.to ? -1 : a.to > b.to ? 1 : 0))[0];
+    if (!over) return null;
+    keep = keep.filter((b) => b !== over);
+  }
+  return keep;
+}
+
+export const BUSY_DEFAULTS = {
+  banner: 'Orders placed now ship within {days} business days.',
+  bannerLast: 'Order by {last order day} for {occasion}.',
+  product: 'Orders take a little longer to pack right now.',
+  email: 'Orders take a little longer to pack right now. Yours ships by {ship date}.',
+};
+
+/**
+ * One of a busy period's lines with its blanks filled: {days} (business days to ship during it), {ship date},
+ * {arrival dates}, {last order day}, {occasion} and {name}. A sentence with a blank that has nothing to fill it is
+ * left out, so a line never reads "Order by  for ." Empty when the line is off or nothing is left.
+ */
+export function busyText(line: BusyLine | undefined, vars: { days?: number | null; shipDate?: string | null; arrival?: string | null; lastOrderDay?: string | null; occasion?: string | null; name?: string | null }): string {
+  if (!line?.on) return '';
+  const val: Record<string, string> = {
+    days: vars.days != null ? String(vars.days) : '', 'ship date': vars.shipDate || '', 'arrival dates': vars.arrival || '',
+    'last order day': vars.lastOrderDay || '', occasion: vars.occasion || '', name: vars.name || '',
+  };
+  // Any {blank}, however it's typed ({Ship Date}, {ship_date}); one this doesn't know is never shown as it is.
+  const key = (k: string) => k.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // Sentences split without a lookbehind (or matchAll), which older iPhones can't read.
+  return (line.text.match(/[^.!?]+(?:[.!?]+|$)/g) || []).map((x) => x.trim()).filter(Boolean)
+    .filter((sentence) => (sentence.match(/\{[^{}]*\}/g) || []).every((m) => !!val[key(m.slice(1, -1))]))
+    .map((sentence) => sentence.replace(/\{([^{}]*)\}/g, (_, k) => val[key(String(k))] ?? '')
+      .replace(/\bwithin 0 business days?\b/gi, 'the same day').replace(/\b0 business days?\b/gi, 'the same day').replace(/\b1 business days\b/gi, '1 business day'))
+    .join(' ').trim();
+}
+
+/** A busy period's product-page and checkout line (`product`) or its order email and order page line (`email`) for an
+ *  order or a promise worked out in it, filled in; '' when it wasn't in one or that line is off. */
+export function busyLineFor(
+  p: { startsOn?: string | null; shipBy?: string | null; arriveFrom?: string | null; arriveTo?: string | null; busy?: string | null; processingDays?: number; extraDays?: number; leadDays?: number; computedAt?: string } | null | undefined,
+  schedule: ShipSchedule, which: 'product' | 'email', timeZone: string,
+  /** The dates as they stand now (a notice can move them) and the day it's shown on; the promise's own otherwise. */
+  now?: { shipBy?: string | null; arriveFrom?: string | null; arriveTo?: string | null; today?: string | null },
+): string {
+  if (!p?.busy || !isDay(p.startsOn) || !isDay(p.shipBy)) return '';
+  const b = busyOn(String(p.startsOn), schedule);
+  if (!b) return '';
+  const shipBy = isDay(now?.shipBy) ? String(now!.shipBy) : String(p.shipBy);
+  const from = now && 'arriveFrom' in now ? now.arriveFrom : p.arriveFrom;
+  const to = now && 'arriveTo' in now ? now.arriveTo : p.arriveTo;
+  const today = isDay(now?.today) ? String(now!.today) : p.computedAt ? dayKey(new Date(p.computedAt), timeZone) : null;
+  // The order's own business days (a made-to-order item's longer time included), as it was worked out.
+  const own = Number.isFinite(Number(p.processingDays)) ? Math.max(Number(p.processingDays), Number(p.leadDays) || 0) + (Number(p.extraDays) || 0) : busyDays(String(p.startsOn), schedule);
+  return busyText(b[which], {
+    days: own, shipDate: dayLabel(shipBy, timeZone), arrival: from && to ? shortRange(from, to) : null,
+    lastOrderDay: b.lastOrder && (!today || b.lastOrder.day >= today) ? dayLabel(b.lastOrder.day, timeZone) : null, occasion: b.lastOrder?.occasion || null, name: b.name || null,
+  });
+}
+
+/** The banner a busy period puts on the shop's pages now, filled in; '' when none applies. It goes by the day an order
+ *  placed now starts, so the evening before a period it already shows, and after the cutoff on its last day it's gone. */
+export function busyBanner(schedule: ShipSchedule, now: Date, timeZone: string): string {
+  const starts = cutoffInfo(now, timeZone, schedule).startsOn;
+  const b = busyOn(starts, schedule);
+  if (!b) return '';
+  const today = dayKey(now, timeZone);
+  return busyText(b.banner, { days: busyDays(starts, schedule), lastOrderDay: b.lastOrder && b.lastOrder.day >= today ? dayLabel(b.lastOrder.day, timeZone) : null, occasion: b.lastOrder?.occasion || null, name: b.name || null });
 }
 
 export function closureOn(day: string, schedule: ShipSchedule): Closure | null {
   return schedule.closures.find((c) => c.from <= day && day <= c.to) || null;
 }
 
-/** The cutoff that applies on a day: a busy period's, then that weekday's own, then the usual one. */
+/** The cutoff that applies on a day: that weekday's own or the usual one, or a busy period's when it's earlier (the
+ *  earliest, when two overlap); a busy period never makes a cutoff later. */
 export function cutoffFor(day: string, schedule: ShipSchedule): string {
-  return busyOn(day, schedule)?.cutoff || schedule.cutoffByDay[String(weekdayOf(day))] || schedule.cutoff;
+  const usual = schedule.cutoffByDay[String(weekdayOf(day))] || schedule.cutoff;
+  const busy = busyRules(day, schedule).cutoff;
+  return busy && minutesOf(busy) < minutesOf(usual) ? busy : usual;
 }
 
 /** The pickups that count for a carrier: its own, or every one when the carrier isn't chosen yet. */
@@ -495,7 +639,7 @@ export function promiseFor(input: PromiseInput): ShipPromise {
   const lines = (input.lines || []).filter((l) => l && l.digital !== true);
   const lead = Math.max(0, ...lines.map((l) => leadOf(l.leadDays)?.max || 0));
   const busy = busyOn(startsOn, schedule);
-  const extraDays = busy?.extraDays || 0;
+  const extraDays = busyRules(startsOn, schedule).extraDays;
   const base = Math.max(schedule.processingDays, lead);
   if (lead > schedule.processingDays) why.push('made_to_order');
   if (extraDays > 0) why.push('busy');
@@ -659,10 +803,12 @@ export function clockLabel(hhmm: string): string {
   return `${((h + 11) % 12) + 1}:${pad(mm)} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
-/** The shop's rule in one sentence: 'Orders ship within 1 business day.' */
-export function processingSentence(schedule: ShipSchedule): string {
-  if (schedule.processingDays === 0) return `Orders placed by ${clockLabel(schedule.cutoff)} on a business day ship the same day.`;
-  return `Orders ship within ${schedule.processingDays} business day${schedule.processingDays === 1 ? '' : 's'}.`;
+/** The shop's rule in one sentence: 'Orders ship within 1 business day.' Given the time, it's the rule for an order
+ *  placed now, a busy period's extra days included. */
+export function processingSentence(schedule: ShipSchedule, now?: Date, timeZone?: string): string {
+  const days = now && timeZone ? busyDays(cutoffInfo(now, timeZone, schedule).startsOn, schedule) : schedule.processingDays;
+  if (days === 0) return `Orders placed by ${clockLabel(schedule.cutoff)} on a business day ship the same day.`;
+  return `Orders ship within ${days} business day${days === 1 ? '' : 's'}.`;
 }
 
 /** 'Ships in 5–7 business days' for a made-to-order item, '' for one that ships in the usual time. */
@@ -702,7 +848,8 @@ export function countdownFor(item: PromiseLine, now: Date, timeZone: string, sch
   if (!info.beforeCutoff || info.minutesLeft === null || !info.cutoffAt || info.minutesLeft > 12 * 60) return null;
   const nowP = productPromise(item, now, timeZone, schedule);
   const later = productPromise(item, new Date(Date.parse(info.cutoffAt) + 60_000), timeZone, schedule);
-  if (later.shipBy === nowP.shipBy) return null;
+  // Only when waiting would ship it later (at the end of a busy period an order after the cutoff can ship sooner).
+  if (later.shipBy <= nowP.shipBy) return null;
   return { minutesLeft: info.minutesLeft, cutoffAt: info.cutoffAt, shipBy: nowP.shipBy, laterShipBy: later.shipBy };
 }
 

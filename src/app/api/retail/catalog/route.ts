@@ -6,7 +6,7 @@ import { publicDescription, collectImages } from '@/lib/product-public';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { sanitizeShopConfig } from '@/lib/shop-config';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
-import { leadOf, publicSchedule } from '@/lib/ship-promise';
+import { busyBanner, leadOf, publicSchedule, scheduleFrom } from '@/lib/ship-promise';
 
 // ─── /api/retail/catalog/route.ts ─────────────────────────────────────────────
 // GET ?tenantId=...&wholesaleCode=...
@@ -146,6 +146,8 @@ export async function GET(req: NextRequest) {
       // dates from it (lib/ship-promise), the same way the order stores them.
       timeZone: shopZone,
       shipSchedule: publicSchedule(rs),
+      // A busy period's banner while one is on, in the shop's own words, filled in on its clock.
+      busyBanner: busyBanner(scheduleFrom(rs), new Date(), shopZone),
       // The server's clock, so a device set wrong can't move a cutoff.
       serverNow: new Date().toISOString(),
     },

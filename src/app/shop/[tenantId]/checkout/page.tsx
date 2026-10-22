@@ -27,7 +27,7 @@ import {
 } from '@/lib/shop-cart';
 import { formatPromiseDay, preorderNotice } from '@/lib/preorder-terms';
 import {
-  arrivalLabel, dayLabel, leadSentence, normalizeSchedule, orderPromise, processingSentence, type PromiseLine,
+  arrivalLabel, busyLineFor, dayLabel, leadSentence, normalizeSchedule, orderPromise, processingSentence, type PromiseLine,
 } from '@/lib/ship-promise';
 import { addDays, dayKey } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
@@ -684,6 +684,12 @@ export default function CheckoutPage() {
                     {!freeQualified && <span className="text-muted-foreground"> with standard shipping</span>}
                   </p>) : null;
               })()}
+              {shipSched && (() => {
+                // For the option they've picked (its own dates), else the shop's standard shipping.
+                const p = selectedQuote && !freeQualified ? datesFor(selectedQuote.carrier, selectedQuote.service, selectedQuote.days) : datesFor(null, 'Standard shipping', null);
+                const line = busyLineFor(p, shipSched, 'product', shopZone);
+                return line ? <p className="text-[12px] font-bold text-muted-foreground">{line}</p> : null;
+              })()}
               {freeQualified ? (
                 <p className="text-[10px] font-black uppercase tracking-widest text-primary">
                   Free shipping — this order qualifies
@@ -740,7 +746,7 @@ export default function CheckoutPage() {
               )}
               {shipSched && (
                 <p className="text-[11px] font-bold text-muted-foreground">
-                  {processingSentence(shipSched)}{leadNote ? ` ${leadNote}` : ''}
+                  {processingSentence(shipSched, clock, shopZone)}{leadNote ? ` ${leadNote}` : ''}
                 </p>)}
             </div>
           )}

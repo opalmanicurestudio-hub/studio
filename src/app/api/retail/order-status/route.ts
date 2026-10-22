@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
 import { changeMode, changePolicy } from '@/lib/address-flow';
-import { customerDates } from '@/lib/ship-promise';
-import { tenantTimeZone } from '@/lib/tenant-time';
+import { busyLineFor, customerDates, scheduleFrom } from '@/lib/ship-promise';
+import { dayKey, tenantTimeZone } from '@/lib/tenant-time';
 import { liveSlots } from '@/lib/label-boxes';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
@@ -326,6 +326,13 @@ export async function GET(req: NextRequest) {
       shipPromiseAt: order.shipPromiseAt || null,
       // The ship-by and arrival dates they were shown (lib/ship-promise), as they stand now; null when they never were.
       dates: order.method === 'ship' ? customerDates(order, tenantTimeZone(tenantSnap.exists ? tenantSnap.data() : null)) : null,
+      // A busy period's line for an order placed during it, in the shop's own words; '' otherwise.
+      // Filled from the dates as they stand now (a notice can move them), and the last day to order only until it passes.
+      busyNote: order.method === 'ship' && order.promise?.shown === true ? (() => {
+        const tz = tenantTimeZone(tenantSnap.exists ? tenantSnap.data() : null);
+        const d = customerDates(order, tz);
+        return d ? busyLineFor(order.promise, scheduleFrom(rs), 'email', d.timeZone, { shipBy: d.shipBy, arriveFrom: d.arriveFrom, arriveTo: d.arriveTo, today: dayKey(new Date(), d.timeZone) }) : '';
+      })() : '',
       timeZone: tenantTimeZone(tenantSnap.exists ? tenantSnap.data() : null),
       // A delay notice went out: they can cancel for a full refund until it ships.
       delayNotified: !!order.notifiedForPromiseAt || (Number(order.promiseRevisions) || 0) > 0,

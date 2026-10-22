@@ -69,7 +69,7 @@ interface StatusOrder {
   addressChange?: 'direct' | 'request' | 'carrier' | 'none'; addressChangeUntil?: 'label' | 'packing' | 'never';
   addressVerdict?: string | null; addressUnitMissing?: boolean;
   shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null; extraTracking?: { number: string; url: string | null }[]; shippedWith?: string[]; shipTogetherRefundCents?: number;
-  dates?: CustomerDates | null; timeZone?: string; delayNotified?: boolean; labelStuck?: boolean;
+  dates?: CustomerDates | null; busyNote?: string; timeZone?: string; delayNotified?: boolean; labelStuck?: boolean;
 }
 
 const fmt = (cents: number) =>
@@ -1108,6 +1108,7 @@ export default function OrderStatusPage() {
                       <span className="text-sm font-bold">Arrives</span>
                       <span className="text-right text-sm font-bold">{arrivalLabel(dates, dates.timeZone)}</span>
                     </div>)}
+                  {order.busyNote ? <p className="text-[12px] font-bold">{order.busyNote}</p> : null}
                   <p className="text-[11px] font-bold text-muted-foreground">
                     {dates.service ? `${dates.service} to ${order.shipCity || 'you'}. ` : ''}Once it ships, the date comes from the carrier.
                   </p>

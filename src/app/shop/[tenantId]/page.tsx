@@ -57,6 +57,7 @@ interface ShopInfo {
   logoUrl: string | null;
   tagline?: string;
   announcement?: string;
+  busyBanner?: string;
   wholesaleOffered: boolean;
   wholesaleUnlocked: boolean;
   wholesaleBusiness?: string;
@@ -418,6 +419,13 @@ export default function ShopPage() {
           <div className="bg-foreground text-background">
             <div className="max-w-5xl mx-auto px-4 py-1.5">
               <p className="text-[10px] font-black uppercase tracking-widest text-center">{shop.announcement}</p>
+            </div>
+          </div>
+        )}
+        {shop.busyBanner && (
+          <div className="border-b bg-muted">
+            <div className="max-w-5xl mx-auto px-4 py-2">
+              <p className="text-[12.5px] font-bold text-center leading-snug">{shop.busyBanner}</p>
             </div>
           </div>
         )}

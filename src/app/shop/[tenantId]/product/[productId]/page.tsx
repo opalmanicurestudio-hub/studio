@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { addToCart, readCart, readWholesaleCode } from '@/lib/shop-cart';
 import { cn } from '@/lib/utils';
 import {
-  countdownFor, dayLabel, leadSentence, minutesLabel, normalizeSchedule, processingSentence, productPromise, shortRange,
+  busyLineFor, countdownFor, dayLabel, leadSentence, minutesLabel, normalizeSchedule, processingSentence, productPromise, shortRange,
   type ShipSchedule,
 } from '@/lib/ship-promise';
 
@@ -401,6 +401,7 @@ export default function ProductPage() {
             const p = productPromise(line, now, shipping.timeZone, shipping.schedule);
             const count = shipping.schedule.countdown ? countdownFor(line, now, shipping.timeZone, shipping.schedule) : null;
             const lead = leadSentence((product as any).leadDays || null);
+            const busy = busyLineFor(p, shipping.schedule, 'product', shipping.timeZone);
             return (
               <div className="rounded-2xl border-2 bg-white p-4" aria-live="polite">
                 <p className="text-sm font-black">Ships by {dayLabel(p.shipBy, shipping.timeZone)}</p>
@@ -409,6 +410,7 @@ export default function ProductPage() {
                   {p.arriveFrom ? `Arrives ${shortRange(p.arriveFrom, p.arriveTo)} with standard shipping.` : ''}
                 </p>
                 {lead ? <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">{lead}</p> : null}
+                {busy ? <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">{busy}</p> : null}
               </div>);
           })()}
 
@@ -571,7 +573,7 @@ export default function ProductPage() {
             {(cfg.faq && cfg.faq.length > 0 ? cfg.faq : [
               fulfil.offersPickup
                 ? { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' }
-                : { q: 'How fast do you ship?', a: shipping ? `${processingSentence(shipping.schedule)} Tracking shows on your order page, with a text or email to let you know, as soon as it ships.` : 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
+                : { q: 'How fast do you ship?', a: shipping ? `${processingSentence(shipping.schedule, new Date(Date.now() + shipping.offset), shipping.timeZone)} Tracking shows on your order page, with a text or email to let you know, as soon as it ships.` : 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
               { q: 'What is the return policy?', a: 'Start a return from your order page once it has been picked up or delivered — choose the items and a reason, and the shop takes it from there.' },
               fulfil.offersShipping
                 ? { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' }

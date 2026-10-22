@@ -6,7 +6,7 @@
 import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { collection, doc, limit, onSnapshot, orderBy, query, updateDoc, where, type Firestore } from 'firebase/firestore';
+import { collection, doc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { benchScanTarget, markLabelChecked } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { useFirebase, useUser } from '@/firebase';
@@ -34,10 +34,12 @@ import { cardRefundableCents } from '@/lib/retail-money';
 import { addressLines } from './AddressCard';
 import { useLabelFlagOrders } from './use-label-flags';
 import { dayPicture, labelWork, tellableNow, whenWord, type CarrierItem, type LateItem, type Step } from '@/lib/ship-day';
-import { nextShipDay, scheduleFrom } from '@/lib/ship-promise';
+import { busyOn, nextShipDay, scheduleFrom } from '@/lib/ship-promise';
 import { addDays, dayKey } from '@/lib/tenant-time';
+import { CAPACITY_DAYS, dayLoads, overDays, overTitle, packedOn, teamCapacity } from '@/lib/capacity';
 import { TodayCard, type DayList } from './Today';
 import { CarrierSheet, LateSheet, RiskSheet } from './DaySheets';
+import { BusyBanner, CatchUpNote } from './BusyBanner';
 
 const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
 
@@ -112,9 +114,17 @@ export function OrdersApp() {
   // Orders packed in the last two weeks: the team's own pace, and what has gone out today (lib/ship-day).
   React.useEffect(() => {
     if (!fs || !tenantId) return;
+    // The last two weeks, for the team's pace and what went today; newest first, so a busy fortnight keeps today's.
     const since = new Date(Date.now() - 14 * 864e5).toISOString();
-    // Newest first, so a busy fortnight keeps today's in the list.
     return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('packedAt', '>=', since), orderBy('packedAt', 'desc'), limit(300)), (s) => setRecent(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setRecent([]));
+  }, [fs, tenantId]);
+  // The team's capacity (lib/capacity), from the same 30 days the capacity screen reads, so both say the same.
+  const [capHistory, setCapHistory] = React.useState<any[] | null>(null);
+  React.useEffect(() => {
+    if (!fs || !tenantId) return;
+    const since = new Date(Date.now() - (CAPACITY_DAYS + 1) * 864e5).toISOString();
+    getDocs(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('packedAt', '>=', since), orderBy('packedAt', 'desc'), limit(1500)))
+      .then((s) => setCapHistory(s.docs.map((d) => d.data()))).catch(() => setCapHistory([]));
   }, [fs, tenantId]);
 
   const photoFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const u = (Array.isArray(i.imageUrls) && i.imageUrls.find((x: any) => typeof x === 'string' && x.trim())) || (typeof i.imageUrl === 'string' && i.imageUrl.trim() ? i.imageUrl : ''); if (u) m.set(i.id, String(u)); }); return m; }, [inventory]);
@@ -133,6 +143,17 @@ export function OrdersApp() {
     const sentToday = recent.filter((o) => o.method === 'ship' && ['shipped', 'handed_off', 'completed'].includes(String(o.stage)) && o.completedAt && dayKey(new Date(Date.parse(o.completedAt)), shopZone) === today && !o.labelFromOrderId && !o.shippedWithOrderId).length;
     return dayPicture({ orders, flagged: unscanned, recentPacked: recent, sentToday, rs, schedule, now, timeZone: shopZone });
   }, [orders, unscanned, recent, rs, schedule, now, shopZone]);
+  // A coming ship day with more to pack than the team can ship goes under Needs you (lib/capacity), when the shop wants.
+  const overs = React.useMemo(() => {
+    if (!schedule.savedAt || !schedule.capacity.tell || !capHistory) return [];
+    const today = dayKey(new Date(now), shopZone);
+    // Today's packing so far comes off today's capacity; the live list has today's, the 30-day read the rest.
+    return overDays(dayLoads(orders, rs, shopZone, schedule, now, teamCapacity(capHistory, now, shopZone), 5, packedOn(recent, today, shopZone)));
+  }, [orders, rs, shopZone, schedule, now, recent, capHistory]);
+  const needCount = needs.length + overs.length;
+  const firstNeed = needs[0]?.text || (overs[0] ? overTitle(overs[0], day.today, shopZone) : '');
+  const busyNow = (() => { const b = schedule.savedAt ? busyOn(day.today, schedule) : null; return b && !b.auto ? b : null; })();
+  const catchUp = schedule.savedAt ? schedule.busy.find((b) => b.auto && b.from <= day.today && day.today <= b.to) || null : null;
   const labelCount = React.useMemo(() => labelWork([...orders, ...unscanned]), [orders, unscanned]);
   const showToday = !!schedule.savedAt || orders.some((o) => o.method === 'ship') || day.carrier.length > 0;
   const list = React.useMemo(() => {
@@ -312,12 +333,14 @@ export function OrdersApp() {
         {perms.canPick && !selecting && <Btn kind="primary" onClick={packNext}>Pack the next order</Btn>}
       </div> : undefined} />
       {searching && !wide && <label className="mt-3 flex h-11 items-center gap-2 rounded-full px-4" style={{ background: C.soft }}><span style={muted}>{Ic.search}</span><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>}
+      {busyNow && !q && <BusyBanner period={busyNow} schedule={schedule} today={day.today} tz={shopZone} tenantId={tenantId} canEnd={isManager} onToast={setToast} />}
+      {catchUp && !q && <CatchUpNote period={catchUp} today={day.today} tz={shopZone} tenantId={tenantId} canEnd={isManager} onToast={setToast} />}
       {showToday && !q && <TodayCard day={day} labels={labelCount} onOpen={openDay} canPack={perms.canPick} onPackNext={!wide && !nextUp ? packNext : undefined}
         nextShipWord={whenWord(nextShipDay(addDays(day.today, 1), schedule), day.today, shopZone)} />}
-      {needs.length > 0 && (
-        <button type="button" onClick={() => needs.length === 1 ? setOpenId(needs[0].orderId) : setNeedsOpen(true)} className="mt-3.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-[15px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>
-          <span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span className={`h-2 w-2 rounded-full${needs.some((n) => n.kind === 'outside') ? ' cf-anim-pulse' : ''}`} style={{ background: C.warn }} />{needs.length} need{needs.length === 1 ? 's' : ''} you</span>
-          <span className="flex min-w-0 items-center gap-1.5 font-medium"><span className="truncate">{needs[0].text}</span>{Ic.chev}</span>
+      {needCount > 0 && (
+        <button type="button" onClick={() => (needCount > 1 ? setNeedsOpen(true) : needs[0] ? setOpenId(needs[0].orderId) : router.push(`/retail-orders/capacity?over=${overs[0].day}`))} className="mt-3.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-[15px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>
+          <span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span className={`h-2 w-2 rounded-full${needs.some((n) => n.kind === 'outside') ? ' cf-anim-pulse' : ''}`} style={{ background: C.warn }} />{needCount} need{needCount === 1 ? 's' : ''} you</span>
+          <span className="flex min-w-0 items-center gap-1.5 font-medium"><span className="truncate">{firstNeed}</span>{Ic.chev}</span>
         </button>)}
       <div className="mt-3 lg:max-w-md"><Seg value={tab} onChange={(v) => { setTab(v); if (wide) setOpenId(null); }} options={[{ id: 'pack', label: `To pack ${counts.pack || ''}`.trim() }, { id: 'ready', label: `Ready ${counts.ready || ''}`.trim() }, { id: 'done', label: 'Done' }]} /></div>
     </div>);
@@ -367,8 +390,11 @@ export function OrdersApp() {
       {daySheet === 'carrier' && <CarrierSheet items={day.carrier} busy={dayBusy} onSeen={(it) => void carrierSeen(it)} onClose={() => setDaySheet(null)}
         onOpenOrder={(id) => { const it = day.carrier.find((c) => c.order.id === id); const text = it ? carrierMessage(it) : null; setStartMessage(text ? { orderId: id, text } : null); setDaySheet(null); setOpenId(id); }} />}
       {needsOpen && (
-        <Sheet title={`${needs.length} need you`} onClose={() => setNeedsOpen(false)} closeLabel="Done">
-          <div className="mt-1">{needs.map((n) => <ListRow key={n.key} onClick={() => { setNeedsOpen(false); setOpenId(n.orderId); }} title={n.text} detail={byId.get(n.orderId)?.customerName} trail={<span style={muted}>{Ic.chev}</span>} />)}</div>
+        <Sheet title={`${needCount} need you`} onClose={() => setNeedsOpen(false)} closeLabel="Done">
+          <div className="mt-1">
+            {needs.map((n) => <ListRow key={n.key} onClick={() => { setNeedsOpen(false); setOpenId(n.orderId); }} title={n.text} detail={byId.get(n.orderId)?.customerName} trail={<span style={muted}>{Ic.chev}</span>} />)}
+            {overs.map((o) => <ListRow key={`cap-${o.day}`} onClick={() => { setNeedsOpen(false); router.push(`/retail-orders/capacity?over=${o.day}`); }} title={overTitle(o, day.today, shopZone)} detail={`${o.due} to pack, against about ${o.cap}. See what would help.`} trail={<span style={muted}>{Ic.chev}</span>} />)}
+          </div>
         </Sheet>)}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={wide ? (selecting ? 100 : 32) : selecting ? 168 : 150} />}
     </div>);

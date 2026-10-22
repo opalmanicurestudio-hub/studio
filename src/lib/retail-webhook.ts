@@ -513,10 +513,12 @@ export async function sendOrderConfirmation(
 
   let shopName = 'Our team';
   let emailBrand = { shopName: 'Your shop', brandColor: '#16171a' };
+  let shopSettings: any = {};
   try {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
     if (tSnap.exists) {
       const t = tSnap.data() || {};
+      shopSettings = t.retailSettings || {};
       shopName = String(t.businessName || t.name || shopName);
       emailBrand = {
         shopName,
@@ -547,8 +549,10 @@ export async function sendOrderConfirmation(
 
   const method = String(order.method || 'pickup');
   // The ship-by and arrival dates they were shown at checkout (lib/ship-promise), when the shop shows dates.
-  const { customerDates, dayLabel, arrivalLabel } = await import('./ship-promise');
+  const { busyLineFor, customerDates, dayLabel, arrivalLabel, scheduleFrom } = await import('./ship-promise');
   const dates = method === 'ship' ? customerDates(order) : null;
+  // A busy period's line for an order placed during it, in the shop's own words (lib/ship-promise busyLineFor).
+  const busyLine = dates ? busyLineFor(order.promise, scheduleFrom(shopSettings), 'email', dates.timeZone) : '';
   const nextStep = method === 'ship'
     ? dates
       ? 'We will let you know as soon as it ships, with tracking. If anything changes, your order page says so first.'
@@ -570,6 +574,7 @@ export async function sendOrderConfirmation(
     <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${order.customerName ? String(order.customerName).split(' ')[0] : 'there'},</p>
     <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Thank you for your order. Your order ${num} is confirmed.</p>
     ${datesBlock}
+    ${busyLine ? `<p style="font-size:13px;color:#0f172a;margin:0 0 8px">${escapeHtml(busyLine)}</p>` : ''}
     <p style="font-size:13px;color:#64748b">${nextStep}</p>
     ${pickupNote}
     <table style="width:100%;border-collapse:collapse;margin:16px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">
