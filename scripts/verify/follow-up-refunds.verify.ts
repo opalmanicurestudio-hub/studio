@@ -32,16 +32,29 @@ const web: any = {
     set: (r: any, v: any, o?: any) => db.doc(r.path).set(v, o),
   })),
   getDoc: async (r: any) => webSnap(await db.doc(r.path).get(), r),
-  getDocs: async () => ({ docs: [], empty: true, size: 0 }),
-  query: (...a: any[]) => a[0], where: () => null, limit: () => null, orderBy: () => null,
+  query: (c: any, ...cons: any[]) => ({ __q: true, path: c.path, cons }),
+  where: (k: string, op: string, v: any) => ({ t: 'where', k, op, v }),
+  limit: (n: number) => ({ t: 'limit', n }), orderBy: () => ({ t: 'orderBy' }),
+  getDocs: async (q: any) => {
+    let c: any = db.collection(q.path);
+    for (const x of q.cons || []) { if (x?.t === 'where') c = c.where(x.k, x.op, x.v); if (x?.t === 'limit') c = c.limit(x.n); }
+    const s = await c.get();
+    return { docs: s.docs.map((d: any) => ({ id: d.id, data: () => d.data(), exists: () => true })), empty: s.empty, size: s.size };
+  },
 };
 
+const stripeMade: any[] = [];
 function StripeMock(this: any) {
-  return { refunds: { create: async (params: any, opts: any) => {
-    stripeCalls.push({ params, opts });
-    if (stripeFail) throw Object.assign(new Error(stripeFail), { raw: { message: stripeFail } });
-    return { id: `re_${stripeCalls.length}` };
-  } } };
+  return { refunds: {
+    create: async (params: any, opts: any) => {
+      stripeCalls.push({ params, opts });
+      if (stripeFail) throw Object.assign(new Error(stripeFail), { raw: { message: stripeFail } });
+      const r = { id: `re_${stripeCalls.length}`, amount: params.amount, metadata: params.metadata, status: 'succeeded', payment_intent: params.payment_intent };
+      stripeMade.push(r);
+      return r;
+    },
+    list: async (params: any) => ({ data: stripeMade.filter((r) => r.payment_intent === params.payment_intent) }),
+  } };
 }
 
 const M: any = Module as any;
@@ -60,6 +73,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/request-forensics') return { requestForensics: () => null };
   if (request.endsWith('staff-fetch')) return { staffAuthHeader: async () => ({}) };
   if (request.endsWith('renter-credit-client')) return { syncRenterCredits: () => undefined };
+  if (request === '@/lib/route-guard') return { staffOrServer: async () => true };
   return load.call(this, request, ...rest);
 };
 (globalThis as any).fetch = async (url: any, init?: any) => { fetches.push({ url: String(url), init, body: init?.body ? JSON.parse(init.body) : null }); return { ok: true, json: async () => ({}) }; };
@@ -93,7 +107,11 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   check('the backorder is worth $30.24: two polishes at $14 and their tax', F.followUpItemsCents(child()) === 3024, F.followUpItemsCents(child()));
   check('a polish already shorted on it doesn’t count again; an older backorder takes the tax figures from the order paid on',
     F.followUpItemsCents(child({ lines: [{ ...C1, qtyShorted: 1 }] })) === 1512
-    && F.followUpItemsCents({ ...child(), taxBasis: undefined, lines: [{ productId: 'gel', unitPriceCents: 1500, qtyOrdered: 2 }] }, payer()) === 3240);
+    && F.followUpItemsCents({ ...child(), taxBasis: undefined, lines: [{ ...L1, lineId: 'X', qtyOrdered: 2, qtyShorted: 0, status: 'pending' }] }, payer()) === 3024
+    && F.followUpItemsCents({ ...child(), taxBasis: undefined, lines: [{ productId: 'other', unitPriceCents: 1500, qtyOrdered: 2 }] }, payer()) === 3240);
+  check('an older backorder’s copied line (the whole line’s promo kept for fewer units) is priced from the original line: $14, not $13',
+    F.followUpItemsCents({ ...child(), lines: [{ ...L1, lineId: 'X', qtyOrdered: 2, qtyShorted: 0 }] }) === 2600 + 208
+    && F.followUpItemsCents({ ...child(), lines: [{ ...L1, lineId: 'X', qtyOrdered: 2, qtyShorted: 0 }] }, payer()) === 3024);
   const lostRepl = child({ id: 'l1', isReplacement: true, replacementFor: 'lost_in_transit', holdUntilRestock: undefined });
   check('cancelling a replacement for a parcel that was delivered after all gives nothing back; one still lost or coming back gives the items back',
     F.followUpCancelCents(lostRepl, payer({ stage: 'completed', deliveredAt: '2026-10-21T15:00:00Z' })) === 0
@@ -108,7 +126,7 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   // ── Sending a follow-up's refund ──
   const { POST: refundPOST } = await import('../../src/app/api/retail/refund/route');
   const fresh = async (setup: (d: any) => Promise<void> = async () => {}) => {
-    db = makeDb(); stripeCalls.length = 0; fetches.length = 0; stripeFail = ''; authTenant = {};
+    db = makeDb(); stripeCalls.length = 0; stripeMade.length = 0; fetches.length = 0; stripeFail = ''; authTenant = {};
     actor = { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: ['checkout.refund'] };
     await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
     await db.doc(`${T}/retailOrders/p1`).set(payer());
@@ -145,7 +163,7 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   check('never more than the card has left: $50 already back on it, so $29.28 goes and the other 96¢ is store credit',
     r.status === 200 && stripeCalls[0].params.amount === 2928 && r.body.overCardCents === 96 && r.body.leftCents === 96 && /96 is more than the card has left/.test(r.body.message), r.body);
   r = await send();
-  check('…and asking again says the card is used up', r.status === 409 && /original order is already refunded/.test(r.body.error) && stripeCalls.length === 1, r.body);
+  check('…and asking again says the card is used up', r.status === 409 && /card on the original order has already gone back to it/.test(r.body.error) && stripeCalls.length === 1, r.body);
 
   await fresh();
   await send();
@@ -198,6 +216,30 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   check('a customer’s own cancellation under the shop’s automatic-refund amount goes back by itself, to the original card',
     r.status === 200 && stripeCalls[0].params.payment_intent === 'pi_P' && (await all(`${T}/retailOrders/c1/events`))[0].actorName === 'Customer cancellation (automatic)', r.body);
 
+  await fresh(async (d) => { await d.doc(`${T}/retailOrders/c1`).set({ isReplacement: true, replacementFor: 'lost_in_transit', holdUntilRestock: false }, { merge: true }); });
+  await db.doc(T).set({ retailSettings: { policies: { refundAutoBelowCents: 5000 } } }, { merge: true });
+  r = await send('c1', { reason: 'customer_cancel' }, { 'x-internal-key': 'cron' });
+  check('…but never for a replacement for a lost parcel: that refund is the shop’s to send', r.status === 403 && stripeCalls.length === 0, r.body);
+
+  await fresh();
+  const realTx = db.runTransaction; let txCalls = 0;
+  db.runTransaction = async (fn: any) => { txCalls += 1; if (txCalls >= 2) throw new Error('unavailable'); return realTx(fn); };
+  r = await send();
+  db.runTransaction = realTx;
+  const cl = await get(`${T}/retailOrders/c1`);
+  check('the money went but the order couldn’t be written: the team is told it went and to tap again, and the hold stays',
+    r.status === 200 && r.body.recorded === false && stripeCalls.length === 1 && cl.pendingRefundCents === 3024 && !cl.refundedCents && cl.refundInFlight?.seq === 1 && /won’t be sent twice/.test(r.body.message), { r: r.body, cl });
+  await db.doc(`${T}/retailOrders/c1`).set({ refundInFlight: { ...cl.refundInFlight, at: new Date(Date.now() - 3 * 60000).toISOString() } }, { merge: true });
+  r = await send();
+  const cl2 = await get(`${T}/retailOrders/c1`); const pl2 = await get(`${T}/retailOrders/p1`);
+  check('…tapping again once the hold lapses finds that refund at Stripe and records it, without sending a second one',
+    r.status === 200 && stripeCalls.length === 1 && cl2.pendingRefundCents === 0 && cl2.refundedCents === 3024 && cl2.refundSeq === 1 && cl2.refundInFlight === null && pl2.refundInFlight === null
+    && cl2.lastStripeRefundId === 're_1' && /already gone back/.test(r.body.message) && (await all(`${T}/transactions`)).length === 1, { r: r.body, cl2, pl2 });
+  await fresh(async (d) => { await d.doc(`${T}/retailOrders/c1`).set({ refundInFlight: { cents: 3024, seq: 1, at: new Date(Date.now() - 3 * 60000).toISOString(), by: 'm1' } }, { merge: true }); });
+  r = await send();
+  check('a lapsed hold whose refund never reached Stripe sends a new one, under a fresh number',
+    r.status === 200 && stripeCalls.length === 1 && stripeCalls[0].opts.idempotencyKey === 'retail-refund-c1-2' && (await get(`${T}/retailOrders/c1`)).refundSeq === 2, { r: r.body, keys: stripeCalls.map((c) => c.opts.idempotencyKey) });
+
   await fresh(async (d) => { await d.doc(`${T}/retailOrders/q1`).set({ id: 'q1', orderNumber: 1050, stage: 'cancelled', lines: [L2], totalCents: 5000, chargedCents: 5000, refundedCents: 0, pendingRefundCents: 1000, stripePaymentIntentId: 'pi_Q', qrToken: 'qrQ', customerEmail: 'lee@example.com', customerName: 'Lee' }); });
   r = await send('q1', { qrToken: 'qrQ' });
   const qEv = await all(`${T}/retailOrders/q1/events`); const qTx = await all(`${T}/transactions`);
@@ -225,9 +267,9 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   await board(async (d) => { await d.doc(`${T}/retailOrders/c1`).set(child({ pendingRefundCents: 500 })); });
   await Fu.cancelOrder(webFs, 't1', 'c1', staff, 'x');
   check('anything already queued on it stays queued, with the items added', (await get(`${T}/retailOrders/c1`)).pendingRefundCents === 3524);
-  await board(async (d) => { await d.doc(`${T}/retailOrders/c0`).set({ ...child({ id: 'c0' }), taxBasis: null, lines: [{ lineId: 'X', productId: 'gel', name: 'Gel polish', unitPriceCents: 1500, qtyOrdered: 2, qtyScanned: 0, qtyShorted: 0, status: 'pending' }] }); });
+  await board(async (d) => { await d.doc(`${T}/retailOrders/c0`).set({ ...child({ id: 'c0' }), taxBasis: null, lines: [{ ...L1, lineId: 'X', qtyOrdered: 2, qtyScanned: 0, qtyShorted: 0, status: 'pending' }] }); });
   await Fu.cancelOrder(webFs, 't1', 'c0', staff, 'x');
-  check('a backorder made before follow-ups carried the tax figures reads them from the order Dana paid on: $32.40', (await get(`${T}/retailOrders/c0`)).pendingRefundCents === 3240);
+  check('a backorder made before follow-ups carried their figures reads the price and tax from the order Dana paid on: $30.24', (await get(`${T}/retailOrders/c0`)).pendingRefundCents === 3024, await get(`${T}/retailOrders/c0`));
   const lost = (x: any = {}) => ({ ...child({ id: 'l1', isReplacement: true, replacementFor: 'lost_in_transit', holdUntilRestock: undefined }), ...x });
   await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set({ stage: 'completed', deliveredAt: '2026-10-21T15:00:00Z' }, { merge: true }); await d.doc(`${T}/retailOrders/l1`).set(lost()); });
   res = await Fu.cancelOrder(webFs, 't1', 'l1', staff, 'It turned up');
@@ -239,6 +281,35 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   await board(async (d) => { await d.doc(`${T}/retailOrders/p3`).set(payer({ id: 'p3', stage: 'paid', chargedCents: 5000, totalCents: 5000, pendingRefundCents: 0, lines: [L2] })); await d.doc(`${T}/inventory/file`).set({ stockReserved: 2 }); });
   await Fu.cancelOrder(webFs, 't1', 'p3', staff, 'x');
   check('an order the customer paid for still gets everything its card paid back', (await get(`${T}/retailOrders/p3`)).pendingRefundCents === 5000 && (await get(`${T}/inventory/file`)).stockReserved === 1);
+
+  // ── Cancelling the order paid on, with follow-ups ──
+  const pickingPayer = (x: any = {}) => payer({ stage: 'picking', ...x });
+  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set(pickingPayer()); await d.doc(`${T}/retailOrders/c1`).set(child()); });
+  res = await Fu.cancelOrder(webFs, 't1', 'p1', staff, 'Changed my mind');
+  let pp = await get(`${T}/retailOrders/p1`); let cc = await get(`${T}/retailOrders/c1`);
+  check('cancelling Dana’s order cancels its backorder with it, and her card gets back all $79.28 once',
+    res.ok && pp.stage === 'cancelled' && pp.pendingRefundCents === 7928 && cc.stage === 'cancelled' && (cc.pendingRefundCents || 0) === 0 && /with the backorder/.test(res.message)
+    && /Cancelled with order #1042/.test(cc.cancelReason) && (await all(`${T}/retailOrders/c1/events`)).some((e: any) => e.type === 'cancelled'), { res, pp, cc });
+  check('…the backorder held no stock, so only the order’s own two polishes and file go back on the shelf', (await get(`${T}/inventory/gel`)).stockReserved === 3, await get(`${T}/inventory/gel`));
+  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set(pickingPayer()); await d.doc(`${T}/retailOrders/c1`).set(child({ stage: 'cancelled', refundedCents: 3024 })); });
+  await Fu.cancelOrder(webFs, 't1', 'p1', staff, 'x');
+  check('the backorder was cancelled and its $30.24 sent first: cancelling the order queues the other $49.04, not $79.28', (await get(`${T}/retailOrders/p1`)).pendingRefundCents === 4904);
+  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set(pickingPayer()); await d.doc(`${T}/retailOrders/c1`).set(child({ stage: 'cancelled', pendingRefundCents: 3024 })); });
+  await Fu.cancelOrder(webFs, 't1', 'p1', staff, 'x');
+  check('…the same when its $30.24 is queued but not sent yet: that stays on the backorder', (await get(`${T}/retailOrders/p1`)).pendingRefundCents === 4904 && (await get(`${T}/retailOrders/c1`)).pendingRefundCents === 3024);
+  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set(pickingPayer()); await d.doc(`${T}/retailOrders/c1`).set(child({ stage: 'shipped', holdUntilRestock: false })); });
+  await Fu.cancelOrder(webFs, 't1', 'p1', staff, 'x');
+  check('a backorder that has already gone out stays, and the order’s refund leaves out what Dana keeps: $49.04',
+    (await get(`${T}/retailOrders/p1`)).pendingRefundCents === 4904 && (await get(`${T}/retailOrders/c1`)).stage === 'shipped');
+  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set(payer({ stage: 'cancelled', pendingRefundCents: 0, refundedCents: 7928 })); await d.doc(`${T}/retailOrders/c1`).set(child()); });
+  res = await Fu.cancelOrder(webFs, 't1', 'c1', staff, 'x');
+  check('a backorder left open when its order was cancelled (before they went together) gives nothing more back: the order’s refund was everything',
+    res.ok && (await get(`${T}/retailOrders/c1`)).pendingRefundCents === 0 && !/queued/.test(res.message), res);
+  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set({ refundedCents: 7928 }, { merge: true }); await d.doc(`${T}/retailOrders/c1`).set(child()); });
+  await Fu.cancelOrder(webFs, 't1', 'c1', staff, 'x');
+  check('…nor one whose order’s card has been refunded in full', (await get(`${T}/retailOrders/c1`)).pendingRefundCents === 0);
+  check('digital items hold no stock to give back', F.heldUnits({ stage: 'paid', lines: [{ productId: 'ebook', qtyOrdered: 1, digital: true }, { productId: 'gel', qtyOrdered: 2, qtyShorted: 1 }] }).size === 1
+    && F.heldUnits({ stage: 'paid', lines: [{ productId: 'gel', qtyOrdered: 2, qtyShorted: 1 }] }).get('gel') === 1 && F.heldUnits({ stage: 'paid', holdUntilRestock: true, lines: [{ productId: 'gel', qtyOrdered: 2 }] }).size === 0);
 
   // ── Making follow-ups: shorts, returns, lost parcels ──
   const picking = (id: string) => ({ id, tenantId: 't1', orderNumber: 1060, stage: 'picking', method: 'ship', lines: [{ lineId: 'A', productId: 'gel', name: 'Gel polish', sku: 'GEL', barcode: 'GEL', unitPriceCents: 1500, qtyOrdered: 4, qtyScanned: 2, qtyShorted: 0, qtyReturned: 0, status: 'pending', promoCents: 400 }],
@@ -271,6 +342,17 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   check('a replacement for a lost parcel carries the three polishes sent, each at the price paid, and the tax figures',
     r.status === 200 && lr && lr.lines[0].qtyOrdered === 3 && lr.lines[0].unitPaidCents === 1400 && lr.lines[0].promoCents === 300 && JSON.stringify(lr.taxBasis) === JSON.stringify({ subtotalCents: 6000, taxCents: 448, discountCents: 400 }), { r: r.body, lr });
 
+  const { POST: runPOST } = await import('../../src/app/api/retail/preorder-run-cancel/route');
+  await board(async (d) => { await d.doc(`${T}/retailOrders/pre1`).set({ ...picking('pre1'), stage: 'paid', hasPreorder: true, lines: [{ lineId: 'P', productId: 'kit', name: 'Starter kit', sku: 'KIT', unitPriceCents: 1500, qtyOrdered: 4, qtyShorted: 0, qtyScanned: 0, preorder: true, status: 'pending', promoCents: 400 }] }); });
+  r = await runPOST(req({ tenantId: 't1', productId: 'kit', reason: 'The supplier fell through' })) as any;
+  check('a pre-order run that falls through gives back what was paid for the items, with their tax: $60.48, not $56',
+    r.status === 200 && (await get(`${T}/retailOrders/pre1`)).pendingRefundCents === 6048 && r.body.refundCents === 6048, { r: r.body, o: await get(`${T}/retailOrders/pre1`) });
+  const { swapLines } = await import('../../src/lib/retail-swap');
+  const sw = swapLines({ lines: [{ lineId: 'A', productId: 'gel', name: 'Gel polish', unitPriceCents: 1500, qtyOrdered: 4, qtyScanned: 2, qtyShorted: 0, promoCents: 400 }], subtotalCents: 6000, taxCents: 448, discountCents: 400 } as any, 'A', { productId: 'gel2', name: 'Gel polish (new)', unitPriceCents: 1200 }, 'B');
+  const swUp = swapLines({ lines: [{ lineId: 'A', productId: 'gel', name: 'Gel polish', unitPriceCents: 1500, qtyOrdered: 4, qtyScanned: 2, qtyShorted: 0, promoCents: 400 }], subtotalCents: 6000, taxCents: 448, discountCents: 400 } as any, 'A', { productId: 'gel3', name: 'Gel polish (pro)', unitPriceCents: 1600 }, 'B');
+  check('a swap is priced from what was paid after the promo: $4.32 back for a $12 one, and a $16 one costs them no more than the $14 they paid',
+    sw.refundCents === 432 && swUp.refundCents === 0 && effectiveUnitCents(swUp.newLine) === 1400, { sw: sw.refundCents, up: effectiveUnitCents(swUp.newLine) });
+
   // ── The customer cancels a backorder themselves ──
   const { POST: selfPOST } = await import('../../src/app/api/retail/self-serve/route');
   await board(async (d) => { await d.doc(T).set({ retailSettings: { policies: { refundAutoBelowCents: 5000 } } }, { merge: true }); await d.doc(`${T}/retailOrders/c1`).set(child()); });
@@ -280,15 +362,25 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
     r.status === 200 && sc.stage === 'cancelled' && sc.pendingRefundCents === 3024 && fetches.length === 1 && /\/api\/retail\/refund$/.test(fetches[0].url) && fetches[0].body.reason === 'customer_cancel' && fetches[0].body.orderId === 'c1' && /on its way back to your card/.test(r.body.message), { r: r.body, sc, fetches });
   check('…and no stock it never held is given back', (await get(`${T}/inventory/gel`)).stockReserved === 5);
 
+  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set(payer({ stage: 'paid' })); await d.doc(`${T}/retailOrders/c1`).set(child()); });
+  r = await selfPOST(req({ action: 'cancel', tenantId: 't1', orderId: 'p1', qrToken: 'qr1' })) as any;
+  check('Dana cancels her whole order from its page: the backorder goes with it and the card gets back $79.28 once',
+    r.status === 200 && (await get(`${T}/retailOrders/p1`)).pendingRefundCents === 7928 && (await get(`${T}/retailOrders/c1`)).stage === 'cancelled' && ((await get(`${T}/retailOrders/c1`)).pendingRefundCents || 0) === 0, r.body);
+  await board(async (d) => { await d.doc(T).set({ retailSettings: { policies: { refundAutoBelowCents: 5000 } } }, { merge: true }); await d.doc(`${T}/retailOrders/l1`).set(lost({ stage: 'paid' })); });
+  fetches.length = 0;
+  r = await selfPOST(req({ action: 'cancel', tenantId: 't1', orderId: 'l1', qrToken: 'qr1' })) as any;
+  check('cancelling a replacement for a lost parcel queues the refund for the shop, never sent by itself: the first parcel may still turn up',
+    r.status === 200 && (await get(`${T}/retailOrders/l1`)).pendingRefundCents === 3024 && !fetches.some((f) => /\/api\/retail\/refund$/.test(f.url)), { r: r.body, fetches });
+
   // ── A claim for a whole follow-up ──
   const { POST: claimPOST } = await import('../../src/app/api/retail/claims/route');
   await board(async (d) => { await d.doc(`${T}/retailOrders/l2`).set(lost({ id: 'l2', stage: 'shipped' })); });
   r = await claimPOST(req({ tenantId: 't1', orderId: 'l2', qrToken: 'qr1', type: 'not_received' })) as any;
   const claim = await get(`${T}/retailClaims/l2__not_received__order`);
   check('“it never arrived” on a replacement is worth what was paid for what was in it ($30.24), not its $0 total', r.status === 200 && claim && claim.claimValueCents === 3024, { r: r.body, claim });
-  await board(async (d) => { await d.doc(`${T}/retailOrders/l3`).set({ ...lost({ id: 'l3', stage: 'shipped' }), taxBasis: null, lines: [{ lineId: 'Y', productId: 'gel', name: 'Gel polish', unitPriceCents: 1500, qtyOrdered: 2, qtyScanned: 2, qtyShorted: 0, status: 'picked' }] }); });
+  await board(async (d) => { await d.doc(`${T}/retailOrders/l3`).set({ ...lost({ id: 'l3', stage: 'shipped' }), taxBasis: null, lines: [{ ...L1, lineId: 'Y', qtyOrdered: 2, qtyScanned: 2, qtyShorted: 0, status: 'picked' }] }); });
   await claimPOST(req({ tenantId: 't1', orderId: 'l3', qrToken: 'qr1', type: 'not_received' }));
-  check('…an older one reads the tax figures from the order paid on', (await get(`${T}/retailClaims/l3__not_received__order`))?.claimValueCents === 3240);
+  check('…an older one reads its price and tax from the order paid on', (await get(`${T}/retailClaims/l3__not_received__order`))?.claimValueCents === 3024, await get(`${T}/retailClaims/l3__not_received__order`));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

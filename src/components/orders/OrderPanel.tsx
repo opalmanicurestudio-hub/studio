@@ -301,8 +301,10 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
         <Sheet title={`Cancel ${who}’s order?`} sub={follow
           ? order.replacementFor === 'lost_in_transit'
             ? 'Stock goes back on the shelf. If the first parcel never arrived, what they paid for these items goes back to the card they used on the original order.'
-            : 'Stock goes back on the shelf, and what they paid for these items goes back to the card they used on the original order.'
-          : order.stage === 'paid' ? 'Their card is refunded and stock goes back on the shelf.' : 'Put the items back on the shelf. Their card is refunded.'} onClose={() => setConfirm(null)} closeLabel="Keep it">
+            : order.holdUntilRestock
+              ? 'Nothing was set aside for it yet. What they paid for these items goes back to the card they used on the original order.'
+              : 'Stock goes back on the shelf, and what they paid for these items goes back to the card they used on the original order.'
+          : `${order.stage === 'paid' ? 'Their card is refunded and stock goes back on the shelf.' : 'Put the items back on the shelf. Their card is refunded.'}${(order.lines || []).some((l: any) => l.status === 'backordered') || order.splitChildOrderId ? ' Anything still to follow is cancelled with it.' : ''}`} onClose={() => setConfirm(null)} closeLabel="Keep it">
           <label className="mt-2 block text-[13px] font-semibold" style={muted}>Reason (they see this)<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="For example: we can’t get it in time" className="mt-1 h-12 w-full rounded-2xl border px-4 text-[17px] font-normal" style={{ borderColor: C.line, background: C.paper, color: C.ink }} /></label>
           <Btn kind="danger" className="mt-4 w-full text-[17px]" disabled={busy} onClick={() => void doCancel()}>Cancel the order</Btn>
           {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}

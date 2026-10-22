@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 import { effectiveUnitCents } from '@/lib/retail-swap';
+import { taxShareCents } from '@/lib/restocking';
 
 // ─── /api/retail/preorder-run-cancel ─────────────────────────────────────────
 // The supplier fell through. Forty people are holding a promise you can't
@@ -79,9 +80,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true, dryRun: true,
         orders: affected.length,
-        refundCents: affected.reduce((sum: number, o: any) => sum + (o.lines || [])
-          .filter((l: any) => l.productId === productId && l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status)))
-          .reduce((s: number, l: any) => s + effectiveUnitCents(l) * Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)), 0), 0),
+        refundCents: affected.reduce((sum: number, o: any) => {
+          const items = (o.lines || [])
+            .filter((l: any) => l.productId === productId && l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status)))
+            .reduce((s: number, l: any) => s + effectiveUnitCents(l) * Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0)), 0);
+          return sum + items + taxShareCents(o, items);
+        }, 0),
       });
     }
 
@@ -110,6 +114,8 @@ export async function POST(req: NextRequest) {
             return { ...l, status: 'refunded', qtyShorted: (l.qtyShorted || 0) + owed, shortReason: 'run_cancelled' };
           });
           if (lineRefund === 0) return null;
+          // The tax paid on them comes back too (lib/restocking; a split-off order carries its tax figures).
+          lineRefund += taxShareCents(order, lineRefund);
 
           // Anything left to fulfil? Then the order lives on.
           const stillOwed = lines.some((l: any) =>

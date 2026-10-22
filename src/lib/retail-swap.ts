@@ -25,7 +25,8 @@ export function swapLines(order: { lines: any[]; subtotalCents?: number; taxCent
   const line = order.lines[idx];
   const qty = (Number(line.qtyOrdered) || 0) - (Number(line.qtyScanned) || 0) - (Number(line.qtyShorted) || 0);
   if (qty <= 0) throw new Error('Nothing left to swap on that item.');
-  const orig = Number(line.unitPriceCents) || 0; const price = Math.max(0, Math.round(Number(sub.unitPriceCents) || 0));
+  // What each unit was paid, after any promo code: never more back than that, and never more charged.
+  const orig = effectiveUnitCents(line); const price = Math.max(0, Math.round(Number(sub.unitPriceCents) || 0));
   const closed = { ...line, qtyShorted: (Number(line.qtyShorted) || 0) + qty, status: 'refunded', shortReason: 'Swapped', swappedToLineId: newLineId, swappedToName: sub.name };
   const newLine = {
     lineId: newLineId, productId: sub.productId, sku: sub.sku || '', barcode: sub.barcode || '', name: sub.name, optionsLabel: sub.optionsLabel || '',

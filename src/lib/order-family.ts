@@ -53,12 +53,24 @@ export function lineFor(l: any, qty: number): any {
   return out;
 }
 
+/** What each unit on a follow-up's line was paid: the price the line carries, or, for a follow-up made before lines
+ *  carried it, the price on the matching line of the order paid on (the copy kept the whole line's promo for fewer units). */
+function unitPaid(l: any, from?: any): number {
+  if (l && l.unitPaidCents == null && Array.isArray(from?.lines)) {
+    const m = from.lines.find((x: any) => x && x !== l && x.productId === l.productId && n(x.unitPriceCents) === n(l.unitPriceCents)
+      && String(x.optionsLabel || '') === String(l.optionsLabel || ''));
+    if (m) return effectiveUnitCents(m);
+  }
+  return effectiveUnitCents(l || {});
+}
+
 /** What the customer paid for the items on a follow-up that are still theirs to get (or went in its box): each line's
- *  units, less any shorted or returned, at the price paid, with their share of the tax. `basisFrom` is the paying order,
- *  for a follow-up made before follow-ups carried their tax figures. */
-export function followUpItemsCents(o: any, basisFrom?: any): number {
+ *  units, less any shorted (and, unless `lessReturned` is false, any returned), at the price paid, with their share of
+ *  the tax. `basisFrom` is the paying order, for a follow-up made before follow-ups carried their price and tax figures. */
+export function followUpItemsCents(o: any, basisFrom?: any, opts: { lessReturned?: boolean } = {}): number {
+  const lessReturned = opts.lessReturned !== false;
   const items = (Array.isArray(o?.lines) ? o.lines : []).reduce((a: number, l: any) =>
-    a + Math.max(0, n(l?.qtyOrdered) - n(l?.qtyShorted) - n(l?.qtyReturned)) * effectiveUnitCents(l || {}), 0);
+    a + Math.max(0, n(l?.qtyOrdered) - n(l?.qtyShorted) - (lessReturned ? n(l?.qtyReturned) : 0)) * unitPaid(l, basisFrom), 0);
   const withBasis = o?.taxBasis || !basisFrom ? o || {} : { taxBasis: taxBasisOf(basisFrom) };
   return items + taxShareCents(withBasis, items);
 }
@@ -69,12 +81,64 @@ export function parcelArrived(o: any): boolean {
     || (o?.method === 'ship' && o?.stage === 'completed');
 }
 
-/** What cancelling a follow-up gives back to the customer's card: what they paid for its items still to be sent. A
- *  replacement for a parcel that was delivered after all gives nothing back: they have the goods. `parent` is the order
- *  it was made from (the lost parcel, for a replacement), `payer` the order paid on, if that's further up. */
+/** The paying order has already given back everything: it was cancelled (its refund was all its card paid, the items
+ *  on its follow-ups included) or its card has been refunded in full. */
+function settled(p: any): boolean {
+  if (!p) return false;
+  if (['cancelled', 'refunded'].includes(String(p.stage || ''))) return true;
+  const paid = cardPaidCents(p);
+  return paid > 0 && cents(p.refundedCents) >= paid;
+}
+
+/** What cancelling a follow-up gives back to the customer's card: what they paid for its items still to be sent.
+ *  Nothing when the order they paid on has already given everything back, or for a replacement for a parcel that was
+ *  delivered after all (they have the goods). `parent` is the order it was made from (the lost parcel, for a
+ *  replacement), `payer` the order paid on. */
 export function followUpCancelCents(o: any, parent?: any, payer?: any): number {
+  if (settled(payer || (parent && !isFollowUp(parent) ? parent : null))) return 0;
   if (String(o?.replacementFor || '') === 'lost_in_transit' && parent && parcelArrived(parent)) return 0;
   return followUpItemsCents(o, payer || parent);
+}
+
+const OPEN_STAGES = ['placed', 'paid', 'picking', 'packed', 'ready', 'arrived'];
+const SENT_STAGES = ['shipped', 'handed_off', 'completed'];
+
+/** Cancelling the order the customer paid on. Its follow-ups that haven't gone out are cancelled with it, their items
+ *  refunded on this order, and its card gets back everything it hasn't had back yet, less what's already queued on the
+ *  follow-ups and what the customer keeps from any that went out. `followUps` are every order made from it. */
+export function cancelWithFollowUps(payer: any, followUps: any[]): { cancel: any[]; pendingCents: number } {
+  const payerId = String(payer?.id || '');
+  const seen = new Set<string>();
+  const fam = (followUps || []).filter((f) => {
+    const id = String(f?.id || '');
+    if (!id || id === payerId || seen.has(id) || !isFollowUp(f)) return false;
+    seen.add(id);
+    return true;
+  });
+  let spoken = 0;
+  const cancel: any[] = [];
+  for (const f of fam) {
+    const stage = String(f.stage || '');
+    // Gone out: the customer has those items, less what's been refunded for them already (refunds already off the room).
+    if (SENT_STAGES.includes(stage)) { spoken += Math.max(0, followUpItemsCents(f, payer, { lessReturned: false }) - cents(f.refundedCents)); continue; }
+    // Not gone out: anything queued on it goes back on its own; its items come back with this order.
+    spoken += cents(f.pendingRefundCents);
+    if (OPEN_STAGES.includes(stage)) cancel.push(f);
+  }
+  return { cancel, pendingCents: Math.max(0, familyRefundableCents(payer, fam) - spoken) };
+}
+
+/** The shelf units an order is holding: each open unit of a paid order's physical items. A backorder still waiting for
+ *  stock holds none (it takes its units when it's released), and digital items never hold any. */
+export function heldUnits(o: any): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!['paid', 'picking', 'packed', 'ready', 'arrived'].includes(String(o?.stage || '')) || o?.holdUntilRestock === true) return out;
+  for (const l of Array.isArray(o?.lines) ? o.lines : []) {
+    if (!l || l.digital === true || !l.productId) continue;
+    const open = Math.max(0, n(l.qtyOrdered) - n(l.qtyShorted));
+    if (open > 0) out.set(String(l.productId), (out.get(String(l.productId)) || 0) + open);
+  }
+  return out;
 }
 
 /** Card money still refundable across a family: what the paying order's card was charged, less every refund recorded

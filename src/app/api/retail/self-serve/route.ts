@@ -1,6 +1,5 @@
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
-import { cardRefundableCents } from '@/lib/retail-money';
-import { followUpCancelCents, isFollowUp, taxBasisOf } from '@/lib/order-family';
+import { cancelWithFollowUps, followUpCancelCents, followUpsOf, heldUnits, isFollowUp } from '@/lib/order-family';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
@@ -129,32 +128,33 @@ export async function POST(req: NextRequest) {
         }
 
         // An order made from another one (a backorder, a replacement: lib/order-family) has no payment of its own:
-        // what they paid for its items goes back to the card they used on the order it came from, read first (a
-        // replacement for a parcel that was delivered after all gives nothing back).
+        // what they paid for its items goes back to the card they used on the order it came from. The orders above it
+        // are read first: nothing comes back when the order paid on has already given everything back, or for a
+        // replacement for a parcel that was delivered after all.
+        const ordersCol = db.collection(`tenants/${tenantId}/retailOrders`);
+        const read = async (id: string) => {
+          if (!id) return null;
+          const s = await txn.get(ordersCol.doc(id));
+          return s.exists ? { ...(s.data() || {}), id } : null;
+        };
         const follow = isFollowUp(order);
         let parent: any = null; let payer: any = null;
         if (follow) {
-          const ordersCol = db.collection(`tenants/${tenantId}/retailOrders`);
-          const read = async (id: string) => {
-            if (!id) return null;
-            const s = await txn.get(ordersCol.doc(id));
-            return s.exists ? { ...(s.data() || {}), id } : null;
-          };
           parent = await read(String(order.parentOrderId || ''));
           payer = parent;
-          for (let i = 0; i < 3 && !order.taxBasis && payer && !taxBasisOf(payer) && isFollowUp(payer); i++) payer = await read(String(payer.parentOrderId || ''));
+          for (let i = 0; i < 3 && payer && isFollowUp(payer); i++) payer = await read(String(payer.parentOrderId || ''));
+          if (payer && isFollowUp(payer)) payer = null;
         }
+        // The order they paid on: its backorder or pre-order items still to come are cancelled with it, and the card
+        // gets back what it hasn't had back across all of them, so nothing is refunded twice.
+        const fam = follow ? [] : await followUpsOf((r: any) => txn.get(r), ordersCol, orderId);
+        const plan = follow ? null : cancelWithFollowUps({ ...order, id: orderId }, fam);
+        const going: any[] = [{ ...order, id: orderId }, ...(plan?.cancel || [])];
 
-        // Reads before writes: release the stock held for this order. It's held from payment until handoff or
-        // shipping, so a late order cancelled while being packed releases it too. A backorder still waiting for stock
-        // holds none (it takes its units when it's released).
+        // Reads before writes: release the stock held for them. It's held from payment until handoff or shipping, so a
+        // late order cancelled while being packed releases it too (a backorder still waiting for stock holds none).
         const releases = new Map<string, number>();
-        if (['paid', 'picking', 'packed', 'ready', 'arrived'].includes(order.stage) && order.holdUntilRestock !== true) {
-          for (const l of order.lines || []) {
-            const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
-            if (open > 0) releases.set(l.productId, (releases.get(l.productId) || 0) + open);
-          }
-        }
+        for (const g of going) for (const [pid, q] of heldUnits(g)) releases.set(pid, (releases.get(pid) || 0) + q);
         const itemReads: { ref: any; qty: number; snap: any }[] = [];
         for (const [pid, qty] of releases) {
           const ref = db.collection(`tenants/${tenantId}/inventory`).doc(pid);
@@ -170,22 +170,39 @@ export async function POST(req: NextRequest) {
         // Whatever stage it was cancelled from, the card gets back what it paid (never more: credit and gift cards
         // lowered the charge). A follow-up's items are added to anything already queued on it.
         const already = Number(order.pendingRefundCents) || 0;
-        const pending = follow ? followUpCancelCents(order, parent, payer) : cardRefundableCents(order);
+        const pending = follow ? followUpCancelCents(order, parent, payer) : plan!.pendingCents;
+        const now = new Date().toISOString();
 
         txn.update(orderRef, {
           stage: 'cancelled',
-          cancelledAt: new Date().toISOString(),
+          cancelledAt: now,
           cancelReason: reason ? `Customer: ${reason}` : 'Cancelled by customer',
           pendingRefundCents: follow ? already + pending : Math.max(pending, already),
           batchId: null, claimedBy: null, claimedByName: null,
         });
         const evRef = orderRef.collection('events').doc();
         txn.set(evRef, {
-          id: evRef.id, type: 'order_cancelled', at: new Date().toISOString(),
+          id: evRef.id, type: 'order_cancelled', at: now,
           actorId: 'customer', actorName: order.customerName || 'Customer',
           meta: { reason: reason || 'self-serve', pendingRefundCents: pending, ...(client ? { client } : {}) },
         });
-        return { status: 200, pending };
+        // Its follow-ups go with it. Anything already queued on one stays queued; their items are in this refund.
+        for (const f of plan?.cancel || []) {
+          const fRef = ordersCol.doc(String(f.id));
+          txn.update(fRef, {
+            stage: 'cancelled', cancelledAt: now,
+            cancelReason: `Cancelled with order #${order.orderNumber} by the customer`,
+            batchId: null, claimedBy: null, claimedByName: null,
+          });
+          const fEv = fRef.collection('events').doc();
+          txn.set(fEv, {
+            id: fEv.id, type: 'order_cancelled', at: now,
+            actorId: 'customer', actorName: order.customerName || 'Customer',
+            meta: { reason: `Cancelled with order #${order.orderNumber}`, pendingRefundCents: 0, ...(client ? { client } : {}) },
+          });
+        }
+        // A replacement for a lost parcel is refunded by the shop, not automatically: the first parcel may still turn up.
+        return { status: 200, pending, autoOk: !(follow && order.replacementFor === 'lost_in_transit') };
       });
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
@@ -212,7 +229,7 @@ export async function POST(req: NextRequest) {
        * the message already told them it is coming. */
       let refundedNow = false;
       const autoBelowC = Math.max(0, Number(polC.refundAutoBelowCents) || 0);
-      if (result.pending > 0 && autoBelowC > 0 && result.pending <= autoBelowC) {
+      if (result.autoOk && result.pending > 0 && autoBelowC > 0 && result.pending <= autoBelowC) {
         try {
           const rr = await fetch(`${req.nextUrl.origin}/api/retail/refund`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET || '') },

@@ -74,7 +74,9 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
       const r = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: p.orderId, qrToken: p.ref.qrToken || '' }) });
       const d = await r.json().catch(() => ({}));
       const over = Number(d.overCardCents) || 0;
-      feel(r.ok); onToast(r.ok ? `Refund sent. ${first} usually sees it in 5 to 10 days.${over > 0 ? ` The other ${money(over)} is more than the card has left to refund, so give it back as store credit.` : ''}` : d.error || 'The refund didn’t go through.');
+      feel(r.ok); onToast(!r.ok ? d.error || 'The refund didn’t go through.'
+        : d.recorded === false ? d.message
+        : `Refund sent. ${first} usually sees it in 5 to 10 days.${over > 0 ? ` The other ${money(over)} is more than the card has left to refund. If they paid part with a gift card or store credit, give that part back the same way.` : ''}`);
       if (r.ok) setRefund(null);
     } finally { setBusy(''); }
   };

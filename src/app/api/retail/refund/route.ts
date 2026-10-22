@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
   const internal = internalKey && body.reason === 'customer_cancel';
   const together = internalKey && body.reason === 'ship_together';
   let actor: { uid: string; name: string };
+  let limitFor: ((c: number) => ReturnType<typeof refundAllowed>) | null = null;
   if (together) {
     const pendingNow = Number(order.pendingRefundCents) || 0;
     if (!order.shippedWithOrderId || pendingNow <= 0 || pendingNow > Math.max(0, Number(order.shippingCents) || 0)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
@@ -98,15 +99,18 @@ export async function POST(req: NextRequest) {
   } else if (internal) {
     const autoBelow = Math.max(0, Number(tenant.retailSettings?.policies?.refundAutoBelowCents) || 0);
     const pendingNow = Number(order.pendingRefundCents) || 0;
-    if (order.stage !== 'cancelled' || autoBelow <= 0 || pendingNow <= 0 || pendingNow > autoBelow) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
+    // A replacement for a lost parcel is the shop's to refund: the first parcel may still turn up.
+    if (order.stage !== 'cancelled' || autoBelow <= 0 || pendingNow <= 0 || pendingNow > autoBelow || order.replacementFor === 'lost_in_transit') return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
     actor = { uid: 'customer', name: 'Customer cancellation (automatic)' };
   } else {
     const auth = await verifyStaffActor(req, tenantId);
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
     if (!auth.actor.caps?.includes('checkout.refund')) return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
-    // The owner's limit for this person's role (lib/money-limits), checked against what would be sent now.
-    const wouldSend = Math.min(Number(order.pendingRefundCents) || 0, room0);
-    const allowed = refundAllowed(tenant.retailSettings || {}, auth.actor as any, wouldSend);
+    // The owner's limit for this person's role (lib/money-limits), checked against what would be sent now, and again
+    // inside the claim below, against what really goes.
+    const staffActor = auth.actor as any;
+    limitFor = (c: number) => refundAllowed(tenant.retailSettings || {}, staffActor, c);
+    const allowed = limitFor(Math.min(Number(order.pendingRefundCents) || 0, room0));
     if (!allowed.ok) return NextResponse.json({ error: allowed.message, limitCents: allowed.limit }, { status: 403 });
     actor = auth.actor;
   }
@@ -122,117 +126,158 @@ export async function POST(req: NextRequest) {
     }, { status: 422 });
   }
 
-  // Claim the pending amount in a transaction, so two taps (or a claim approved at the same moment) can't
-  // double-send or erase each other. Each refund gets its own sequence number, which is also Stripe's
-  // duplicate-protection key: a retry of THIS refund replays it, a later refund of the same amount is new.
-  // A follow-up's refund holds the paying order as well, and every refund in the family checks it.
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
   const oRef = col.doc(orderId);
   const pRef = col.doc(payerId);
   const held = (l: any) => !!l && Date.parse(l.at || '') > Date.now() - 2 * 60000;
-  let cents = 0; let seq = 0; let overCard = 0;
+  let cents = 0; let seq = 0; let overCard = 0; let refundId = '';
   const mine = (l: any) => !!l && l.forOrderId === orderId && Number(l.seq) === seq;
-  try {
-    await db.runTransaction(async (tx: any) => {
-      const cur = (await tx.get(oRef)).data() || {};
-      const payer = follow ? { ...((await tx.get(pRef)).data() || {}), id: payerId } : { ...cur, id: orderId };
-      const family = (await followUpsOf((r: any) => tx.get(r), col, payerId)).map((f: any) => (f.id === orderId ? { ...cur, id: orderId } : f));
-      if (held(cur.refundInFlight) || (follow && held(payer.refundInFlight))) throw new Error('busy');
-      // Never more than the card can take back: anything paid by store credit or gift card is returned that way, and
-      // whatever has already gone back to the card for any order in the family is spoken for.
-      const pending = Number(cur.pendingRefundCents) || 0;
-      cents = Math.min(pending, familyRefundableCents(payer, family));
-      if (pending > 0 && cents <= 0) throw new Error('nocard');
-      if (cents <= 0) throw new Error('none');
-      overCard = pending - cents;
-      seq = (Number(cur.refundSeq) || 0) + 1;
-      const lock = { cents, seq, at: new Date().toISOString(), by: actor.uid };
-      tx.update(oRef, { refundInFlight: lock });
-      if (follow) tx.update(pRef, { refundInFlight: { ...lock, forOrderId: orderId } });
-    });
-  } catch (e: any) {
-    if (e?.message === 'busy') return NextResponse.json({ error: follow ? 'A refund for this customer’s order is already being sent. Give it a moment.' : 'A refund on this order is already being sent. Give it a moment.' }, { status: 409 });
-    if (e?.message === 'nocard') return NextResponse.json({ error: follow ? 'Everything paid by card on the original order is already refunded. Give the rest back as store credit.' : 'Everything paid by card is already refunded. Give the rest back as store credit.' }, { status: 409 });
-    if (e?.message === 'none') return NextResponse.json({ error: 'No refund is pending on this order.' }, { status: 409 });
-    return NextResponse.json({ error: 'Couldn’t start the refund. Try again.' }, { status: 500 });
+
+  // A REFUND THAT MAY HAVE GONE THROUGH WITHOUT BEING RECORDED: an earlier try claimed it under the next number and was
+  // cut off before writing it to the order (its hold has lapsed, the number unused). Stripe is asked first. A refund it
+  // made for this order and number is recorded as it is; when there is none, a new one goes out under a fresh number,
+  // so it can never be mistaken for the one that didn't happen.
+  let recordOnly = false; let floorSeq = 0;
+  const lapsed = order.refundInFlight;
+  if (lapsed && !held(lapsed) && Number(lapsed.seq) === (Number(order.refundSeq) || 0) + 1 && Number(lapsed.cents) > 0) {
+    let found: any = null;
+    try {
+      const list: any = await stripe.refunds.list({ payment_intent: piId, limit: 100 } as any, { stripeAccount: tenant.stripeAccountId });
+      found = (list?.data || []).find((r: any) => r?.metadata?.retailOrderId === orderId && String(r?.metadata?.seq || '') === String(lapsed.seq) && !['failed', 'canceled'].includes(String(r?.status || '')));
+    } catch {
+      return NextResponse.json({ error: 'Stripe couldn’t be checked for an earlier try at this refund. Try again in a moment.' }, { status: 502 });
+    }
+    if (found) { recordOnly = true; cents = Math.max(0, Math.round(Number(found.amount) || 0)); seq = Number(lapsed.seq); refundId = String(found.id || ''); }
+    else floorSeq = Number(lapsed.seq);
   }
 
-  // ── The refund itself ──────────────────────────────────────────────────────
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
-  let refundId = '';
-  try {
-    const refund = await stripe.refunds.create(
-      {
-        payment_intent: piId,
-        amount: cents,
-        reason: 'requested_by_customer',
-        metadata: { tenantId, retailOrderId: orderId, source: 'clarityflow_board', seq: String(seq), ...(follow ? { paidOnOrderId: payerId } : {}) },
-      },
-      {
-        stripeAccount: tenant.stripeAccountId,
-        idempotencyKey: `retail-refund-${orderId}-${seq}`,
-      },
-    );
-    refundId = String(refund.id || '');
-  } catch (e: any) {
+  if (!recordOnly) {
+    // Claim the pending amount in a transaction, so two taps (or a claim approved at the same moment) can't
+    // double-send or erase each other. Each refund gets its own sequence number, which is also Stripe's
+    // duplicate-protection key: a retry of THIS refund replays it, a later refund of the same amount is new.
+    // A follow-up's refund holds the paying order as well, and every refund in the family checks it.
+    let limitHit: { message: string; limit: number } | null = null;
     try {
       await db.runTransaction(async (tx: any) => {
-        const p = follow ? (await tx.get(pRef)).data() || {} : null;
-        tx.update(oRef, { refundInFlight: null });
-        if (p && mine(p.refundInFlight)) tx.update(pRef, { refundInFlight: null });
+        const cur = (await tx.get(oRef)).data() || {};
+        const payer = follow ? { ...((await tx.get(pRef)).data() || {}), id: payerId } : { ...cur, id: orderId };
+        const family = (await followUpsOf((r: any) => tx.get(r), col, payerId)).map((f: any) => (f.id === orderId ? { ...cur, id: orderId } : f));
+        if (held(cur.refundInFlight) || (follow && held(payer.refundInFlight))) throw new Error('busy');
+        // Never more than the card can take back: anything paid by store credit or gift card is returned that way, and
+        // whatever has already gone back to the card for any order in the family is spoken for.
+        const pending = Number(cur.pendingRefundCents) || 0;
+        cents = Math.min(pending, familyRefundableCents(payer, family));
+        if (pending > 0 && cents <= 0) throw new Error('nocard');
+        if (cents <= 0) throw new Error('none');
+        const allowed = limitFor ? limitFor(cents) : { ok: true as const };
+        if (!allowed.ok) { limitHit = { message: allowed.message, limit: allowed.limit }; throw new Error('limit'); }
+        overCard = pending - cents;
+        seq = Math.max((Number(cur.refundSeq) || 0) + 1, floorSeq + 1);
+        const lock = { cents, seq, at: new Date().toISOString(), by: actor.uid };
+        tx.update(oRef, { refundInFlight: lock });
+        if (follow) tx.update(pRef, { refundInFlight: { ...lock, forOrderId: orderId } });
       });
-    } catch { /* the locks expire on their own */ }
-    const msg = e?.raw?.message || e?.message || 'Stripe refused the refund.';
-    return NextResponse.json({ error: `Stripe: ${msg}` }, { status: 502 });
+    } catch (e: any) {
+      if (e?.message === 'busy') return NextResponse.json({ error: follow ? 'A refund for this customer’s order is already being sent. Give it a moment.' : 'A refund on this order is already being sent. Give it a moment.' }, { status: 409 });
+      if (e?.message === 'nocard') return NextResponse.json({ error: follow ? 'Everything paid by card on the original order has already gone back to it. If they paid part of it with a gift card or store credit, give that part back the same way.' : 'Everything paid by card is already refunded. Give the rest back as store credit.' }, { status: 409 });
+      if (e?.message === 'none') return NextResponse.json({ error: 'No refund is pending on this order.' }, { status: 409 });
+      if (e?.message === 'limit' && limitHit) return NextResponse.json({ error: (limitHit as any).message, limitCents: (limitHit as any).limit }, { status: 403 });
+      return NextResponse.json({ error: 'Couldn’t start the refund. Try again.' }, { status: 500 });
+    }
+
+    // ── The refund itself ──────────────────────────────────────────────────────
+    try {
+      const refund = await stripe.refunds.create(
+        {
+          payment_intent: piId,
+          amount: cents,
+          reason: 'requested_by_customer',
+          metadata: { tenantId, retailOrderId: orderId, source: 'clarityflow_board', seq: String(seq), ...(follow ? { paidOnOrderId: payerId } : {}) },
+        },
+        {
+          stripeAccount: tenant.stripeAccountId,
+          idempotencyKey: `retail-refund-${orderId}-${seq}`,
+        },
+      );
+      refundId = String(refund.id || '');
+    } catch (e: any) {
+      try {
+        await db.runTransaction(async (tx: any) => {
+          const p = follow ? (await tx.get(pRef)).data() || {} : null;
+          tx.update(oRef, { refundInFlight: null });
+          if (p && mine(p.refundInFlight)) tx.update(pRef, { refundInFlight: null });
+        });
+      } catch { /* the locks expire on their own */ }
+      const msg = e?.raw?.message || e?.message || 'Stripe refused the refund.';
+      return NextResponse.json({ error: `Stripe: ${msg}` }, { status: 502 });
+    }
   }
 
   // ── Closure — same shape as the board's manual markRefundExecuted, in a transaction: only what was sent
-  // comes off the pending amount, so anything queued meanwhile stays queued.
+  // comes off the pending amount, so anything queued meanwhile stays queued. Tried a few times: the money has moved,
+  // so it must be written down. A refund already written down under this number is left alone.
   const now = new Date().toISOString();
   const what = follow ? followUpLabel(order) : '';
   const evRef = oRef.collection('events').doc();
   const pEvRef = pRef.collection('events').doc();
   const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-  let left = 0;
-  await db.runTransaction(async (tx: any) => {
-    const cur = (await tx.get(oRef)).data() || {};
-    const p = follow ? (await tx.get(pRef)).data() || {} : null;
-    left = Math.max(0, (Number(cur.pendingRefundCents) || 0) - cents);
-    tx.update(oRef, {
-      pendingRefundCents: left,
-      refundedCents: (Number(cur.refundedCents) || 0) + cents,
-      refundSeq: seq, refundInFlight: null,
-      lastStripeRefundId: refundId,
-    });
-    if (p && mine(p.refundInFlight)) tx.update(pRef, { refundInFlight: null });
-    tx.set(evRef, {
-      id: evRef.id, type: 'refund_issued', at: now,
-      actorId: actor.uid, actorName: actor.name,
-      meta: {
-        amountCents: cents,
-        scope: follow ? (cur.stage === 'cancelled' ? 'full' : 'partial') : cents >= (Number(order.totalCents) || 0) ? 'full' : 'partial',
-        refundId,
-        text: follow
-          ? `Refund sent through Stripe by ${actor.name} to the card used on the original order (${refundId})`
-          : `Refund sent through Stripe by ${actor.name} (${refundId})`,
-        ...(follow ? { paidOnOrderId: payerId } : {}),
-      },
-    });
-    if (follow) {
-      tx.set(pEvRef, {
-        id: pEvRef.id, type: 'note', at: now,
-        actorId: actor.uid, actorName: actor.name,
-        meta: { kind: 'follow_up_refund', followUpOrderId: orderId, amountCents: cents, refundId, text: `${money(cents)} refunded to this order’s card for ${what} (${refundId})` },
+  let left = 0; let recorded = false; let already = false;
+  for (let attempt = 0; attempt < 3 && !recorded; attempt++) {
+    try {
+      await db.runTransaction(async (tx: any) => {
+        const cur = (await tx.get(oRef)).data() || {};
+        const p = follow ? (await tx.get(pRef)).data() || {} : null;
+        if ((Number(cur.refundSeq) || 0) >= seq) { already = true; return; }
+        left = Math.max(0, (Number(cur.pendingRefundCents) || 0) - cents);
+        tx.update(oRef, {
+          pendingRefundCents: left,
+          refundedCents: (Number(cur.refundedCents) || 0) + cents,
+          refundSeq: seq, refundInFlight: null,
+          lastStripeRefundId: refundId,
+        });
+        if (p && mine(p.refundInFlight)) tx.update(pRef, { refundInFlight: null });
+        tx.set(evRef, {
+          id: evRef.id, type: 'refund_issued', at: now,
+          actorId: actor.uid, actorName: actor.name,
+          meta: {
+            amountCents: cents,
+            scope: follow ? (cur.stage === 'cancelled' ? 'full' : 'partial') : cents >= (Number(order.totalCents) || 0) ? 'full' : 'partial',
+            refundId,
+            text: follow
+              ? `Refund sent through Stripe by ${actor.name} to the card used on the original order (${refundId})`
+              : `Refund sent through Stripe by ${actor.name} (${refundId})`,
+            ...(follow ? { paidOnOrderId: payerId } : {}),
+          },
+        });
+        if (follow) {
+          tx.set(pEvRef, {
+            id: pEvRef.id, type: 'note', at: now,
+            actorId: actor.uid, actorName: actor.name,
+            meta: { kind: 'follow_up_refund', followUpOrderId: orderId, amountCents: cents, refundId, text: `${money(cents)} refunded to this order’s card for ${what} (${refundId})` },
+          });
+        }
+        tx.set(txnRef, {
+          id: txnRef.id, date: now,
+          description: `Refund sent through Stripe — Order #${order.orderNumber}${follow ? ` (${what.replace(/^the /, '')})` : ''} · ${refundId}`,
+          clientOrVendor: order.customerName || 'Guest',
+          type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
+          amount: cents / 100, paymentMethod: 'Card (Online)', hasReceipt: true,
+          retailOrderId: orderId, ...(follow ? { paidOnOrderId: payerId } : {}), tenantId,
+        });
       });
+      recorded = true;
+    } catch {
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
     }
-    tx.set(txnRef, {
-      id: txnRef.id, date: now,
-      description: `Refund sent through Stripe — Order #${order.orderNumber}${follow ? ` (${what.replace(/^the /, '')})` : ''} · ${refundId}`,
-      clientOrVendor: order.customerName || 'Guest',
-      type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
-      amount: cents / 100, paymentMethod: 'Card (Online)', hasReceipt: true,
-      retailOrderId: orderId, ...(follow ? { paidOnOrderId: payerId } : {}), tenantId,
+  }
+  if (!recorded) {
+    return NextResponse.json({
+      ok: true, recorded: false, refundId, amountCents: cents,
+      message: `${money(cents)} has gone back through Stripe, but it couldn’t be saved on the order yet. Tap send again in two minutes to record it. It won’t be sent twice.`,
     });
-  });
+  }
+  if (already) return NextResponse.json({ ok: true, refundId, amountCents: cents, leftCents: Number(order.pendingRefundCents) || 0, overCardCents: 0, message: 'That refund was already recorded on the order.' });
+
   // Loyalty: a refund takes back the points those products earned (lib/loyalty-server), on the sale that earned them.
   try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: `order_${payerId}`, refundCents: cents, refundId, by: 'Refund' }); } catch { /* best effort */ }
 
@@ -269,11 +314,13 @@ export async function POST(req: NextRequest) {
     } catch { /* the refund stands; the order page shows it regardless */ }
   }
 
-  const sent = follow
-    ? `${money(cents)} has been refunded through Stripe to the card used on the original order. It will appear with the customer's bank within 5 to 10 business days.`
-    : `${money(cents)} has been refunded through Stripe. It will appear with the customer's bank within 5 to 10 business days.`;
+  const sent = recordOnly
+    ? `${money(cents)} had already gone back through Stripe, and it's recorded on the order now.`
+    : follow
+      ? `${money(cents)} has been refunded through Stripe to the card used on the original order. It will appear with the customer's bank within 5 to 10 business days.`
+      : `${money(cents)} has been refunded through Stripe. It will appear with the customer's bank within 5 to 10 business days.`;
   return NextResponse.json({
     ok: true, refundId, amountCents: cents, leftCents: left, overCardCents: overCard,
-    message: overCard > 0 ? `${sent} The other ${money(overCard)} is more than the card has left to refund, so give it back as store credit.` : sent,
+    message: overCard > 0 ? `${sent} The other ${money(overCard)} is more than the card has left to refund. If they paid part of the order with a gift card or store credit, give that part back the same way.` : sent,
   });
 }
