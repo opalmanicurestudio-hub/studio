@@ -94,14 +94,18 @@ export async function releaseHold(db: any, tenantId: string, id: string, holdId:
   await ref.update({ [`holds.${holdId}`]: FieldValue.delete() }).catch(() => {});
 }
 
-/** Spend from a card (at checkout, inside the sale). Uses the hold made for this checkout first. */
-export async function spendGiftCard(db: any, tenantId: string, o: { id: string; cents: number; holdId?: string | null; by: string; transactionRef?: string | null; appointmentId?: string | null; clientId?: string | null; locationId?: string | null }) {
+/** Spend from a card (at checkout, inside the sale). Uses the hold made for this checkout first. With `record` (an
+ *  online order's record of what it took, lib/non-card-back), the spend is written there in the same step, and a spend
+ *  already written there is never made again (a retry gets the first one back, `already`). */
+export async function spendGiftCard(db: any, tenantId: string, o: { id: string; cents: number; holdId?: string | null; by: string; transactionRef?: string | null; appointmentId?: string | null; clientId?: string | null; locationId?: string | null; record?: any }) {
   const ref = db.doc(`${T(tenantId)}/giftCards/${o.id}`);
-  const out: any = await spendTx(db, ref, o); if (out?.ok) void ref.get().then((d: any) => syncClientGift(db, tenantId, d.data()?.recipientId)).catch(() => {}); return out;
+  const out: any = await spendTx(db, ref, o); if (out?.ok && !out.already) void ref.get().then((d: any) => syncClientGift(db, tenantId, d.data()?.recipientId)).catch(() => {}); return out;
 }
 async function spendTx(db: any, ref: any, o: any) {
   return db.runTransaction(async (tx: any) => {
     const cur: any = (await tx.get(ref)).data(); if (!cur) return { ok: false as const, error: 'That gift card wasn’t found.' };
+    const rec: any = o.record ? (await tx.get(o.record)).data() || null : null;
+    if (rec && Number(rec.giftCents) > 0) return { ok: true as const, cents: Math.round(Number(rec.giftCents)), balanceAfter: Number(cur.balanceCents) || 0, code: cur.code, already: true };
     if (cur.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
     if (cur.expiresAt && Date.parse(cur.expiresAt) < Date.now()) return { ok: false as const, error: `Gift card ${cur.code} has expired.` };
     const want = Math.round(Number(o.cents) || 0); if (want <= 0) return { ok: true as const, cents: 0 };
@@ -109,6 +113,7 @@ async function spendTx(db: any, ref: any, o: any) {
     const bal = (Number(cur.balanceCents) || 0) - want; const holds = { ...(cur.holds || {}) }; if (o.holdId) delete holds[o.holdId];
     tx.update(ref, { balanceCents: bal, status: bal > 0 ? 'active' : 'used', lastUsedAt: now(), holds, recipientId: cur.recipientId || o.clientId || null,
       history: [...(cur.history || []).slice(-80), { at: now(), type: 'spend', cents: -want, balanceAfter: bal, by: o.by, ...(o.transactionRef ? { ref: o.transactionRef } : {}), ...(o.appointmentId ? { appointmentId: o.appointmentId } : {}), ...(o.locationId ? { locationId: o.locationId } : {}) }] });
+    if (o.record) tx.set(o.record, { at: now(), giftCents: want, giftCardId: ref.id }, { merge: true });
     return { ok: true as const, cents: want, balanceAfter: bal, code: cur.code };
   });
 }

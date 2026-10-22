@@ -91,10 +91,19 @@ export async function openReturn(
   }
 
   const lines: ReturnLine[] = [];
+  // What's already on its way back or reported: if it can't be read, no return is started, so an item can't be
+  // returned twice, or returned and refunded for a problem too.
   let openReturns: any[] = [];
-  try { openReturns = (await getDocs(query(returnCol(fs, tenantId), where('orderId', '==', order.id), limit(50)))).docs.map((d) => d.data()); } catch { /* none counted */ }
   let claims: any[] = [];
-  try { claims = (await getDocs(query(collection(fs, `tenants/${tenantId}/retailClaims`), where('orderId', '==', order.id), limit(30)))).docs.map((d) => d.data()); } catch { /* none counted */ }
+  try {
+    const [rs, cs] = await Promise.all([
+      getDocs(query(returnCol(fs, tenantId), where('orderId', '==', order.id), limit(50))),
+      getDocs(query(collection(fs, `tenants/${tenantId}/retailClaims`), where('orderId', '==', order.id), limit(30))),
+    ]);
+    openReturns = rs.docs.map((d) => d.data()); claims = cs.docs.map((d) => d.data());
+  } catch {
+    return { ok: false, message: 'Couldn’t check this order’s other returns and reported problems just now. Try again in a moment.' };
+  }
   for (const sel of selections.filter((s) => s.qty > 0)) {
     const orig = order.lines.find((l) => l.lineId === sel.lineId);
     if (!orig) return { ok: false, message: 'Line not found on the order.' };

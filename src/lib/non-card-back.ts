@@ -96,11 +96,11 @@ export function giveBackLine(o: any, g: NonCard): string {
 /** The sale was booked as income (through the card payment), so what goes back by gift card or credit is a refund too. */
 export const saleBooked = (o: any): boolean => !!(o?.stripeCheckoutSessionId || o?.stripePaymentIntentId);
 
-// ── THE SERVER'S OWN RECORD of what an order took by gift card and store credit, written the moment it's taken
-// (lib/retail-webhook, api/retail/checkout) somewhere no browser can write (tenants/{t}/private/...). What goes back is
-// worked out from it, not from the order's own fields: an order made in a browser can't claim a gift card it never
-// used. An order from before the record was kept is read from its own fields.
-const RECORDS_FROM = Date.parse('2026-10-23T12:00:00Z');
+// ── THE SERVER'S OWN RECORD of what an order took by gift card and store credit, written in the same step as the money
+// is taken (lib/gift-cards spendGiftCard, lib/retail-webhook, api/retail/checkout), somewhere no browser can write
+// (tenants/{t}/private/...). What goes back is worked out from it alone, never from the order's own fields: an order
+// made in a browser can't claim a gift card or store credit it never used. An order paid before the record was kept
+// gets one from what only the server writes (lib/non-card-record) before anything goes back.
 export const nonCardRecordRef = (db: any, t: string, orderId: string) => db.doc(`tenants/${t}/private/nonCardPaid/orders/${orderId}`);
 
 /** Records what the server just took for an order (in `tx` when given). */
@@ -112,17 +112,14 @@ export async function recordNonCard(db: any, t: string, orderId: string, part: {
   if (tx) tx.set(ref, v, { merge: true }); else await ref.set(v, { merge: true });
 }
 
-/** The order as far as its gift card and store credit go: from the server's record when there is one; from its own
- *  fields when it was made before the record was kept; and nothing paid that way when it was made since with none.
- *  `get` is the database's own (a transaction's, inside one), `snap` the order's snapshot (for when it was made). */
-export async function withNonCardRecord(get: (r: any) => Promise<any>, db: any, t: string, orderId: string, snap: any, o: any): Promise<any> {
-  let rec: any = null;
-  try { const r = await get(nonCardRecordRef(db, t, orderId)); rec = r?.exists ? r.data() || {} : null; } catch { rec = null; }
-  if (rec) {
-    const gift = c0(rec.giftCents); const credit = c0(rec.creditCents);
-    return { ...o, giftCardId: rec.giftCardId || o?.giftCardId || null, giftCardCents: gift, giftSpentAt: gift > 0 ? o?.giftSpentAt || rec.at : null, storeCreditRequestedCents: credit, creditShortfallCents: 0 };
-  }
-  const t0 = snap?.createTime?.toMillis?.();
-  if (!Number.isFinite(t0) || t0 < RECORDS_FROM) return o;
-  return { ...o, giftSpentAt: null, giftCardCents: 0, storeCreditRequestedCents: 0, creditShortfallCents: null };
+/** The order as far as its gift card and store credit go: each part as the server's record has it, and a part it
+ *  doesn't have was not paid that way. `get` is the database's own (a transaction's, inside one). */
+export async function withNonCardRecord(get: (r: any) => Promise<any>, db: any, t: string, orderId: string, o: any): Promise<any> {
+  const r = await get(nonCardRecordRef(db, t, orderId));
+  const rec: any = r?.exists ? r.data() || {} : {};
+  const gift = c0(rec.giftCents); const credit = c0(rec.creditCents);
+  return {
+    ...o, giftCardId: (gift > 0 && rec.giftCardId) || o?.giftCardId || null, giftCardCents: gift, giftSpentAt: gift > 0 ? o?.giftSpentAt || rec.at || iso() : null,
+    storeCreditRequestedCents: credit, creditShortfallCents: 0,
+  };
 }

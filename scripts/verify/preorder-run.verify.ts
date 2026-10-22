@@ -86,6 +86,7 @@ const ord = (id: string, lines: any[], x: any = {}) => {
     await d.doc(`${T}/giftCards/g1`).set({ id: 'g1', code: 'GIFT-1234', balanceCents: 0, status: 'active', history: [] });
     // $38.24 order: $28.24 on the card, $10 on the gift card.
     await d.doc(`${T}/retailOrders/z3`).set(ord('z3', [KIT(2)], { chargedCents: 2824, giftCardId: 'g1', giftCardCode: 'GIFT-1234', giftCardCents: 1000, giftSpentAt: '2026-10-01T10:00:00Z' }));
+    await d.doc(`${T}/private/nonCardPaid/orders/z3`).set({ at: '2026-10-01T10:00:00Z', giftCents: 1000, giftCardId: 'g1' });
   });
   r = await runPOST(req({ tenantId: 't1', productId: 'kit', reason: '' }));
   const z3 = await get(`${T}/retailOrders/z3`);

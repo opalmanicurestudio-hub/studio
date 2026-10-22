@@ -14,6 +14,11 @@ export async function POST(req: NextRequest) {
   if (!tenantId || !orderId) return NextResponse.json({ error: 'Missing details.' }, { status: 400 });
   const auth = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  const r = await restoreNonCardPayment(getAdminDb(), tenantId, orderId, auth.actor.name);
-  return NextResponse.json({ ok: true, ...r });
+  try {
+    const r = await restoreNonCardPayment(getAdminDb(), tenantId, orderId, auth.actor.name);
+    return NextResponse.json({ ok: true, ...r });
+  } catch {
+    // Nothing went back: the nightly check tries again.
+    return NextResponse.json({ error: 'The gift card or store credit couldn’t be given back just now. It will be tried again tonight.' }, { status: 503 });
+  }
 }

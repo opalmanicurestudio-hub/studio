@@ -24,9 +24,14 @@ export async function retailNightlyForShop(db: any, tenantId: string, tenant: an
   try {
     const since = new Date(Date.now() - 30 * 86400e3).toISOString();
     const co = await db.collection(`tenants/${tenantId}/retailOrders`).where('cancelledAt', '>=', since).limit(500).get();
-    let n = 0;
-    for (const d of co.docs) { const o: any = d.data() || {}; if (o.stage === 'cancelled' && !o.nonCardRestoredAt && roomCents(o) > 0) { const r = await restoreNonCardPayment(db, tenantId, d.id, 'Nightly check'); if (r.giftCents + r.creditCents > 0) n++; } }
-    if (n) out.nonCardRestored = { orders: n };
+    let n = 0; let waiting = 0;
+    for (const d of co.docs) {
+      const o: any = d.data() || {};
+      if (o.stage !== 'cancelled' || o.nonCardRestoredAt || roomCents(o) <= 0) continue;
+      // One that can't be checked tonight (Stripe didn't answer) is tried again tomorrow, without holding up the rest.
+      try { const r = await restoreNonCardPayment(db, tenantId, d.id, 'Nightly check'); if (r.giftCents + r.creditCents > 0) n++; } catch { waiting++; }
+    }
+    if (n || waiting) out.nonCardRestored = { orders: n, ...(waiting ? { waiting } : {}) };
   } catch (e) { out.nonCardRestored = err(e); }
   try { const cr = await closeStaleReturns(db, tenantId, tenant); if (cr > 0) out.returnsClosed = { closed: cr }; } catch (e) { out.returnsClosed = err(e); }
   try { const ex = await alertExpiringStock(db, tenantId); if (ex > 0) out.expiry = { alerts: ex }; } catch (e) { out.expiry = err(e); }

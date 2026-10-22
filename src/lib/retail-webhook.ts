@@ -310,14 +310,17 @@ export async function handleRetailOrderPaid(
   const giftCents = Math.max(0, Number((order as any).giftCardCents) || 0);
   if (giftCents > 0 && (order as any).giftCardId && !(order as any).giftSpentAt) {
     try { const { spendGiftCard, notifyGiftUse } = await import('@/lib/gift-cards');
-      const r: any = await spendGiftCard(db, tenantId, { id: String((order as any).giftCardId), cents: giftCents, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: session.id });
-      const ev = orderRef.collection('events').doc();
-      await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'system', actorName: 'Gift card',
-        meta: { text: r.ok ? `Gift card ${(order as any).giftCardCode} — $${(giftCents / 100).toFixed(2)} redeemed` : `Gift card ${(order as any).giftCardCode} couldn’t be charged ($${(giftCents / 100).toFixed(2)}): ${r.error} — needs a look` } });
+      const { nonCardRecordRef } = await import('@/lib/non-card-back');
+      // Written down where only the server writes, in the same step as the spend (lib/non-card-back): what a refund or
+      // cancellation gives back. A spend already written down for the order isn't made again.
+      const r: any = await spendGiftCard(db, tenantId, { id: String((order as any).giftCardId), cents: giftCents, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: session.id, record: nonCardRecordRef(db, tenantId, orderId) });
+      if (!r.already) {
+        const ev = orderRef.collection('events').doc();
+        await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'system', actorName: 'Gift card',
+          meta: { text: r.ok ? `Gift card ${(order as any).giftCardCode} — $${(giftCents / 100).toFixed(2)} redeemed` : `Gift card ${(order as any).giftCardCode} couldn’t be charged ($${(giftCents / 100).toFixed(2)}): ${r.error} — needs a look` } });
+      }
       await orderRef.set(r.ok ? { giftSpentAt: new Date().toISOString() } : { giftShortfallCents: giftCents }, { merge: true });
-      // What it really took, where only the server writes (lib/non-card-back): what a refund or cancellation gives back.
-      if (r.ok) { try { const { recordNonCard } = await import('@/lib/non-card-back'); await recordNonCard(db, tenantId, orderId, { giftCents, giftCardId: String((order as any).giftCardId) }); } catch { /* its own fields still say */ } }
-      if (r.ok) void notifyGiftUse(db, tenantId, String((order as any).giftCardId), giftCents).catch(() => {});
+      if (r.ok && !r.already) void notifyGiftUse(db, tenantId, String((order as any).giftCardId), giftCents).catch(() => {});
     } catch (e: any) { console.error('[retail-webhook] gift card spend failed:', e?.message); }
   }
   const requestedCredit = Math.max(0, Number((order as any).storeCreditRequestedCents) || 0);

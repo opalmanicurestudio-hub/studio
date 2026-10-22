@@ -2,7 +2,8 @@
 // (lib/order-family followUpCancelCents with the family): it still gives back what it was kept back for, and nothing
 // more than the family holds. Also: orders made from a replacement for a lost parcel stay part of that replacement;
 // a missing-item report on a parcel already replaced goes to the replacement; a pre-order run is cancelled only by
-// someone allowed to refund; and a return the team starts can't take items a customer has reported.
+// someone allowed to refund; and a return the team starts can't take items a customer has reported, nor start when
+// those can't be read.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/family-cancel.verify.ts
 import Module from 'module';
 import { makeDb, check, failures } from './fake-db';
@@ -20,9 +21,9 @@ const web: any = {
   getDoc: async (r: any) => webSnap(await db.doc(r.path).get(), r),
   query: (c: any, ...cons: any[]) => ({ __q: true, path: c.path, cons }),
   where: (k: string, op: string, v: any) => ({ t: 'where', k, op, v }), limit: (n: number) => ({ t: 'limit', n }), orderBy: () => ({ t: 'orderBy' }),
-  getDocs: async (q: any) => { let c: any = db.collection(q.path); for (const x of q.cons || []) { if (x?.t === 'where') c = c.where(x.k, x.op, x.v); if (x?.t === 'limit') c = c.limit(x.n); } const s = await c.get(); return { docs: s.docs.map((d: any) => ({ id: d.id, data: () => d.data(), exists: () => true })), empty: s.empty, size: s.size }; },
+  getDocs: async (q: any) => { if (claimsDown && /retailClaims$/.test(q.path)) throw new Error('unavailable'); let c: any = db.collection(q.path); for (const x of q.cons || []) { if (x?.t === 'where') c = c.where(x.k, x.op, x.v); if (x?.t === 'limit') c = c.limit(x.n); } const s = await c.get(); return { docs: s.docs.map((d: any) => ({ id: d.id, data: () => d.data(), exists: () => true })), empty: s.empty, size: s.size }; },
 };
-let canRefund = true;
+let canRefund = true; let claimsDown = false;
 const M: any = Module as any;
 const load = M._load;
 M._load = function (request: string, ...rest: any[]) {
@@ -105,6 +106,11 @@ const lampBo = (x: any = {}) => ({ id: 'f1', tenantId: 't1', orderNumber: 1140, 
   });
   const ro: any = await RR.openReturn(webFs, 't1', { ...(await get(`${T}/retailOrders/o9`)), id: 'o9' } as any, [{ lineId: 'G', qty: 1, reason: 'damaged_in_transit' } as any], 'refund' as any, '', staff);
   check('a return the team starts can’t take a polish the customer has reported: decide it in Claims', !ro.ok && /Claims/.test(ro.message), ro);
+  await db.doc(`${T}/retailClaims/c9`).delete();
+  claimsDown = true;
+  const ro2: any = await RR.openReturn(webFs, 't1', { ...(await get(`${T}/retailOrders/o9`)), id: 'o9' } as any, [{ lineId: 'G', qty: 1, reason: 'damaged_in_transit' } as any], 'refund' as any, '', staff);
+  claimsDown = false;
+  check('…and when the reported problems can’t be read, no return is started: try again', !ro2.ok && /Try again/.test(ro2.message) && (await db.collection(`${T}/retailReturns`).get()).size === 0, ro2);
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

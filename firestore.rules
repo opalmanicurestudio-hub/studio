@@ -620,7 +620,7 @@ service cloud.firestore {
               'orderNumber', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq', 'lastStripeRefundId',
               'riskCheck', 'holdAuto', 'idCheck', 'swapOffer', 'swapPendingPhone', 'giftSpentAt', 'giftCardCents', 'giftCardId',
               'storeCreditRequestedCents', 'creditShortfallCents', 'nonCardRestoredAt', 'nonCardRestored', 'isTest', 'policySnapshot',
-              'refundedOtherCents', 'autoRefundedCents'];
+              'refundedOtherCents'];
     }
     // What a new order from the browser may never carry: those follow-ups have no payment of their own, so nothing about
     // a payment, a gift card or store credit, or a refund already made can be set on one. Only checkout on the server
@@ -629,7 +629,7 @@ service cloud.firestore {
       return ['chargedCents', 'tipCents', 'clientId', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq',
               'lastStripeRefundId', 'riskCheck', 'holdAuto', 'idCheck', 'swapOffer', 'swapPendingPhone', 'giftSpentAt', 'giftCardCents',
               'giftCardId', 'giftCardCode', 'storeCreditRequestedCents', 'creditShortfallCents', 'creditAppliedCents', 'nonCardRestoredAt',
-              'nonCardRestored', 'refundedOtherCents', 'autoRefundedCents', 'paidVia', 'isTest', 'policySnapshot'];
+              'nonCardRestored', 'refundedOtherCents', 'paidVia', 'isTest', 'policySnapshot'];
     }
     match /tenants/{tenantId}/retailOrders/{orderId} {
       allow read: if isTeam(tenantId);

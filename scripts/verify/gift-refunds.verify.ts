@@ -1,8 +1,10 @@
 // Checks refunds on orders paid partly or wholly by gift card or store credit (api/retail/refund, lib/non-card-back).
 // The card gets back what it can; the rest goes back onto the gift card the order used (or as store credit when that
 // card is gone), or as store credit for what store credit paid, never more than was paid that way, counted once on the
-// paying order so a later refund or cancellation can't give it again. Also the shop's automatic amount: who may send a
-// refund under it, and that it's checked inside the claim.
+// paying order so a later refund or cancellation can't give it again. What was paid that way is the server's own record
+// of it; an order paid before that record was kept is matched to the gift card's own history (the payment page checked
+// with Stripe) or to store credit the server marked used on it, and a made-up one gives nothing back. Also the shop's
+// automatic amount: who may send a refund under it, and that it's checked inside the claim.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/gift-refunds.verify.ts
 import Module from 'module';
 import { makeDb, check, failures } from './fake-db';
@@ -10,9 +12,18 @@ import { makeDb, check, failures } from './fake-db';
 let db = makeDb();
 let actor: any = { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: ['checkout.refund'] };
 const stripeCalls: any[] = []; const stripeMade: any[] = [];
+// Stripe's payment pages, by id, and the times one was asked for.
+let pages: Record<string, any> = {}; const pageAsks: string[] = []; let pagesDown = false;
 
 function StripeMock(this: any) {
-  return { refunds: {
+  return { checkout: { sessions: {
+    retrieve: async (id: string, _p: any, opts: any) => {
+      pageAsks.push(`${id}@${opts?.stripeAccount}`);
+      if (pagesDown) throw Object.assign(new Error('timeout'), { type: 'StripeConnectionError' });
+      if (!pages[id]) throw Object.assign(new Error('No such checkout.session'), { type: 'StripeInvalidRequestError', statusCode: 404, code: 'resource_missing' });
+      return pages[id];
+    },
+  } }, refunds: {
     create: async (params: any, opts: any) => {
       stripeCalls.push({ params, opts });
       const r = { id: `re_${stripeCalls.length}`, amount: params.amount, metadata: params.metadata, status: 'succeeded', payment_intent: params.payment_intent };
@@ -54,7 +65,10 @@ const mixed = (x: any = {}) => ({ id: 'm1', tenantId: 't1', orderNumber: 1050, s
     await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
     await db.doc(`${T}/giftCards/g1`).set({ id: 'g1', code: 'GIFT-1234', balanceCents: 500, status: 'active', recipientId: 'cl1', history: [] });
     await db.doc(`${T}/retailOrders/m1`).set(mixed());
+    // What the server wrote down when it took the $15 off the gift card.
+    await db.doc(`${T}/private/nonCardPaid/orders/m1`).set({ at: '2026-10-20T15:00:00Z', giftCents: 1500, giftCardId: 'g1' });
     await db.doc(`${T}/loyaltyLedger/earn_order_m1`).set({ clientId: 'cl1', type: 'earn', points: 40, basisCents: 4000, saleId: 'order_m1' });
+    pages = {}; pageAsks.length = 0; pagesDown = false;
     await setup(db);
   };
   const send = (orderId = 'm1', qrToken = 'qrM', extra: any = {}, headers: Record<string, string> = {}) => POST(req({ tenantId: 't1', orderId, qrToken, ...extra }, headers)) as any;
@@ -96,6 +110,7 @@ const mixed = (x: any = {}) => ({ id: 'm1', tenantId: 't1', orderNumber: 1050, s
     await d.doc(T).set({ name: 'Opal', retailSettings: {} });
     await d.doc(`${T}/giftCards/g2`).set({ id: 'g2', code: 'GIFT-5678', balanceCents: 0, status: 'active', history: [] });
     await d.doc(`${T}/retailOrders/a1`).set({ id: 'a1', tenantId: 't1', orderNumber: 1051, stage: 'completed', totalCents: 2000, giftCardId: 'g2', giftCardCode: 'GIFT-5678', giftCardCents: 2000, giftSpentAt: '2026-10-20T15:00:00Z', paidVia: 'gift_card', qrToken: 'qrA', customerEmail: 'sam@example.com', customerName: 'Sam Lee', pendingRefundCents: 2000 });
+    await d.doc(`${T}/private/nonCardPaid/orders/a1`).set({ at: '2026-10-20T15:00:00Z', giftCents: 2000, giftCardId: 'g2' });
   });
   r = await send('a1', 'qrA');
   o = await get(`${T}/retailOrders/a1`);
@@ -113,6 +128,7 @@ const mixed = (x: any = {}) => ({ id: 'm1', tenantId: 't1', orderNumber: 1050, s
   // ── Store credit ──
   await fresh(async (d) => {
     await d.doc(`${T}/retailOrders/s1`).set({ id: 's1', tenantId: 't1', orderNumber: 1053, stage: 'completed', totalCents: 3000, chargedCents: 1000, storeCreditRequestedCents: 2000, creditShortfallCents: 0, stripePaymentIntentId: 'pi_S', qrToken: 'qrS', customerEmail: 'Ana@Example.com', customerName: 'Ana Ruiz', clientId: 'cl9', pendingRefundCents: 3000 });
+    await d.doc(`${T}/private/nonCardPaid/orders/s1`).set({ at: '2026-10-20T15:00:00Z', creditCents: 2000 });
   });
   r = await send('s1', 'qrS');
   const cr = (await all(`${T}/depositCredits`)).filter((c: any) => c.sourceRetailOrderId === 's1');
@@ -126,6 +142,7 @@ const mixed = (x: any = {}) => ({ id: 'm1', tenantId: 't1', orderNumber: 1050, s
   check('store credit that comes back takes no points back (it earned none)', r.status === 200 && r.body.otherCents === 500 && (await all(`${T}/loyaltyLedger`)).every((x: any) => !x.id.startsWith('rev_')), await all(`${T}/loyaltyLedger`));
   await fresh(async (d) => {
     await d.doc(`${T}/retailOrders/s2`).set({ id: 's2', tenantId: 't1', orderNumber: 1054, stage: 'completed', totalCents: 3000, chargedCents: 1000, storeCreditRequestedCents: 2000, creditShortfallCents: 2000, stripePaymentIntentId: 'pi_S2', qrToken: 'qrS2', customerEmail: 'ana@example.com', pendingRefundCents: 3000 });
+    await d.doc(`${T}/private/nonCardPaid/orders/s2`).set({ at: '2026-10-20T15:00:00Z', creditCents: 0 });
   });
   r = await send('s2', 'qrS2');
   check('store credit that was never really there (all of it short) doesn’t come back', r.status === 200 && r.body.otherCents === 0 && r.body.overCardCents === 2000 && (await all(`${T}/depositCredits`)).length === 0, r.body);
@@ -202,6 +219,90 @@ const mixed = (x: any = {}) => ({ id: 'm1', tenantId: 't1', orderNumber: 1050, s
   await fresh(async () => { await autoShop(5000); });
   r = await send('m1', 'qrM', { reason: 'policy' }, { 'x-internal-key': 'wrong' });
   check('a wrong server key is just a team member’s tap (here: allowed to refund, so it goes as theirs)', r.status === 200 && (await all(`${T}/retailOrders/m1/events`)).find((e: any) => e.type === 'refund_issued')?.actorName === 'Rae Moss', r.body);
+
+  // ── Paid before the server kept its record: matched to what only the server writes ──
+  const legacy = (id: string, x: any = {}) => ({ id, tenantId: 't1', orderNumber: 990, stage: 'completed', method: 'ship', lines: [], subtotalCents: 4000, taxCents: 0, totalCents: 4000, chargedCents: 2500, refundedCents: 0,
+    stripePaymentIntentId: `pi_${id}`, stripeCheckoutSessionId: `cs_${id}`, giftCardId: 'gL', giftCardCode: 'GIFT-9000', giftCardCents: 1500, giftSpentAt: '2026-10-05T15:00:00Z',
+    qrToken: `qr${id}`, customerEmail: 'lee@example.com', customerName: 'Lee Grant', pendingRefundCents: 3000, ...x });
+  const sendL = (id: string) => POST(req({ tenantId: 't1', orderId: id, qrToken: `qr${id}` })) as any;
+  await fresh(async (d) => {
+    await d.doc(`${T}/giftCards/gL`).set({ id: 'gL', code: 'GIFT-9000', balanceCents: 0, status: 'active', history: [{ at: '2026-10-05T15:00:00Z', type: 'spend', cents: -1500, balanceAfter: 0, by: 'Online shop', ref: 'cs_L1' }] });
+    await d.doc(`${T}/retailOrders/L1`).set(legacy('L1'));
+  });
+  pages = { cs_L1: { id: 'cs_L1', metadata: { type: 'retail_order', retailOrderId: 'L1', tenantId: 't1' } } };
+  r = await sendL('L1');
+  let rec = await get(`${T}/private/nonCardPaid/orders/L1`);
+  check('an order paid by card and gift card before the record was kept: the gift card’s own history (its payment page checked with Stripe) shows the $15, so $25 goes to the card and $5 back on the gift card',
+    r.status === 200 && r.body.cardCents === 2500 && r.body.otherCents === 500 && (await get(`${T}/giftCards/gL`)).balanceCents === 500 && rec?.giftCents === 1500 && rec?.giftCardId === 'gL' && pageAsks.join() === 'cs_L1@acct_1', { r: r.body, rec, pageAsks });
+  await db.doc(`${T}/retailOrders/L1`).set({ pendingRefundCents: 500 }, { merge: true });
+  r = await sendL('L1');
+  check('…recorded once: the next refund reads the record and asks Stripe nothing more', r.status === 200 && r.body.otherCents === 500 && pageAsks.length === 1, { r: r.body, pageAsks });
+
+  // Paid all by gift card at checkout: the order is made, and its gift card charged a moment later, marked with it.
+  await fresh(async (d) => {
+    await d.doc(`${T}/retailOrders/L2`).set(legacy('L2', { chargedCents: 0, stripePaymentIntentId: null, stripeCheckoutSessionId: null, totalCents: 2000, giftCardCents: 2000, paidVia: 'gift_card', pendingRefundCents: 2000 }));
+    await d.doc(`${T}/giftCards/gL`).set({ id: 'gL', code: 'GIFT-9000', balanceCents: 0, status: 'active', history: [{ at: new Date(Date.now() + 1000).toISOString(), type: 'spend', cents: -2000, balanceAfter: 0, by: 'Online shop', ref: 'L2' }] });
+  });
+  r = await sendL('L2');
+  check('…one paid all by gift card at checkout: its spend is marked with the order, so it’s found without Stripe and the $20 goes back',
+    r.status === 200 && r.body.otherCents === 2000 && (await get(`${T}/giftCards/gL`)).balanceCents === 2000 && pageAsks.length === 0, { r: r.body, pageAsks });
+  // The same, but the order's own note that its gift card was charged never got written.
+  await fresh(async (d) => {
+    await d.doc(`${T}/retailOrders/L4`).set(legacy('L4', { chargedCents: 0, stripePaymentIntentId: null, stripeCheckoutSessionId: null, totalCents: 2000, giftCardCents: 2000, giftSpentAt: null, paidVia: 'gift_card', pendingRefundCents: 2000 }));
+    await d.doc(`${T}/giftCards/gL`).set({ id: 'gL', code: 'GIFT-9000', balanceCents: 0, status: 'active', history: [{ at: new Date(Date.now() + 1000).toISOString(), type: 'spend', cents: -2000, balanceAfter: 0, by: 'Online shop', ref: 'L4' }] });
+  });
+  r = await sendL('L4');
+  check('…and one whose own note that the gift card was charged never got written: the charge on the gift card is found, and the $20 goes back',
+    r.status === 200 && r.body.otherCents === 2000 && (await get(`${T}/giftCards/gL`)).balanceCents === 2000, r.body);
+  // Made up in a browser, given the id that a visit's gift card payment yesterday was marked with.
+  await fresh(async (d) => {
+    await d.doc(`${T}/giftCards/gL`).set({ id: 'gL', code: 'GIFT-9000', balanceCents: 0, status: 'active', history: [{ at: new Date(Date.now() - 86400e3).toISOString(), type: 'spend', cents: -2500, balanceAfter: 0, by: 'Front desk', ref: 'pos123' }] });
+    await d.doc(`${T}/retailOrders/pos123`).set(legacy('pos123', { chargedCents: 0, stripePaymentIntentId: null, stripeCheckoutSessionId: null, totalCents: 0, giftCardCents: 2500, paidVia: 'gift_card', pendingRefundCents: 2500 }));
+  });
+  r = await sendL('pos123');
+  check('…but an order made up later under the id another gift card payment was marked with gets nothing: that spend came before it existed',
+    r.status >= 400 && /couldn’t be matched/.test(r.body.error) && (await get(`${T}/giftCards/gL`)).balanceCents === 0, r.body);
+
+  // Made up in a browser: claims a $15 gift card payment and points at another order's payment page.
+  await fresh(async (d) => {
+    await d.doc(`${T}/giftCards/gL`).set({ id: 'gL', code: 'GIFT-9000', balanceCents: 0, status: 'active', history: [{ at: '2026-10-05T15:00:00Z', type: 'spend', cents: -1500, balanceAfter: 0, by: 'Online shop', ref: 'cs_L1' }] });
+    await d.doc(`${T}/retailOrders/F1`).set(legacy('F1', { chargedCents: 0, totalCents: 0, stripeCheckoutSessionId: 'cs_L1', pendingRefundCents: 1500 }));
+  });
+  pages = { cs_L1: { id: 'cs_L1', metadata: { type: 'retail_order', retailOrderId: 'L1', tenantId: 't1' } } };
+  r = await sendL('F1');
+  const fNotes = async () => (await all(`${T}/retailOrders/F1/events`)).filter((e: any) => e.meta?.kind === 'non_card_unconfirmed');
+  check('an order made up in a browser claiming a gift card payment, pointing at another order’s payment page: nothing goes back on the gift card, and the team is told why',
+    r.status >= 400 && /couldn’t be matched/.test(r.body.error) && (await get(`${T}/giftCards/gL`)).balanceCents === 0 && stripeCalls.length === 0 && !(await get(`${T}/private/nonCardPaid/orders/F1`))?.giftCents, r.body);
+  r = await sendL('F1');
+  const fn = await fNotes();
+  check('…its history says so once, however often it’s tried', fn.length === 1 && /\$15\.00 paid by gift card/.test(fn[0].meta.text) && (await get(`${T}/giftCards/gL`)).balanceCents === 0, fn);
+
+  // Store credit: a browser can add credit, never mark it used, so credit added already marked used on an order isn't proof.
+  await fresh(async (d) => {
+    await d.doc(`${T}/depositCredits/fake`).set({ id: 'fake', tenantId: 't1', clientEmail: 'lee@example.com', amountCents: 2000, usedCents: 2000, status: 'used', lastUsedOnRetailOrderId: 'F2', sourceRetailReturnId: 'x' });
+    await d.doc(`${T}/retailOrders/F2`).set(legacy('F2', { chargedCents: 0, totalCents: 0, stripePaymentIntentId: null, stripeCheckoutSessionId: null, giftCardId: null, giftCardCents: 0, giftSpentAt: null, storeCreditRequestedCents: 2000, creditShortfallCents: 0, pendingRefundCents: 2000 }));
+  });
+  r = await sendL('F2');
+  check('an order made up in a browser claiming $20 of store credit, with credit added already marked used on it: no store credit comes back',
+    r.status >= 400 && /couldn’t be matched/.test(r.body.error) && (await all(`${T}/depositCredits`)).length === 1, { r: r.body });
+  await fresh(async (d) => {
+    await d.doc(`${T}/depositCredits/c1`).set({ id: 'c1', tenantId: 't1', clientEmail: 'lee@example.com', amountCents: 2000, status: 'available', createdAt: '2026-09-01T10:00:00Z' });
+    await d.doc(`${T}/depositCredits/c1`).set({ usedCents: 2000, status: 'used', lastUsedAt: '2026-10-05T15:00:00Z', lastUsedOnRetailOrderId: 'L3' }, { merge: true });
+    await d.doc(`${T}/retailOrders/L3`).set(legacy('L3', { giftCardId: null, giftCardCents: 0, giftSpentAt: null, storeCreditRequestedCents: 2000, creditShortfallCents: 0, chargedCents: 2000, pendingRefundCents: 4000 }));
+  });
+  r = await sendL('L3');
+  const back3 = (await all(`${T}/depositCredits`)).filter((c: any) => c.sourceRetailOrderId === 'L3');
+  check('…while a real one, whose credit the server marked used on it when it was paid, gets its $20 back as store credit',
+    r.status === 200 && r.body.cardCents === 2000 && r.body.otherCents === 2000 && back3.length === 1 && back3[0].amountCents === 2000 && (await get(`${T}/private/nonCardPaid/orders/L3`))?.creditCents === 2000, { r: r.body, back3 });
+
+  await fresh(async (d) => {
+    await d.doc(`${T}/giftCards/gL`).set({ id: 'gL', code: 'GIFT-9000', balanceCents: 0, status: 'active', history: [{ at: '2026-10-05T15:00:00Z', type: 'spend', cents: -1500, balanceAfter: 0, by: 'Online shop', ref: 'cs_L1' }] });
+    await d.doc(`${T}/retailOrders/L1`).set(legacy('L1'));
+  });
+  pagesDown = true;
+  r = await sendL('L1');
+  check('Stripe can’t be asked about the payment page: nothing is sent or recorded, and the team is told to try again',
+    r.status === 502 && /Try again/.test(r.body.error) && stripeCalls.length === 0 && !(await get(`${T}/private/nonCardPaid/orders/L1`)) && (await get(`${T}/retailOrders/L1`)).refundInFlight == null, r.body);
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

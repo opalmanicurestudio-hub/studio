@@ -91,7 +91,11 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1130, s
   check('within the $20 automatic amount, a team member without refund rights sends $20', r.status === 200 && stripeCalls.length === 1, r.body);
   await db.doc(`${T}/retailOrders/o1`).set({ pendingRefundCents: 2000 }, { merge: true });
   r = await send('o1', { reason: 'policy' });
-  check('…but not another $20 on the same order: what already went back on its own counts', r.status === 403 && stripeCalls.length === 1 && (await get(`${T}/retailOrders/o1`)).autoRefundedCents === 2000, r.body);
+  check('…but not another $20 on the same order: what already went back on its own counts, kept where only the server writes', r.status === 403 && stripeCalls.length === 1 && (await get(`${T}/private/autoRefunds/orders/o1`))?.cents === 2000, r.body);
+  // A browser can write the order's own fields, but the running total isn't one of them.
+  await db.doc(`${T}/retailOrders/o1`).set({ autoRefundedCents: 0 }, { merge: true });
+  r = await send('o1', { reason: 'policy' });
+  check('…and clearing a field on the order doesn’t reset it', r.status === 403 && stripeCalls.length === 1, r.body);
   await db.doc(`${T}/retailOrders/b1`).set({ id: 'b1', tenantId: 't1', orderNumber: 1130, stage: 'cancelled', parentOrderId: 'o1', totalCents: 0, qrToken: 'qr1', customerEmail: 'dana@example.com', pendingRefundCents: 500, lines: [] });
   r = await send('b1', { reason: 'policy' });
   check('…nor on an order made from it: the automatic amount covers the whole family', r.status === 403 && stripeCalls.length === 1, r.body);
@@ -119,6 +123,7 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1130, s
   // ── A closing write that went through but reported an error ──
   await fresh({ chargedCents: 2500, giftCardId: 'g1', giftCardCode: 'GIFT-1234', giftCardCents: 1500, giftSpentAt: '2026-10-01T10:00:00Z', totalCents: 4000, pendingRefundCents: 3000, stage: 'completed' });
   await db.doc(`${T}/giftCards/g1`).set({ id: 'g1', code: 'GIFT-1234', balanceCents: 0, status: 'active', history: [] });
+  await db.doc(`${T}/private/nonCardPaid/orders/o1`).set({ at: '2026-10-01T10:00:00Z', giftCents: 1500, giftCardId: 'g1' });
   let t2 = 0;
   db.runTransaction = async (fn: any) => { t2 += 1; const out = await realTx(fn); if (t2 === 2) throw new Error('deadline exceeded'); return out; };
   r = await send();
@@ -131,8 +136,10 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1130, s
   const fsMod = await import('fs');
   const rules = fsMod.readFileSync('firestore.rules', 'utf8');
   check('a new order from the browser can’t carry a payment, a gift card, store credit or a refund record',
-    /orderCreateLockedKeys\(\)/.test(rules) && /hasAny\(orderCreateLockedKeys\(\)\)/.test(rules) && ['giftCardId', 'giftSpentAt', 'giftCardCents', 'storeCreditRequestedCents', 'creditShortfallCents', 'nonCardRestored', 'stripePaymentIntentId', 'autoRefundedCents'].every((k) => new RegExp(`function orderCreateLockedKeys[\\s\\S]*'${k}'`).test(rules))
-    && /'autoRefundedCents'\];\s*\}\s*\/\/ What a new order/.test(rules));
+    /orderCreateLockedKeys\(\)/.test(rules) && /hasAny\(orderCreateLockedKeys\(\)\)/.test(rules) && ['giftCardId', 'giftSpentAt', 'giftCardCents', 'storeCreditRequestedCents', 'creditShortfallCents', 'nonCardRestored', 'stripePaymentIntentId', 'refundedOtherCents'].every((k) => new RegExp(`function orderCreateLockedKeys\\(\\) \\{[^}]*'${k}'`).test(rules))
+    && /'refundedOtherCents'\];\s*\}\s*\/\/ What a new order/.test(rules));
+  check('the server’s records (what an order paid by gift card or credit, and what went back on its own) are where no browser reads or writes',
+    /match \/tenants\/\{tenantId\}\/private\/\{docId\} \{\s*allow read, write: if false;/.test(rules) && /'private',/.test(rules));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

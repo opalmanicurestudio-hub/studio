@@ -60,6 +60,20 @@ const req = (auth = 'Bearer cron') => ({ headers: { get: (k: string) => (k.toLow
   const out = await retailNightlyForShop(broken, 't1', {});
   check('one check failing is reported and the rest still run', !!out.renterCredits?.error && !!out.nonCardRestored?.error && !out.returnsClosed?.error, out);
 
+  // Cancelled orders whose gift card or store credit goes back: one that can't be checked tonight (its gift card payment
+  // needs Stripe, which can't be asked) waits for tomorrow without holding up the next one.
+  db = makeDb();
+  delete process.env.STRIPE_SECRET_KEY;
+  const T = 'tenants/t1'; const recent = new Date(realNow() - 86400e3).toISOString();
+  await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1' });
+  await db.doc(`${T}/giftCards/g1`).set({ id: 'g1', code: 'GIFT-1', balanceCents: 0, status: 'active', history: [{ at: recent, type: 'spend', cents: -1500, balanceAfter: 0, ref: 'cs_a' }] });
+  await db.doc(`${T}/retailOrders/a`).set({ tenantId: 't1', orderNumber: 1, stage: 'cancelled', cancelledAt: recent, customerEmail: 'a@example.com', stripeCheckoutSessionId: 'cs_a', giftCardId: 'g1', giftCardCents: 1500, giftSpentAt: recent, totalCents: 1500 });
+  await db.doc(`${T}/retailOrders/b`).set({ tenantId: 't1', orderNumber: 2, stage: 'cancelled', cancelledAt: recent, customerEmail: 'b@example.com', storeCreditRequestedCents: 1000, creditShortfallCents: 0, totalCents: 1000 });
+  await db.doc(`${T}/private/nonCardPaid/orders/b`).set({ at: recent, creditCents: 1000 });
+  const out2 = await retailNightlyForShop(db, 't1', {});
+  check('a cancelled order that can’t be checked tonight waits for tomorrow, and the next one still gets its credit back',
+    out2.nonCardRestored?.orders === 1 && out2.nonCardRestored?.waiting === 1 && !(await db.doc(`${T}/retailOrders/a`).get()).data().nonCardRestoredAt && !!(await db.doc(`${T}/retailOrders/b`).get()).data().nonCardRestoredAt, out2);
+
   Date.now = realNow;
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

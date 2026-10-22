@@ -1,7 +1,8 @@
 // Checks that one item is refunded once, through a claim or a return (api/retail/claims, the claims desk, returns).
 // A claim for an item is worth what was paid for it with its tax; an approved claim marks those units as settled
 // (qtyClaimed), so they can't be claimed again or returned for a second refund; a claim can't be filed for units
-// already returned or on their way back; and "it never arrived" is worth what hasn't already been refunded.
+// already returned or on their way back; and "it never arrived" is worth what hasn't already been refunded. When what's
+// already reported or coming back can't be read, no return is offered or started.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/claims-double.verify.ts
 import Module from 'module';
 import { makeDb, check, failures } from './fake-db';
@@ -15,6 +16,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'firebase-admin/firestore') return { getFirestore: () => db, FieldValue: {} };
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };
   if (request === '@/lib/request-forensics') return { requestForensics: () => null };
+  if (request === '@/lib/rate-limit') return { limitPublic: async () => null };
   return load.call(this, request, ...rest);
 };
 (globalThis as any).fetch = async () => ({ ok: false, status: 403, json: async () => ({}) });
@@ -85,6 +87,26 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1120, s
   r = await claim({ type: 'not_received' });
   const cn = await get(`${T}/retailClaims/o1__not_received__order`);
   check('“it never arrived” is worth what hasn’t been refunded or queued already: $17.92 of the $25.92', r.status === 200 && cn?.claimValueCents === 1792, { r: r.body, cn });
+
+  // ── What's already reported can't be read: nothing is started ──
+  await fresh();
+  const real = db;
+  const claimsDown = (d: any) => new Proxy(d, { get: (t: any, prop: any) => (prop === 'collection'
+    ? (path: string) => (/retailClaims$/.test(path) ? { where: () => ({ limit: () => ({ get: async () => { throw new Error('unavailable'); } }) }) } : t.collection(path))
+    : t[prop]) });
+  db = claimsDown(real);
+  r = await selfPOST(req({ action: 'start_return', tenantId: 't1', orderId: 'o1', qrToken: 'qr1', selections: [{ lineId: 'F', qty: 1, reason: 'changed_mind' }], resolution: 'refund' }));
+  check('the problems she reported can’t be read just now: no return is started, and she’s asked to try again', r.status === 503 && /try again/.test(r.body.error) && (await real.collection(`${T}/retailReturns`).get()).size === 0, r.body);
+  db = real;
+  await db.doc(`${T}/retailOrders/o1`).set({ gift: { token: 'gt1', to: 'Sam' } }, { merge: true });
+  const { GET: giftGET } = await import('../../src/app/api/retail/gift/route');
+  const giftReq = { nextUrl: { searchParams: new URLSearchParams({ tenantId: 't1', orderId: 'o1', g: 'gt1' }) }, headers: { get: () => null } } as any;
+  let g: any = await giftGET(giftReq);
+  check('a gift’s exchange page lists what can be sent back', g.status === 200 && Array.isArray(g.body.items) && g.body.items.length > 0, g.body);
+  db = claimsDown(real);
+  g = await giftGET(giftReq);
+  check('…but when the problems reported on it can’t be read, nothing is offered, and they’re asked to try again', g.status === 503 && /try again/.test(g.body.error), g.body);
+  db = real;
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

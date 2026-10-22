@@ -24,8 +24,18 @@ async function load(tenantId: string, orderId: string, g: string) {
   if (!g || !order.gift?.token || order.gift.token !== g) return { error: 'This gift link isn’t valid.', status: 403 } as const;
   const tenant = tSnap.data() as any;
   const rs = tenant.retailSettings || {};
-  const open = (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(50).get()).docs.map((d: any) => d.data());
-  const claims = (await db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(30).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data());
+  // What's already on its way back or reported: if it can't be read, nothing is offered or started, so an item can't
+  // be returned twice.
+  let open: any[] = []; let claims: any[] = [];
+  try {
+    const [os, cs] = await Promise.all([
+      db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(50).get(),
+      db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(30).get(),
+    ]);
+    open = os.docs.map((d: any) => d.data()); claims = cs.docs.map((d: any) => d.data());
+  } catch {
+    return { error: 'We couldn’t load this gift just now. Please try again in a moment.', status: 503 } as const;
+  }
   return { db, order, tenant, rs, open, claims } as const;
 }
 

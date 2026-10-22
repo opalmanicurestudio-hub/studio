@@ -919,10 +919,11 @@ async function handleCheckout(req: NextRequest) {
             return true;
           });
           if (paidOk) {
-            const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: chargeable, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: orderId });
+            // Written down where only the server writes, in the same step as the spend (lib/non-card-back).
+            const { nonCardRecordRef } = await import('@/lib/non-card-back');
+            const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: chargeable, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: orderId, record: nonCardRecordRef(db, tenantId, orderId) });
             await orderRef.set(r.ok ? { giftSpentAt: new Date().toISOString() } : { giftShortfallCents: chargeable }, { merge: true });
-            if (r.ok) { try { const { recordNonCard } = await import('@/lib/non-card-back'); await recordNonCard(db, tenantId, orderId, { giftCents: chargeable, giftCardId: g.id }); } catch { /* its own fields still say */ } }
-            if (r.ok) void notifyGiftUse(db, tenantId, g.id, chargeable).catch(() => {});
+            if (r.ok) { if (!r.already) void notifyGiftUse(db, tenantId, g.id, chargeable).catch(() => {}); }
             else console.error('[checkout] gift card spend after a paid order failed — needs a look:', r.error);
             const paidSnap = await orderRef.get(); const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
             try { const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tenant, orderId, paidOrder); } catch { /* loyalty is best effort */ }

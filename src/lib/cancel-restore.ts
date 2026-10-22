@@ -6,6 +6,7 @@
 // transaction with the gift card and the credit, so a retry can never give it twice; the order is stamped once
 // everything due has gone back. Server only.
 import { giveBackLine, readGift, roomCents, saleBooked, withNonCardRecord, writeGiveBack } from './non-card-back';
+import { ensureNonCardRecord } from './non-card-record';
 import { cancelWithFollowUps, familyRefundableCents, followUpsOf } from './order-family';
 
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
@@ -15,15 +16,20 @@ export async function restoreNonCardPayment(db: any, t: string, orderId: string,
   const ref = col.doc(orderId);
   let out = { giftCents: 0, creditCents: 0 };
   let order: any = null;
+  // What it paid by gift card or store credit is the server's own record (lib/non-card-back), made sure of first for an
+  // order paid before the record was kept (lib/non-card-record). When Stripe can't be asked about it, it waits: the
+  // nightly check tries again.
+  const check = await ensureNonCardRecord(db, t, orderId);
+  if (check.retry) throw new Error('The gift card payment couldn’t be checked with Stripe just now.');
   await db.runTransaction(async (tx: any) => {
     out = { giftCents: 0, creditCents: 0 };
     order = null;
     const s = await tx.get(ref); if (!s.exists) return;
-    // What it paid by gift card or store credit, from the server's own record (lib/non-card-back).
-    const o: any = await withNonCardRecord((r: any) => tx.get(r), db, t, orderId, s, { ...(s.data() || {}), id: orderId });
+    const o: any = await withNonCardRecord((r: any) => tx.get(r), db, t, orderId, { ...(s.data() || {}), id: orderId });
     if (o.stage !== 'cancelled' || o.nonCardRestoredAt) return;
     const room = roomCents(o);
-    if (room <= 0) return;
+    // Nothing (more) to give back that way: marked, so it isn't looked at again.
+    if (room <= 0) { tx.update(ref, { nonCardRestoredAt: new Date().toISOString() }); return; }
     // What the shop still holds for the order, card and gift card or credit together, less what the customer keeps
     // from orders made from it and every refund already queued (those go back card first): the rest goes back now.
     const fam = await followUpsOf((r: any) => tx.get(r), col, orderId);

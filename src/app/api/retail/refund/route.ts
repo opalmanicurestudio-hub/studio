@@ -1,6 +1,7 @@
 import { refundAllowed } from '@/lib/money-limits';
 import { familyRefundableCents, followUpLabel, followUpsOf, isFollowUp, payingOrder, sameCustomer } from '@/lib/order-family';
 import { giveBackLine, readGift, roomCents, saleBooked, withNonCardRecord, writeGiveBack } from '@/lib/non-card-back';
+import { ensureNonCardRecord } from '@/lib/non-card-record';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -60,6 +61,7 @@ const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 const HOLD_MS = 5 * 60000;
 export const maxDuration = 60;
 const listed = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
 
 export async function POST(req: NextRequest) {
   let body: any;
@@ -106,10 +108,6 @@ export async function POST(req: NextRequest) {
     cur = { ...(s.data() || {}), id: s.id }; chain.push(cur); if (!isFollowUp(cur)) break;
   }
   const lostLink = [order, ...chain].some((x) => String(x?.replacementFor || '') === 'lost_in_transit');
-  // What it paid by gift card or store credit, from the server's own record (lib/non-card-back).
-  const payer0T = await withNonCardRecord(read, db, tenantId, payerId, follow ? await col.doc(payerId).get() : orderSnap, payer0);
-  const room0 = piId ? familyRefundableCents(payer0T, await followUpsOf(read, col, payerId)) : 0;
-  const other0 = roomCents(payer0T);
   const pendingNow = Number(order.pendingRefundCents) || 0;
 
   // Money leaves only for a signed-in team member allowed to refund. The order's own token is not enough:
@@ -126,9 +124,12 @@ export async function POST(req: NextRequest) {
   const autoBelow = Math.max(0, Number(tenant.retailSettings?.policies?.refundAutoBelowCents) || 0);
   const underAuto = (p: number) => autoBelow > 0 && p > 0 && p <= autoBelow && !lostLink;
   // The automatic amount is for an order and everything made from it, not for each tap: what has gone back that way
-  // across the family counts (autoRefundedCents on the order paid on, written only here), so it can't be sent in pieces.
-  const autoUsed = (p: any) => Math.max(0, Number(p?.autoRefundedCents) || 0);
-  const underAutoTotal = (p: number) => underAuto(p) && p + autoUsed(payer0) <= autoBelow;
+  // across the family counts, kept for the order paid on where only the server writes (written only here), so it can't
+  // be sent in pieces, or reset from a browser.
+  const autoRef = db.doc(`tenants/${tenantId}/private/autoRefunds/orders/${payerId}`);
+  const autoUsed = (snap: any) => c0(snap?.exists ? snap.data()?.cents : 0);
+  const autoUsed0 = policyAsk && autoBelow > 0 ? autoUsed(await autoRef.get()) : 0;
+  const underAutoTotal = (p: number) => underAuto(p) && p + autoUsed0 <= autoBelow;
   let policyPath = false;
   let actor: { uid: string; name: string };
   let limitFor: ((c: number) => ReturnType<typeof refundAllowed>) | null = null;
@@ -157,15 +158,31 @@ export async function POST(req: NextRequest) {
     } else if (renter || !a.caps?.includes('checkout.refund')) {
       return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
     } else {
-      // The owner's limit for this person's role (lib/money-limits), checked against what would be sent now, and
-      // again inside the claim below, against what really goes.
+      // The owner's limit for this person's role (lib/money-limits), checked against what would be sent now (below), and
+      // again inside the claim, against what really goes.
       limitFor = (c: number) => refundAllowed(tenant.retailSettings || {}, a, c);
-      const allowed = limitFor(Math.min(pendingNow, room0 + other0));
-      if (!allowed.ok) return NextResponse.json({ error: allowed.message, limitCents: allowed.limit }, { status: 403 });
     }
     actor = auth.actor;
   }
+
+  // What it paid by gift card or store credit: the server's own record (lib/non-card-back), made sure of first for an
+  // order paid before the record was kept (lib/non-card-record). What its fields show that can't be matched to a real
+  // payment doesn't go back that way: the team is told.
+  const check = await ensureNonCardRecord(db, tenantId, payerId, payer0);
+  if (check.retry) return NextResponse.json({ error: 'Stripe couldn’t be asked about the gift card payment on this order just now. Try again in a moment.' }, { status: 502 });
+  const unconfirmed = check.unconfirmed.giftCents + check.unconfirmed.creditCents;
+  const unconfirmedLine = unconfirmed > 0
+    ? `${follow ? 'The original order' : 'This order'} shows ${money(unconfirmed)} paid by gift card or store credit that couldn’t be matched to the gift card or the customer’s credit, so that part doesn’t go back on its own: if it was paid, give it back by hand.`
+    : '';
+  const payer0T = await withNonCardRecord(read, db, tenantId, payerId, payer0);
+  const room0 = piId ? familyRefundableCents(payer0T, await followUpsOf(read, col, payerId)) : 0;
+  const other0 = roomCents(payer0T);
+  if (limitFor) {
+    const allowed = limitFor(Math.min(pendingNow, room0 + other0));
+    if (!allowed.ok) return NextResponse.json({ error: allowed.message, limitCents: allowed.limit }, { status: 403 });
+  }
   if (!piId && other0 <= 0) {
+    if (unconfirmedLine) return NextResponse.json({ error: unconfirmedLine }, { status: 422 });
     return NextResponse.json({
       error: follow
         ? 'No Stripe payment is on file for the order this one was made from (it may predate payment tracking, or was paid another way). Refund it in the Stripe dashboard, then tap "Mark done manually".'
@@ -224,15 +241,16 @@ export async function POST(req: NextRequest) {
       await db.runTransaction(async (tx: any) => {
         const cSnap = await tx.get(oRef); const cur = cSnap.data() || {};
         const pSnap = follow ? await tx.get(pRef) : cSnap;
-        const payer = await withNonCardRecord((r: any) => tx.get(r), db, tenantId, payerId, pSnap, follow ? { ...(pSnap.data() || {}), id: payerId } : { ...cur, id: orderId });
+        const payer = await withNonCardRecord((r: any) => tx.get(r), db, tenantId, payerId, follow ? { ...(pSnap.data() || {}), id: payerId } : { ...cur, id: orderId });
         const family = (await followUpsOf((r: any) => tx.get(r), col, payerId)).map((f: any) => (f.id === orderId ? { ...cur, id: orderId } : f));
+        const autoSnap = policyPath ? await tx.get(autoRef) : null;
         if (held(cur.refundInFlight) || (follow && held(payer.refundInFlight))) throw new Error('busy');
         // The card first, never more than it can take back (whatever has already gone back to it for any order in
         // the family is spoken for); then the gift card or store credit the order was paid with, within that.
         const pending = Number(cur.pendingRefundCents) || 0;
         if (pending <= 0) throw new Error('none');
         if (autoCap && pending > autoCap) throw new Error('over');
-        if (policyPath && pending + autoUsed(payer) > autoCap) throw new Error('over');
+        if (policyPath && pending + autoUsed(autoSnap) > autoCap) throw new Error('over');
         cents = piId ? Math.min(pending, familyRefundableCents(payer, family)) : 0;
         other = Math.min(pending - cents, roomCents(payer));
         if (cents + other <= 0) throw new Error('nocard');
@@ -246,7 +264,7 @@ export async function POST(req: NextRequest) {
       });
     } catch (e: any) {
       if (e?.message === 'busy') return NextResponse.json({ error: follow ? 'A refund for this customer’s order is already being sent. Give it a moment.' : 'A refund on this order is already being sent. Give it a moment.' }, { status: 409 });
-      if (e?.message === 'nocard') return NextResponse.json({ error: follow ? 'Everything paid on the original order has already gone back the way it was paid.' : 'Everything paid on this order has already gone back the way it was paid.' }, { status: 409 });
+      if (e?.message === 'nocard') return NextResponse.json({ error: unconfirmedLine || (follow ? 'Everything paid on the original order has already gone back the way it was paid.' : 'Everything paid on this order has already gone back the way it was paid.') }, { status: 409 });
       if (e?.message === 'none') return NextResponse.json({ error: 'No refund is pending on this order.' }, { status: 409 });
       if (e?.message === 'over') return NextResponse.json({ error: 'This is more than your automatic amount allows for this order, so someone allowed to refund needs to send it.' }, { status: 403 });
       if (e?.message === 'limit' && limitHit) return NextResponse.json({ error: (limitHit as any).message, limitCents: (limitHit as any).limit }, { status: 403 });
@@ -307,8 +325,9 @@ export async function POST(req: NextRequest) {
         const cSnap = await tx.get(oRef); const cur = cSnap.data() || {};
         const pSnap = follow ? await tx.get(pRef) : null;
         const p = pSnap ? pSnap.data() || {} : null;
-        const payerHere = await withNonCardRecord((r: any) => tx.get(r), db, tenantId, payerId, follow ? pSnap : cSnap, follow ? { ...(p || {}), id: payerId } : { ...cur, id: orderId });
+        const payerHere = await withNonCardRecord((r: any) => tx.get(r), db, tenantId, payerId, follow ? { ...(p || {}), id: payerId } : { ...cur, id: orderId });
         const gift = other > 0 ? await readGift(tx, db, tenantId, payerHere) : null;
+        const autoSnap = policyPath ? await tx.get(autoRef) : null;
         // Written down already: by another tap (on the first try), or by this request's own earlier try, whose write
         // went through though it reported an error (on a later one): what that try worked out (kept below) is what was
         // written, and it still owes the points and the email.
@@ -335,8 +354,8 @@ export async function POST(req: NextRequest) {
           ...(refundId ? { lastStripeRefundId: refundId } : {}),
         });
         if (p && mine(p.refundInFlight)) tx.update(pRef, { refundInFlight: null });
-        // Sent within the shop's automatic amount: counted on the order paid on, for everything made from it.
-        if (policyPath && cents + given > 0) tx.update(follow ? pRef : oRef, { autoRefundedCents: autoUsed(follow ? p : cur) + cents + given });
+        // Sent within the shop's automatic amount: counted for the order paid on, for everything made from it.
+        if (policyPath && cents + given > 0) tx.set(autoRef, { cents: autoUsed(autoSnap) + cents + given, at: now }, { merge: true });
         const otherLine = given ? giveBackLine(payerNow, gave) : '';
         const cardLine = cents ? `${money(cents)} to the card${follow ? ' used on the original order' : ''} (${refundId})` : '';
         tx.set(evRef, {
@@ -467,6 +486,8 @@ export async function POST(req: NextRequest) {
         : `${money(total)} refunded: ${money(cents)} through Stripe to the card${follow ? ' used on the original order' : ''} and ${otherLine}. The card part appears with the customer's bank within 5 to 10 business days.`;
   return NextResponse.json({
     ok: true, refundId, amountCents: total, cardCents: cents, otherCents: given, leftCents: left, overCardCents: overCard,
-    message: overCard > 0 ? `${sent} The other ${money(overCard)} is more than is left of what they paid, so it stays on the order for a look.` : sent,
+    message: overCard > 0
+      ? `${sent} The other ${money(overCard)} ${unconfirmedLine ? `stays on the order. ${unconfirmedLine}` : 'is more than is left of what they paid, so it stays on the order for a look.'}`
+      : sent,
   });
 }

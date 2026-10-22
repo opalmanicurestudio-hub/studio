@@ -446,8 +446,19 @@ export async function POST(req: NextRequest) {
           error: `${orig.name} is a digital item, so there is nothing to send back. Please use \u201cReport a problem\u201d and our team will arrange a refund with you directly.`,
         }, { status: 409 });
       }
-      if (openReturns === null) { try { openReturns = (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(50).get()).docs.map((d: any) => d.data()); } catch { openReturns = []; } }
-      if (claimsOn === null) { try { claimsOn = (await db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(30).get()).docs.map((d: any) => d.data()); } catch { claimsOn = []; } }
+      // What's already on its way back or reported, read once. If it can't be read, nothing is started: an item
+      // can't be returned twice, or returned and refunded for a problem too.
+      if (openReturns === null || claimsOn === null) {
+        try {
+          const [rs, cs] = await Promise.all([
+            db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(50).get(),
+            db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(30).get(),
+          ]);
+          openReturns = rs.docs.map((d: any) => d.data()); claimsOn = cs.docs.map((d: any) => d.data());
+        } catch {
+          return NextResponse.json({ error: 'We couldn’t check this order just now. Please try again in a moment.' }, { status: 503 });
+        }
+      }
       // Not shorted, not returned, not covered by a problem they reported (waiting, or refunded), not on its way back
       // already: one item is refunded once.
       const reported = claimedUnits(claimsOn || [], orig);
