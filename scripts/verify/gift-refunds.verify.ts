@@ -263,6 +263,16 @@ const mixed = (x: any = {}) => ({ id: 'm1', tenantId: 't1', orderNumber: 1050, s
   check('…but an order made up later under the id another gift card payment was marked with gets nothing: that spend came before it existed',
     r.status >= 400 && /couldn’t be matched/.test(r.body.error) && (await get(`${T}/giftCards/gL`)).balanceCents === 0, r.body);
 
+  // From before the card payment was recorded on the order, and its gift card part can't be matched (its history no
+  // longer shows the spend): the card still only gets back what it really paid.
+  await fresh(async (d) => {
+    await d.doc(`${T}/giftCards/gL`).set({ id: 'gL', code: 'GIFT-9000', balanceCents: 0, status: 'active', history: [] });
+    await d.doc(`${T}/retailOrders/L5`).set(legacy('L5', { chargedCents: null, pendingRefundCents: 4000 }));
+  });
+  r = await sendL('L5');
+  check('an older order whose gift card part can’t be matched: the card gets back the $25 it paid, not the whole $40, and the rest is called out',
+    r.status === 200 && stripeCalls[0]?.params.amount === 2500 && r.body.otherCents === 0 && r.body.overCardCents === 1500 && /couldn’t be matched/.test(r.body.message), { r: r.body, s: stripeCalls.map((c) => c.params.amount) });
+
   // Made up in a browser: claims a $15 gift card payment and points at another order's payment page.
   await fresh(async (d) => {
     await d.doc(`${T}/giftCards/gL`).set({ id: 'gL', code: 'GIFT-9000', balanceCents: 0, status: 'active', history: [{ at: '2026-10-05T15:00:00Z', type: 'spend', cents: -1500, balanceAfter: 0, by: 'Online shop', ref: 'cs_L1' }] });

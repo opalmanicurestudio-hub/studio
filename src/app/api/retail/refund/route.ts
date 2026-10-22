@@ -124,11 +124,11 @@ export async function POST(req: NextRequest) {
   const autoBelow = Math.max(0, Number(tenant.retailSettings?.policies?.refundAutoBelowCents) || 0);
   const underAuto = (p: number) => autoBelow > 0 && p > 0 && p <= autoBelow && !lostLink;
   // The automatic amount is for an order and everything made from it, not for each tap: what has gone back that way
-  // across the family counts, kept for the order paid on where only the server writes (written only here), so it can't
-  // be sent in pieces, or reset from a browser.
+  // across the family (a customer's cancellation included) counts, kept for the order paid on where only the server
+  // writes (written only here), so it can't be sent in pieces, or reset from a browser.
   const autoRef = db.doc(`tenants/${tenantId}/private/autoRefunds/orders/${payerId}`);
   const autoUsed = (snap: any) => c0(snap?.exists ? snap.data()?.cents : 0);
-  const autoUsed0 = policyAsk && autoBelow > 0 ? autoUsed(await autoRef.get()) : 0;
+  const autoUsed0 = (policyAsk || internal) && autoBelow > 0 ? autoUsed(await autoRef.get()) : 0;
   const underAutoTotal = (p: number) => underAuto(p) && p + autoUsed0 <= autoBelow;
   let policyPath = false;
   let actor: { uid: string; name: string };
@@ -138,9 +138,9 @@ export async function POST(req: NextRequest) {
     if (!order.shippedWithOrderId || pendingNow <= 0 || pendingNow > Math.max(0, Number(order.shippingCents) || 0)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
     actor = { uid: 'system', name: 'Shipped together (automatic shipping refund)' };
   } else if (internal) {
-    if (order.stage !== 'cancelled' || !underAuto(pendingNow)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
+    if (order.stage !== 'cancelled' || !underAutoTotal(pendingNow)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
     actor = { uid: 'customer', name: 'Customer cancellation (automatic)' };
-    autoCap = autoBelow;
+    autoCap = autoBelow; policyPath = true;
   } else if (internalKey && policyAsk) {
     if (!underAutoTotal(pendingNow)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
     actor = { uid: 'system', name: 'Automatic refund' };

@@ -5,6 +5,8 @@
 // twice, and each give-back is one transaction with the gift card, the credit and that total, so a retry can't add it
 // twice. A gift card that's gone or voided gets its part as store credit instead. Server only.
 
+import { cardPaidCents } from './retail-money';
+
 export type NonCard = { giftCents: number; creditCents: number };
 
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
@@ -113,13 +115,16 @@ export async function recordNonCard(db: any, t: string, orderId: string, part: {
 }
 
 /** The order as far as its gift card and store credit go: each part as the server's record has it, and a part it
- *  doesn't have was not paid that way. `get` is the database's own (a transaction's, inside one). */
+ *  doesn't have was not paid that way. What its card paid stays as it was worked out before (an order from before
+ *  that was recorded works it out from its gift card and credit fields, lib/retail-money), so a part that can't be
+ *  confirmed never makes the card look as though it paid more. `get` is the database's own (a transaction's, inside one). */
 export async function withNonCardRecord(get: (r: any) => Promise<any>, db: any, t: string, orderId: string, o: any): Promise<any> {
   const r = await get(nonCardRecordRef(db, t, orderId));
   const rec: any = r?.exists ? r.data() || {} : {};
   const gift = c0(rec.giftCents); const credit = c0(rec.creditCents);
   return {
-    ...o, giftCardId: (gift > 0 && rec.giftCardId) || o?.giftCardId || null, giftCardCents: gift, giftSpentAt: gift > 0 ? o?.giftSpentAt || rec.at || iso() : null,
+    ...o, ...(o?.chargedCents == null ? { chargedCents: cardPaidCents(o) } : {}),
+    giftCardId: (gift > 0 && rec.giftCardId) || o?.giftCardId || null, giftCardCents: gift, giftSpentAt: gift > 0 ? o?.giftSpentAt || rec.at || iso() : null,
     storeCreditRequestedCents: credit, creditShortfallCents: 0,
   };
 }

@@ -104,6 +104,15 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1130, s
   actor = { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: ['checkout.refund'] };
   r = await send();
   check('…someone allowed to refund still sends it', r.status === 200 && stripeCalls.length === 2, r.body);
+  // A customer's own cancellation counts toward the same total, and is held to it.
+  await fresh({ stage: 'cancelled', pendingRefundCents: 1500 }, { policies: { refundAutoBelowCents: 2000 } });
+  r = await send('o1', { reason: 'customer_cancel' }, { 'x-internal-key': 'cron' });
+  check('a customer’s $15 cancellation goes back on its own, and counts toward the order’s automatic amount', r.status === 200 && stripeCalls.length === 1 && (await get(`${T}/private/autoRefunds/orders/o1`))?.cents === 1500, r.body);
+  await db.doc(`${T}/retailOrders/b1`).set({ id: 'b1', tenantId: 't1', orderNumber: 1130, stage: 'cancelled', parentOrderId: 'o1', totalCents: 0, qrToken: 'qr1', customerEmail: 'dana@example.com', pendingRefundCents: 1000, lines: [] });
+  r = await send('b1', { reason: 'customer_cancel' }, { 'x-internal-key': 'cron' });
+  check('…so a $10 one on an order made from it waits for the shop: $25 is over the $20', r.status === 403 && stripeCalls.length === 1, r.body);
+  r = await send('b1', { reason: 'policy' }, { 'x-internal-key': 'cron' });
+  check('…by any route', r.status === 403 && stripeCalls.length === 1, r.body);
 
   // ── Renters ──
   await fresh({ pendingRefundCents: 1000 }, { policies: { refundAutoBelowCents: 5000 } });
