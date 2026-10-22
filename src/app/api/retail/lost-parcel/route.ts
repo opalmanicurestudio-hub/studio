@@ -15,6 +15,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { buildExceptionDoc } from '@/lib/exception-doc';
 import { buildEntry } from '@/lib/stock-ledger';
 import { refundAllowed } from '@/lib/money-limits';
+import { lineFor, taxBasisOf } from '@/lib/order-family';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,8 +100,10 @@ export async function POST(req: NextRequest) {
         id: childRef.id, tenantId, orderNumber: o.orderNumber ?? null,
         stage: 'paid', method: 'ship', priceTier: o.priceTier || 'retail',
         // Sent from the shelf like any order: nothing scanned or packed yet, and never a pre-order (that run shipped).
-        lines: lines.map(({ l, qty }: any) => ({ ...l, lineId: `line-${newId()}`, qtyOrdered: qty, qtyScanned: 0, qtyPacked: 0, qtyShorted: 0, qtyReturned: 0, qtyRefunded: 0, status: 'pending', shortReason: '', preorder: false })),
-        subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0,
+        // Each unit keeps the price paid for it, and the order the tax figures it was paid with, so a refund on the
+        // replacement is what was paid (lib/order-family).
+        lines: lines.map(({ l, qty }: any) => ({ ...lineFor(l, qty), lineId: `line-${newId()}`, qtyScanned: 0, qtyPacked: 0, qtyShorted: 0, qtyReturned: 0, qtyRefunded: 0, status: 'pending', shortReason: '', preorder: false })),
+        subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0, taxBasis: taxBasisOf(o),
         customerName: o.customerName || '', customerEmail: o.customerEmail || '', customerPhone: o.customerPhone || '', clientId: o.clientId || null,
         shippingAddress: o.shippingAddress || null, shippingService: o.shippingService || null, shippingCarrier: o.shippingCarrier || null,
         parentOrderId: orderId, isReplacement: true, replacementFor: 'lost_in_transit', ...(riders.length ? { includesOrderIds: riders.map((r: any) => r.id) } : {}),

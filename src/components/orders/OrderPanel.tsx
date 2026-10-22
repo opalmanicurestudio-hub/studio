@@ -17,6 +17,7 @@ import { changePolicy, oneLine, openRequest } from '@/lib/address-flow';
 import { LabelHistory, labelTotals, useLabelRecords } from './LabelHistory';
 import { slotsKnown, tail, voidedSlots } from '@/lib/label-boxes';
 import { labelDoubt } from '@/lib/label-doubt';
+import { isFollowUp } from '@/lib/order-family';
 
 const STEPS: Record<string, string[]> = { ship: ['New', 'Packing', 'Ready to ship', 'Shipped'], curbside: ['New', 'Packing', 'Ready', 'Picked up'], counter: ['New', 'Packing', 'Ready', 'Picked up'] };
 const stepIndex = (o: any) => ({ paid: 0, picking: 1, packed: o.method === 'ship' ? 2 : 1, ready: 2, arrived: 2, shipped: 3, handed_off: 3, completed: 3 } as Record<string, number>)[o.stage] ?? 0;
@@ -67,6 +68,8 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const steps = STEPS[order.method] || STEPS.counter;
   const idx = stepIndex(order);
   const pending = Number(order.pendingRefundCents) || 0;
+  // Made from another order (a backorder, a replacement): its money is on that order's card (lib/order-family).
+  const follow = isFollowUp(order);
   const shortLines = (order.lines || []).filter((l: any) => ['refunded', 'backordered', 'shorted'].includes(l.status));
   const terminal = ['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(order.stage);
 
@@ -295,16 +298,22 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
         </div>)}
 
       {confirm === 'cancel' && (
-        <Sheet title={`Cancel ${who}’s order?`} sub={order.stage === 'paid' ? 'Their card is refunded and stock goes back on the shelf.' : 'Put the items back on the shelf. Their card is refunded.'} onClose={() => setConfirm(null)} closeLabel="Keep it">
+        <Sheet title={`Cancel ${who}’s order?`} sub={follow
+          ? order.replacementFor === 'lost_in_transit'
+            ? 'Stock goes back on the shelf. If the first parcel never arrived, what they paid for these items goes back to the card they used on the original order.'
+            : 'Stock goes back on the shelf, and what they paid for these items goes back to the card they used on the original order.'
+          : order.stage === 'paid' ? 'Their card is refunded and stock goes back on the shelf.' : 'Put the items back on the shelf. Their card is refunded.'} onClose={() => setConfirm(null)} closeLabel="Keep it">
           <label className="mt-2 block text-[13px] font-semibold" style={muted}>Reason (they see this)<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="For example: we can’t get it in time" className="mt-1 h-12 w-full rounded-2xl border px-4 text-[17px] font-normal" style={{ borderColor: C.line, background: C.paper, color: C.ink }} /></label>
           <Btn kind="danger" className="mt-4 w-full text-[17px]" disabled={busy} onClick={() => void doCancel()}>Cancel the order</Btn>
           {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}
         </Sheet>)}
       {confirm === 'refund' && (
-        <Sheet title={`Refund ${money(pending)} to ${who}?`} sub={`${orderNum(order)} · back to the card they paid with`} onClose={() => setConfirm(null)}>
+        <Sheet title={`Refund ${money(pending)} to ${who}?`} sub={`${orderNum(order)} · back to the card they paid with${follow ? ' on the original order' : ''}`} onClose={() => setConfirm(null)}>
           <div className="mt-2 grid grid-cols-[96px_1fr] gap-x-3 gap-y-2 text-[15px]">
-            <span style={muted}>Why</span><span>{shortLines.length ? `${shortLines.map((l: any) => l.name).join(', ')} couldn’t be sent` : 'A return or a problem they reported'}</span>
-            <span style={muted}>They paid</span><span>{money(order.chargedCents ?? order.totalCents)}{order.refundedCents ? `, ${money(order.refundedCents)} refunded already` : ''}</span>
+            <span style={muted}>Why</span><span>{shortLines.length ? `${shortLines.map((l: any) => l.name).join(', ')} couldn’t be sent` : order.stage === 'cancelled' ? 'The order was cancelled' : 'A return or a problem they reported'}</span>
+            <span style={muted}>They paid</span><span>{follow
+              ? `On the original order${order.refundedCents ? `, ${money(order.refundedCents)} refunded on this one already` : ''}`
+              : `${money(order.chargedCents ?? order.totalCents)}${order.refundedCents ? `, ${money(order.refundedCents)} refunded already` : ''}`}</span>
             <span style={muted}>{who} gets</span><span>An email with the amount and when to expect it</span>
           </div>
           <Btn kind="danger" className="mt-4 w-full text-[17px]" disabled={busy} onClick={() => void doRefund()}>Send {money(pending)} refund</Btn>

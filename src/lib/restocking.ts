@@ -44,10 +44,16 @@ export function restockingFee(orderLines: { lineId: string; unitPriceCents: numb
   return { cents: out.reduce((a, x) => a + x.cents, 0), lines: out, waived: false };
 }
 
+type TaxFigures = { subtotalCents?: number; taxCents?: number; discountCents?: number };
+
 /** The tax that went with these items, so a refund returns it too. */
-export function taxShareCents(order: { subtotalCents?: number; taxCents?: number; discountCents?: number }, itemCents: number): number {
+export function taxShareCents(order: TaxFigures & { taxBasis?: TaxFigures | null }, itemCents: number): number {
+  // An order made from another one (a backorder, a replacement: $0 of its own) carries the figures tax was worked out
+  // from on the order the customer paid on (lib/order-family taxBasis), so its items' tax comes back the same way.
+  const own = (Number(order.subtotalCents) || 0) > 0 || (Number(order.taxCents) || 0) > 0;
+  const b: TaxFigures = own || !order.taxBasis ? order : order.taxBasis;
   // Tax was charged on the items after any promo code, so the share is worked out against that.
-  const sub = (Number(order.subtotalCents) || 0) - Math.max(0, Number(order.discountCents) || 0); const tax = Number(order.taxCents) || 0;
+  const sub = (Number(b.subtotalCents) || 0) - Math.max(0, Number(b.discountCents) || 0); const tax = Number(b.taxCents) || 0;
   if (sub <= 0 || tax <= 0 || itemCents <= 0) return 0;
   return Math.min(tax, Math.round((itemCents * tax) / sub));
 }

@@ -21,6 +21,7 @@ import {
 import { buildEntry } from '@/lib/stock-ledger';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { labelDoubt, labelHolderId } from '@/lib/label-doubt';
+import { followUpCancelCents, isFollowUp, lineFor, taxBasisOf } from '@/lib/order-family';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // Client-side fulfillment actions for the board. Every state change runs in a
@@ -457,11 +458,13 @@ export async function resolveShortLine(
           orderNumber: order.orderNumber, // shares the customer-facing number
           stage: 'paid', method: order.method, priceTier: order.priceTier || 'retail',
           businessName: order.businessName || '', poNumber: order.poNumber || '',
+          // Each unit keeps the price paid for it, and the order the tax figures it was paid with (lib/order-family).
           lines: [{
-            ...target, lineId: `line-${nanoid(8)}`, qtyOrdered: qtyShorted,
+            ...lineFor(target, qtyShorted), lineId: `line-${nanoid(8)}`,
             qtyScanned: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending', shortReason: '',
           }],
           subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0,
+          taxBasis: taxBasisOf(order),
           customerName: order.customerName, customerEmail: order.customerEmail,
           customerPhone: order.customerPhone || '',
           shippingAddress: order.shippingAddress || null,
@@ -844,7 +847,9 @@ export async function reopenShortedLine(
             `Short reversed (Order #${order.orderNumber})`, orderId, actor));
       }
 
-      const refundBack = qty * effectiveUnitCents(line as any);   // what was actually paid, after any promo code
+      // What shorting it queued: what was actually paid, after any promo code, and the tax on it.
+      const itemsBack = qty * effectiveUnitCents(line as any);
+      const refundBack = itemsBack + taxShareCents(order as any, itemsBack);
       const lines = order.lines.map((l) => l.lineId !== lineId ? l : ({
         ...l, qtyShorted: 0, shortReason: '',
         status: l.qtyScanned >= l.qtyOrdered ? ('picked' as const) : ('pending' as const),
@@ -880,8 +885,26 @@ export async function cancelOrder(
         return { ok: false, message: `#${order.orderNumber} is already ${order.stage}.` };
       }
 
-      // Reads before writes: collect the reservation release per product.
-      const hasReservation = ['paid', 'picking', 'packed', 'ready', 'arrived'].includes(order.stage);
+      // An order made from another one (a backorder, a replacement: lib/order-family) has no payment of its own: what
+      // the customer paid for its items goes back to the card they used on the order it came from, on top of anything
+      // already queued on it. The order it came from is read first: a replacement for a parcel that was delivered after
+      // all gives nothing back, and an older follow-up takes its tax figures from the order that was paid.
+      const follow = isFollowUp(order);
+      let parent: any = null; let payer: any = null;
+      if (follow) {
+        const read = async (id: string) => {
+          if (!id) return null;
+          const s = await txn.get(doc(orderCol(fs, tenantId), id));
+          return s.exists() ? { ...(s.data() as any), id } : null;
+        };
+        parent = await read(String((order as any).parentOrderId || ''));
+        payer = parent;
+        for (let i = 0; i < 3 && !(order as any).taxBasis && payer && !taxBasisOf(payer) && isFollowUp(payer); i++) payer = await read(String(payer.parentOrderId || ''));
+      }
+
+      // Reads before writes: collect the reservation release per product. A backorder still waiting for stock holds
+      // none (it takes its units when it's released), so there's nothing of its to release.
+      const hasReservation = ['paid', 'picking', 'packed', 'ready', 'arrived'].includes(order.stage) && (order as any).holdUntilRestock !== true;
       const releases = new Map<string, number>();
       if (hasReservation) {
         for (const l of order.lines) {
@@ -914,13 +937,15 @@ export async function cancelOrder(
       }
 
       const paidSomething = order.stage !== 'placed';
-      const pending = paidSomething ? cardRefundableCents(order) : 0;
+      const already = Number((order as any).pendingRefundCents) || 0;
+      const pending = follow ? followUpCancelCents(order, parent, payer) : paidSomething ? cardRefundableCents(order) : 0;
 
       txn.update(orderRef, JSON.parse(JSON.stringify({
         stage: 'cancelled',
         cancelledAt: new Date().toISOString(),
         cancelReason: reason || '',
-        pendingRefundCents: Math.max(pending, (order as any).pendingRefundCents || 0),
+        // A paid order's card gets back everything it hasn't had back yet, which covers anything already queued.
+        pendingRefundCents: follow ? already + pending : Math.max(pending, already),
         batchId: null,
         claimedBy: null,
         claimedByName: null,
@@ -1047,6 +1072,7 @@ export async function splitReadyFromWaiting(
           ...l, lineId: `line-${nanoid(8)}`, qtyScanned: 0, qtyPacked: 0, status: 'pending',
         })),
         subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0,
+        taxBasis: taxBasisOf(order),
         customerName: order.customerName, customerEmail: order.customerEmail,
         customerPhone: order.customerPhone || '',
         shippingAddress: order.shippingAddress || null,

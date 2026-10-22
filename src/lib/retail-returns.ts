@@ -2,6 +2,7 @@
 
 import { syncRenterCredits } from './renter-credit-client';
 import { restockingFee } from './restocking';
+import { lineFor, taxBasisOf } from './order-family';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import {
   Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
@@ -356,8 +357,9 @@ export async function resolveReturn(
           .filter((l) => l.disposition) // every unit was verified
           .map((l) => {
             const orig = order.lines.find((x) => x.lineId === l.lineId)!;
+            // Each unit keeps the price paid for it, so a refund on the replacement is what was paid (lib/order-family).
             return {
-              ...orig, lineId: `line-${nanoid(8)}`, qtyOrdered: l.qty,
+              ...lineFor(orig, l.qty), lineId: `line-${nanoid(8)}`,
               qtyScanned: 0, qtyPacked: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending', shortReason: '', preorder: false,
             };
           });
@@ -367,6 +369,7 @@ export async function resolveReturn(
           businessName: order.businessName || '', poNumber: order.poNumber || '',
           lines: replLines,
           subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0,
+          taxBasis: taxBasisOf(order),
           customerName: order.customerName, customerEmail: order.customerEmail,
           customerPhone: order.customerPhone || '',
           shippingAddress: order.shippingAddress || null,

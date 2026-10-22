@@ -1591,7 +1591,7 @@ export function shortLine(
   return {
     lines: [...lines.slice(0, idx), updated, ...lines.slice(idx + 1)],
     qtyShorted,
-    refundCents: resolution === 'refund' ? qtyShorted * line.unitPriceCents : 0,
+    refundCents: resolution === 'refund' ? qtyShorted * effectiveUnitCents(line as any) : 0,   // what was paid, after any promo code
   };
 }
 

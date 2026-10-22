@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requestForensics } from '@/lib/request-forensics';
 import { effectiveUnitCents } from '@/lib/retail-swap';
+import { followUpItemsCents, isFollowUp, payingOrder } from '@/lib/order-family';
 
 // ─── /api/retail/claims/route.ts ──────────────────────────────────────────────
 // A claim is a customer's report that what arrived doesn't match what was
@@ -263,9 +264,15 @@ export async function POST(req: NextRequest) {
       stageAtClaim: String(order.stage),
     };
 
+    // The whole order: what was paid for it. An order made from another one (a backorder, a replacement) is $0 of its
+    // own, so it's worth what was paid for its items on the order it came from (lib/order-family), whose tax figures
+    // an older one is read for.
+    const ordersCol = db.collection(`tenants/${tenantId}/retailOrders`);
     const claimValueCents = line
       ? Math.min(qty, lineTarget || qty) * effectiveUnitCents(line)
-      : Math.max(0, Number(order.totalCents) || 0);
+      : isFollowUp(order)
+        ? followUpItemsCents(order, order.taxBasis ? undefined : await payingOrder((r: any) => r.get(), ordersCol, { ...order, id: orderId }).catch(() => null))
+        : Math.max(0, Number(order.totalCents) || 0);
 
     // ── Risk + routing ──
     const priorClaims = await db.collection(`tenants/${tenantId}/retailClaims`)

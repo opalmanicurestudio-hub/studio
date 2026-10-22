@@ -1,5 +1,6 @@
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
 import { cardRefundableCents } from '@/lib/retail-money';
+import { followUpCancelCents, isFollowUp, taxBasisOf } from '@/lib/order-family';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
@@ -127,10 +128,28 @@ export async function POST(req: NextRequest) {
           };
         }
 
+        // An order made from another one (a backorder, a replacement: lib/order-family) has no payment of its own:
+        // what they paid for its items goes back to the card they used on the order it came from, read first (a
+        // replacement for a parcel that was delivered after all gives nothing back).
+        const follow = isFollowUp(order);
+        let parent: any = null; let payer: any = null;
+        if (follow) {
+          const ordersCol = db.collection(`tenants/${tenantId}/retailOrders`);
+          const read = async (id: string) => {
+            if (!id) return null;
+            const s = await txn.get(ordersCol.doc(id));
+            return s.exists ? { ...(s.data() || {}), id } : null;
+          };
+          parent = await read(String(order.parentOrderId || ''));
+          payer = parent;
+          for (let i = 0; i < 3 && !order.taxBasis && payer && !taxBasisOf(payer) && isFollowUp(payer); i++) payer = await read(String(payer.parentOrderId || ''));
+        }
+
         // Reads before writes: release the stock held for this order. It's held from payment until handoff or
-        // shipping, so a late order cancelled while being packed releases it too.
+        // shipping, so a late order cancelled while being packed releases it too. A backorder still waiting for stock
+        // holds none (it takes its units when it's released).
         const releases = new Map<string, number>();
-        if (['paid', 'picking', 'packed', 'ready', 'arrived'].includes(order.stage)) {
+        if (['paid', 'picking', 'packed', 'ready', 'arrived'].includes(order.stage) && order.holdUntilRestock !== true) {
           for (const l of order.lines || []) {
             const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
             if (open > 0) releases.set(l.productId, (releases.get(l.productId) || 0) + open);
@@ -149,14 +168,15 @@ export async function POST(req: NextRequest) {
         }
 
         // Whatever stage it was cancelled from, the card gets back what it paid (never more: credit and gift cards
-        // lowered the charge).
-        const pending = cardRefundableCents(order);
+        // lowered the charge). A follow-up's items are added to anything already queued on it.
+        const already = Number(order.pendingRefundCents) || 0;
+        const pending = follow ? followUpCancelCents(order, parent, payer) : cardRefundableCents(order);
 
         txn.update(orderRef, {
           stage: 'cancelled',
           cancelledAt: new Date().toISOString(),
           cancelReason: reason ? `Customer: ${reason}` : 'Cancelled by customer',
-          pendingRefundCents: Math.max(pending, order.pendingRefundCents || 0),
+          pendingRefundCents: follow ? already + pending : Math.max(pending, already),
           batchId: null, claimedBy: null, claimedByName: null,
         });
         const evRef = orderRef.collection('events').doc();

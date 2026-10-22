@@ -38,7 +38,10 @@ export function swapLines(order: { lines: any[]; subtotalCents?: number; taxCent
 }
 
 /** What a line really cost the customer per unit, after any line discount and its share of a promo code (lib/promo-codes). */
-export function effectiveUnitCents(l: { unitPriceCents?: number; qtyOrdered?: number; lineDiscountCents?: number; promoCents?: number }): number {
+export function effectiveUnitCents(l: { unitPriceCents?: number; qtyOrdered?: number; lineDiscountCents?: number; promoCents?: number; unitPaidCents?: number }): number {
+  // A line on an order made from another one (a backorder, a replacement) carries what each unit was paid on the first
+  // order, worked out there with that line's own quantity (lib/order-family lineFor).
+  if (l.unitPaidCents != null && Number.isFinite(Number(l.unitPaidCents))) return Math.max(0, Math.round(Number(l.unitPaidCents)));
   const q = Math.max(1, Number(l.qtyOrdered) || 1);
   return Math.max(0, (Number(l.unitPriceCents) || 0) - Math.round(((Number(l.lineDiscountCents) || 0) + (Number(l.promoCents) || 0)) / q));
 }

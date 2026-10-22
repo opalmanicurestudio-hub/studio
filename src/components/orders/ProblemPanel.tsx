@@ -7,6 +7,7 @@ import Link from 'next/link';
 import type { Firestore } from 'firebase/firestore';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { money } from '@/lib/orders-view';
+import { isFollowUp } from '@/lib/order-family';
 import { threadOf, type Problem, type ProblemGroup } from '@/lib/problems-view';
 import type { Actor } from '@/lib/retail-fulfill';
 import { setHold } from './bulk';
@@ -72,7 +73,8 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
     try {
       const r = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: p.orderId, qrToken: p.ref.qrToken || '' }) });
       const d = await r.json().catch(() => ({}));
-      feel(r.ok); onToast(r.ok ? `Refund sent. ${first} usually sees it in 5 to 10 days.` : d.error || 'The refund didn’t go through.');
+      const over = Number(d.overCardCents) || 0;
+      feel(r.ok); onToast(r.ok ? `Refund sent. ${first} usually sees it in 5 to 10 days.${over > 0 ? ` The other ${money(over)} is more than the card has left to refund, so give it back as store credit.` : ''}` : d.error || 'The refund didn’t go through.');
       if (r.ok) setRefund(null);
     } finally { setBusy(''); }
   };
@@ -118,7 +120,7 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
         <div className="mt-5 space-y-3">{body}</div>
       </div>
       {refund && (
-        <Sheet title={`Send ${money(refund.ref.pendingRefundCents)} to ${first}?`} sub="It goes back to the card they paid with. Anything paid by store credit or gift card is returned that way." onClose={() => setRefund(null)}>
+        <Sheet title={`Send ${money(refund.ref.pendingRefundCents)} to ${first}?`} sub={isFollowUp(refund.ref) ? 'It goes back to the card they paid with on the original order.' : 'It goes back to the card they paid with. Anything paid by store credit or gift card is returned that way.'} onClose={() => setRefund(null)}>
           {refund.ref.returnSummary?.restockingFeeCents ? <p className="m-0 mt-2 text-[15px]" style={muted}>Includes a {money(refund.ref.returnSummary.restockingFeeCents)} restocking fee taken off.</p> : null}
           <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={busy === 'refund'} onClick={() => void sendRefund(refund)}>{busy === 'refund' ? 'Sending…' : `Send ${money(refund.ref.pendingRefundCents)}`}</Btn>
         </Sheet>)}
