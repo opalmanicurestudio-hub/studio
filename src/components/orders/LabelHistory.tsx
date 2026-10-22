@@ -115,7 +115,7 @@ export function LabelHistory({ order, recs, onClose }: { order: any; recs: any[]
     for (const g of settled.values()) {
       if (g.status === 'refunded') steps.push({ text: `Refunded ${money(g.cents)}`, sub: `${day(new Date(g.at).toISOString())} · recorded in Money`, tone: 'ok', at: g.at });
       if (g.status === 'denied') steps.push({ text: `Turned down${g.boxes > 1 ? ` for ${g.boxes} boxes` : ''}: the carrier scanned it`, sub: day(new Date(g.at).toISOString()), tone: 'warn', at: g.at });
-      if (g.status === 'unconfirmed') steps.push({ text: 'Not confirmed after 45 days', sub: 'Check it in Shippo', tone: 'warn', at: g.at });
+      if (g.status === 'unconfirmed') steps.push({ text: 'Shippo hasn’t confirmed the refund', sub: [day(new Date(g.at).toISOString()), 'check it in Shippo'].filter(Boolean).join(' · '), tone: 'warn', at: g.at });
       if (g.status === 'refused') steps.push({ text: `Shippo wouldn’t void ${g.boxes > 1 ? `${g.boxes} boxes` : 'one box'}, so ${money(g.cents)} isn’t coming back`, sub: [day(new Date(g.at).toISOString()), g.why].filter(Boolean).join(' · '), tone: 'warn', at: g.at });
     }
     steps.sort((a, b) => a.at - b.at);

@@ -114,44 +114,69 @@ export async function voidOrderLabels(db: any, tenantId: string, order: any, api
   return { ok: true, outcome: 'voided', status, count: ids.length, total: ids.length, voidedIds, trackingNumbers, asked, ...(boxTxns ? { boxTxns } : {}) };
 }
 
+/** voidUnsavedLabel's answer: how the void went, and whether the label is kept on record with its refunds written down
+ *  (`tracked`), so a void that didn't go through is followed. */
+export type UnsavedVoid = VoidResult & { tracked: boolean };
+
 /**
  * A label bought for an order that changed while it was being bought (the address, or another label landed first):
- * voided straight away. It was paid for, so it's kept like any label, with its record and its postage in the books.
- * Every box's refund is written down before Shippo is asked, so a void that doesn't go through (no answer, or Shippo
- * says no) is asked for again by the morning follow-up (lib/label-records followRefunds) instead of leaving a live
- * label nobody knows about. Once Shippo confirms the refund, the books even out.
+ * voided straight away. It was paid for, so it's kept like any label: its record, its postage in the books, and every
+ * box's refund written down before Shippo is asked, so a void that doesn't go through (no answer, or Shippo says no) is
+ * asked for again by the morning follow-up (lib/label-records followRefunds) instead of leaving a live label nobody
+ * knows about. Shippo is asked whatever happens to the record: a live label nobody uses is postage spent for nothing.
+ * The postage goes into the books only once its record is there, so its refund can always be matched to it.
  */
 export async function voidUnsavedLabel(db: any, tenantId: string, apiKey: string, p: {
   orderId: string; order: any; boxes: RecordBox[]; cents: number; carrier: string; service?: string; rateId?: string;
   by: { id: string; name: string }; how: LabelHow;
-}): Promise<VoidResult | null> {
+}): Promise<UnsavedVoid | null> {
   const first = p.boxes[0];
   const id = labelKey(first?.txn);
   if (!id) return null;
   const why = 'voided straight away: the order changed while it was being bought';
   const at = new Date().toISOString();
-  await db.doc(`tenants/${tenantId}/shippingLabels/${id}`).set(newLabelRecord({ id, order: p.order, orderId: p.orderId, carrier: p.carrier, service: p.service, rateId: p.rateId, boxes: p.boxes, amountCents: p.cents, at, by: p.by, how: p.how }), { merge: true });
-  await recordPostage(db, tenantId, { id: p.orderId, orderNumber: p.order?.orderNumber }, id, p.cents, p.carrier);
+  const recRef = db.doc(`tenants/${tenantId}/shippingLabels/${id}`);
   const label = {
     shippoTransactionId: first.txn, trackingNumber: first.tracking, labelUrl: first.labelUrl, trackingUrl: first.trackingUrl,
     extraTrackingNumbers: p.boxes.slice(1).map((b) => b.tracking), extraLabelUrls: p.boxes.slice(1).map((b) => b.labelUrl), extraTrackingUrls: p.boxes.slice(1).map((b) => b.trackingUrl),
     labelTxns: p.boxes.map((b) => b.txn), labelRecs: p.boxes.map(() => id),
   };
-  await noteRefundRequests(db, tenantId, label, p.orderId, label.labelTxns.filter(Boolean).map((txn) => ({ txn, refundId: null })), why);
+  const txns = label.labelTxns.filter(Boolean);
+  // Its record (once), its postage, and every box's refund asked for. True once the record carries every box's refund.
+  const keep = async (): Promise<boolean> => {
+    try {
+      if (!(await recRef.get()).exists) await recRef.set(newLabelRecord({ id, order: p.order, orderId: p.orderId, carrier: p.carrier, service: p.service, rateId: p.rateId, boxes: p.boxes, amountCents: p.cents, at, by: p.by, how: p.how }));
+    } catch { return false; }
+    await recordPostage(db, tenantId, { id: p.orderId, orderNumber: p.order?.orderNumber }, id, p.cents, p.carrier);
+    await noteRefundRequests(db, tenantId, label, p.orderId, txns.map((txn) => ({ txn, refundId: null })), why);
+    try { const r: any = (await recRef.get()).data() || {}; return txns.every((t) => !!r.refunds?.[t]); } catch { return false; }
+  };
+  let tracked = await keep().catch(() => false);
   // No order named: the refunds are written down already, and each gets Shippo's id once it answers.
-  const v = await voidOrderLabels(db, tenantId, label, apiKey);
+  let v: VoidResult;
+  try { v = await voidOrderLabels(db, tenantId, label, apiKey); }
+  catch { v = { ok: false, outcome: 'unknown', count: 0, total: txns.length, voidedIds: [], trackingNumbers: [], uncertain: true, unanswered: txns.length }; }
+  if (!tracked) tracked = await keep().catch(() => false);
   for (const a of v.asked || []) if (a.refundId) await noteRefundId(db, tenantId, label, a.txn, a.refundId).catch(() => {});
-  return v;
+  return { ...v, tracked };
+}
+
+/** What to tell the person about a label voided straight away, to finish "…so ___." */
+export function unsavedNote(v: UnsavedVoid | null, tracking: string): string {
+  if (v?.outcome === 'voided') return 'that label was voided straight away';
+  if (v?.tracked) return 'it wasn’t saved. Voiding it hasn’t gone through yet: it’s tried again over the next few days, and it shows under Labels until it’s refunded';
+  const end = String(tracking || '').replace(/\s+/g, '').slice(-4);
+  return `it wasn’t saved, and it couldn’t be voided here. Void it in Shippo${end ? ` (tracking ending ${end})` : ''} so the postage comes back`;
 }
 
 /** After a save that failed part way (the database didn't answer), whether the order carries the label just bought:
  *  the save went through after all. Null when even that can't be read. */
 export async function carriesLabel(ref: any, txn: string): Promise<boolean | null> {
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     try {
       const o: any = (await ref.get()).data() || {};
       return String(o.shippoTransactionId || '') === txn || (Array.isArray(o.labelTxns) && o.labelTxns.includes(txn));
-    } catch { await new Promise((r) => setTimeout(r, 400)); }
+    } catch { await new Promise((r) => setTimeout(r, 400 * (i + 1))); }
   }
   return null;
 }

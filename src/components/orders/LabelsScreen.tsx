@@ -71,7 +71,7 @@ export function LabelsScreen() {
     { id: 'denied', title: 'Refund turned down', detail: denied.length === 1 ? `${num(denied[0])}: the carrier scanned it` : `${denied.length} labels the carrier scanned`, count: denied.length,
       items: denied.map((r) => ({ key: r.id, orderId: r.orderId, title: `${num(r)} · ${r.customerName || 'Customer'}`, detail: `Turned down ${day(r.denied?.at)}${r.denied?.tracking ? ` · ${tail(r.denied.tracking)}` : ''}`, trail: money(Number(r.denied?.cents) || 0) })) },
     { id: 'unconfirmed', title: 'Refunds not confirmed', detail: `${unconfirmed.length} label${unconfirmed.length === 1 ? '' : 's'}: check ${unconfirmed.length === 1 ? 'it' : 'them'} in Shippo`, count: unconfirmed.length,
-      items: unconfirmed.map((r) => ({ key: r.id, orderId: r.orderId, title: `${num(r)} · ${r.customerName || 'Customer'}`, detail: 'No answer from Shippo after 45 days' })) },
+      items: unconfirmed.map((r) => ({ key: r.id, orderId: r.orderId, title: `${num(r)} · ${r.customerName || 'Customer'}`, detail: 'Shippo hasn’t confirmed the refund' })) },
     { id: 'charges', title: 'Carrier adjustments', detail: `${charged.length} order${charged.length === 1 ? '' : 's'} · ${chargeCents >= 0 ? '' : '−'}${money(Math.abs(chargeCents))} · recorded in Money`, count: charged.length,
       items: charged.map((r) => ({ key: r.id, orderId: r.orderId, title: `${num(r)} · ${r.customerName || 'Customer'}`, detail: `${r.carrier || 'Carrier'} · ${Object.keys(r.charges || {}).length} adjustment${Object.keys(r.charges || {}).length === 1 ? '' : 's'}`, trail: `${Number(r.chargesCents) > 0 ? '+' : '−'}${money(Math.abs(Number(r.chargesCents) || 0))}` })) },
   ].filter((s) => s.count > 0);

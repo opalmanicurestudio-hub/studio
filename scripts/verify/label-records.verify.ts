@@ -116,6 +116,22 @@ const LR = (id: string) => `tenants/${T}/shippingLabels/${id}`;
   serve((u) => (u.endsWith('/refunds/') ? { status: 201, body: { object_id: 'rf-U2', status: 'QUEUED' } } : null));
   uv = await voidUnsavedLabel(db, T, 'k', { orderId: 'o8', order: { orderNumber: 1050 }, boxes: [{ txn: 'U2', tracking: '9400U2', labelUrl: 'u', trackingUrl: '' }], cents: 640, carrier: 'USPS', by: { id: 'u1', name: 'Maya' }, how: 'single' });
   check('…and when Shippo answers, the refund carries its id', uv?.outcome === 'voided' && db._store.get(LR('U2')).refunds.U2.refundId === 'rf-U2' && db._store.get(LR('U2')).refunds.U2.cents === 640);
+  // The record can't be written at first: Shippo is asked anyway, and the record is written once it can be.
+  db = makeDb();
+  const docOf = db.doc; let failsLeft = 1;
+  db.doc = (path: string) => { const r = docOf(path); return path === LR('U3') ? { ...r, set: async (v: any, o?: any) => { if (failsLeft-- > 0) throw new Error('unavailable'); return r.set(v, o); } } : r; };
+  serve((u) => (u.endsWith('/refunds/') ? { status: 201, body: { object_id: 'rf-U3', status: 'QUEUED' } } : null));
+  uv = await voidUnsavedLabel(db, T, 'k', { orderId: 'o8', order: { orderNumber: 1050 }, boxes: [{ txn: 'U3', tracking: '9400U3', labelUrl: 'u', trackingUrl: '' }], cents: 640, carrier: 'USPS', by: { id: 'u1', name: 'Maya' }, how: 'single' });
+  check('the record can’t be written at first: Shippo is asked to void it anyway, and the record and its refund are written after', calls.includes('POST /refunds/') && uv?.outcome === 'voided' && uv.tracked === true && db._store.get(LR('U3'))?.refunds?.U3?.refundId === 'rf-U3' && db._store.get(`tenants/${T}/transactions/postage-U3`)?.amount === 6.4, { uv, rec: db._store.get(LR('U3')) });
+  // It can't be written at all, and Shippo doesn't answer: no postage booked without a record, and the person is told to void it in Shippo.
+  db.doc = (path: string) => { const r = docOf(path); return path === LR('U4') ? { ...r, set: async () => { throw new Error('unavailable'); } } : r; };
+  serve((u) => (u.endsWith('/refunds/') ? 'throw' : null));
+  uv = await voidUnsavedLabel(db, T, 'k', { orderId: 'o8', order: { orderNumber: 1050 }, boxes: [{ txn: 'U4', tracking: '9400111899223344774471', labelUrl: 'u', trackingUrl: '' }], cents: 640, carrier: 'USPS', by: { id: 'u1', name: 'Maya' }, how: 'single' });
+  const { unsavedNote } = await import('../../src/lib/label-void');
+  check('…when it can’t be kept and Shippo doesn’t answer, nothing is booked and the person is told to void it in Shippo, by its tracking number',
+    calls.includes('POST /refunds/') && uv?.tracked === false && uv.outcome === 'unknown' && !db._store.get(`tenants/${T}/transactions/postage-U4`) && /Void it in Shippo \(tracking ending 4471\)/.test(unsavedNote(uv, '9400111899223344774471')), uv);
+  check('…and the words for each outcome', unsavedNote({ ...uv!, outcome: 'voided' }, 'x') === 'that label was voided straight away' && /tried again over the next few days/.test(unsavedNote({ ...uv!, tracked: true }, 'x')));
+  db.doc = docOf;
 
   // ── A label whose every box's refund was asked for counts as voided; once one is called off, it doesn't ──
   db = makeDb();
@@ -210,6 +226,7 @@ const LR = (id: string) => `tenants/${T}/shippingLabels/${id}`;
   db._store.set(LR('R4'), base('R4', { R4: req(455, ago(50), { refundId: 'rf4' }) }));
   db._store.set(LR('R5'), base('R5', { R5: req(455, ago(10), { checkedAt: new Date(NOW - 2 * 3600e3).toISOString() }) }));
   db._store.set(LR('R6'), base('R6', { R6: req(455, ago(10), { refundId: 'rf6' }) }));
+  db._store.set(LR('R7'), base('R7', { R7: req(455, ago(6), { asks: 4 }) }));
   db._store.set(OR('ord-R2'), { stage: 'completed', customerName: 'Sam Lee' });
   serve((u, init) => {
     if (init?.method === 'POST' && u.endsWith('/refunds/')) return { status: 201, body: { object_id: 'rf3-new', status: 'QUEUED' } };
@@ -218,6 +235,7 @@ const LR = (id: string) => `tenants/${T}/shippingLabels/${id}`;
     if (u.endsWith('/transactions/R3')) return { body: { status: 'SUCCESS' } };
     if (u.endsWith('/transactions/R4')) return { body: { status: 'REFUNDPENDING' } };
     if (u.endsWith('/transactions/R6')) return { body: { status: 'SUCCESS' } };
+    if (u.endsWith('/transactions/R7')) return { body: { status: 'SUCCESS' } };
     if (u.endsWith('/refunds/rf6')) return { body: { status: 'SUCCESS' } };
     return null;
   });
@@ -232,7 +250,9 @@ const LR = (id: string) => `tenants/${T}/shippingLabels/${id}`;
   check('…with a note on the order’s record', [...db._store.keys()].some((k) => k.startsWith(`${OR('ord-R2')}/events/label-refund-denied-R2`)));
   check('a refund Shippo never registered is asked for again, a day on', db._store.get(LR('R3')).refunds.R3.asks === 2 && db._store.get(LR('R3')).refunds.R3.refundId === 'rf3-new' && run.asked === 1);
   check('a refund still pending after 45 days is handed to someone to check in Shippo', db._store.get(LR('R4')).refunds.R4.status === 'unconfirmed' && db._store.get(LR('R4')).unconfirmedOpen === true && db._store.get(LR('R4')).refundOpen === false);
-  check('a refund checked within the last day isn’t looked up again', !calls.some((c) => c.endsWith('/transactions/R5')) && run.checked === 5, { run, calls });
+  check('a refund checked within the last day isn’t looked up again', !calls.some((c) => c.endsWith('/transactions/R5')) && run.checked === 6, { run, calls });
+  check('a refund Shippo still has no record of after asking four times goes to someone to check in Shippo now, not in 45 days',
+    db._store.get(LR('R7')).refunds.R7.status === 'unconfirmed' && db._store.get(LR('R7')).unconfirmedOpen === true && db._store.get(LR('R7')).refundOpen === false && calls.filter((c) => c === 'POST /refunds/').length === 1, { r7: db._store.get(LR('R7')), calls });
   const before = [...db._store.keys()].length;
   run = await followRefunds(db, T, 'k', { now: NOW + 3600e3, deadline: Date.now() + 60000 });
   check('running again an hour later changes nothing and records nothing twice', run.checked === 0 && [...db._store.keys()].length === before, run);

@@ -442,16 +442,19 @@ export async function POST(req: NextRequest) {
         const { carriesLabel } = await import('@/lib/label-void');
         saved = await carriesLabel(orderRef, boxes[0].txn);
         if (saved === null) {
+          // Saved or not, it was bought: its postage goes into the books (once), and the person checks the order.
+          await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, id, cents, carrier);
           console.error('[shipping-label] bought, save unknown', tenantId, orderId, boxes[0].txn, String(e?.message || e).slice(0, 200));
-          return NextResponse.json({ error: 'The label was bought, but saving it to the order didn’t go through. Open the order again before buying another.' }, { status: 503 });
+          const end = String(boxes[0].tracking || '').slice(-4);
+          return NextResponse.json({ error: `The label was bought${end ? ` (tracking ending ${end})` : ''}, but saving it to the order didn’t go through. Open the order again: if that label isn’t on it, void it in Shippo before buying another.` }, { status: 503 });
         }
       }
       if (!saved) {
         // The address changed (or a change came in) while this one was being bought: it's voided straight away. It was
         // paid for, so it's kept like any label, with its refund followed until Shippo confirms it (lib/label-void).
-        const { voidUnsavedLabel } = await import('@/lib/label-void');
+        const { voidUnsavedLabel, unsavedNote } = await import('@/lib/label-void');
         const v = await voidUnsavedLabel(db, tenantId, apiKey, { orderId, order, boxes, cents, carrier, service: info.service, rateId, by: actor, how }).catch(() => null);
-        return NextResponse.json({ error: `The order changed while the label was being bought (the address, or another label), so ${v?.outcome === 'voided' ? 'that label was voided straight away' : 'that label wasn’t saved. Shippo didn’t confirm voiding it yet, so it’s asked again each morning until the refund comes through'}. Get new rates and buy it again.`, addressChanged: true }, { status: 409 });
+        return NextResponse.json({ error: `The order changed while the label was being bought (the address, or another label), so ${unsavedNote(v, boxes[0].tracking)}. Get new rates and buy it again.`, addressChanged: true }, { status: 409 });
       }
       // The postage is a real cost: into the books against this order (lib/postage).
       await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, id, cents, carrier);

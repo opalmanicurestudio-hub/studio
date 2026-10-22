@@ -94,11 +94,14 @@ export async function POST(req: NextRequest) {
     //    so trying again picks up where it stopped (a label the carrier already refunded counts as voided).
     const labelTxn = String(claim.shippoTransactionId || '');
     // The label is voided under the same claim a purchase or replacement takes (lib/label-records), so it isn't voided
-    // while someone is replacing it.
+    // while someone is replacing it, and only while the order still carries the label it had when this approval began
+    // (a box taken off meanwhile, say, means looking again). The void works on the order as it is at that claim.
     const { claimLabelBuy, releaseLabelBuy } = await import('@/lib/label-records');
+    const sameLabel = (c: any) => String(c.shippoTransactionId || '') === labelTxn && JSON.stringify(c.labelTxns || []) === JSON.stringify(claim.labelTxns || []) && JSON.stringify(c.labelVoidIds || []) === JSON.stringify(claim.labelVoidIds || []);
+    let held: any = claim;
     let lock: string | null = null;
     if (labelTxn) {
-      const c = await claimLabelBuy(db, ref, actor.name, Date.now(), undefined, 'void');
+      const c = await claimLabelBuy(db, ref, actor.name, Date.now(), (cur) => { held = cur; return sameLabel(cur) ? null : 'The label on this order changed meanwhile. Open it again and approve the change once more.'; }, 'void');
       if ('error' in c) {
         await db.runTransaction(async (tx: any) => {
           const cur: any = (await tx.get(ref)).data() || {};
@@ -117,7 +120,7 @@ export async function POST(req: NextRequest) {
         const key = await shippoKeyFor(db, tenantId, t);
         // A box the carrier has already scanned has gone out: its label stays, and so does the address. A void of it that an
         // earlier approval started is over: if it went through, the box is out on a refunded label, so the team hears.
-        if ((await labelState(key, claim)) === 'moving') {
+        if ((await labelState(key, held)) === 'moving') {
           await db.runTransaction(async (tx: any) => {
             const cur: any = (await tx.get(ref)).data() || {};
             const voidedBoxes = Array.isArray(cur.labelVoidIds) ? cur.labelVoidIds.length : 0;
@@ -132,20 +135,21 @@ export async function POST(req: NextRequest) {
         }
         // Written down first, as every void is (lib/label-sweep): if this stops part way, or Shippo doesn't answer, the
         // label is known to be in doubt. It can't be shipped or kept meanwhile, and the morning check finishes or lists it.
-        const marked = await db.runTransaction(async (tx: any) => {
+        const marked: boolean | 'changed' = await db.runTransaction(async (tx: any) => {
           const cur: any = (await tx.get(ref)).data() || {};
-          if (String(cur.shippoTransactionId || '') !== labelTxn) return;
+          if (!sameLabel(cur)) return 'changed';
           const prev = String(cur.labelVoiding?.txn || '') === labelTxn ? cur.labelVoiding : null;
           tx.set(ref, { labelVoiding: { at: String(prev?.at || now), txn: labelTxn, why: 'the address changed', stage: String(cur.stage || ''), tries: (Number(prev?.tries) || 0) + 1, lastAt: now, by: actor.name } }, { merge: true });
-        }).then(() => true, () => false);
-        if (!marked) {
+          return true;
+        }).catch(() => false);
+        if (marked !== true) {
           await db.runTransaction(async (tx: any) => {
             const cur: any = (await tx.get(ref)).data() || {};
             if (mine(cur.addressRequest)) tx.set(ref, { addressRequest: { ...cur.addressRequest, status: 'waiting', claimedBy: null, claimedAt: null } }, { merge: true });
           }).catch(() => {});
-          return NextResponse.json({ ok: false, error: 'That didn’t go through. Try again in a minute.' }, { status: 503 });
+          return NextResponse.json({ ok: false, error: marked === 'changed' ? 'The label on this order changed meanwhile. Open it again and approve the change once more.' : 'That didn’t go through. Try again in a minute.' }, { status: marked === 'changed' ? 409 : 503 });
         }
-        const v = await voidOrderLabels(db, tenantId, claim, key, { alreadyVoided: Array.isArray(claim.labelVoidIds) ? claim.labelVoidIds : [], orderId, why: 'the address changed' });
+        const v = await voidOrderLabels(db, tenantId, held, key, { alreadyVoided: Array.isArray(held.labelVoidIds) ? held.labelVoidIds : [], orderId, why: 'the address changed' });
         const { keepBoxes } = await import('@/lib/label-sweep');
         // Shippo says the carrier already has a box: it's on its way to the old address, so the change can't go ahead.
         if (v.outcome === 'moving') {

@@ -254,16 +254,19 @@ export async function POST(req: NextRequest) {
         const { carriesLabel } = await import('@/lib/label-void');
         saved = await carriesLabel(orderRef, box.txn);
         if (saved === null) {
+          // Saved or not, it was bought: its postage goes into the books (once), and the person checks the order.
+          await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, box.txn, cheapest.amountCents, String(cheapest.provider || 'Carrier'));
           console.error('[shipping-labels-bulk] bought, save unknown', tenantId, orderId, box.txn, String(e?.message || e).slice(0, 200));
-          fail('The label was bought, but saving it to the order didn’t go through. Open the order before buying another.');
+          const end = box.tracking.slice(-4);
+          fail(`The label was bought${end ? ` (tracking ending ${end})` : ''}, but saving it to the order didn’t go through. Open the order: if that label isn’t on it, void it in Shippo before buying another.`);
           continue;
         }
       }
       if (!saved) {
         // The address changed (or a change came in) while this label was being bought: give it straight back.
-        const { voidUnsavedLabel } = await import('@/lib/label-void');
+        const { voidUnsavedLabel, unsavedNote } = await import('@/lib/label-void');
         const v = await voidUnsavedLabel(db, tenantId, apiKey, { orderId, order, boxes: [box], cents: cheapest.amountCents, carrier: String(cheapest.provider || 'Carrier'), service: String(cheapest.service || ''), rateId: cheapest.id, by: { id: auth.actor.uid, name: auth.actor.name }, how: 'bulk' }).catch(() => null);
-        fail(`The order changed while the label was being bought (the address, or another label), so ${v?.outcome === 'voided' ? 'it was voided' : 'it wasn’t saved, and voiding it is asked again each morning until the refund comes through'}. Buy it again from the order.`);
+        fail(`The order changed while the label was being bought (the address, or another label), so ${unsavedNote(v, box.tracking)}. Buy it again from the order.`);
         continue;
       }
       await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, box.txn, cheapest.amountCents, String(cheapest.provider || 'Carrier'));

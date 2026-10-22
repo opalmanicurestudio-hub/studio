@@ -142,10 +142,10 @@ const rec = (id: string) => db._store.get(LR(id));
     if (init?.method === 'POST' && u === '/transactions/') { db._store.set(OR('o11'), { ...order('o11'), shippingAddress: { ...addr, line1: '99 New Rd' } }); }
     return null;
   });
-  r = await call('o11', { action: 'purchase', rateId: 'r1', parcels: [{ weightOz: 20 }] });
+  r = await call('o11', { action: 'purchase', rateId: 'rh', parcels: [{ weightOz: 20 }] });
   check('a label bought while the address changed is voided straight away, and kept: its record, its postage in the books, its refund followed',
-    r.status === 409 && r.body.addressChanged === true && !order('o11').shippoTransactionId && rec('Y1')?.refunds?.Y1?.status === 'requested' && rec('Y1')?.orderIds.includes('o11')
-      && db._store.get(`tenants/${T}/transactions/postage-Y1`)?.amount === 8.4 && order('o11').labelBuying === null, { r, rec: rec('Y1') });
+    r.status === 409 && r.body.addressChanged === true && /voided straight away/.test(r.body.error) && !order('o11').shippoTransactionId && rec('W-rh')?.refunds?.['W-rh']?.status === 'requested' && rec('W-rh')?.refunds?.['W-rh']?.refundId === 'rf-W-rh'
+      && rec('W-rh')?.orderIds.includes('o11') && db._store.get(`tenants/${T}/transactions/postage-W-rh`)?.amount === 4.75 && order('o11').labelBuying === null, { r, rec: rec('W-rh') });
 
   // ── Replacing when Shippo won't void one of the old boxes ──
   db._store.set(OR('o12'), baseOrder({ shippoTransactionId: 'E1', trackingNumber: '9400E1000000000001', labelUrl: 'https://labels/E1.pdf', extraTrackingNumbers: ['9400E2000000000001'], extraLabelUrls: ['https://labels/E2.pdf'], extraTrackingUrls: [''], carrier: 'USPS', labelTxns: ['E1', 'E2'], labelRecs: ['E1', 'E1'], packageCount: 2 }));
@@ -197,7 +197,18 @@ const rec = (id: string) => db._store.get(LR(id));
     return null;
   });
   r = await call('o16', { action: 'purchase', rateId: 'rd', parcels: [{ weightOz: 20 }] });
-  check('…and when Shippo doesn’t answer that void, the sheet says so and the refund is asked again each morning', r.status === 409 && /asked again each morning/.test(r.body.error) && rec('W-rd')?.refunds?.['W-rd']?.status === 'requested' && rec('W-rd').refunds['W-rd'].refundId === null, { r, rec: rec('W-rd') });
+  check('…and when Shippo doesn’t answer that void, the sheet says so and the refund is followed', r.status === 409 && /tried again over the next few days/.test(r.body.error) && rec('W-rd')?.refunds?.['W-rd']?.status === 'requested' && rec('W-rd').refunds['W-rd'].refundId === null, { r, rec: rec('W-rd') });
+  // The save fails and the order can't be read afterwards either: the postage still goes into the books, and the sheet
+  // names the label to look for.
+  db._store.set(OR('o19'), baseOrder());
+  let blind = false;
+  const realHas = db._store.has.bind(db._store);
+  db._store.has = (k: string) => { if (blind && k === OR('o19')) throw new Error('unavailable'); return realHas(k); };
+  route = shippo((u, init) => { if (init?.method === 'POST' && u === '/transactions/') blind = true; return null; }); calls = [];
+  r = await call('o19', { action: 'purchase', rateId: 're', parcels: [{ weightOz: 20 }] });
+  blind = false; db._store.has = realHas;
+  check('the save fails and the order can’t be read after: the postage is still in the books, and the sheet names the label to check',
+    r.status === 503 && /tracking ending 0001/.test(r.body.error) && db._store.get(`tenants/${T}/transactions/postage-W-re`)?.amount === 4.75 && !order('o19').shippoTransactionId && !calls.includes('POST /refunds/'), { r });
 
   // ── One at a time: a void waits for someone buying or replacing the label ──
   db._store.set(OR('o17'), baseOrder({ shippoTransactionId: 'J1', trackingNumber: '9400J1000000000001', labelUrl: 'https://labels/J1.pdf', carrier: 'USPS', labelTxns: ['J1'], labelRecs: ['J1'], labelBuying: { at: new Date().toISOString(), by: 'Jo', token: 'other' } }));
@@ -216,6 +227,23 @@ const rec = (id: string) => db._store.get(LR(id));
   db._store.set(OR('o18'), { ...order('o18'), labelBuying: null });
   r = await addressCall('o18', { action: 'approve_change' });
   check('…once they’re done, the approval voids the label under the same claim and lets the order go', r.status === 200 && calls.includes('POST /refunds/') && order('o18').shippoTransactionId === '' && order('o18').shippingAddress.line1 === '99 New Rd' && order('o18').labelBuying === null && order('o18').addressRequest.status === 'done', { r, o: order('o18') });
+  // The label changes between the approval's two claims (box 1, already voided, comes off): nothing is voided.
+  db._store.set(OR('o20'), baseOrder({ shippoTransactionId: 'K1', trackingNumber: '9400K1000000000002', labelUrl: 'https://labels/K1.pdf', extraTrackingNumbers: ['9400K2000000000002'], extraLabelUrls: ['https://labels/K2.pdf'], extraTrackingUrls: [''], carrier: 'USPS',
+    labelTxns: ['K1', 'K2'], labelRecs: ['K1', 'K1'], labelVoidIds: ['K1'], relabelOpen: true, packageCount: 2, addressRequest: { id: 'ar2', kind: 'change', status: 'waiting', to: { ...addr, line1: '5 Side St' } } }));
+  const realTx2 = db.runTransaction; let moved = false;
+  db.runTransaction = async (fn: any) => {
+    const out = await realTx2(fn);
+    if (!moved && order('o20')?.addressRequest?.status === 'approving') {
+      moved = true;
+      db._store.set(OR('o20'), { ...order('o20'), shippoTransactionId: 'K2', trackingNumber: '9400K2000000000002', labelUrl: 'https://labels/K2.pdf', extraTrackingNumbers: [], extraLabelUrls: [], extraTrackingUrls: [], labelTxns: ['K2'], labelRecs: ['K1'], labelVoidIds: [], relabelOpen: false, packageCount: 1 });
+    }
+    return out;
+  };
+  calls = [];
+  r = await addressCall('o20', { action: 'approve_change' });
+  db.runTransaction = realTx2;
+  check('the label changed between the approval’s steps: nothing is voided, and the change can be approved again',
+    r.status === 409 && /changed meanwhile/.test(r.body.error) && !calls.some((c) => c.startsWith('POST')) && order('o20').addressRequest.status === 'waiting' && order('o20').shippoTransactionId === 'K2' && !order('o20').labelBuying, { r, calls, o: order('o20') });
 
   // ── Voiding by hand, with a reason; seen cards ──
   db._store.set(OR('o7'), baseOrder({ shippoTransactionId: 'V1', trackingNumber: '9400V1000000000001', labelUrl: 'https://labels/V1.pdf', carrier: 'USPS', labelTxns: ['V1'], labelRecs: ['V1'] }));

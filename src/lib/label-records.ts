@@ -5,8 +5,8 @@
 //   · a void asks Shippo for a refund of each box's share; the request is written here, not in the books
 //   · every morning (api/cron/label-money) each refund still waiting is checked with Shippo. A confirmed refund goes
 //     into the books as income, once; one Shippo turned down goes under Needs you (the box may well have gone out);
-//     one Shippo never registered (it didn't answer when asked) is asked for again; one still unanswered after 45 days
-//     is listed for someone to check in Shippo
+//     one Shippo never registered (it didn't answer when asked) is asked for again, up to four times; one Shippo still
+//     has no refund for after that, or one still unanswered after 45 days, is listed for someone to check in Shippo
 //   · a carrier adjustment on Shippo's invoices (the carrier weighed or measured a box differently, say) is matched to
 //     its label, recorded here and in the books, and shown on the order
 // Labels bought before these records existed get one the first time they're voided or charged for, so they're
@@ -284,8 +284,10 @@ export async function followRefunds(db: any, tenantId: string, apiKey: string, o
     const age = now - (Date.parse(String(r.requestedAt || '')) || now);
     if (state === 'refunded') { if (await settleRefund(db, tenantId, ref, txn, 'refunded', now)) out.refunded++; continue; }
     if (state === 'denied') { if (await settleRefund(db, tenantId, ref, txn, 'denied', now)) out.denied++; continue; }
-    // Shippo has no refund for it: the first ask got no answer, or never reached it. Asked again, a few times.
-    if (state === 'none' && age >= DAY && (Number(r.asks) || 1) < 4) {
+    // Shippo has no refund for it: the first ask got no answer, never reached it, or was turned away. Asked again, a few
+    // times; after the fourth it goes to someone to check in Shippo straight away, not after 45 days.
+    if (state === 'none' && age >= DAY) {
+      if ((Number(r.asks) || 1) >= 4) { await settleRefund(db, tenantId, ref, txn, 'unconfirmed', now); continue; }
       const again = await askAgain(apiKey, txn);
       if (again.used) { if (await settleRefund(db, tenantId, ref, txn, 'denied', now)) out.denied++; continue; }
       out.asked++;
