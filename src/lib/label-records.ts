@@ -465,8 +465,13 @@ export const labelOrderNo = orderNo;
 // Buying a label spends the shop's money and voiding one takes it off the order, so an order is claimed first: a
 // second tap, a second device, the bulk buy, or a void (by hand, from an address change, or the morning check)
 // reaching the same order is told someone is already at it, instead of buying a second label or voiding one that's
-// being replaced. A claim left by a purchase or void that was cut off lapses after three minutes.
-export const BUY_STALE_MS = 3 * 60_000;
+// being replaced. A claim left by a purchase or void that was cut off lapses after six minutes. The rates a purchase is
+// buying go on its claim first; one cut off, or one Shippo didn't answer, leaves them in doubt on the order
+// (labelBuyDoubt, labelBuyDoubtOpen), and the order's next purchase, or the morning check, asks Shippo about them and
+// voids any label made on them that isn't on the order (lib/label-void settleDoubtfulBuy).
+// Longer than the longest purchase may run (the bulk buy's 5 minutes), so a claim never lapses while its purchase is
+// still going: one that lapses was cut off.
+export const BUY_STALE_MS = 6 * 60_000;
 export const BUYING = 'Someone is buying a label for this order right now. It shows here as soon as it’s bought.';
 export const VOIDING = 'Someone is voiding this order’s label right now. Open it again in a minute.';
 
@@ -485,28 +490,35 @@ export async function claimLabelBuy(db: any, ref: any, by: string, now = Date.no
     if (why) return { error: why };
     // A claim left behind by a purchase that was cut off: the rates it was buying are in doubt from now on.
     const doubt = [...new Set([...(Array.isArray(c.labelBuyDoubt?.rates) ? c.labelBuyDoubt.rates : []), ...(b && Array.isArray(b.rates) ? b.rates : [])].map(String).filter(Boolean))].slice(0, 20);
-    tx.set(ref, { labelBuying: { at: iso(now), by: String(by || '').slice(0, 80), token, what }, ...(doubt.length ? { labelBuyDoubt: { rates: doubt, at: c.labelBuyDoubt?.at || iso(now) } } : {}) }, { merge: true });
+    tx.set(ref, { labelBuying: { at: iso(now), by: String(by || '').slice(0, 80), token, what }, ...(doubt.length ? { labelBuyDoubt: { rates: doubt, at: c.labelBuyDoubt?.at || iso(now) }, labelBuyDoubtOpen: true } : {}) }, { merge: true });
     return { token, doubt };
   }).catch(() => ({ error: 'That didn’t go through. Try again in a minute.' }));
   return r;
 }
 
 /** The rates this purchase is about to buy, kept on its claim: if it's cut off before the label is saved, the next
- *  claim knows to look for a label bought on them. */
-export async function noteBuyRates(db: any, ref: any, token: string, rates: string[]): Promise<void> {
-  await db.runTransaction(async (tx: any) => {
+ *  claim knows to look for a label bought on them. False when they couldn't be kept (nothing should be bought then). */
+export async function noteBuyRates(db: any, ref: any, token: string, rates: string[]): Promise<boolean> {
+  return db.runTransaction(async (tx: any) => {
     const c: any = (await tx.get(ref)).data() || {};
-    if (c.labelBuying?.token === token) tx.set(ref, { labelBuying: { ...c.labelBuying, rates: rates.map(String).slice(0, 10) } }, { merge: true });
-  }).catch(() => {});
+    if (c.labelBuying?.token !== token) return false;
+    tx.set(ref, { labelBuying: { ...c.labelBuying, rates: rates.map(String).slice(0, 10), at: new Date().toISOString() }, labelBuyDoubtOpen: true }, { merge: true });
+    return true;
+  }).catch(() => false);
 }
 
-/** The claim let go. `doubt`: rates a purchase got no answer about, kept on the order so the next claim checks them. */
+/** The claim let go. `doubt`: rates a purchase got no answer about, kept on the order so the next claim (or the morning
+ *  check) asks Shippo about them; kept even when the claim itself was taken over meanwhile. */
 export async function releaseLabelBuy(db: any, ref: any, token: string | null, doubt: string[] = []): Promise<void> {
   if (!token) return;
   await db.runTransaction(async (tx: any) => {
     const c: any = (await tx.get(ref)).data() || {};
-    if (c.labelBuying?.token !== token) return;
+    const mine = c.labelBuying?.token === token;
     const rates = [...new Set([...(Array.isArray(c.labelBuyDoubt?.rates) ? c.labelBuyDoubt.rates : []), ...doubt].map(String).filter(Boolean))].slice(0, 20);
-    tx.set(ref, { labelBuying: null, ...(doubt.length ? { labelBuyDoubt: { rates, at: c.labelBuyDoubt?.at || new Date().toISOString() } } : {}) }, { merge: true });
+    if (!mine && !doubt.length) return;
+    tx.set(ref, {
+      ...(mine ? { labelBuying: null } : {}),
+      ...(rates.length ? { labelBuyDoubt: { rates, at: c.labelBuyDoubt?.at || new Date().toISOString() }, labelBuyDoubtOpen: true } : mine ? { labelBuyDoubtOpen: false } : {}),
+    }, { merge: true });
   }).catch(() => {});
 }

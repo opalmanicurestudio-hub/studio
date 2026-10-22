@@ -9,8 +9,9 @@
 //   Each box voided is written on its label record as a refund asked for (lib/label-records); the money goes into the
 //   books when Shippo confirms it, not before.
 import { labelKey, labelSlots, slotsKnown, type RecordBox } from '@/lib/label-boxes';
-import { newLabelRecord, noteRefundId, noteRefundRequests, rateInfo, type LabelHow } from '@/lib/label-records';
+import { claimLabelBuy, newLabelRecord, noteRefundId, noteRefundRequests, rateInfo, releaseLabelBuy, type LabelHow } from '@/lib/label-records';
 import { recordPostage } from '@/lib/postage';
+import { labelsFor } from '@/lib/box-shipments';
 
 const SHIPPO = 'https://api.goshippo.com';
 const timeout = (ms: number): AbortSignal | undefined => { try { return (AbortSignal as any).timeout(ms); } catch { return undefined; } };
@@ -28,7 +29,7 @@ export const LABEL_CLEARED = {
   labelVoidIds: [] as string[], labelTxns: [] as string[], labelRecs: [] as string[], relabelOpen: false,
   // A voided label isn't waiting for a scan any more (lib/label-sweep), and it's on no carrier form (api/retail/close-day).
   // What the morning check knew about it (seen moving, voids turned down) goes with it: a new label starts fresh.
-  labelUnscanned: null, labelUnscannedOpen: false, manifestId: null, manifestedAt: null, labelVoiding: null,
+  labelUnscanned: null, labelUnscannedOpen: false, manifestId: null, manifestedAt: null, manifestTxns: [] as string[], labelVoiding: null,
   labelSeenMoving: null, autoVoid: null,
 };
 
@@ -166,37 +167,58 @@ export async function voidUnsavedLabel(db: any, tenantId: string, apiKey: string
 /**
  * Rates an earlier purchase for this order was buying when it was cut off or got no answer (lib/label-records
  * claimLabelBuy's `doubt`): any label Shippo made on them was never saved, so it's voided now, kept on record with its
- * postage and its refund followed like any other. Called under the order's claim, before another label is bought.
- * Clears the doubt once Shippo has been asked. Returns what was found, for the person: '' when nothing was.
+ * postage and its refund followed like any other, and written on the order's history. Called under the order's claim,
+ * before another label is bought, and by the morning check. A rate Shippo is still making a label on, or couldn't be
+ * asked about, stays in doubt, and `wait` says not to buy another label until it's settled. `note` is for the person.
  */
-export async function settleDoubtfulBuy(db: any, tenantId: string, apiKey: string, ref: any, orderId: string, order: any, rates: string[], by: { id: string; name: string }): Promise<string> {
-  if (!rates.length || !apiKey) return '';
-  const auth = { Authorization: `ShippoToken ${apiKey}` };
-  const found: { rate: string; t: any }[] = [];
-  let asked = true;
-  for (const rate of rates.slice(0, 20)) {
-    try {
-      const r = await fetch(`${SHIPPO}/transactions/?rate=${encodeURIComponent(rate)}&results=25`, { headers: auth, signal: timeout(15000) });
-      if (!r.ok) { asked = false; continue; }
-      const d: any = await r.json().catch(() => ({}));
-      for (const t of d?.results || []) if (t?.status === 'SUCCESS' && t?.object_id && t?.label_url) found.push({ rate, t });
-    } catch { asked = false; }
+export async function settleDoubtfulBuy(db: any, tenantId: string, apiKey: string, ref: any, orderId: string, order: any, rates: string[], by: { id: string; name: string }): Promise<{ note: string; wait: boolean }> {
+  if (!rates.length || !apiKey) return { note: '', wait: false };
+  // Read fresh: a label saved after all is on the order, and isn't voided.
+  const cur: any = (await ref.get().catch(() => null))?.data?.() || order || {};
+  const onOrder = new Set([String(cur?.shippoTransactionId || ''), ...(Array.isArray(cur?.labelTxns) ? cur.labelTxns.map(String) : [])].filter(Boolean));
+  const keep: string[] = []; const loose: { rate: string; t: any }[] = [];
+  for (const rate of [...new Set(rates.map(String))].slice(0, 20)) {
+    const l = await labelsFor(apiKey, rate);
+    if (!l.asked || l.pending.length) keep.push(rate);
+    for (const t of l.made) if (!onOrder.has(String(t.object_id))) loose.push({ rate, t });
   }
-  // A label already on the order (saved after all) isn't voided.
-  const onOrder = new Set([String(order?.shippoTransactionId || ''), ...(Array.isArray(order?.labelTxns) ? order.labelTxns.map(String) : [])].filter(Boolean));
-  const loose = found.filter((f) => !onOrder.has(String(f.t.object_id)));
   let note = '';
   if (loose.length) {
     const prices = await Promise.all(loose.map((f) => rateInfo(apiKey, f.rate)));
     const boxes: RecordBox[] = loose.map((f, i) => ({ txn: String(f.t.object_id), tracking: String(f.t.tracking_number || ''), labelUrl: String(f.t.label_url || ''), trackingUrl: String(f.t.tracking_url_provider || ''), parcel: null, ...(prices[i].cents > 0 ? { cents: prices[i].cents } : {}) }));
     const v = await voidUnsavedLabel(db, tenantId, apiKey, {
-      orderId, order, boxes, cents: prices.reduce((a, p) => a + p.cents, 0), carrier: prices[0]?.provider || String(order?.carrier || 'Carrier'), service: prices[0]?.service || '',
+      orderId, order: cur, boxes, cents: prices.reduce((a, p) => a + p.cents, 0), carrier: prices[0]?.provider || String(cur?.carrier || 'Carrier'), service: prices[0]?.service || '',
       rateId: loose[0].rate, rateIds: [...new Set(loose.map((f) => f.rate))], by, how: 'single', why: 'voided: an earlier purchase that was cut off had bought it',
     }).catch(() => null);
-    note = v?.outcome === 'voided' ? 'A label an earlier try had bought without saving was voided, so its postage comes back.' : `An earlier try had bought a label without saving it; ${unsavedNote(v, boxes[0].tracking)}.`;
+    const end = String(boxes[0].tracking || '').replace(/\s+/g, '').slice(-4);
+    note = v?.outcome === 'voided' ? `A label an earlier try had bought without saving${end ? ` (tracking ending ${end})` : ''} was voided, so its postage comes back.` : `An earlier try had bought a label without saving it; ${unsavedNote(v, boxes[0].tracking)}.`;
+    // Neither voided nor kept on record: asked about again next time, so it isn't forgotten.
+    if (v?.outcome !== 'voided' && !v?.tracked) keep.push(...loose.map((f) => f.rate));
+    const at = new Date().toISOString();
+    const ev = ref.collection('events').doc();
+    await ev.set({ id: ev.id, type: 'note', at, actorId: by.id || 'shippo', actorName: by.name || 'Shippo', meta: { kind: 'label_cut_off', text: note } }).catch(() => {});
   }
-  if (asked) await ref.set({ labelBuyDoubt: null }, { merge: true }).catch(() => {});
-  return note;
+  const left = [...new Set(keep)];
+  await ref.set(left.length ? { labelBuyDoubt: { rates: left, at: cur?.labelBuyDoubt?.at || new Date().toISOString() }, labelBuyDoubtOpen: true } : { labelBuyDoubt: null, labelBuyDoubtOpen: false }, { merge: true }).catch(() => {});
+  return { note, wait: left.length > 0 };
+}
+
+/** The morning check (api/cron/label-money): every order with a purchase in doubt (cut off, or no answer from Shippo)
+ *  that nobody is buying a label for right now gets its doubt settled, so a label made and never saved doesn't wait for
+ *  someone to buy that order another one. */
+export async function settleDoubts(db: any, tenantId: string, apiKey: string, deadline: number): Promise<number> {
+  const snap = await db.collection(`tenants/${tenantId}/retailOrders`).where('labelBuyDoubtOpen', '==', true).limit(20).get().catch(() => null);
+  let settled = 0;
+  for (const d of snap?.docs || []) {
+    if (Date.now() > deadline - 10000) break;
+    const claim = await claimLabelBuy(db, d.ref, 'Morning check', Date.now(), undefined, 'void');
+    if ('error' in claim) continue;
+    try {
+      if (claim.doubt.length) { await settleDoubtfulBuy(db, tenantId, apiKey, d.ref, d.id, d.data() || {}, claim.doubt, { id: 'shippo', name: 'Morning check' }); settled++; }
+      else await d.ref.set({ labelBuyDoubtOpen: false }, { merge: true }).catch(() => {});
+    } finally { await releaseLabelBuy(db, d.ref, claim.token); }
+  }
+  return settled;
 }
 
 /** What to tell the person about a label voided straight away, to finish "…so ___." */

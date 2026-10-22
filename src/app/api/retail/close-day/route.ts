@@ -8,7 +8,10 @@
 //   - forms are made in the background: this waits a little for each one, and the history action fetches any still
 //     being made, so the sheet to print always turns up
 //   - at most 500 labels per form
-// Each order is stamped with its form so it is never put on two. Other carriers don't use these; they're counted.
+// Each box is stamped with its form (manifestTxns, and the order's manifestId) so it is never put on two; a box Shippo
+// turned away goes on a later form. Each box's form is found from its own label (its carrier account and ship date).
+// The route keeps inside its time limit: no form is asked for without time left to record it. Other carriers don't use
+// these; they're counted.
 // POST { tenantId, action: 'history' } lists the last 14 forms (and finishes any still being made).
 // POST { tenantId, action: 'summary' } is the day so far (lib/ship-run daySummary): today's boxes, postage, insurance,
 // signatures and carriers from the label records, and the postage coming back for labels nobody used that the morning
@@ -60,7 +63,15 @@ async function shippo(apiKey: string, path: string, payload?: any) {
 
 const isUsps = (c: string) => /usps/i.test(c);
 
+/** The boxes of an order already on a USPS form. An order stamped before each box was kept has all its boxes on one. */
+const onFormOf = (o: any): Set<string> => new Set(Array.isArray(o?.manifestTxns) ? o.manifestTxns.map(String) : o?.manifestId ? liveSlots(o).map((s) => String(s.txn || '')) : []);
+/** An order's boxes with a label that isn't on a form yet. */
+const offForm = (o: any): string[] => { const on = onFormOf(o); return liveSlots(o).map((s) => String(s.txn || '')).filter((t) => t && !on.has(t)); };
+
 export async function POST(req: NextRequest) {
+  const started = Date.now();
+  // Well inside maxDuration: nothing new is started that couldn't finish and be recorded.
+  const deadline = started + 100_000;
   const b = await req.json().catch(() => ({} as any));
   const tenantId = String(b.tenantId || '').trim();
   const action = String(b.action || 'manifest');
@@ -81,7 +92,15 @@ export async function POST(req: NextRequest) {
     const refs = ids.map((id) => db.doc(`tenants/${tenantId}/retailOrders/${id}`));
     const snaps: any[] = await db.getAll(...refs);
     const batch = db.batch(); let n = 0;
-    snaps.forEach((snap: any, i: number) => { if (snap.exists && snap.data()?.manifestId === m.id) { batch.set(refs[i], { manifestId: null, manifestedAt: null }, { merge: true }); n++; } });
+    const mine = new Set((Array.isArray(m.txns) ? m.txns : []).map(String));
+    snaps.forEach((snap: any, i: number) => {
+      const o = snap.exists ? snap.data() || {} : null;
+      if (!o) return;
+      const txns: string[] = Array.isArray(o.manifestTxns) ? o.manifestTxns.map(String) : [];
+      const kept = txns.filter((t) => !mine.has(t));
+      if (o.manifestId !== m.id && kept.length === txns.length) return;
+      batch.set(refs[i], { ...(o.manifestId === m.id ? { manifestId: kept.length ? 'earlier' : null, manifestedAt: kept.length ? o.manifestedAt || null : null } : {}), manifestTxns: kept }, { merge: true }); n++;
+    });
     if (n) await batch.commit();
   };
   const failedNow = (status: unknown) => String(status || '').toUpperCase() === 'ERROR';
@@ -147,8 +166,8 @@ export async function POST(req: NextRequest) {
   }
   const waitingForForm = all.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
     .filter((o: any) => ['packed', 'shipped'].includes(String(o.stage)))
-    // A relabelled order (its old label voided) has a new label to put on a form; manifestId is cleared with a void.
-    .filter((o: any) => o.shippoTransactionId && !o.manifestId)
+    // Boxes not on a form yet: a box Shippo turned away last time, or a box's new label, goes on this one.
+    .filter((o: any) => o.shippoTransactionId && offForm(o).length > 0)
     .filter((o: any) => { const at = Date.parse(o.shipmentProtection?.decidedAt || o.shippedAt || o.packedAt || ''); return !Number.isFinite(at) || at >= since; });
   // A label that may no longer work (lib/label-doubt) stays off the form until that's sorted on the order.
   const held = waitingForForm.filter(labelInDoubt).length;
@@ -158,27 +177,37 @@ export async function POST(req: NextRequest) {
   const others = candidates.length - usps.length;
   if (usps.length === 0) return NextResponse.json({ ok: true, manifests: [], count: 0, others, held, summary: await summaryNow(), message: `${others ? 'Nothing for USPS today. Other carriers scan each box at pickup.' : 'No labels waiting for a manifest.'}${heldLine}` });
 
-  // One form per carrier account per ship date (Shippo's rule), so each label is looked up for both.
-  const groups = new Map<string, { acct: string; date: string; list: any[] }>();
+  // One form per carrier account per ship date (Shippo's rule), so each box's own label is looked up for both (a box
+  // relabelled on a later day goes on that day's form). Rates and shipments shared by boxes are asked for once.
+  type Entry = { o: any; txn: string; shipmentDate: string };
+  const groups = new Map<string, { acct: string; date: string; list: Entry[] }>();
   const failed: { orderId: string; error: string }[] = [];
-  const lookup = async (o: any) => {
+  const once = new Map<string, Promise<any>>();
+  const cached = (path: string) => { if (!once.has(path)) once.set(path, shippo(apiKey, path).catch((e) => { once.delete(path); throw e; })); return once.get(path)!; };
+  const lookup = async (o: any, txnId: string) => {
     try {
-      const txn = await shippo(apiKey, `/transactions/${encodeURIComponent(o.shippoTransactionId)}`);
+      const txn = await shippo(apiKey, `/transactions/${encodeURIComponent(txnId)}`);
       const rateId = typeof txn.rate === 'string' ? txn.rate : txn.rate?.object_id;
-      const rate = rateId ? await shippo(apiKey, `/rates/${encodeURIComponent(rateId)}`) : null;
+      const rate = rateId ? await cached(`/rates/${encodeURIComponent(rateId)}`) : null;
       const acct = String(rate?.carrier_account || '');
-      if (!acct) { liveSlots(o).forEach(() => failed.push({ orderId: o.id, error: 'No carrier account on this label' })); return; }
+      if (!acct) { failed.push({ orderId: o.id, error: 'No carrier account on this label' }); return; }
       const shipmentId = typeof rate?.shipment === 'string' ? rate.shipment : rate?.shipment?.object_id;
-      const shipment = shipmentId ? await shippo(apiKey, `/shipments/${encodeURIComponent(shipmentId)}`) : null;
+      const shipment = shipmentId ? await cached(`/shipments/${encodeURIComponent(shipmentId)}`) : null;
       const when = String(shipment?.shipment_date || txn.object_created || new Date().toISOString());
       const date = when.slice(0, 10);
       const key = `${acct}|${date}`;
-      const g = groups.get(key) || { acct, date, list: [] as any[] };
-      g.list.push({ ...o, shipmentDate: when });
+      const g = groups.get(key) || { acct, date, list: [] as Entry[] };
+      g.list.push({ o, txn: txnId, shipmentDate: when });
       groups.set(key, g);
-    } catch (e: any) { liveSlots(o).forEach(() => failed.push({ orderId: o.id, error: String(e?.message || 'Lookup failed') })); }
+    } catch (e: any) { failed.push({ orderId: o.id, error: String(e?.message || 'Lookup failed') }); }
   };
-  for (let i = 0; i < usps.length; i += 8) await Promise.all(usps.slice(i, i + 8).map(lookup));
+  const boxesToLook = usps.flatMap((o: any) => offForm(o).map((t) => ({ o, t })));
+  let unlooked = 0;
+  for (let i = 0; i < boxesToLook.length; i += 8) {
+    // Out of time to look up more: the rest wait for the next close (the carrier scans them meanwhile).
+    if (Date.now() > deadline - 60_000) { unlooked = boxesToLook.length - i; break; }
+    await Promise.all(boxesToLook.slice(i, i + 8).map((x) => lookup(x.o, x.t)));
+  }
 
   const addressFrom = {
     name: from.name || String(tenant.businessName || tenant.name || 'Shop'),
@@ -186,9 +215,6 @@ export async function POST(req: NextRequest) {
     phone: from.phone || '', email: from.email || '',
   };
   const now = new Date().toISOString();
-  const started = Date.now();
-  // One entry per box: every box of an order goes on the form, each by its own label.
-  type Entry = { o: any; txn: string };
   const already: Entry[] = [];   // boxes Shippo says are on a form already
   // Ask Shippo for one form; labels it turns away are dropped and the rest tried once more.
   const createForm = async (acct: string, shipmentDate: string, list: Entry[]): Promise<{ m: any; used: Entry[] } | null> => {
@@ -219,7 +245,7 @@ export async function POST(req: NextRequest) {
   const settle = async (m: any) => {
     let cur = m;
     for (const wait of [3000, 5000, 8000, 12000]) {
-      if ((Array.isArray(cur?.documents) && cur.documents.length) || ['ERROR', 'SUCCESS'].includes(String(cur?.status || '').toUpperCase()) || Date.now() - started > 40000) break;
+      if ((Array.isArray(cur?.documents) && cur.documents.length) || ['ERROR', 'SUCCESS'].includes(String(cur?.status || '').toUpperCase()) || Date.now() > deadline - 15_000) break;
       await new Promise((r) => setTimeout(r, wait));
       try { cur = await shippo(apiKey, `/manifests/${encodeURIComponent(String(m.object_id))}`); } catch { break; }
     }
@@ -227,13 +253,17 @@ export async function POST(req: NextRequest) {
   };
 
   const out: any[] = [];
-  const stamped = new Set<string>();
+  // Every box put on a form here (or found on one already), by order, so each order's stamp lists its own boxes.
+  const placed = new Map<string, { o: any; txns: Set<string>; form: string }>();
+  const place = (e: Entry, form: string) => { const p = placed.get(e.o.id) || { o: e.o, txns: new Set<string>(), form }; p.txns.add(e.txn); if (form !== 'earlier') p.form = form; placed.set(e.o.id, p); };
+  let notTried = 0;
   for (const g of [...groups.values()].sort((a, b) => a.date.localeCompare(b.date))) {
-    const entries: Entry[] = g.list.flatMap((o: any) => liveSlots(o).map((sl) => ({ o, txn: String(sl.txn || '') })).filter((e: Entry) => e.txn));
-    for (let i = 0; i < entries.length; i += 500) {
-      const chunk = entries.slice(i, i + 500);
+    for (let i = 0; i < g.list.length; i += 500) {
+      const chunk = g.list.slice(i, i + 500);
+      // Not enough time left to ask for a form and record it: these wait for the next close.
+      if (Date.now() > deadline - 45_000) { notTried += chunk.length; continue; }
       try {
-        const made = await createForm(g.acct, chunk[0].o.shipmentDate, chunk);
+        const made = await createForm(g.acct, chunk[0].shipmentDate, chunk);
         if (!made) continue;
         // Recorded and stamped the moment Shippo accepts it, before any waiting, so a form is never made and forgotten.
         const ref = manifests.doc();
@@ -245,9 +275,10 @@ export async function POST(req: NextRequest) {
         };
         const batch = db.batch();
         batch.set(ref, rec);
+        made.used.forEach((e) => place(e, ref.id));
         orders.forEach((o: any) => {
-          stamped.add(o.id);
-          batch.set(o.ref, { manifestId: ref.id, manifestedAt: now }, { merge: true });
+          const p = placed.get(o.id)!;
+          batch.set(o.ref, { manifestId: ref.id, manifestedAt: now, manifestTxns: [...new Set([...onFormOf(o), ...p.txns])] }, { merge: true });
           const ev = o.ref.collection('events').doc();
           batch.set(ev, { id: ev.id, type: 'manifested', at: now, actorId: auth.actor.uid, actorName: auth.actor.name, meta: { manifestId: ref.id, carrier: 'USPS', boxes: made.used.filter((e) => e.o.id === o.id).length } });
         });
@@ -260,7 +291,7 @@ export async function POST(req: NextRequest) {
           // Its labels are freed first; if that fails, the form stays as it was and history frees them later.
           await unstamp(rec);
           await ref.set({ status, documents, freedAt: new Date().toISOString() }, { merge: true });
-          made.used.forEach((e) => failed.push({ orderId: e.o.id, error: 'Shippo couldn’t make the form' }));
+          made.used.forEach((e) => { failed.push({ orderId: e.o.id, error: 'Shippo couldn’t make the form' }); placed.get(e.o.id)?.txns.delete(e.txn); });
           continue;
         }
         rec.status = status; rec.documents = documents;
@@ -271,19 +302,25 @@ export async function POST(req: NextRequest) {
       }
     }
   }
-  const earlier = [...new Map(already.filter((e) => !stamped.has(e.o.id)).map((e) => [e.o.id, e.o])).values()];
+  // Boxes Shippo says are on a form already (one made earlier that wasn't recorded): marked, so they aren't tried again.
+  const earlier = already.filter((e) => !placed.get(e.o.id)?.txns.has(e.txn));
   if (earlier.length) {
+    earlier.forEach((e) => place(e, 'earlier'));
     const batch = db.batch();
-    earlier.forEach((o: any) => batch.set(o.ref, { manifestId: 'earlier', manifestedAt: now }, { merge: true }));
+    for (const id of new Set(earlier.map((e) => e.o.id))) {
+      const p = placed.get(id)!;
+      batch.set(p.o.ref, { manifestId: p.form, manifestedAt: now, manifestTxns: [...new Set([...onFormOf(p.o), ...p.txns])] }, { merge: true });
+    }
     await batch.commit().catch(() => {});
   }
+  const waitNote = notTried + unlooked ? ` ${notTried + unlooked} box${notTried + unlooked === 1 ? '' : 'es'} didn’t fit in this go: close the day again to put ${notTried + unlooked === 1 ? 'it' : 'them'} on a form.` : '';
   const count = out.reduce((a, m) => a + m.count, 0);
   const making = out.some((m: any) => !(m.documents || []).length);
   const left = failed.length ? ` ${failed.length} box${failed.length === 1 ? '' : 'es'} couldn’t go on it; the carrier scans ${failed.length === 1 ? 'that one' : 'those'} at pickup.` : '';
   return NextResponse.json({
     ok: out.length > 0 || failed.length === 0, manifests: out, count, others, failed, making, held, summary: await summaryNow(),
     message: count
-      ? `${out.length > 1 ? `${out.length} USPS forms` : 'USPS form'} ${making ? 'being made' : 'ready'} for ${count} box${count === 1 ? '' : 'es'}${out.length > 1 ? ', one for each day the labels were bought' : ''}. Hand the carrier the sheet${out.length > 1 ? 's' : ''}.${left}${heldLine}`
-      : `The USPS form didn’t go through. Your labels still work; the carrier can scan each box.${left}${heldLine}`,
+      ? `${out.length > 1 ? `${out.length} USPS forms` : 'USPS form'} ${making ? 'being made' : 'ready'} for ${count} box${count === 1 ? '' : 'es'}${out.length > 1 ? ', one for each day the labels were bought' : ''}. Hand the carrier the sheet${out.length > 1 ? 's' : ''}.${left}${waitNote}${heldLine}`
+      : `The USPS form didn’t go through. Your labels still work; the carrier can scan each box.${left}${waitNote}${heldLine}`,
   });
 }

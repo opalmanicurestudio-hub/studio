@@ -29,7 +29,7 @@ import { useLabelRecords } from './LabelHistory';
 import { SHIPPO_INSURANCE_RATE, packBoxesOf } from '@/lib/ship-run';
 
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
-type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
+type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null; boxCents?: number[] };
 type Dims = { lengthIn: number; widthIn: number; heightIn: number };
 // One box: a saved size (presetId) or a size of its own (dims: an old label's, or one chosen at the bench), and its
 // weight; typed means someone weighed it. tareOz: the empty box's own weight as the bench kept it.
@@ -165,10 +165,14 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   const oneBox = step === 'box' || (step === 'rates' && rep.box !== null);
   const wantRates = step === 'rates' || step === 'box' || (!step && !manual && !label);
   const ratesSlot = step === 'box' ? boxSlot : step === 'rates' ? rep.box : null;
+  // Only the latest ask's answer is used: a slow answer for boxes since changed is dropped, never bought from.
+  const ratesAsk = React.useRef(0);
   const loadRates = React.useCallback(async () => {
     if (!wantRates) return; setLoading(true); setErr(''); setRates([]); setRate('');
+    const mine = ++ratesAsk.current;
     try {
       const d = await post({ action: 'rates', parcels, ...(ratesSlot !== null && ratesSlot !== undefined ? { slot: ratesSlot } : {}), ...(many ? { withOrderIds: together.map((g: any) => g.id) } : {}) });
+      if (mine !== ratesAsk.current) return;
       let rs2: Rate[] = (d.rates || []).sort((a: Rate, b: Rate) => a.amountCents - b.amountCents);
       // One box of several goes with the same carrier as the rest, when it can.
       if (oneBox && rs2.some((r) => sameCarrier(r.provider, order.carrier))) rs2 = rs2.filter((r) => sameCarrier(r.provider, order.carrier));
@@ -177,7 +181,8 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
       setRates(rs2); setRate((paid.rate || rs2[0])?.id || ''); setPaidId(paid.how === 'matched' ? paid.rate?.id || '' : ''); setPaidMissing(paid.how === 'missing'); setRatesFor(String(d.addressKey || ''));
       setCover(d.protection ? { signature: String(d.protection.signature || 'NONE'), insuranceCents: Math.max(0, Number(d.protection.insuranceCents) || 0) } : null);
     }
-    catch (e: any) { setErr(e.message); } setLoading(false);
+    catch (e: any) { if (mine === ratesAsk.current) setErr(e.message); }
+    if (mine === ratesAsk.current) setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parcelsKey, wantRates, addrK, ratesSlot, oneBox]);
   React.useEffect(() => { void loadRates(); }, [loadRates]);
@@ -185,7 +190,8 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
 
   const buy = async () => {
     setLoading(true); setErr('');
-    try { const d = await post({ action: 'purchase', rateId: rate, parcels, amountCents: chosen?.amountCents, provider: chosen?.provider, ...(ratesFor ? { addressKey: ratesFor } : {}), ...(many ? { withOrderIds: together.map((g: any) => g.id) } : {}) });
+    try { const d = await post({ action: 'purchase', rateId: rate, parcels, amountCents: chosen?.amountCents, ...(chosen?.boxCents ? { boxCents: chosen.boxCents } : {}), provider: chosen?.provider, ...(ratesFor ? { addressKey: ratesFor } : {}), ...(many ? { withOrderIds: together.map((g: any) => g.id) } : {}) });
+      if (d.earlier) onToast?.(String(d.earlier));
       const extraUrls: string[] = d.extraLabelUrls || [];
       setLabel({ url: d.labelUrl || '', carrier: d.carrier || '', number: d.trackingNumber || '', trackUrl: d.trackingUrl || '', extraUrls, extraNumbers: d.extraTrackingNumbers || [] });
       if (many) await joinGroup(null);
@@ -204,7 +210,8 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   const replace = async () => {
     setLoading(true); setErr('');
     try {
-      const d = await post({ action: 'replace', rateId: rate, parcels, amountCents: chosen?.amountCents, provider: chosen?.provider, reason: { kind: rep.kind, note: rep.note.trim() }, ...(rep.box !== null ? { box: rep.box } : {}), ...(ratesFor ? { addressKey: ratesFor } : {}) });
+      const d = await post({ action: 'replace', rateId: rate, parcels, amountCents: chosen?.amountCents, ...(chosen?.boxCents ? { boxCents: chosen.boxCents } : {}), provider: chosen?.provider, reason: { kind: rep.kind, note: rep.note.trim() }, ...(rep.box !== null ? { box: rep.box } : {}), ...(ratesFor ? { addressKey: ratesFor } : {}) });
+      if (d.earlier) onToast?.(String(d.earlier));
       const extraUrls: string[] = d.extraLabelUrls || [];
       if (rep.box === null) setLabel({ url: d.labelUrl || '', carrier: d.carrier || '', number: d.trackingNumber || '', trackUrl: d.trackingUrl || '', extraUrls, extraNumbers: d.extraTrackingNumbers || [] });
       setReplaced({ box: rep.box, refundCents: Number(d.replaced?.refundCents) || 0, newCents: Number(d.costCents) || chosen?.amountCents || 0, why: reasonLine({ kind: rep.kind, note: rep.note }), note: String(d.replaced?.note || '') });
@@ -230,7 +237,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     setLoading(true); setErr('');
     try {
       const d = await post({ action: 'box', slot: boxSlot, rateId: rate, parcels, amountCents: chosen?.amountCents, provider: chosen?.provider, ...(ratesFor ? { addressKey: ratesFor } : {}) });
-      onToast?.(`Box ${boxSlot + 1} has its new label.`); setStep(null); setBoxSlot(null);
+      onToast?.(`Box ${boxSlot + 1} has its new label.${d.earlier ? ` ${d.earlier}` : ''}`); setStep(null); setBoxSlot(null);
       if (d.labelUrl) window.open(d.labelUrl, '_blank');
     } catch (e: any) { setErr(e.message); if (stale(e)) void loadRates(); }
     setLoading(false);

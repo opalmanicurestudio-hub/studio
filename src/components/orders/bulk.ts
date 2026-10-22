@@ -59,6 +59,7 @@ export async function buyLabels(t: string, orders: any[], rs: any): Promise<{ ok
   if (!all.length) return { ok: false, message: 'None of these are packed ship orders waiting for a label.', boughtIds: [], spentCents: 0, boxes: 0, failed: [] };
   const p = (rs?.packagingPresets || [])[0];
   const bought: string[] = []; const failed: { orderId: string; error: string }[] = []; let spent = 0; let boxes = 0;
+  const notes: string[] = [];   // what the check of an earlier, cut-off purchase found
   let queue = [...all]; let stalls = 0;
   for (let round = 0; queue.length && round < 60; round++) {
     const todo = queue.slice(0, 6); queue = queue.slice(6);
@@ -78,6 +79,7 @@ export async function buyLabels(t: string, orders: any[], rs: any): Promise<{ ok
       spent += got.reduce((a, x) => a + (Number(x.costCents) || 0), 0);
       boxes += got.reduce((a, x) => a + (Number(x.boxes) || 1), 0);
       failed.push(...res.filter((x) => !x.ok).map((x) => ({ orderId: String(x.orderId), error: String(x.error || 'It didn’t go through') })));
+      notes.push(...res.filter((x) => x.note).map((x) => String(x.note)));
       // The ones the server ran out of time for go again first; twice with none done, and they're left for another try.
       const again = (d.notTried || []).map((id: string) => todo.find((o) => o.id === id)).filter(Boolean) as any[];
       stalls = again.length && again.length === todo.length ? stalls + 1 : 0;
@@ -86,7 +88,7 @@ export async function buyLabels(t: string, orders: any[], rs: any): Promise<{ ok
     } catch { failed.push(...todo.map((o) => ({ orderId: o.id, error: 'Check your connection.' }))); }
   }
   const what = boxes > bought.length ? `${plural(boxes, 'label')} bought for ${plural(bought.length, 'order')}` : `${plural(boxes, 'label')} bought`;
-  const msg = `${what}${failed.length ? `. ${plural(failed.length, 'order')} couldn’t get one: ${failed[0].error}` : '.'}`;
+  const msg = `${what}${failed.length ? `. ${plural(failed.length, 'order')} couldn’t get one: ${failed[0].error}` : '.'}${notes.length ? ` ${notes[0]}` : ''}`;
   return { ok: bought.length > 0, message: msg, boughtIds: bought, spentCents: spent, boxes, failed };
 }
 

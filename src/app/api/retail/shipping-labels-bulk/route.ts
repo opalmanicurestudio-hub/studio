@@ -219,13 +219,15 @@ export async function POST(req: NextRequest) {
       const token = claim.token;
       let doubtful: string[] = [];
       try {
-        // An earlier purchase for this order that was cut off may have bought a label nobody saved: voided first.
-        if (claim.doubt.length) await (await import('@/lib/label-void')).settleDoubtfulBuy(db, tenantId, apiKey, snap.ref, orderId, order, claim.doubt, by).catch(() => '');
+        // An earlier purchase for this order that was cut off may have bought a label nobody saved: voided first. One
+        // Shippo is still making (or couldn't be asked about) holds this order back until it's settled.
+        const earlier = claim.doubt.length ? await (await import('@/lib/label-void')).settleDoubtfulBuy(db, tenantId, apiKey, snap.ref, orderId, order, claim.doubt, by).catch(() => ({ note: '', wait: true })) : { note: '', wait: false };
+        if (earlier.wait) { fail(`${earlier.note ? `${earlier.note} ` : ''}A label from an earlier try is still being made, or Shippo couldn’t be asked about it. Try again in a minute.`); continue; }
         const plan = await planFor(order);
         if ('error' in plan) { fail(plan.error); continue; }
         const { rate, decision, parcels } = plan;
         const rateIds = rateIdsOf(rate.id);
-        await noteBuyRates(db, snap.ref, token, rateIds);
+        if (!(await noteBuyRates(db, snap.ref, token, rateIds))) { fail('That didn’t go through, so nothing was bought. Try again in a minute.'); continue; }
         const got = await buyBoxes(apiKey, rate.id, shippoFileType(labelFormatOf(rs), { stack: true }), SHIPPO_MS);
         if (!got.ok) {
           if (got.unanswered) doubtful = rateIds.slice(got.bought.length, got.bought.length + 1);
@@ -256,7 +258,8 @@ export async function POST(req: NextRequest) {
         const boughtFor = addressKey(order.shippingAddress);
         const save = async (tx: any) => {
           const cur: any = (await tx.get(orderRef)).data() || {};
-          if (addressKey(cur.shippingAddress) !== boughtFor || openRequest(cur) || (cur.shippoTransactionId && cur.labelUrl)) return false;
+          // Still this run's to save: a claim taken over meanwhile means someone else has the order now.
+          if (addressKey(cur.shippingAddress) !== boughtFor || openRequest(cur) || (cur.shippoTransactionId && cur.labelUrl) || cur.labelBuying?.token !== token) return false;
           tx.set(db.doc(`${labelsCol(tenantId)}/${labelId}`), newLabelRecord({
             id: labelId, order: cur, orderId, carrier, service: rate.service, rateId: rateIds[0], rateIds,
             boxes, amountCents: rate.amountCents,
@@ -315,7 +318,7 @@ export async function POST(req: NextRequest) {
         }
         await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, labelId, rate.amountCents, carrier);
 
-        results.push({ orderId, ok: true, labelUrl: boxes[0].labelUrl, trackingNumber: boxes[0].tracking, carrier, costCents: rate.amountCents, boxes: boxes.length, weightOz: plan.weightOz });
+        results.push({ orderId, ok: true, labelUrl: boxes[0].labelUrl, trackingNumber: boxes[0].tracking, carrier, costCents: rate.amountCents, boxes: boxes.length, weightOz: plan.weightOz, ...(earlier.note ? { note: earlier.note } : {}) });
       } finally { await releaseLabelBuy(db, snap.ref, token, doubtful); }
     } catch (e: any) {
       fail(String(e?.message || 'Failed').replace(/^Shippo:\s*/, 'Shippo said: ').slice(0, 200));

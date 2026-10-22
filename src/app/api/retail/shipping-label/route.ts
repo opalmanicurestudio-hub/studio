@@ -253,6 +253,8 @@ export async function POST(req: NextRequest) {
           service: r.servicelevel?.name || r.servicelevel?.token || '',
           amountCents: Math.round(parseFloat(r.amount) * 100),
           days: r.estimated_days ?? null,
+          // Each box's price, sent back with the purchase in case Shippo doesn't say then.
+          boxCents: Array.isArray(r.boxCents) && r.boxCents.length > 1 ? r.boxCents : undefined,
         }))
         .filter((r: any) => Number.isFinite(r.amountCents))
         .sort((a: any, b: any) => a.amountCents - b.amountCents)
@@ -283,6 +285,12 @@ export async function POST(req: NextRequest) {
     if (!rateId) return NextResponse.json({ error: 'rateId is required' }, { status: 400 });
     const parcels = parcelsOf(body);
     const slot = action === 'box' ? slotOf(body.slot) : action === 'replace' ? slotOf(body.box) : null;
+    // One box's label is one rate; a rate made of each box's own has one per box (lib/box-shipments). A rate priced for
+    // other boxes (a slow, out-of-date answer) is turned away before anything is bought.
+    const parts = rateIdsOf(rateId);
+    if ((action === 'box' || (action === 'replace' && slot !== null)) ? parts.length !== 1 || isBoxRates(rateId) : isBoxRates(rateId) && parts.length !== parcels.length) {
+      return NextResponse.json({ error: 'These rates were for different boxes. Get new rates and buy it again.' }, { status: 409 });
+    }
 
     // Never a second label over one that is still live (it could never be voided afterwards).
     const HAS_LABEL = 'This order already has a label. Replace it or void it to buy a new one.';
@@ -326,9 +334,10 @@ export async function POST(req: NextRequest) {
     // Rates a purchase here got no answer about: kept on the order when the claim is let go, for the next one to check.
     let doubtful: string[] = [];
     try {
-      // An earlier purchase for this order that was cut off may have bought a label nobody saved: it's voided first.
-      const earlier = claim.doubt.length ? await (await import('@/lib/label-void')).settleDoubtfulBuy(db, tenantId, apiKey, orderRef, orderId, order, claim.doubt, actor).catch(() => '') : '';
-      if (earlier) console.warn('[shipping-label] earlier purchase settled', tenantId, orderId, earlier);
+      // An earlier purchase for this order that was cut off may have bought a label nobody saved: it's voided first. One
+      // Shippo is still making (or couldn't be asked about) stops this one until it's settled.
+      const earlier = claim.doubt.length ? await (await import('@/lib/label-void')).settleDoubtfulBuy(db, tenantId, apiKey, orderRef, orderId, order, claim.doubt, actor).catch(() => ({ note: '', wait: true })) : { note: '', wait: false };
+      if (earlier.wait) return NextResponse.json({ error: `${earlier.note ? `${earlier.note} ` : ''}A label from an earlier try is still being made, or Shippo couldn’t be asked about it. Try again in a minute.` }, { status: 409 });
       const why = reason ? `replaced (${lower(reasonLine(reason))})` : '';
       // Replacing: the old label is voided first. If the carrier already has it, it isn't voided and nothing is bought.
       // A box's new label replaces its voided one; a replacement names the label it replaces.
@@ -351,7 +360,7 @@ export async function POST(req: NextRequest) {
 
       // The rates about to be bought go on the claim first: if this is cut off, the next purchase finds what it bought.
       const rateIds = rateIdsOf(rateId);
-      await noteBuyRates(db, orderRef, token, rateIds);
+      if (!(await noteBuyRates(db, orderRef, token, rateIds))) return NextResponse.json({ error: 'That didn’t go through, so nothing was bought. Try again in a minute.' }, { status: 503 });
       // Each box's label, box 1 first (lib/box-shipments). One that doesn't go through stops the rest, and the boxes
       // already bought are voided straight away (kept on record, their refunds followed).
       const bought = await buyBoxes(apiKey, rateId, shippoFileType(labelFormatOf(rs)));
@@ -370,7 +379,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Shippo: ${msg}${undone}` }, { status: 422 });
       }
       const txn = bought.txns[0];
-      const info = await priceOf(apiKey, rateId);
+      // Each box's price from Shippo, or what the sheet was shown for it when Shippo doesn't say.
+      const shown = Array.isArray(body.boxCents) ? body.boxCents.map((c: any) => Math.max(0, Math.round(Number(c) || 0))) : rateIds.length === 1 ? [Math.max(0, Math.round(Number(body.amountCents) || 0))] : [];
+      const info = await priceOf(apiKey, rateId, shown);
       const single = action === 'box' || (action === 'replace' && slot !== null);
       // Each box on its own shipment; one box; or (a rate priced before boxes were bought one by one) one rate for
       // several boxes, whose other labels are found through it.
@@ -398,7 +409,8 @@ export async function POST(req: NextRequest) {
         const sibIds = !single && action === 'replace' ? sharedIds : [];
         const sibSnaps = sibIds.length ? await Promise.all(sibIds.map((sid) => tx.get(orderCol.doc(sid)))) : [];
         const copies = single ? await sharedCopies(tx, orderCol, c, orderId) : [];
-        if (addressKey(c.shippingAddress) !== boughtFor || openRequest(c)) return false;
+        // Still this purchase's to save: a claim taken over meanwhile (this one ran long) means someone else has the order.
+        if (addressKey(c.shippingAddress) !== boughtFor || openRequest(c) || c.labelBuying?.token !== token) return false;
         const okSibs = sibSnaps.filter((s: any) => {
           const o = s.exists ? s.data() : null;
           return o && ['packed', 'shipped'].includes(String(o.stage)) && !o.shippoTransactionId && !!togetherKey(c, { labelled: true }) && togetherKey(o, { labelled: true }) === togetherKey(c, { labelled: true });
@@ -492,6 +504,7 @@ export async function POST(req: NextRequest) {
         boxes: boxes.map((b) => ({ tracking: b.tracking, labelUrl: b.labelUrl })),
         ...(replaces ? { replaced: { labelId: replaces.id, box: slot, refundCents, note: partialNote } } : {}),
         protection: { signature: decision.signature, insuranceCents: decision.insuranceCents, reasons: decision.reasons },
+        ...(earlier.note ? { earlier: earlier.note } : {}),
       });
     } finally {
       await releaseLabelBuy(db, orderRef, token, doubtful);

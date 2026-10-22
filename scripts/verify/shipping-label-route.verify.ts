@@ -295,6 +295,13 @@ const rec = (id: string) => db._store.get(LR(id));
   check('box 2 not going through: nothing on the order, box 1’s label voided at once with its refund followed, and it says so',
     r.status === 422 && /Box 2: Parcel too heavy/.test(r.body.error) && !order('o31').labelUrl && !order('o31').labelBuying && calls.some((c) => c === 'POST /refunds/') && r31?.boxes?.length === 1 && Object.values(r31.refunds || {}).some((e: any) => e.status === 'requested'), { body: r.body, rec: r31, calls });
 
+  // A rate for other boxes (a slow, out-of-date answer) is turned away before anything is bought.
+  calls = [];
+  const oneBoxCombined = await call('o30', { action: 'box', slot: 0, rateId: 'boxes:N1,N2', parcels: [two[0]] });
+  const wrongCount = await call('o31', { action: 'purchase', rateId: 'boxes:N1,N2,N3', parcels: two });
+  check('one box’s label can’t be bought on a rate for several, nor several boxes on a rate for a different number',
+    oneBoxCombined.status === 409 && /different boxes/.test(oneBoxCombined.body.error) && wrongCount.status === 409 && !calls.some((c) => c === 'POST /transactions/'), { a: oneBoxCombined.body, b: wrongCount.body });
+
   globalThis.fetch = realFetch;
   if (failures) { console.log(`\n${failures} failed`); process.exit(1); } else console.log('\nall good');
 })();

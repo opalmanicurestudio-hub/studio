@@ -159,8 +159,14 @@ export async function POST(req: NextRequest) {
 
   const status = String(d?.status || '').toUpperCase();
   const said = String(d?.detail || (Array.isArray(d?.messages) ? d.messages.map((m: any) => m?.text).filter(Boolean).join('; ') : '') || '').slice(0, 200);
-  // Turned down outright: nothing was booked, so the day is free to try again.
+  // Turned down outright: nothing was booked, so the day is free to try again. Turned down on a try after one USPS
+  // didn't answer about: USPS takes one booking a day, so that often means the first went through. It stays not known.
   if (res && ((res.status >= 400 && res.status < 500 && res.status !== 408) || (res.ok && ['ERROR', 'CANCELLED'].includes(status)))) {
+    if (retry) {
+      const kept = { ...asked, status: 'UNKNOWN', askedAt: new Date().toISOString(), said, retryTurnedDown: true };
+      await ref.set(kept).catch(() => {});
+      return NextResponse.json({ error: `USPS turned this booking down${said ? ` (${said})` : ''}. USPS takes one pickup a day, so the first request may have gone through: check on usps.com before trying again.`, booking: kept, unknown: true }, { status: 409 });
+    }
     await ref.delete().catch(() => {});
     return NextResponse.json({ error: `USPS didn’t take the booking${said ? `: ${said}` : ''}. Try again, or book it on usps.com.` }, { status: 422 });
   }
