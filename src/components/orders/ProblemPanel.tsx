@@ -73,10 +73,11 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
     try {
       const r = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: p.orderId, qrToken: p.ref.qrToken || '' }) });
       const d = await r.json().catch(() => ({}));
-      const over = Number(d.overCardCents) || 0;
+      // Only a plain card refund gets the short line: anything that went back by gift card or store credit, or that
+      // couldn't go back at all, is spelled out in the route's own message.
+      const plain = (Number(d.cardCents) || 0) > 0 && !(Number(d.otherCents) || 0) && !(Number(d.overCardCents) || 0) && d.recorded !== false;
       feel(r.ok); onToast(!r.ok ? d.error || 'The refund didn’t go through.'
-        : d.recorded === false ? d.message
-        : `Refund sent. ${first} usually sees it in 5 to 10 days.${over > 0 ? ` The other ${money(over)} is more than the card has left to refund. If they paid part with a gift card or store credit, give that part back the same way.` : ''}`);
+        : plain ? `Refund sent. ${first} usually sees it in 5 to 10 days.` : d.message || 'Refund sent.');
       if (r.ok) setRefund(null);
     } finally { setBusy(''); }
   };

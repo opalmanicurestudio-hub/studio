@@ -160,10 +160,10 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
 
   await fresh(async (d) => { await d.doc(`${T}/retailOrders/p1`).set({ refundedCents: 5000 }, { merge: true }); });
   r = await send();
-  check('never more than the card has left: $50 already back on it, so $29.28 goes and the other 96¢ is store credit',
-    r.status === 200 && stripeCalls[0].params.amount === 2928 && r.body.overCardCents === 96 && r.body.leftCents === 96 && /96 is more than the card has left/.test(r.body.message), r.body);
+  check('never more than the card has left: $50 already back on it, so $29.28 goes and the other 96¢ stays on the order for a look',
+    r.status === 200 && stripeCalls[0].params.amount === 2928 && r.body.overCardCents === 96 && r.body.leftCents === 96 && /0\.96 is more than is left of what they paid/.test(r.body.message), r.body);
   r = await send();
-  check('…and asking again says the card is used up', r.status === 409 && /card on the original order has already gone back to it/.test(r.body.error) && stripeCalls.length === 1, r.body);
+  check('…and asking again says everything paid has gone back', r.status === 409 && /paid on the original order has already gone back/.test(r.body.error) && stripeCalls.length === 1, r.body);
 
   await fresh();
   await send();

@@ -108,8 +108,9 @@ const SENT_STAGES = ['shipped', 'handed_off', 'completed'];
  *  refunded on this order, and its card gets back everything it hasn't had back yet, less what's already queued on the
  *  follow-ups and what the customer keeps from any that went out. `followUps` are every order made from it;
  *  `cancellable` narrows which open ones may go (a customer can't cancel one that's being packed): one that stays is
- *  counted as theirs, like one that went out. */
-export function cancelWithFollowUps(payer: any, followUps: any[], cancellable: (f: any) => boolean = () => true): { cancel: any[]; pendingCents: number } {
+ *  counted as theirs, like one that went out. `spokenCents` is what the follow-ups that stay hold against the payment:
+ *  what the customer keeps from them, and what's already queued on them. */
+export function cancelWithFollowUps(payer: any, followUps: any[], cancellable: (f: any) => boolean = () => true): { cancel: any[]; pendingCents: number; spokenCents: number } {
   const payerId = String(payer?.id || '');
   const seen = new Set<string>();
   const fam = (followUps || []).filter((f) => {
@@ -130,7 +131,7 @@ export function cancelWithFollowUps(payer: any, followUps: any[], cancellable: (
     spoken += cents(f.pendingRefundCents);
     if (goes) cancel.push(f);
   }
-  return { cancel, pendingCents: Math.max(0, familyRefundableCents(payer, fam) - spoken) };
+  return { cancel, pendingCents: Math.max(0, familyRefundableCents(payer, fam) - spoken), spokenCents: spoken };
 }
 
 /** The shelf units an order is holding: each open unit of a paid order's physical items. A backorder still waiting for

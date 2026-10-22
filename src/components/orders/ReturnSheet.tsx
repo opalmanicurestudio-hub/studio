@@ -48,7 +48,9 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
       if (isRefund && canRefund && (res.refundQueuedCents || 0) > 0) {
         const r = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: ret.orderId, qrToken: res.orderQrToken || order?.qrToken || '' }) });
         const d = await r.json().catch(() => ({}));
-        msg = r.ok ? `Checked in. ${money(res.refundQueuedCents || 0)} is on its way back to ${first}’s card.` : `Checked in. The refund didn’t send: ${d.error || 'try again from Problems'}.`;
+        const plain = (Number(d.cardCents) || 0) > 0 && !(Number(d.otherCents) || 0) && !(Number(d.overCardCents) || 0) && d.recorded !== false;
+        msg = !r.ok ? `Checked in. The refund didn’t send: ${d.error || 'try again from Problems'}.`
+          : plain ? `Checked in. ${money(d.amountCents || res.refundQueuedCents || 0)} is on its way back to ${first}’s card.` : `Checked in. ${d.message || 'Refund sent.'}`;
       }
       feel(true); onDone(msg);
     } finally { setBusy(false); }

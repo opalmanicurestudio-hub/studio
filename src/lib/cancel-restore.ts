@@ -1,38 +1,64 @@
 // src/lib/cancel-restore.ts — A CANCELLED ORDER GIVES BACK MORE THAN THE CARD PAYMENT. Whatever came off a gift card
-// goes back onto that card, and whatever store credit was used comes back as new store credit. Once per order (the
-// order is stamped), so a retry can never give it twice. Server only.
+// goes back onto that card, and whatever store credit was spent comes back as new store credit: only what was really
+// taken (a checkout left unpaid took nothing), less anything that already went back that way for a refund
+// (lib/non-card-back). When the customer keeps something made from the order (a backorder that already went out), the
+// card pays for that first, and what it can't cover stays with the shop out of the gift card or credit part. One
+// transaction with the gift card and the credit, so a retry can never give it twice; the order is stamped once
+// everything due has gone back. Server only.
+import { giveBackLine, readGift, roomCents, saleBooked, writeGiveBack } from './non-card-back';
+import { cancelWithFollowUps, familyRefundableCents, followUpsOf } from './order-family';
+
+const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
 
 export async function restoreNonCardPayment(db: any, t: string, orderId: string, by: string): Promise<{ giftCents: number; creditCents: number }> {
-  const ref = db.doc(`tenants/${t}/retailOrders/${orderId}`);
-  const claim = await db.runTransaction(async (tx: any) => {
-    const s = await tx.get(ref); if (!s.exists) return null;
-    const o: any = s.data() || {};
-    if (o.stage !== 'cancelled' || o.nonCardRestoredAt) return null;
-    const giftCents = o.giftSpentAt && o.giftCardId ? Math.max(0, Number(o.giftCardCents) || 0) : 0;
-    // Store credit comes back only if it was spent. It's taken when the order is paid (creditSpentCents), never on a
-    // checkout that was left unpaid: that order is cancelled when its payment page expires, and gives nothing back.
-    // An order paid before the amount spent was recorded gives back what was asked for, less any shortfall.
-    const creditCents = o.creditSpentCents != null ? Math.max(0, Number(o.creditSpentCents) || 0)
-      : o.paidAt ? Math.max(0, (Number(o.storeCreditRequestedCents) || 0) - (Number(o.creditShortfallCents) || 0)) : 0;
-    if (!giftCents && !creditCents) return null;
-    tx.update(ref, { nonCardRestoredAt: new Date().toISOString(), nonCardRestored: { giftCents, creditCents } });
-    return { o, giftCents, creditCents };
+  const col = db.collection(`tenants/${t}/retailOrders`);
+  const ref = col.doc(orderId);
+  let out = { giftCents: 0, creditCents: 0 };
+  let order: any = null;
+  await db.runTransaction(async (tx: any) => {
+    out = { giftCents: 0, creditCents: 0 };
+    order = null;
+    const s = await tx.get(ref); if (!s.exists) return;
+    const o: any = { ...(s.data() || {}), id: orderId };
+    if (o.stage !== 'cancelled' || o.nonCardRestoredAt) return;
+    const room = roomCents(o);
+    if (room <= 0) return;
+    // What the shop still holds for the order, card and gift card or credit together, less what the customer keeps
+    // from orders made from it and every refund already queued (those go back card first): the rest goes back now.
+    const fam = await followUpsOf((r: any) => tx.get(r), col, orderId);
+    const { spokenCents } = cancelWithFollowUps(o, fam, () => false);
+    const want = Math.min(room, Math.max(0, familyRefundableCents(o, fam) + room - spokenCents - c0(o.pendingRefundCents)));
+    const gift = want > 0 ? await readGift(tx, db, t, o) : null;
+    const num = `#${String(o.orderNumber ?? '').padStart(4, '0')}`;
+    const at = new Date().toISOString();
+    const g = want > 0
+      ? writeGiveBack(tx, db, t, ref, o, gift, want, { note: `Order ${num} cancelled`, by, kind: 'order_cancelled', forOrderId: orderId })
+      : { giftCents: 0, creditCents: 0, toCreditFromGift: 0 };
+    out = { giftCents: g.giftCents, creditCents: g.creditCents };
+    order = o;
+    tx.update(ref, { nonCardRestoredAt: at });
+    const given = g.giftCents + g.creditCents;
+    // The sale was booked as income through the card payment, gift card and credit included: their return is a refund.
+    if (given > 0 && saleBooked(o)) {
+      const txnRef = db.collection(`tenants/${t}/transactions`).doc();
+      tx.set(txnRef, {
+        id: txnRef.id, date: at, description: `Refund to ${g.giftCents && !g.creditCents ? 'gift card' : g.creditCents && !g.giftCents ? 'store credit' : 'gift card and store credit'} — Order #${o.orderNumber} cancelled`,
+        clientOrVendor: o.customerName || 'Guest', type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
+        amount: given / 100, paymentMethod: g.giftCents && !g.creditCents ? 'Gift card' : 'Store credit', hasReceipt: true, retailOrderId: orderId, tenantId: t,
+      });
+    }
+    const ev = ref.collection('events').doc();
+    tx.set(ev, {
+      id: ev.id, type: 'note', at, actorId: 'system', actorName: by,
+      meta: { kind: 'non_card_restored', giftCents: g.giftCents, creditCents: g.creditCents, text: given > 0 ? giveBackLine(o, g) : 'Nothing more to give back on the gift card or store credit: it covers what the customer kept, or a refund already waiting to go out.' },
+    });
   });
-  if (!claim) return { giftCents: 0, creditCents: 0 };
-  const { o, giftCents, creditCents } = claim;
-  const num = `#${String(o.orderNumber ?? '').padStart(4, '0')}`;
-  const notes: string[] = [];
-  if (giftCents > 0) {
-    try { const { adjustGiftCard } = await import('./gift-cards'); const r: any = await adjustGiftCard(db, t, { id: String(o.giftCardId), kind: 'add', cents: giftCents, note: `Order ${num} cancelled`, by });
-      notes.push(r?.ok ? `$${(giftCents / 100).toFixed(2)} back on gift card ${o.giftCardCode || ''}`.trim() : `Gift card $${(giftCents / 100).toFixed(2)} couldn’t be put back: ${r?.error || 'try again'}`); } catch { notes.push('Gift card couldn’t be put back. Needs a look.'); }
+  if (out.giftCents > 0 && order?.giftCardId) {
+    try {
+      const { syncClientGift } = await import('./gift-cards');
+      const g = await db.doc(`tenants/${t}/giftCards/${String(order.giftCardId)}`).get();
+      await syncClientGift(db, t, g.data()?.recipientId);
+    } catch { /* the wallet catches up */ }
   }
-  if (creditCents > 0) {
-    const c = db.collection(`tenants/${t}/depositCredits`).doc();
-    await c.set({ id: c.id, tenantId: t, clientId: o.clientId || null, clientEmail: String(o.customerEmail || '').toLowerCase().trim(), clientName: o.customerName || 'Guest',
-      amountCents: creditCents, status: 'available', sourceRetailOrderId: orderId, sourceKind: 'order_cancelled', createdAt: new Date().toISOString() });
-    notes.push(`$${(creditCents / 100).toFixed(2)} store credit given back`);
-  }
-  const ev = ref.collection('events').doc();
-  await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'system', actorName: by, meta: { kind: 'non_card_restored', text: notes.join(' · ') } });
-  return { giftCents, creditCents };
+  return out;
 }

@@ -33,6 +33,7 @@ import { reconcileReservations } from '@/lib/stock-reconcile';
 import { alertExpiringStock } from '@/lib/expiry-alerts';
 import { syncRenterCreditsForOrder } from '@/lib/renter-sales-server';
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
+import { roomCents } from '@/lib/non-card-back';
 import { sweepStaleCurbside } from '@/lib/stock-reconcile';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import {
@@ -1402,7 +1403,7 @@ export async function GET(req: NextRequest) {
       try { const ro = await db.collection(`tenants/${tDoc.id}/retailOrders`).where('hasRenterItems', '==', true).limit(500).get(); let ch = 0; for (const d of ro.docs) ch += await syncRenterCreditsForOrder(db, tDoc.id, d.id, 'Nightly check'); if (ch) results[`renterCredits:${tDoc.id}`] = { changed: ch }; } catch { /* next night */ }
       // Cancelled orders that used a gift card or store credit: make sure it went back (lib/cancel-restore; once each).
       // Read by when they were cancelled (the last 30 days), so checkouts left unpaid can't crowd out real ones.
-      try { const since = new Date(Date.now() - 30 * 86400e3).toISOString(); const co = await db.collection(`tenants/${tDoc.id}/retailOrders`).where('cancelledAt', '>=', since).limit(500).get(); for (const d of co.docs) { const o: any = d.data() || {}; if (o.stage === 'cancelled' && !o.nonCardRestoredAt && ((o.giftSpentAt && (Number(o.giftCardCents) || 0) > 0) || (Number(o.creditSpentCents) || 0) > 0 || (o.paidAt && (Number(o.storeCreditRequestedCents) || 0) > 0))) await restoreNonCardPayment(db, tDoc.id, d.id, 'Nightly check'); } } catch { /* next night */ }
+      try { const since = new Date(Date.now() - 30 * 86400e3).toISOString(); const co = await db.collection(`tenants/${tDoc.id}/retailOrders`).where('cancelledAt', '>=', since).limit(500).get(); for (const d of co.docs) { const o: any = d.data() || {}; if (o.stage === 'cancelled' && !o.nonCardRestoredAt && roomCents(o) > 0) await restoreNonCardPayment(db, tDoc.id, d.id, 'Nightly check'); } } catch { /* next night */ }
       // Batches expiring within 30 days, or today: one alert each (lib/expiry-alerts).
       try { const ex = await alertExpiringStock(db, tDoc.id); if (ex > 0) results[`expiry:${tDoc.id}`] = { alerts: ex }; } catch { /* next night */ }
       // Anyone still showing as "outside" hours later did not get their order.
