@@ -152,7 +152,9 @@ export async function sweepStalledShipments(
           actorId: 'system', actorName: 'Stall watch',
           meta: { text: `No carrier scan in ${quietDays} days — customer ${emailed ? 'notified' : 'not emailed'}`, quietDays },
         });
-        await d.ref.set({ stalledFlaggedAt: new Date(now).toISOString(), stalledQuietDays: quietDays }, { merge: true });
+        // And under Needs you for the team (lib/ship-day), once per quiet week; a scan clears it (the shipping webhook).
+        await d.ref.set({ stalledFlaggedAt: new Date(now).toISOString(), stalledQuietDays: quietDays,
+          carrierIssue: { open: true, status: 'STALLED', quietDays, detail: '', carrier: String(order.carrier || ''), tracking: String(order.trackingNumber || ''), at: new Date(lastMoveRaw).toISOString(), key: `${order.trackingNumber}|STALLED|${markerId}` } }, { merge: true });
 
         res.actioned += 1;
         if (emailed) res.emailed += 1;

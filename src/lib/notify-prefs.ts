@@ -4,7 +4,7 @@
 // "away" don't apply — they're at work.
 import { PUSH_TIER } from '@/lib/push-tier';
 
-export type NotifyGroup = 'clients' | 'visits' | 'schedule' | 'team' | 'pay' | 'floor' | 'rent' | 'business';
+export type NotifyGroup = 'clients' | 'visits' | 'schedule' | 'team' | 'pay' | 'floor' | 'rent' | 'orders' | 'business';
 export const GROUPS: { id: NotifyGroup; label: string; hint: string }[] = [
   { id: 'clients', label: 'Clients reaching out', hint: 'Texts, calls and messages from clients' },
   { id: 'visits', label: 'Your visits', hint: 'Arrivals, running late, add-ons, hand-offs' },
@@ -12,6 +12,7 @@ export const GROUPS: { id: NotifyGroup; label: string; hint: string }[] = [
   { id: 'team', label: 'Team chat', hint: 'Messages, shout-outs and pinned notices' },
   { id: 'pay', label: 'Time clock and pay', hint: 'Clock reminders and clock-out fixes' },
   { id: 'floor', label: 'Floor and stations', hint: 'Station help, kits, cleaning and linens' },
+  { id: 'orders', label: 'Online orders', hint: 'The cutoff, busy days and missed pickups' },
   { id: 'rent', label: 'Rent and booth', hint: 'Rent, bookings and booth notices' },
   { id: 'business', label: 'Running the business', hint: 'Approvals, quotes, maintenance and reports' },
 ];
@@ -25,6 +26,7 @@ put('team', 'staff_message shoutout task');
 put('clients', 'case_new case_yours case_approval case_redo case_reopened case_late case_check_back case_report case_hint conduct_report refund_on_way refund_near refund_choice');
 put('pay', 'pay_question pay_question_update clock_reminder timeclock clock_fix clock_fix_approved clock_fix_declined payroll_draft');
 put('floor', 'assist assist_escalation floor_assist turnover_due turnover_escalation kit_timer kit_cleansed contact_reached cycle_done linen_timer kit_none_usable kit_short');
+put('orders', 'orders_cutoff orders_missed orders_big_day orders_fast');
 put('rent', 'renter_arrived booth_reservation booth_tour booth_application booth_no_show renter_leave renter_document renter_concern renter_message renter_swap credential rent_late renter_barred tour_followup');
 export const groupOf = (type?: string): NotifyGroup => OF[String(type || '')] || 'business';
 

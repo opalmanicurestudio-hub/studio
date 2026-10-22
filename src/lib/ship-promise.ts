@@ -324,6 +324,28 @@ export function lastPickupAt(
   return Number.isFinite(at.getTime()) ? at.toISOString() : null;
 }
 
+/** A pre-order still waiting on its stock (refunded or cancelled lines don't count): its date moves with the stock. */
+export const waitingPreorder = (o: any) => (o?.lines || []).some((l: any) => l?.preorder === true && !['refunded', 'cancelled'].includes(String(l?.status)));
+
+/** Running-late notices the app sends by itself for one order (lib/late-notices); after that a person decides. */
+export const MAX_AUTO_NOTICES = 2;
+/** How long after the last pickup a box still unlabeled counts as late, so one dropped off a little late isn't. */
+export const LATE_GRACE_MS = 60 * 60_000;
+
+/** Every pickup (and drop-off) the shop lists on a day, earliest first, as instants on its clock: only on a day the
+ *  shop ships and that carrier works. Empty when it lists none. */
+export function pickupsOn(day: string, timeZone: string, schedule: ShipSchedule): { carrier: string; kind: 'pickup' | 'dropoff'; time: string; at: string }[] {
+  return schedule.pickups
+    .filter((p) => p.days.includes(weekdayOf(day)) && isShipDay(day, schedule, carrierKey(p.carrier)))
+    .map((p) => {
+      const m = minutesOf(p.time);
+      const at = wallToUtc(day, Math.floor(m / 60), m % 60, timeZone);
+      return { carrier: p.carrier, kind: p.kind === 'dropoff' ? 'dropoff' as const : 'pickup' as const, time: p.time, at: Number.isFinite(at.getTime()) ? at.toISOString() : '' };
+    })
+    .filter((p) => !!p.at)
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
 // ── The promise ──────────────────────────────────────────────────────────────
 
 /** What a line contributes: a made-to-order time or a pre-order date. Anything digital ships nothing. */
@@ -653,11 +675,11 @@ export function countdownFor(item: PromiseLine, now: Date, timeZone: string, sch
   return { minutesLeft: info.minutesLeft, cutoffAt: info.cutoffAt, shipBy: nowP.shipBy, laterShipBy: later.shipBy };
 }
 
-/** '2 h 13 min', '45 min'. */
+/** '2 h 13 min', '5 h', '45 min'. */
 export function minutesLabel(mins: number): string {
   const m = Math.max(0, Math.floor(mins));
   const h = Math.floor(m / 60);
-  return h > 0 ? `${h} h ${m % 60} min` : `${m} min`;
+  return h > 0 ? (m % 60 ? `${h} h ${m % 60} min` : `${h} h`) : `${m} min`;
 }
 
 /** The carrier of the shop's own standard shipping: the one carrier it lists pickups for, or null (not known). */

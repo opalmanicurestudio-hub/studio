@@ -21,9 +21,11 @@ import { labelDoubt } from '@/lib/label-doubt';
 const STEPS: Record<string, string[]> = { ship: ['New', 'Packing', 'Ready to ship', 'Shipped'], curbside: ['New', 'Packing', 'Ready', 'Picked up'], counter: ['New', 'Packing', 'Ready', 'Picked up'] };
 const stepIndex = (o: any) => ({ paid: 0, picking: 1, packed: o.method === 'ship' ? 2 : 1, ready: 2, arrived: 2, shipped: 3, handed_off: 3, completed: 3 } as Record<string, number>)[o.stage] ?? 0;
 
-export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund, isManager, onClose, onPack, onShip, onHandover, onToast, inline }: {
+export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund, isManager, onClose, onPack, onShip, onHandover, onToast, inline, startMessage }: {
   fs: Firestore; tenantId: string; order: any; actor: Actor; rs: any; photoFor: Map<string, string>; canRefund: boolean; isManager?: boolean;
   onClose: () => void; onPack: () => void; onShip: () => void; onHandover: () => void; onToast: (msg: string) => void; inline?: boolean;
+  /** Opens with the message to the customer already started (a carrier problem, from the Today counts). */
+  startMessage?: string | null;
 }) {
   const [tab, setTab] = React.useState<'order' | 'record'>('order');
   const [events, setEvents] = React.useState<any[]>([]);
@@ -33,7 +35,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const [keepOpen, setKeepOpen] = React.useState(false); const [keepWhy, setKeepWhy] = React.useState('');
   const [labelsOpen, setLabelsOpen] = React.useState(false);
   const [msg, setMsg] = React.useState<string | null>(null);
-  React.useEffect(() => { setTab('order'); setErr(''); setKeepOpen(false); setKeepWhy(''); setLabelsOpen(false); setMsg(null); }, [order.id]);
+  React.useEffect(() => { setTab('order'); setErr(''); setKeepOpen(false); setKeepWhy(''); setLabelsOpen(false); setMsg(startMessage ?? null); }, [order.id, startMessage]);
   // Every label the order has had (lib/label-records), for the Shipping labels sheet and its money.
   const recs = useLabelRecords(fs, tenantId, order.method === 'ship' ? order.id : '');
   const labelMoney = labelTotals(recs || []);

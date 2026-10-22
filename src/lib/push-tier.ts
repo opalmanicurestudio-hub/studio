@@ -20,6 +20,8 @@ export const PUSH_TIER: Record<string, 'now' | 'today'> = {
   // Booth rental
   booth_reservation: 'today', booth_tour: 'today', booth_application: 'today', booth_no_show: 'today', renter_leave: 'today', renter_document: 'today',
   renter_concern: 'today', renter_message: 'today', renter_swap: 'today', credential: 'today', rent_late: 'today', renter_barred: 'today', tour_followup: 'today',
+  // Online orders (lib/order-alerts)
+  orders_cutoff: 'now', orders_missed: 'now', orders_big_day: 'today', orders_fast: 'today',
   // Other tools
   school_tour: 'today', quote_accepted: 'today', quote_declined: 'today', quote_revision: 'today', maintenance: 'today', maintenance_collision: 'today',
   membership_payment_failed: 'today', payroll_draft: 'today', waitlist_join: 'today', appointment: 'today', user: 'today',

@@ -4,8 +4,10 @@
 // sit in a tab bar; on a computer, the order opens beside the list. A one-person shop leads with the next order.
 // Live from Firestore; the packing engine is lib/retail-fulfill, the screen's own rules are lib/orders-view.
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { collection, doc, limit, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
+import { markAllShipped } from './bulk';
+import { collection, doc, limit, onSnapshot, orderBy, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { benchScanTarget, markLabelChecked } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { useFirebase, useUser } from '@/firebase';
@@ -32,8 +34,23 @@ import { shipTogetherGroups, togetherRefunds } from '@/lib/ship-together';
 import { cardRefundableCents } from '@/lib/retail-money';
 import { addressLines } from './AddressCard';
 import { useLabelFlagOrders } from './use-label-flags';
+import { dayPicture, labelWork, sharedTellDay, whenWord, type CarrierItem, type LateItem, type Step } from '@/lib/ship-day';
+import { nextShipDay, scheduleFrom } from '@/lib/ship-promise';
+import { addDays, dayKey } from '@/lib/tenant-time';
+import { TodayCard, type DayList } from './Today';
+import { CarrierSheet, LateSheet, RiskSheet } from './DaySheets';
 
 const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
+
+/** What the message to a customer starts as, for a parcel the carrier is having trouble with. */
+function carrierMessage(it: CarrierItem): string | null {
+  const o = it.order; const who = firstName(o.customerName); const num = `#${String(o.orderNumber ?? '').padStart(4, '0')}`;
+  const carrier = String(o.carrierIssue?.carrier || o.carrier || 'The carrier').split(/\s+/)[0];
+  const why = String(o.carrierIssue?.detail || '').trim().replace(/\.$/, '');
+  if (it.kind === 'returned') return `Hi ${who}, ${carrier} is sending your order ${num} back to us${why ? ` (${why.charAt(0).toLowerCase()}${why.slice(1)})` : ''}. Would you like us to send it again, or refund you? If the address needs a change, tell us here.`;
+  if (it.kind === 'failed') return `Hi ${who}, ${carrier} couldn’t deliver your order ${num}${why ? ` (${why.charAt(0).toLowerCase()}${why.slice(1)})` : ''}. Can you check the address for us here, so we can get it to you?`;
+  return null;
+}
 
 export function OrdersApp() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
@@ -65,6 +82,11 @@ export function OrdersApp() {
   const [picked, setPicked] = React.useState<Set<string>>(() => new Set());
   const [shipToday, setShipToday] = React.useState(false);
   const [now, setNow] = React.useState(() => Date.now());
+  const [daySheet, setDaySheet] = React.useState<'late' | 'risk' | 'carrier' | null>(null);
+  const [dayBusy, setDayBusy] = React.useState('');
+  const [startMessage, setStartMessage] = React.useState<{ orderId: string; text: string } | null>(null);
+  const router = useRouter();
+  const [recent, setRecent] = React.useState<any[]>([]);
 
   React.useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   React.useEffect(() => {
@@ -88,6 +110,13 @@ export function OrdersApp() {
     const run = () => { void sweepStaleClaims(fs, tenantId).catch(() => 0); };
     run(); const t = setInterval(run, 60000); return () => clearInterval(t);
   }, [fs, tenantId]);
+  // Orders packed in the last two weeks: the team's own pace, and what has gone out today (lib/ship-day).
+  React.useEffect(() => {
+    if (!fs || !tenantId) return;
+    const since = new Date(Date.now() - 14 * 864e5).toISOString();
+    // Newest first, so a busy fortnight keeps today's in the list.
+    return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('packedAt', '>=', since), orderBy('packedAt', 'desc'), limit(300)), (s) => setRecent(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setRecent([]));
+  }, [fs, tenantId]);
 
   const photoFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const u = (Array.isArray(i.imageUrls) && i.imageUrls.find((x: any) => typeof x === 'string' && x.trim())) || (typeof i.imageUrl === 'string' && i.imageUrl.trim() ? i.imageUrl : ''); if (u) m.set(i.id, String(u)); }); return m; }, [inventory]);
   const shelfFor = React.useMemo(() => { const m = new Map<string, string>(); (inventory || []).forEach((i: any) => { const s = String(i.storageLocation || i.shelf || i.binLocation || '').trim(); if (s) m.set(i.id, s); }); return m; }, [inventory]);
@@ -97,6 +126,16 @@ export function OrdersApp() {
   const queue = React.useMemo(() => packQueue(orders, rs, now, shopZone), [orders, rs, now, shopZone]);
   const needs = React.useMemo(() => needsYou([...orders, ...unscanned.filter((u) => !orders.some((o) => o.id === u.id))], now, Math.max(1, Number(rs.readyStaleHours) || 24)), [orders, unscanned, now, rs.readyStaleHours]);
   const counts = React.useMemo(() => ({ pack: orders.filter((o) => tabOf(o) === 'pack').length, ready: orders.filter((o) => tabOf(o) === 'ready').length }), [orders]);
+  // TODAY (lib/ship-day): the cutoff, the next pickup, what has to ship today, and what's late, at risk or stuck with
+  // the carrier. Shown once the shop ships: a saved shipping schedule, or ship orders in play.
+  const schedule = React.useMemo(() => scheduleFrom(rs), [rs]);
+  const day = React.useMemo(() => {
+    const today = dayKey(new Date(now), shopZone);
+    const sentToday = recent.filter((o) => o.method === 'ship' && ['shipped', 'handed_off', 'completed'].includes(String(o.stage)) && o.completedAt && dayKey(new Date(Date.parse(o.completedAt)), shopZone) === today && !o.labelFromOrderId && !o.shippedWithOrderId).length;
+    return dayPicture({ orders, flagged: unscanned, recentPacked: recent, sentToday, rs, schedule, now, timeZone: shopZone });
+  }, [orders, unscanned, recent, rs, schedule, now, shopZone]);
+  const labelCount = React.useMemo(() => labelWork([...orders, ...unscanned]), [orders, unscanned]);
+  const showToday = !!schedule.savedAt || orders.some((o) => o.method === 'ship') || day.carrier.length > 0;
   const list = React.useMemo(() => {
     const src = tab === 'done' ? done : orders.filter((o) => tabOf(o) === tab);
     const f = src.filter((o) => matchesSearch(o, q));
@@ -134,8 +173,12 @@ export function OrdersApp() {
   const keepSeparate = async (g: any[]) => { try { await fetch('/api/retail/ship-together', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'decline', orderIds: g.map((o) => o.id) }) }); } catch { /* the card stays */ } };
   const outside = tab === 'ready' && !q ? orders.filter((o) => o.stage === 'arrived') : [];
 
-  // ?order=<id> opens that order; ?ship=today opens Ship today (the Labels screen's "Buy labels").
-  React.useEffect(() => { const q = new URLSearchParams(window.location.search); const id = q.get('order'); if (id) setOpenId(id); if (q.get('ship') === 'today') setShipToday(true); }, []);
+  // ?order=<id> opens that order; ?ship=today opens Ship today (the Labels screen's "Buy labels"); ?view=late, risk or
+  // carrier opens that Today list (an order alert's link, lib/order-alerts).
+  React.useEffect(() => {
+    const q = new URLSearchParams(window.location.search); const id = q.get('order'); if (id) setOpenId(id); if (q.get('ship') === 'today') setShipToday(true);
+    const v = q.get('view'); if (v === 'late' || v === 'risk' || v === 'carrier') setDaySheet(v);
+  }, []);
   const open = openId ? byId.get(openId) || null : null;
   const packing = packId ? byId.get(packId) || null : null;
   React.useEffect(() => { if (packId && packing && !['paid', 'picking', 'packed'].includes(packing.stage)) setPackId(null); }, [packId, packing]);
@@ -149,6 +192,58 @@ export function OrdersApp() {
   };
   const packNext = () => { const o = queue[0]; if (!o) { setToast('Nothing is waiting to be packed.'); return; } void beginPack(o); };
   const canRefund = typeof can === 'function' ? can('checkout.refund') : false;
+
+  // THE TODAY LISTS' NEXT STEPS. A new date goes through the delay notice (one message with the date and the right to
+  // cancel, lib/delay-notice); "Pack these first" moves orders to the front of the queue.
+  const tellCustomer = async (o: any, revisedDate: string): Promise<boolean> => {
+    try {
+      const r = await fetch('/api/retail/delay-notice', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: o.id, revisedDate }) });
+      const d = await r.json().catch(() => ({}));
+      return r.ok && d.sent === true;
+    } catch { return false; }
+  };
+  const lateStep = async (it: LateItem, s: Step) => {
+    const o = it.order;
+    if (s.kind === 'pack') { setDaySheet(null); void beginPack(o); return; }
+    if (s.kind === 'open') { setDaySheet(null); setOpenId(o.id); return; }
+    if (s.kind === 'label') { setDaySheet(null); setShipId(o.id); return; }
+    setDayBusy(`${o.id}:${s.kind}`);
+    try {
+      if (s.kind === 'shipped') setToast(await markAllShipped(fs, tenantId, [o], actor));
+      else if (s.kind === 'tell' && s.day) {
+        const ok = await tellCustomer(o, s.day); feel(ok);
+        setToast(ok ? `${firstName(o.customerName)} has the new date, with their right to cancel.` : 'That didn’t go through. They may already have this date.');
+      }
+    } finally { setDayBusy(''); }
+  };
+  const packFirst = async () => {
+    const list = day.atRisk.filter((i) => i.why === 'not_started' || i.why === 'packing').map((i) => i.order);
+    if (!list.length) return;
+    setDayBusy('rush');
+    try {
+      const at = new Date().toISOString();
+      await Promise.all(list.map((o) => updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, o.id), { rushAt: at, rushBy: actor.name }).catch(() => null)));
+      setDaySheet(null);
+      const first = list.find((o) => o.stage === 'paid');
+      if (first && perms.canPick) void beginPack(first);
+      else setToast(`${list.length === 1 ? 'It’s' : 'They’re'} at the front of the queue.`);
+    } finally { setDayBusy(''); }
+  };
+  const tellAtRisk = async () => {
+    const list = day.atRisk.filter((i) => i.shown);
+    if (!list.length) return;
+    setDayBusy('tell');
+    let sent = 0;
+    try { for (const i of list) if (await tellCustomer(i.order, i.tellDay)) sent++; } finally { setDayBusy(''); }
+    feel(sent > 0);
+    setToast(sent === list.length ? `${sent === 1 ? `${firstName(list[0].order.customerName)} has` : `${sent} customers have`} the new date.` : `${sent} of ${list.length} told. The rest already had this date, or it didn’t go through.`);
+  };
+  const carrierSeen = async (it: CarrierItem) => {
+    setDayBusy(it.order.id);
+    try { await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, it.order.id), { 'carrierIssue.open': false, 'carrierIssue.seenAt': new Date().toISOString(), 'carrierIssue.seenBy': actor.name }); }
+    catch { setToast('That didn’t save. Try again.'); } finally { setDayBusy(''); }
+  };
+  const openDay = (k: DayList) => { if (k === 'labels') router.push('/retail-orders/labels'); else setDaySheet(k); };
 
   const row = (o: any) => {
     const d = dueLine(o, rs, now, shopZone);
@@ -211,6 +306,8 @@ export function OrdersApp() {
         {perms.canPick && !selecting && <Btn kind="primary" onClick={packNext}>Pack the next order</Btn>}
       </div> : undefined} />
       {searching && !wide && <label className="mt-3 flex h-11 items-center gap-2 rounded-full px-4" style={{ background: C.soft }}><span style={muted}>{Ic.search}</span><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>}
+      {showToday && !q && <TodayCard day={day} labels={labelCount} onOpen={openDay} canPack={perms.canPick} onPackNext={!wide && !nextUp ? packNext : undefined}
+        nextShipWord={whenWord(nextShipDay(addDays(day.today, 1), schedule), day.today, shopZone)} />}
       {needs.length > 0 && (
         <button type="button" onClick={() => needs.length === 1 ? setOpenId(needs[0].orderId) : setNeedsOpen(true)} className="mt-3.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-[15px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>
           <span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span className={`h-2 w-2 rounded-full${needs.some((n) => n.kind === 'outside') ? ' cf-anim-pulse' : ''}`} style={{ background: C.warn }} />{needs.length} need{needs.length === 1 ? 's' : ''} you</span>
@@ -231,7 +328,8 @@ export function OrdersApp() {
 
   const panel = open && (
     <OrderPanel key={open.id} fs={fs} tenantId={tenantId} order={open} actor={actor} rs={rs} photoFor={photoFor} canRefund={canRefund} isManager={isManager} inline={wide}
-      onClose={() => setOpenId(null)} onPack={() => void beginPack(open)} onShip={() => setShipId(open.id)} onHandover={() => setHandId(open.id)} onToast={setToast} />);
+      startMessage={startMessage && startMessage.orderId === open.id ? startMessage.text : null}
+      onClose={() => { setOpenId(null); setStartMessage(null); }} onPack={() => void beginPack(open)} onShip={() => setShipId(open.id)} onHandover={() => setHandId(open.id)} onToast={setToast} />);
 
   return (
     <div className="cf-settings min-h-[100dvh]" style={{ background: C.paper, color: C.ink }}>
@@ -243,7 +341,7 @@ export function OrdersApp() {
       ) : (
         <div className="pb-48">{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
       )}
-      {!wide && !open && !selecting && <PhoneShopBar onPackNext={perms.canPick && tab === 'pack' && !nextUp ? packNext : undefined} problems={needs.filter((n) => n.kind !== 'outside').length} />}
+      {!wide && !open && !selecting && <PhoneShopBar onPackNext={perms.canPick && tab === 'pack' && !nextUp && !(showToday && !q && day.ship.toGo > 0) ? packNext : undefined} problems={needs.filter((n) => n.kind !== 'outside').length} />}
       {!wide && panel}
 
       {packing && <PackMode fs={fs} tenantId={tenantId} order={packing} all={orders} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor} batch={batches.find((b) => b.id === packing.batchId) || null}
@@ -255,6 +353,12 @@ export function OrdersApp() {
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {selecting && <SelectBar fs={fs} tenantId={tenantId} picked={pickedOrders} actor={actor} rs={rs} perms={perms} onDone={endSelect} onToast={setToast} />}
       {shipToday && <ShipToday fs={fs} tenantId={tenantId} orders={orders} actor={actor} rs={rs} onClose={() => setShipToday(false)} onToast={setToast} />}
+      {daySheet === 'late' && <LateSheet items={day.late} today={day.today} tz={shopZone} now={now} busy={dayBusy} onStep={(it, s) => void lateStep(it, s)} onClose={() => setDaySheet(null)} />}
+      {daySheet === 'risk' && <RiskSheet items={day.atRisk} pickupWords={day.lastPickup ? `the ${day.lastPickup.label} pickup` : 'the end of the shipping day'}
+        tellWord={(() => { const d = sharedTellDay(day.atRisk.filter((i) => i.shown)); return d ? whenWord(d, day.today, shopZone) : null; })()}
+        busy={dayBusy} canPack={perms.canPick} onPackFirst={() => void packFirst()} onTell={() => void tellAtRisk()} onOpenOrder={(id) => { setDaySheet(null); setOpenId(id); }} onClose={() => setDaySheet(null)} />}
+      {daySheet === 'carrier' && <CarrierSheet items={day.carrier} busy={dayBusy} onSeen={(it) => void carrierSeen(it)} onClose={() => setDaySheet(null)}
+        onOpenOrder={(id) => { const it = day.carrier.find((c) => c.order.id === id); const text = it ? carrierMessage(it) : null; setStartMessage(text ? { orderId: id, text } : null); setDaySheet(null); setOpenId(id); }} />}
       {needsOpen && (
         <Sheet title={`${needs.length} need you`} onClose={() => setNeedsOpen(false)} closeLabel="Done">
           <div className="mt-1">{needs.map((n) => <ListRow key={n.key} onClick={() => { setNeedsOpen(false); setOpenId(n.orderId); }} title={n.text} detail={byId.get(n.orderId)?.customerName} trail={<span style={muted}>{Ic.chev}</span>} />)}</div>

@@ -6,7 +6,7 @@
 import { isBusinessLocation, DEFAULT_LOCATION_DOC_ID } from '@/lib/location-kind';
 
 export interface HealthFinding { key: string; level: 'ok' | 'warn' | 'info'; text: string }
-const HEARTBEATS: [string, string, number][] = [['retail-payments', 'Online-order payment check', 20], ['no-shows', 'No-show check', 20], ['late-notices', 'Running-late notices', 180], ['label-money', 'Label refunds and carrier charges check', 1560]];   // [task, label, minutes before it counts as stopped]
+const HEARTBEATS: [string, string, number][] = [['retail-payments', 'Online-order payment check', 20], ['no-shows', 'No-show check', 20], ['late-notices', 'Running-late notices', 180], ['label-money', 'Label refunds and carrier charges check', 1560], ['order-alerts', 'Online-order alerts check', 40]];   // [task, label, minutes before it counts as stopped]
 
 /** A scheduled task records that it ran (HQ uses this to spot a task that has stopped). */
 export async function heartbeat(db: any, task: string) { try { await db.doc('platformHealth/crons').set({ [task]: new Date().toISOString() }, { merge: true }); } catch { /* never block the task */ } }

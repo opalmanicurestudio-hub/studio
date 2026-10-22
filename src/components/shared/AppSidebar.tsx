@@ -82,7 +82,7 @@ const STUDIO_ASSETS = [
 ];
 
 // The shop's places own their sub-screens: everything reached from Setup lights Setup, not Orders.
-const SHOP_SETUP_UNDER = ['settings', 'policies', 'designer', 'wholesale', 'reviews', 'claims', 'returns', 'support', 'waves', 'bench', 'bins', 'kpis', 'classic', 'exceptions'];
+const SHOP_SETUP_UNDER = ['settings', 'policies', 'designer', 'wholesale', 'reviews', 'claims', 'returns', 'support', 'waves', 'bench', 'bins', 'kpis', 'classic', 'exceptions', 'labels', 'alerts'];
 function shopActive(href: string, pathname: string): boolean {
   const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
   if (href === '/retail-orders/setup') return under(href) || SHOP_SETUP_UNDER.some((x) => under(`/retail-orders/${x}`));

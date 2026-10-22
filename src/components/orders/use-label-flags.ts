@@ -2,11 +2,12 @@
 // src/components/orders/use-label-flags.ts — ORDERS A LABEL HAS PUT UNDER NEEDS YOU, whatever stage they're at: a label
 // nobody has scanned for days, or a void that didn't finish (lib/label-sweep); a voided label the carrier scanned
 // anyway; a box waiting for its new label (lib/label-boxes); a refund Shippo turned down, or a carrier's later
-// adjustment to the postage (lib/label-records). A few small lists, live, merged into one.
+// adjustment to the postage (lib/label-records); a parcel the carrier is having trouble with (lib/ship-day). A few small
+// lists, live, merged into one.
 import * as React from 'react';
 import { collection, limit, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 
-const FLAGS: [string, number][] = [['labelUnscannedOpen', 50], ['voidedLabelMoving.open', 20], ['relabelOpen', 20], ['labelRefundDenied.open', 20], ['labelCharge.open', 20]];
+const FLAGS: [string, number][] = [['labelUnscannedOpen', 50], ['voidedLabelMoving.open', 20], ['relabelOpen', 20], ['labelRefundDenied.open', 20], ['labelCharge.open', 20], ['carrierIssue.open', 30]];
 
 export function useLabelFlagOrders(fs: Firestore, tenantId: string): any[] {
   const [rows, setRows] = React.useState<any[]>([]);

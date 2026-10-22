@@ -73,15 +73,15 @@ export function dueLine(o: any, retailSettings: any, now = Date.now(), timeZone?
   return { text: day === 'today' ? `Due ${formatTime(new Date(sla.dueAtMs), tz)}` : `${day === 'tomorrow' ? 'Tomorrow' : day} ${formatTime(new Date(sla.dueAtMs), tz)}`, late: false };
 }
 
-/** Packing order: late first, then soonest due. */
+/** Packing order: any someone moved to the front ("Pack these first", lib/ship-day), then late first, then soonest due. */
 export function packQueue(orders: any[], retailSettings: any, now = Date.now(), timeZone?: string | null) {
   const pol = fulfilmentPolicy(retailSettings || {}, timeZone);
   return orders.filter((o) => tabOf(o) === 'pack' && o.holdUntilRestock !== true && o.holdForReview !== true)
-    .map((o) => ({ o, d: slaFor(o, pol, now).dueAtMs || 0 }))
-    .sort((a, b) => a.d - b.d).map((x) => x.o);
+    .map((o) => ({ o, d: slaFor(o, pol, now).dueAtMs || 0, r: ms(o.rushAt) }))
+    .sort((a, b) => Number(!!b.r) - Number(!!a.r) || (a.r && b.r ? a.r - b.r : 0) || a.d - b.d).map((x) => x.o);
 }
 
-export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'late' | 'relabel' | 'refundDenied' | 'charge'; text: string }
+export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'late' | 'relabel' | 'refundDenied' | 'charge' | 'carrier'; text: string }
 /** The few things a person has to decide, most urgent first. */
 export function needsYou(orders: any[], now = Date.now(), staleHours = 48): NeedItem[] {
   const out: NeedItem[] = [];
@@ -107,6 +107,11 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     if (o.relabelOpen === true && o.voidedLabelMoving?.open !== true && ['paid', 'picking', 'packed', 'shipped'].includes(o.stage) && voidedSlots(o).length && labelDoubt(o) === 'relabel') out.push({ key: `${o.id}-rlb`, orderId: o.id, kind: 'relabel', text: `A box of ${who}’s needs a new label` });
     if (o.labelRefundDenied?.open === true) out.push({ key: `${o.id}-rfd`, orderId: o.id, kind: 'refundDenied', text: `A label refund for ${who} was turned down` });
     if (o.labelCharge?.open === true) { const c = Number(o.labelCharge.cents) || 0; out.push({ key: `${o.id}-chg`, orderId: o.id, kind: 'charge', text: `${o.carrier || 'The carrier'} adjusted ${who}’s postage: ${c > 0 ? '+' : '−'}${money(Math.abs(c))}` }); }
+    // A parcel the carrier is having trouble with (the shipping webhook, the nightly check): returned, failed, or quiet.
+    if (o.carrierIssue?.open === true) {
+      const s = String(o.carrierIssue.status || '');
+      out.push({ key: `${o.id}-car`, orderId: o.id, kind: 'carrier', text: s === 'RETURNED' ? `${who}’s parcel is going back to the sender` : s === 'STALLED' ? `${who}’s parcel hasn’t moved in ${Math.max(1, Number(o.carrierIssue.quietDays) || 0)} days` : `${String(o.carrierIssue.carrier || o.carrier || 'The carrier').split(/\s+/)[0]} couldn’t deliver ${who}’s parcel` });
+    }
     if (o.stage === 'paid' && o.holdUntilRestock === true) out.push({ key: `${o.id}-bo`, orderId: o.id, kind: 'backorder', text: `${who}’s order is waiting on stock` });
     // Late (lib/late-notices): an order that missed its date and needs someone to decide what to tell the customer, or
     // one past the date its customer was promised with nothing shipped (they can cancel for a full refund now).
@@ -116,7 +121,7 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     }
     if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });
   }
-  const rank: Record<string, number> = { outside: 0, held: 1, late: 2, address: 3, voided: 4, relabel: 4, refundDenied: 5, refund: 5, missing: 6, uncollected: 7, unconfirmed: 8, label: 9, backorder: 10, charge: 11 };
+  const rank: Record<string, number> = { outside: 0, held: 1, late: 2, carrier: 3, address: 3, voided: 4, relabel: 4, refundDenied: 5, refund: 5, missing: 6, uncollected: 7, unconfirmed: 8, label: 9, backorder: 10, charge: 11 };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
 

@@ -13,12 +13,10 @@
 //     an order that has moved on is unmarked as it is passed (one still being paid for is left alone), so the list
 //     stays the size of what is still open.
 import { sendDelayNotice } from './delay-notice';
-import { missedAt, promiseCarrier, promisedDay, revisedShipBy, scheduleFrom, type ShipSchedule } from './ship-promise';
+import { LATE_GRACE_MS, MAX_AUTO_NOTICES, missedAt, promiseCarrier, promisedDay, revisedShipBy, scheduleFrom, waitingPreorder, type ShipSchedule } from './ship-promise';
 import { tenantTimeZone } from './tenant-time';
 
-export const MAX_AUTO_NOTICES = 2;
-/** After the last pickup, so a box labeled and dropped off a little late isn't called late. */
-export const LATE_GRACE_MS = 60 * 60_000;
+export { LATE_GRACE_MS, MAX_AUTO_NOTICES };
 const OPEN = ['paid', 'picking', 'packed'];
 const PAGE = 300;
 
@@ -29,8 +27,6 @@ export type LateCall =
 
 const NONE: LateCall = { act: 'none' };
 
-/** A pre-order still waiting on its stock (refunded or cancelled lines don't count). */
-const waitingPreorder = (o: any) => (o?.lines || []).some((l: any) => l?.preorder === true && !['refunded', 'cancelled'].includes(String(l?.status)));
 
 /** Whether the order is one to watch: shipped, open, and its customer has been told a ship-by day. A pre-order stays
  *  watched while it waits (nothing is said while a pre-order line is waiting), so once that line is refunded or split

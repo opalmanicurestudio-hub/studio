@@ -34,7 +34,8 @@ function titleFor(type: string | undefined, business: string): string {
  *     signing in — the portal asks for their PIN, the app for their login — not by the link. */
 const PORTAL_TABS = ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'rent', 'orders'];
 const PORTAL_TO_APP: Record<string, string> = { today: '/dashboard', schedule: '/schedule', requests: '/schedule/requests', earnings: '/financials', inbox: '/messages', messages: '/messages', team: '/staff', documents: '/documents', rent: '/rent', orders: '/retail-orders' };
-const TYPE_TO_TAB: Record<string, string> = { staff_message: 'messages', swap_request: 'requests', swap_approved: 'requests', request_approved: 'requests', request_denied: 'requests', day_off_approved: 'requests', schedule_published: 'schedule', task: 'documents', renter_message: 'messages', rent_late: 'rent' };
+const TYPE_TO_TAB: Record<string, string> = { staff_message: 'messages', swap_request: 'requests', swap_approved: 'requests', request_approved: 'requests', request_denied: 'requests', day_off_approved: 'requests', schedule_published: 'schedule', task: 'documents', renter_message: 'messages', rent_late: 'rent',
+  orders_cutoff: 'orders', orders_missed: 'orders', orders_big_day: 'orders', orders_fast: 'orders' };
 export const MANAGER_ROLES_PUSH = ['owner', 'admin', 'manager'];
 
 export function pushLink(base: string, tenantId: string, link?: string, opts: { role?: string; type?: string } = {}): string {
@@ -80,7 +81,7 @@ export async function pushNewNotifications(db: any, messaging: any, tenantId: st
       if (!ok.buzz) { outcome.push(`held: ${ok.why}`); continue; }
       const link = pushLink(base, tenantId, n.link, { role: (p.data() as any)?.role, type: n.type });   // per person — never somewhere that isn't theirs
       try {
-        const res = await messaging.sendEachForMulticast({ tokens, notification: { title: titleFor(n.type, tenant?.name), body: String(n.message).slice(0, 180) },
+        const res = await messaging.sendEachForMulticast({ tokens, notification: { title: String(n.title || titleFor(n.type, tenant?.name)).slice(0, 80), body: String(n.message).slice(0, 180) },
           webpush: { fcmOptions: { link }, notification: { icon: `${base}/icon-192.png`, badge: `${base}/icon-192.png` } } });
         sent += res.successCount || 0;
         outcome.push(res.successCount ? `sent to ${res.successCount} device${res.successCount === 1 ? '' : 's'}` : `failed: ${String(res.responses.find((r: any) => r?.error)?.error?.code || 'unknown')}`);

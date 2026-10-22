@@ -242,7 +242,16 @@ export async function POST(req: NextRequest) {
         // The carrier's own arrival estimate for the main box, kept as it changes: once the box is moving, the
         // customer's order page shows this rather than the window worked out at checkout.
         const etaMs = Date.parse(String(data?.eta || ''));
-        await d.ref.set({ ...(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail, ...(Number.isFinite(etaMs) ? { carrierEtaAt: new Date(etaMs).toISOString() } : {}) }), ...(moved ? { labelUnscannedOpen: false } : {}),
+        // A parcel the carrier is having trouble with (going back to the sender, a delivery that failed) goes under
+        // Needs you, once per status of that box: a repeat of one someone has already seen doesn't bring it back. It
+        // clears itself when that box is delivered, or moves again after going quiet (lib/ship-day).
+        const issueKey = `${trackingNumber}|${status}`;
+        const prevIssue = order.carrierIssue || null;
+        const issue = ['RETURNED', 'FAILURE'].includes(String(status))
+          ? (prevIssue?.key === issueKey ? {} : { carrierIssue: { open: true, status: String(status), detail: update.detail || '', carrier: update.carrier || order.carrier || '', tracking: trackingNumber, at: update.statusAt, key: issueKey } })
+          : prevIssue?.open === true && prevIssue.tracking === trackingNumber && (String(status) === 'DELIVERED' || (prevIssue.status === 'STALLED' && ['TRANSIT', 'OUT_FOR_DELIVERY'].includes(String(status))))
+            ? { carrierIssue: { ...prevIssue, open: false, closedAt: new Date().toISOString(), closedBy: 'carrier' } } : {};
+        await d.ref.set({ ...(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail, ...(Number.isFinite(etaMs) ? { carrierEtaAt: new Date(etaMs).toISOString() } : {}) }), ...(moved ? { labelUnscannedOpen: false } : {}), ...issue,
           ...(doubtful ? { labelVoiding: null, voidedLabelMoving: { open: true, unsure: true, voidedBoxes: Array.isArray(order.labelVoidIds) ? order.labelVoidIds.length : 0, unconfirmedBoxes: 0, at: new Date().toISOString(), trackingNumber: String(order.trackingNumber || ''), status: String(status) } } : {}) }, { merge: true });
       } catch {
         // never let bookkeeping fail the webhook

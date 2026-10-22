@@ -188,7 +188,7 @@ ok(carrierKey('USPS') === 'usps' && carrierKey('UPS') === 'ups' && carrierKey('F
 {
   const now = new Date('2026-10-21T15:47:00Z');
   const info = cutoffInfo(now, NY, base());
-  ok(info.beforeCutoff && info.minutesLeft === 133 && info.cutoffAt === '2026-10-21T18:00:00.000Z' && minutesLabel(133) === '2 h 13 min', 'Wed 11:47 AM: 2 h 13 min to the cutoff');
+  ok(info.beforeCutoff && info.minutesLeft === 133 && info.cutoffAt === '2026-10-21T18:00:00.000Z' && minutesLabel(133) === '2 h 13 min' && minutesLabel(300) === '5 h' && minutesLabel(45) === '45 min', 'Wed 11:47 AM: 2 h 13 min to the cutoff (and a whole hour reads “5 h”)');
   const c = countdownFor({}, now, NY, base());
   ok(!!c && c.shipBy === '2026-10-22' && c.laterShipBy === '2026-10-23', 'the countdown names what it gets you');
   ok(countdownFor({}, new Date('2026-10-21T19:00:00Z'), NY, base()) === null && countdownFor({}, new Date('2026-10-24T15:00:00Z'), NY, base()) === null,

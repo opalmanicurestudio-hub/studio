@@ -73,6 +73,8 @@ export async function sendDelayNotice(db: any, input: DelayInput): Promise<Delay
     const was = knew ? promisedDay(o, tz) : null;
     txn.update(orderRef, {
       shipPromiseAt: promiseIso, notifiedForPromiseAt: promiseIso, promiseRevisions: (Number(o.promiseRevisions) || 0) + 1,
+      // When they were told, for the team's late list ("told Tue: ships by Fri").
+      delayNoticeAt: now.toISOString(),
       // The team now works to the new day: its last pickup, or the end of the shop's shipping day.
       promiseAt: missedAt(revisedDate, tz, schedule, carrier),
       // Whoever was asked to look at it has their answer.
