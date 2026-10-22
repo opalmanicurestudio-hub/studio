@@ -7,6 +7,7 @@ import * as React from 'react';
 import { doc, getDoc, type Firestore } from 'firebase/firestore';
 import { receiveReturnLine, resolveReturn } from '@/lib/retail-returns';
 import { restockingFee } from '@/lib/restocking';
+import { returnRefundCents } from '@/lib/retail-orders';
 import { money } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import type { Actor } from '@/lib/retail-fulfill';
@@ -23,7 +24,9 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
 
   const lines = (ret.lines || []).map((l: any) => ({ ...l, disposition: l.disposition || cond[l.lineId] }));
   const isRefund = ret.resolution === 'refund';
-  const gross = isRefund ? Number(ret.refundCents) || 0 : Number(ret.storeCreditCents) || 0;
+  // What they paid for these items, with their tax: worked out the same way the return is settled (lib/retail-returns).
+  const paidBack = order ? returnRefundCents(order, ret.lines || []) : 0;
+  const gross = Math.max(isRefund ? Number(ret.refundCents) || 0 : Number(ret.storeCreditCents) || 0, ret.resolution === 'replacement' ? 0 : paidBack);
   const label = Math.max(0, Number(ret.labelDeductCents) || 0);
   const fee = isRefund && order ? restockingFee(order.lines || [], lines, rs?.policies || {}) : { cents: 0, lines: [], waived: false };
   const net = Math.max(0, gross - label - Math.min(Math.max(0, gross - label), fee.cents));
@@ -63,7 +66,7 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
       </div>
       {ret.resolution !== 'replacement' && (
         <div className="mt-3 space-y-1.5 text-[15px]">
-          <div className="flex justify-between"><span style={muted}>Paid for these items</span><span>{money(gross)}</span></div>
+          <div className="flex justify-between"><span style={muted}>Paid for these items, with tax</span><span>{money(gross)}</span></div>
           {label > 0 && <div className="flex justify-between"><span style={muted}>Return shipping</span><span>−{money(label)}</span></div>}
           {isRefund && (fee.waived ? <div className="flex justify-between"><span style={muted}>Restocking fee</span><span style={muted}>None, shop’s fault</span></div>
             : fee.cents > 0 ? <div className="flex justify-between"><span style={muted}>Restocking fee</span><span>−{money(fee.cents)}</span></div> : null)}

@@ -320,8 +320,11 @@ export async function resolveReturn(
         });
       }
 
+      // What they paid for the returned items, after any promo code, with their tax (returnRefundCents), worked out
+      // again here so a return the customer started before that was counted the same way still gets it.
+      const paidBack = returnRefundCents(order, fresh.lines as any);
       if (fresh.resolution === 'refund') {
-        const gross = fresh.refundCents || 0;
+        const gross = Math.max(fresh.refundCents || 0, paidBack);
         let cents = Math.max(0, gross - labelDeduct);
         /* RESTOCKING FEE — by the condition each item came back in, remorse only. Any shop-fault line on the
          * return waives it (lib/restocking). */
@@ -330,13 +333,17 @@ export async function resolveReturn(
         cents = Math.max(0, cents - feeCents);
         if (feeCents > 0) txn.update(rRef, { restockingFeeCents: feeCents, restockingFeeLines: fee.lines });
         refundNetCents = cents;
+        txn.update(rRef, { refundNetCents: cents });
         txn.update(oRef, { pendingRefundCents: (order.pendingRefundCents || 0) + cents });
         summary = `Refund of $${(cents / 100).toFixed(2)} queued${labelDeduct ? ` ($${(labelDeduct / 100).toFixed(2)} return shipping deducted)` : ''}${feeCents ? ` ($${(feeCents / 100).toFixed(2)} restocking fee)` : ''}`;
       }
 
+      let creditNetCents = 0;
       if (fresh.resolution === 'store_credit') {
-        const gross = fresh.storeCreditCents || 0;
+        const gross = Math.max(fresh.storeCreditCents || 0, paidBack);
         const cents = Math.max(0, gross - labelDeduct);
+        creditNetCents = cents;
+        txn.update(rRef, { creditNetCents: cents });
         const creditRef = doc(collection(fs, `tenants/${tenantId}/depositCredits`));
         issuedCreditId = creditRef.id;
         txn.set(creditRef, {
@@ -400,7 +407,7 @@ export async function resolveReturn(
           returnId: ret.id, resolution: fresh.resolution, resolvedAt: now,
           unitsReturned: unitsBack,
           refundCents: fresh.resolution === 'refund' ? refundNetCents : 0,
-          creditCents: fresh.resolution === 'store_credit' ? Math.max(0, (fresh.storeCreditCents || 0) - labelDeduct) : 0,
+          creditCents: fresh.resolution === 'store_credit' ? creditNetCents : 0,
           labelDeductCents: labelDeduct,
           restockingFeeCents: feeCents,
         },

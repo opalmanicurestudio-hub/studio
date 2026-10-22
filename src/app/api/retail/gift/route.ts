@@ -10,7 +10,7 @@ import { limitPublic } from '@/lib/rate-limit';
 import { canReturnLine } from '@/lib/return-eligibility';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { giftWindow } from '@/lib/gift-orders';
-import { effectiveUnitCents } from '@/lib/retail-swap';
+import { returnRefundCents } from '@/lib/retail-orders';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,7 +75,8 @@ export async function POST(req: NextRequest) {
     lines.push({ lineId: orig.lineId, sku: orig.sku || '', name: orig.name, qty, reason });
   }
   if (!lines.length) return NextResponse.json({ error: 'Pick at least one item.' }, { status: 400 });
-  const value = lines.reduce((sum, rl) => { const ol = (r.order.lines || []).find((l: any) => l.lineId === rl.lineId); return sum + rl.qty * (ol ? effectiveUnitCents(ol) : 0); }, 0);
+  // What was paid for those items, after any promo code, with their tax (lib/retail-orders returnRefundCents).
+  const value = returnRefundCents(r.order, lines);
   const db = r.db; const now = new Date().toISOString();
   const retRef = db.collection(`tenants/${tenantId}/retailReturns`).doc();
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);

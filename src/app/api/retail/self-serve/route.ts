@@ -4,9 +4,8 @@ import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
-import { delayNotified, isPromiseLate } from '@/lib/retail-orders';
+import { delayNotified, isPromiseLate, returnRefundCents } from '@/lib/retail-orders';
 import { canReturnLine } from '@/lib/return-eligibility';
-import { effectiveUnitCents } from '@/lib/retail-swap';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -460,10 +459,9 @@ export async function POST(req: NextRequest) {
     }
     if (lines.length === 0) return NextResponse.json({ error: 'Pick at least one item to return.' }, { status: 400 });
 
-    const value = lines.reduce((sum, rl) => {
-      const orig = (order.lines || []).find((l: any) => l.lineId === rl.lineId);
-      return sum + rl.qty * (orig ? effectiveUnitCents(orig) : 0);
-    }, 0);
+    // What they paid for those items, after any promo code, with their tax: the same as a return the shop starts
+    // (lib/retail-orders returnRefundCents).
+    const value = returnRefundCents(order, lines);
 
     const retRef = db.collection(`tenants/${tenantId}/retailReturns`).doc();
     const now = new Date().toISOString();

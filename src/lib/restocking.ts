@@ -31,14 +31,24 @@ export function returnIsShopFault(lines: { reason?: string }[]): boolean {
 
 export interface FeeLine { lineId: string; pct: number; cents: number }
 
-/** The fee for a return: per line, the condition's percentage of that line's item price. */
+/** What a line really cost the customer per unit, after any line discount and its share of a promo code (lib/promo-codes). */
+export function effectiveUnitCents(l: { unitPriceCents?: number; qtyOrdered?: number; lineDiscountCents?: number; promoCents?: number; unitPaidCents?: number }): number {
+  // A line on an order made from another one (a backorder, a replacement) carries what each unit was paid on the first
+  // order, worked out there with that line's own quantity (lib/order-family lineFor).
+  if (l.unitPaidCents != null && Number.isFinite(Number(l.unitPaidCents))) return Math.max(0, Math.round(Number(l.unitPaidCents)));
+  const q = Math.max(1, Number(l.qtyOrdered) || 1);
+  return Math.max(0, (Number(l.unitPriceCents) || 0) - Math.round(((Number(l.lineDiscountCents) || 0) + (Number(l.promoCents) || 0)) / q));
+}
+
+/** The fee for a return: per line, the condition's percentage of what was paid for the item (its price after any
+ *  promo code), never its tax. */
 export function restockingFee(orderLines: { lineId: string; unitPriceCents: number }[], lines: { lineId: string; qty: number; reason?: string; disposition?: string | null }[], pol: any): { cents: number; lines: FeeLine[]; waived: boolean } {
   if (returnIsShopFault(lines)) return { cents: 0, lines: [], waived: true };
   const out: FeeLine[] = [];
   for (const l of lines) {
     const orig = orderLines.find((o) => o.lineId === l.lineId); if (!orig) continue;
     const pct = feePctFor(pol, l.disposition);
-    const cents = pct > 0 ? Math.round((Math.max(0, Number(l.qty) || 0) * (Number(orig.unitPriceCents) || 0) * pct) / 100) : 0;
+    const cents = pct > 0 ? Math.round((Math.max(0, Number(l.qty) || 0) * effectiveUnitCents(orig as any) * pct) / 100) : 0;
     if (cents > 0) out.push({ lineId: l.lineId, pct, cents });
   }
   return { cents: out.reduce((a, x) => a + x.cents, 0), lines: out, waived: false };

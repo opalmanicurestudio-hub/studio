@@ -4,7 +4,9 @@
 // as its own line. Prices never change on a line: the replacement carries its own price, and when it costs more the
 // difference is a discount on that line, so the customer never pays more. When it costs less, the difference (with
 // its tax) goes back to them. Pure, so the client and the server apply a swap identically.
-import { taxShareCents } from './restocking';
+import { effectiveUnitCents, taxShareCents } from './restocking';
+
+export { effectiveUnitCents };
 
 export type IfUnavailable = 'refund' | 'similar' | 'ask';
 export const IF_UNAVAILABLE: { id: IfUnavailable; label: string; note: string }[] = [
@@ -38,14 +40,6 @@ export function swapLines(order: { lines: any[]; subtotalCents?: number; taxCent
   return { lines, qty, refundCents: diff + taxShareCents(order, diff), newLine };
 }
 
-/** What a line really cost the customer per unit, after any line discount and its share of a promo code (lib/promo-codes). */
-export function effectiveUnitCents(l: { unitPriceCents?: number; qtyOrdered?: number; lineDiscountCents?: number; promoCents?: number; unitPaidCents?: number }): number {
-  // A line on an order made from another one (a backorder, a replacement) carries what each unit was paid on the first
-  // order, worked out there with that line's own quantity (lib/order-family lineFor).
-  if (l.unitPaidCents != null && Number.isFinite(Number(l.unitPaidCents))) return Math.max(0, Math.round(Number(l.unitPaidCents)));
-  const q = Math.max(1, Number(l.qtyOrdered) || 1);
-  return Math.max(0, (Number(l.unitPriceCents) || 0) - Math.round(((Number(l.lineDiscountCents) || 0) + (Number(l.promoCents) || 0)) / q));
-}
 
 /** Close matches for a missing item: in stock, same category if it has one, nearest price first, not dearer than
  *  half again. */
