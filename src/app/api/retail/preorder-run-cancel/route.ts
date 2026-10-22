@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { staffOrServer } from '@/lib/route-guard';
+import { requireCan, staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { taxShareCents } from '@/lib/restocking';
@@ -84,6 +84,14 @@ export async function POST(req: NextRequest) {
     const dryRun = body.dryRun === true;
     if (!tenantId || !productId) {
       return NextResponse.json({ error: 'Product is required.' }, { status: 400 });
+    }
+    // Cancelling a run cancels orders and sends refunds, so it's for someone allowed to refund payments (never a renter).
+    // Anyone on the team can see what it would do.
+    const fromServer = !!process.env.CRON_SECRET && req.headers.get('x-cf-internal') === process.env.CRON_SECRET;
+    if (!dryRun && !fromServer) {
+      const g = await requireCan(req, tenantId, 'checkout.refund');
+      if (g.deny) return g.deny;
+      if (g.actor?.isRenter) return NextResponse.json({ ok: false, error: 'Only the shop can cancel a pre-order run.' }, { status: 403 });
     }
 
     const db = getAdminDb();

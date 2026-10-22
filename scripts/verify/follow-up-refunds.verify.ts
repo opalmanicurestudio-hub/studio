@@ -48,7 +48,7 @@ function StripeMock(this: any) {
   return { refunds: {
     create: async (params: any, opts: any) => {
       stripeCalls.push({ params, opts });
-      if (stripeFail) throw Object.assign(new Error(stripeFail), { raw: { message: stripeFail } });
+      if (stripeFail) throw Object.assign(new Error(stripeFail), { raw: { message: stripeFail }, type: stripeFail === 'timeout' ? 'StripeConnectionError' : 'StripeInvalidRequestError' });
       const r = { id: `re_${stripeCalls.length}`, amount: params.amount, metadata: params.metadata, status: 'succeeded', payment_intent: params.payment_intent };
       stripeMade.push(r);
       return r;
@@ -73,7 +73,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/request-forensics') return { requestForensics: () => null };
   if (request.endsWith('staff-fetch')) return { staffAuthHeader: async () => ({}) };
   if (request.endsWith('renter-credit-client')) return { syncRenterCredits: () => undefined };
-  if (request === '@/lib/route-guard') return { staffOrServer: async () => true };
+  if (request === '@/lib/route-guard') return { staffOrServer: async () => true, requireCan: async () => ({ actor: { isRenter: false } }) };
   return load.call(this, request, ...rest);
 };
 (globalThis as any).fetch = async (url: any, init?: any) => { fetches.push({ url: String(url), init, body: init?.body ? JSON.parse(init.body) : null }); return { ok: true, json: async () => ({}) }; };
@@ -229,19 +229,19 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   const cl = await get(`${T}/retailOrders/c1`);
   check('the money went but the order couldn’t be written: the team is told it went and to tap again, and the hold stays',
     r.status === 200 && r.body.recorded === false && stripeCalls.length === 1 && cl.pendingRefundCents === 3024 && !cl.refundedCents && cl.refundInFlight?.seq === 1 && /won’t be sent twice/.test(r.body.message), { r: r.body, cl });
-  await db.doc(`${T}/retailOrders/c1`).set({ refundInFlight: { ...cl.refundInFlight, at: new Date(Date.now() - 3 * 60000).toISOString() } }, { merge: true });
+  await db.doc(`${T}/retailOrders/c1`).set({ refundInFlight: { ...cl.refundInFlight, at: new Date(Date.now() - 6 * 60000).toISOString() } }, { merge: true });
   r = await send();
   const cl2 = await get(`${T}/retailOrders/c1`); const pl2 = await get(`${T}/retailOrders/p1`);
   check('…tapping again once the hold lapses finds that refund at Stripe and records it, without sending a second one',
     r.status === 200 && stripeCalls.length === 1 && cl2.pendingRefundCents === 0 && cl2.refundedCents === 3024 && cl2.refundSeq === 1 && cl2.refundInFlight === null && pl2.refundInFlight === null
     && cl2.lastStripeRefundId === 're_1' && /already gone back/.test(r.body.message) && (await all(`${T}/transactions`)).length === 1, { r: r.body, cl2, pl2 });
-  await fresh(async (d) => { await d.doc(`${T}/retailOrders/c1`).set({ refundInFlight: { cents: 3024, seq: 1, at: new Date(Date.now() - 3 * 60000).toISOString(), by: 'm1' } }, { merge: true }); });
+  await fresh(async (d) => { await d.doc(`${T}/retailOrders/c1`).set({ refundInFlight: { cents: 3024, seq: 1, at: new Date(Date.now() - 6 * 60000).toISOString(), by: 'm1' } }, { merge: true }); });
   r = await send();
   check('a lapsed hold whose refund never reached Stripe sends a new one, under a fresh number',
     r.status === 200 && stripeCalls.length === 1 && stripeCalls[0].opts.idempotencyKey === 'retail-refund-c1-2' && (await get(`${T}/retailOrders/c1`)).refundSeq === 2, { r: r.body, keys: stripeCalls.map((c) => c.opts.idempotencyKey) });
 
   await fresh(async (d) => {
-    await d.doc(`${T}/retailOrders/c1`).set({ pendingRefundCents: 500, refundedCents: 1000, refundSeq: 0, refundInFlight: { cents: 1000, seq: 1, at: new Date(Date.now() - 3 * 60000).toISOString(), by: 'm1', refundedBefore: 0 } }, { merge: true });
+    await d.doc(`${T}/retailOrders/c1`).set({ pendingRefundCents: 500, refundedCents: 1000, refundSeq: 0, refundInFlight: { cents: 1000, seq: 1, at: new Date(Date.now() - 6 * 60000).toISOString(), by: 'm1', refundedBefore: 0 } }, { merge: true });
   });
   stripeMade.push({ id: 're_old', amount: 1000, metadata: { retailOrderId: 'c1', seq: '1' }, status: 'succeeded', payment_intent: 'pi_P' });
   r = await send();
@@ -327,7 +327,7 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
   await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set({ refundedCents: 7928 }, { merge: true }); await d.doc(`${T}/retailOrders/c1`).set(child()); });
   await Fu.cancelOrder(webFs, 't1', 'c1', staff, 'x');
   check('…nor one whose order’s card has been refunded in full', (await get(`${T}/retailOrders/c1`)).pendingRefundCents === 0);
-  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set(payer({ chargedCents: 2928, giftCardCents: 5000, refundedCents: 2928 })); await d.doc(`${T}/retailOrders/c1`).set(child()); });
+  await board(async (d) => { await d.doc(`${T}/retailOrders/p1`).set(payer({ chargedCents: 2928, giftCardId: 'g9', giftCardCents: 5000, giftSpentAt: '2026-10-01T10:00:00Z', refundedCents: 2928 })); await d.doc(`${T}/retailOrders/c1`).set(child()); });
   await Fu.cancelOrder(webFs, 't1', 'c1', staff, 'x');
   check('an order part paid by gift card isn’t done giving back just because its card has been: the backorder’s $30.24 is still queued',
     (await get(`${T}/retailOrders/c1`)).pendingRefundCents === 3024);

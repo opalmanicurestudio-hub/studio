@@ -829,6 +829,8 @@ async function handleCheckout(req: NextRequest) {
             storeCreditRequestedCents: chargeable, creditShortfallCents: remaining,
             paidVia: 'store_credit',
           });
+          // What it really took, where only the server writes (lib/non-card-back).
+          txn.set(db.doc(`tenants/${tenantId}/private/nonCardPaid/orders/${orderId}`), { creditCents: chargeable - remaining, at: new Date().toISOString() }, { merge: true });
           const evRef = orderRef.collection('events').doc();
           txn.set(evRef, {
             id: evRef.id, type: 'paid', at: new Date().toISOString(),
@@ -919,6 +921,7 @@ async function handleCheckout(req: NextRequest) {
           if (paidOk) {
             const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: chargeable, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: orderId });
             await orderRef.set(r.ok ? { giftSpentAt: new Date().toISOString() } : { giftShortfallCents: chargeable }, { merge: true });
+            if (r.ok) { try { const { recordNonCard } = await import('@/lib/non-card-back'); await recordNonCard(db, tenantId, orderId, { giftCents: chargeable, giftCardId: g.id }); } catch { /* its own fields still say */ } }
             if (r.ok) void notifyGiftUse(db, tenantId, g.id, chargeable).catch(() => {});
             else console.error('[checkout] gift card spend after a paid order failed — needs a look:', r.error);
             const paidSnap = await orderRef.get(); const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };

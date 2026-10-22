@@ -152,7 +152,7 @@ const mixed = (x: any = {}) => ({ id: 'm1', tenantId: 't1', orderNumber: 1050, s
 
   // ── A try that was cut off after the card refund went: recorded once, with its gift card part ──
   await fresh(async (d) => {
-    await d.doc(`${T}/retailOrders/m1`).set({ refundSeq: 0, refundInFlight: { cents: 2500, other: 500, seq: 1, at: ago(3), by: 'm1', refundedBefore: 0 } }, { merge: true });
+    await d.doc(`${T}/retailOrders/m1`).set({ refundSeq: 0, refundInFlight: { cents: 2500, other: 500, seq: 1, at: ago(6), by: 'm1', refundedBefore: 0 } }, { merge: true });
   });
   stripeMade.push({ id: 're_old', amount: 2500, metadata: { retailOrderId: 'm1', seq: '1' }, status: 'succeeded', payment_intent: 'pi_M' });
   r = await send();

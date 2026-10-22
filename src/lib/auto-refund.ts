@@ -43,9 +43,11 @@ const money = (c: number) => `$${(c0(c) / 100).toFixed(2)}`;
 export function refundWords(cents: number, sent: AutoRefund | null): string {
   if (sent?.sent && sent.cents > 0) {
     const card = sent.cardCents; const other = sent.otherCents;
-    if (!card && other) return `${money(sent.cents)} is back the way you paid, on your gift card or as store credit.`;
-    if (card && other) return `${money(sent.cents)} is on its way back to you: ${money(card)} to your card, which most banks show within 5 to 10 business days, and ${money(other)} on your gift card or as store credit.`;
-    return `${money(sent.cents)} is on its way back to your card. Most banks show it within 5 to 10 business days.`;
+    // Part of it still waiting (more than could go back on its own): said too.
+    const rest = c0(cents) > sent.cents ? ` The other ${money(c0(cents) - sent.cents)} is approved, and we’ll let you know when it’s on its way.` : '';
+    if (!card && other) return `${money(sent.cents)} is back the way you paid, on your gift card or as store credit.${rest}`;
+    if (card && other) return `${money(sent.cents)} is on its way back to you: ${money(card)} to your card, which most banks show within 5 to 10 business days, and ${money(other)} on your gift card or as store credit.${rest}`;
+    return `${money(sent.cents)} is on its way back to your card. Most banks show it within 5 to 10 business days.${rest}`;
   }
   return `A refund of ${money(cents)} is approved. We’ll let you know as soon as it’s on its way.`;
 }

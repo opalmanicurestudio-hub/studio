@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
         subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0, taxBasis: taxBasisOf(o),
         customerName: o.customerName || '', customerEmail: o.customerEmail || '', customerPhone: o.customerPhone || '', clientId: o.clientId || null,
         shippingAddress: o.shippingAddress || null, shippingService: o.shippingService || null, shippingCarrier: o.shippingCarrier || null,
-        parentOrderId: orderId, isReplacement: true, replacementFor: 'lost_in_transit', ...(riders.length ? { includesOrderIds: riders.map((r: any) => r.id) } : {}),
+        parentOrderId: orderId, isReplacement: true, replacementFor: 'lost_in_transit', lostParcelOrderId: orderId, ...(riders.length ? { includesOrderIds: riders.map((r: any) => r.id) } : {}),
         qrToken: o.qrToken || null, placedAt: now, paidAt: now,
       })));
       // Its stock is held now, as a paid order's is, so the shelf isn't sold twice and shipping it releases its own hold.

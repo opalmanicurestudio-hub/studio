@@ -4,7 +4,7 @@ import { syncRenterCredits } from './renter-credit-client';
 import { restockingFee } from './restocking';
 import { lineFor, taxBasisOf } from './order-family';
 import { releaseCoverableBackorders } from './retail-fulfill';
-import { reservedByOpenReturns } from '@/lib/return-reserve';
+import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
 import {
   Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
 } from 'firebase/firestore';
@@ -93,13 +93,17 @@ export async function openReturn(
   const lines: ReturnLine[] = [];
   let openReturns: any[] = [];
   try { openReturns = (await getDocs(query(returnCol(fs, tenantId), where('orderId', '==', order.id), limit(50)))).docs.map((d) => d.data()); } catch { /* none counted */ }
+  let claims: any[] = [];
+  try { claims = (await getDocs(query(collection(fs, `tenants/${tenantId}/retailClaims`), where('orderId', '==', order.id), limit(30)))).docs.map((d) => d.data()); } catch { /* none counted */ }
   for (const sel of selections.filter((s) => s.qty > 0)) {
     const orig = order.lines.find((l) => l.lineId === sel.lineId);
     if (!orig) return { ok: false, message: 'Line not found on the order.' };
-    // Not shorted, not returned, not refunded through a claim (qtyClaimed), not on its way back already.
-    const returnable = Math.max(0, (Number(orig.qtyOrdered) || 0) - (Number(orig.qtyShorted) || 0) - (Number(orig.qtyReturned) || 0) - (Number((orig as any).qtyClaimed) || 0) - reservedByOpenReturns(openReturns, orig.lineId));
+    // Not shorted, not returned, not covered by a problem the customer reported (waiting, or refunded), not on its way
+    // back already: one item is refunded once.
+    const reported = claimedUnits(claims, orig);
+    const returnable = Math.max(0, (Number(orig.qtyOrdered) || 0) - (Number(orig.qtyShorted) || 0) - (Number(orig.qtyReturned) || 0) - reported - reservedByOpenReturns(openReturns, orig.lineId));
     if (sel.qty > returnable) {
-      return { ok: false, message: `Only ${returnable} of ${orig.name} can still be returned.` };
+      return { ok: false, message: `Only ${returnable} of ${orig.name} can still be returned.${reported > 0 ? ' The rest is part of a problem they reported: decide it in Claims.' : ''}` };
     }
     // FINAL SALE. Checked here and not only in the UI, because a screen that
     // hides a button is not a rule — the storefront, the returns board and

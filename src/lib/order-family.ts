@@ -10,6 +10,7 @@
 // order it was made from (the one that bought the label), within what that card was charged.
 // Pure apart from the two readers at the end, which take the database's own get (a transaction's, inside one).
 import { cardPaidCents } from './retail-money';
+import { roomCents } from './non-card-back';
 import { effectiveUnitCents } from './retail-swap';
 import { taxShareCents } from './restocking';
 
@@ -91,14 +92,28 @@ function settled(p: any): boolean {
   return paid > 0 && cents(p.refundedCents) >= paid;
 }
 
-/** What cancelling a follow-up gives back to the customer's card: what they paid for its items still to be sent.
- *  Nothing when the order they paid on has already given everything back, or for a replacement for a parcel that was
- *  delivered after all (they have the goods). `parent` is the order it was made from (the lost parcel, for a
- *  replacement), `payer` the order paid on. */
-export function followUpCancelCents(o: any, parent?: any, payer?: any): number {
+/** What cancelling a follow-up gives back to the customer: what they paid for its items still to be sent, within what
+ *  the family still holds. Nothing for a replacement for a parcel that was delivered after all (they have the goods).
+ *  `parent` is the order it was made from, `payer` the order paid on, `lostParcel` the parcel a replacement was made
+ *  for when that's further up (a backorder of a replacement). With `family` (every order made from the payer), what's
+ *  left is worked out across them, so a follow-up the payer's own cancellation kept back still gives back what it was
+ *  kept back for; without it, nothing comes back once the payer has given everything back. */
+export function followUpCancelCents(o: any, parent?: any, payer?: any, family?: any[], lostParcel?: any): number {
+  if (String(o?.replacementFor || '') === 'lost_in_transit' && (lostParcel || parent) && parcelArrived(lostParcel || parent)) return 0;
+  const items = followUpItemsCents(o, payer || parent);
+  if (family && payer) return Math.min(items, familyLeftCents(payer, family));
   if (settled(payer || (parent && !isFollowUp(parent) ? parent : null))) return 0;
-  if (String(o?.replacementFor || '') === 'lost_in_transit' && parent && parcelArrived(parent)) return 0;
-  return followUpItemsCents(o, payer || parent);
+  return items;
+}
+
+/** What can still go back to the customer across a family: what the paying order's card hasn't had back, plus what its
+ *  gift card or store credit paid that hasn't gone back, less every refund already waiting to go out on any of them. */
+export function familyLeftCents(payer: any, followUps: any[]): number {
+  const payerId = String(payer?.id || '');
+  const seen = new Set<string>();
+  const fam = (followUps || []).filter((f) => { const id = String(f?.id || ''); if (!id || id === payerId || seen.has(id) || !isFollowUp(f)) return false; seen.add(id); return true; });
+  const queued = cents(payer?.pendingRefundCents) + fam.reduce((a, f) => a + cents(f.pendingRefundCents), 0);
+  return Math.max(0, familyRefundableCents(payer, fam) + roomCents(payer) - queued);
 }
 
 const OPEN_STAGES = ['placed', 'paid', 'picking', 'packed', 'ready', 'arrived'];

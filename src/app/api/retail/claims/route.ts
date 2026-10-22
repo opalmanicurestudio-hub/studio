@@ -217,9 +217,10 @@ export async function POST(req: NextRequest) {
     if (!CLAIM_STAGES.includes(order.stage)) {
       return NextResponse.json({ error: 'Problems can be reported once the order has been picked up, delivered, or shipped.' }, { status: 409 });
     }
-    // The shop already sent a new one for a parcel that stopped moving: that's the answer to "it never arrived".
-    if (type === 'not_received' && order.replacementOrderId) {
-      return NextResponse.json({ error: 'The shop has already sent you a replacement for this order. Its tracking is on your order page.' }, { status: 409 });
+    // The shop already sent a new one for a parcel that stopped moving: that's the answer to "it never arrived", and to
+    // something missing from it (the replacement carried it). Anything else about this parcel waits for a person.
+    if ((type === 'not_received' || type === 'missing') && order.replacementOrderId) {
+      return NextResponse.json({ error: 'The shop has already sent you a replacement for this order. Its tracking is on your order page. If something is wrong with the replacement, report it from there.' }, { status: 409 });
     }
 
     const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
@@ -316,7 +317,7 @@ export async function POST(req: NextRequest) {
     // point, under the shop's ceiling, from a low-risk account.
     const evidenceConcedes = (type === 'missing' || type === 'wrong_item') && line != null && !evidence.lineScanComplete;
     const autoApprove = autoMaxCents > 0 && claimValueCents > 0 && claimValueCents <= autoMaxCents && risk === 'low' && evidenceConcedes
-      && !needsReview && !photosRequired;
+      && !needsReview && !photosRequired && !order.replacementOrderId;
 
     const now = new Date().toISOString();
     const claim = {

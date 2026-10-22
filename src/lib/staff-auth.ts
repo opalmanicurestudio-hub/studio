@@ -40,6 +40,8 @@ export type StaffActor = {
   /** Signed in through the staff portal with their PIN. */
   portal?: boolean;
   employmentModel: EmploymentModel | null;
+  /** A booth renter: runs their own business here, so never sends the shop's money. */
+  isRenter?: boolean;
   decisionAuthority: DecisionAuthority | null;
   /** Their online-orders job when a manager set one (picker, packer, shipper, manager, none). */
   fulfilmentRole?: string | null;
@@ -104,6 +106,8 @@ export async function verifyStaffActor(
       ...(viaPortal ? { portal: true } : {}),
       caps: isTenantOwner ? ALL_CAPS : capsFor(tenantSnap.data(), role),
       employmentModel: (staff?.employmentModel as EmploymentModel) || null,
+      // A booth renter signed in to the staff side: their own business, never the shop's money.
+      isRenter: !isTenantOwner && (staff?.isRenter === true || staff?.employmentModel === 'renter' || role === 'renter'),
       decisionAuthority: (staff?.decisionAuthority as DecisionAuthority) || null,
       fulfilmentRole: staff?.fulfilmentRole ? String(staff.fulfilmentRole) : null,
     },

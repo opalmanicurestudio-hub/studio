@@ -468,6 +468,9 @@ export async function resolveShortLine(
           customerPhone: order.customerPhone || '',
           shippingAddress: order.shippingAddress || null,
           parentOrderId: orderId, holdUntilRestock: true,
+          // Part of a replacement for a lost parcel: still one, so it isn't refunded on its own and nothing comes back
+          // for it if the first parcel turns up (lib/order-family).
+          ...((order as any).replacementFor === 'lost_in_transit' ? { replacementFor: 'lost_in_transit', lostParcelOrderId: (order as any).lostParcelOrderId || (order as any).parentOrderId || null } : {}),
           qrToken: order.qrToken || null, // same customer QR completes the backorder
           placedAt: new Date().toISOString(), paidAt: order.paidAt || new Date().toISOString(),
         };
@@ -887,8 +890,15 @@ export async function cancelOrder(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason?: string
 ): Promise<{ ok: boolean; message: string }> {
   try {
-    // Orders made from this one (a backorder, pre-order items sent later) are found first and cancelled with it.
-    const famIds = await followUpIdsOf(fs, tenantId, orderId);
+    // Orders made from this one (a backorder, pre-order items sent later) are found first and cancelled with it. For an
+    // order made from another, the orders made from the one it was paid on are found instead, so what it gives back is
+    // worked out from what that whole family still holds.
+    let rootId = orderId;
+    try {
+      let cur: any = (await getDoc(doc(orderCol(fs, tenantId), orderId))).data();
+      for (let i = 0; i < 4 && cur && isFollowUp(cur) && cur.parentOrderId; i++) { rootId = String(cur.parentOrderId); cur = (await getDoc(doc(orderCol(fs, tenantId), rootId))).data(); }
+    } catch { rootId = orderId; }
+    const famIds = await followUpIdsOf(fs, tenantId, rootId);
     return await runTransaction(fs, async (txn) => {
       const orderRef = doc(orderCol(fs, tenantId), orderId);
       const snap = await txn.get(orderRef);
@@ -913,16 +923,18 @@ export async function cancelOrder(
       // given everything back, or for a replacement for a parcel that was delivered after all, and an older follow-up
       // takes its prices and tax figures from the order that was paid.
       const follow = isFollowUp(order);
-      let parent: any = null; let payer: any = null;
+      let parent: any = null; let payer: any = null; const chain: any[] = [];
       if (follow) {
         parent = await read(String((order as any).parentOrderId || ''));
-        payer = parent;
-        for (let i = 0; i < 3 && payer && isFollowUp(payer); i++) payer = await read(String(payer.parentOrderId || ''));
+        payer = parent; if (parent) chain.push(parent);
+        for (let i = 0; i < 3 && payer && isFollowUp(payer); i++) { payer = await read(String(payer.parentOrderId || '')); if (payer) chain.push(payer); }
         if (payer && isFollowUp(payer)) payer = null;
       }
       // The order the customer paid on: its follow-ups that haven't gone out are cancelled with it, and its card gets
-      // back what it hasn't had back across all of them, so nothing is refunded twice.
-      const fam = follow ? [] : (await Promise.all(famIds.map(read))).filter(Boolean) as any[];
+      // back what it hasn't had back across all of them, so nothing is refunded twice. For a follow-up, the same family,
+      // as it is now (this order included).
+      const famAll = (await Promise.all(famIds.map((id) => (id === orderId ? Promise.resolve({ ...(order as any), id: orderId }) : read(id))))).filter(Boolean) as any[];
+      const fam = follow ? [] : famAll;
       const plan = follow ? null : cancelWithFollowUps({ ...order, id: orderId }, fam);
       const going: any[] = [{ ...order, id: orderId }, ...(plan?.cancel || [])];
 
@@ -955,7 +967,8 @@ export async function cancelOrder(
 
       const paidSomething = order.stage !== 'placed';
       const already = Number((order as any).pendingRefundCents) || 0;
-      const pending = follow ? followUpCancelCents(order, parent, payer) : paidSomething ? plan!.pendingCents : 0;
+      const lostParcel = (order as any).lostParcelOrderId ? chain.find((x: any) => x.id === String((order as any).lostParcelOrderId)) || null : null;
+      const pending = follow ? followUpCancelCents(order, parent, payer, payer && rootId === payer.id ? famAll : undefined, lostParcel) : paidSomething ? plan!.pendingCents : 0;
       const now = new Date().toISOString();
 
       txn.update(orderRef, JSON.parse(JSON.stringify({
@@ -1109,6 +1122,7 @@ export async function splitReadyFromWaiting(
         customerPhone: order.customerPhone || '',
         shippingAddress: order.shippingAddress || null,
         parentOrderId: orderId, holdUntilRestock: true,
+        ...((order as any).replacementFor === 'lost_in_transit' ? { replacementFor: 'lost_in_transit', lostParcelOrderId: (order as any).lostParcelOrderId || (order as any).parentOrderId || null } : {}),
         hasPreorder: true,
         shipPromiseAt: (order as any).shipPromiseAt || null,
         qrToken: order.qrToken || null,

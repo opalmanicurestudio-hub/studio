@@ -138,13 +138,16 @@ export async function POST(req: NextRequest) {
           return s.exists ? { ...(s.data() || {}), id } : null;
         };
         const follow = isFollowUp(order);
-        let parent: any = null; let payer: any = null;
+        let parent: any = null; let payer: any = null; const chain: any[] = [];
         if (follow) {
           parent = await read(String(order.parentOrderId || ''));
-          payer = parent;
-          for (let i = 0; i < 3 && payer && isFollowUp(payer); i++) payer = await read(String(payer.parentOrderId || ''));
+          payer = parent; if (parent) chain.push(parent);
+          for (let i = 0; i < 3 && payer && isFollowUp(payer); i++) { payer = await read(String(payer.parentOrderId || '')); if (payer) chain.push(payer); }
           if (payer && isFollowUp(payer)) payer = null;
         }
+        // For a follow-up, every order made from the one it was paid on, as they are now: what it gives back is worked
+        // out from what that whole family still holds.
+        const famOfPayer = follow && payer ? (await followUpsOf((r: any) => txn.get(r), ordersCol, String(payer.id))).map((f: any) => (f.id === orderId ? { ...order, id: orderId } : f)) : undefined;
         // The order they paid on: its backorder or pre-order items still to come are cancelled with it, and the card
         // gets back what it hasn't had back across all of them, so nothing is refunded twice.
         // Only the ones they could cancel themselves go: one already being packed ships, and counts as theirs.
@@ -172,7 +175,8 @@ export async function POST(req: NextRequest) {
         // Whatever stage it was cancelled from, the card gets back what it paid (never more: credit and gift cards
         // lowered the charge). A follow-up's items are added to anything already queued on it.
         const already = Number(order.pendingRefundCents) || 0;
-        const pending = follow ? followUpCancelCents(order, parent, payer) : plan!.pendingCents;
+        const lostParcel = order.lostParcelOrderId ? chain.find((x: any) => x.id === String(order.lostParcelOrderId)) || null : null;
+        const pending = follow ? followUpCancelCents(order, parent, payer, famOfPayer, lostParcel) : plan!.pendingCents;
         const now = new Date().toISOString();
 
         // A question about swapping one of its items no longer applies: closed, so it stops showing and a YES or NO

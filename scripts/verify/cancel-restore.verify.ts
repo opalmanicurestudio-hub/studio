@@ -95,6 +95,21 @@ const T = 'tenants/t1';
   r = await restoreNonCardPayment(db, 't1', 'voided', 'Order cancelled');
   check('a voided gift card’s $15 comes back as store credit', r.giftCents === 0 && r.creditCents === 1500 && (await credits()).some((c: any) => c.sourceRetailOrderId === 'voided' && c.amountCents === 1500) && (await get(`${T}/giftCards/g6`)).balanceCents === 0, r);
 
+  // ── The server's own record of what was paid by gift card or store credit (lib/non-card-back) ──
+  const NC = await import('../../src/lib/non-card-back');
+  const forged = { id: 'fk', stage: 'cancelled', giftCardId: 'g2', giftCardCents: 50000, giftSpentAt: '2026-11-01T10:00:00Z', storeCreditRequestedCents: 30000, creditShortfallCents: 0, orderNumber: 1 };
+  const made = (iso: string) => ({ createTime: { toMillis: () => Date.parse(iso) } });
+  const none = async () => ({ exists: false });
+  let v = await NC.withNonCardRecord(none, db, 't1', 'fk', made('2026-11-01T10:00:00Z'), forged);
+  check('an order made since the record was kept, with no record, paid nothing by gift card or credit, whatever its own fields say', NC.roomCents(v) === 0, v);
+  v = await NC.withNonCardRecord(none, db, 't1', 'fk', made('2026-10-01T10:00:00Z'), forged);
+  check('…one made before it is read from its own fields', NC.roomCents(v) === 80000);
+  await NC.recordNonCard(db, 't1', 'real', { giftCents: 1500, giftCardId: 'g2' });
+  await NC.recordNonCard(db, 't1', 'real', { creditCents: 700 });
+  v = await NC.withNonCardRecord((r: any) => r.get(), db, 't1', 'real', made('2026-11-01T10:00:00Z'), { ...forged, id: 'real' });
+  check('…and one the server recorded pays back exactly what it took: $15 on the gift card, $7 of credit, not what its fields claim',
+    NC.nonCardPaid(v).giftCents === 1500 && NC.nonCardPaid(v).creditCents === 700 && v.giftCardId === 'g2', NC.nonCardPaid(v));
+
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);
 })();

@@ -42,7 +42,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'firebase-admin/firestore') return { getFirestore: () => db, FieldValue: {} };
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };
   if (request === '@/lib/email-shell') return { brandedEmail: (_b: any, html: string) => html, emailButton: (link: string) => `<a href="${link}">`, getEmailBrand: async () => ({ shopName: 'Opal' }) };
-  if (request === '@/lib/route-guard') return { staffOrServer: async () => true };
+  if (request === '@/lib/route-guard') return { staffOrServer: async () => true, requireCan: async () => ({ actor: { isRenter: false } }) };
   if (request === '@/lib/cancel-restore') return { restoreNonCardPayment: async () => ({ giftCents: 0, creditCents: 0 }) };
   if (request === '@/lib/retail-webhook') return { sendOrderConfirmation: async () => ({}) };
   if (request === '@/lib/request-forensics') return { requestForensics: () => null };

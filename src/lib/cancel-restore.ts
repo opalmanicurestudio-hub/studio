@@ -5,7 +5,7 @@
 // card pays for that first, and what it can't cover stays with the shop out of the gift card or credit part. One
 // transaction with the gift card and the credit, so a retry can never give it twice; the order is stamped once
 // everything due has gone back. Server only.
-import { giveBackLine, readGift, roomCents, saleBooked, writeGiveBack } from './non-card-back';
+import { giveBackLine, readGift, roomCents, saleBooked, withNonCardRecord, writeGiveBack } from './non-card-back';
 import { cancelWithFollowUps, familyRefundableCents, followUpsOf } from './order-family';
 
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
@@ -19,7 +19,8 @@ export async function restoreNonCardPayment(db: any, t: string, orderId: string,
     out = { giftCents: 0, creditCents: 0 };
     order = null;
     const s = await tx.get(ref); if (!s.exists) return;
-    const o: any = { ...(s.data() || {}), id: orderId };
+    // What it paid by gift card or store credit, from the server's own record (lib/non-card-back).
+    const o: any = await withNonCardRecord((r: any) => tx.get(r), db, t, orderId, s, { ...(s.data() || {}), id: orderId });
     if (o.stage !== 'cancelled' || o.nonCardRestoredAt) return;
     const room = roomCents(o);
     if (room <= 0) return;

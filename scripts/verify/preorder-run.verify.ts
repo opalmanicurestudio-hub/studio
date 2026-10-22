@@ -22,7 +22,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/firebase-admin') return { getAdminDb: () => db };
   if (request === 'firebase-admin/app') return { getApps: () => [{ name: 'retail-run-cancel' }], initializeApp: () => ({}), cert: () => ({}) };
   if (request === 'firebase-admin/firestore') return { getFirestore: () => db, FieldValue: {} };
-  if (request === '@/lib/route-guard') return { staffOrServer: async () => true };
+  if (request === '@/lib/route-guard') return { staffOrServer: async () => true, requireCan: async () => ({ actor: { isRenter: false } }) };
   if (request === '@/lib/staff-auth') return { verifyStaffActor: async () => ({ ok: false, status: 401, error: 'no' }) };
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };
   if (request === '@/lib/email-shell') return { brandedEmail: (_b: any, html: string) => html, emailButton: (link: string) => `<a href="${link}">`, getEmailBrand: async () => ({ shopName: 'Opal' }) };

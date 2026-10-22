@@ -315,6 +315,8 @@ export async function handleRetailOrderPaid(
       await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'system', actorName: 'Gift card',
         meta: { text: r.ok ? `Gift card ${(order as any).giftCardCode} — $${(giftCents / 100).toFixed(2)} redeemed` : `Gift card ${(order as any).giftCardCode} couldn’t be charged ($${(giftCents / 100).toFixed(2)}): ${r.error} — needs a look` } });
       await orderRef.set(r.ok ? { giftSpentAt: new Date().toISOString() } : { giftShortfallCents: giftCents }, { merge: true });
+      // What it really took, where only the server writes (lib/non-card-back): what a refund or cancellation gives back.
+      if (r.ok) { try { const { recordNonCard } = await import('@/lib/non-card-back'); await recordNonCard(db, tenantId, orderId, { giftCents, giftCardId: String((order as any).giftCardId) }); } catch { /* its own fields still say */ } }
       if (r.ok) void notifyGiftUse(db, tenantId, String((order as any).giftCardId), giftCents).catch(() => {});
     } catch (e: any) { console.error('[retail-webhook] gift card spend failed:', e?.message); }
   }
@@ -355,6 +357,8 @@ export async function handleRetailOrderPaid(
       // The shortfall is recorded every time (0 when the credit was all there): it marks the credit as really taken,
       // so a cancellation or refund gives back exactly what was spent (lib/non-card-back).
       consumeBatch.set(orderRef, { creditShortfallCents: remaining }, { merge: true });
+      // And where only the server writes (lib/non-card-back): what a refund or cancellation gives back.
+      consumeBatch.set(db.doc(`tenants/${tenantId}/private/nonCardPaid/orders/${orderId}`), { creditCents: consumed, at: new Date().toISOString() }, { merge: true });
       await consumeBatch.commit();
     } catch (e: any) {
       console.error('[retail-webhook] store-credit consumption failed:', e?.message);
