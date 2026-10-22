@@ -46,10 +46,29 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1120, s
   check('…and the approval marks the polish as settled on her order', o.lines[0].qtyClaimed === 1, o.lines[0]);
 
   r = await claim({ type: 'damaged', lineId: 'P', qty: 1, description: 'The bottle arrived cracked open' });
-  check('a second claim for the same polish is turned away, with nothing queued', r.status === 409 && /already been returned or refunded/.test(r.body.error) && (await get(`${T}/retailOrders/o1`)).pendingRefundCents === 1512, r.body);
+  check('a second claim for the same polish is turned away, with nothing queued', r.status === 409 && /already been reported, returned or refunded/.test(r.body.error) && (await get(`${T}/retailOrders/o1`)).pendingRefundCents === 1512, r.body);
 
   r = await selfPOST(req({ action: 'start_return', tenantId: 't1', orderId: 'o1', qrToken: 'qr1', selections: [{ lineId: 'P', qty: 1, reason: 'changed_mind' }], resolution: 'refund' }));
   check('…and it can’t be returned for a second refund either', r.status === 400 && /Only 0 of Gel polish can still be returned/.test(r.body.error), r.body);
+
+  // ── A report still waiting for a decision, and one approved before approvals marked the order ──
+  await fresh({}, { claimAutoResolveMaxCents: 0 });
+  r = await claim({ type: 'damaged', lineId: 'P', qty: 1, description: 'The bottle arrived cracked open' });
+  check('with no automatic approval, the report waits for the shop', r.status === 200 && r.body.status === 'in_review', r.body);
+  r = await selfPOST(req({ action: 'start_return', tenantId: 't1', orderId: 'o1', qrToken: 'qr1', selections: [{ lineId: 'P', qty: 1, reason: 'changed_mind' }], resolution: 'refund' }));
+  check('…while it waits, the same polish can’t also be returned for a refund, and she’s told why', r.status === 400 && /problem you reported/.test(r.body.error), r.body);
+  r = await selfPOST(req({ action: 'start_return', tenantId: 't1', orderId: 'o1', qrToken: 'qr1', selections: [{ lineId: 'F', qty: 2, reason: 'changed_mind' }], resolution: 'refund' }));
+  check('…the files she didn’t report can still be returned', r.status === 200 && r.body.ok, r.body);
+  r = await claim({ type: 'missing', lineId: 'P', qty: 1 });
+  check('…and the same polish can’t be reported a second way while the first report waits', r.status === 409 && /already been reported/.test(r.body.error), r.body);
+  await fresh();
+  await db.doc(`${T}/retailClaims/old`).set({ id: 'old', orderId: 'o1', lineId: 'P', qty: 1, type: 'missing', status: 'resolved', resolution: 'refund' });
+  r = await selfPOST(req({ action: 'start_return', tenantId: 't1', orderId: 'o1', qrToken: 'qr1', selections: [{ lineId: 'P', qty: 1, reason: 'changed_mind' }], resolution: 'refund' }));
+  check('a report approved before the order kept count still keeps that polish from a second refund', r.status === 400, r.body);
+  await fresh();
+  await db.doc(`${T}/retailClaims/nr`).set({ id: 'nr', orderId: 'o1', lineId: null, type: 'not_received', status: 'in_review' });
+  r = await selfPOST(req({ action: 'start_return', tenantId: 't1', orderId: 'o1', qrToken: 'qr1', selections: [{ lineId: 'F', qty: 1, reason: 'changed_mind' }], resolution: 'refund' }));
+  check('“it never arrived” waiting for a decision covers everything on the order', r.status === 400, r.body);
 
   // ── Units already on their way back ──
   await fresh();

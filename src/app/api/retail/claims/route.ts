@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requestForensics } from '@/lib/request-forensics';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { taxShareCents } from '@/lib/restocking';
-import { reservedByOpenReturns } from '@/lib/return-reserve';
+import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
 import { followUpItemsCents, isFollowUp, payingOrder } from '@/lib/order-family';
 import { autoRefund, refundWords } from '@/lib/auto-refund';
 
@@ -274,10 +274,12 @@ export async function POST(req: NextRequest) {
     // An item is worth what was paid for it, with its tax (lib/restocking), for the units still the customer's to claim:
     // not returned, not already refunded through another claim (qtyClaimed), not on their way back in an open return.
     const openReturns = line ? (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(30).get()).docs.map((d: any) => d.data()) : [];
-    const claimableOf = (l: any) => Math.max(0, (Number(l?.qtyOrdered) || 0) - (Number(l?.qtyShorted) || 0) - (Number(l?.qtyReturned) || 0) - (Number(l?.qtyClaimed) || 0) - reservedByOpenReturns(openReturns, String(l?.lineId || '')));
+    // Other reports on the order: one waiting for a decision holds its units too, so one unit is reported once.
+    const otherClaims = line ? (await db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(30).get()).docs.map((d: any) => d.data()) : [];
+    const claimableOf = (l: any) => Math.max(0, (Number(l?.qtyOrdered) || 0) - (Number(l?.qtyShorted) || 0) - (Number(l?.qtyReturned) || 0) - claimedUnits(otherClaims, l) - reservedByOpenReturns(openReturns, String(l?.lineId || '')));
     const units = line ? Math.min(qty, claimableOf(line)) : 0;
     if (line && units <= 0) {
-      return NextResponse.json({ error: 'That item has already been returned or refunded. If something is still wrong, send us a message below.' }, { status: 409 });
+      return NextResponse.json({ error: 'That item has already been reported, returned or refunded. If something is still wrong, send us a message below.' }, { status: 409 });
     }
     // Anything already refunded or waiting to be refunded on the order isn't claimed twice.
     const settled = Math.max(0, Number(order.refundedCents) || 0) + Math.max(0, Number(order.refundedOtherCents) || 0) + Math.max(0, Number(order.pendingRefundCents) || 0);

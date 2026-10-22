@@ -126,7 +126,8 @@ export function cancelWithFollowUps(payer: any, followUps: any[], cancellable: (
     const goes = OPEN_STAGES.includes(stage) && cancellable(f);
     // Gone out, or going out: the customer has those items, less what's been refunded for them already (those refunds
     // are already off the room). Anything still queued on it goes back on its own.
-    if (SENT_STAGES.includes(stage) || (OPEN_STAGES.includes(stage) && !goes)) { spoken += Math.max(0, followUpItemsCents(f, payer, { lessReturned: false }) - cents(f.refundedCents)); continue; }
+    // What's been refunded for it counts whichever way it went back: to the card, or onto the gift card or as store credit.
+    if (SENT_STAGES.includes(stage) || (OPEN_STAGES.includes(stage) && !goes)) { spoken += Math.max(0, followUpItemsCents(f, payer, { lessReturned: false }) - cents(f.refundedCents) - cents(f.refundedOtherCents)); continue; }
     // Not going out: anything queued on it goes back on its own; its items come back with this order.
     spoken += cents(f.pendingRefundCents);
     if (goes) cancel.push(f);

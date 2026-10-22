@@ -80,6 +80,15 @@ const T = 'tenants/t1';
   const keptAfter = await get(`${T}/retailOrders/kept`);
   check('when she keeps everything it paid for, nothing goes back, and the order is marked as checked', r.giftCents === 0 && (await get(`${T}/giftCards/g5`)).balanceCents === 0 && !!keptAfter.nonCardRestoredAt, { r, keptAfter });
 
+  // $10 on the card and $30 on a gift card. The $30 backorder went out, and $20 of it was refunded since: $10 to the
+  // card (all it had), then $10 back on the gift card. Cancelling the order gives back its own $10 item: on the gift card.
+  await db.doc(`${T}/giftCards/g7`).set({ id: 'g7', code: 'GIFT-2468', balanceCents: 0, status: 'active', history: [] });
+  await db.doc(`${T}/retailOrders/fu2`).set({ ...base, paidAt: '2026-10-20T15:00:00Z', stripePaymentIntentId: 'pi_7', chargedCents: 1000, refundedCents: 0, giftCardId: 'g7', giftCardCode: 'GIFT-2468', giftCardCents: 3000, giftSpentAt: '2026-10-20T15:00:00Z', qrToken: 'qrX', pendingRefundCents: 0, nonCardRestored: { giftCents: 1000, creditCents: 0 } });
+  await db.doc(`${T}/retailOrders/fu2Bo`).set({ tenantId: 't1', orderNumber: 1080, stage: 'completed', parentOrderId: 'fu2', qrToken: 'qrX', totalCents: 0, refundedCents: 1000, refundedOtherCents: 1000,
+    lines: [{ lineId: 'B1', productId: 'gel', unitPriceCents: 3000, unitPaidCents: 3000, qtyOrdered: 1, qtyShorted: 0, qtyReturned: 0, status: 'pending' }], taxBasis: { subtotalCents: 4000, taxCents: 0, discountCents: 0 } });
+  r = await restoreNonCardPayment(db, 't1', 'fu2', 'Order cancelled');
+  check('what went back on the gift card for a backorder counts as refunded for it: the order’s own $10 still comes back', r.giftCents === 1000 && (await get(`${T}/giftCards/g7`)).balanceCents === 1000, r);
+
   // The gift card it was paid with has been voided since: that part comes back as store credit instead.
   await db.doc(`${T}/giftCards/g6`).set({ id: 'g6', code: 'GIFT-7890', balanceCents: 0, status: 'void', history: [] });
   await db.doc(`${T}/retailOrders/voided`).set({ ...mixed, giftCardId: 'g6', giftCardCode: 'GIFT-7890' });

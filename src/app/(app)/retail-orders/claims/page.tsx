@@ -131,18 +131,27 @@ export default function RetailClaimsPage() {
         if (cur.status !== 'in_review') throw new Error('Already decided on another device');
         const now = new Date().toISOString();
         if (approve) {
-          const asked = Math.max(0, Number(cur.claimValueCents) || 0);
+          const n = (v: any) => Math.max(0, Number(v) || 0);
+          const open = (l: any) => Math.max(0, n(l.qtyOrdered) - n(l.qtyShorted) - n(l.qtyReturned));
+          const o: any = orderSnap.exists() ? orderSnap.data() : null;
+          const oLines: any[] = Array.isArray(o?.lines) ? o.lines : [];
+          // One item is refunded once: units since returned, or refunded through another report, aren't paid again. Only
+          // part of it left: that share of the amount.
+          const asked0 = Math.max(0, Number(cur.claimValueCents) || 0);
+          const line = cur.lineId ? oLines.find((l: any) => l.lineId === cur.lineId) : null;
+          const want = Math.max(1, n(cur.qty));
+          const left = line ? Math.max(0, open(line) - n(line.qtyClaimed)) : want;
+          if (cur.lineId && left <= 0) throw new Error('That item has already been refunded, through a return or another report.');
+          const units = Math.min(want, left);
+          const asked = units < want ? Math.round((asked0 * units) / want) : asked0;
           const edited = approveCents[c.id];
           const cents = Number.isFinite(edited) ? Math.max(0, Math.min(Math.round(edited), asked)) : asked;
-          txn.update(claimRef, { status: 'resolved', resolution: 'refund', resolutionCents: cents, decidedAt: now, decidedBy: 'staff', ...(cents !== asked ? { partialOfCents: asked } : {}) });
-          if (orderSnap.exists()) {
-            const o = orderSnap.data() as any;
+          txn.update(claimRef, { status: 'resolved', resolution: 'refund', resolutionCents: cents, decidedAt: now, decidedBy: 'staff', ...(cents !== asked0 ? { partialOfCents: asked0 } : {}), ...(units < want ? { qtySettled: units } : {}) });
+          if (o) {
             // The units this claim settles can't be returned or claimed again (qtyClaimed): its own item, or for an order
             // that never arrived, everything still on it.
-            const n = (v: any) => Math.max(0, Number(v) || 0);
-            const open = (l: any) => Math.max(0, n(l.qtyOrdered) - n(l.qtyShorted) - n(l.qtyReturned));
-            const lines = (Array.isArray(o.lines) ? o.lines : []).map((l: any) => (cur.lineId
-              ? (l.lineId === cur.lineId ? { ...l, qtyClaimed: Math.min(open(l), n(l.qtyClaimed) + Math.max(1, n(cur.qty))) } : l)
+            const lines = oLines.map((l: any) => (cur.lineId
+              ? (l.lineId === cur.lineId ? { ...l, qtyClaimed: n(l.qtyClaimed) + units } : l)
               : { ...l, qtyClaimed: Math.max(n(l.qtyClaimed), open(l)) }));
             txn.update(orderRef, { pendingRefundCents: Math.max(0, Number(o.pendingRefundCents) || 0) + cents, lines: JSON.parse(JSON.stringify(lines)) });
           }

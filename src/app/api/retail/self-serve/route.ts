@@ -1,7 +1,7 @@
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
 import { refundWords, type AutoRefund } from '@/lib/auto-refund';
 import { cancelWithFollowUps, followUpCancelCents, followUpsOf, heldUnits, isFollowUp } from '@/lib/order-family';
-import { reservedByOpenReturns } from '@/lib/return-reserve';
+import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
@@ -427,6 +427,7 @@ export async function POST(req: NextRequest) {
 
     const lines: any[] = [];
     let openReturns: any[] | null = null;
+    let claimsOn: any[] | null = null;
     for (const sel of selections) {
       const qty = Math.floor(Number(sel.qty) || 0);
       if (qty <= 0) continue;
@@ -442,10 +443,13 @@ export async function POST(req: NextRequest) {
         }, { status: 409 });
       }
       if (openReturns === null) { try { openReturns = (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(50).get()).docs.map((d: any) => d.data()); } catch { openReturns = []; } }
-      // Not shorted, not returned, not refunded through a claim (qtyClaimed), not on its way back already.
-      const returnable = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - (Number((orig as any).qtyClaimed) || 0) - reservedByOpenReturns(openReturns || [], orig.lineId));
+      if (claimsOn === null) { try { claimsOn = (await db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(30).get()).docs.map((d: any) => d.data()); } catch { claimsOn = []; } }
+      // Not shorted, not returned, not covered by a problem they reported (waiting, or refunded), not on its way back
+      // already: one item is refunded once.
+      const reported = claimedUnits(claimsOn || [], orig);
+      const returnable = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - reported - reservedByOpenReturns(openReturns || [], orig.lineId));
       if (qty > returnable) {
-        return NextResponse.json({ error: `Only ${returnable} of ${orig.name} can still be returned.` }, { status: 400 });
+        return NextResponse.json({ error: `Only ${returnable} of ${orig.name} can still be returned.${reported > 0 ? ' The rest is part of a problem you reported, which the shop handles on its own.' : ''}` }, { status: 400 });
       }
       // FINAL SALE, checked on the customer's own path. The refusal names the
       // item, gives the shop's own reason, and ends by pointing at what they

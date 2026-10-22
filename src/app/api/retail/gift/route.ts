@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
 import { canReturnLine } from '@/lib/return-eligibility';
-import { reservedByOpenReturns } from '@/lib/return-reserve';
+import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
 import { giftWindow } from '@/lib/gift-orders';
 import { returnRefundCents } from '@/lib/retail-orders';
 
@@ -25,12 +25,13 @@ async function load(tenantId: string, orderId: string, g: string) {
   const tenant = tSnap.data() as any;
   const rs = tenant.retailSettings || {};
   const open = (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(50).get()).docs.map((d: any) => d.data());
-  return { db, order, tenant, rs, open } as const;
+  const claims = (await db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(30).get().catch(() => ({ docs: [] }))).docs.map((d: any) => d.data());
+  return { db, order, tenant, rs, open, claims } as const;
 }
 
-function itemsOf(order: any, open: any[]) {
+function itemsOf(order: any, open: any[], claims: any[]) {
   return (order.lines || []).filter((l: any) => l.digital !== true).map((l: any) => {
-    const left = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyReturned || 0) - (Number(l.qtyClaimed) || 0) - reservedByOpenReturns(open, l.lineId));
+    const left = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyReturned || 0) - claimedUnits(claims, l) - reservedByOpenReturns(open, l.lineId));
     const elig = canReturnLine(l, 'changed_mind' as any);
     return { lineId: l.lineId, name: `${l.name}${l.optionsLabel ? ` · ${l.optionsLabel}` : ''}`, qty: left, finalSale: !elig.allowed, finalSaleNote: elig.allowed ? '' : String((elig as any).message || '') };
   }).filter((x: any) => x.qty > 0 || x.finalSale);
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     ok: true, shopName: String(r.tenant.businessName || r.tenant.name || ''), to: String(r.order.gift?.to || ''),
     shipped: r.order.method === 'ship' && !!r.order.shippingAddress,
-    window: w, items: itemsOf(r.order, r.open),
+    window: w, items: itemsOf(r.order, r.open, r.claims),
   });
 }
 
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
     const qty = Math.floor(Number(s?.qty) || 0); if (qty <= 0) continue;
     const orig = (r.order.lines || []).find((l: any) => l.lineId === s.lineId);
     if (!orig || orig.digital === true) return NextResponse.json({ error: 'That item isn’t part of this gift.' }, { status: 400 });
-    const left = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - (Number(orig.qtyClaimed) || 0) - reservedByOpenReturns(r.open, orig.lineId));
+    const left = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - claimedUnits(r.claims, orig) - reservedByOpenReturns(r.open, orig.lineId));
     if (qty > left) return NextResponse.json({ error: `Only ${left} of ${orig.name} can still be exchanged.` }, { status: 400 });
     const reason = REASONS.includes(s.reason) ? s.reason : 'changed_mind';
     const elig = canReturnLine(orig, reason as any);
