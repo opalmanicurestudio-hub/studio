@@ -23,7 +23,7 @@ import {
 } from '@/lib/retail-fulfill';
 import { codesMatch, parseProductQr, slaFor, fulfilmentPolicy } from '@/lib/retail-orders';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { packPhotoPolicy, packPhotoRequired, packPhotoPath} from '@/lib/pack-photo';
+import { INSURED_PACK_RULES, insuredPackCheck, packPhotoPolicy, packPhotoRequired, packPhotoPath } from '@/lib/pack-photo';
 import { uploadImage } from '@/lib/upload-image';
 import { cn } from '@/lib/utils';
 import { benchScanTarget, markLabelChecked, toteOf } from '@/lib/totes';
@@ -169,9 +169,14 @@ export default function PackBenchPage() {
   // declaration is the TDZ crash that has taken this page down before.
   const photoUrls: string[] = Array.isArray((active as any)?.packPhotoUrls)
     ? (active as any).packPhotoUrls : [];
+  // An insured box is packed to the insurer's rules and photographed before it is sealed (lib/pack-photo).
+  const insured = useMemo(
+    () => (active ? insuredPackCheck(active, (selectedTenant as any)?.retailSettings) : false),
+    [active, selectedTenant]
+  );
   const photoNeeded = useMemo(
-    () => (active ? packPhotoRequired(active, photoPolicy) : false),
-    [active, photoPolicy]
+    () => (active ? packPhotoRequired(active, photoPolicy) || insured : false),
+    [active, photoPolicy, insured]
   );
 
   useEffect(() => {
@@ -467,7 +472,7 @@ export default function PackBenchPage() {
 
                 {!isCancelled && (
                   <div className="space-y-2">
-                    {active.stage === 'picking' && photoPolicy.enabled && (
+                    {active.stage === 'picking' && (photoPolicy.enabled || insured) && (
                       <div className={cn(
                         'rounded-2xl border-2 p-3',
                         photoNeeded && photoUrls.length === 0 ? 'border-amber-300 bg-amber-50/60' : 'border-dashed'
@@ -475,12 +480,18 @@ export default function PackBenchPage() {
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-xs font-black uppercase tracking-tight">
-                              {photoNeeded ? 'Photo the open box' : 'Photo the open box (optional)'}
+                              {insured ? 'Insured: pack it so a claim holds up' : photoNeeded ? 'Photo the open box' : 'Photo the open box (optional)'}
                             </p>
-                            <p className="text-[11px] font-bold text-muted-foreground">
-                              One shot of the contents before you seal it. Ends a &ldquo;something was
-                              missing&rdquo; claim faster than any argument.
-                            </p>
+                            {insured ? (
+                              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] font-bold text-muted-foreground">
+                                {INSURED_PACK_RULES.map((r) => <li key={r}>{r}</li>)}
+                              </ul>
+                            ) : (
+                              <p className="text-[11px] font-bold text-muted-foreground">
+                                One shot of the contents before you seal it. Ends a &ldquo;something was
+                                missing&rdquo; claim faster than any argument.
+                              </p>
+                            )}
                           </div>
                           {photoUrls.length > 0 && (
                             <span className="shrink-0 rounded-full border-2 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest">

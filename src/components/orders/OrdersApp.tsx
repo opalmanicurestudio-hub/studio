@@ -6,7 +6,7 @@
 import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { collection, doc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where, type Firestore } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { benchScanTarget, markLabelChecked } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { useFirebase, useUser } from '@/firebase';
@@ -17,7 +17,7 @@ import { permissionsFor } from '@/lib/fulfilment-access';
 import { notifyCurbside, sweepStaleClaims, type Actor } from '@/lib/retail-fulfill';
 import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import { startPacking } from '@/lib/orders-flow';
-import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabel, money, needsYou, packQueue, soloShop, tabOf, type OrdersTab } from '@/lib/orders-view';
+import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabel, money, needsYou, packQueue, soloShop, tabOf, type NeedItem, type OrdersTab } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Empty, IconBtn, Initials, LargeTitle, ListRow, Seg, Sheet, UndoBar, feel, muted, Ic } from './ui';
 import { OrderPanel } from './OrderPanel';
@@ -40,6 +40,9 @@ import { CAPACITY_DAYS, dayLoads, overDays, overTitle, packedOn, teamCapacity } 
 import { TodayCard, type DayList } from './Today';
 import { CarrierSheet, LateSheet, RiskSheet } from './DaySheets';
 import { BusyBanner, CatchUpNote } from './BusyBanner';
+import { ClaimSheet, StalledSheet, monthDay } from './LossSheets';
+import { claimsToFile, type ClaimToFile } from '@/lib/lost-recovered';
+import { protectionPolicy } from '@/lib/shipment-protection';
 
 const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
 
@@ -150,8 +153,48 @@ export function OrdersApp() {
     // Today's packing so far comes off today's capacity; the live list has today's, the 30-day read the rest.
     return overDays(dayLoads(orders, rs, shopZone, schedule, now, teamCapacity(capHistory, now, shopZone), 5, packedOn(recent, today, shopZone)));
   }, [orders, rs, shopZone, schedule, now, recent, capHistory]);
-  const needCount = needs.length + overs.length;
-  const firstNeed = needs[0]?.text || (overs[0] ? overTitle(overs[0], day.today, shopZone) : '');
+  // CLAIMS TO FILE (lib/lost-recovered): a parcel lost, stolen from the porch or damaged that the carrier or Shippo's
+  // insurance may owe the shop for, with the date to file by (Policies → Claims: "Remind me before a claim deadline").
+  const claimReminders = rs.policies?.claimReminders !== false;
+  const [claimRows, setClaimRows] = React.useState<any[]>([]);
+  React.useEffect(() => {
+    if (!fs || !tenantId || !claimReminders) { setClaimRows([]); return; }
+    return onSnapshot(query(collection(fs, `tenants/${tenantId}/inventoryExceptions`), where('recovery.status', '==', 'candidate'), limit(60)),
+      (s) => setClaimRows(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setClaimRows([]));
+  }, [fs, tenantId, claimReminders]);
+  // Their orders (shipped ones aren't in the live lists): read once each, again when the list of orders changes.
+  const claimOrderKey = [...new Set(claimRows.map((r) => String(r.orderId || '')).filter(Boolean))].sort().join(',');
+  const [claimOrders, setClaimOrders] = React.useState<Map<string, any>>(() => new Map());
+  React.useEffect(() => {
+    if (!fs || !tenantId || !claimOrderKey) { setClaimOrders(new Map()); return; }
+    let live = true;
+    void Promise.all(claimOrderKey.split(',').map((id) => getDoc(doc(fs, `tenants/${tenantId}/retailOrders`, id)).then((d) => (d.exists() ? { ...(d.data() as any), id: d.id } : null)).catch(() => null)))
+      .then((list) => { if (live) setClaimOrders(new Map(list.filter(Boolean).map((o: any) => [o.id, o]))); });
+    return () => { live = false; };
+  }, [fs, tenantId, claimOrderKey]);
+  const claims = React.useMemo(() => claimsToFile(claimRows, claimOrders, (v) => monthDay(v, shopZone), now), [claimRows, claimOrders, shopZone, now]);
+  const [claimId, setClaimId] = React.useState<string | null>(null);
+  // A parcel gone quiet opens its choices (send a replacement, tell the customer, or wait), not the order.
+  const [stalledId, setStalledId] = React.useState<string | null>(null);
+  const protect = React.useMemo(() => protectionPolicy(rs), [rs]);
+  // NEEDS YOU, in order: a customer outside, then claims due within a week (or past their date), then everything else
+  // on the orders, then days over capacity, then the other claims to file.
+  type NeedRow = { key: string; title: string; detail?: string; urgent?: boolean; go: () => void };
+  const needRows: NeedRow[] = (() => {
+    const stalled = (n: NeedItem) => n.kind === 'carrier' && String(byId.get(n.orderId)?.carrierIssue?.status || '') === 'STALLED';
+    const fromNeed = (n: NeedItem): NeedRow => ({ key: n.key, title: n.text, detail: byId.get(n.orderId)?.customerName, go: () => (stalled(n) ? setStalledId(n.orderId) : setOpenId(n.orderId)) });
+    const soon = (c: ClaimToFile) => c.due === 'soon' || c.due === 'overdue';
+    const fromClaim = (c: ClaimToFile): NeedRow => ({ key: `claim-${c.exc.id}`, title: c.title, detail: c.detail, urgent: soon(c), go: () => setClaimId(c.exc.id) });
+    return [
+      ...needs.filter((n) => n.kind === 'outside').map(fromNeed),
+      ...claims.filter(soon).map(fromClaim),
+      ...needs.filter((n) => n.kind !== 'outside').map(fromNeed),
+      ...overs.map((o) => ({ key: `cap-${o.day}`, title: overTitle(o, day.today, shopZone), detail: `${o.due} to pack, against about ${o.cap}. See what would help.`, go: () => router.push(`/retail-orders/capacity?over=${o.day}`) })),
+      ...claims.filter((c) => !soon(c)).map(fromClaim),
+    ];
+  })();
+  const needCount = needRows.length;
+  const firstNeed = needRows[0]?.title || '';
   const busyNow = (() => { const b = schedule.savedAt ? busyOn(day.today, schedule) : null; return b && !b.auto ? b : null; })();
   const catchUp = schedule.savedAt ? schedule.busy.find((b) => b.auto && b.from <= day.today && day.today <= b.to) || null : null;
   const labelCount = React.useMemo(() => labelWork([...orders, ...unscanned]), [orders, unscanned]);
@@ -338,7 +381,7 @@ export function OrdersApp() {
       {showToday && !q && <TodayCard day={day} labels={labelCount} onOpen={openDay} canPack={perms.canPick} onPackNext={!wide && !nextUp ? packNext : undefined}
         nextShipWord={whenWord(nextShipDay(addDays(day.today, 1), schedule), day.today, shopZone)} />}
       {needCount > 0 && (
-        <button type="button" onClick={() => (needCount > 1 ? setNeedsOpen(true) : needs[0] ? setOpenId(needs[0].orderId) : router.push(`/retail-orders/capacity?over=${overs[0].day}`))} className="mt-3.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-[15px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>
+        <button type="button" onClick={() => (needCount > 1 ? setNeedsOpen(true) : needRows[0]?.go())} className="mt-3.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-[15px] font-semibold" style={{ background: C.warnSoft, color: C.warn }}>
           <span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span className={`h-2 w-2 rounded-full${needs.some((n) => n.kind === 'outside') ? ' cf-anim-pulse' : ''}`} style={{ background: C.warn }} />{needCount} need{needCount === 1 ? 's' : ''} you</span>
           <span className="flex min-w-0 items-center gap-1.5 font-medium"><span className="truncate">{firstNeed}</span>{Ic.chev}</span>
         </button>)}
@@ -407,15 +450,16 @@ export function OrdersApp() {
       {daySheet === 'risk' && <RiskSheet items={day.atRisk} pickupWords={day.lastPickup ? `the ${day.lastPickup.label} pickup` : 'the end of the shipping day'}
         pace={day.pace} now={now} tz={shopZone}
         busy={dayBusy} canPack={perms.canPick} onPackFirst={() => void packFirst()} onTell={() => void tellAtRisk()} onOpenOrder={(id) => { setDaySheet(null); setOpenId(id); }} onClose={() => setDaySheet(null)} />}
-      {daySheet === 'carrier' && <CarrierSheet items={day.carrier} busy={dayBusy} onSeen={(it) => void carrierSeen(it)} onClose={() => setDaySheet(null)}
+      {daySheet === 'carrier' && <CarrierSheet items={day.carrier} busy={dayBusy} onSeen={(it) => void carrierSeen(it)} onClose={() => setDaySheet(null)} onStalled={(it) => { setDaySheet(null); setStalledId(it.order.id); }}
         onOpenOrder={(id) => { const it = day.carrier.find((c) => c.order.id === id); const text = it ? carrierMessage(it) : null; setStartMessage(text ? { orderId: id, text } : null); setDaySheet(null); setOpenId(id); }} />}
       {needsOpen && (
         <Sheet title={`${needCount} need you`} onClose={() => setNeedsOpen(false)} closeLabel="Done">
           <div className="mt-1">
-            {needs.map((n) => <ListRow key={n.key} onClick={() => { setNeedsOpen(false); setOpenId(n.orderId); }} title={n.text} detail={byId.get(n.orderId)?.customerName} trail={<span style={muted}>{Ic.chev}</span>} />)}
-            {overs.map((o) => <ListRow key={`cap-${o.day}`} onClick={() => { setNeedsOpen(false); router.push(`/retail-orders/capacity?over=${o.day}`); }} title={overTitle(o, day.today, shopZone)} detail={`${o.due} to pack, against about ${o.cap}. See what would help.`} trail={<span style={muted}>{Ic.chev}</span>} />)}
+            {needRows.map((r) => <ListRow key={r.key} onClick={() => { setNeedsOpen(false); r.go(); }} title={r.urgent ? <span style={{ color: C.warn }}>{r.title}</span> : r.title} detail={r.detail} trail={<span style={muted}>{Ic.chev}</span>} />)}
           </div>
         </Sheet>)}
+      {stalledId && byId.get(stalledId) && <StalledSheet fs={fs} tenantId={tenantId} order={byId.get(stalledId)} tz={shopZone} canReplace={isManager || canRefund} insureOverCents={protect.insuranceEnabled ? protect.insuranceOverCents : null} onClose={() => setStalledId(null)} onToast={setToast} />}
+      {claimId && (() => { const c = claims.find((x) => x.exc.id === claimId); return c ? <ClaimSheet fs={fs} tenantId={tenantId} exc={c.exc} order={c.order} tz={shopZone} canFile={isManager} actor={actor} onClose={() => setClaimId(null)} onToast={setToast} /> : null; })()}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={wide ? (selecting ? 100 : 32) : selecting ? 168 : 150} />}
     </div>);
 }

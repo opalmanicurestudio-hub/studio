@@ -241,12 +241,14 @@ export type CarrierItem = { order: any; kind: 'returned' | 'failed' | 'stalled';
 
 /**
  * A parcel the carrier is having trouble with, as the shipping webhook and the nightly check flag it (carrierIssue):
- * going back to the sender, a delivery that failed, or no scan for days. Gone once someone has seen it, or once the
- * parcel is delivered. Counted once per box: an order riding in another order's box is left to that order.
+ * going back to the sender, a delivery that failed, or no scan for days. Gone once someone has seen it, once the parcel
+ * is delivered, and while the team waits on it (snoozeUntil, "Wait 3 more days"). Counted once per box: an order riding
+ * in another order's box is left to that order.
  */
-export function carrierItem(o: any, tz: string): CarrierItem | null {
+export function carrierItem(o: any, tz: string, now = Date.now()): CarrierItem | null {
   const ci = o?.carrierIssue;
   if (!ci || ci.open !== true || o.shippedWithOrderId || o.labelFromOrderId) return null;
+  if (Date.parse(String(ci.snoozeUntil || '')) > now) return null;
   const who = firstName(o.customerName);
   const num = orderNum(o);
   const carrier = carrierName(o.carrier || ci.carrier) || 'The carrier';
@@ -257,7 +259,7 @@ export function carrierItem(o: any, tz: string): CarrierItem | null {
     const last = Date.parse(String(ci.at || ''));
     const day = Number.isFinite(last) ? formatShortDay(new Date(last), tz) : '';
     const n = Math.max(1, Number(ci.quietDays) || 0);
-    const told = ci.customerTold === true ? `${who} has been emailed that it’s running late. ` : ci.customerTold === false ? `${who} hasn’t been told. ` : '';
+    const told = ci.customerTold === true ? `${who} knows it’s running late. ` : ci.customerTold === false ? `${who} hasn’t been told. ` : '';
     return ci.unscanned === true
       ? { order: o, kind: 'stalled', key: String(ci.key || ''), title: `${num} hasn’t been scanned in ${n} days`,
         detail: `${day ? `Marked shipped ${day}, and ` : ''}${carrier} hasn’t scanned it${day ? ' since' : ''}. ${told}Check the tracking number, or open a trace with ${carrier}.` }
@@ -315,7 +317,7 @@ export function dayPicture(input: {
   late.sort((a, b) => a.first.localeCompare(b.first) || String(a.order.paidAt || '').localeCompare(String(b.order.paidAt || '')));
   const seen = new Map<string, any>();
   for (const o of [...(input.flagged || []), ...orders]) seen.set(o.id, o);
-  const carrier = [...seen.values()].map((o) => carrierItem(o, tz)).filter(Boolean) as CarrierItem[];
+  const carrier = [...seen.values()].map((o) => carrierItem(o, tz, now)).filter(Boolean) as CarrierItem[];
 
   return {
     today,

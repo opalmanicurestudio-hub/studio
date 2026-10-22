@@ -110,7 +110,7 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     if (o.labelCharge?.open === true) { const c = Number(o.labelCharge.cents) || 0; out.push({ key: `${o.id}-chg`, orderId: o.id, kind: 'charge', text: `${o.carrier || 'The carrier'} adjusted ${who}’s postage: ${c > 0 ? '+' : '−'}${money(Math.abs(c))}` }); }
     // A parcel the carrier is having trouble with (the shipping webhook, the nightly check): returned, failed, or quiet.
     // Once per box: an order riding in another order's box is left to that order.
-    if (o.carrierIssue?.open === true && !o.shippedWithOrderId && !o.labelFromOrderId) {
+    if (o.carrierIssue?.open === true && !o.shippedWithOrderId && !o.labelFromOrderId && !(Date.parse(String(o.carrierIssue.snoozeUntil || '')) > now)) {
       const s = String(o.carrierIssue.status || '');
       out.push({ key: `${o.id}-car`, orderId: o.id, kind: 'carrier', text: s === 'RETURNED' ? `${who}’s parcel is going back to the sender` : s === 'STALLED' ? `${who}’s parcel hasn’t ${o.carrierIssue.unscanned === true ? 'been scanned' : 'moved'} in ${Math.max(1, Number(o.carrierIssue.quietDays) || 0)} days` : `${carrierName(o.carrier || o.carrierIssue.carrier) || 'The carrier'} couldn’t deliver ${who}’s parcel` });
     }

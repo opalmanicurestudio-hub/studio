@@ -3,7 +3,8 @@
 //   Late: past the date its customer was first given, what happened, whether they've been told, and the next step.
 //   At risk: due today and, at the team's pace, not going to make the pickup; pack them first, or tell the customers
 //   the new date now (each gets one message with the date and their right to cancel).
-//   Carrier: parcels going back to the sender, deliveries that failed, parcels gone quiet.
+//   Carrier: parcels going back to the sender, deliveries that failed, parcels gone quiet (a quiet one opens its
+//   choices: send a replacement, tell the customer, or wait; components/orders/LossSheets).
 import * as React from 'react';
 import type { CarrierItem, LateItem, Pace, RiskItem, Step } from '@/lib/ship-day';
 import { pastWord, sharedTellDay, tellableNow, whenWord } from '@/lib/ship-day';
@@ -94,7 +95,7 @@ export function RiskSheet({ items, pickupWords, pace, now, tz, busy, canPack, on
     </Sheet>);
 }
 
-export function CarrierSheet({ items, busy, onOpenOrder, onSeen, onClose }: { items: CarrierItem[]; busy: string; onOpenOrder: (id: string) => void; onSeen: (it: CarrierItem) => void; onClose: () => void }) {
+export function CarrierSheet({ items, busy, onOpenOrder, onStalled, onSeen, onClose }: { items: CarrierItem[]; busy: string; onOpenOrder: (id: string) => void; onStalled?: (it: CarrierItem) => void; onSeen: (it: CarrierItem) => void; onClose: () => void }) {
   return (
     <Sheet title={items.length ? `Carrier: ${items.length}` : 'No carrier problems'} sub="Parcels the carrier is having trouble with." onClose={onClose} closeLabel="Done">
       <div className="mt-1 flex flex-col gap-2.5">
@@ -103,7 +104,9 @@ export function CarrierSheet({ items, busy, onOpenOrder, onSeen, onClose }: { it
             <p className="m-0 text-[16px] font-semibold leading-snug">{it.title}</p>
             <p className="m-0 mt-1 text-[14px] leading-snug" style={muted}>{it.detail}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Btn kind="primary" className="h-11" onClick={() => onOpenOrder(it.order.id)}>{it.kind === 'stalled' ? 'Open the order' : `Message ${firstName(it.order.customerName)}`}</Btn>
+              {it.kind === 'stalled' && onStalled
+                ? <Btn kind="primary" className="h-11" onClick={() => onStalled(it)}>Choose what to do</Btn>
+                : <Btn kind="primary" className="h-11" onClick={() => onOpenOrder(it.order.id)}>{it.kind === 'stalled' ? 'Open the order' : `Message ${firstName(it.order.customerName)}`}</Btn>}
               <Btn kind="soft" className="h-11" disabled={busy === it.order.id} onClick={() => onSeen(it)}>{busy === it.order.id ? 'One moment…' : 'It’s sorted'}</Btn>
             </div>
           </div>))}

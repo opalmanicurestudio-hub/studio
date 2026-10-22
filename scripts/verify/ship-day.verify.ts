@@ -99,7 +99,9 @@ const recent = [
   check('Needs you lists it too', needsYou([g], at('13:00')).some((n) => n.kind === 'carrier' && n.text === 'Kim’s parcel is going back to the sender'));
   const told = carrierItem({ ...g, carrierIssue: { open: true, status: 'STALLED', quietDays: 6, at: '2026-10-16T15:00:00Z', carrier: 'usps', customerTold: true } }, TZ);
   const notTold = carrierItem({ ...g, carrierIssue: { open: true, status: 'STALLED', quietDays: 6, at: '2026-10-16T15:00:00Z', customerTold: false } }, TZ);
-  check('a quiet parcel says whether its customer was emailed, as the nightly check recorded it', /Kim has been emailed that it’s running late\./.test(told?.detail || '') && /Kim hasn’t been told\./.test(notTold?.detail || ''), [told?.detail, notTold?.detail]);
+  check('a quiet parcel says whether its customer was told it’s running late', /Kim knows it’s running late\./.test(told?.detail || '') && /Kim hasn’t been told\./.test(notTold?.detail || ''), [told?.detail, notTold?.detail]);
+  const waiting = carrierItem({ ...g, carrierIssue: { open: true, status: 'STALLED', quietDays: 6, at: '2026-10-16T15:00:00Z', snoozeUntil: '2099-01-01T00:00:00Z' } }, TZ);
+  check('a quiet parcel the team chose to wait on is off the list until the wait is over', waiting === null && !!carrierItem({ ...g, carrierIssue: { open: true, status: 'STALLED', quietDays: 6, snoozeUntil: '2020-01-01T00:00:00Z' } }, TZ));
   const typed = carrierItem({ ...g, carrierIssue: { open: true, status: 'STALLED', unscanned: true, quietDays: 5, at: '2026-10-17T15:00:00Z', customerTold: true } }, TZ);
   check('one never scanned since it was marked shipped says so, not when it was last scanned', typed?.title === '#1033 hasn’t been scanned in 5 days' && /^Marked shipped Sat, Oct 17, and USPS hasn’t scanned it since\./.test(typed?.detail || ''), typed);
   check('a parcel shared by two orders is counted once, on the order that carries the label', !carrierItem({ ...g, shippedWithOrderId: 'g0' }, TZ) && !needsYou([{ ...g, shippedWithOrderId: 'g0' }], at('13:00')).some((n) => n.kind === 'carrier'));

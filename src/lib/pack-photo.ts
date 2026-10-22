@@ -15,6 +15,8 @@
 // a shop should never discover it is storing customer photographs because a
 // framework decided that for it.
 
+import { protectionFor, protectionPolicy } from './shipment-protection';
+
 export interface PackPhotoPolicy {
   enabled: boolean;
   /** Photo required at or above this order value. 0 = every order. */
@@ -82,6 +84,29 @@ export function packPhotoRequired(order: any, policy: PackPhotoPolicy): boolean 
   if (policy.requiredOverUnits > 0 && unitsInParcel(order) >= policy.requiredOverUnits) return true;
   return false;
 }
+
+/**
+ * An insured parcel is packed the way its insurer asks and photographed open before it is sealed, so a damage claim
+ * holds up. Shippo's insurance asks for a corrugated box, at least 2 inches of padding between the goods and all six
+ * sides, and a double-walled box over 10 lb. On for every insured ship order unless the shop turns it off (Policies →
+ * Protection: retailSettings.policies.insuredPackCheck). Insured: its label was bought insured, or, before there is a
+ * label, the shop's insurance rule will insure it (lib/shipment-protection).
+ */
+export function insuredPackCheck(order: any, retailSettings: any): boolean {
+  const rs = retailSettings || {};
+  if (rs.policies?.insuredPackCheck === false || order?.method !== 'ship' || order.shippedWithOrderId) return false;
+  if (order.shipmentProtection) return (Number(order.shipmentProtection.insuranceCents) || 0) > 0;
+  return protectionFor(order, protectionPolicy(rs)).insuranceCents > 0;
+}
+
+/** What the packer checks on an insured box, in the order it's packed. */
+export const INSURED_PACK_RULES = [
+  'A sturdy corrugated box, double-walled if it’s over 10 lb',
+  'At least 2 inches of padding on every side, so nothing moves',
+  'Taped along every seam',
+  'Old labels taken off or covered',
+  'A photo of it open, before you seal it',
+];
 
 /** Storage path. Tenant-scoped so one shop's rules can never expose another's. */
 export function packPhotoPath(tenantId: string, orderId: string, index: number): string {

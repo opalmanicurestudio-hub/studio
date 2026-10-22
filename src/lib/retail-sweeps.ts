@@ -6,7 +6,8 @@
 //
 //   1. sweepStalledShipments  — a parcel scanned into the network and then
 //      went quiet. Carriers never send a "still nothing" webhook, so only a
-//      clock catches it. Tells the CUSTOMER honestly, and flags the board.
+//      clock catches it. It goes under Needs you, where the team chooses:
+//      send a replacement now, tell the customer, or wait a few more days.
 //   2. sweepRecoveryDeadlines — a filed claim whose window is closing. The
 //      exceptions page already shows amber/red strips, but a page nobody
 //      opened protects nothing; this emails the OWNER while filing is still
@@ -80,10 +81,13 @@ function originOf(tenant: any): string {
 
 // ═══ 1. STALLED SHIPMENTS ════════════════════════════════════════════════════
 // A parcel is stalled when it has a carrier status that means "moving", the
-// last carrier scan is older than stallDays, and it is not delivered or
-// returned. The customer hears it from the shop first — in the shop's own
-// words, with what the shop is doing about it — which is the entire point of
-// the proactive layer.
+// last carrier scan is older than the shop's "flag packages that stop moving"
+// days (Policies, 5 unless set), and it is not delivered or returned. It goes
+// under Needs you (lib/ship-day, lib/orders-view) for the team to choose what
+// happens: a replacement now, a message to the customer on their order page,
+// or a few more days. Nothing is sent to the customer on its own, so they're
+// never told the shop is doing something it hasn't chosen to do. A parcel the
+// team asked to wait on stays quiet until then; one already replaced is done.
 
 export async function sweepStalledShipments(
   db: any,
@@ -91,16 +95,14 @@ export async function sweepStalledShipments(
   opts?: { stallDays?: number; lookbackDays?: number; now?: number },
 ): Promise<SweepResult> {
   const res = empty();
-  const stallDays = Math.max(1, opts?.stallDays ?? 4);
-  const lookbackDays = Math.max(stallDays, opts?.lookbackDays ?? 45);
   const now = opts?.now ?? Date.now();
 
   try {
     const tenantSnap = await db.collection('tenants').doc(tenantId).get();
     if (!tenantSnap.exists) return res;
     const tenant = tenantSnap.data() || {};
-    const brand = brandFromTenant(tenant);
-    const origin = originOf(tenant);
+    const stallDays = Math.max(1, Math.min(30, opts?.stallDays ?? (Math.floor(Number(tenant.retailSettings?.policies?.stallDays)) || 5)));
+    const lookbackDays = Math.max(stallDays, opts?.lookbackDays ?? 45);
 
     const since = new Date(now - lookbackDays * DAY).toISOString();
     const snap = await db.collection(`tenants/${tenantId}/retailOrders`)
@@ -111,7 +113,7 @@ export async function sweepStalledShipments(
       const order = d.data() as any;
       res.scanned += 1;
       try {
-        if (!order.trackingNumber) continue;
+        if (!order.trackingNumber || order.replacementOrderId) continue;
         if (String(order.completedAt || '') < since) continue;
 
         // The carrier's latest status, where the shipping webhook keeps it (carrierTrail); a top-level copy is read
@@ -132,39 +134,24 @@ export async function sweepStalledShipments(
         const markerRef = d.ref.collection('events').doc(markerId);
         if ((await markerRef.get()).exists) continue;
 
-        const num = `#${String(order.orderNumber ?? '').padStart(4, '0')}`;
-        const link = origin ? `${origin}/shop/${tenantId}/order/${d.id}` : '';
-        const first = String(order.customerName || '').trim().split(/\s+/)[0];
-
-        let emailed = false;
-        if (order.customerEmail) {
-          const html = brandedEmail(brand, `
-            <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">${first ? `${first}, we` : 'We'} are keeping an eye on your parcel and we do not like what we are seeing \u2014 ${order.carrier || 'the carrier'} has not scanned it in ${quietDays} days.</p>
-            <p style="font-size:14px;color:#334155;line-height:1.7;margin:12px 0 0">Packages do sometimes sit and then move again, so this is not lost yet. But you should not have to be the one who noticed: we are opening it with the carrier now, and if it does not move we will make it right \u2014 replacement or refund, your choice.</p>
-            <p style="font-size:14px;color:#334155;line-height:1.7;margin:12px 0 0">Nothing is needed from you today.</p>
-            ${link ? emailButton(link, 'View my order', brand) : ''}`,
-            { preheader: `No carrier scan in ${quietDays} days \u2014 we are on it`, title: 'Your parcel has gone quiet', tag: num });
-          emailed = await sendEmail(db, tenantId, 'order_delayed', order.customerEmail, `${brand.shopName} \u2014 we are chasing your parcel ${num}`, html, { id: order.id || null, name: order.customerName || null });
-        }
-
         await markerRef.set({
           id: markerId, type: 'note', at: new Date(now).toISOString(),
           actorId: 'system', actorName: 'Stall watch',
-          meta: { text: `No carrier scan in ${quietDays} days — customer ${emailed ? 'notified' : 'not emailed'}`, quietDays },
+          meta: { text: `No carrier scan in ${quietDays} days. It’s under Needs you.`, quietDays },
         });
-        // And under Carrier and Needs you for the team (lib/ship-day), once per quiet week, saying whether the customer
-        // was emailed; a newer scan clears it (the shipping webhook). A parcel the carrier never scanned at all is the
-        // morning label check's when its label was bought here (it's listed under Labels); one with a tracking number
-        // typed in is listed here, as not scanned since it was marked shipped.
+        // Under Carrier and Needs you for the team (lib/ship-day), once per quiet week; a newer scan clears it (the
+        // shipping webhook). A parcel the carrier never scanned at all is the morning label check's when its label was
+        // bought here (it's listed under Labels); one with a tracking number typed in is listed here, as not scanned since
+        // it was marked shipped. Whether the customer was told, and a wait the team asked for, carry over.
         const scanned = ['TRANSIT', 'OUT_FOR_DELIVERY', 'DELAYED'].includes(status) && !!(order.carrierTrail?.carrierStatusAt || order.carrierStatusAt);
         const issue = scanned || !order.shippoTransactionId
           ? { carrierIssue: { open: true, status: 'STALLED', quietDays, detail: '', carrier: String(order.carrier || ''), tracking: String(order.trackingNumber || ''), at: new Date(lastMoveRaw).toISOString(), key: `${order.trackingNumber}|STALLED|${markerId}`,
-              unscanned: !scanned, customerTold: emailed, seenAt: null, seenBy: null, closedAt: null, closedBy: null } }
+              unscanned: !scanned, customerTold: order.carrierIssue?.customerTold === true, seenAt: null, seenBy: null, closedAt: null, closedBy: null,
+              snoozeUntil: Date.parse(String(order.carrierIssue?.snoozeUntil || '')) > now ? order.carrierIssue.snoozeUntil : null } }
           : {};
         await d.ref.set({ stalledFlaggedAt: new Date(now).toISOString(), stalledQuietDays: quietDays, ...issue }, { merge: true });
 
         res.actioned += 1;
-        if (emailed) res.emailed += 1;
       } catch (e: any) {
         res.errors.push(`order ${d.id}: ${String(e?.message || e).slice(0, 120)}`);
       }

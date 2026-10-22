@@ -1,7 +1,9 @@
 'use client';
 // src/components/orders/PoliciesScreen.tsx — EVERY SHOP POLICY ON ONE SCREEN. The shipping schedule (on its own screen),
 // cancelling, addresses (carrier checks and how long customers can change theirs, lib/address-flow), returns,
-// restocking fees by condition, problem reports, refunds and the wording customers see. Each change saves on its own
+// restocking fees by condition, problem reports, protection (insurance, signatures and the packing checklist for
+// insured orders), claims (the reminder before a deadline and when a quiet parcel is flagged, lib/lost-recovered),
+// refunds and the wording customers see. Each change saves on its own
 // path the moment it's made, so nothing here can overwrite a setting changed somewhere else. Managers change them;
 // everyone else can read.
 import { rolesFor } from '@/lib/permissions';
@@ -13,6 +15,7 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { FEE_BANDS, type FeeBand } from '@/lib/restocking';
 import { clockLabel, scheduleFrom, showsDates } from '@/lib/ship-promise';
+import { protectionPolicy } from '@/lib/shipment-protection';
 import { C, Group, LargeTitle, Row, Seg, Toggle, UndoBar, muted, Ic } from './ui';
 
 function NumberField({ value, unit, prefix, label, onSave, disabled, max }: { value: number; unit?: string; prefix?: string; label: string; onSave: (n: number) => void; disabled?: boolean; max?: number }) {
@@ -41,6 +44,20 @@ function LimitField({ value, label, onSave, disabled }: { value: number | null; 
     </label>);
 }
 
+/** A dollar amount where blank means off: "Insure orders over", "Signature over". */
+function OffMoney({ on, cents, label, onSave, disabled }: { on: boolean; cents: number; label: string; onSave: (cents: number | null) => void; disabled?: boolean }) {
+  const shown = on ? String(Math.round(cents) / 100) : '';
+  const [v, setV] = React.useState(shown);
+  React.useEffect(() => { setV(shown); }, [shown]);
+  const commit = () => { const t = v.replace(/[^0-9.]/g, ''); const next = t === '' ? null : Math.round(Number(t) * 100); if ((next === null) !== !on || (next !== null && next !== cents)) onSave(next); };
+  return (
+    <label className="flex h-10 shrink-0 items-center gap-1 rounded-xl px-3" style={{ background: C.paper }}>
+      <span className="text-[17px]" style={muted}>$</span>
+      <input inputMode="decimal" aria-label={label} value={v} placeholder="Off" disabled={disabled} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+        className="w-16 border-0 bg-transparent text-right text-[17px] outline-none ring-0 focus:ring-0 disabled:opacity-60" />
+    </label>);
+}
+
 export function PoliciesScreen() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
   const { selectedTenant, role } = useTenant() as any;
@@ -54,11 +71,13 @@ export function PoliciesScreen() {
   const [wording, setWording] = React.useState<string>(rs.returnPolicyText || '');
   React.useEffect(() => { setWording(rs.returnPolicyText || ''); }, [rs.returnPolicyText]);
 
-  const save = async (path: string, value: any, what: string) => {
+  const save = async (path: string, value: any, what: string) => saveMany({ [path]: value }, what);
+  const saveMany = async (patch: Record<string, any>, what: string) => {
     if (!canEdit || !fs || !tenantId) return;
-    try { await updateDoc(doc(fs, 'tenants', tenantId), { [path]: value }); setToast(`${what} saved`); }
+    try { await updateDoc(doc(fs, 'tenants', tenantId), patch); setToast(`${what} saved`); }
     catch { setToast(`${what} didn’t save. Try again.`); }
   };
+  const protect = protectionPolicy(rs);
   const fees = pol.restockingFees && typeof pol.restockingFees === 'object' ? pol.restockingFees : null;
   const oldPct = Math.max(0, Number(pol.restockingFeePct) || 0);
   const feeOf = (b: FeeBand) => (fees ? Math.max(0, Number(fees[b]) || 0) : oldPct);
@@ -67,6 +86,7 @@ export function PoliciesScreen() {
     void save('retailSettings.policies.restockingFees', next, 'Restocking fee');
   };
   const dollars = (c: unknown) => Math.round(Math.max(0, Number(c) || 0)) / 100;
+  const whole = (c: number) => `$${Math.round(c) % 100 === 0 ? Math.round(c) / 100 : (Math.round(c) / 100).toFixed(2)}`;
   const unc = uncollectedPolicy(rs);
   const refundRoles = Object.entries(rolesFor(selectedTenant)).filter(([id, r]: any) => id !== 'owner' && Array.isArray(r.caps) && r.caps.includes('checkout.refund'));
   const limits = (pol.refundLimits || {}) as Record<string, number>;
@@ -89,6 +109,18 @@ export function PoliciesScreen() {
               <span style={muted}>{Ic.chev}</span>
             </span>
           </Link>
+        </Group>
+
+        <Group title="Protection" foot={protect.insuranceEnabled ? `Under ${whole(protect.insuranceOverCents)}, the carrier’s included cover applies (up to $100 with most services), and the claim goes to the carrier. Each order shows its cover and cost on the ship sheet.` : 'With no insurance, the carrier’s included cover applies (up to $100 with most services), and the claim goes to the carrier.'}>
+          <Row label="Insure orders over" note="Shippo’s insurance, about 1.25% of the value. Covers loss, damage and porch theft. Blank is off.">
+            <OffMoney label="Insure orders over" on={protect.insuranceEnabled} cents={protect.insuranceOverCents} disabled={!canEdit}
+              onSave={(c) => void saveMany(c === null ? { 'retailSettings.shipmentInsuranceEnabled': false } : { 'retailSettings.shipmentInsuranceEnabled': true, 'retailSettings.insuranceOverCents': c }, 'Insurance')} />
+          </Row>
+          <Row label="Signature over" note="Someone has to sign for it. Stops most “never got it” claims. Blank is off.">
+            <OffMoney label="Signature over" on={protect.signatureEnabled} cents={protect.signatureOverCents} disabled={!canEdit}
+              onSave={(c) => void saveMany(c === null ? { 'retailSettings.signatureConfirmationEnabled': false } : { 'retailSettings.signatureConfirmationEnabled': true, 'retailSettings.signatureOverCents': c }, 'Signature')} />
+          </Row>
+          <Row label="Packing checklist for insured orders" note="The bench asks for the insurer’s packing rules and a photo of the box." last><Toggle label="Packing checklist for insured orders" on={pol.insuredPackCheck !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.insuredPackCheck', v, 'Packing checklist')} /></Row>
         </Group>
 
         <Group title="Cancelling" foot="If an order misses its promised time, the customer can always cancel, whatever this says.">
@@ -129,6 +161,11 @@ export function PoliciesScreen() {
           <Row label="Approve small claims on their own" note="Up to this amount, when your packing record agrees and the customer is low risk. $0 means you decide every one."><NumberField label="Auto-approve up to" prefix="$" value={dollars(rs.claimAutoResolveMaxCents)} disabled={!canEdit} onSave={(n) => void save('retailSettings.claimAutoResolveMaxCents', Math.round(n * 100), 'Claim limit')} /></Row>
           <Row label="Always review after" note="Prior claims from the same email. 0 means off."><NumberField label="Review after claims" value={Number(pol.claimReviewAfter) || 0} unit="claims" disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.claimReviewAfter', Math.floor(n), 'Review threshold')} /></Row>
           <Row label="Photo needed for damage or wrong item" note="Approving waits for the customer’s photo." last><Toggle label="Photo needed" on={pol.claimPhotosRequired === true} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.claimPhotosRequired', v, 'Photo rule')} /></Row>
+        </Group>
+
+        <Group title="Claims" foot="A claim to file comes from a problem report you approve, or a replacement sent for a parcel that stopped moving.">
+          <Row label="Remind me before a claim deadline" note="Claims to file show under Needs you, at the top a week before their date."><Toggle label="Remind me before a claim deadline" on={pol.claimReminders !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.claimReminders', v, 'Claim reminders')} /></Row>
+          <Row label="Flag packages that stop moving" note="After this many days without a carrier scan." last><NumberField label="Days without a scan" value={Math.max(1, Math.floor(Number(pol.stallDays) || 5))} unit="days" max={30} disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.stallDays', Math.max(1, Math.min(30, Math.floor(n))), 'Quiet parcels')} /></Row>
         </Group>
 
         <Group title="Refunds and credit">

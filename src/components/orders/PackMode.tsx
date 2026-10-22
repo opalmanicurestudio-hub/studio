@@ -3,12 +3,13 @@
 // scanner that types, or the camera). Every count can be undone for a few seconds. Missing items go to the Missing
 // sheet. The main button says what's left until everything is in, then finishes the order: pickup orders go to the
 // shelf with a spot and the customer is told; ship orders wait for a label. For a ship order the packer picks the box
-// (or boxes) from the shop's saved sizes, and the labels are bought for those boxes (lib/ship-run).
+// (or boxes) from the shop's saved sizes, and the labels are bought for those boxes (lib/ship-run). An insured order
+// shows the insurer's packing rules and needs a photo of the open box before it's done (lib/pack-photo).
 import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { doc, updateDoc } from 'firebase/firestore';
 import { ScanGate } from '@/components/retail/ScanGate';
-import { packPhotoPolicy, packPhotoRequired, packPhotoPath } from '@/lib/pack-photo';
+import { INSURED_PACK_RULES, insuredPackCheck, packPhotoPolicy, packPhotoRequired, packPhotoPath } from '@/lib/pack-photo';
 import { uploadImage } from '@/lib/upload-image';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/orders-flow';
@@ -38,7 +39,10 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const left = Math.max(0, prog.total - prog.done);
   const policy = React.useMemo(() => packPhotoPolicy(rs), [rs]);
   const photos: string[] = Array.isArray(order.packPhotoUrls) ? order.packPhotoUrls : [];
-  const needPhoto = packPhotoRequired(order, policy) && photos.length === 0;
+  // An insured box is packed to the insurer's rules and photographed open before it's sealed (lib/pack-photo), so a
+  // damage claim holds up.
+  const insured = insuredPackCheck(order, rs);
+  const needPhoto = (packPhotoRequired(order, policy) || insured) && photos.length === 0;
   const { selectedTenant } = useTenant() as any;
   const due = dueLine(order, rs, Date.now(), tenantTimeZone(selectedTenant));
   const lines = (order.lines || []).filter((l: any) => l.digital !== true).map((l: any, i: number) => ({ l, i })).sort((a: any, b: any) => compareBins(shelfFor.get(a.l.productId) || '', shelfFor.get(b.l.productId) || '') || a.i - b.i).map((x: any) => x.l);
@@ -168,7 +172,14 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
             </div>
           </div>)}
 
-        {(policy.enabled || photos.length > 0) && (
+        {insured && (
+          <div className="mt-5 rounded-2xl px-4 py-3.5" style={{ background: C.soft }}>
+            <p className="m-0 text-[15px] font-semibold">Insured: pack it so a claim holds up</p>
+            <ul className="m-0 mt-2 flex list-none flex-col gap-1.5 p-0">
+              {INSURED_PACK_RULES.map((r) => <li key={r} className="flex items-start gap-2.5 text-[14px] leading-snug"><span aria-hidden="true" className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: C.ink }} />{r}</li>)}
+            </ul>
+          </div>)}
+        {(policy.enabled || insured || photos.length > 0) && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {photos.map((u) => <img key={u} src={u} alt="Box photo" className="h-16 w-16 rounded-xl object-cover" />)}
             {photos.length < policy.maxPhotos && (

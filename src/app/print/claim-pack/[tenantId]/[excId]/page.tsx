@@ -1,3 +1,4 @@
+import { checkPrintKey } from '@/lib/print-key';
 /**
  * /print/claim-pack/[tenantId]/[excId] — the CLAIM PACK: everything a
  * carrier or supplier claim form asks for, assembled onto one printable
@@ -29,11 +30,17 @@ function getAdminDb() {
 const fmt = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
 
 export default async function PrintClaimPackPage({
-  params,
+  params, searchParams,
 }: {
   params: Promise<{ tenantId: string; excId: string }>;
+  searchParams: Promise<{ k?: string; x?: string }>;
 }) {
   const { tenantId, excId } = await params;
+  const { k, x } = await searchParams;
+  // The customer's name, address, photos and words are on it: staff only, through a short-lived key (lib/print-key).
+  if (!checkPrintKey(tenantId, `claim-pack:${excId}`, k, x)) {
+    return <p style={{ fontFamily: 'system-ui, sans-serif', padding: 40 }}>This link has expired. Open the claim again and download the claim pack from there.</p>;
+  }
   const db = getAdminDb();
 
   const excSnap = await db.collection(`tenants/${tenantId}/inventoryExceptions`).doc(excId).get();

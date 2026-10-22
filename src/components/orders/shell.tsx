@@ -25,7 +25,7 @@ export function PhoneShopBar({ onPackNext, problems }: { onPackNext?: () => void
     <div className="fixed inset-x-0 bottom-0 z-30 border-t" style={{ borderColor: C.line, background: 'color-mix(in srgb, var(--paper, #fff) 86%, transparent)', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
       {onPackNext && <div className="px-4 pt-3"><Btn kind="primary" className="w-full text-[17px]" onClick={onPackNext}>Pack the next order</Btn></div>}
       <nav aria-label="Online shop" className="flex h-14">
-        {tabs.map(([href, label, icon, badge]) => { const on = href === '/retail-orders' ? path === href : path.startsWith(href) || (href === '/retail-orders/setup' && /^\/retail-orders\/(labels|alerts|capacity)(\/|$)/.test(path)); return (
+        {tabs.map(([href, label, icon, badge]) => { const on = href === '/retail-orders' ? path === href : path.startsWith(href) || (href === '/retail-orders/setup' && /^\/retail-orders\/(labels|alerts|capacity|lost)(\/|$)/.test(path)); return (
           <Link key={href} href={href} aria-current={on ? 'page' : undefined} className="relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold" style={{ color: on ? C.ink : C.muted }}>
             {icon}<span>{label}</span>
             {badge > 0 && <span className="absolute left-[56%] top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[11px] text-white" style={{ background: C.warn }}>{badge}</span>}

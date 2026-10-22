@@ -56,7 +56,7 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
       : n.kind === 'relabel' ? 'Buy its new label on the ship sheet, or take the box off the order'
       : n.kind === 'refundDenied' ? 'The carrier scanned a voided label. Check with them before sending anything else.'
       : n.kind === 'charge' ? 'Recorded in Money as shipping'
-      : n.kind === 'carrier' ? (carrierItem(o, tz)?.detail || 'Check the tracking on the order')
+      : n.kind === 'carrier' ? (carrierItem(o, tz, now)?.detail || 'Check the tracking on the order')
       : n.kind === 'unshipped' ? 'The carrier scanned its label. Open the order and mark it shipped.'
       : 'Packs once the stock is in';
     push({ key: n.key, kind: n.kind as ProblemKind, orderId: n.orderId, title: n.text, detail, at, urgent: n.kind === 'outside', ref: o });

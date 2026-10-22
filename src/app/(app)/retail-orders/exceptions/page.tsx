@@ -493,10 +493,10 @@ export default function InventoryExceptionsPage() {
                     </span>
                   )}
                   {['carrier', 'supplier'].includes(String(r.reasonGroup)) && (
-                    <a href={`/print/claim-pack/${tenantId}/${r.id}`} target="_blank" rel="noreferrer"
+                    <button type="button" onClick={async () => { const e = await openPrint(String(tenantId), `claim-pack:${r.id}`, `/print/claim-pack/${tenantId}/${r.id}`); if (e) toast({ variant: 'destructive', title: e }); }}
                       className="ml-auto inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-primary underline-offset-4 hover:underline">
                       <FileStack className="h-3 w-3" /> Claim pack
-                    </a>
+                    </button>
                   )}
                   {r.orderId && (
                     <Link href={`/retail-orders/evidence/${r.orderId}`}

@@ -170,6 +170,7 @@ export default function RetailClaimsPage() {
             let carrier: string | null = null;
             let insuredCents: number | null = null;
             let shippedAt: string | null = null;
+            let delivered = false;
             const oSnap = await getDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders/${c.orderId}`));
             if (oSnap.exists()) {
               const o = oSnap.data() as any;
@@ -177,6 +178,8 @@ export default function RetailClaimsPage() {
               carrier = o.carrier || null;
               insuredCents = o.shipmentProtection ? (Number(o.shipmentProtection.insuranceCents) || 0) : null;
               shippedAt = o.completedAt || o.shipmentProtection?.decidedAt || null;
+              // The carrier marked it delivered: "it never arrived" is then gone from the porch, which only insurance covers.
+              delivered = !!o.deliveredAt || String(o.carrierTrail?.status || o.carrierTrail?.carrierStatus || '').toUpperCase() === 'DELIVERED';
               const line = (o.lines || []).find((l: any) => l.lineId === lineId);
               if (line) {
                 productId = line.productId || null;
@@ -191,10 +194,12 @@ export default function RetailClaimsPage() {
             }
             await recordInventoryException(firestore as Firestore, tenantId, {
               dedupeId: `claim-${c.id}`,
+              // Damage in transit and a box that never came are the carrier's (or the insurer's) to make good, so they become
+              // claims to file under Needs you (lib/lost-recovered); an item missing from the box or the wrong one is ours.
               reason: c.type === 'missing' ? 'reported_missing'
-                : c.type === 'damaged' ? 'reported_damaged'
+                : c.type === 'damaged' ? 'carrier_damaged'
                 : c.type === 'wrong_item' ? 'wrong_item_shipped'
-                : 'carrier_lost',
+                : delivered ? 'stolen_after_delivery' : 'carrier_lost',
               qty,
               productId,
               sku: c.lineSku || null,
@@ -208,7 +213,7 @@ export default function RetailClaimsPage() {
               carrier,
               insuredCents,
               shippedAt,
-              responsibleParty: c.type === 'not_received' ? 'carrier'
+              responsibleParty: c.type === 'not_received' || c.type === 'damaged' ? 'carrier'
                 : c.type === 'wrong_item' ? 'internal' : 'unknown',
               note: c.description || null,
               photoUrls: Array.isArray((c as any).photoUrls) ? (c as any).photoUrls : [],
