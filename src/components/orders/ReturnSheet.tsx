@@ -69,7 +69,8 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
           <div key={l.lineId} className="border-b py-3.5" style={{ borderColor: C.line }}>
             <div className="flex items-baseline justify-between gap-3"><p className="m-0 min-w-0 truncate text-[17px] font-semibold">{l.name}{l.qty > 1 ? ` × ${l.qty}` : ''}</p><span className="shrink-0 text-[13px]" style={muted}>{REASONS[String(l.reason)] || 'Other'}</span></div>
             {l.disposition ? <p className="m-0 mt-1 text-[14px]" style={muted}>Already checked in</p> : (
-              <div className="mt-2.5"><Seg value={cond[l.lineId]} onChange={(v) => setCond((c) => ({ ...c, [l.lineId]: v }))} options={[{ id: 'restock', label: 'As new' }, { id: 'open_box', label: 'Opened' }, { id: 'damaged', label: 'Damaged' }]} /></div>)}
+              <div className="mt-2.5"><Seg value={cond[l.lineId]} onChange={(v) => setCond((c) => ({ ...c, [l.lineId]: v }))} options={[{ id: 'restock', label: 'As new' }, { id: 'open_box', label: 'Opened' }, { id: 'damaged', label: 'Damaged' }]} />
+                <p className="m-0 mt-1.5 text-[13px]" style={muted}>{cond[l.lineId] === 'restock' ? 'Goes back into stock.' : cond[l.lineId] === 'open_box' ? (rs?.policies?.openedReturns === 'restock' ? 'Goes back into stock (your policy for opened items).' : 'Written off at cost (your policy for opened items).') : 'Written off at cost.'}</p></div>)}
           </div>))}
       </div>
       {ret.resolution !== 'replacement' && (

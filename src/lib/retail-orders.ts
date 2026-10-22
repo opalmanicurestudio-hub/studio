@@ -1732,7 +1732,7 @@ export interface RetailReturn {
   orderNumber: number;
   lines: ReturnLine[];
   resolution: ReturnResolution;
-  status: 'open' | 'received' | 'resolved' | 'rejected';
+  status: 'open' | 'received' | 'resolved' | 'rejected' | 'cancelled';   // cancelled: closed, never came back (lib/return-close)
   photoUrls: string[];         // evidence via existing document-upload infra
   refundCents?: number;
   storeCreditCents?: number;

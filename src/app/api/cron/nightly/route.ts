@@ -1404,6 +1404,8 @@ export async function GET(req: NextRequest) {
       // Cancelled orders that used a gift card or store credit: make sure it went back (lib/cancel-restore; once each).
       // Read by when they were cancelled (the last 30 days), so checkouts left unpaid can't crowd out real ones.
       try { const since = new Date(Date.now() - 30 * 86400e3).toISOString(); const co = await db.collection(`tenants/${tDoc.id}/retailOrders`).where('cancelledAt', '>=', since).limit(500).get(); for (const d of co.docs) { const o: any = d.data() || {}; if (o.stage === 'cancelled' && !o.nonCardRestoredAt && roomCents(o) > 0) await restoreNonCardPayment(db, tDoc.id, d.id, 'Nightly check'); } } catch { /* next night */ }
+      // Returns started and never sent back, past the shop's limit: closed, and the customer told (lib/return-close).
+      try { const { closeStaleReturns } = await import('@/lib/return-close'); const cr = await closeStaleReturns(db, tDoc.id, tDoc.data()); if (cr > 0) results[`returnsClosed:${tDoc.id}`] = { closed: cr }; } catch { /* next night */ }
       // Batches expiring within 30 days, or today: one alert each (lib/expiry-alerts).
       try { const ex = await alertExpiringStock(db, tDoc.id); if (ex > 0) results[`expiry:${tDoc.id}`] = { alerts: ex }; } catch { /* next night */ }
       // Anyone still showing as "outside" hours later did not get their order.

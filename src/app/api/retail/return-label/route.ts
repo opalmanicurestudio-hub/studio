@@ -75,6 +75,19 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb();
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
   const retRef = db.collection(`tenants/${tenantId}/retailReturns`).doc(returnId);
+  // A label that couldn't be made is written on the return, so Problems shows it with a way to send it again, and the
+  // order's history says why (once per return). Only for a return this request may act on.
+  let mayRecord = false;
+  const fail = async (error: string, status: number) => {
+    if (mayRecord) {
+      const at = new Date().toISOString();
+      try {
+        await retRef.set({ labelError: { message: error.slice(0, 300), at } }, { merge: true });
+        await orderRef.collection('events').doc(`ret-label-fail-${returnId}`).set({ id: `ret-label-fail-${returnId}`, type: 'note', at, actorId: 'system', actorName: 'Returns', meta: { kind: 'return_label_failed', returnId, text: `The return label couldn’t be made: ${error.slice(0, 200)}` } });
+      } catch { /* the answer below still says so */ }
+    }
+    return NextResponse.json({ error }, { status });
+  };
 
   try {
     const [tenantSnap, orderSnap, retSnap] = await Promise.all([
@@ -104,13 +117,14 @@ export async function POST(req: NextRequest) {
     if (!order.shippingAddress) {
       return NextResponse.json({ error: 'This order was a pickup order and has no shipping address on file, so a return label is not needed.' }, { status: 409 });
     }
+    mayRecord = true;
 
     const apiKey = await shippoKeyFor(db, tenantId, tenant);
-    if (!apiKey) return NextResponse.json({ error: 'Shippo is not connected — add your API key in Shop Settings.' }, { status: 400 });
+    if (!apiKey) return fail('Shippo is not connected. Add your API key in Shop Settings.', 400);
 
     const from = rs.shipFrom || {};
     if (!from.street1 || !from.city || !from.state || !from.zip) {
-      return NextResponse.json({ error: 'Ship-from address is incomplete — set it in Shop Settings.' }, { status: 400 });
+      return fail('The ship-from address is incomplete. Set it in Shop Settings.', 400);
     }
 
     // Reversed addresses: the customer sends, the shop receives.
@@ -159,13 +173,13 @@ export async function POST(req: NextRequest) {
       .map((r: any) => ({ id: r.object_id, provider: r.provider, service: r.servicelevel?.name || '', amountCents: Math.round(parseFloat(r.amount) * 100) }))
       .filter((r: any) => Number.isFinite(r.amountCents) && r.amountCents > 0)
       .sort((a: any, b: any) => a.amountCents - b.amountCents);
-    if (rates.length === 0) return NextResponse.json({ error: 'No return rates came back — check the addresses.' }, { status: 422 });
+    if (rates.length === 0) return fail('No return rates came back. Check the customer’s address and the ship-from address.', 422);
     const cheapest = rates[0];
 
     const txn = await shippo(apiKey, '/transactions/', { rate: cheapest.id, label_file_type: 'PDF_4x6', async: false });
     if (txn.status !== 'SUCCESS') {
       const msg = (txn.messages || []).map((m: any) => m.text).join('; ') || 'Label purchase failed';
-      return NextResponse.json({ error: `Shippo: ${msg}` }, { status: 422 });
+      return fail(`Shippo: ${msg}`, 422);
     }
 
     // Payer decision — recorded, disclosed, never silently executed.
@@ -184,6 +198,7 @@ export async function POST(req: NextRequest) {
       labelCostCents: cheapest.amountCents,
       labelDeductCents,
       labelPurchasedAt: now,
+      labelError: null,
     }, { merge: true });
     const evRef = orderRef.collection('events').doc();
     batch.set(evRef, {
@@ -239,6 +254,6 @@ export async function POST(req: NextRequest) {
       message: `Label emailed — ${cheapest.provider} ${cheapest.service}, $${(cheapest.amountCents / 100).toFixed(2)}${labelDeductCents ? ' (deducted from refund)' : ' (shop pays)'}. Billed only when the carrier scans it.`,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message || 'Request failed').slice(0, 200) }, { status: 500 });
+    return fail(String(e?.message || 'Request failed').slice(0, 200), 500);
   }
 }

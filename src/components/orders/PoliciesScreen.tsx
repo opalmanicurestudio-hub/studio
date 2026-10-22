@@ -148,6 +148,13 @@ export function PoliciesScreen() {
               <div className="mt-2.5"><Seg value={payer} onChange={(v) => void save('retailSettings.returnLabelPayer', v, 'Return shipping')} options={[{ id: 'fault', label: 'By fault' }, { id: 'shop', label: 'Shop' }, { id: 'customer', label: 'Customer' }]} /></div>
               <p className="m-0 mt-2 text-[13px]" style={muted}>{payer === 'fault' ? 'The shop pays for defects and wrong items. The customer pays when they changed their mind.' : payer === 'shop' ? 'Every return label is on the shop.' : 'The label cost comes off the customer’s refund.'}</p>
             </div>)}
+          {returnsOn && (
+            <div className="px-4 py-3">
+              <p className="m-0 text-[17px]">Opened returns</p>
+              <div className="mt-2.5"><Seg value={pol.openedReturns === 'restock' ? 'restock' : 'write_off'} onChange={(v) => void save('retailSettings.policies.openedReturns', v, 'Opened returns')} options={[{ id: 'write_off', label: 'Write off' }, { id: 'restock', label: 'Back on the shelf' }]} /></div>
+              <p className="m-0 mt-2 text-[13px]" style={muted}>{pol.openedReturns === 'restock' ? 'Something that comes back opened goes back into stock, to sell again.' : 'Something that comes back opened is written off at what it cost you, and shows in your losses.'}</p>
+            </div>)}
+          {returnsOn && <Row label="Close returns not sent back after" note="Days after the return was started, when the carrier never scanned its label and nothing was checked in. They’re told, and can return it again. 0 means never." last><NumberField label="Close returns after days" value={pol.returnCloseAfterDays == null ? 30 : Math.max(0, Math.floor(Number(pol.returnCloseAfterDays) || 0))} unit="days" disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.returnCloseAfterDays', Math.max(0, Math.floor(n)), 'Closing returns')} /></Row>}
         </Group>
 
         {returnsOn && (

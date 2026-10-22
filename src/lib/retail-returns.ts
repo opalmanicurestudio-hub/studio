@@ -175,10 +175,16 @@ export async function receiveReturnLine(
 
       const iRef = origLine ? invDoc(fs, tenantId, origLine.productId) : null;
       const iSnap = iRef ? await txn.get(iRef) : null;
+      // Something that came back opened: written off at cost unless the shop puts opened items back on the shelf
+      // (Policies, "Opened returns"). Read with everything else, before any write.
+      const tSnap = disposition === 'open_box' ? await txn.get(doc(fs, 'tenants', tenantId)) : null;
+      const openedBack = disposition === 'open_box' && ((tSnap?.exists() ? (tSnap.data() as any)?.retailSettings?.policies?.openedReturns : '') === 'restock');
+      const restock = disposition === 'restock' || openedBack;
+      const writeOff = ['write_off', 'damaged', 'dispose'].includes(disposition) || (disposition === 'open_box' && !openedBack);
 
       const now = new Date().toISOString();
 
-      if (disposition === 'restock' && iRef && iSnap?.exists()) {
+      if (restock && iRef && iSnap?.exists()) {
         const item = iSnap.data() as any;
         const batches = [...(item.batches || []), {
           id: `batch-${nanoid()}`, stock: line.qty,
@@ -191,20 +197,20 @@ export async function receiveReturnLine(
         txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), {
           productId: origLine!.productId, date: now, change: line.qty,
           unit: item.unit || 'units',
-          reason: `Return restocked (Order #${fresh.orderNumber})`,
+          reason: openedBack ? `Opened return put back on the shelf (Order #${fresh.orderNumber})` : `Return restocked (Order #${fresh.orderNumber})`,
           orderId: fresh.orderId, returnId: ret.id,
           actorId: actor.id, actorName: actor.name, source: 'retail_engine',
         });
         back = { productId: String(origLine!.productId), qty: Number(line.qty) || 0 };
       }
 
-      if (['write_off', 'damaged', 'dispose'].includes(disposition) && origLine) {
+      if (writeOff && origLine) {
         const costPerUnit = (iSnap?.exists() ? (iSnap.data() as any).costPerUnit : 0) || 0;
         const costCents = Math.round(costPerUnit * 100) * line.qty;
         const txnRef = doc(collection(fs, `tenants/${tenantId}/transactions`));
         txn.set(txnRef, {
           id: txnRef.id, date: now,
-          description: `Return ${disposition === 'dispose' ? 'disposal' : disposition === 'damaged' ? 'damage write-off' : 'write-off'}: ${line.qty} x ${line.name} (Order #${fresh.orderNumber})`,
+          description: `Return ${disposition === 'dispose' ? 'disposal' : disposition === 'damaged' ? 'damage write-off' : disposition === 'open_box' ? 'write-off (opened)' : 'write-off'}: ${line.qty} x ${line.name} (Order #${fresh.orderNumber})`,
           clientOrVendor: 'Internal', type: 'expense', context: 'Business',
           category: 'Spoilage', taxBucket: 'expense',
           amount: costCents / 100, paymentMethod: 'Internal', hasReceipt: false,
@@ -254,7 +260,7 @@ export async function receiveReturnLine(
         txn.update(oRef, { lines: JSON.parse(JSON.stringify(newLines)) });
       }
 
-      return { ok: true, allReceived, message: `${line.name}: ${disposition === 'restock' ? 'back in stock' : 'written off'}${allReceived ? ' \u2014 that was the last item' : ''}` };
+      return { ok: true, allReceived, message: `${line.name}: ${openedBack ? 'opened, back on the shelf' : restock ? 'back in stock' : disposition === 'open_box' ? 'opened, written off at cost' : 'written off'}${allReceived ? ' \u2014 that was the last item' : ''}` };
     });
     // Back on the shelf: a backorder waiting for it may be able to go now (lib/retail-fulfill). Best effort.
     const shelf = back as { productId: string; qty: number } | null;

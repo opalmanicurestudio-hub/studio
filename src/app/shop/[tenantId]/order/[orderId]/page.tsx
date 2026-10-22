@@ -140,6 +140,7 @@ export default function OrderStatusPage() {
   const [retSending, setRetSending] = useState(false);
   const [retDone, setRetDone] = useState(false);
   const [retLabel, setRetLabel] = useState<{ url: string; deductCents: number; carrier: string } | null>(null);
+  const [retLabelFailed, setRetLabelFailed] = useState(false);
   const [revLine, setRevLine] = useState<string | null>(null);
   const [revRating, setRevRating] = useState(5);
   const [revTitle, setRevTitle] = useState('');
@@ -665,8 +666,8 @@ export default function OrderStatusPage() {
           const ld = await lr.json().catch(() => ({}));
           if (lr.ok && ld?.labelUrl) {
             setRetLabel({ url: String(ld.labelUrl), deductCents: Number(ld.deductCents) || 0, carrier: String(ld.carrier || '') });
-          }
-        } catch { /* the staff desk can still send one; the return is open either way */ }
+          } else setRetLabelFailed(true);   // the shop sees it on Problems, with a way to send it
+        } catch { setRetLabelFailed(true); }
       }
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not start return', description: e?.message });
@@ -2028,7 +2029,9 @@ export default function OrderStatusPage() {
                   )}
                   <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-4 text-center">
                     <p className="text-sm font-bold text-primary">
-                      Return started — {retLabel ? 'ship the items back with the label above' : 'bring the items by (or ship them back)'} and we&rsquo;ll take it from there.
+                      {retLabelFailed && !retLabel
+                        ? 'Return started. We couldn’t make your return label just now, so the shop has been told and will email it to you. Keep the items until it arrives.'
+                        : <>Return started — {retLabel ? 'ship the items back with the label above' : 'bring the items by (or ship them back)'} and we&rsquo;ll take it from there.</>}
                     </p>
                   </div>
                 </div>

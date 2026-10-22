@@ -64,6 +64,7 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
 }) {
   const [refund, setRefund] = React.useState<Problem | null>(null);
   const [ret, setRet] = React.useState<any | null>(null);
+  const [closing, setClosing] = React.useState<any | null>(null); const [closeNote, setCloseNote] = React.useState('');
   const [busy, setBusy] = React.useState('');
   const o = group.order || group.items[0]?.ref || {};
   const first = String(group.customerName || '').split(' ')[0] || 'them';
@@ -86,10 +87,41 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
     } finally { setBusy(''); }
   };
 
+  // A return whose label couldn't be made: try again (api/retail/return-label, the order's own link key).
+  const sendLabel = async (r: any) => {
+    setBusy(`label-${r.id}`);
+    try {
+      const res = await fetch('/api/retail/return-label', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: r.orderId, returnId: r.id, qrToken: group.order?.qrToken || '' }) });
+      const d = await res.json().catch(() => ({}));
+      feel(res.ok); onToast(res.ok ? (d.alreadySent ? `${first} already has a label for this return.` : `Label emailed to ${first}.`) : d.error || 'The label couldn’t be made.');
+    } finally { setBusy(''); }
+  };
+  // A return that isn't coming back: closed, its items free to be returned again, and they're told (lib/return-close).
+  const closeIt = async () => {
+    if (!closing) return;
+    setBusy('close');
+    try {
+      const res = await fetch('/api/retail/return-close', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, returnId: closing.id, note: closeNote.trim() }) });
+      const d = await res.json().catch(() => ({}));
+      feel(res.ok); onToast(res.ok ? d.message || 'Return closed.' : d.error || 'The return couldn’t be closed.');
+      if (res.ok) { setClosing(null); setCloseNote(''); }
+    } finally { setBusy(''); }
+  };
+
   const body = group.items.map((p) => {
     if (p.kind === 'message') return <MessageCard key={p.key} p={p} tenantId={tenantId} onToast={onToast} />;
     if (p.kind === 'refund') return <Card key={p.key} p={p}>{canRefund || inAuto(p.ref) ? <Btn kind="primary" className="w-full" onClick={() => setRefund(p)}>Send {money(p.ref.pendingRefundCents)}</Btn> : <p className="m-0 text-[14px]" style={muted}>Waiting for someone allowed to send refunds.</p>}</Card>;
-    if (p.kind === 'return') return <Card key={p.key} p={p}><Btn kind={p.ref.status === 'received' ? 'primary' : 'soft'} className="w-full" style={p.ref.status === 'received' ? undefined : { background: C.paper }} onClick={() => setRet(p.ref)}>{p.ref.status === 'received' ? 'Finish checking in' : 'It’s here, check it in'}</Btn></Card>;
+    if (p.kind === 'return') {
+      const r = p.ref;
+      const untouched = !(r.lines || []).some((l: any) => !!l.disposition);
+      const labelFix = r.status === 'open' && !r.labelUrl && !!group.order?.shippingAddress;
+      return <Card key={p.key} p={p}>
+        {labelFix && r.labelError?.message ? <p className="m-0 mb-3 text-[15px]" style={{ color: C.warn }}>Their return label couldn’t be made: {String(r.labelError.message).slice(0, 180)}</p> : null}
+        <Btn kind={r.status === 'received' ? 'primary' : 'soft'} className="w-full" style={r.status === 'received' ? undefined : { background: C.paper }} onClick={() => setRet(r)}>{r.status === 'received' ? 'Finish checking in' : 'It’s here, check it in'}</Btn>
+        {labelFix && <Btn kind="soft" className="mt-2 w-full" style={{ background: C.paper }} disabled={busy === `label-${r.id}`} onClick={() => void sendLabel(r)}>{busy === `label-${r.id}` ? 'Sending…' : 'Send the return label'}</Btn>}
+        {untouched && <Btn kind="soft" className="mt-2 w-full" style={{ background: C.paper }} onClick={() => { setCloseNote(''); setClosing(r); }}>It isn’t coming, close it</Btn>}
+      </Card>;
+    }
     if (p.kind === 'claim') return <Card key={p.key} p={p}>
       {p.ref.description ? <p className="m-0 mb-3 text-[15px]">“{String(p.ref.description).slice(0, 240)}”</p> : null}
       {Array.isArray(p.ref.evidence?.photoUrls) && p.ref.evidence.photoUrls.length > 0 && <div className="mb-3 flex gap-2">{p.ref.evidence.photoUrls.slice(0, 4).map((u: string) => <img key={u} src={u} alt="Customer photo" className="h-16 w-16 rounded-xl object-cover" />)}</div>}
@@ -130,6 +162,11 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
         <Sheet title={`Send ${money(refund.ref.pendingRefundCents)} to ${first}?`} sub={isFollowUp(refund.ref) ? 'It goes back to the card they paid with on the original order.' : 'It goes back to the card they paid with. Anything paid by store credit or gift card is returned that way.'} onClose={() => setRefund(null)}>
           {refund.ref.returnSummary?.restockingFeeCents ? <p className="m-0 mt-2 text-[15px]" style={muted}>Includes a {money(refund.ref.returnSummary.restockingFeeCents)} restocking fee taken off.</p> : null}
           <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={busy === 'refund'} onClick={() => void sendRefund(refund)}>{busy === 'refund' ? 'Sending…' : `Send ${money(refund.ref.pendingRefundCents)}`}</Btn>
+        </Sheet>)}
+      {closing && (
+        <Sheet title="Close this return?" sub={`For when it isn’t coming back. ${first} is told on their order page, and the items can be returned again later.`} onClose={() => setClosing(null)} closeLabel="Keep it open">
+          <label className="mt-2 block text-[13px] font-semibold" style={muted}>Note for {first} (optional)<input value={closeNote} onChange={(e) => setCloseNote(e.target.value)} placeholder="For example: you told us you’re keeping it" className="mt-1 h-12 w-full rounded-2xl border px-4 text-[17px] font-normal" style={{ borderColor: C.line, background: C.paper, color: C.ink }} /></label>
+          <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={busy === 'close'} onClick={() => void closeIt()}>{busy === 'close' ? 'Closing…' : 'Close the return'}</Btn>
         </Sheet>)}
       {ret && <ReturnSheet fs={fs} tenantId={tenantId} ret={ret} initialOrder={group.order && group.order.id === ret.orderId ? group.order : null} actor={actor} rs={rs} canRefund={canRefund} onClose={() => setRet(null)} onDone={(m) => { setRet(null); onToast(m); }} />}
     </div>);
