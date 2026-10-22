@@ -7,19 +7,21 @@
 // Dates come from the one shipping schedule (lib/ship-promise), on the shop's clock. Pure: no reads, no writes, so the
 // screen, the alerts and the tests all say the same thing.
 import { addDays, dayKey, formatShortDay, formatTime } from './tenant-time';
-import { clockLabel, cutoffFor, cutoffInfo, dayLabel, isCalendarDay, LATE_GRACE_MS, MAX_AUTO_NOTICES, missedAt, nextShipDay, pickupsOn, promiseCarrier, promisedDay, revisedShipBy, waitingPreorder, type ShipSchedule } from './ship-promise';
+import { carrierName, clockLabel, cutoffFor, cutoffInfo, dayLabel, isCalendarDay, LATE_GRACE_MS, MAX_AUTO_NOTICES, missedAt, nextShipDay, pickupsOn, promiseCarrier, promisedDay, revisedShipBy, teamDay, waitingPreorder, type ShipSchedule } from './ship-promise';
 import { dueAt, fulfilmentPolicy } from './retail-orders';
-import { firstName, itemCount, orderNum } from './orders-view';
-import { labelDoubt, trailStatus } from './label-doubt';
+import { firstName, itemCount, orderNum, packQueue } from './orders-view';
+import { labelDoubt } from './label-doubt';
 
 const OPEN = ['paid', 'picking', 'packed'];
-const MOVED = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'];
 /** Minutes kept back before a pickup for the label and the hand-over. */
 export const HANDOVER_MINUTES = 10;
 /** Minutes an order takes to pack when there isn't enough history to tell. */
 export const DEFAULT_PACK_MINUTES = 8;
 /** How long after its time a running-late notice the app sends by itself is still expected (the check runs hourly). */
 const AUTO_TELL_WINDOW_MS = 90 * 60_000;
+/** How long before its pickup telling an at-risk order's customer a new date is offered: by then a miss is likely
+ *  whatever the pace guess says. */
+export const TELL_WINDOW_MS = 60 * 60_000;
 
 /** A box the shop ships itself: not a download, and not an order riding in another order's box (that one is
  *  counted once, on the order that carries the label). */
@@ -88,7 +90,7 @@ export function packPace(recent: any[], active: any[], now: number, tz: string):
 
 // ── Late ─────────────────────────────────────────────────────────────────────
 
-export type StepKind = 'pack' | 'open' | 'label' | 'shipped' | 'tell';
+export type StepKind = 'pack' | 'open' | 'label' | 'tell';
 export type Step = { kind: StepKind; label: string; day?: string };
 export type LateItem = {
   order: any;
@@ -96,15 +98,15 @@ export type LateItem = {
   first: string;
   /** The date they know now, when a notice moved it. */
   told: { day: string; at: string | null } | null;
+  /** That date still stands (it hasn't gone by too). */
+  toldStands: boolean;
   /** They were given a date at all (shown at checkout, or told by a notice). */
   shown: boolean;
   /** When they're told the new date by themselves (lib/late-notices: an hour after the date they know has gone by,
-   *  unless the box is labeled first), and the date they'll be given. Null when nothing goes by itself: a box already
-   *  labeled, an order held for review, one that has had its two automatic notices, or a date not yet gone by. */
+   *  unless the box is labeled first), and the date they'll be given. Null when nothing goes by itself: an order held
+   *  for review, one that has had its two automatic notices, a date not yet gone by, or a notice that should have gone
+   *  well before now and didn't. */
   autoTell: { at: string; day: string } | null;
-  /** Packed and labeled for today's pickup and not marked shipped: it may well have gone, so nobody is pressed to tell
-   *  its customer anything yet. */
-  maybeOut: boolean;
   /** What happened, in a sentence. */
   what: string;
   steps: Step[];
@@ -114,11 +116,13 @@ export type LateItem = {
  * An order past the ship-by day its customer was first given, still not out: what happened, whether they've been
  * told a new date, and the next step. Missed at that day's last pickup (or the end of the shop's shipping day), never
  * before the team's own deadline for it. Not an order waiting on stock the customer chose to wait for, or a pre-order
- * still waiting (those dates move with the stock, as the late notices do).
+ * still waiting (those dates move with the stock, as the late notices do). Not a labeled box either: it's on its way
+ * out, or, when nobody has scanned it for days, the morning label check asks about it (under Labels); no
+ * running-late notice goes for one.
  */
 export function lateItem(o: any, now: number, tz: string, schedule: ShipSchedule, rs: any): LateItem | null {
   if (!shipsItself(o) || !OPEN.includes(String(o?.stage))) return null;
-  if (waitsOnStock(o)) return null;
+  if (waitsOnStock(o) || hasLabel(o)) return null;
   const first = firstShipDay(o, rs, tz);
   if (!first) return null;
   const carrier = promiseCarrier(o);
@@ -132,7 +136,6 @@ export function lateItem(o: any, now: number, tz: string, schedule: ShipSchedule
   const told = o.notifiedForPromiseAt && current && current > first ? { day: current, at: o.delayNoticeAt ? String(o.delayNoticeAt) : null } : null;
   // The soonest it can honestly go: today while today's last pickup is ahead, otherwise the next day the carrier collects.
   const soonest = revisedShipBy(first, new Date(now), tz, schedule, carrier);
-  const moving = MOVED.includes(trailStatus(o)) || !!o.labelSeenMoving;
   const st = String(o.stage);
   let what = ''; const steps: Step[] = [];
   if (o.holdForReview === true) { what = 'Held for review, so it can’t be packed yet.'; steps.push({ kind: 'open', label: 'Review it' }); }
@@ -143,27 +146,24 @@ export function lateItem(o: any, now: number, tz: string, schedule: ShipSchedule
     steps.push({ kind: 'pack', label: 'Pack it now' });
   }
   else if (st === 'picking') { what = `${o.claimedByName ? `${firstName(o.claimedByName)} is` : 'Someone is'} packing it.`; steps.push({ kind: 'open', label: 'Open it' }); }
-  else if (!hasLabel(o)) { what = 'Packed, but it has no label yet.'; steps.push({ kind: 'label', label: 'Buy the label' }); }
-  else if (moving) { what = `${o.carrier || 'The carrier'} has it, but it isn’t marked shipped.`; steps.push({ kind: 'shipped', label: 'Mark it shipped' }); }
-  // A labeled box may well have gone with the pickup and not been marked shipped, so that comes first.
-  else { what = first === today ? 'Packed and labeled, but not marked shipped.' : 'Packed and labeled, but the carrier hasn’t scanned it.'; steps.push({ kind: 'shipped', label: 'It went out' }); }
+  else { what = 'Packed, but it has no label yet.'; steps.push({ kind: 'label', label: 'Buy the label' }); }
 
   // Told by itself an hour after the date they know has gone by, unless the box is labeled first (lib/late-notices,
   // checked every hour). Once that's well past and they still haven't been told, it didn't go, so a person should.
   let autoTell: LateItem['autoTell'] = null;
-  if (shown && o.promise && current && !hasLabel(o) && o.holdForReview !== true && (Number(o.autoDelayNotices) || 0) < MAX_AUTO_NOTICES) {
+  if (shown && o.promise && current && o.holdForReview !== true && (Number(o.autoDelayNotices) || 0) < MAX_AUTO_NOTICES) {
     const gone = Math.max(Date.parse(missedAt(current, tz, schedule, carrier)), current === o.promise.shipBy ? Date.parse(String(o.promise.shipByAt || '')) || 0 : 0);
     const at = gone + LATE_GRACE_MS;
     if (now >= gone && now < at + AUTO_TELL_WINDOW_MS) autoTell = { at: new Date(at).toISOString(), day: revisedShipBy(current, new Date(Math.max(now, at)), tz, schedule, carrier) };
   }
-  const maybeOut = st === 'packed' && hasLabel(o) && !moving && first === today;
   // A date to give them: only to a customer who was given one, and only when the one they know has gone by. It comes
-  // first when nobody else will tell them; after the work when they're told by themselves, or the box may have gone.
-  if (shown && !moving && (!current || current < soonest)) {
+  // first when nobody else will tell them, after the work when they're told by themselves.
+  const stands = !!current && current >= soonest;
+  if (shown && !stands) {
     const tell: Step = { kind: 'tell', label: `Tell ${who} it ships ${whenWord(soonest, today, tz)}`, day: soonest };
-    if (autoTell || steps[0]?.kind === 'shipped') steps.push(tell); else steps.unshift(tell);
+    if (autoTell) steps.push(tell); else steps.unshift(tell);
   }
-  return { order: o, first, told, shown, autoTell, maybeOut, what, steps };
+  return { order: o, first, told, toldStands: !!told && stands, shown, autoTell, what, steps };
 }
 
 /** 'today', 'yesterday', 'Tuesday' (the past week), or 'Tue, Oct 20'. */
@@ -180,47 +180,59 @@ export function pastWord(day: string, today: string, tz: string): string {
 // ── At risk ──────────────────────────────────────────────────────────────────
 
 export type RiskWhy = 'not_started' | 'packing' | 'address' | 'held';
-export type RiskItem = { order: any; why: RiskWhy; status: string; detail: string; tellDay: string; shown: boolean };
+export type RiskItem = {
+  order: any; why: RiskWhy; status: string; detail: string;
+  /** The next day it could honestly ship, and from when telling its customer that is offered (an hour before its
+   *  pickup). Only a customer who was given a date (`shown`) is told anything. */
+  tellDay: string; tellFrom: string; shown: boolean;
+};
 
 const STATUS: Record<RiskWhy, string> = { not_started: 'Not started', packing: 'Being packed', address: 'Needs you', held: 'Held' };
 
 /**
- * Orders due out today that won't make it at the team's pace: in packing order, each unblocked one adds its share of
- * the work (an order already being packed counts as half done), and any that would finish after its own last pickup
- * today (less the hand-over time) is at risk. One that can't move without someone (held for review, an address change
- * waiting) is at risk however much time is left. Not one waiting on stock: its date moves with the stock (Needs you
- * lists it). `tellDay` is the next day it could honestly ship.
+ * Orders due out today that won't make it at the team's pace. The work is counted in the order the pack queue takes it
+ * (lib/orders-view packQueue: anything moved to the front, then late ones, then soonest due, pickups included): each
+ * order still to pack adds its share (one already being packed counts as half done), and an order due today that
+ * would finish after its own last pickup (less the hand-over time) is at risk. One that can't move without someone
+ * (held for review, an address change waiting) is at risk however much time is left. Not one waiting on stock: its
+ * date moves with the stock (Needs you lists it). Late ones are on the Late list instead.
  */
 export function atRiskItems(orders: any[], now: number, tz: string, schedule: ShipSchedule, rs: any, pace: Pace): RiskItem[] {
   const today = dayKey(new Date(now), tz);
-  const due = orders
-    .filter((o) => shipsItself(o) && ['paid', 'picking'].includes(String(o.stage)) && !waitsOnStock(o))
-    .filter((o) => { const t = teamDue(o, rs, tz); return Number.isFinite(t) && dayKey(new Date(t), tz) === today && !lateItem(o, now, tz, schedule, rs); })
-    .sort((a, b) => Number(!!b.rushAt) - Number(!!a.rushAt) || teamDue(a, rs, tz) - teamDue(b, rs, tz) || String(a.paidAt || '').localeCompare(String(b.paidAt || '')));
-  const per = pace.minutesPerOrder / Math.max(1, pace.packers);
-  let work = 0;
-  const out: RiskItem[] = [];
-  for (const o of due) {
+  const dueToday = (o: any) => shipsItself(o) && ['paid', 'picking'].includes(String(o.stage)) && !waitsOnStock(o)
+    && (() => { const t = teamDue(o, rs, tz); return Number.isFinite(t) && dayKey(new Date(t), tz) === today; })() && !lateItem(o, now, tz, schedule, rs);
+  const facts = (o: any) => {
     const carrier = promiseCarrier(o);
     const missAt = Date.parse(missedAt(today, tz, schedule, carrier));
-    const tellDay = revisedShipBy(today, new Date(now), tz, schedule, carrier);
-    const shown = o.promise?.shown === true || !!o.notifiedForPromiseAt;
-    const blocked: RiskWhy | null = o.holdForReview === true ? 'held' : addressWaiting(o) ? 'address' : null;
-    const items = itemCount(o);
-    if (blocked) {
-      out.push({ order: o, why: blocked, status: STATUS[blocked], detail: blocked === 'held' ? 'Held for review' : 'Address change waiting', tellDay, shown });
-      continue;
-    }
+    return { tellDay: revisedShipBy(today, new Date(now), tz, schedule, carrier), tellFrom: new Date(missAt - TELL_WINDOW_MS).toISOString(), shown: o.promise?.shown === true || !!o.notifiedForPromiseAt, missAt };
+  };
+  const blocked = (o: any): RiskWhy | null => (o.holdForReview === true ? 'held' : addressWaiting(o) ? 'address' : null);
+  const out: RiskItem[] = [];
+  // Waiting on someone first: held ones aren't in the pack queue at all, and an address change stops the box going.
+  const waiting = orders.filter((o) => dueToday(o) && blocked(o)).sort((a, b) => teamDue(a, rs, tz) - teamDue(b, rs, tz));
+  for (const o of waiting) { const f = facts(o); const why = blocked(o)!; out.push({ order: o, why, status: STATUS[why], detail: why === 'held' ? 'Held for review' : 'Address change waiting', tellDay: f.tellDay, tellFrom: f.tellFrom, shown: f.shown }); }
+  const per = pace.minutesPerOrder / Math.max(1, pace.packers);
+  let work = 0;
+  for (const o of packQueue(orders, rs, now, tz)) {
+    if (!['paid', 'picking'].includes(String(o.stage)) || blocked(o) || waitsOnStock(o)) continue;
     work += o.stage === 'picking' ? per / 2 : per;
-    if (now + (work + HANDOVER_MINUTES) * 60_000 <= missAt) continue;
+    if (!dueToday(o)) continue;
+    const f = facts(o);
+    if (now + (work + HANDOVER_MINUTES) * 60_000 <= f.missAt) continue;
     const why: RiskWhy = o.stage === 'picking' ? 'packing' : 'not_started';
+    const items = itemCount(o);
     const paid = Date.parse(String(o.paidAt || ''));
     const detail = why === 'packing'
       ? `${o.claimedByName ? `${firstName(o.claimedByName)} is` : 'Someone is'} packing it`
       : `${items} item${items === 1 ? '' : 's'}${Number.isFinite(paid) ? ` · paid ${dayKey(new Date(paid), tz) === today ? 'today' : dayKey(new Date(paid), tz) === addDays(today, -1) ? 'yesterday' : formatShortDay(new Date(paid), tz)} ${formatTime(new Date(paid), tz)}` : ''}`;
-    out.push({ order: o, why, status: STATUS[why], detail, tellDay, shown });
+    out.push({ order: o, why, status: STATUS[why], detail, tellDay: f.tellDay, tellFrom: f.tellFrom, shown: f.shown });
   }
   return out;
+}
+
+/** The at-risk customers "Tell them now" can tell right now: given a date, and within the hour before their pickup. */
+export function tellableNow(items: RiskItem[], now: number): RiskItem[] {
+  return items.filter((i) => i.shown && now >= Date.parse(i.tellFrom));
 }
 
 // ── Carrier problems ─────────────────────────────────────────────────────────
@@ -230,21 +242,27 @@ export type CarrierItem = { order: any; kind: 'returned' | 'failed' | 'stalled';
 /**
  * A parcel the carrier is having trouble with, as the shipping webhook and the nightly check flag it (carrierIssue):
  * going back to the sender, a delivery that failed, or no scan for days. Gone once someone has seen it, or once the
- * parcel is delivered.
+ * parcel is delivered. Counted once per box: an order riding in another order's box is left to that order.
  */
 export function carrierItem(o: any, tz: string): CarrierItem | null {
   const ci = o?.carrierIssue;
-  if (!ci || ci.open !== true) return null;
+  if (!ci || ci.open !== true || o.shippedWithOrderId || o.labelFromOrderId) return null;
   const who = firstName(o.customerName);
   const num = orderNum(o);
-  const carrier = String(ci.carrier || o.carrier || 'The carrier').split(/\s+/)[0];
+  const carrier = carrierName(o.carrier || ci.carrier) || 'The carrier';
   const detail = String(ci.detail || '').trim().replace(/\.$/, '');
   if (ci.status === 'RETURNED') return { order: o, kind: 'returned', key: String(ci.key || ''), title: `${num} is going back to the sender`,
     detail: `${carrier}${detail ? `: ${detail.charAt(0).toLowerCase()}${detail.slice(1)}` : ' is returning it'}. Message ${who} about a new one or a refund.` };
   if (ci.status === 'STALLED') {
     const last = Date.parse(String(ci.at || ''));
-    return { order: o, kind: 'stalled', key: String(ci.key || ''), title: `${num} hasn’t moved in ${Math.max(1, Number(ci.quietDays) || 0)} days`,
-      detail: `${Number.isFinite(last) ? `${carrier} last scanned it ${formatShortDay(new Date(last), tz)}. ` : ''}${who} has been told it’s running late. Open a trace with ${carrier}.` };
+    const day = Number.isFinite(last) ? formatShortDay(new Date(last), tz) : '';
+    const n = Math.max(1, Number(ci.quietDays) || 0);
+    const told = ci.customerTold === true ? `${who} has been emailed that it’s running late. ` : ci.customerTold === false ? `${who} hasn’t been told. ` : '';
+    return ci.unscanned === true
+      ? { order: o, kind: 'stalled', key: String(ci.key || ''), title: `${num} hasn’t been scanned in ${n} days`,
+        detail: `${day ? `Marked shipped ${day}, and ` : ''}${carrier} hasn’t scanned it${day ? ' since' : ''}. ${told}Check the tracking number, or open a trace with ${carrier}.` }
+      : { order: o, kind: 'stalled', key: String(ci.key || ''), title: `${num} hasn’t moved in ${n} days`,
+        detail: `${day ? `${carrier} last scanned it ${day}. ` : ''}${told}Open a trace with ${carrier}.` };
   }
   return { order: o, kind: 'failed', key: String(ci.key || ''), title: `${carrier} couldn’t deliver ${num}`,
     detail: `${detail ? `${detail}. ` : ''}Message ${who} to check the address.` };
@@ -254,7 +272,9 @@ export function carrierItem(o: any, tz: string): CarrierItem | null {
 
 export type DayPicture = {
   today: string;
-  /** The shop works on orders today (a ship day, not closed, not a carrier holiday). */
+  /** The shop has saved its shipping schedule; until then there's no cutoff or pickup to show. */
+  scheduled: boolean;
+  /** The shop works on orders today: a ship day, not closed, and not a holiday for every carrier it uses. */
   shipsToday: boolean;
   cutoff: { label: string; at: string | null; minutesLeft: number | null };
   /** The next pickup (or drop-off) today; null when none is listed or the last has gone. */
@@ -279,15 +299,18 @@ export function dayPicture(input: {
   const { orders, rs, schedule, now } = input;
   const tz = input.timeZone;
   const today = dayKey(new Date(now), tz);
-  const ci = cutoffInfo(new Date(now), tz, schedule);
+  const scheduled = !!schedule.savedAt;
+  // A holiday only USPS keeps doesn't stop a shop that also ships with a carrier working that day.
+  const td = scheduled ? teamDay(today, schedule, orders.filter(shipsItself).map(promiseCarrier)) : { ships: true, carrier: null };
+  const ci = cutoffInfo(new Date(now), tz, schedule, td.carrier);
   const pickups = pickupsOn(today, tz, schedule);
   const next = pickups.find((p) => Date.parse(p.at) > now) || null;
   const pace = packPace(input.recentPacked || [], orders, now, tz);
 
-  const shipDay = ci.shipDay ? today : nextShipDay(today, schedule);
+  const shipDay = td.ships ? today : nextShipDay(today, schedule);
   const mustGo = dueBy(orders, shipDay, rs, tz);
   const packed = mustGo.filter((o) => o.stage === 'packed').length;
-  const sent = ci.shipDay ? Math.max(0, Math.floor(Number(input.sentToday) || 0)) : 0;
+  const sent = td.ships ? Math.max(0, Math.floor(Number(input.sentToday) || 0)) : 0;
   const late = orders.map((o) => lateItem(o, now, tz, schedule, rs)).filter(Boolean) as LateItem[];
   late.sort((a, b) => a.first.localeCompare(b.first) || String(a.order.paidAt || '').localeCompare(String(b.order.paidAt || '')));
   const seen = new Map<string, any>();
@@ -296,7 +319,8 @@ export function dayPicture(input: {
 
   return {
     today,
-    shipsToday: ci.shipDay,
+    scheduled,
+    shipsToday: td.ships,
     cutoff: { label: clockLabel(cutoffFor(today, schedule)), at: ci.cutoffAt, minutesLeft: ci.minutesLeft },
     pickup: next ? { carrier: next.carrier, kind: next.kind, label: clockLabel(next.time), at: next.at } : null,
     pickupsDone: pickups.length > 0 && !next,

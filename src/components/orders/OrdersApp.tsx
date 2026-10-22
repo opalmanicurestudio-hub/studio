@@ -4,9 +4,8 @@
 // sit in a tab bar; on a computer, the order opens beside the list. A one-person shop leads with the next order.
 // Live from Firestore; the packing engine is lib/retail-fulfill, the screen's own rules are lib/orders-view.
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { markAllShipped } from './bulk';
 import { collection, doc, limit, onSnapshot, orderBy, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { benchScanTarget, markLabelChecked } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
@@ -34,7 +33,7 @@ import { shipTogetherGroups, togetherRefunds } from '@/lib/ship-together';
 import { cardRefundableCents } from '@/lib/retail-money';
 import { addressLines } from './AddressCard';
 import { useLabelFlagOrders } from './use-label-flags';
-import { dayPicture, labelWork, sharedTellDay, whenWord, type CarrierItem, type LateItem, type Step } from '@/lib/ship-day';
+import { dayPicture, labelWork, tellableNow, whenWord, type CarrierItem, type LateItem, type Step } from '@/lib/ship-day';
 import { nextShipDay, scheduleFrom } from '@/lib/ship-promise';
 import { addDays, dayKey } from '@/lib/tenant-time';
 import { TodayCard, type DayList } from './Today';
@@ -174,11 +173,19 @@ export function OrdersApp() {
   const outside = tab === 'ready' && !q ? orders.filter((o) => o.stage === 'arrived') : [];
 
   // ?order=<id> opens that order; ?ship=today opens Ship today (the Labels screen's "Buy labels"); ?view=late, risk or
-  // carrier opens that Today list (an order alert's link, lib/order-alerts).
+  // carrier opens that Today list (an order alert's link, lib/order-alerts; see ViewParam). Closing the list takes
+  // ?view off the address, so the same alert opens it again from here.
   React.useEffect(() => {
     const q = new URLSearchParams(window.location.search); const id = q.get('order'); if (id) setOpenId(id); if (q.get('ship') === 'today') setShipToday(true);
-    const v = q.get('view'); if (v === 'late' || v === 'risk' || v === 'carrier') setDaySheet(v);
   }, []);
+  const hadSheet = React.useRef(false);
+  React.useEffect(() => {
+    if (daySheet) { hadSheet.current = true; return; }
+    if (!hadSheet.current) return;
+    hadSheet.current = false;
+    const u = new URL(window.location.href);
+    if (u.searchParams.has('view')) { u.searchParams.delete('view'); router.replace(`${u.pathname}${u.search}`, { scroll: false }); }
+  }, [daySheet, router]);
   const open = openId ? byId.get(openId) || null : null;
   const packing = packId ? byId.get(packId) || null : null;
   React.useEffect(() => { if (packId && packing && !['paid', 'picking', 'packed'].includes(packing.stage)) setPackId(null); }, [packId, packing]);
@@ -209,8 +216,7 @@ export function OrdersApp() {
     if (s.kind === 'label') { setDaySheet(null); setShipId(o.id); return; }
     setDayBusy(`${o.id}:${s.kind}`);
     try {
-      if (s.kind === 'shipped') setToast(await markAllShipped(fs, tenantId, [o], actor));
-      else if (s.kind === 'tell' && s.day) {
+      if (s.kind === 'tell' && s.day) {
         const ok = await tellCustomer(o, s.day); feel(ok);
         setToast(ok ? `${firstName(o.customerName)} has the new date, with their right to cancel.` : 'That didn’t go through. They may already have this date.');
       }
@@ -230,7 +236,7 @@ export function OrdersApp() {
     } finally { setDayBusy(''); }
   };
   const tellAtRisk = async () => {
-    const list = day.atRisk.filter((i) => i.shown);
+    const list = tellableNow(day.atRisk, Date.now());
     if (!list.length) return;
     setDayBusy('tell');
     let sent = 0;
@@ -333,6 +339,7 @@ export function OrdersApp() {
 
   return (
     <div className="cf-settings min-h-[100dvh]" style={{ background: C.paper, color: C.ink }}>
+      <React.Suspense fallback={null}><ViewParam onView={(v) => { if (v === 'late' || v === 'risk' || v === 'carrier') setDaySheet(v); }} /></React.Suspense>
       {wide ? (
         <div className="flex h-[100dvh]">
           <div className="flex min-w-0 flex-1 flex-col overflow-y-auto pb-8">{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
@@ -355,7 +362,7 @@ export function OrdersApp() {
       {shipToday && <ShipToday fs={fs} tenantId={tenantId} orders={orders} actor={actor} rs={rs} onClose={() => setShipToday(false)} onToast={setToast} />}
       {daySheet === 'late' && <LateSheet items={day.late} today={day.today} tz={shopZone} now={now} busy={dayBusy} onStep={(it, s) => void lateStep(it, s)} onClose={() => setDaySheet(null)} />}
       {daySheet === 'risk' && <RiskSheet items={day.atRisk} pickupWords={day.lastPickup ? `the ${day.lastPickup.label} pickup` : 'the end of the shipping day'}
-        tellWord={(() => { const d = sharedTellDay(day.atRisk.filter((i) => i.shown)); return d ? whenWord(d, day.today, shopZone) : null; })()}
+        pace={day.pace} now={now} tz={shopZone}
         busy={dayBusy} canPack={perms.canPick} onPackFirst={() => void packFirst()} onTell={() => void tellAtRisk()} onOpenOrder={(id) => { setDaySheet(null); setOpenId(id); }} onClose={() => setDaySheet(null)} />}
       {daySheet === 'carrier' && <CarrierSheet items={day.carrier} busy={dayBusy} onSeen={(it) => void carrierSeen(it)} onClose={() => setDaySheet(null)}
         onOpenOrder={(id) => { const it = day.carrier.find((c) => c.order.id === id); const text = it ? carrierMessage(it) : null; setStartMessage(text ? { orderId: id, text } : null); setDaySheet(null); setOpenId(id); }} />}
@@ -365,6 +372,15 @@ export function OrdersApp() {
         </Sheet>)}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={wide ? (selecting ? 100 : 32) : selecting ? 168 : 150} />}
     </div>);
+}
+
+/** Opens a Today list named in the address (?view=late, an order alert's link) on arrival, and again whenever the
+ *  address changes to name one: tapping an alert while already on Orders. */
+function ViewParam({ onView }: { onView: (v: string) => void }) {
+  const v = useSearchParams()?.get('view') || '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (v) onView(v); }, [v]);
+  return null;
 }
 
 function Arrival({ o, now, onOut, onHand }: { o: any; now: number; onOut: () => Promise<void>; onHand: () => void }) {

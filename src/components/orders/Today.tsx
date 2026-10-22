@@ -3,6 +3,7 @@
 // pickup, what has to ship today and how much of it is packed, and four counts that open what needs someone: Late, At
 // risk, Labels, Carrier.
 import * as React from 'react';
+import Link from 'next/link';
 import type { DayPicture } from '@/lib/ship-day';
 import { minutesLabel } from '@/lib/ship-promise';
 import { Btn, C, muted } from './ui';
@@ -29,7 +30,11 @@ export function TodayCard({ day, labels, onOpen, onPackNext, canPack, nextShipWo
   return (
     <div className="mt-3 lg:max-w-2xl">
       <div className="flex flex-col gap-2 rounded-[20px] px-4 py-3.5" style={{ border: `2px solid ${C.ink}` }}>
-        {day.shipsToday ? (<>
+        {!day.scheduled ? (
+          <Link href="/retail-orders/policies/shipping" className="cf-press flex justify-between gap-2.5 text-[15px] leading-snug">
+            <span className="font-semibold">Set your cutoff and pickups</span><span className="shrink-0 text-right" style={muted}>Shipping schedule</span>
+          </Link>
+        ) : day.shipsToday ? (<>
           <span className="flex justify-between gap-2.5 text-[16px] font-semibold leading-snug">
             <span>Cutoff {cutoff.label}</span>
             <span className="shrink-0 text-right" style={left === null ? muted : left <= 60 ? { color: C.warn } : undefined}>{left === null ? 'Passed' : `${minutesLabel(left)} left`}</span>

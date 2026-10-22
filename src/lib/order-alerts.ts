@@ -12,13 +12,15 @@
 // "Usually" is worked out once a day: the middle number of orders shipped on the days the shop shipped over the last
 // four weeks (at least five such days), and the middle number paid by this time of day over its last ten ship days.
 // Too little history and the busy-day alerts stay quiet rather than guess.
+// A day counts when the shop ships with any carrier that day (a holiday only USPS keeps doesn't stop a shop that also
+// ships UPS), and each order is read by its own carrier's pickups.
 // Each person picks which alerts they get (Orders → Setup → Alerts, saved on their own staff record). Until they do,
-// whoever packed online orders in the last two weeks gets the cutoff, managers get a big day, coming in fast and
-// missed the pickup, and the one person packing, when only one is, gets all four. They're the app's own
-// notifications, so they show in the app and buzz phones the way every alert does (lib/push, with each person's
-// quiet hours and away days).
+// whoever packed shipped orders in the last two weeks gets the cutoff; the owner and admins, the shop's fulfillment
+// managers and managers who pack get a big day, coming in fast and missed the pickup; and the one person packing, when
+// only one is, gets all four. Never a booth renter. They're the app's own notifications, so they show in the app and
+// buzz phones the way every alert does (lib/push, with each person's quiet hours and away days).
 import { addDays, dayKey, formatTime, startOfDay, tenantTimeZone, wallParts } from './tenant-time';
-import { cutoffInfo, isShipDay, LATE_GRACE_MS, MAX_AUTO_NOTICES, missedAt, nextShipDay, promiseCarrier, promisedDay, scheduleFrom, type ShipSchedule } from './ship-promise';
+import { anyCarrierShips, cutoffFor, cutoffInfo, isShipDay, LATE_GRACE_MS, MAX_AUTO_NOTICES, missedAt, promiseCarrier, promisedDay, revisedShipBy, scheduleFrom, teamDay, type ShipSchedule } from './ship-promise';
 import { dueBy, hasLabel, shipsItself, teamDue, whenWord } from './ship-day';
 import { permissionsFor } from './fulfilment-access';
 import { firstName } from './orders-view';
@@ -34,16 +36,20 @@ export const ORDER_ALERTS: { kind: OrderAlertKind; type: string; label: string; 
 /** How far back "who packs" looks. */
 export const PACKERS_DAYS = 14;
 
+/** A booth renter runs their own business: the shop's order alerts (with its customers' names) never go to one. */
+const isRenter = (m: any) => String(m?.role || '').toLowerCase() === 'renter' || m?.isRenter === true;
+
 /**
- * Who packs online orders: anyone who packed one in the last two weeks (the sign-in that started it, matched to their
- * staff record by its id or its login), and anyone a manager made a picker, packer or shipper. Staff record ids. In a
- * salon or spa most of the team never touches the shop, so having the app at all isn't enough.
+ * Who packs shipped orders: anyone who packed one in the last two weeks (the sign-in that started it, matched to their
+ * staff record by its id or its login; pass only shipped orders' packers), and anyone a manager made a picker, packer
+ * or shipper. Staff record ids. In a salon or spa most of the team never touches the shop, so having the app at all
+ * isn't enough, and getting pickup orders ready at the desk isn't shipping.
  */
 export function packersOf(staff: any[], packedBy: string[]): Set<string> {
   const by = new Set(packedBy.filter(Boolean).map(String));
   const out = new Set<string>();
   for (const m of staff) {
-    if (!m?.id || m.archived === true) continue;
+    if (!m?.id || m.archived === true || isRenter(m)) continue;
     const made = ['picker', 'packer', 'shipper'].includes(String(m.fulfilmentRole || '').toLowerCase());
     if (made || by.has(String(m.id)) || (m.authUid && by.has(String(m.authUid)))) out.add(String(m.id));
   }
@@ -51,20 +57,25 @@ export function packersOf(staff: any[], packedBy: string[]): Set<string> {
 }
 
 /**
- * Who gets an alert when they haven't chosen. The cutoff: whoever packs (managers, while nobody has packed yet). A big
- * day, coming in fast, missed the pickup: managers, and the one person who packs when only one does. Never someone
- * with no access to orders.
+ * Who gets an alert when they haven't chosen. The cutoff: whoever packs (the owner and admins, while nobody has packed
+ * a shipped order yet). A big day, coming in fast, missed the pickup: the owner and admins, anyone made the shop's
+ * fulfillment manager, managers who pack, and the one person who packs when only one does; not every manager in a salon
+ * that never touches the shop. Never a booth renter, or someone with no access to orders.
  */
 export function alertDefault(kind: OrderAlertKind, staff: any, packers: Set<string>): boolean {
+  if (isRenter(staff)) return false;
   const perms = permissionsFor(staff);
   if (!perms.canPick && !perms.canManage) return false;
+  const role = String(staff?.role || '').toLowerCase();
+  const runs = role === 'owner' || role === 'admin';
   const packs = packers.has(String(staff?.id || ''));
-  if (kind === 'cutoff') return packs || (packers.size === 0 && perms.canManage);
-  return perms.canManage || (packs && packers.size === 1);
+  if (kind === 'cutoff') return packs || (packers.size === 0 && runs);
+  return runs || String(staff?.fulfilmentRole || '').toLowerCase() === 'manager' || (packs && (perms.canManage || packers.size === 1));
 }
 
-/** Whether this person gets this alert: their own choice, else the default for what they do. */
+/** Whether this person gets this alert: their own choice, else the default for what they do. Never a booth renter. */
 export function wantsAlert(kind: OrderAlertKind, staff: any, packers: Set<string>): boolean {
+  if (isRenter(staff)) return false;
   const own = staff?.notificationPrefs?.orderAlerts?.[kind];
   if (typeof own === 'boolean') return own;
   return alertDefault(kind, staff, packers);
@@ -134,8 +145,9 @@ const names = (list: any[]) => {
 /** The alerts due right now, before checking which already went out today. Pure. */
 export function alertsDue(s: AlertNow, now: number, tz: string, schedule: ShipSchedule): Alert[] {
   const today = dayKey(new Date(now), tz);
-  const ci = cutoffInfo(new Date(now), tz, schedule);
-  if (!ci.shipDay) return [];
+  const td = teamDay(today, schedule, s.due.map(promiseCarrier));
+  if (!td.ships) return [];
+  const ci = cutoffInfo(new Date(now), tz, schedule, td.carrier);
   const minute = minuteOfDay(now, tz);
   const left = ci.minutesLeft;   // null once the cutoff has passed
   const out: Alert[] = [];
@@ -154,8 +166,14 @@ export function alertsDue(s: AlertNow, now: number, tz: string, schedule: ShipSc
   // and it still has no label. A labeled box may have gone with the pickup; the Late list asks about those.
   const missed = s.dueToday.filter((o) => !hasLabel(o) && now >= Date.parse(missedAt(today, tz, schedule, promiseCarrier(o))) + 5 * 60_000);
   if (missed.length) {
-    const next = whenWord(nextShipDay(addDays(today, 1), schedule), today, tz);
-    const on = next === 'tomorrow' ? next : `on ${next}`;
+    // The day each goes now: the next day its own carrier collects (as the Late list and the notice say). Named when
+    // they share one.
+    const on = (list: any[]) => {
+      const days = [...new Set(list.map((o) => revisedShipBy(today, new Date(now), tz, schedule, promiseCarrier(o))))];
+      if (days.length !== 1) return null;
+      const w = whenWord(days[0], today, tz);
+      return w === 'tomorrow' ? w : `on ${w}`;
+    };
     // Who hears the new date by themselves an hour after the pickup (lib/late-notices), and who needs a person.
     const toldAt = (o: any) => Date.parse(missedAt(today, tz, schedule, promiseCarrier(o))) + LATE_GRACE_MS;
     const given = missed.filter((o) => !!o.promise && (o.promise.shown === true || !!o.notifiedForPromiseAt) && promisedDay(o, tz) === today);
@@ -163,11 +181,12 @@ export function alertsDue(s: AlertNow, now: number, tz: string, schedule: ShipSc
     const hand = given.filter((o) => !auto.includes(o));
     const after = auto.length ? formatTime(new Date(Math.max(...auto.map(toldAt))), tz) : '';
     const one = (n: number, a: string, b: string) => (n === 1 ? a : b);
+    const handOn = on(hand), autoOn = on(auto), allOn = on(missed);
     const message = hand.length
-      ? `Tell ${names(hand)} ${one(hand.length, 'it ships', 'they ship')} ${on}?${auto.length ? ` ${names(auto)} ${one(auto.length, 'hears', 'hear')} the new date after ${after}.` : ''}`
+      ? `Tell ${names(hand)} ${handOn ? `${one(hand.length, 'it ships', 'they ship')} ${handOn}` : 'their new dates'}?${auto.length ? ` ${names(auto)} ${one(auto.length, 'hears the new date', 'hear their new dates')} after ${after}.` : ''}`
       : auto.length
-        ? `${names(auto)} ${one(auto.length, 'hears', 'hear')} after ${after} that ${one(auto.length, 'the order ships', 'their orders ship')} ${on}, unless ${one(auto.length, 'it’s', 'they’re')} labeled first.`
-        : `${one(missed.length, 'It goes', 'They go')} out ${on}. No date was given to ${one(missed.length, 'its customer', 'their customers')}, so nobody needs telling.`;
+        ? `${names(auto)} ${autoOn ? `${one(auto.length, 'hears', 'hear')} after ${after} that ${one(auto.length, 'the order ships', 'their orders ship')} ${autoOn}` : `${one(auto.length, 'hears the new date', 'hear their new dates')} after ${after}`}, unless ${one(auto.length, 'it’s', 'they’re')} labeled first.`
+        : `${allOn ? `${one(missed.length, 'It goes', 'They go')} out ${allOn}. ` : ''}No date was given to ${one(missed.length, 'its customer', 'their customers')}, so nobody needs telling.`;
     out.push({ kind: 'missed', title: `${plural(missed.length, 'order')} missed the pickup`, message, link: '/retail-orders?view=late' });
   }
   return out;
@@ -192,13 +211,16 @@ export async function checkOrderAlerts(db: any, tenantId: string, tenant: any, o
   const tz = tenantTimeZone(tenant);
   const now = opts.now ?? Date.now();
   const today = dayKey(new Date(now), tz);
-  if (!isShipDay(today, schedule)) return out;
-  // No reads before the first alert's window opens, or once the cutoff and the last pickup are well past.
-  const ci = cutoffInfo(new Date(now), tz, schedule);
-  const cutoffMinute = ci.cutoffAt ? minuteOfDay(Date.parse(ci.cutoffAt), tz) : 24 * 60;
-  if (minuteOfDay(now, tz) < Math.min(8 * 60, cutoffMinute - 65)) return out;
-  const lastGone = Date.parse(missedAt(today, tz, schedule, null));
-  if (ci.minutesLeft === null && Number.isFinite(lastGone) && now > lastGone + MISSED_WINDOW_MS) return out;
+  if (!anyCarrierShips(today, schedule)) return out;
+  // No reads before the first alert's window opens, or once the cutoff and the last miss of the day are well past (the
+  // latest listed pickup, or the end of the shipping day for a carrier with none listed).
+  const ci = cutoffInfo(new Date(now), tz, schedule, teamDay(today, schedule).carrier);
+  const [ch, cm] = cutoffFor(today, schedule).split(':').map(Number);
+  const cutoffMinute = (ch || 0) * 60 + (cm || 0);
+  const minute = minuteOfDay(now, tz);
+  if (minute < Math.min(8 * 60, cutoffMinute - 65)) return out;
+  const lastMiss = Math.max(minuteOfDay(Date.parse(missedAt(today, tz, schedule, null)), tz), 18 * 60, cutoffMinute);
+  if (ci.minutesLeft === null && minute > lastMiss + MISSED_WINDOW_MS / 60_000) return out;
   const T = `tenants/${tenantId}`;
   const dayRef = db.doc(`${T}/private/order-alerts-${today}`);
   const day: any = (await dayRef.get()).data() || {};
@@ -224,7 +246,7 @@ export async function checkOrderAlerts(db: any, tenantId: string, tenant: any, o
   ]);
   const open = openSnap.docs.map((d: any) => ({ ...(d.data() || {}), id: d.id }));
   const due = dueBy(open, today, rs, tz);
-  const dueToday = due.filter((o: any) => dayKey(new Date(teamDue(o, rs, tz)), tz) === today);
+  const dueToday = due.filter((o: any) => { const t = teamDue(o, rs, tz); return Number.isFinite(t) && dayKey(new Date(t), tz) === today; });
   const paidToday = paidTodaySnap.docs.map((d: any) => d.data() || {}).filter((o: any) => o.method === 'ship' && o.digitalOnly !== true && o.stage !== 'placed').length;
   const todo = alertsDue({ due, dueToday, unpacked: due.filter((o: any) => o.stage !== 'packed').length, paidToday, usual }, now, tz, schedule).filter((a) => !sent[a.kind]);
   if (!todo.length) return out;
@@ -234,7 +256,7 @@ export async function checkOrderAlerts(db: any, tenantId: string, tenant: any, o
     db.collection(`${T}/retailOrders`).where('packedAt', '>=', new Date(now - PACKERS_DAYS * 86_400_000).toISOString()).orderBy('packedAt', 'desc').limit(1000).get(),
   ]);
   const staff = staffSnap.docs.map((d: any) => ({ ...(d.data() || {}), id: d.id })).filter((m: any) => m.archived !== true);
-  const packers = packersOf(staff, packedSnap.docs.map((d: any) => String(d.data()?.claimedBy || '')));
+  const packers = packersOf(staff, packedSnap.docs.map((d: any) => d.data() || {}).filter((o: any) => o.method === 'ship').map((o: any) => String(o.claimedBy || '')));
   const at = new Date(now).toISOString();
   for (const a of todo) {
     // Claimed first: whichever run gets here first sends it; any other finds it taken.

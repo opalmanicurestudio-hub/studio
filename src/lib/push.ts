@@ -81,7 +81,7 @@ export async function pushNewNotifications(db: any, messaging: any, tenantId: st
       if (!ok.buzz) { outcome.push(`held: ${ok.why}`); continue; }
       const link = pushLink(base, tenantId, n.link, { role: (p.data() as any)?.role, type: n.type });   // per person — never somewhere that isn't theirs
       try {
-        const res = await messaging.sendEachForMulticast({ tokens, notification: { title: String(n.title || titleFor(n.type, tenant?.name)).slice(0, 80), body: String(n.message).slice(0, 180) },
+        const res = await messaging.sendEachForMulticast({ tokens, notification: { title: String((String(n.type || '').startsWith('orders_') && n.title) || titleFor(n.type, tenant?.name)).slice(0, 80), body: String(n.message).slice(0, 180) },
           webpush: { fcmOptions: { link }, notification: { icon: `${base}/icon-192.png`, badge: `${base}/icon-192.png` } } });
         sent += res.successCount || 0;
         outcome.push(res.successCount ? `sent to ${res.successCount} device${res.successCount === 1 ? '' : 's'}` : `failed: ${String(res.responses.find((r: any) => r?.error)?.error?.code || 'unknown')}`);

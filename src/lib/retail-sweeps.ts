@@ -152,9 +152,16 @@ export async function sweepStalledShipments(
           actorId: 'system', actorName: 'Stall watch',
           meta: { text: `No carrier scan in ${quietDays} days — customer ${emailed ? 'notified' : 'not emailed'}`, quietDays },
         });
-        // And under Needs you for the team (lib/ship-day), once per quiet week; a scan clears it (the shipping webhook).
-        await d.ref.set({ stalledFlaggedAt: new Date(now).toISOString(), stalledQuietDays: quietDays,
-          carrierIssue: { open: true, status: 'STALLED', quietDays, detail: '', carrier: String(order.carrier || ''), tracking: String(order.trackingNumber || ''), at: new Date(lastMoveRaw).toISOString(), key: `${order.trackingNumber}|STALLED|${markerId}` } }, { merge: true });
+        // And under Carrier and Needs you for the team (lib/ship-day), once per quiet week, saying whether the customer
+        // was emailed; a newer scan clears it (the shipping webhook). A parcel the carrier never scanned at all is the
+        // morning label check's when its label was bought here (it's listed under Labels); one with a tracking number
+        // typed in is listed here, as not scanned since it was marked shipped.
+        const scanned = ['TRANSIT', 'OUT_FOR_DELIVERY', 'DELAYED'].includes(status) && !!(order.carrierTrail?.carrierStatusAt || order.carrierStatusAt);
+        const issue = scanned || !order.shippoTransactionId
+          ? { carrierIssue: { open: true, status: 'STALLED', quietDays, detail: '', carrier: String(order.carrier || ''), tracking: String(order.trackingNumber || ''), at: new Date(lastMoveRaw).toISOString(), key: `${order.trackingNumber}|STALLED|${markerId}`,
+              unscanned: !scanned, customerTold: emailed, seenAt: null, seenBy: null, closedAt: null, closedBy: null } }
+          : {};
+        await d.ref.set({ stalledFlaggedAt: new Date(now).toISOString(), stalledQuietDays: quietDays, ...issue }, { merge: true });
 
         res.actioned += 1;
         if (emailed) res.emailed += 1;

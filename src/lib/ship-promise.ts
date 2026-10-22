@@ -291,6 +291,36 @@ export function isShipDay(day: string, schedule: ShipSchedule, carrier: CarrierK
   return true;
 }
 
+/**
+ * Whether the shop works on orders on a day, and the carrier to read that day by: a ship day for any carrier it uses
+ * (one it lists a pickup for, or one an order is going by), so a holiday only USPS keeps doesn't stop a shop that also
+ * ships UPS. `carrier` is null when the day counts for every carrier.
+ */
+export function teamDay(day: string, schedule: ShipSchedule, carriers: (string | null | undefined)[] = []): { ships: boolean; carrier: string | null } {
+  if (isShipDay(day, schedule)) return { ships: true, carrier: null };
+  const names = [...new Set([...schedule.pickups.map((p) => p.carrier), ...carriers].map((c) => String(c || '').trim()).filter(Boolean))];
+  const c = names.find((n) => carrierKey(n) !== '' && isShipDay(day, schedule, carrierKey(n)));
+  return c ? { ships: true, carrier: c } : { ships: false, carrier: null };
+}
+
+/** A day some carrier works for the shop: one of its ship days, not closed, and not a holiday every carrier keeps
+ *  (read for a carrier that keeps only those). */
+export function anyCarrierShips(day: string, schedule: ShipSchedule): boolean {
+  return isShipDay(day, schedule, 'ups');
+}
+
+/** A carrier's name as people write it: 'USPS', 'UPS', 'FedEx', 'DHL', or Shippo's token tidied ('canada_post' →
+ *  'Canada Post'). Empty when there's none. */
+const CARRIER_TOKENS: Record<string, string> = { dhl_express: 'DHL Express', dhl_ecommerce: 'DHL eCommerce', canada_post: 'Canada Post', ontrac: 'OnTrac', lasership: 'LaserShip' };
+export function carrierName(c: unknown): string {
+  const s = String(c || '').trim();
+  if (!s) return '';
+  if (CARRIER_TOKENS[s.toLowerCase()]) return CARRIER_TOKENS[s.toLowerCase()];
+  const k = carrierKey(s);
+  if (k) return k === 'usps' ? 'USPS' : k === 'ups' ? 'UPS' : k === 'fedex' ? 'FedEx' : 'DHL';
+  return /^[a-z0-9_]+$/.test(s) ? s.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : s;
+}
+
 /** A ship day the carrier also collects (any ship day, when the shop hasn't listed pickups for it). */
 function leavesOn(day: string, schedule: ShipSchedule, carrier: CarrierKey, rules: PickupRule[]): boolean {
   if (!isShipDay(day, schedule, carrier)) return false;
@@ -324,8 +354,9 @@ export function lastPickupAt(
   return Number.isFinite(at.getTime()) ? at.toISOString() : null;
 }
 
-/** A pre-order still waiting on its stock (refunded or cancelled lines don't count): its date moves with the stock. */
-export const waitingPreorder = (o: any) => (o?.lines || []).some((l: any) => l?.preorder === true && !['refunded', 'cancelled'].includes(String(l?.status)));
+/** A pre-order still waiting on its stock (refunded or cancelled lines don't count): its date moves with the stock.
+ *  Once its stock is in and it's released to be packed (releasedAt), it's an order like any other. */
+export const waitingPreorder = (o: any) => !o?.releasedAt && (o?.lines || []).some((l: any) => l?.preorder === true && !['refunded', 'cancelled'].includes(String(l?.status)));
 
 /** Running-late notices the app sends by itself for one order (lib/late-notices); after that a person decides. */
 export const MAX_AUTO_NOTICES = 2;

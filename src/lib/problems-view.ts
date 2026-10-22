@@ -6,14 +6,14 @@ import { firstName, money, needsYou, orderNum } from './orders-view';
 import { dayLabel, promisedDay } from './ship-promise';
 import { carrierItem } from './ship-day';
 
-export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'held' | 'backorder' | 'uncollected' | 'late' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'relabel' | 'refundDenied' | 'charge' | 'carrier';
+export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'held' | 'backorder' | 'uncollected' | 'late' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'relabel' | 'refundDenied' | 'charge' | 'carrier' | 'unshipped';
 export interface Problem { key: string; kind: ProblemKind; orderId: string; title: string; detail: string; at: number; urgent: boolean; ref: any }
 export interface ProblemGroup { orderId: string; num: string; customerName: string; items: Problem[]; at: number; urgent: boolean; order: any | null }
 
 const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
 const ago = (t: number, now: number) => { if (!t) return ''; const m = Math.max(0, Math.round((now - t) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const CLAIM_WORDS: Record<string, string> = { missing: 'is missing', damaged: 'arrived damaged', wrong_item: 'is the wrong item', not_received: 'never arrived', defective: 'doesn’t work' };
-const RANK: Record<ProblemKind, number> = { outside: 0, message: 1, late: 2, carrier: 3, claim: 3, refund: 4, held: 5, address: 6, voided: 7, relabel: 7, refundDenied: 8, return: 8, uncollected: 9, unconfirmed: 10, label: 11, backorder: 12, charge: 13 };
+const RANK: Record<ProblemKind, number> = { outside: 0, message: 1, late: 2, carrier: 3, claim: 3, refund: 4, held: 5, address: 6, voided: 7, relabel: 7, refundDenied: 8, return: 8, uncollected: 9, unconfirmed: 10, label: 11, unshipped: 11, backorder: 12, charge: 13 };
 const OPEN_CLAIM = new Set(['in_review', 'needs_info', 'info_requested', 'open']);
 
 export function lastCustomerAt(t: any): number {
@@ -57,6 +57,7 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
       : n.kind === 'refundDenied' ? 'The carrier scanned a voided label. Check with them before sending anything else.'
       : n.kind === 'charge' ? 'Recorded in Money as shipping'
       : n.kind === 'carrier' ? (carrierItem(o, tz)?.detail || 'Check the tracking on the order')
+      : n.kind === 'unshipped' ? 'The carrier scanned its label. Open the order and mark it shipped.'
       : 'Packs once the stock is in';
     push({ key: n.key, kind: n.kind as ProblemKind, orderId: n.orderId, title: n.text, detail, at, urgent: n.kind === 'outside', ref: o });
   }

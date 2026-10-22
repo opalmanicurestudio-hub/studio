@@ -1,8 +1,8 @@
 'use client';
 // src/components/orders/AlertsScreen.tsx — ORDERS → SETUP → ALERTS: each person picks which order alerts they get
 // (lib/order-alerts): a big day, orders coming in fast, the cutoff in an hour, orders that missed the pickup. Saved on
-// their own staff record. Until they choose, whoever packed online orders lately gets the cutoff and managers get the
-// rest; the one person packing, when only one is, gets all four.
+// their own staff record. Until they choose, whoever packed shipped orders lately gets the cutoff, and the owner,
+// admins and the managers who run the shop get the rest; the one person packing, when only one is, gets all four.
 import * as React from 'react';
 import Link from 'next/link';
 import { collection, doc, getDocs, limit, orderBy, query, updateDoc, where, type Firestore } from 'firebase/firestore';
@@ -27,7 +27,7 @@ export function AlertsScreen() {
     if (!fs || !tenantId) return;
     const since = new Date(Date.now() - PACKERS_DAYS * 86_400_000).toISOString();
     getDocs(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('packedAt', '>=', since), orderBy('packedAt', 'desc'), limit(1000)))
-      .then((s) => setPackedBy(s.docs.map((d) => String((d.data() as any)?.claimedBy || ''))))
+      .then((s) => setPackedBy(s.docs.map((d) => d.data() as any).filter((o) => o?.method === 'ship').map((o) => String(o?.claimedBy || ''))))
       .catch(() => setPackedBy([]));
   }, [fs, tenantId]);
   const packers = React.useMemo(() => packersOf(team, packedBy || []), [team, packedBy]);
@@ -55,7 +55,7 @@ export function AlertsScreen() {
         {me && packedBy === null ? (
           <p className="m-0 mt-8 text-[15px]" style={muted}>One moment…</p>
         ) : me ? (
-          <Group title="Your alerts" foot={<>They show in the app’s alerts and buzz your phone where you’ve turned alerts on in the staff app, outside your quiet hours. Until you choose, whoever packed online orders in the last two weeks gets the cutoff, and managers get a big day, coming in fast and missed the pickup{mePacks && packers.size === 1 ? '. You’re the only one packing lately, so you get all four' : ''}.</>}>
+          <Group title="Your alerts" foot={<>They show in the app’s alerts and buzz your phone where you’ve turned alerts on in the staff app, outside your quiet hours. Until you choose, whoever packed shipped orders in the last two weeks gets the cutoff, and the owner, admins and managers who pack get a big day, coming in fast and missed the pickup{mePacks && packers.size === 1 ? '. You’re the only one packing lately, so you get all four' : ''}.</>}>
             {ORDER_ALERTS.map((a, i) => (
               <Row key={a.kind} label={a.label} note={a.hint} last={i === ORDER_ALERTS.length - 1}>
                 <Toggle on={on(a.kind)} onChange={(v) => void set(a.kind, v)} label={a.label} />

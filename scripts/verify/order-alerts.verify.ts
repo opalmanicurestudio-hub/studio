@@ -26,20 +26,24 @@ const now0 = (s: Partial<AlertNow>): AlertNow => ({ due: [], dueToday: [], unpac
   const shipper = { id: 's2', name: 'Ava Chen', role: 'staff', fulfilmentRole: 'shipper' };
   const packsByLogin = { id: 's3', name: 'Zoe Hart', role: 'staff', authUid: 'u3' };
   const manager = { id: 'm1', name: 'Rae Moss', role: 'manager' };
+  const packingManager = { id: 'm3', name: 'Lou Diaz', role: 'manager' };
+  const shopManager = { id: 's5', name: 'Kit Shaw', role: 'staff', fulfilmentRole: 'manager' };
   const gone = { id: 's4', name: 'Old Hand', role: 'staff', archived: true };
   const noAccess = { id: 'm2', name: 'Ned Price', role: 'manager', fulfilmentRole: 'none' };
-  const team = [owner, stylist, shipper, packsByLogin, manager, gone, noAccess];
-  const packers = packersOf(team, ['o1', 'u3', 's4', '']);
-  check('who packs: whoever packed lately (matched by their record or their login), and anyone made a shipper; not someone archived',
-    [...packers].sort().join() === 'o1,s2,s3', [...packers]);
+  const renter = { id: 'r1', name: 'Bo Lane', role: 'renter' };
+  const team = [owner, stylist, shipper, packsByLogin, manager, packingManager, shopManager, gone, noAccess, renter];
+  const packers = packersOf(team, ['o1', 'u3', 's4', 'm3', 'r1', '']);
+  check('who packs: whoever packed lately (matched by their record or their login), and anyone made a shipper; not someone archived, and never a booth renter',
+    [...packers].sort().join() === 'm3,o1,s2,s3', [...packers]);
   check('the cutoff goes to whoever packs, managers included; not to the rest of the salon',
-    alertDefault('cutoff', owner, packers) && alertDefault('cutoff', shipper, packers) && alertDefault('cutoff', packsByLogin, packers) && !alertDefault('cutoff', stylist, packers) && !alertDefault('cutoff', manager, packers));
-  check('a big day, coming in fast and missed the pickup go to managers',
-    (['big_day', 'fast', 'missed'] as const).every((k) => alertDefault(k, owner, packers) && alertDefault(k, manager, packers) && !alertDefault(k, shipper, packers) && !alertDefault(k, stylist, packers)));
+    alertDefault('cutoff', owner, packers) && alertDefault('cutoff', shipper, packers) && alertDefault('cutoff', packsByLogin, packers) && alertDefault('cutoff', packingManager, packers) && !alertDefault('cutoff', stylist, packers) && !alertDefault('cutoff', manager, packers));
+  check('a big day, coming in fast and missed the pickup go to the owner, the shop’s fulfillment manager and managers who pack; not to a salon manager who never touches the shop',
+    (['big_day', 'fast', 'missed'] as const).every((k) => alertDefault(k, owner, packers) && alertDefault(k, packingManager, packers) && alertDefault(k, shopManager, packers) && !alertDefault(k, manager, packers) && !alertDefault(k, shipper, packers) && !alertDefault(k, stylist, packers)));
   const one = packersOf(team, ['u3']);
-  check('when one person does the packing, they get all four; managers still get theirs',
+  check('when one person does the packing, they get all four; the owner still gets hers',
     (['big_day', 'fast', 'cutoff', 'missed'] as const).every((k) => alertDefault(k, { ...packsByLogin, fulfilmentRole: undefined }, packersOf([packsByLogin, owner], ['u3']))) && alertDefault('big_day', owner, packersOf([packsByLogin, owner], ['u3'])) && !alertDefault('cutoff', owner, packersOf([packsByLogin, owner], ['u3'])) && one.has('s3'));
-  check('before anyone has packed, the cutoff goes to managers', alertDefault('cutoff', manager, new Set()) && alertDefault('cutoff', owner, new Set()) && !alertDefault('cutoff', stylist, new Set()));
+  check('before anyone has packed a shipped order, the cutoff goes to the owner and admins', alertDefault('cutoff', owner, new Set()) && alertDefault('cutoff', { ...manager, role: 'admin' }, new Set()) && !alertDefault('cutoff', manager, new Set()) && !alertDefault('cutoff', stylist, new Set()));
+  check('a booth renter never gets the shop’s alerts, even by choice', (['big_day', 'fast', 'cutoff', 'missed'] as const).every((k) => !wantsAlert(k, { ...renter, notificationPrefs: { orderAlerts: { [k]: true } } }, packersOf([renter], ['r1']))));
   check('never someone with no access to orders', (['big_day', 'fast', 'cutoff', 'missed'] as const).every((k) => !alertDefault(k, noAccess, packers) && !alertDefault(k, noAccess, new Set())));
   check('their own choice wins either way',
     !wantsAlert('cutoff', { ...shipper, notificationPrefs: { orderAlerts: { cutoff: false } } }, packers) && wantsAlert('big_day', { ...stylist, notificationPrefs: { orderAlerts: { big_day: true } } }, packers) && wantsAlert('cutoff', shipper, packers));
@@ -89,6 +93,14 @@ const now0 = (s: Partial<AlertNow>): AlertNow => ({ due: [], dueToday: [], unpac
   check('a few minutes’ grace after the pickup, and nothing once everything is labeled', !missed([priya], at('15:04')) && !missed([labeledBox]));
   const fri = [dueToday('f', 'Fay Dunn', { promise: promise('2026-10-23'), promiseAt: '2026-10-23T19:00:00.000Z', shipPromiseAt: endOfDay('2026-10-23', TZ).toISOString() })];
   check('on a Friday, the next ship day is Monday', alertsDue(now0({ due: fri, dueToday: fri }), at('15:06', '2026-10-23'), TZ, schedule).find((a) => a.kind === 'missed')?.message === 'Fay hears after 4:00 PM that the order ships on Monday, unless it’s labeled first.');
+  // Pickups Monday, Wednesday and Friday: missed on Monday, it goes Wednesday, as the late notice and the Late list say.
+  const mwf = scheduleFrom({ shipSchedule: { ...rs.shipSchedule, pickups: [{ carrier: 'USPS', days: [1, 3, 5], time: '15:00' }] } });
+  const mon = [dueToday('w', 'Wes Hale', { promise: promise('2026-10-26'), promiseAt: '2026-10-26T19:00:00.000Z', shipPromiseAt: endOfDay('2026-10-26', TZ).toISOString() })];
+  const onMon = alertsDue(now0({ due: mon, dueToday: mon }), at('15:06', '2026-10-26'), TZ, mwf).find((a) => a.kind === 'missed');
+  check('the day named is the next day its carrier collects, not just the next ship day', onMon?.message === 'Wes hears after 4:00 PM that the order ships on Wednesday, unless it’s labeled first.', onMon?.message);
+  const ups = dueToday('u', 'Uma Park', { promise: { ...promise('2026-10-26'), carrier: 'UPS' }, promiseAt: '2026-10-26T19:00:00.000Z', shipPromiseAt: endOfDay('2026-10-26', TZ).toISOString() });
+  const mixed = alertsDue(now0({ due: [...mon, ups], dueToday: [...mon, ups] }), at('18:10', '2026-10-26'), TZ, mwf).find((a) => a.kind === 'missed');
+  check('orders that now go on different days aren’t given one: each hears their own, after the later of their times', mixed?.title === '2 orders missed the pickup' && mixed.message === 'Wes and Uma hear their new dates after 7:00 PM, unless they’re labeled first.', mixed?.message);
   check('nothing on a day the shop doesn’t ship', !alertsDue(now0({ due: many(30), unpacked: 30, usual: { daily: 2, paidByDay: [] } }), at('10:00', '2026-10-24'), TZ, schedule).length);
 
   // ── The check ──
@@ -113,8 +125,8 @@ const now0 = (s: Partial<AlertNow>): AlertNow => ({ due: [], dueToday: [], unpac
   check('ten minutes later, nothing goes twice', r2.sent === 0 && notes().length === 2);
   const r3 = await checkOrderAlerts(db, 't1', tenant, { now: at('15:10') });
   const n3 = notes().filter((n: any) => n.type === 'orders_missed');
-  check('after the pickup, missed goes to managers (the owner and Rae), naming who hears by themselves; the labeled box and the backorder aren’t in it',
-    r3.sent === 1 && n3.map((n: any) => n.userId).sort().join() === 'm1,o1' && n3[0].title === '3 orders missed the pickup' && n3[0].message === 'Ana, Ben and 1 other hear after 4:00 PM that their orders ship tomorrow, unless they’re labeled first.' && n3[0].link === '/retail-orders?view=late', n3);
+  check('after the pickup, missed goes to the owner (not a manager who doesn’t pack), naming who hears by themselves; the labeled box and the backorder aren’t in it',
+    r3.sent === 1 && n3.map((n: any) => n.userId).sort().join() === 'o1' && n3[0].title === '3 orders missed the pickup' && n3[0].message === 'Ana, Ben and 1 other hear after 4:00 PM that their orders ship tomorrow, unless they’re labeled first.' && n3[0].link === '/retail-orders?view=late', n3);
 
   // A batch that can't be written lets its claim go, so the next check sends it.
   const db2 = makeDb();
@@ -131,8 +143,26 @@ const now0 = (s: Partial<AlertNow>): AlertNow => ({ due: [], dueToday: [], unpac
   await db3.doc(`${T}/staff/o1`).set(owner);
   await db3.doc(`${T}/retailOrders/z1`).set(dueToday('z1', 'Ana Ruiz'));
   const early = await checkOrderAlerts(db3, 't1', tenant, { now: at('07:30') });
-  const late3 = await checkOrderAlerts(db3, 't1', tenant, { now: at('18:10') });
-  check('nothing is read before 8 AM, or three hours after the last pickup', early.sent === 0 && late3.sent === 0 && !db3._store.has(`${T}/private/order-alerts-2026-10-22`));
+  const late3 = await checkOrderAlerts(db3, 't1', tenant, { now: Date.parse('2026-10-23T01:10:00Z') });   // 9:10 PM
+  check('nothing is read before 8 AM, or three hours after the day’s last miss (the end of the shipping day, 6 PM, for a carrier with no pickup listed)', early.sent === 0 && late3.sent === 0 && !db3._store.has(`${T}/private/order-alerts-2026-10-22`));
+  // Veterans Day, Wednesday November 11: USPS doesn't collect, UPS does (New York is five hours behind UTC by then).
+  const db4 = makeDb();
+  const rsVet = { shipSchedule: { ...rs.shipSchedule, pickups: [{ carrier: 'USPS', days: [1, 2, 3, 4, 5], time: '15:00' }, { carrier: 'UPS', days: [1, 2, 3, 4, 5], time: '15:00' }] } };
+  const tVet = { ...tenant, retailSettings: rsVet };
+  await db4.doc(T).set(tVet);
+  await db4.doc(`${T}/staff/o1`).set(owner);
+  await db4.doc(`${T}/retailOrders/v1`).set({ ...dueToday('v1', 'Vi Lane'), promise: { ...promise('2026-11-11'), carrier: 'UPS' }, promiseAt: '2026-11-11T20:00:00.000Z', shipPromiseAt: endOfDay('2026-11-11', TZ).toISOString() });
+  const vet = await checkOrderAlerts(db4, 't1', tVet, { now: Date.parse('2026-11-11T18:05:00Z') });
+  check('a holiday only USPS keeps doesn’t silence a shop that ships UPS that day', vet.sent === 1 && [...db4._store.values()].some((d: any) => d?.type === 'orders_cutoff'), vet);
+  // Only shipped orders count as packing: getting a pickup order ready at the desk isn't.
+  const db5 = makeDb();
+  await db5.doc(T).set(tenant);
+  for (const m of [owner, stylist]) await db5.doc(`${T}/staff/${m.id}`).set(m);
+  await db5.doc(`${T}/retailOrders/k1`).set({ id: 'k1', method: 'counter', stage: 'ready', claimedBy: 's1', packedAt: '2026-10-22T14:00:00Z' });
+  await db5.doc(`${T}/retailOrders/k2`).set(dueToday('k2', 'Ana Ruiz'));
+  await checkOrderAlerts(db5, 't1', tenant, { now: at('13:05') });
+  const n5 = [...db5._store.entries()].filter(([p]: any) => p.startsWith(`${T}/notifications/`)).map(([, d]: any) => d.userId);
+  check('someone who only gets pickup orders ready isn’t sent the shipping cutoff', n5.join() === 'o1', n5);
   check('a shop without a saved schedule, or on a Saturday, isn’t checked',
     (await checkOrderAlerts(db, 't1', { ...tenant, retailSettings: {} }, { now: at('13:05') })).sent === 0 && (await checkOrderAlerts(db, 't1', tenant, { now: at('13:05', '2026-10-24') })).sent === 0);
 
