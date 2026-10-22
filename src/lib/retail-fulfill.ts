@@ -1126,9 +1126,29 @@ export async function splitReadyFromWaiting(
   }
 }
 
+/** The shelf units a backorder needs, by product: each open unit of its physical items. */
+function backorderNeeds(o: any): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const l of Array.isArray(o?.lines) ? o.lines : []) {
+    if (!l || l.digital === true || !l.productId) continue;
+    const q = Math.max(0, (Number(l.qtyOrdered) || 0) - (Number(l.qtyShorted) || 0));
+    if (q > 0) m.set(String(l.productId), (m.get(String(l.productId)) || 0) + q);
+  }
+  return m;
+}
+
+/** What's free on the shelf for a product: on hand, less what paid orders are holding. */
+const freeUnits = (it: any): number => Math.max(0, (Number(it?.totalStock) || 0) - (Number(it?.stockReserved) || 0));
+
+/**
+ * A backorder waiting for stock goes into the packing queue. It held no stock while it waited; released, it takes its
+ * units like any paid order. `onlyIfCovered`: release it only when everything it needs is free on the shelf, checked
+ * in the same transaction (the automatic release); without it, someone has decided to send it (the team's Release).
+ * Either way the answer says what's short, so the screen can ask before releasing an order that can't be packed yet.
+ */
 export async function releaseBackorder(
-  fs: Firestore, tenantId: string, orderId: string, actor: Actor
-): Promise<{ ok: boolean; message: string }> {
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, opts: { onlyIfCovered?: boolean } = {}
+): Promise<{ ok: boolean; message: string; short?: { productId: string; name: string; have: number; need: number }[] }> {
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -1136,19 +1156,26 @@ export async function releaseBackorder(
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
       const child = oSnap.data() as RetailOrder;
       if (child.holdUntilRestock !== true) {
-        return { ok: false, message: 'Order is not on hold.' };
+        return { ok: false, message: 'This order isn’t waiting on stock any more.' };
       }
-      // A waiting backorder holds no stock; released, it takes its units like any paid order.
-      const reads = await Promise.all((child.lines || []).filter((l) => (l as any).digital !== true).map(async (l) => ({ l, ref: invDoc(fs, tenantId, l.productId), snap: await txn.get(invDoc(fs, tenantId, l.productId)) })));
-      for (const { l, ref, snap } of reads) {
+      if (!['paid'].includes(String(child.stage))) return { ok: false, message: 'This order has already moved on.' };
+      // Each product once, however many lines it's on, so two lines of one product both take their units.
+      const needs = backorderNeeds(child);
+      const reads = await Promise.all([...needs].map(async ([pid, q]) => ({ pid, q, ref: invDoc(fs, tenantId, pid), snap: await txn.get(invDoc(fs, tenantId, pid)) })));
+      const nameOf = (pid: string) => String((child.lines || []).find((l: any) => String(l.productId) === pid)?.name || 'item');
+      const short = reads.filter(({ q, snap }) => freeUnits(snap.exists() ? snap.data() : null) < q)
+        .map(({ pid, q, snap }) => ({ productId: pid, name: nameOf(pid), have: freeUnits(snap.exists() ? snap.data() : null), need: q }));
+      const shortText = short.map((x) => `${x.have} of ${x.need} ${x.name}`).join(', ');
+      if (opts.onlyIfCovered && short.length) return { ok: false, short, message: `Not all on the shelf yet: ${shortText}.` };
+      for (const { q, ref, snap } of reads) {
         if (!snap.exists()) continue;
-        const it = snap.data() as any; const q = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
-        if (q > 0) txn.update(ref, { stockReserved: (it.stockReserved || 0) + q });
+        const it = snap.data() as any;
+        txn.update(ref, { stockReserved: (Number(it.stockReserved) || 0) + q });
       }
       // Due times count from here, not from the original payment (lib/retail-orders workStartedAt).
       txn.update(oRef, { holdUntilRestock: false, releasedAt: new Date().toISOString() });
-      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Backorder released to queue' }));
-      return { ok: true, message: 'Released to the queue' };
+      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: short.length ? `Backorder released to the queue, though only ${shortText} on the shelf` : 'Backorder released to the queue' }));
+      return { ok: true, short, message: short.length ? `Released. Only ${shortText} on the shelf, so it may come up short when it’s packed.` : 'Released. It’s in the packing queue now.' };
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not release.' };
@@ -1156,14 +1183,12 @@ export async function releaseBackorder(
 }
 
 /**
- * Restock → release. Called by the receive dialogs AFTER stock commits:
- * finds parked backorder children whose product was just received and
- * releases them oldest-first while the received units still cover each
- * child in full — spec's "system detects → system acts". Partial coverage
- * releases nothing for that child (a release that instantly re-shorts at
- * the bench would be motion, not progress). Best-effort by design: a
- * failure here never touches the receive that already committed, and the
- * board's manual Release button remains the human override either way.
+ * Stock came in → backorders go out. Called after stock commits (the receive dialogs, a return checked back onto the
+ * shelf): every backorder waiting for one of those products is released, oldest first, when everything it needs is
+ * free on the shelf now (what's on hand less what paid orders are holding), not just what this delivery brought, so
+ * two deliveries that together cover it release it. All of it or none: a release that comes up short at the bench is
+ * motion, not progress. Best-effort by design: a failure here never touches the stock that already committed, and the
+ * order's own Release stays the human override either way.
  */
 export async function releaseCoverableBackorders(
   fs: Firestore,
@@ -1173,30 +1198,28 @@ export async function releaseCoverableBackorders(
 ): Promise<{ released: { orderId: string; orderNumber: number | null; units: number }[] }> {
   const released: { orderId: string; orderNumber: number | null; units: number }[] = [];
   try {
-    const budget = new Map<string, number>();
-    for (const r of received) {
-      if (r.productId && Number(r.qty) > 0) {
-        budget.set(r.productId, (budget.get(r.productId) || 0) + Math.floor(Number(r.qty)));
-      }
-    }
-    if (budget.size === 0) return { released };
+    const touched = new Set(received.filter((r) => r.productId && Number(r.qty) > 0).map((r) => String(r.productId)));
+    if (touched.size === 0) return { released };
 
-    const heldSnap = await getDocs(query(orderCol(fs, tenantId), where('holdUntilRestock', '==', true)));
+    const heldSnap = await getDocs(query(orderCol(fs, tenantId), where('holdUntilRestock', '==', true), limit(200)));
     const held = heldSnap.docs
       .map((d) => ({ ...(d.data() as RetailOrder), id: d.id }))
-      .filter((o) => o.stage === 'paid')
+      .filter((o) => o.stage === 'paid' && [...backorderNeeds(o).keys()].some((p) => touched.has(p)))
       .sort((a, b) => String(a.placedAt || '').localeCompare(String(b.placedAt || '')));
+    if (!held.length) return { released };
 
+    const free = new Map<string, number>();
+    for (const pid of new Set(held.flatMap((o) => [...backorderNeeds(o).keys()]))) {
+      const s = await getDoc(invDoc(fs, tenantId, pid));
+      free.set(pid, freeUnits(s.exists() ? s.data() : null));
+    }
     for (const child of held) {
-      const line = (child.lines || [])[0];
-      if (!line) continue;
-      const have = budget.get(line.productId) || 0;
-      if (have < line.qtyOrdered) continue;
-      const res = await releaseBackorder(fs, tenantId, child.id, actor);
-      if (res.ok) {
-        budget.set(line.productId, have - line.qtyOrdered);
-        released.push({ orderId: child.id, orderNumber: child.orderNumber ?? null, units: line.qtyOrdered });
-      }
+      const needs = backorderNeeds(child);
+      if (!needs.size || [...needs].some(([pid, q]) => (free.get(pid) || 0) < q)) continue;
+      const res = await releaseBackorder(fs, tenantId, child.id, actor, { onlyIfCovered: true });
+      if (!res.ok) continue;
+      for (const [pid, q] of needs) free.set(pid, (free.get(pid) || 0) - q);
+      released.push({ orderId: child.id, orderNumber: child.orderNumber ?? null, units: [...needs.values()].reduce((a, b) => a + b, 0) });
     }
   } catch (e) {
     console.warn('[retail-fulfill] backorder auto-release skipped:', (e as any)?.message);

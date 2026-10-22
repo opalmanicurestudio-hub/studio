@@ -4,7 +4,7 @@
 // hand it over, bring it out). The record tab is the order's whole history in plain words.
 import * as React from 'react';
 import { collection, limit, onSnapshot, orderBy, query, type Firestore } from 'firebase/firestore';
-import { cancelIt, bringingOut } from '@/lib/orders-flow';
+import { cancelIt, bringingOut, releaseHeld } from '@/lib/orders-flow';
 import { dueLine, eventLine, firstName, methodLabel, money, orderNum, packProgress } from '@/lib/orders-view';
 import { useTenant } from '@/context/TenantContext';
 import { formatTime, tenantTimeZone, todayIn } from '@/lib/tenant-time';
@@ -55,6 +55,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const shown = order.method === 'ship' ? customerDates(order, shopZone) : null;
   const shipDay = order.method === 'ship' && order.promise ? promisedDay(order, tz) : null;
   const [newDate, setNewDate] = React.useState<{ day: string; note: string } | null>(null);
+  const [releaseAsk, setReleaseAsk] = React.useState<string | null>(null);
   async function sendNewDate() {
     if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate.day)) { setErr('Choose the new ship-by day.'); return; }
     setBusy(true); setErr('');
@@ -77,9 +78,21 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const paidOther = !follow && ((Number(order.giftCardCents) || 0) > 0 || (Number(order.storeCreditRequestedCents) || 0) > 0);
   const shortLines = (order.lines || []).filter((l: any) => ['refunded', 'backordered', 'shorted'].includes(l.status));
   const terminal = ['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(order.stage);
+  // A backorder (or pre-order items sent later) waiting for stock: it isn't packed until it's released, by itself when
+  // stock comes in, or here.
+  const held = order.holdUntilRestock === true && order.stage === 'paid';
+  const release = async (anyway: boolean) => {
+    setBusy(true); setErr('');
+    const r = await releaseHeld(fs, tenantId, order, actor, anyway);
+    setBusy(false); feel(r.ok);
+    if (r.ok) { setReleaseAsk(null); onToast(r.message); return; }
+    if (!anyway && r.short?.length) { setReleaseAsk(r.message); return; }
+    setReleaseAsk(null); setErr(r.message);
+  };
 
   const main: { label: string; run: () => void } | null =
     order.holdForReview || (order.method === 'ship' && openRequest(order)) ? null
+    : held ? { label: 'Release it to packing', run: () => void release(false) }
     : order.stage === 'paid' ? { label: 'Start packing', run: onPack }
     : order.stage === 'picking' ? { label: order.claimedBy && order.claimedBy !== actor.id ? `Take over from ${firstName(order.claimedByName)}` : 'Continue packing', run: onPack }
     : order.stage === 'packed' && order.method === 'ship' ? { label: order.labelUrl ? 'Mark as shipped' : 'Ship it', run: onShip }
@@ -181,6 +194,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
                 <Btn kind="soft" className="mt-3 h-11 w-full" style={{ background: C.paper }} onClick={() => setNewDate({ day: '', note: '' })}>Send a new date</Btn>)}
             </div>)}
           {order.holdForReview && <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}><p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>Held for review</p><p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>This order won’t be packed until someone decides on it.</p></div>}
+          {held && <div className="mt-4 rounded-2xl p-4" style={{ background: C.soft }}><p className="m-0 text-[15px] font-semibold">Waiting on stock</p><p className="m-0 mt-1 text-[14px]" style={muted}>It goes into the packing queue by itself once everything it needs is on the shelf. If it’s there already, release it now.</p></div>}
           {pending > 0 && (
             <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
               <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{money(pending)} to refund to {who}</p>
@@ -302,6 +316,10 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
           <Btn kind="primary" className="mx-auto flex w-full max-w-xl text-[17px]" disabled={busy} onClick={main.run}>{main.label}</Btn>
         </div>)}
 
+      {releaseAsk !== null && (
+        <Sheet title="Release it anyway?" sub={`${releaseAsk} It goes into the packing queue now. Whoever packs it can send what’s missing later or refund it.`} onClose={() => setReleaseAsk(null)} closeLabel="Wait for stock">
+          <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={busy} onClick={() => void release(true)}>Release it</Btn>
+        </Sheet>)}
       {confirm === 'cancel' && (
         <Sheet title={`Cancel ${who}’s order?`} sub={follow
           ? order.replacementFor === 'lost_in_transit'

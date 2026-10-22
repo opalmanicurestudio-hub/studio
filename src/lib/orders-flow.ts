@@ -5,7 +5,7 @@
 import { type Firestore, doc, updateDoc } from 'firebase/firestore';
 import {
   claimSpecificOrder, markPacked, markReady, notifyCurbside, recordItemScan, recordLineTap, resolveShortLine,
-  releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffWithoutScan, markShipped, cancelOrder, type Actor,
+  releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffWithoutScan, markShipped, cancelOrder, releaseBackorder, type Actor,
 } from '@/lib/retail-fulfill';
 import { nextFreeSlot } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -17,6 +17,7 @@ export async function startPacking(fs: Firestore, t: string, o: any, actor: Acto
   if (o.stage === 'picking' || o.stage === 'packed') return { ok: true, message: 'Packing' };
   if (o.stage !== 'paid') return { ok: false, message: 'This order isn’t waiting to be packed.' };
   if (o.holdForReview === true) return { ok: false, message: 'This order is held for review. Decide on it first.' };
+  if (o.holdUntilRestock === true) return { ok: false, message: 'This order is waiting on stock. Release it from its page once the items are on the shelf.' };
   const r = await claimSpecificOrder(fs, t, o.id, actor);
   return 'error' in r ? { ok: false, message: r.error } : { ok: true, message: 'Packing' };
 }
@@ -30,6 +31,12 @@ export async function tapInto(fs: Firestore, t: string, orderId: string, lineId:
 
 export async function undoTick(fs: Firestore, t: string, orderId: string, lineId: string, actor: Actor) {
   return undoLineCount(fs, t, orderId, lineId, actor);
+}
+
+/** A backorder waiting on stock goes into the packing queue (lib/retail-fulfill releaseBackorder). Without `anyway`,
+ *  only when everything it needs is on the shelf; the answer says what's short, so the screen can ask first. */
+export async function releaseHeld(fs: Firestore, t: string, o: any, actor: Actor, anyway = false) {
+  return releaseBackorder(fs, t, o.id, actor, { onlyIfCovered: !anyway });
 }
 
 /** Put it down: stops packing and returns the order to the queue for anyone. */

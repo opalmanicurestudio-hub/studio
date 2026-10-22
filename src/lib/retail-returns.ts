@@ -3,6 +3,7 @@
 import { syncRenterCredits } from './renter-credit-client';
 import { restockingFee } from './restocking';
 import { lineFor, taxBasisOf } from './order-family';
+import { releaseCoverableBackorders } from './retail-fulfill';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import {
   Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
@@ -152,8 +153,10 @@ export async function receiveReturnLine(
   fs: Firestore, tenantId: string, ret: ReturnDoc, lineId: string,
   disposition: ReturnDisposition, actor: Actor
 ): Promise<{ ok: boolean; allReceived?: boolean; message: string }> {
+  let back: { productId: string; qty: number } | null = null;
   try {
-    return await runTransaction(fs, async (txn) => {
+    const out = await runTransaction(fs, async (txn) => {
+      back = null;
       const rRef = doc(returnCol(fs, tenantId), ret.id);
       const rSnap = await txn.get(rRef);
       if (!rSnap.exists()) return { ok: false, message: 'Return not found.' };
@@ -192,6 +195,7 @@ export async function receiveReturnLine(
           orderId: fresh.orderId, returnId: ret.id,
           actorId: actor.id, actorName: actor.name, source: 'retail_engine',
         });
+        back = { productId: String(origLine!.productId), qty: Number(line.qty) || 0 };
       }
 
       if (['write_off', 'damaged', 'dispose'].includes(disposition) && origLine) {
@@ -252,6 +256,15 @@ export async function receiveReturnLine(
 
       return { ok: true, allReceived, message: `${line.name}: ${disposition === 'restock' ? 'back in stock' : 'written off'}${allReceived ? ' \u2014 that was the last item' : ''}` };
     });
+    // Back on the shelf: a backorder waiting for it may be able to go now (lib/retail-fulfill). Best effort.
+    const shelf = back as { productId: string; qty: number } | null;
+    if (out.ok && shelf && shelf.qty > 0) {
+      try {
+        const { released } = await releaseCoverableBackorders(fs, tenantId, [shelf], actor);
+        if (released.length) out.message += `. ${released.length === 1 ? `Order #${released[0].orderNumber ?? ''} was waiting for it and` : `${released.length} orders were waiting for it and`} can be packed now`;
+      } catch { /* the order's own Release still works */ }
+    }
+    return out;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not receive the line.' };
   }
