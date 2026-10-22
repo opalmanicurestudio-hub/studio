@@ -31,6 +31,7 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
   const fee = isRefund && order ? restockingFee(order.lines || [], lines, rs?.policies || {}) : { cents: 0, lines: [], waived: false };
   const net = Math.max(0, gross - label - Math.min(Math.max(0, gross - label), fee.cents));
   const first = String(order?.customerName || '').split(' ')[0] || 'them';
+  const autoBelow = Math.max(0, Number(rs?.policies?.refundAutoBelowCents) || 0);
 
   const go = async () => {
     setBusy(true); setErr('');
@@ -45,8 +46,13 @@ export function ReturnSheet({ fs, tenantId, ret, initialOrder, actor, rs, canRef
       const res = await resolveReturn(fs, tenantId, cur, actor);
       if (!res.ok) { setErr(res.message); feel(false); return; }
       let msg = res.message;
-      if (isRefund && canRefund && (res.refundQueuedCents || 0) > 0) {
-        const r = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: ret.orderId, qrToken: res.orderQrToken || order?.qrToken || '' }) });
+      // Sent now by someone allowed to refund, or by anyone when it's within the shop's automatic amount (the order's
+      // whole queued refund; api/retail/refund checks it again). Otherwise it waits on Problems.
+      const queued = res.refundQueuedCents || 0;
+      const total = queued + Math.max(0, Number(order?.pendingRefundCents) || 0);
+      const inAuto = autoBelow > 0 && total <= autoBelow;
+      if (isRefund && queued > 0 && (canRefund || inAuto)) {
+        const r = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: ret.orderId, qrToken: res.orderQrToken || order?.qrToken || '', ...(inAuto ? { reason: 'policy' } : {}) }) });
         const d = await r.json().catch(() => ({}));
         const plain = (Number(d.cardCents) || 0) > 0 && !(Number(d.otherCents) || 0) && !(Number(d.overCardCents) || 0) && d.recorded !== false;
         msg = !r.ok ? `Checked in. The refund didn’t send: ${d.error || 'try again from Problems'}.`

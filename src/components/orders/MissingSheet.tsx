@@ -2,7 +2,8 @@
 // src/components/orders/MissingSheet.tsx — SOMETHING ISN'T ON THE SHELF. The customer's own choice from checkout sits at
 // the top (refund, swap for something similar, or ask first) and is the option already picked. Swap shows close matches
 // that are in stock; for someone who chose swaps it happens now, for everyone else they're asked by text and email.
-// Refunds wait for someone allowed to send money. Stock is corrected either way so nobody else buys one.
+// A refund within the shop's automatic amount goes back straight away; a bigger one waits for someone allowed to send
+// money. Stock is corrected either way so nobody else buys one.
 import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { markMissing } from '@/lib/orders-flow';
@@ -15,7 +16,7 @@ import { Btn, C, Sheet, Thumb, muted } from './ui';
 
 type How = 'swap' | 'refund' | 'backorder' | 'look';
 
-export function MissingSheet({ fs, tenantId, order, line, shelf, inventory = [], actor, onClose, onDone }: { fs: Firestore; tenantId: string; order: any; line: any; shelf?: string; inventory?: any[]; actor: Actor; onClose: () => void; onDone: (msg: string) => void }) {
+export function MissingSheet({ fs, tenantId, order, line, shelf, inventory = [], actor, autoBelow = 0, onClose, onDone }: { fs: Firestore; tenantId: string; order: any; line: any; shelf?: string; inventory?: any[]; actor: Actor; autoBelow?: number; onClose: () => void; onDone: (msg: string) => void }) {
   const owed = Math.max(0, (Number(line.qtyOrdered) || 0) - (Number(line.qtyScanned) || 0) - (Number(line.qtyShorted) || 0));
   const pref = normaliseIfUnavailable(order.ifUnavailable);
   const options = React.useMemo(() => similarItems(inventory, line), [inventory, line]);
@@ -43,7 +44,18 @@ export function MissingSheet({ fs, tenantId, order, line, shelf, inventory = [],
         return;
       }
       const r = await markMissing(fs, tenantId, order.id, line.lineId, how, shelf ? `Not on shelf ${shelf}` : 'Not on the shelf', actor);
-      if (r.ok) onDone(how === 'refund' ? `${who} will get ${money(amount)} back. It’s waiting for someone to send it.` : `${line.name} will ship on its own when it’s back.`); else setErr(r.message);
+      if (!r.ok) { setErr(r.message); return; }
+      if (how !== 'refund') { onDone(`${line.name} will ship on its own when it’s back.`); return; }
+      // Within the shop's automatic amount (the order's whole queued refund) it goes back now; the server checks again.
+      const total = amount + Math.max(0, Number(order.pendingRefundCents) || 0);
+      if (autoBelow > 0 && total <= autoBelow && order.replacementFor !== 'lost_in_transit') {
+        try {
+          const s = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, qrToken: order.qrToken || '', reason: 'policy' }) });
+          const d = await s.json().catch(() => ({}));
+          if (s.ok) { onDone(`${money(Number(d.amountCents) || amount)} sent back to ${who}. Keep packing the rest.`); return; }
+        } catch { /* it waits on Problems */ }
+      }
+      onDone(`${who} will get ${money(amount)} back. It’s waiting for someone to send it.`);
     } finally { setBusy(false); }
   };
   const opt = (id: How, title: string, sub: string, extra?: React.ReactNode) => (
@@ -68,7 +80,7 @@ export function MissingSheet({ fs, tenantId, order, line, shelf, inventory = [],
                 {pick === o.productId && <span className="text-[13px] font-semibold">Chosen</span>}
               </button>))}
           </div>))}
-        {opt('refund', `Refund ${money(amount)}`, `${who} gets an email saying why. The refund waits for someone allowed to send money.`)}
+        {opt('refund', `Refund ${money(amount)}`, autoBelow > 0 && amount + Math.max(0, Number(order.pendingRefundCents) || 0) <= autoBelow ? `${who} gets an email saying why, and the money goes back now.` : `${who} gets an email saying why. The refund waits for someone allowed to send money.`)}
         {opt('backorder', 'Send it when it’s back', 'The rest goes out now. This ships on its own at no cost to them.')}
         {opt('look', 'Keep looking', 'Nothing changes yet.')}
       </div>

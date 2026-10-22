@@ -11,8 +11,9 @@ export const dynamic = 'force-dynamic';
  * POST /api/retail/return-notify — "we received your items, here's what
  * happened", fired when a return resolves. One email, three arms:
  *
- *   refund       → the exact amount heading back to their card (with the
- *                  return-shipping deduction disclosed when the policy took it)
+ *   refund       → the exact amount approved to go back to them (with the
+ *                  return-shipping deduction disclosed when the policy took it);
+ *                  the refund route's own email says when it has been sent
  *   store_credit → the credit issued AND their new balance — this route
  *                  claims the credit doc's grantEmailAt itself, so the
  *                  separate grant email can never double up
@@ -94,12 +95,12 @@ export async function POST(req: NextRequest) {
       const cents = ret.refundNetCents != null ? Math.max(0, Number(ret.refundNetCents) || 0) : Math.max(0, (Number(ret.refundCents) || 0) - labelDeduct - fee);
       outcomeHtml = `
         <div style="border:2px solid #e2e8f0;border-radius:16px;padding:18px;margin:14px 0;text-align:center">
-          <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Your refund is on its way</p>
+          <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 4px">Your refund is approved</p>
           <p style="font-size:30px;font-weight:800;color:#0f172a;margin:0">${money(cents)}</p>
           ${labelDeduct ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0">As outlined in our return policy, which was shown when your label was issued, return shipping of ${money(labelDeduct)} has been deducted.</p>` : ''}
           ${fee ? `<p style="font-size:12px;color:#64748b;margin:8px 0 0">As outlined in our return policy, a restocking fee of ${money(fee)} has been deducted for the condition the items came back in.</p>` : ''}
         </div>
-        <p style="font-size:13px;color:#334155;line-height:1.6">Card refunds typically appear within 5 to 10 business days, depending on your bank.</p>`;
+        <p style="font-size:13px;color:#334155;line-height:1.6">We will email you as soon as it is sent. Card refunds typically appear within 5 to 10 business days after that, depending on your bank. Anything you paid by gift card or store credit goes back that way.</p>`;
     } else if (resolution === 'store_credit') {
       const cents = ret.creditNetCents != null ? Math.max(0, Number(ret.creditNetCents) || 0) : Math.max(0, (Number(ret.storeCreditCents) || 0) - labelDeduct);
       // Claim the credit's own grant email so the two paths can never both send.

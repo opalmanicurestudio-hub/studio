@@ -169,7 +169,7 @@ export function PoliciesScreen() {
         </Group>
 
         <Group title="Refunds and credit">
-          <Row label="Refund on its own up to" note="Smaller refunds go back to the card as soon as a return is checked in. $0 means you confirm every one."><NumberField label="Refund on its own up to" prefix="$" value={dollars(pol.refundAutoBelowCents)} disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.refundAutoBelowCents', Math.round(n * 100), 'Refund limit')} /></Row>
+          <Row label="Refund on its own up to" note="Refunds up to this amount go back on their own: a return checked in, a cancelled order, an item that wasn’t on the shelf, a swap they turned down, a report your rules approve. Anyone on the team can send one this size. $0 means someone allowed to refund sends every one."><NumberField label="Refund on its own up to" prefix="$" value={dollars(pol.refundAutoBelowCents)} disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.refundAutoBelowCents', Math.round(n * 100), 'Refund limit')} /></Row>
           <Row label="Staff can give store credit up to" note="Managers have no limit." last><NumberField label="Staff credit limit" prefix="$" value={dollars(rs.staffCreditCapCents ?? 2500)} disabled={!canEdit} onSave={(n) => void save('retailSettings.staffCreditCapCents', Math.round(n * 100), 'Credit limit')} /></Row>
         </Group>
 

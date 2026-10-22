@@ -261,7 +261,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
           : queue.slice(0, 12).map((o) => { const d = dueLine(o, rs, Date.now(), shopZone); return <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${methodLabel(o.method)} · ${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`} trail={<span className="text-[14px]" style={d.late ? { color: C.warn, fontWeight: 600 } : muted}>{d.text}</span>} />; })}
       </Section>
 
-      {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} actor={actor as any} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); say(m); }} />}
+      {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} actor={actor as any} autoBelow={Math.max(0, Number(rs?.policies?.refundAutoBelowCents) || 0)} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); say(m); }} />}
       {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={weights} rs={rs} actor={actor as any} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); say(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor as any} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); say(m); }} />}
       {toast && <UndoBar text={toast} onDone={() => setToast('')} bottom={110} />}

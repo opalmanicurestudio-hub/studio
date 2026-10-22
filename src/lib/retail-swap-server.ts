@@ -7,6 +7,7 @@ import { taxShareCents } from './restocking';
 import { SWAP_ANSWER_HOURS, normaliseIfUnavailable, swapLines, type SwapItem } from './retail-swap';
 import { brandedEmailHtml } from './email-template';
 import { effectiveUnitCents } from '@/lib/retail-swap';
+import { autoRefund, refundWords, refundWordsShort } from './auto-refund';
 
 type Actor = { id: string; name: string };
 const money = (c: number) => `$${(Math.max(0, c) / 100).toFixed(2)}`;
@@ -113,8 +114,10 @@ export async function offerSwap(db: any, t: string, orderId: string, lineId: str
   const cheaper = back > 0;
   if (pref === 'similar' && !forceAsk) {
     const r = await applySwap(db, t, orderId, lineId, sub, actor, 'customer chose swaps at checkout');
-    if (r.ok) await tell(db, t, o, origin, `we were out of ${line.name}, so we've packed ${sub.name} instead, as you asked.${r.refundCents ? ` ${money(r.refundCents)} is coming back to you.` : ''}`, `Order #${String(o.orderNumber).padStart(4, '0')}: a swap in your order`, 'A swap in your order', [`Hi ${first},`, `We were out of ${line.name}, so we have packed ${sub.name} instead, as you asked at checkout.`, r.refundCents ? `It costs less, so ${money(r.refundCents)} is coming back to the card you paid with.` : 'There is nothing extra to pay.', 'If you would rather have a refund, reply to this email or open your order and let us know.']);
-    return r;
+    // The difference goes back on its own when it's within the shop's automatic amount (lib/auto-refund).
+    const sent = r.ok && r.refundCents ? await autoRefund(db, t, orderId, origin) : null;
+    if (r.ok) await tell(db, t, o, origin, `we were out of ${line.name}, so we've packed ${sub.name} instead, as you asked.${r.refundCents ? ` It costs less: ${refundWordsShort(r.refundCents, sent)}` : ''}`, `Order #${String(o.orderNumber).padStart(4, '0')}: a swap in your order`, 'A swap in your order', [`Hi ${first},`, `We were out of ${line.name}, so we have packed ${sub.name} instead, as you asked at checkout.`, r.refundCents ? `It costs less than what you paid. ${refundWords(r.refundCents, sent)}` : 'There is nothing extra to pay.', 'If you would rather have a refund, reply to this email or open your order and let us know.']);
+    return r.ok && sent?.sent ? { ...r, message: `Swapped for ${sub.name}. ${money(sent.cents)} sent back to them.` } : r;
   }
   if (!o.customerPhone && !o.customerEmail) return { ok: false, message: 'There’s no way to reach this customer. Refund it or send it later.' };
   const offer = { lineId, lineName: line.name, sub, at: new Date().toISOString(), expiresAt: new Date(Date.now() + SWAP_ANSWER_HOURS * 3600e3).toISOString(), status: 'waiting', by: actor.name };
@@ -135,7 +138,11 @@ export async function decideSwap(db: any, t: string, orderId: string, accept: bo
   const r = accept ? await applySwap(db, t, orderId, offer.lineId, offer.sub, who, via === 'text' ? 'customer said yes by text' : 'customer said yes')
     : await refundInstead(db, t, orderId, offer.lineId, who, 'Customer chose a refund');
   if (!r.ok) return r;
-  return { ok: true, message: accept ? `Thanks! We'll send ${offer.sub.name}.${r.refundCents ? ` ${money(r.refundCents)} is coming back to you.` : ''}` : `No problem. ${money(r.refundCents || 0)} for ${offer.lineName} is coming back to your card.` };
+  // What comes back goes back on its own when it's within the shop's automatic amount (lib/auto-refund).
+  const sent = (r.refundCents || 0) > 0 ? await autoRefund(db, t, orderId, origin) : null;
+  return { ok: true, message: accept
+    ? `Thanks! We'll send ${offer.sub.name}.${r.refundCents ? ` ${refundWords(r.refundCents, sent)}` : ''}`
+    : `No problem, we’ve taken ${offer.lineName} off your order. ${refundWords(r.refundCents || 0, sent)}` };
 }
 
 /** Answers that never came: refund those items so the orders can go. Run by the shop's regular job. */
@@ -146,6 +153,8 @@ export async function expireSwapOffers(db: any, t: string): Promise<number> {
     const o = d.data() as any; if (Date.parse(o.swapOffer?.expiresAt || '') > Date.now()) continue;
     const r = await refundInstead(db, t, d.id, o.swapOffer.lineId, { id: 'system', name: 'Automatic' }, 'No answer about a swap'); if (!r.ok) continue; n++;
     const base = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
+    // Within the shop's automatic amount it goes back now, before the customer is told, so the notice can say it went.
+    await autoRefund(db, t, d.id, base);
     if (base) { try { await fetch(`${base}/api/retail/short-notify`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET || '') }, body: JSON.stringify({ tenantId: t, orderId: d.id, lineId: o.swapOffer.lineId }) }); } catch { /* the order page shows it */ } }
   }
   return n;

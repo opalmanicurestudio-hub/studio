@@ -129,11 +129,13 @@ export async function POST(req: NextRequest) {
     const auth = await verifyStaffActor(req, tenantId);
     if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const a: any = auth.actor;
-    if (!a.caps?.includes('checkout.refund')) {
-      // Within the shop's automatic amount the shop has already said yes: anyone on the team sends one they made.
-      const renter = a.employmentModel === 'renter' || a.role === 'renter';
-      if (!(policyAsk && !renter && underAuto(pendingNow))) return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
+    const renter = a.employmentModel === 'renter' || a.role === 'renter';
+    if (policyAsk && !renter && underAuto(pendingNow)) {
+      // Within the shop's automatic amount the shop has already said yes: anyone on the team sends one, and no one's
+      // own refund limit is in the way. The amount is checked again inside the claim below.
       autoCap = autoBelow;
+    } else if (!a.caps?.includes('checkout.refund')) {
+      return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
     } else {
       // The owner's limit for this person's role (lib/money-limits), checked against what would be sent now, and
       // again inside the claim below, against what really goes.

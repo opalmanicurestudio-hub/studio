@@ -1,4 +1,5 @@
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
+import { refundWords, type AutoRefund } from '@/lib/auto-refund';
 import { cancelWithFollowUps, followUpCancelCents, followUpsOf, heldUnits, isFollowUp } from '@/lib/order-family';
 import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
@@ -228,7 +229,7 @@ export async function POST(req: NextRequest) {
        * decision. Same route, same idempotency, same closure. A failure is
        * silent to the customer: the refund is still queued on the board, and
        * the message already told them it is coming. */
-      let refundedNow = false;
+      let sent: AutoRefund | null = null;
       const autoBelowC = Math.max(0, Number(polC.refundAutoBelowCents) || 0);
       if (result.autoOk && result.pending > 0 && autoBelowC > 0 && result.pending <= autoBelowC) {
         try {
@@ -236,17 +237,15 @@ export async function POST(req: NextRequest) {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET || '') },
             body: JSON.stringify({ tenantId, orderId, qrToken, reason: 'customer_cancel' }),
           });
-          refundedNow = rr.ok;
+          const d: any = await rr.json().catch(() => ({}));
+          if (rr.ok) sent = { sent: true, cents: Math.max(0, Number(d.amountCents) || 0) || result.pending, cardCents: Math.max(0, Number(d.cardCents) || 0), otherCents: Math.max(0, Number(d.otherCents) || 0) };
         } catch { /* stays queued on the board */ }
       }
 
+      // Said as it is: on its way when it went, approved when it's waiting for the shop to send it.
       return NextResponse.json({
         ok: true,
-        message: `${refundedNow
-          ? 'Order cancelled and your refund is already on its way back to your card — most banks show it within 5–10 business days.'
-          : result.pending > 0
-            ? 'Order cancelled. Your refund has been queued and the shop will process it shortly.'
-            : 'Order cancelled.'}${restoredLine ? ` ${restoredLine.charAt(0).toUpperCase()}${restoredLine.slice(1)}.` : ''}`,
+        message: `Order cancelled.${result.pending > 0 ? ` ${refundWords(result.pending, sent)}` : ''}${restoredLine ? ` ${restoredLine.charAt(0).toUpperCase()}${restoredLine.slice(1)}.` : ''}`,
       });
     }
 

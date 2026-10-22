@@ -208,7 +208,7 @@ export default function RetailReturnsPage() {
     try {
       const r = await fetch('/api/retail/refund', {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-        body: JSON.stringify({ tenantId, orderId, qrToken: fin.orderQrToken || '' }),
+        body: JSON.stringify({ tenantId, orderId, qrToken: fin.orderQrToken || '', reason: 'policy' }),
       });
       const d = await r.json().catch(() => ({}));
       toast(r.ok

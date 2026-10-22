@@ -70,6 +70,11 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const pending = Number(order.pendingRefundCents) || 0;
   // Made from another order (a backorder, a replacement): its money is on that order's card (lib/order-family).
   const follow = isFollowUp(order);
+  // Within the shop's automatic amount anyone on the team can send it (api/retail/refund); never a lost parcel's
+  // replacement, which the first parcel turning up would make a second refund.
+  const autoBelow = Math.max(0, Number(rs?.policies?.refundAutoBelowCents) || 0);
+  const inAuto = autoBelow > 0 && pending > 0 && pending <= autoBelow && order.replacementFor !== 'lost_in_transit';
+  const paidOther = !follow && ((Number(order.giftCardCents) || 0) > 0 || (Number(order.storeCreditRequestedCents) || 0) > 0);
   const shortLines = (order.lines || []).filter((l: any) => ['refunded', 'backordered', 'shorted'].includes(l.status));
   const terminal = ['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(order.stage);
 
@@ -142,7 +147,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
   const doCancel = async () => { setBusy(true); const r = await cancelIt(fs, tenantId, order, actor, reason.trim() || 'Cancelled by the shop'); setBusy(false); if (r.ok) { setConfirm(null); onToast(r.message); } else setErr(r.message); };
   const doRefund = async () => {
     setBusy(true); setErr('');
-    const res = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, qrToken: order.qrToken || '' }) });
+    const res = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, qrToken: order.qrToken || '', ...(inAuto ? { reason: 'policy' } : {}) }) });
     const d = await res.json().catch(() => ({})); setBusy(false);
     if (res.ok) { setConfirm(null); onToast(d.message || 'Refund sent.'); } else setErr(d.error || 'The refund didn’t go through.');
   };
@@ -179,7 +184,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
           {pending > 0 && (
             <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
               <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{money(pending)} to refund to {who}</p>
-              {canRefund ? <Btn kind="primary" className="mt-3 h-11" onClick={() => setConfirm('refund')}>Review the refund</Btn> : <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>Waiting for someone allowed to send refunds.</p>}
+              {canRefund || inAuto ? <Btn kind="primary" className="mt-3 h-11" onClick={() => setConfirm('refund')}>Review the refund</Btn> : <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>Waiting for someone allowed to send refunds.</p>}
             </div>)}
           {req && (
             <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}>
@@ -310,7 +315,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
           {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}
         </Sheet>)}
       {confirm === 'refund' && (
-        <Sheet title={`Refund ${money(pending)} to ${who}?`} sub={`${orderNum(order)} · back to the card they paid with${follow ? ' on the original order' : ''}`} onClose={() => setConfirm(null)}>
+        <Sheet title={`Refund ${money(pending)} to ${who}?`} sub={`${orderNum(order)} · back to the card they paid with${follow ? ' on the original order' : ''}${paidOther ? ', and what a gift card or store credit paid goes back that way' : ''}`} onClose={() => setConfirm(null)}>
           <div className="mt-2 grid grid-cols-[96px_1fr] gap-x-3 gap-y-2 text-[15px]">
             <span style={muted}>Why</span><span>{shortLines.length ? `${shortLines.map((l: any) => l.name).join(', ')} couldn’t be sent` : order.stage === 'cancelled' ? 'The order was cancelled' : 'A return or a problem they reported'}</span>
             <span style={muted}>They paid</span><span>{follow

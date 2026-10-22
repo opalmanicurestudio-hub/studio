@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requestForensics } from '@/lib/request-forensics';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { followUpItemsCents, isFollowUp, payingOrder } from '@/lib/order-family';
+import { autoRefund, refundWords } from '@/lib/auto-refund';
 
 // ─── /api/retail/claims/route.ts ──────────────────────────────────────────────
 // A claim is a customer's report that what arrived doesn't match what was
@@ -341,13 +342,15 @@ export async function POST(req: NextRequest) {
       });
     }
     await batch.commit();
+    // Approved by the shop's rules: within the shop's automatic amount the refund goes back now (lib/auto-refund).
+    const sent = autoApprove ? await autoRefund(db, tenantId, orderId, req.nextUrl?.origin) : null;
 
     return NextResponse.json({
       ok: true,
       status: claim.status,
       message: autoApprove
-        ? 'Approved — the record backs you up. Your refund is queued and the shop will process it shortly.'
-        : 'Reported — the shop is reviewing it with the packing record and will follow up by email.',
+        ? `Approved: our packing record backs you up. ${refundWords(claimValueCents, sent)}`
+        : 'Reported. The shop is checking it against the packing record and will follow up by email.',
     });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || 'Request failed').slice(0, 200) }, { status: 500 });

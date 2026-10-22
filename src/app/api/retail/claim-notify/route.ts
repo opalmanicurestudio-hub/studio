@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
     const cents = Math.max(0, Number(decision.resolutionCents) || 0);
 
     const bodyHtml = approved
-      ? `<p style="font-size:14px;color:#334155;line-height:1.6">We are sorry for the trouble with your order, and thank you for your patience. Your report about the ${what} (<strong>${item}</strong>) has been approved. A refund of <strong>$${(cents / 100).toFixed(2)}</strong> has been queued and will be returned to your card once processed, typically within 5 to 10 business days.</p>`
+      ? `<p style="font-size:14px;color:#334155;line-height:1.6">We are sorry for the trouble with your order, and thank you for your patience. Your report about the ${what} (<strong>${item}</strong>) has been approved, and a refund of <strong>$${(cents / 100).toFixed(2)}</strong> is approved with it. We will email you as soon as it is sent. Card refunds typically appear within 5 to 10 business days after that.</p>`
       : `<p style="font-size:14px;color:#334155;line-height:1.6">Thank you for your report about the ${what} (<strong>${item}</strong>). We have carefully reviewed it alongside the packing record for your order, and we are sorry, but we are unable to approve it at this time.</p>
          ${decision.declineReason ? `<p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${String(decision.declineReason)}</p>` : ''}
          <p style="font-size:14px;color:#334155;line-height:1.6">If you believe we have made an error, you may submit one appeal from your order page. Please include any additional details, and a member of our team will review it again.</p>`;
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     const r = await sendNotification(db, {
       tenantId, channel: 'email', to: String(decision.customerEmail).trim(),
       subject: approved
-        ? `${shopName}: your report has been approved and your refund is on its way`
+        ? `${shopName}: your report has been approved`
         : `${shopName}: an update on your report`,
       html,
       kind: approved ? 'claim_approved' : 'claim_decision', recipientType: 'client',

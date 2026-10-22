@@ -68,10 +68,14 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
   const o = group.order || group.items[0]?.ref || {};
   const first = String(group.customerName || '').split(' ')[0] || 'them';
 
+  // Within the shop's automatic amount anyone on the team can send it (api/retail/refund); never a lost parcel's
+  // replacement.
+  const autoBelow = Math.max(0, Number(rs?.policies?.refundAutoBelowCents) || 0);
+  const inAuto = (o: any) => { const c = Number(o?.pendingRefundCents) || 0; return autoBelow > 0 && c > 0 && c <= autoBelow && o?.replacementFor !== 'lost_in_transit'; };
   const sendRefund = async (p: Problem) => {
     setBusy('refund');
     try {
-      const r = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: p.orderId, qrToken: p.ref.qrToken || '' }) });
+      const r = await fetch('/api/retail/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: p.orderId, qrToken: p.ref.qrToken || '', ...(inAuto(p.ref) ? { reason: 'policy' } : {}) }) });
       const d = await r.json().catch(() => ({}));
       // Only a plain card refund gets the short line: anything that went back by gift card or store credit, or that
       // couldn't go back at all, is spelled out in the route's own message.
@@ -84,7 +88,7 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
 
   const body = group.items.map((p) => {
     if (p.kind === 'message') return <MessageCard key={p.key} p={p} tenantId={tenantId} onToast={onToast} />;
-    if (p.kind === 'refund') return <Card key={p.key} p={p}>{canRefund ? <Btn kind="primary" className="w-full" onClick={() => setRefund(p)}>Send {money(p.ref.pendingRefundCents)}</Btn> : <p className="m-0 text-[14px]" style={muted}>A manager sends refunds.</p>}</Card>;
+    if (p.kind === 'refund') return <Card key={p.key} p={p}>{canRefund || inAuto(p.ref) ? <Btn kind="primary" className="w-full" onClick={() => setRefund(p)}>Send {money(p.ref.pendingRefundCents)}</Btn> : <p className="m-0 text-[14px]" style={muted}>Waiting for someone allowed to send refunds.</p>}</Card>;
     if (p.kind === 'return') return <Card key={p.key} p={p}><Btn kind={p.ref.status === 'received' ? 'primary' : 'soft'} className="w-full" style={p.ref.status === 'received' ? undefined : { background: C.paper }} onClick={() => setRet(p.ref)}>{p.ref.status === 'received' ? 'Finish checking in' : 'It’s here, check it in'}</Btn></Card>;
     if (p.kind === 'claim') return <Card key={p.key} p={p}>
       {p.ref.description ? <p className="m-0 mb-3 text-[15px]">“{String(p.ref.description).slice(0, 240)}”</p> : null}
