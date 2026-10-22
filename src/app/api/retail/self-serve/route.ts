@@ -4,7 +4,7 @@ import { reservedByOpenReturns } from '@/lib/return-reserve';
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
-import { isPromiseLate } from '@/lib/retail-orders';
+import { delayNotified, isPromiseLate } from '@/lib/retail-orders';
 import { canReturnLine } from '@/lib/return-eligibility';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 
@@ -96,10 +96,12 @@ export async function POST(req: NextRequest) {
         const order = snap.data() as any;
         if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
 
-        const promiseLate = isPromiseLate(order);
+        const promiseLate = isPromiseLate(order) || delayNotified(order);
         /* POLICY GATES — but a LATE PROMISE overrides every one of them:
          * when the shop has blown its own ship promise, cancelling is the
-         * customer's right, not a courtesy the policy can switch off. */
+         * customer's right, not a courtesy the policy can switch off. A delay
+         * notice offered a full refund, so once one has gone out the same
+         * right holds until the order ships. */
         if (!promiseLate) {
           if (polC.cancelAllowed === false) {
             return { status: 409, error: 'Cancellations for this shop are handled personally. Please send us a note below and we will be happy to help.' };

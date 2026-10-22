@@ -31,10 +31,15 @@ export function makeDb() {
     delete: async () => { store.delete(path); },
     collection: (c: string) => col(`${path}/${c}`) });
   const cmp = (op: string, a: any, b: any) => op === '==' ? a === b : op === '!=' ? a !== b && a !== undefined : op === '<=' ? a != null && a <= b : op === '<' ? a != null && a < b : op === '>=' ? a != null && a >= b : op === '>' ? a != null && a > b : op === 'in' ? (b as any[]).includes(a) : op === 'array-contains' ? Array.isArray(a) && a.includes(b) : false;
-  const q = (c: string, f: [string, string, any][] = [], lim = 1e9): any => ({
-    where: (k: string, op: string, v: any) => q(c, [...f, [k, op, v]], lim), limit: (l: number) => q(c, f, l), orderBy: () => q(c, f, lim),
+  // orderBy('__name__') returns documents in id order, as Firestore does; startAfter takes a snapshot or an id, for
+  // paging in that order. Any other orderBy is ignored (insertion order).
+  const q = (c: string, f: [string, string, any][] = [], lim = 1e9, after = '', byId = false): any => ({
+    where: (k: string, op: string, v: any) => q(c, [...f, [k, op, v]], lim, after, byId), limit: (l: number) => q(c, f, l, after, byId),
+    orderBy: (k?: any) => q(c, f, lim, after, byId || k === '__name__'),
+    startAfter: (x: any) => q(c, f, lim, typeof x === 'string' ? x : String(x?.id || ''), true),
     get: async () => { const docs = [...store.entries()].filter(([p]) => p.startsWith(c + '/') && p.split('/').length === c.split('/').length + 1)
-      .filter(([, d]) => f.every(([k, op, v]) => cmp(op, k.split('.').reduce((o: any, x) => (o == null ? o : o[x]), d), v))).slice(0, lim)
+      .filter(([, d]) => f.every(([k, op, v]) => cmp(op, k.split('.').reduce((o: any, x) => (o == null ? o : o[x]), d), v)))
+      .sort(([a], [b]) => (!byId ? 0 : a < b ? -1 : a > b ? 1 : 0)).filter(([p]) => !after || String(p.split('/').pop()) > after).slice(0, lim)
       .map(([p, d]) => ({ id: p.split('/').pop(), ref: ref(p), exists: true, data: () => clone(d) }));
       return { empty: !docs.length, size: docs.length, docs }; } });
   const col = (c: string): any => ({ ...q(c), doc: (id?: string) => ref(`${c}/${id || `id${++n}`}`), add: async (v: Doc) => { const r = ref(`${c}/id${++n}`); await r.set(v); return r; } });

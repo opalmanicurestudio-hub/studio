@@ -17,6 +17,7 @@
 // only left behind when the outcome isn't known. A void that's turned down (the tracking can't confirm the label is
 // unused, or Shippo said no) is tried again after 1, 2 and 4 days, then listed under Needs you for someone to decide.
 import { LABEL_CLEARED, SHARED_CLEARED, voidOrderLabels } from '@/lib/label-void';
+import { trailStatus } from '@/lib/label-doubt';
 
 const SHIPPO = 'https://api.goshippo.com';
 const DAY = 86400e3;
@@ -56,7 +57,7 @@ export async function trackState(apiKey: string, carrier: unknown, number: strin
 
 /** Every box of the order: moving if any box was scanned; pre only if every box is label-created and nothing more. */
 export async function labelState(apiKey: string, order: any): Promise<LabelState> {
-  if (SCANNED.includes(String(order?.carrierTrail?.status || '').toUpperCase())) return 'moving';
+  if (SCANNED.includes(trailStatus(order))) return 'moving';
   if (Object.values(order?.boxStatus || {}).some((s: any) => SCANNED.includes(String(s).toUpperCase()))) return 'moving';
   if (order?.labelSeenMoving) return 'moving';
   const numbers = [order?.trackingNumber, ...(Array.isArray(order?.extraTrackingNumbers) ? order.extraTrackingNumbers : [])].map((x: any) => String(x || '').trim()).filter(Boolean);
@@ -78,7 +79,7 @@ export async function neverScanned(apiKey: string, order: any): Promise<boolean>
 const CLOSED = ['cancelled', 'refunded'];
 const shared = (o: any) => Array.isArray(o?.shippedWithOrderIds) && o.shippedWithOrderIds.length > 0;
 const orderNo = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
-const scannedOnRecord = (o: any) => !!o?.labelSeenMoving || SCANNED.includes(String(o?.carrierTrail?.status || '').toUpperCase());
+const scannedOnRecord = (o: any) => !!o?.labelSeenMoving || SCANNED.includes(trailStatus(o));
 
 /** Put under Needs you (orders-view needsYou, OrderPanel): `why` says which card. The whole note is written, so nothing
  *  from an earlier one (a dismissal, say) carries over. */

@@ -99,6 +99,7 @@ const ACTIVE_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
 const isLatePromise = (o: any): boolean =>
   !!o?.shipPromiseAt
   && ['paid', 'picking', 'packed', 'ready'].includes(String(o.stage))
+  && ((!o.trackingNumber && !o.shippoTransactionId) || o.labelUnscannedOpen === true)
   && Date.parse(o.shipPromiseAt) < Date.now();
 
 // A draft is a cart that reached checkout and never paid. It has no order

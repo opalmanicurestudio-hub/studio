@@ -88,7 +88,8 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
   tracks({ '1': pre, '2': 'fail' });
   ok(await labelState('k', { carrier: 'USPS', trackingNumber: '1', extraTrackingNumbers: ['2'] }) === 'unknown', 'one box couldn’t be checked: unknown');
   tracks({ '1': pre });
-  ok(await labelState('k', { carrier: 'Some Courier', trackingNumber: '1' }) === 'unknown' && await labelState('k', { carrier: 'USPS', trackingNumber: '1', carrierTrail: { status: 'TRANSIT' } }) === 'moving', 'an unknown carrier, or a scan already on record, never reads as unused');
+  ok(await labelState('k', { carrier: 'Some Courier', trackingNumber: '1' }) === 'unknown' && await labelState('k', { carrier: 'USPS', trackingNumber: '1', carrierTrail: { carrierStatus: 'TRANSIT' } }) === 'moving'
+    && await labelState('k', { carrier: 'USPS', trackingNumber: '1', carrierTrail: { status: 'TRANSIT' } }) === 'moving', 'an unknown carrier, or a scan already on record (as the webhook writes it), never reads as unused');
 
   // A small stand-in for the database: orders by id, shallow merges, events kept apart.
   const memDb = (rows: Record<string, any>, paths: Record<string, any> = {}) => {
@@ -202,7 +203,7 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     && labelDoubt({ shippoTransactionId: 'x', labelUnscannedOpen: false, labelUnscanned: { why: 'void_unfinished', dismissedAt: 'x' } }) === null
     && labelDoubt({ shippoTransactionId: 'x', labelUnscannedOpen: true, labelUnscanned: {} }) === null && labelDoubt({ labelVoiding: { txn: '' } }) === null,
     'in doubt: a void under way or unanswered, some boxes voided, or a void the morning check handed over that nobody has decided on (kept: not in doubt)');
-  ok(labelDoubt({ shippoTransactionId: 'x', labelVoidIds: ['x'], labelSeenMoving: 'y' }) === null && labelDoubt({ shippoTransactionId: 'x', labelVoiding: { txn: 'x' }, carrierTrail: { status: 'TRANSIT' } }) === null
+  ok(labelDoubt({ shippoTransactionId: 'x', labelVoidIds: ['x'], labelSeenMoving: 'y' }) === null && labelDoubt({ shippoTransactionId: 'x', labelVoiding: { txn: 'x' }, carrierTrail: { carrierStatus: 'TRANSIT' } }) === null
     && labelDoubt({ shippoTransactionId: 'x', labelVoiding: { txn: 'x' }, boxStatus: { '2': 'DELIVERED' } }) === null,
     'once the carrier has scanned a box it’s out whatever happened, so the order isn’t held back (the warning card covers the money)');
   ok(labelHolderId({ labelFromOrderId: 'p', shippedWithOrderId: 'p' }) === 'p' && labelHolderId({ shippoTransactionId: 't', shippedWithOrderId: 'p' }) === '' && labelHolderId({}) === '',

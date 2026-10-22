@@ -109,19 +109,25 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
   let shop = 'the shop';
   try { const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; shop = String(t.businessName || t.name || shop); } catch { /* cosmetic */ }
   const now = Date.now();
+  // A caller can give the nudge more than the kind's own words (the new ship-by date on a delay notice). Different
+  // words are different news: a second new date is its own card and its own nudge, even minutes after the first.
+  const custom = String(input.nudgeLine || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+  const lineFor = () => custom || nudgeLine(kind, num, shop, input.subject);
+  let h = 0; for (let i = 0; i < custom.length; i++) h = (h * 31 + custom.charCodeAt(i)) | 0;
+  const newsKey = custom ? `${kind}-${(h >>> 0).toString(36)}` : kind;
 
   // 1. The full message, on the order page. Text and email versions of the same news fill one card.
   if (!THREAD_KINDS.has(kind)) {
     try {
       const body = input.html ? cardText(input.html) : String(input.text || '');
       const bucket = Math.floor(now / NUDGE_WINDOW_MS);
-      const card = db.doc(`tenants/${tenantId}/retailOrders/${orderId}/inbox/${kind}-${bucket}`);
+      const card = db.doc(`tenants/${tenantId}/retailOrders/${orderId}/inbox/${newsKey}-${bucket}`);
       const prev = await card.get();
       const keepLonger = prev.exists && String(prev.data()?.body || '').length >= body.length;
       if (!keepLonger) {
         await card.set({
           id: card.id, kind, at: new Date(now).toISOString(),
-          title: nudgeLine(kind, num, shop, input.subject), body: body.slice(0, 4000),
+          title: lineFor(), body: body.slice(0, 4000),
           links: input.html ? linksIn(input.html, link) : [],
         }, { merge: true });
       }
@@ -135,9 +141,9 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
   let first = false;
   try {
     first = await db.runTransaction(async (tx: any) => {
-      const s = await tx.get(ref); const at = Date.parse(String(s.data()?.nudges?.[kind] || ''));
+      const s = await tx.get(ref); const at = Date.parse(String(s.data()?.nudges?.[newsKey] || ''));
       if (Number.isFinite(at) && now - at < NUDGE_WINDOW_MS) return false;
-      tx.set(ref, { nudges: { [kind]: new Date(now).toISOString() } }, { merge: true });
+      tx.set(ref, { nudges: { [newsKey]: new Date(now).toISOString() } }, { merge: true });
       return true;
     });
   } catch { first = true; }
@@ -145,7 +151,7 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
 
   const { smsConfigured } = await import('./sms');
   const viaText = !!d10(order.customerPhone) && smsConfigured();
-  const line = nudgeLine(kind, num, shop, input.subject);
+  const line = lineFor();
   if (viaText) {
     const text = KEEP_SMS.has(kind) && input.channel === 'sms' && input.text ? String(input.text) : `${shop}: ${line}${link ? ` ${link}` : ''}`;
     return send({ ...input, viaOrderPage: true, channel: 'sms', to: String(order.customerPhone), text, html: undefined, subject: undefined });

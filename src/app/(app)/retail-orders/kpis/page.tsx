@@ -15,6 +15,7 @@ import { useFirebase, useUser } from '@/firebase';
 import { permissionsFor, staffKpis, teamKpis, type StaffKpis } from '@/lib/fulfilment-access';
 import { recentWaves, type Wave } from '@/lib/waves';
 import { dueAt, fulfilmentPolicy } from '@/lib/retail-orders';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
@@ -50,7 +51,7 @@ export default function FulfilmentKpisPage() {
   const perms = useFulfilmentPerms();
 
   const policy = useMemo(
-    () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),
+    () => fulfilmentPolicy((selectedTenant as any)?.retailSettings, tenantTimeZone(selectedTenant)),
     [selectedTenant]
   );
 

@@ -25,6 +25,7 @@
 //     genuinely something a human should act on.
 
 import { brandedEmail, brandFromTenant, emailButton, getEmailBrand } from '@/lib/email-shell';
+import { trailStatus } from './label-doubt';
 
 const DAY = 86400000;
 
@@ -113,12 +114,14 @@ export async function sweepStalledShipments(
         if (!order.trackingNumber) continue;
         if (String(order.completedAt || '') < since) continue;
 
-        const status = String(order.carrierStatus || '');
+        // The carrier's latest status, where the shipping webhook keeps it (carrierTrail); a top-level copy is read
+        // too for older records. Reading only the top level saw every parcel as never scanned.
+        const status = trailStatus(order);
         if (['DELIVERED', 'RETURNED'].includes(status)) continue;
         if (!['PRE_TRANSIT', 'TRANSIT', 'OUT_FOR_DELIVERY', 'DELAYED', ''].includes(status)) continue;
 
         // Last sign of life: the carrier's own scan time, else our ship stamp.
-        const lastMoveRaw = Date.parse(String(order.carrierStatusAt || order.completedAt || ''));
+        const lastMoveRaw = Date.parse(String(order.carrierTrail?.carrierStatusAt || order.carrierStatusAt || order.completedAt || ''));
         if (!Number.isFinite(lastMoveRaw)) continue;
         const quietDays = Math.floor((now - lastMoveRaw) / DAY);
         if (quietDays < stallDays) continue;

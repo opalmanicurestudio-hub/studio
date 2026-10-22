@@ -15,7 +15,7 @@ import {
   applyPackScan, isPackComplete,
   applyScan, buildEvent, canAdvance, codesMatch, depleteBatchesFIFO, fulfilledQty,
   isClaimStale, isPickComplete, parseOrderQr, parseProductQr, queuePriority, shortLine,
-  type FulfillmentBatch, type InventoryBatchRef, type OrderEventType,
+  type FulfillmentBatch, type FulfilmentPolicy, type InventoryBatchRef, type OrderEventType,
   type RetailOrder, type ShortResolution,
 } from '@/lib/retail-orders';
 import { buildEntry } from '@/lib/stock-ledger';
@@ -63,13 +63,18 @@ const correction = (...args: Parameters<typeof correctionRaw>) => clean(correcti
  * ════════════════════════════════════════════════════════════════════════════ */
 
 export async function claimNextBatch(
-  fs: Firestore, tenantId: string, actor: Actor, maxOrders?: number
+  fs: Firestore, tenantId: string, actor: Actor, maxOrders?: number, policy?: FulfilmentPolicy,
 ): Promise<{ batchId: string; orderIds: string[] } | { error: string }> {
   const snap = await getDocs(query(orderCol(fs, tenantId), where('stage', '==', 'paid')));
+  const nowMs = Date.now();
   const candidates = snap.docs
     .map((d: any) => ({ ...(d.data() as RetailOrder), id: d.id as string }))
     .filter((o: RetailOrder & { id: string }) => !o.batchId && !(o as any).waveId && o.holdUntilRestock !== true && (o as any).holdForReview !== true)   // a wave order is already in someone's tote; a held order waits for a manager
-    .sort((a: RetailOrder, b: RetailOrder) => queuePriority(a) - queuePriority(b));
+    // The shop's own due times (its shipping schedule and clock), so "next" here is the order the board shows first.
+    // Each order's place is worked out once, then sorted.
+    .map((o: RetailOrder & { id: string }) => ({ o, p: queuePriority(o, policy, nowMs) }))
+    .sort((a: { p: number }, b: { p: number }) => a.p - b.p)
+    .map((x: { o: RetailOrder & { id: string } }) => x.o);
 
   if (candidates.length === 0) return { error: 'The queue is empty. There are no orders to pick.' };
 
@@ -1079,7 +1084,8 @@ export async function releaseBackorder(
         const it = snap.data() as any; const q = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
         if (q > 0) txn.update(ref, { stockReserved: (it.stockReserved || 0) + q });
       }
-      txn.update(oRef, { holdUntilRestock: false });
+      // Due times count from here, not from the original payment (lib/retail-orders workStartedAt).
+      txn.update(oRef, { holdUntilRestock: false, releasedAt: new Date().toISOString() });
       txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Backorder released to queue' }));
       return { ok: true, message: 'Released to the queue' };
     });

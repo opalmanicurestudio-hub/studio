@@ -14,8 +14,9 @@ import { ScanGate } from '@/components/retail/ScanGate';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { claimNextBatch, claimSpecificOrder, recordItemScan } from '@/lib/retail-fulfill';
 import { finishPacking } from '@/lib/orders-flow';
-import { codesMatch, parseProductQr, type RetailOrder } from '@/lib/retail-orders';
+import { codesMatch, fulfilmentPolicy, parseProductQr, type RetailOrder } from '@/lib/retail-orders';
 import { dueLine, firstName, itemCount, methodLabel, orderNum, packQueue, packProgress } from '@/lib/orders-view';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { Btn, C, Empty, Initials, ListRow, UndoBar, feel, muted, Ic } from '@/components/orders/ui';
 import { MissingSheet } from '@/components/orders/MissingSheet';
 import { ShipSheet } from '@/components/orders/ShipSheet';
@@ -55,6 +56,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const actor = React.useMemo(() => ({ id: staffMember.id, name: staffMember.name }), [staffMember]);
   const [orders, setOrders] = React.useState<BoardOrder[]>([]);
   const [rs, setRs] = React.useState<any>({});
+  const [shopZone, setShopZone] = React.useState('UTC');
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState('');
   const [toast, setToast] = React.useState('');
@@ -67,13 +69,13 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
 
   React.useEffect(() => {
     if (!fs || !tenantId) return;
-    getDoc(doc(fs, 'tenants', tenantId)).then((s) => setRs((s.data() as any)?.retailSettings || {})).catch(() => {});
+    getDoc(doc(fs, 'tenants', tenantId)).then((s) => { setRs((s.data() as any)?.retailSettings || {}); setShopZone(tenantTimeZone(s.data())); }).catch(() => {});
     return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('stage', 'in', ACTIVE)),
       (snap) => { setOrders(snap.docs.map((d) => ({ ...(d.data() as any), id: d.id }))); setLoading(false); }, () => setLoading(false));
   }, [fs, tenantId]);
 
   const byId = React.useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
-  const queue = React.useMemo(() => packQueue(orders, rs).filter((o: any) => o.stage === 'paid' && !o.batchId && !o.waveId), [orders, rs]);
+  const queue = React.useMemo(() => packQueue(orders, rs, Date.now(), shopZone).filter((o: any) => o.stage === 'paid' && !o.batchId && !o.waveId), [orders, rs, shopZone]);
   const mine = React.useMemo(() => orders.filter((o) => o.stage === 'picking' && (o.claimedBy === staffMember.id || o.assignedTo === staffMember.id)), [orders, staffMember.id]);
   const toFinish = React.useMemo(() => perms.canPack ? orders.filter((o) => o.stage === 'picking' && (!mine.includes(o) || Number(o.toteNo) > 0) && packProgress(o).total > 0 && packProgress(o).done >= packProgress(o).total) : [], [orders, mine, perms.canPack]);
   const toShip = React.useMemo(() => perms.canShip ? orders.filter((o) => o.stage === 'packed' && o.method === 'ship' && o.holdForReview !== true) : [], [orders, perms.canShip]);
@@ -122,7 +124,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
     if (!fs || busy) return;
     if (mine.length >= perms.claimLimit) { say(`Finish what you have first. Your job holds up to ${perms.claimLimit} at a time.`, false); return; }
     setBusy('take');
-    try { const r = await claimNextBatch(fs, tenantId, actor as any, perms.claimLimit - mine.length); if ('error' in r) say(r.error, false); else say(`${r.orderIds.length === 1 ? 'An order is' : `${r.orderIds.length} orders are`} yours. Start scanning.`); }
+    try { const r = await claimNextBatch(fs, tenantId, actor as any, perms.claimLimit - mine.length, fulfilmentPolicy(rs, shopZone)); if ('error' in r) say(r.error, false); else say(`${r.orderIds.length === 1 ? 'An order is' : `${r.orderIds.length} orders are`} yours. Start scanning.`); }
     finally { setBusy(''); }
   };
   const onScan = async (value: string) => {
@@ -256,7 +258,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
 
       <Section title="Waiting to be picked" sub={queue.length ? `${queue.length}` : undefined}>
         {!loading && queue.length === 0 ? <p className="m-0 px-4 py-8 text-center text-[15px]" style={muted}>Nothing waiting. Nice work.</p>
-          : queue.slice(0, 12).map((o) => { const d = dueLine(o, rs); return <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${methodLabel(o.method)} · ${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`} trail={<span className="text-[14px]" style={d.late ? { color: C.warn, fontWeight: 600 } : muted}>{d.text}</span>} />; })}
+          : queue.slice(0, 12).map((o) => { const d = dueLine(o, rs, Date.now(), shopZone); return <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${methodLabel(o.method)} · ${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`} trail={<span className="text-[14px]" style={d.late ? { color: C.warn, fontWeight: 600 } : muted}>{d.text}</span>} />; })}
       </Section>
 
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} actor={actor as any} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); say(m); }} />}

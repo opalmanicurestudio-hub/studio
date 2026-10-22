@@ -22,6 +22,7 @@ import {
   handoffWithoutScan, markPacked, markReady, recordItemScan, resolveShortLine,
 } from '@/lib/retail-fulfill';
 import { codesMatch, parseProductQr, slaFor, fulfilmentPolicy } from '@/lib/retail-orders';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { packPhotoPolicy, packPhotoRequired, packPhotoPath} from '@/lib/pack-photo';
 import { uploadImage } from '@/lib/upload-image';
 import { cn } from '@/lib/utils';
@@ -74,7 +75,7 @@ export default function PackBenchPage() {
   );
   const perms = useFulfilmentPerms();
   const policy = useMemo(
-    () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),
+    () => fulfilmentPolicy((selectedTenant as any)?.retailSettings, tenantTimeZone(selectedTenant)),
     [selectedTenant]
   );
   // Every threshold here comes from the tenant. A shop selling $8 polish and a

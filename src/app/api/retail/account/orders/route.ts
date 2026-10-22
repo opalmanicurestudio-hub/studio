@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { STAGE_LABELS } from '@/lib/retail-orders';
+import { customerDates, dayLabel } from '@/lib/ship-promise';
 
 // ─── GET /api/retail/account/orders ───────────────────────────────────────────
 // ?tenantId&e&x&s → { orders[], creditCents }
@@ -80,6 +81,10 @@ export async function GET(req: NextRequest) {
       method: o.method,
       totalCents: o.totalCents || 0,
       placedAt: o.placedAt || '',
+      // Ships by, on a shipped order still being packed, when they were shown the date.
+      shipsBy: o.method === 'ship' && ['paid', 'picking', 'packed'].includes(o.stage)
+        ? (() => { const d = customerDates(o); return d ? `Ships by ${dayLabel(d.shipBy, d.timeZone)}` : ''; })()
+        : '',
       itemCount: Array.isArray(o.lines)
         ? o.lines.reduce((s: number, l: any) => s + (l.qtyOrdered - (l.qtyShorted || 0)), 0)
         : 0,

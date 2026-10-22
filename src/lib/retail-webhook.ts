@@ -546,11 +546,22 @@ export async function sendOrderConfirmation(
     : (session?.amount_total ?? Math.max(0, (Number(order.totalCents) || 0) - creditCents));
 
   const method = String(order.method || 'pickup');
+  // The ship-by and arrival dates they were shown at checkout (lib/ship-promise), when the shop shows dates.
+  const { customerDates, dayLabel, arrivalLabel } = await import('./ship-promise');
+  const dates = method === 'ship' ? customerDates(order) : null;
   const nextStep = method === 'ship'
-    ? 'We will email you your tracking details as soon as your order ships.'
+    ? dates
+      ? 'We will let you know as soon as it ships, with tracking. If anything changes, your order page says so first.'
+      : 'We will email you your tracking details as soon as your order ships.'
     : method === 'curbside'
       ? 'We will send you a text or email as soon as your order is ready. When you arrive, please tap the link below and we will bring it out to you.'
       : 'We will let you know as soon as your order is ready for pickup. Your QR code is on your order page.';
+  const datesBlock = dates
+    ? `<table style="width:100%;border-collapse:collapse;margin:14px 0;background:#f5f5f7;border-radius:12px">
+      <tr><td style="padding:12px 14px 4px;font-size:14px;font-weight:700;color:#16171a">Ships by</td><td style="padding:12px 14px 4px;font-size:14px;font-weight:700;color:#16171a;text-align:right">${dayLabel(dates.shipBy, dates.timeZone)}</td></tr>
+      ${dates.arriveFrom ? `<tr><td style="padding:4px 14px 12px;font-size:14px;color:#16171a">Arrives</td><td style="padding:4px 14px 12px;font-size:14px;color:#16171a;text-align:right">${arrivalLabel(dates, dates.timeZone)}</td></tr>` : '<tr><td colspan="2" style="padding:0 0 8px"></td></tr>'}
+    </table>`
+    : '';
   const pickupNote = order.pickupAt && order.pickupAt !== 'ASAP'
     ? `<p style="font-size:13px;color:#0f172a">Your requested pickup time: <strong>${String(order.pickupAt)}</strong></p>`
     : '';
@@ -558,6 +569,7 @@ export async function sendOrderConfirmation(
   const emailBody = `
     <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${order.customerName ? String(order.customerName).split(' ')[0] : 'there'},</p>
     <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Thank you for your order. Your order ${num} is confirmed.</p>
+    ${datesBlock}
     <p style="font-size:13px;color:#64748b">${nextStep}</p>
     ${pickupNote}
     <table style="width:100%;border-collapse:collapse;margin:16px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">
@@ -586,7 +598,7 @@ export async function sendOrderConfirmation(
     ${emailButton(`${origin}/shop/${tenantId}/order/${orderId}`, 'View my order', emailBrand)}
     <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">If you have any questions, please reply to this email.</p>
     <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${shopName}</p>`;
-  const html = brandedEmail(emailBrand, emailBody, { preheader: `Your order ${num} is confirmed` });
+  const html = brandedEmail(emailBrand, emailBody, { preheader: `Your order ${num} is confirmed${dates ? `. It ships by ${dayLabel(dates.shipBy, dates.timeZone)}` : ''}` });
 
   // Through the mailroom: the confirmation is the one retail email a customer
   // will go looking for, so it has to be findable in the delivery log.

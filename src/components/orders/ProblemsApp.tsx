@@ -11,6 +11,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFulfilmentPerms } from '@/hooks/use-fulfilment-perms';
 import { ACTIVE_STAGES } from '@/lib/orders-view';
 import { buildProblems, waitLabel, type ProblemGroup } from '@/lib/problems-view';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import type { Actor } from '@/lib/retail-fulfill';
 import { C, Empty, Initials, LargeTitle, ListRow, UndoBar, muted } from './ui';
 import { PhoneShopBar, useWide } from './shell';
@@ -52,7 +53,8 @@ export function ProblemsApp() {
     return () => subs.forEach((u) => u());
   }, [fs, tenantId]);
 
-  const groups = React.useMemo(() => buildProblems({ orders, refundOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24) }), [orders, refundOrders, tickets, claims, returns, now, rs.readyStaleHours]);
+  const shopZone = tenantTimeZone(selectedTenant);
+  const groups = React.useMemo(() => buildProblems({ orders, refundOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24), timeZone: shopZone }), [orders, refundOrders, tickets, claims, returns, now, rs.readyStaleHours, shopZone]);
   React.useEffect(() => { if (wide && !openId && groups.length) setOpenId(groups[0].orderId); }, [wide, openId, groups]);
   const open = openId ? groups.find((g) => g.orderId === openId) || null : null;
   React.useEffect(() => { if (openId && !open && !loading && !wide) setOpenId(null); }, [openId, open, loading, wide]);

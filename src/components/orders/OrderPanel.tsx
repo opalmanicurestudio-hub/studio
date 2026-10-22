@@ -6,6 +6,9 @@ import * as React from 'react';
 import { collection, limit, onSnapshot, orderBy, query, type Firestore } from 'firebase/firestore';
 import { cancelIt, bringingOut } from '@/lib/orders-flow';
 import { dueLine, eventLine, firstName, methodLabel, money, orderNum, packProgress } from '@/lib/orders-view';
+import { useTenant } from '@/context/TenantContext';
+import { formatTime, tenantTimeZone, todayIn } from '@/lib/tenant-time';
+import { arrivalLabel, customerDates, dayLabel, longDayLabel, promisedDay } from '@/lib/ship-promise';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import type { Actor } from '@/lib/retail-fulfill';
 import { Btn, C, IconBtn, Sheet, Thumb, feel, muted, Ic } from './ui';
@@ -33,7 +36,24 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
 
   const who = firstName(order.customerName);
   const prog = packProgress(order);
-  const due = dueLine(order, rs);
+  const { selectedTenant } = useTenant() as any;
+  const shopZone = tenantTimeZone(selectedTenant);
+  const due = dueLine(order, rs, Date.now(), shopZone);
+  // The ship-by day (lib/ship-promise): what the customer was told, if they were, and a way to tell them a new one.
+  const tz = String(order.promise?.timeZone || shopZone);
+  const shown = order.method === 'ship' ? customerDates(order, shopZone) : null;
+  const shipDay = order.method === 'ship' && order.promise ? promisedDay(order, tz) : null;
+  const [newDate, setNewDate] = React.useState<{ day: string; note: string } | null>(null);
+  async function sendNewDate() {
+    if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate.day)) { setErr('Choose the new ship-by day.'); return; }
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/api/retail/delay-notice', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, revisedDate: newDate.day, note: newDate.note.trim() }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(d.error || 'The new date didn’t go out.'); return; }
+      setNewDate(null); onToast(d.sent ? `${who} has the new date, and can cancel if it doesn’t work for them.` : 'They already have that date.');
+    } finally { setBusy(false); }
+  }
   const steps = STEPS[order.method] || STEPS.counter;
   const idx = stepIndex(order);
   const pending = Number(order.pendingRefundCents) || 0;
@@ -102,7 +122,7 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
       <div className="mx-auto w-full max-w-xl flex-1 px-4 pb-40 pt-3 lg:max-w-none lg:px-6 lg:pb-6">
         <div className="flex items-center justify-between gap-2">
           <IconBtn label="Close" onClick={onClose}>{inline ? <span className="text-[18px] leading-none">×</span> : Ic.back}</IconBtn>
-          <span className="text-[14px]" style={muted}>{orderNum(order)}{order.paidAt ? ` · paid ${new Date(order.paidAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}</span>
+          <span className="text-[14px]" style={muted}>{orderNum(order)}{order.paidAt ? ` · paid ${formatTime(order.paidAt, shopZone)}` : ''}</span>
           <button type="button" onClick={() => setTab(tab === 'order' ? 'record' : 'order')} className="h-11 rounded-full px-4 text-[15px] font-semibold" style={{ background: C.soft }}>{tab === 'order' ? 'Record' : 'Order'}</button>
         </div>
         <p className="m-0 mt-3.5 text-[28px] font-light tracking-[-0.02em]">{order.customerName || 'Customer'}</p>
@@ -112,6 +132,18 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
           {order.stage !== 'cancelled' && (
             <div className="mt-4 flex gap-1.5">
               {steps.map((s, i) => <div key={s} className="flex-1 text-center text-[12px] font-semibold" style={{ color: i === idx ? C.ink : C.muted }}><div className="mb-1.5 h-1 rounded-full" style={{ background: i < idx ? C.ink : i === idx ? C.mint : C.line }} />{s}</div>)}
+            </div>)}
+          {shipDay && !terminal && (
+            <div className="mt-4 rounded-2xl p-4" style={{ background: order.lateNeedsStaff?.open ? C.warnSoft : C.soft }}>
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="m-0 text-[15px] font-semibold">Ships by {longDayLabel(shipDay, tz)}</p>
+                <span className="shrink-0 text-[13px]" style={muted}>{shown ? 'They were told' : 'Your team’s date'}</span>
+              </div>
+              {shown?.arriveFrom && !order.trackingNumber && <p className="m-0 mt-1 text-[14px]" style={muted}>Arrives {arrivalLabel(shown, tz)}{shown.service ? ` with ${shown.service}` : ''}</p>}
+              {shown?.originalShipBy && <p className="m-0 mt-1 text-[14px]" style={muted}>Moved from {dayLabel(shown.originalShipBy, tz)}{Number(order.autoDelayNotices) > 0 ? `, told by itself ${Number(order.autoDelayNotices) === 1 ? 'once' : `${order.autoDelayNotices} times`}` : ''}. They can cancel for a full refund until it ships.</p>}
+              {order.lateNeedsStaff?.open && <p className="m-0 mt-1 text-[14px] font-semibold" style={{ color: C.warn }}>{order.lateNeedsStaff.why === 'held' ? 'It missed its date while held for review.' : 'It missed its new date again.'} Send them a new one, or ship it today.</p>}
+              {shown && !order.trackingNumber && !order.shippoTransactionId && (
+                <Btn kind="soft" className="mt-3 h-11 w-full" style={{ background: C.paper }} onClick={() => setNewDate({ day: '', note: '' })}>Send a new date</Btn>)}
             </div>)}
           {order.holdForReview && <div className="mt-4 rounded-2xl p-4" style={{ background: C.warnSoft }}><p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>Held for review</p><p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>This order won’t be packed until someone decides on it.</p></div>}
           {pending > 0 && (
@@ -210,6 +242,17 @@ export function OrderPanel({ fs, tenantId, order, actor, rs, photoFor, canRefund
             <span style={muted}>{who} gets</span><span>An email with the amount and when to expect it</span>
           </div>
           <Btn kind="danger" className="mt-4 w-full text-[17px]" disabled={busy} onClick={() => void doRefund()}>Send {money(pending)} refund</Btn>
+          {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}
+        </Sheet>)}
+      {newDate && (
+        <Sheet title="Send a new date" sub={`${who} gets the new ship-by day and can cancel for a full refund if it doesn’t work for them.`} onClose={() => setNewDate(null)}>
+          <label className="mt-2 block text-[13px] font-semibold" style={muted}>Ships by
+            <input type="date" value={newDate.day} min={todayIn(tz)} onChange={(e) => setNewDate({ ...newDate, day: e.target.value })} className="mt-1 h-12 w-full rounded-2xl border px-4 text-[17px] font-normal" style={{ borderColor: C.line, background: C.paper, color: C.ink }} />
+          </label>
+          <label className="mt-3 block text-[13px] font-semibold" style={muted}>A note for them (optional)
+            <textarea value={newDate.note} maxLength={400} rows={3} onChange={(e) => setNewDate({ ...newDate, note: e.target.value })} placeholder="For example: the new batch arrives Thursday" className="mt-1 w-full rounded-2xl border px-4 py-3 text-[17px] font-normal" style={{ borderColor: C.line, background: C.paper, color: C.ink }} />
+          </label>
+          <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={busy || !newDate.day} onClick={() => void sendNewDate()}>{busy ? 'Sending…' : 'Send the new date'}</Btn>
           {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}
         </Sheet>)}
     </div>);

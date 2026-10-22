@@ -25,6 +25,7 @@ import {
   STAGE_LABELS, codesMatch, parseProductQr, isPickComplete, queuePriority, type FulfillmentBatch, type OrderLine, type RetailOrder,
   fulfilmentPolicy, slaFor, type SlaInfo,
 } from '@/lib/retail-orders';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import { samePickupCount } from '@/lib/retail-orders';
 import { stillWaiting } from '@/lib/retail-orders';
@@ -64,7 +65,7 @@ export default function RetailFulfillmentBoard() {
   // than a name, and it catches the classic "two products, similar words"
   // mistake before it reaches the box.
   const policy = useMemo(
-    () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),
+    () => fulfilmentPolicy((selectedTenant as any)?.retailSettings, tenantTimeZone(selectedTenant)),
     [selectedTenant]
   );
   const [tick, setTick] = useState(0);
@@ -265,7 +266,8 @@ export default function RetailFulfillmentBoard() {
 
   // ── Derived lanes ─────────────────────────────────────────────────────────
   const queue = useMemo(
-    () => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock !== true).sort((a, b) => queuePriority(a, policy) - queuePriority(b, policy)),
+    // Each order's place is worked out once, then sorted (working it out inside the comparison repeated it per pair).
+    () => { const now = Date.now(); return orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock !== true).map((o) => ({ o, p: queuePriority(o, policy, now) })).sort((a, b) => a.p - b.p).map((x) => x.o); },
     [orders]
   );
   const backorders = useMemo(() => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock === true), [orders]);
@@ -534,7 +536,7 @@ export default function RetailFulfillmentBoard() {
   const takeNext = async () => {
     const fs = requireCtx(); if (!fs || claiming) return;
     setClaiming(true);
-    const res = await claimNextBatch(fs, tenantId, actor);
+    const res = await claimNextBatch(fs, tenantId, actor, undefined, policy);
     setClaiming(false);
     if ('error' in res) toast({ title: 'Queue', description: res.error });
     else toast({ title: `Claimed ${res.orderIds.length} order(s)`, description: 'Start scanning items.' });

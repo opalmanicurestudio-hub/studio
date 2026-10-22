@@ -3,15 +3,16 @@
 // stock or not collected, customers outside), gathered under the order it belongs to. One order, one row, however
 // many problems it has. Most urgent first, then whoever has waited longest. Pure, so it can be tested.
 import { firstName, money, needsYou, orderNum } from './orders-view';
+import { dayLabel, promisedDay } from './ship-promise';
 
-export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'held' | 'backorder' | 'uncollected';
+export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'held' | 'backorder' | 'uncollected' | 'late' | 'address' | 'unconfirmed' | 'label' | 'voided';
 export interface Problem { key: string; kind: ProblemKind; orderId: string; title: string; detail: string; at: number; urgent: boolean; ref: any }
 export interface ProblemGroup { orderId: string; num: string; customerName: string; items: Problem[]; at: number; urgent: boolean; order: any | null }
 
 const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
 const ago = (t: number, now: number) => { if (!t) return ''; const m = Math.max(0, Math.round((now - t) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const CLAIM_WORDS: Record<string, string> = { missing: 'is missing', damaged: 'arrived damaged', wrong_item: 'is the wrong item', not_received: 'never arrived', defective: 'doesn’t work' };
-const RANK: Record<ProblemKind, number> = { outside: 0, message: 1, claim: 2, refund: 3, held: 4, return: 5, uncollected: 6, backorder: 7 };
+const RANK: Record<ProblemKind, number> = { outside: 0, message: 1, late: 2, claim: 3, refund: 4, held: 5, address: 6, voided: 7, return: 8, uncollected: 9, unconfirmed: 10, label: 11, backorder: 12 };
 const OPEN_CLAIM = new Set(['in_review', 'needs_info', 'info_requested', 'open']);
 
 export function lastCustomerAt(t: any): number {
@@ -26,7 +27,7 @@ export function threadOf(t: any): { who: 'customer' | 'shop'; text: string; at: 
   return out.filter((m) => m.text).sort((a, b) => ms(a.at) - ms(b.at));
 }
 
-export function buildProblems(src: { orders: any[]; refundOrders?: any[]; tickets?: any[]; claims?: any[]; returns?: any[]; now?: number; staleHours?: number }): ProblemGroup[] {
+export function buildProblems(src: { orders: any[]; refundOrders?: any[]; tickets?: any[]; claims?: any[]; returns?: any[]; now?: number; staleHours?: number; timeZone?: string }): ProblemGroup[] {
   const now = src.now ?? Date.now();
   const byOrder = new Map<string, any>();
   [...(src.refundOrders || []), ...src.orders].forEach((o) => byOrder.set(o.id, o));
@@ -36,8 +37,21 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
   for (const n of needsYou(src.orders, now, src.staleHours ?? 48)) {
     if (n.kind === 'refund' || n.kind === 'missing') continue;
     const o = byOrder.get(n.orderId) || {};
-    const at = n.kind === 'outside' ? ms(o.curbside?.arrivedAt) : n.kind === 'uncollected' ? ms(o.readyAt) : n.kind === 'held' ? ms(o.heldAt || o.paidAt) : ms(o.paidAt);
-    const detail = n.kind === 'held' ? (o.idCheck?.status === 'verified' ? 'ID check passed · ready to release' : String((o.riskCheck?.reasons || [])[0] || o.holdReason || 'Not packed until someone releases it')) : n.kind === 'outside' ? `Waiting ${ago(at, now).replace(' ago', '')}` : n.kind === 'uncollected' ? `Ready ${ago(at, now)}${Number(o.uncollectedNotices) ? ` · ${o.uncollectedNotices >= 3 ? 'last-day notice sent' : `${o.uncollectedNotices} reminder${o.uncollectedNotices === 1 ? '' : 's'} sent`}` : ''}` : 'Packs once the stock is in';
+    const at = n.kind === 'outside' ? ms(o.curbside?.arrivedAt) : n.kind === 'uncollected' ? ms(o.readyAt) : n.kind === 'held' ? ms(o.heldAt || o.paidAt) : n.kind === 'late' ? ms(o.shipPromiseAt) || ms(o.paidAt) : ms(o.paidAt);
+    const tz = String(o.promise?.timeZone || src.timeZone || 'UTC');
+    const day = n.kind === 'late' ? (o.lateNeedsStaff?.missed || promisedDay(o, tz)) : null;
+    const notices = Number(o.autoDelayNotices) || 0;
+    const detail = n.kind === 'held' ? (o.idCheck?.status === 'verified' ? 'ID check passed · ready to release' : String((o.riskCheck?.reasons || [])[0] || o.holdReason || 'Not packed until someone releases it'))
+      : n.kind === 'outside' ? `Waiting ${ago(at, now).replace(' ago', '')}`
+      : n.kind === 'uncollected' ? `Ready ${ago(at, now)}${Number(o.uncollectedNotices) ? ` · ${o.uncollectedNotices >= 3 ? 'last-day notice sent' : `${o.uncollectedNotices} reminder${o.uncollectedNotices === 1 ? '' : 's'} sent`}` : ''}`
+      : n.kind === 'late' ? (o.lateNeedsStaff?.open
+        ? `Was due to ship ${day ? dayLabel(day, tz) : 'already'}${notices ? ` · told ${notices === 1 ? 'once' : `${notices} times`} it was running late` : ''}. Send a new date, or ship it today.`
+        : `Promised by ${day ? dayLabel(day, tz) : 'an earlier date'}. They can cancel for a full refund until it ships.`)
+      : n.kind === 'address' ? 'Approve it, or answer them, on the order'
+      : n.kind === 'unconfirmed' ? 'Asked over a day ago, no answer yet'
+      : n.kind === 'label' ? 'Find the box, or void the label to get the postage back'
+      : n.kind === 'voided' ? 'A voided box needs a new label, bought in Shippo'
+      : 'Packs once the stock is in';
     push({ key: n.key, kind: n.kind as ProblemKind, orderId: n.orderId, title: n.text, detail, at, urgent: n.kind === 'outside', ref: o });
   }
   for (const o of byOrder.values()) {

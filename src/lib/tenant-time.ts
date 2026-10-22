@@ -34,16 +34,26 @@ export type WallParts = {
   hour: number; minute: number; second: number;
 };
 
+// The answer for a zone never changes while the code runs, and asking means building a formatter, which is slow
+// enough to matter when every order on a board reads the clock several times. So each zone is asked once.
+const zoneChecks = new Map<string, boolean>();
+
 /** Does this runtime recognise the zone? Guards against a typo saved years ago. */
 export function isValidTimeZone(timeZone?: string | null): boolean {
   const tz = String(timeZone || '').trim();
   if (!tz) return false;
+  const known = zoneChecks.get(tz);
+  if (known !== undefined) return known;
+  let ok = false;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
-    return true;
+    ok = true;
   } catch {
-    return false;
+    ok = false;
   }
+  if (zoneChecks.size > 200) zoneChecks.clear();
+  zoneChecks.set(tz, ok);
+  return ok;
 }
 
 /**
@@ -74,14 +84,27 @@ function safeZone(timeZone?: string | null): string {
   return isValidTimeZone(timeZone) ? String(timeZone).trim() : FALLBACK_TIME_ZONE;
 }
 
+// Building a formatter is far slower than using one, and the ship-by dates read the clock many times per order list,
+// so one formatter per zone is kept and reused.
+const wallFormatters = new Map<string, Intl.DateTimeFormat>();
+function wallFormatter(zone: string): Intl.DateTimeFormat {
+  let f = wallFormatters.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    if (wallFormatters.size > 50) wallFormatters.clear();
+    wallFormatters.set(zone, f);
+  }
+  return f;
+}
+
 /** What the clock on the shop's wall reads at this instant. */
 export function wallParts(date: Date, timeZone?: string | null): WallParts {
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: safeZone(timeZone),
-    hour12: false,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  });
+  const dtf = wallFormatter(safeZone(timeZone));
   const map: Record<string, string> = {};
   for (const p of dtf.formatToParts(date)) map[p.type] = p.value;
   return {

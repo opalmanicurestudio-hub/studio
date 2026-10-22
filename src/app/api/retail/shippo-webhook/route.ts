@@ -226,7 +226,10 @@ export async function POST(req: NextRequest) {
         const doubtful = scanned && !!order.shippoTransactionId && !order.voidedLabelMoving?.open && order.voidedLabelMoving?.trackingNumber !== String(order.trackingNumber || '')
           && (String(order.labelVoiding?.txn || '') === String(order.shippoTransactionId) || (order.labelUnscannedOpen === true && order.labelUnscanned?.why === 'void_unfinished')
             || (Array.isArray(order.labelVoidIds) && order.labelVoidIds.length > 0));
-        await d.ref.set({ ...(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail }), ...(moved ? { labelUnscannedOpen: false } : {}),
+        // The carrier's own arrival estimate for the main box, kept as it changes: once the box is moving, the
+        // customer's order page shows this rather than the window worked out at checkout.
+        const etaMs = Date.parse(String(data?.eta || ''));
+        await d.ref.set({ ...(extraBox ? { boxTrails: { [trackingNumber]: trail } } : { carrierTrail: trail, ...(Number.isFinite(etaMs) ? { carrierEtaAt: new Date(etaMs).toISOString() } : {}) }), ...(moved ? { labelUnscannedOpen: false } : {}),
           ...(doubtful ? { labelVoiding: null, voidedLabelMoving: { open: true, unsure: true, voidedBoxes: Array.isArray(order.labelVoidIds) ? order.labelVoidIds.length : 0, unconfirmedBoxes: 0, at: new Date().toISOString(), trackingNumber: String(order.trackingNumber || ''), status: String(status) } } : {}) }, { merge: true });
       } catch {
         // never let bookkeeping fail the webhook

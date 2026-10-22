@@ -12,6 +12,8 @@ import { uploadImage } from '@/lib/upload-image';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/orders-flow';
 import { dueLine, firstName, methodLabel, packProgress } from '@/lib/orders-view';
+import { useTenant } from '@/context/TenantContext';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import type { Actor } from '@/lib/retail-fulfill';
 import { BottomBar, Btn, C, Thumb, UndoBar, feel, muted, Ic } from './ui';
 import { compareBins } from '@/lib/bins';
@@ -35,7 +37,8 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const policy = React.useMemo(() => packPhotoPolicy(rs), [rs]);
   const photos: string[] = Array.isArray(order.packPhotoUrls) ? order.packPhotoUrls : [];
   const needPhoto = packPhotoRequired(order, policy) && photos.length === 0;
-  const due = dueLine(order, rs);
+  const { selectedTenant } = useTenant() as any;
+  const due = dueLine(order, rs, Date.now(), tenantTimeZone(selectedTenant));
   const lines = (order.lines || []).filter((l: any) => l.digital !== true).map((l: any, i: number) => ({ l, i })).sort((a: any, b: any) => compareBins(shelfFor.get(a.l.productId) || '', shelfFor.get(b.l.productId) || '') || a.i - b.i).map((x: any) => x.l);
 
   React.useEffect(() => { if (!camera) inputRef.current?.focus(); }, [camera]);

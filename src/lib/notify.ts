@@ -44,6 +44,9 @@ export type NotifyInput = {
   orderId?: string | null;
   /** Internal: already routed through the order page. */
   viaOrderPage?: boolean;
+  /** The one line the customer's text or email nudge says, when it should carry more than the kind's own words
+   *  (a new ship-by date, say). The full message still goes on the order page. */
+  nudgeLine?: string;
   /** A shop support case this email is about: the customer's reply goes back onto it (lib/inbound-email). */
   replyCase?: string;
   /** Merge values for owner-customized copy. Ignored when the shop has not

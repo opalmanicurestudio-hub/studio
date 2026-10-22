@@ -67,6 +67,10 @@
     {
       "path": "/api/cron/shipping-checks",
       "schedule": "15 10 * * *"
+    },
+    {
+      "path": "/api/cron/late-notices",
+      "schedule": "25 * * * *"
     }
   ]
 }

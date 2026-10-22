@@ -18,6 +18,7 @@ type Item = [href: string, label: string, note: string];
 const GROUPS: { title: string; items: Item[] }[] = [
   { title: 'Your shop', items: [
     ['/retail-orders/settings', 'Shop settings', 'Pickup, shipping, labels, tax and the products you sell online'],
+    ['/retail-orders/policies/shipping', 'Shipping schedule', 'Processing time, cutoff, pickups and holidays'],
     ['/retail-orders/policies', 'Policies', 'Cancelling, returns, restocking fees, refunds'],
     ['/retail-orders/designer', 'Shop designer', 'How your shop page looks'],
     ['/retail-orders/wholesale', 'Wholesale', 'Trade prices and access for businesses'],

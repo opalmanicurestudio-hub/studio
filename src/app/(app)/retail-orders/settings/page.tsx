@@ -159,6 +159,7 @@ export default function RetailSettingsPage() {
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
     howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; palletPack: string; palletBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
+    made: boolean; leadMin: string; leadMax: string;
   }>>({});
   const [fileBusy, setFileBusy] = useState<string | null>(null);
   const [runBusy, setRunBusy] = useState<string | null>(null);
@@ -340,6 +341,9 @@ export default function RetailSettingsPage() {
     preorderEtaAt: it.preorderEtaAt || '',
     preorderClosesAt: it.preorderClosesAt || '',
     preorderLimit: it.preorderLimit ? String(it.preorderLimit) : '',
+    made: Number(it.leadDays?.max) > 0,
+    leadMin: Number(it.leadDays?.min) > 0 ? String(it.leadDays.min) : '',
+    leadMax: Number(it.leadDays?.max) > 0 ? String(it.leadDays.max) : '',
     digitalAccessDays: it.digitalAccessDays ? String(it.digitalAccessDays) : '',
     digitalFilePath: it.digitalFilePath || '',
     digitalFileName: it.digitalFileName || '',
@@ -396,6 +400,14 @@ export default function RetailSettingsPage() {
         preorderEtaAt: d.preorder === true ? (d.preorderEtaAt || null) : null,
         preorderClosesAt: d.preorder === true ? (d.preorderClosesAt || null) : null,
         preorderLimit: d.preorder === true ? (Math.max(0, Math.floor(Number(d.preorderLimit) || 0)) || null) : null,
+        // Made to order: the longest time is what the ship-by date counts; the shortest is only shown.
+        leadDays: (() => {
+          if (d.made !== true) return null;
+          const max = Math.min(120, Math.max(0, Math.floor(Number(d.leadMax) || Number(d.leadMin) || 0)));
+          if (max <= 0) return null;
+          const min = Math.min(max, Math.max(1, Math.floor(Number(d.leadMin) || max)));
+          return { min, max };
+        })(),
         digitalAccessDays: d.digital === true ? (Math.max(0, Math.floor(Number(d.digitalAccessDays) || 0)) || null) : null,
         digitalFilePath: d.digital === true ? (d.digitalFilePath || null) : null,
         digitalFileName: d.digital === true ? (d.digitalFileName || null) : null,
@@ -800,10 +812,16 @@ export default function RetailSettingsPage() {
               These set the clock every order is measured against, and when the morning wave builds itself.
             </p>
 
+            <Link href="/retail-orders/policies/shipping" className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3 hover:bg-muted">
+              <span className="min-w-0">
+                <span className="block text-xs font-black uppercase tracking-tight">Shipping schedule</span>
+                <span className="block text-[11px] font-bold text-muted-foreground">How many days to ship, the daily cutoff, carrier pickups and holidays. Shipped orders are due by it.</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
+            </Link>
             <div className="grid grid-cols-2 gap-3">
               {([
                 ['prepMinutes', 'Pickup ready in (min)'],
-                ['shipProcessingHours', 'Ship within (hours)'],
                 ['slaWarnMinutes', 'Warn me (min before due)'],
                 ['readyStaleHours', 'Chase uncollected after (h)'],
               ] as const).map(([key, label]) => (
@@ -1554,6 +1572,29 @@ export default function RetailSettingsPage() {
                         <Textarea aria-label="How to use — steps or instructions" placeholder="How to use — steps or instructions" value={d.howToUse}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, howToUse: e.target.value } })}
                           className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
+                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
+                          <div>
+                            <Label className="text-[11px] font-black uppercase tracking-widest">Made to order</Label>
+                            <p className="text-[11px] font-bold text-muted-foreground">Ships in more business days than your usual time. In a cart with other items, the whole order follows the longest one.</p>
+                          </div>
+                          <Switch aria-label="Made to order"
+                            checked={d.made === true}
+                            onCheckedChange={(v: boolean) => setDrafts({ ...drafts, [it.id]: { ...d, made: v, leadMin: v && !d.leadMin ? '5' : d.leadMin, leadMax: v && !d.leadMax ? '7' : d.leadMax } })}
+                          />
+                        </div>
+                        {d.made === true && (
+                          <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                            <span>Ships in</span>
+                            <Input aria-label="Fewest business days" inputMode="numeric" value={d.leadMin}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, leadMin: e.target.value.replace(/[^0-9]/g, '') } })}
+                              className="h-10 w-16 rounded-xl border-2 text-center font-mono text-sm font-bold" />
+                            <span>to</span>
+                            <Input aria-label="Most business days" inputMode="numeric" value={d.leadMax}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, leadMax: e.target.value.replace(/[^0-9]/g, '') } })}
+                              className="h-10 w-16 rounded-xl border-2 text-center font-mono text-sm font-bold" />
+                            <span>business days</span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
                           <div>
                             <Label className="text-[11px] font-black uppercase tracking-widest">Pre-order</Label>

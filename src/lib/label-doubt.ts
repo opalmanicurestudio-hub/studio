@@ -12,10 +12,17 @@ export type LabelDoubt = 'voiding' | 'partial' | 'unfinished';
 
 const SCANNED = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'];
 
+/** The carrier's latest status on record for the order's main box. The shipping webhook keeps it as
+ *  carrierTrail.carrierStatus (lib/shipping-notify deliveryEvidence); the other spellings are read too, so an older
+ *  record still counts. */
+export function trailStatus(o: any): string {
+  return String(o?.carrierTrail?.carrierStatus || o?.carrierTrail?.status || o?.carrierStatus || '').toUpperCase();
+}
+
 export function labelDoubt(o: any): LabelDoubt | null {
   const txn = String(o?.shippoTransactionId || '');
   if (!txn) return null;
-  if (o?.labelSeenMoving || SCANNED.includes(String(o?.carrierTrail?.status || '').toUpperCase())
+  if (o?.labelSeenMoving || SCANNED.includes(trailStatus(o))
     || Object.values(o?.boxStatus || {}).some((s: any) => SCANNED.includes(String(s).toUpperCase()))) return null;
   if (String(o?.labelVoiding?.txn || '') === txn) return 'voiding';
   if (Array.isArray(o?.labelVoidIds) && o.labelVoidIds.length > 0) return 'partial';

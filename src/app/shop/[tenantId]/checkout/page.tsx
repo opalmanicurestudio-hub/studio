@@ -26,6 +26,10 @@ import {
   touchCartExpiry, writeCart, writeWholesaleCode,
 } from '@/lib/shop-cart';
 import { formatPromiseDay, preorderNotice } from '@/lib/preorder-terms';
+import {
+  arrivalLabel, dayLabel, leadSentence, normalizeSchedule, orderPromise, processingSentence, type PromiseLine,
+} from '@/lib/ship-promise';
+import { addDays, dayKey } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
 import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
 
@@ -33,6 +37,7 @@ type Method = 'counter' | 'curbside' | 'ship';
 
 const fmt = (cents: number) =>
   (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
 
 export default function CheckoutPage() {
   const params = useParams<{ tenantId: string }>();
@@ -154,7 +159,10 @@ export default function CheckoutPage() {
   // a customer picks the SERVICE but can never set the PRICE. Quotes are
   // keyed to the address they were fetched for — edit the address and the
   // stale options disappear instead of quietly mispricing the parcel.
-  type ShipQuote = { id: string; carrier: string; service: string; amountCents: number; days: number | null; exp: number; token: string };
+  type ShipQuote = {
+    id: string; carrier: string; service: string; amountCents: number; days: number | null; exp: number; token: string;
+    facts?: string; shipBy?: string; arriveFrom?: string | null; arriveTo?: string | null;
+  };
   const [quotes, setQuotes] = useState<ShipQuote[]>([]);
   const [quoting, setQuoting] = useState(false);
   const [selectedQuoteId, setSelectedQuoteId] = useState('');
@@ -201,6 +209,9 @@ export default function CheckoutPage() {
         catch { throw new Error(`The shop backend answered with an unexpected response (HTTP ${res.status}).`); }
         if (!res.ok) throw new Error(data.error || 'Could not load the shop');
         setShop(data.shop);
+        // The shop's clock, not the device's: a phone set a few minutes (or a time zone) off would otherwise show a
+        // ship-by date the order isn't stored with.
+        { const t = Date.parse(String(data.shop?.serverNow || '')); setClockOffset(Number.isFinite(t) ? t - Date.now() : 0); }
         setProducts(data.products);
         if (code) setWholesaleCode(code);
         return true;
@@ -253,11 +264,35 @@ export default function CheckoutPage() {
 
   const hasPreorder = preorderItems.length > 0;
   const preorderKey = preorderItems.map((i) => `${i.name}|${i.etaAt}|${i.qty}`).join('~');
-  const notice = useMemo(
-    () => (hasPreorder ? preorderNotice({ items: preorderItems }) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hasPreorder, preorderKey]
-  );
+
+  // ── SHIP-BY DATES (lib/ship-promise) ──────────────────────────────────────
+  // Sent by the shop only once it shows dates. Worked out here from the cart as it stands and the rate chosen, by the
+  // same calculation the order is placed with, so the dates on this page are the dates in their email. The clock
+  // ticks so a date moves by itself at the cutoff while they're filling the form in.
+  const shipSched = useMemo(() => (shop?.shipSchedule ? normalizeSchedule(shop.shipSchedule) : null), [shop]);
+  const shopZone = String(shop?.timeZone || 'UTC');
+  const [clockOffset, setClockOffset] = useState(0);
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    if (!shipSched) return;
+    setClock(new Date(Date.now() + clockOffset));
+    const t = setInterval(() => setClock(new Date(Date.now() + clockOffset)), 30_000);
+    return () => clearInterval(t);
+  }, [shipSched, clockOffset]);
+  // After the server says the date moved, the date it named (they were just told it) is the one sent next time, until
+  // anything that decides the date changes.
+  const [serverShipBy, setServerShipBy] = useState('');
+  const promiseLines: PromiseLine[] = cartEntries.map(([key]) => {
+    const prod: any = byId.get(parseCartKey(key).productId);
+    return { digital: prod?.digital === true, preorder: prod?.preorder?.open === true, preorderEtaAt: prod?.preorder?.etaAt || null, leadDays: prod?.leadDays || null };
+  });
+  const datesFor = (carrier: string | null, service: string, days: number | null) =>
+    shipSched ? orderPromise({ at: clock, timeZone: shopZone, schedule: shipSched, lines: promiseLines, carrier, service, transitDays: days }) : null;
+  // 'Thu' within the coming week, 'Fri, Oct 30' further out, so a weekday alone is never a week off.
+  const shipDay = (day: string) => (day <= addDays(dayKey(clock, shopZone), 6) ? dayLabel(day, shopZone).split(',')[0] : dayLabel(day, shopZone));
+  const leadNote = [...new Set(cartEntries.map(([key]) => leadSentence((byId.get(parseCartKey(key).productId) as any)?.leadDays || null)).filter(Boolean))][0] || '';
+
+
 
   // Agreeing to a March 3 promise is not agreeing to an April 3 one. If the
   // pre-ordered items change AFTER the tick, the tick is withdrawn — an
@@ -303,7 +338,9 @@ export default function CheckoutPage() {
   useEffect(() => { if (promo) void applyPromo(promo.code); }, [promoCartKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const promoCents = promo?.cents || 0;
 
-  const fetchQuotes = async () => {
+  /** Live rates for the address. `keep` re-selects the same carrier and service when it's still offered (a refresh of
+   *  rates about to expire must not quietly switch the service they chose); otherwise the cheapest is picked. */
+  const fetchQuotes = async (keep?: { carrier: string; service: string } | null) => {
     if (!addrComplete || quoting) return;
     setQuoting(true);
     try {
@@ -323,7 +360,8 @@ export default function CheckoutPage() {
       setQuotes(opts);
       setQuotedFor(addrKey);
       const cheapest = [...opts].sort((a, b) => a.amountCents - b.amountCents)[0];
-      setSelectedQuoteId(cheapest.id);
+      const same = keep ? opts.find((o) => o.carrier === keep.carrier && o.service === keep.service) : null;
+      setSelectedQuoteId((same || cheapest).id);
     } catch (e: any) {
       setQuotes([]);
       setQuotedFor('');
@@ -335,6 +373,34 @@ export default function CheckoutPage() {
 
   const freeOverCents = Math.round((shop?.freeShippingOverDollars || 0) * 100);
   const freeQualified = freeOverCents > 0 && subtotalCents >= freeOverCents;
+
+  // The dates the order will be placed with: the chosen rate's carrier and estimate, or the shop's own shipping when
+  // the order qualifies for free shipping or no rate is chosen (the same rule checkout applies). Worked out on every
+  // render, so they move the moment the clock passes a cutoff.
+  const ownShipping = freeQualified || !selectedQuote;
+  const chosenDates = shipSched && method === 'ship' && !digitalOnlyCart
+    ? datesFor(ownShipping ? null : selectedQuote!.carrier, ownShipping ? 'Standard shipping' : selectedQuote!.service, ownShipping ? null : selectedQuote!.days)
+    : null;
+  const noticeDeadline = chosenDates?.deadlineAt || '';
+  const dateInputsKey = `${cartEntries.map(([k, q]) => `${k}:${q}`).join('|')}~${method}~${selectedQuote?.id || ''}~${freeQualified}`;
+  useEffect(() => { setServerShipBy(''); }, [dateInputsKey]);
+  const notice = useMemo(
+    () => {
+      if (!hasPreorder) return null;
+      // With dates on, the pre-order notice names the order's own ship-by date (the latest pre-order date, or later
+      // when the rest of the order takes longer), the same one the order is stored with.
+      return preorderNotice({ items: preorderItems, ...(noticeDeadline ? { promiseAt: noticeDeadline, timeZone: shopZone } : {}) });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasPreorder, preorderKey, noticeDeadline, shopZone]
+  );
+  // The date they agreed to moved (the cutoff passed, or another rate was picked): the tick goes, like a changed cart.
+  const noticeDate = notice?.promiseAt || '';
+  const agreedDate = React.useRef(noticeDate);
+  useEffect(() => {
+    if (agreedDate.current && noticeDate && agreedDate.current !== noticeDate) setPreorderAgreed(false);
+    agreedDate.current = noticeDate;
+  }, [noticeDate]);
 
   const shippingCents = useMemo(() => {
     if (digitalOnlyCart || method !== 'ship' || !shop) return 0;
@@ -385,6 +451,13 @@ export default function CheckoutPage() {
   useEffect(() => { ar.setReview(null); }, [addrKey, addr.line2]); // eslint-disable-line react-hooks/exhaustive-deps
   const pay = async () => {
     if (!canPlace || placing || ar.checking) return;
+    // A rate is good for 30 minutes. One about to run out is fetched again first, so the price and the dates they pay
+    // for are the ones on the screen, never a quiet switch to the flat rate.
+    if (method === 'ship' && selectedQuote && Date.now() + clockOffset > selectedQuote.exp - 60_000) {
+      await fetchQuotes({ carrier: selectedQuote.carrier, service: selectedQuote.service });
+      toast({ title: 'Shipping options refreshed', description: 'They’d been open a while. Please check them and pay again.' });
+      return;
+    }
     if (!shipsToAddress) { void placeOrder(); return; }
     await ar.start({ name: addr.name, line1: addr.line1, line2: addr.line2, city: addr.city, state: addr.state, postalCode: addr.postalCode });
   };
@@ -411,6 +484,9 @@ export default function CheckoutPage() {
             ? Math.round(Number(creditLimit) * 100)
             : undefined,
           preorderAck: hasPreorder ? true : undefined,
+          // The ship-by date the pre-order notice showed, so the order is never stored with a different one.
+          preorderShownAt: hasPreorder ? notice?.promiseAt || undefined : undefined,
+          shownShipBy: chosenDates ? (serverShipBy && serverShipBy !== chosenDates.shipBy ? serverShipBy : chosenDates.shipBy) : undefined,
           ifUnavailable: digitalOnlyCart ? undefined : ifUnavailable,
           gift: !digitalOnlyCart && isGift ? { isGift: true, to: giftTo.trim(), message: giftMsg.trim() } : undefined,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
@@ -418,7 +494,7 @@ export default function CheckoutPage() {
           addressCheckToken: method === 'ship' && !digitalOnlyCart && extra?.token ? extra.token : undefined,
           unitAnswer: method === 'ship' && !digitalOnlyCart ? extra?.unitAnswer : undefined,
           shippingQuote: method === 'ship' && selectedQuote
-            ? { amountCents: selectedQuote.amountCents, service: selectedQuote.service, carrier: selectedQuote.carrier, exp: selectedQuote.exp, token: selectedQuote.token }
+            ? { amountCents: selectedQuote.amountCents, service: selectedQuote.service, carrier: selectedQuote.carrier, exp: selectedQuote.exp, token: selectedQuote.token, days: selectedQuote.days, facts: selectedQuote.facts }
             : undefined,
           priceTier: wholesale ? 'wholesale' : 'retail',
           wholesaleCode: wholesale ? wholesaleCode : undefined,
@@ -428,7 +504,13 @@ export default function CheckoutPage() {
       const raw = await res.text();
       let data: any = {};
       try { data = JSON.parse(raw); } catch { /* non-JSON reply handled below */ }
-      if (!res.ok) { if (data.promoError) { setPromo(null); setPromoErr(data.error || null); } throw new Error(data.error || `Checkout failed (HTTP ${res.status})`); }
+      if (!res.ok) {
+        if (data.promoError) { setPromo(null); setPromoErr(data.error || null); }
+        if (data.needsPreorderAck) setPreorderAgreed(false);
+        // The ship-by date moved while they were paying: the screen catches up, and the date named is the one sent.
+        if (data.datesChanged) { setClock(new Date(Date.now() + clockOffset)); setServerShipBy(String(data.shipBy || '')); }
+        throw new Error(data.error || `Checkout failed (HTTP ${res.status})`);
+      }
       window.location.href = data.url;
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Checkout problem', description: e?.message || 'Please try again.' });
@@ -594,6 +676,14 @@ export default function CheckoutPage() {
                 <Input placeholder="ZIP" aria-label="ZIP code" autoComplete="postal-code" inputMode="numeric" value={addr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, postalCode: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
               </div>
 
+              {shipSched && (!quotesFresh || freeQualified) && (() => {
+                const p = datesFor(null, 'Standard shipping', null);
+                return p ? (
+                  <p className="text-[12px] font-bold">
+                    Ships by {dayLabel(p.shipBy, shopZone)}{p.arriveFrom ? ` · arrives ${arrivalLabel(p, shopZone)}` : ''}
+                    {!freeQualified && <span className="text-muted-foreground"> with standard shipping</span>}
+                  </p>) : null;
+              })()}
               {freeQualified ? (
                 <p className="text-[10px] font-black uppercase tracking-widest text-primary">
                   Free shipping — this order qualifies
@@ -603,7 +693,7 @@ export default function CheckoutPage() {
                   type="button"
                   variant="outline"
                   disabled={!addrComplete || quoting}
-                  onClick={fetchQuotes}
+                  onClick={() => void fetchQuotes()}
                   className="h-11 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
                 >
                   {quoting ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : 'Get shipping options'}
@@ -624,7 +714,13 @@ export default function CheckoutPage() {
                     >
                       <span className="min-w-0">
                         <span className="block truncate text-[10px] font-black uppercase tracking-widest">{q.carrier} · {q.service}</span>
-                        {q.days != null && (
+                        {shipSched ? (() => {
+                          const p = datesFor(q.carrier, q.service, q.days);
+                          return p ? (
+                            <span className="block text-[11px] font-bold text-muted-foreground">
+                              Ships by {shipDay(p.shipBy)}{p.arriveFrom ? ` · arrives ${arrivalLabel(p, shopZone)}` : ''}
+                            </span>) : null;
+                        })() : q.days != null && (
                           <span className="block text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
                             ~{q.days} day{q.days === 1 ? '' : 's'}
                           </span>
@@ -642,6 +738,10 @@ export default function CheckoutPage() {
                   </button>
                 </div>
               )}
+              {shipSched && (
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  {processingSentence(shipSched)}{leadNote ? ` ${leadNote}` : ''}
+                </p>)}
             </div>
           )}
 
@@ -868,7 +968,7 @@ export default function CheckoutPage() {
               {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - promoCents) + (promo?.freeShipping ? 0 : shippingCents) + tipCents)} + tax`}
             </Button>)}
             <p className="text-[9px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
-              Secure payment &middot; You&apos;ll get a pickup QR code
+              {method === 'ship' && !digitalOnlyCart ? 'Secure payment · Tracking on your order page' : digitalOnlyCart ? 'Secure payment · Opens the moment you pay' : <>Secure payment &middot; You&apos;ll get a pickup QR code</>}
             </p>
           </div>
         </div>

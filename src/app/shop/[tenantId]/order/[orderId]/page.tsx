@@ -24,6 +24,8 @@ import { cn } from '@/lib/utils';
 import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
 import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
+import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
+import { formatDay } from '@/lib/tenant-time';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
 // The customer's live order tracker — the success URL from Stripe Checkout
@@ -67,6 +69,7 @@ interface StatusOrder {
   addressChange?: 'direct' | 'request' | 'carrier' | 'none'; addressChangeUntil?: 'label' | 'packing' | 'never';
   addressVerdict?: string | null; addressUnitMissing?: boolean;
   shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null; extraTracking?: { number: string; url: string | null }[]; shippedWith?: string[]; shipTogetherRefundCents?: number;
+  dates?: CustomerDates | null; timeZone?: string; delayNotified?: boolean; labelStuck?: boolean;
 }
 
 const fmt = (cents: number) =>
@@ -793,7 +796,11 @@ export default function OrderStatusPage() {
   // than trusted from the server alone so the banner and the button agree.
   const promiseLate = !!(order as any).shipPromiseAt
     && ['paid', 'picking', 'packed', 'ready'].includes(order.stage)
+    && (!order.trackingNumber || order.labelStuck === true)
     && Date.parse((order as any).shipPromiseAt) < Date.now();
+  // Once we've told them it's running late, they can cancel for a full refund until it ships, whatever the policy.
+  const lateCancel = promiseLate || (order.delayNotified === true && ['paid', 'picking', 'packed', 'ready'].includes(order.stage));
+  const dates = isShip ? order.dates || null : null;
 
   // What the customer actually received, as opposed to where the order got to.
   const fulfilment = fulfilmentSummary(order.lines);
@@ -1087,6 +1094,34 @@ export default function OrderStatusPage() {
                   Shipping to {order.shipCity || 'you'}
                 </p>
               </div>
+              {dates && !order.trackingNumber && (
+                <div className="space-y-1 pb-1">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm font-black">Ships by</span>
+                    <span className="text-right text-sm font-black">
+                      {dates.originalShipBy && <s className="mr-1.5 font-bold text-muted-foreground">{dayLabel(dates.originalShipBy, dates.timeZone)}</s>}
+                      {longDayLabel(dates.shipBy, dates.timeZone)}
+                    </span>
+                  </div>
+                  {dates.arriveFrom && (
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-sm font-bold">Arrives</span>
+                      <span className="text-right text-sm font-bold">{arrivalLabel(dates, dates.timeZone)}</span>
+                    </div>)}
+                  <p className="text-[11px] font-bold text-muted-foreground">
+                    {dates.service ? `${dates.service} to ${order.shipCity || 'you'}. ` : ''}Once it ships, the date comes from the carrier.
+                  </p>
+                </div>)}
+              {dates && order.trackingNumber && (dates.carrierEta || dates.arriveFrom) && (
+                <div className="space-y-1 pb-1">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm font-black">Arrives</span>
+                    <span className="text-right text-sm font-black">{dates.carrierEta ? dayLabel(dates.carrierEta, dates.timeZone) : arrivalLabel(dates, dates.timeZone)}</span>
+                  </div>
+                  <p className="text-[11px] font-bold text-muted-foreground">
+                    {dates.carrierEta ? `${order.carrier || 'The carrier'}’s own estimate. Their tracking has the latest.` : 'The carrier’s tracking has the latest.'}
+                  </p>
+                </div>)}
               {order.trackingNumber ? (
                 <div className="space-y-2">
                   {order.addressChange === 'carrier' && <p className="text-[11px] font-bold text-muted-foreground">Need it to go somewhere else? It’s with the carrier now, so the address can’t be changed here. Their tracking page shows what they can do, like holding it for pickup.</p>}
@@ -1627,13 +1662,13 @@ export default function OrderStatusPage() {
             <CardContent className="p-5 space-y-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Running late</p>
               <p className="text-xs font-bold text-amber-900">
-                We said this would be on its way by {new Date((order as any).shipPromiseAt).toLocaleDateString()} and it isn&apos;t yet. You can wait — we&apos;ll let you know as soon as it ships — or cancel right now for a full refund, no questions asked.
+                We said this would be on its way by {formatDay((order as any).shipPromiseAt, order.timeZone || null)} and it isn&apos;t yet. You can wait — we&apos;ll let you know as soon as it ships — or cancel right now for a full refund, no questions asked.
               </p>
             </CardContent>
           </Card>
         )}
 
-        {selfToken && order && (['placed', 'paid'].includes(order.stage) || promiseLate) && (
+        {selfToken && order && (['placed', 'paid'].includes(order.stage) || lateCancel) && (
           <Button
             variant="outline"
             disabled={cancelBusy}
@@ -1641,7 +1676,7 @@ export default function OrderStatusPage() {
             id="cancel-entry"
             className="w-full h-11 rounded-2xl border-2 border-destructive/30 text-destructive font-black uppercase text-[10px] tracking-widest"
           >
-            {cancelBusy ? <Loader className="h-4 w-4 animate-spin" /> : promiseLate ? 'Cancel and refund me' : 'Cancel this order'}
+            {cancelBusy ? <Loader className="h-4 w-4 animate-spin" /> : lateCancel ? 'Cancel and refund me' : 'Cancel this order'}
           </Button>
         )}
 

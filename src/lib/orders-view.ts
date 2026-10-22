@@ -3,6 +3,7 @@
 //   Tabs: To pack (paid, being packed) · Ready (on the shelf, outside, packed and waiting to ship) · Done.
 //   "Needs you": the few things a person has to decide, each pointing at one order.
 import { fulfilmentPolicy, slaFor } from '@/lib/retail-orders';
+import { dayKey, formatShortDay, formatTime } from '@/lib/tenant-time';
 
 export type OrdersTab = 'pack' | 'ready' | 'done';
 export const ACTIVE_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
@@ -34,12 +35,22 @@ export function packProgress(o: any): { done: number; total: number; missing: nu
 }
 export const itemCount = (o: any) => (o?.lines || []).reduce((a: number, l: any) => a + (Number(l.qtyOrdered) || 0), 0);
 
-/** One short line for when it's due, and whether it's late. */
-export function dueLine(o: any, retailSettings: any, now = Date.now()): { text: string; late: boolean } {
+/** 'today', 'tomorrow' or 'Fri, Oct 23', on the shop's clock. */
+function dayWord(dueMs: number, now: number, tz: string): string {
+  const d = dayKey(new Date(dueMs), tz);
+  if (d === dayKey(new Date(now), tz)) return 'today';
+  if (d === dayKey(new Date(now + 864e5), tz)) return 'tomorrow';
+  return formatShortDay(new Date(dueMs), tz);
+}
+
+/** One short line for when it's due, and whether it's late. Days and times are read on the shop's clock (the order's
+ *  promise carries it; `timeZone` covers older orders), never the phone's. */
+export function dueLine(o: any, retailSettings: any, now = Date.now(), timeZone?: string | null): { text: string; late: boolean } {
   const st = String(o?.stage || '');
+  const tz = String(o?.promise?.timeZone || timeZone || 'UTC');
   if (st === 'arrived') return { text: 'Outside now', late: true };
   // Orders that have gone (opened from Needs you, or the Done tab): when, not how late.
-  if (st === 'shipped') { const t = ms(o.completedAt); return { text: t ? `Shipped ${new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Shipped', late: false }; }
+  if (st === 'shipped') { const t = ms(o.completedAt); return { text: t ? `Shipped ${formatShortDay(new Date(t), tz).replace(/^\w+, /, '')}` : 'Shipped', late: false }; }
   if (st === 'completed' || st === 'handed_off') return { text: 'Done', late: false };
   if (st === 'cancelled' || st === 'refunded') return { text: 'Cancelled', late: false };
   if (st === 'ready') {
@@ -47,26 +58,28 @@ export function dueLine(o: any, retailSettings: any, now = Date.now()): { text: 
     const days = since ? Math.floor((now - since) / 864e5) : 0;
     return days >= 2 ? { text: `Waiting ${days} days`, late: true } : { text: o.shelfSlot ? `Shelf ${o.shelfSlot}` : 'On the shelf', late: false };
   }
-  if (st === 'packed' && o.method === 'ship') return { text: o.labelUrl ? 'Label bought' : 'Needs a label', late: false };
   if (o.holdUntilRestock === true) return { text: 'Waiting on stock', late: false };
-  const sla = slaFor(o, fulfilmentPolicy(retailSettings || {}), now);
-  if (sla.state === 'late') { const m = Math.max(1, Math.round(-sla.minutesRemaining)); return { text: m < 90 ? `${m} min late` : m < 36 * 60 ? `${Math.round(m / 60)} hours late` : `${Math.round(m / 1440)} days late`, late: true }; }
-  const due = new Date(sla.dueAtMs);
-  const sameDay = new Date(now).toDateString() === due.toDateString();
-  const tomorrow = new Date(now + 864e5).toDateString() === due.toDateString();
-  if (o.method === 'ship') return { text: sameDay ? 'Ships today' : tomorrow ? 'Ships tomorrow' : `Ships ${due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, late: false };
-  return { text: sameDay ? `Due ${due.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : due.toLocaleDateString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }), late: false };
+  const sla = slaFor(o, fulfilmentPolicy(retailSettings || {}, tz), now);
+  if (!Number.isFinite(sla.dueAtMs)) return { text: methodLabel(o.method), late: false };
+  const labeled = !!(o.labelUrl || o.shippoTransactionId || o.trackingNumber);
+  // A packed box with its label is on its way out: an unscanned label is the morning check's job, not a late order.
+  if (st === 'packed' && o.method === 'ship' && labeled) return { text: `Label bought · ships ${dayWord(sla.dueAtMs, now, tz)}`, late: false };
+  const lateText = (mins: number) => { const m = Math.max(1, Math.round(mins)); return m < 90 ? `${m} min late` : m < 36 * 60 ? `${Math.round(m / 60)} hours late` : `${Math.round(m / 1440)} days late`; };
+  if (sla.state === 'late') return { text: st === 'packed' && o.method === 'ship' ? `Needs a label · ${lateText(-sla.minutesRemaining)}` : lateText(-sla.minutesRemaining), late: true };
+  if (o.method === 'ship') return { text: st === 'packed' ? `Needs a label · ships ${dayWord(sla.dueAtMs, now, tz)}` : `Ships ${dayWord(sla.dueAtMs, now, tz)}`, late: false };
+  const day = dayWord(sla.dueAtMs, now, tz);
+  return { text: day === 'today' ? `Due ${formatTime(new Date(sla.dueAtMs), tz)}` : `${day === 'tomorrow' ? 'Tomorrow' : day} ${formatTime(new Date(sla.dueAtMs), tz)}`, late: false };
 }
 
 /** Packing order: late first, then soonest due. */
-export function packQueue(orders: any[], retailSettings: any, now = Date.now()) {
-  const pol = fulfilmentPolicy(retailSettings || {});
+export function packQueue(orders: any[], retailSettings: any, now = Date.now(), timeZone?: string | null) {
+  const pol = fulfilmentPolicy(retailSettings || {}, timeZone);
   return orders.filter((o) => tabOf(o) === 'pack' && o.holdUntilRestock !== true && o.holdForReview !== true)
     .map((o) => ({ o, d: slaFor(o, pol, now).dueAtMs || 0 }))
     .sort((a, b) => a.d - b.d).map((x) => x.o);
 }
 
-export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label' | 'voided'; text: string }
+export interface NeedItem { key: string; orderId: string; kind: 'outside' | 'refund' | 'missing' | 'backorder' | 'uncollected' | 'held' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'late'; text: string }
 /** The few things a person has to decide, most urgent first. */
 export function needsYou(orders: any[], now = Date.now(), staleHours = 48): NeedItem[] {
   const out: NeedItem[] = [];
@@ -88,9 +101,15 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     if (o.voidedLabelMoving?.open === true) out.push({ key: `${o.id}-vlm`, orderId: o.id, kind: 'voided', text: (Number(o.voidedLabelMoving.voidedBoxes) || 0) + (Number(o.voidedLabelMoving.unconfirmedBoxes) || 0) > 0 ? `A box of ${who}’s went out while other labels were being voided`
       : o.voidedLabelMoving.unsure ? `A label being voided for ${who} was scanned by the carrier` : `A voided label for ${who} was scanned by the carrier` });
     if (o.stage === 'paid' && o.holdUntilRestock === true) out.push({ key: `${o.id}-bo`, orderId: o.id, kind: 'backorder', text: `${who}’s order is waiting on stock` });
+    // Late (lib/late-notices): an order that missed its date and needs someone to decide what to tell the customer, or
+    // one past the date its customer was promised with nothing shipped (they can cancel for a full refund now).
+    if (['paid', 'picking', 'packed'].includes(o.stage) && !o.trackingNumber && !o.shippoTransactionId && !o.holdUntilRestock) {
+      if (o.lateNeedsStaff?.open === true) out.push({ key: `${o.id}-late`, orderId: o.id, kind: 'late', text: o.lateNeedsStaff.why === 'held' ? `${who}’s held order missed its ship-by date` : `${who}’s order missed its new ship-by date` });
+      else if (ms(o.shipPromiseAt) && ms(o.shipPromiseAt) < now) out.push({ key: `${o.id}-late`, orderId: o.id, kind: 'late', text: `${who}’s order is past the date they were promised` });
+    }
     if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });
   }
-  const rank: Record<string, number> = { outside: 0, held: 1, address: 2, voided: 3, refund: 4, missing: 5, uncollected: 6, unconfirmed: 7, label: 8, backorder: 9 };
+  const rank: Record<string, number> = { outside: 0, held: 1, late: 2, address: 3, voided: 4, refund: 5, missing: 6, uncollected: 7, unconfirmed: 8, label: 9, backorder: 10 };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
 

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
 import { changeMode, changePolicy } from '@/lib/address-flow';
+import { customerDates } from '@/lib/ship-promise';
+import { tenantTimeZone } from '@/lib/tenant-time';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
 // GET ?tenantId=...&orderId=...
@@ -321,6 +323,13 @@ export async function GET(req: NextRequest) {
       customerEmail: order.customerEmail || '',
       storeCreditRequestedCents: order.storeCreditRequestedCents || 0,
       shipPromiseAt: order.shipPromiseAt || null,
+      // The ship-by and arrival dates they were shown (lib/ship-promise), as they stand now; null when they never were.
+      dates: order.method === 'ship' ? customerDates(order, tenantTimeZone(tenantSnap.exists ? tenantSnap.data() : null)) : null,
+      timeZone: tenantTimeZone(tenantSnap.exists ? tenantSnap.data() : null),
+      // A delay notice went out: they can cancel for a full refund until it ships.
+      delayNotified: !!order.notifiedForPromiseAt || (Number(order.promiseRevisions) || 0) > 0,
+      // A label the carrier hasn't scanned for days (the morning check): the box counts as not sent yet.
+      labelStuck: order.labelUnscannedOpen === true,
       hasPreorder: order.hasPreorder === true,
       trackingNumber: order.trackingNumber || null,
       trackingUrl: order.trackingUrl || null,

@@ -7,6 +7,8 @@ import {
 import { publicFields } from '@/lib/product-public';
 import { preorderState } from '@/lib/retail-orders';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
+import { leadOf, publicSchedule } from '@/lib/ship-promise';
+import { tenantTimeZone } from '@/lib/tenant-time';
 
 // ─── /api/retail/product/route.ts ─────────────────────────────────────────────
 // GET ?tenantId=...&productId=...&wholesaleCode=...
@@ -73,6 +75,9 @@ export async function GET(req: NextRequest) {
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
 
   const available = Math.max(0, onlineSellable(item));
+  // Pre-order runs close at the end of their day on the shop's clock, not the server's.
+  const shopZone = tenantTimeZone(tenant);
+  const pre = preorderState(item as any, shopZone);
   // publicSpecs() also surfaces the inventory size/unit as a Size row, so an
   // item detailed only in Inventory still has real specs on its page.
   const specs = pub.specs.filter((s) => s.label && s.value).slice(0, 40);
@@ -91,6 +96,12 @@ export async function GET(req: NextRequest) {
       // never touched these keeps today's behaviour.
       offersPickup: rs.pickupEnabled !== false,
       offersShipping: rs.shippingEnabled !== false,
+      // Ship-by and arrival dates are worked out on the page, live, from the shop's schedule (lib/ship-promise),
+      // only once the shop shows dates.
+      timeZone: shopZone,
+      shipSchedule: publicSchedule(rs),
+      // The server's clock, so a device set wrong can't move a cutoff or the countdown.
+      serverNow: new Date().toISOString(),
       // Product page layout: every block on by default, so an untouched shop
       // looks exactly as it does now and customising is purely additive.
       page: {
@@ -123,11 +134,12 @@ export async function GET(req: NextRequest) {
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
       wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
       digital: item.digital === true,
-      preorder: preorderState(item as any),
+      preorder: pre,
+      leadDays: item.digital === true ? null : leadOf(item.leadDays),
       // A digital item can never be out of stock — the storefront must not
       // grey out a course because a stock number nobody maintains hit zero.
       inStock: item.digital === true
-        || (item.preorder === true ? preorderState(item as any).open : false)
+        || (item.preorder === true ? pre.open : false)
         || available > 0 || item.allowBackorder === true,
       qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),
       lowStock: available > 0 && available <= (item.lowStockThreshold ?? 0),

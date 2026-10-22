@@ -4,6 +4,7 @@
 // sit in a tab bar; on a computer, the order opens beside the list. A one-person shop leads with the next order.
 // Live from Firestore; the packing engine is lib/retail-fulfill, the screen's own rules are lib/orders-view.
 import * as React from 'react';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { collection, doc, limit, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { benchScanTarget, markLabelChecked } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
@@ -41,6 +42,7 @@ export function OrdersApp() {
   const perms = useFulfilmentPerms();
   const tenantId = String(selectedTenant?.id || '');
   const rs = (selectedTenant as any)?.retailSettings || {};
+  const shopZone = tenantTimeZone(selectedTenant);
   const actor: Actor = React.useMemo(() => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Team' }), [user]);
   const wide = useWide();
 
@@ -99,7 +101,7 @@ export function OrdersApp() {
 
   const byId = React.useMemo(() => new Map([...unscanned, ...done, ...orders].map((o) => [o.id, o])), [orders, done, unscanned]);
   const solo = React.useMemo(() => soloShop(staff || [], (m: any) => permissionsFor(m)), [staff]);
-  const queue = React.useMemo(() => packQueue(orders, rs, now), [orders, rs, now]);
+  const queue = React.useMemo(() => packQueue(orders, rs, now, shopZone), [orders, rs, now, shopZone]);
   const needs = React.useMemo(() => needsYou([...orders, ...unscanned.filter((u) => !orders.some((o) => o.id === u.id))], now, Math.max(1, Number(rs.readyStaleHours) || 24)), [orders, unscanned, now, rs.readyStaleHours]);
   const counts = React.useMemo(() => ({ pack: orders.filter((o) => tabOf(o) === 'pack').length, ready: orders.filter((o) => tabOf(o) === 'ready').length }), [orders]);
   const list = React.useMemo(() => {
@@ -155,7 +157,7 @@ export function OrdersApp() {
   const canRefund = typeof can === 'function' ? can('checkout.refund') : false;
 
   const row = (o: any) => {
-    const d = dueLine(o, rs, now);
+    const d = dueLine(o, rs, now, shopZone);
     const live = ['paid', 'picking', 'packed'].includes(String(o.stage));
     const addrNote = !live || o.method !== 'ship' ? ''
       : ['waiting', 'approving'].includes(String(o.addressRequest?.status)) ? 'Address change to approve'
@@ -178,7 +180,7 @@ export function OrdersApp() {
       {nextUp && (
         <div className="mx-4 mt-3 rounded-3xl border-2 p-4" style={{ borderColor: C.ink }}>
           <p className="m-0 text-[13px] font-semibold" style={muted}>Next up</p>
-          <div className="mt-1 flex items-start justify-between gap-2"><div><p className="m-0 text-[22px] font-light">{nextUp.customerName}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{methodLabel(nextUp.method)} · {itemCount(nextUp)} item{itemCount(nextUp) === 1 ? "" : "s"}</p></div><span className="text-[14px] font-semibold" style={dueLine(nextUp, rs, now).late ? { color: C.warn } : muted}>{dueLine(nextUp, rs, now).text}</span></div>
+          <div className="mt-1 flex items-start justify-between gap-2"><div><p className="m-0 text-[22px] font-light">{nextUp.customerName}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{methodLabel(nextUp.method)} · {itemCount(nextUp)} item{itemCount(nextUp) === 1 ? "" : "s"}</p></div><span className="text-[14px] font-semibold" style={dueLine(nextUp, rs, now, shopZone).late ? { color: C.warn } : muted}>{dueLine(nextUp, rs, now, shopZone).text}</span></div>
           <Btn kind="primary" className="mt-3 w-full" onClick={() => void beginPack(nextUp)}>Start packing</Btn>
         </div>)}
       {selecting && <div className="flex items-center justify-between px-4 pb-1 pt-3"><span className="text-[13px] font-semibold" style={muted}>{picked.size ? `${picked.size} of ${list.length}` : 'Tap orders to pick them'}</span><button type="button" onClick={() => setPicked(picked.size === list.length ? new Set() : new Set(list.map((o) => o.id)))} className="h-11 text-[15px] font-semibold">{picked.size === list.length ? 'Clear' : `Select all ${list.length}`}</button></div>}

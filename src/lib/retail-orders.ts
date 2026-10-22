@@ -27,6 +27,7 @@
 import { effectiveUnitCents } from './retail-swap';
 import { taxShareCents } from './restocking';
 import { deadlineAt } from './tenant-time';
+import { promiseCarrier, promiseFor, scheduleFrom, type ShipSchedule } from './ship-promise';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * STAGES & TRANSITIONS
@@ -131,6 +132,7 @@ export interface RetailInventoryFields {
   allowBackorder?: boolean;    // default false
   preorder?: boolean;          // sellable before stock exists, with a promised date
   preorderEtaAt?: string;      // ISO date the shop promises to ship by
+  leadDays?: { min: number; max: number } | null; // made to order: business days to ship, instead of the usual time
   wholesalePriceDollars?: number; // B2B price; falls back to msrp when absent
   wholesaleMinQty?: number;       // per-item minimum units for wholesale orders
   howToUse?: string;              // usage/instructions shown on the product page
@@ -680,6 +682,7 @@ export interface OrderLine {
   digitalAccessDays?: number;  // snapshot of the access window SOLD (later policy changes never shorten it)
   preorder?: boolean;          // bought before stock existed
   preorderEtaAt?: string;      // the date promised AT PURCHASE — the promise that binds
+  leadDays?: { min: number; max: number }; // made to order, as sold: the ship-by date counted from it
 }
 
 export type ShortResolution = 'refund' | 'backorder';
@@ -712,6 +715,10 @@ export function buildOrderLine(
     ...(item.preorder === true ? {
       preorder: true,
       ...(item.preorderEtaAt ? { preorderEtaAt: String(item.preorderEtaAt) } : {}),
+    } : {}),
+    // Made to order travels with the line as sold, so a later change to the product can't move this order's date.
+    ...(item.digital !== true && Number(item.leadDays?.max) > 0 ? {
+      leadDays: { min: Math.max(1, Math.floor(Number(item.leadDays?.min) || Number(item.leadDays?.max))), max: Math.floor(Number(item.leadDays?.max)) },
     } : {}),
     ...(item.digital === true ? {
       digital: true,
@@ -1109,10 +1116,15 @@ export function isClaimStale(batch: FulfillmentBatch, now: Date = new Date()): b
 export interface FulfilmentPolicy {
   /** Minutes to get a pickup/curbside order ready. */
   prepMinutes: number;
-  /** Business hours to get a shipment packed and labelled. */
+  /** Hours to get a shipment packed and labelled, for a shop with no schedule to go by. */
   shipHours: number;
   /** Minutes before a due time that an order starts showing as "due soon". */
   warnMinutes: number;
+  /** The shop's shipping schedule (lib/ship-promise): a shipped order with no stored promise is due by the ship-by
+   *  day it would have been given, at that day's last pickup. */
+  schedule?: ShipSchedule;
+  /** The shop's clock, for those days. */
+  timeZone?: string;
 }
 
 export const DEFAULT_POLICY: FulfilmentPolicy = {
@@ -1121,18 +1133,31 @@ export const DEFAULT_POLICY: FulfilmentPolicy = {
   warnMinutes: 15,
 };
 
-export function fulfilmentPolicy(retailSettings: any): FulfilmentPolicy {
+export function fulfilmentPolicy(retailSettings: any, timeZone?: string | null): FulfilmentPolicy {
   const rs = retailSettings || {};
   return {
     prepMinutes: Math.max(1, Math.floor(Number(rs.prepMinutes) || DEFAULT_POLICY.prepMinutes)),
     shipHours: Math.max(1, Math.floor(Number(rs.shipProcessingHours) || DEFAULT_POLICY.shipHours)),
     warnMinutes: Math.max(1, Math.floor(Number(rs.slaWarnMinutes) || DEFAULT_POLICY.warnMinutes)),
+    schedule: scheduleFrom(rs),
+    ...(timeZone ? { timeZone: String(timeZone) } : {}),
   };
+}
+
+/**
+ * When the work on an order could start: payment, or, for a backorder or split shipment, the moment it was released
+ * to be packed. A backorder split off months after payment used to count from the parent's payment, so it was late
+ * the moment it was created.
+ */
+export function workStartedAt(order: any): string | null {
+  return order?.releasedAt || (order?.parentOrderId ? order?.placedAt : null) || order?.paidAt || order?.placedAt || null;
 }
 
 /** When the customer was told (or reasonably expects) this to be done. */
 export function dueAt(order: RetailOrder, policy: FulfilmentPolicy = DEFAULT_POLICY): number {
-  const placed = new Date(order.paidAt ?? order.placedAt ?? Date.now()).getTime();
+  const started = new Date(workStartedAt(order) ?? Date.now()).getTime();
+  // An unreadable stamp counts from now rather than making every date after it unreadable too.
+  const placed = Number.isFinite(started) ? started : Date.now();
 
   // An explicit promise always wins — it is what the customer was shown.
   if (order.promiseAt) {
@@ -1146,7 +1171,19 @@ export function dueAt(order: RetailOrder, policy: FulfilmentPolicy = DEFAULT_POL
   if (m) return placed + Number(m[1]) * 60_000;
   if (/hour/i.test(wanted)) return placed + 60 * 60_000;
 
-  if (order.method === 'ship') return placed + policy.shipHours * 3_600_000;
+  if (order.method === 'ship') {
+    // No stored promise (an order from before the schedule, or a backorder released to be packed): due by the
+    // ship-by day the schedule gives the moment work could start, at that day's last pickup.
+    if (policy.schedule && Number.isFinite(placed)) {
+      const p = promiseFor({
+        at: placed, timeZone: String((order as any).promise?.timeZone || policy.timeZone || 'UTC'), schedule: policy.schedule,
+        lines: (order.lines || []) as any, carrier: promiseCarrier(order),
+      });
+      const t = Date.parse(p.shipByAt);
+      if (Number.isFinite(t)) return t;
+    }
+    return placed + policy.shipHours * 3_600_000;
+  }
   return placed + policy.prepMinutes * 60_000;
 }
 
@@ -1435,17 +1472,30 @@ export function shipPromiseAt(
   return new Date(start + FTC_DEFAULT_PROMISE_DAYS * 24 * 60 * 60 * 1000).toISOString();
 }
 
-/** Past the promised date with nothing shipped or handed over yet. */
+/** Past the promised date with nothing shipped or handed over yet. A box with its label bought counts as on its way
+ *  out: the promise is now the ship-by day itself, and a box the carrier collected but nobody marked shipped must not
+ *  read as late, with a refund button, at midnight. Unless the morning check has found the carrier never scanned it
+ *  (lib/label-sweep): then it is late like any other. */
 export function isPromiseLate(
   order: { stage: string; lines: OrderLine[]; paidAt?: string | null; placedAt?: string | null; shipPromiseAt?: string | null },
   timeZone?: string | null,
 ): boolean {
   if (!['paid', 'picking', 'packed', 'ready'].includes(String(order.stage))) return false;
+  const o = order as any;
+  if ((o.trackingNumber || o.shippoTransactionId || o.labelFromOrderId || o.shippedWithOrderId) && o.labelUnscannedOpen !== true) return false;
   // The stored promise always wins: it is what the customer was actually
   // shown. Only an order written before that field existed falls through to
   // the derivation, and that one needs the zone to land on the right day.
   const promise = order.shipPromiseAt || shipPromiseAt(order.lines || [], order.paidAt, order.placedAt, timeZone);
   return !!promise && Date.parse(promise) < Date.now();
+}
+
+/**
+ * A delay notice has gone out (by hand, automatically, or for a pre-order run): the notice offered a full refund, so
+ * the customer can cancel online until it ships, whatever the shop's cancelling policy says.
+ */
+export function delayNotified(order: { notifiedForPromiseAt?: string | null; promiseRevisions?: number | null }): boolean {
+  return !!order?.notifiedForPromiseAt || (Number(order?.promiseRevisions) || 0) > 0;
 }
 
 /** True when NOTHING on the order needs picking, packing, or postage. */

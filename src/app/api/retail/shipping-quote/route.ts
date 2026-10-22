@@ -2,11 +2,13 @@ import { shippoKeyFor } from '@/lib/retail-secrets';
 import { groundFilter, itemGroundOnly } from '@/lib/ground-only';
 import { NextRequest, NextResponse } from 'next/server';
 
-import { quoteExpiry, signQuote } from '@/lib/shipping-quote';
+import { quoteExpiry, signQuote, signRateFacts } from '@/lib/shipping-quote';
+import { orderPromise, publicSchedule, type PromiseLine } from '@/lib/ship-promise';
+import { tenantTimeZone } from '@/lib/tenant-time';
 
 // ─── /api/retail/shipping-quote ───────────────────────────────────────────────
 // POST { tenantId, items:[{productId, qty}], address:{line1,line2,city,state,postalCode} }
-//   → { options: [{ id, carrier, service, amountCents, days, token }] }
+//   → { options: [{ id, carrier, service, amountCents, days, token, facts, shipBy?, arriveFrom?, arriveTo? }] }
 //
 // Live carrier rates BEFORE an order exists, so a shopper picks their own
 // service instead of accepting a flat guess. Two bottlenecks this removes:
@@ -63,6 +65,37 @@ export async function POST(req: NextRequest) {
     const apiKey = await shippoKeyFor(db, tenantId, tenant);
     const from = rs.shipFrom || {};
 
+    // Parcel weight from real per-item weights (same source as the Ship dialog), and what each item does to the
+    // ship-by date (made to order, pre-order).
+    let ounces = 0;
+    let known = false;
+    let groundOnly = false;
+    const promiseLines: PromiseLine[] = [];
+    for (const it of items) {
+      const id = String(it.productId || '').trim();
+      const qty = Math.max(0, Math.floor(Number(it.qty) || 0));
+      if (!id || qty <= 0) continue;
+      const snap = await db.collection(`tenants/${tenantId}/inventory`).doc(id).get();
+      if (!snap.exists) continue;
+      const d = snap.data() as any;
+      if (itemGroundOnly(d)) groundOnly = true;
+      const w = Number(d.weightOz) || 0;
+      if (w > 0) { known = true; ounces += w * qty; }
+      promiseLines.push({ digital: d.digital === true, preorder: d.preorder === true, preorderEtaAt: d.preorderEtaAt || null, leadDays: d.leadDays || null });
+    }
+    const weightOz = known ? Math.max(1, Math.ceil(ounces + 4)) : 16;
+
+    // The dates each option promises, worked out by the same calculation checkout stores (lib/ship-promise). Only a
+    // shop that shows dates sends them.
+    const schedule = publicSchedule(rs);
+    const zone = tenantTimeZone(tenant);
+    const now = new Date();
+    const datesFor = (carrier: string, service: string, days: number | null) => {
+      if (!schedule) return {};
+      const p = orderPromise({ at: now, timeZone: zone, schedule, lines: promiseLines, carrier, service, transitDays: days });
+      return { shipBy: p.shipBy, arriveFrom: p.arriveFrom, arriveTo: p.arriveTo };
+    };
+
     // No Shippo, or no ship-from on file: fall back to the shop's flat rate
     // rather than blocking checkout. A shop without carrier setup still sells.
     if (!apiKey || !from.street1 || !from.city || !from.state || !from.zip) {
@@ -77,25 +110,11 @@ export async function POST(req: NextRequest) {
           days: null,
           exp,
           token: signQuote(tenantId, flat, 'Standard shipping', exp),
+          facts: signRateFacts(tenantId, 'Standard shipping', 'Shop', null, exp),
+          ...datesFor('Shop', 'Standard shipping', null),
         }],
       });
     }
-
-    // Parcel weight from real per-item weights (same source as the Ship dialog).
-    let ounces = 0;
-    let known = false;
-    let groundOnly = false;
-    for (const it of items) {
-      const id = String(it.productId || '').trim();
-      const qty = Math.max(0, Math.floor(Number(it.qty) || 0));
-      if (!id || qty <= 0) continue;
-      const snap = await db.collection(`tenants/${tenantId}/inventory`).doc(id).get();
-      if (!snap.exists) continue;
-      if (itemGroundOnly(snap.data())) groundOnly = true;
-      const w = Number((snap.data() as any).weightOz) || 0;
-      if (w > 0) { known = true; ounces += w * qty; }
-    }
-    const weightOz = known ? Math.max(1, Math.ceil(ounces + 4)) : 16;
 
     const res = await fetch('https://api.goshippo.com/shipments/', {
       method: 'POST',
@@ -132,14 +151,18 @@ export async function POST(req: NextRequest) {
         const base = Math.round(parseFloat(r.amount) * 100);
         const amountCents = Math.round(base * (1 + markup / 100));
         const service = String(r.servicelevel?.name || r.servicelevel?.token || 'Shipping');
+        const carrier = String(r.provider || 'Carrier');
+        const days = Number(r.estimated_days) > 0 ? Math.floor(Number(r.estimated_days)) : null;
         return {
           id: String(r.object_id),
-          carrier: String(r.provider || 'Carrier'),
+          carrier,
           service,
           amountCents,
-          days: r.estimated_days ?? null,
+          days,
           exp,
           token: signQuote(tenantId, amountCents, service, exp),
+          facts: signRateFacts(tenantId, service, carrier, days, exp),
+          ...datesFor(carrier, service, days),
         };
       })
       .filter((o: any) => Number.isFinite(o.amountCents))

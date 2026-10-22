@@ -6,6 +6,7 @@ import { publicDescription, collectImages } from '@/lib/product-public';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { sanitizeShopConfig } from '@/lib/shop-config';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
+import { leadOf, publicSchedule } from '@/lib/ship-promise';
 
 // ─── /api/retail/catalog/route.ts ─────────────────────────────────────────────
 // GET ?tenantId=...&wholesaleCode=...
@@ -104,6 +105,9 @@ export async function GET(req: NextRequest) {
         preorder: preOpen
           ? { open: true, etaAt: pre?.etaAt || null, closesAt: pre?.closesAt || null, remaining: pre?.remaining ?? null }
           : null,
+        // Made to order: business days to ship, which the ship-by date at checkout counts from.
+        leadDays: item.digital === true ? null : leadOf(item.leadDays),
+        digital: item.digital === true,
         }];
       } catch (e: any) {
         console.error('[retail-catalog] skipped malformed item', item?.id, e?.message);
@@ -138,6 +142,12 @@ export async function GET(req: NextRequest) {
       curbsideOffered: rs.curbsideOffered !== false,
       curbsideMode: rs.curbsideMode || 'freeform',
       curbsideSpots: Array.isArray(rs.curbsideSpots) ? rs.curbsideSpots : [],
+      // The shipping schedule, once the shop shows dates: checkout works out each option's ship-by and arrival
+      // dates from it (lib/ship-promise), the same way the order stores them.
+      timeZone: shopZone,
+      shipSchedule: publicSchedule(rs),
+      // The server's clock, so a device set wrong can't move a cutoff.
+      serverNow: new Date().toISOString(),
     },
     products,
   });

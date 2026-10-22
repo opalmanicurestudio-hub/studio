@@ -63,12 +63,15 @@ export interface Actor { id: string; name: string; }
 
 export const waveCol = (fs: Firestore, tenantId: string) => collection(fs, `tenants/${tenantId}/waves`);
 
-/** Orders eligible for a wave: paid, unclaimed, not already in one, before the cutoff. */
+/** Orders eligible for a wave: paid, unclaimed, not already in one, not waiting on stock or held for review,
+ *  before the cutoff. */
 export function eligibleForWave(orders: any[], cutoffAt: string): any[] {
   return orders
     .filter((o) => o.stage === 'paid')
     .filter((o) => !o.batchId && !o.waveId)
     .filter((o) => o.holdUntilRestock !== true)
+    // A held order waits for a manager, in a wave as anywhere else.
+    .filter((o) => o.holdForReview !== true)
     .filter((o) => String(o.paidAt || o.placedAt || '') <= cutoffAt)
     // FIFO, always: the order things arrived is the order they are worked.
     .sort((a, b) => String(a.paidAt || a.placedAt || '').localeCompare(String(b.paidAt || b.placedAt || '')));

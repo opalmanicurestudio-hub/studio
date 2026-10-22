@@ -6,6 +6,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { permissionsFor, staffKpis } from '@/lib/fulfilment-access';
 import { dueAt, fulfilmentPolicy } from '@/lib/retail-orders';
+import { tenantTimeZone } from '@/lib/tenant-time';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   const db = getAdminDb();
   const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-  const policy = fulfilmentPolicy(tenant.retailSettings);
+  const policy = fulfilmentPolicy(tenant.retailSettings, tenantTimeZone(tenant));
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
   // Every order in the range, a page at a time.

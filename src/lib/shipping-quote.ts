@@ -42,3 +42,24 @@ export function verifyQuote(
   const b = Buffer.from(String(sig));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
+
+/**
+ * The carrier and its delivery estimate, signed separately from the price. The ship-by and arrival dates a customer
+ * is promised at checkout come from the rate they picked, so the browser can choose a rate but can't make a date up.
+ * A quote fetched before this existed has no such token: its dates come from the shop's own standard shipping.
+ */
+export function signRateFacts(tenantId: string, service: string, carrier: string, days: number | null, expMs: number): string {
+  return crypto
+    .createHmac('sha256', quoteSecret())
+    .update(`facts|${tenantId}|${service}|${carrier}|${days ?? ''}|${expMs}`)
+    .digest('base64url');
+}
+
+export function verifyRateFacts(
+  tenantId: string, service: string, carrier: string, days: number | null, expMs: number, sig: string,
+): boolean {
+  if (!sig || !Number.isFinite(expMs) || Date.now() > expMs) return false;
+  const a = Buffer.from(signRateFacts(tenantId, service, carrier, days, expMs));
+  const b = Buffer.from(String(sig));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}

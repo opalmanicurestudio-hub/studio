@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
+import { dayKey, endOfDay, formatDay, tenantTimeZone } from '@/lib/tenant-time';
+import { isCalendarDay, missedAt, promiseCarrier, scheduleFrom } from '@/lib/ship-promise';
 
 // ─── /api/retail/preorder-run-eta ────────────────────────────────────────────
 // "The kits slipped to February." Telling forty people BEFORE the date they
@@ -60,12 +62,20 @@ export async function POST(req: NextRequest) {
     if (!tenantId || !productId || (!newDate && !dryRun)) {
       return NextResponse.json({ error: 'Product and a new date are required.' }, { status: 400 });
     }
-    const revisedAt = newDate ? new Date(`${newDate}T23:59:59`) : null;
-    if (newDate && (!revisedAt || Number.isNaN(revisedAt.getTime()))) {
+    if (newDate && !isCalendarDay(newDate)) {
       return NextResponse.json({ error: 'That date could not be read. Please check it and try again.' }, { status: 400 });
     }
 
     const db = getAdminDb();
+    // The new date is a deadline: the end of that day on the shop's own clock, not the server's (UTC on the host,
+    // which ended an Eastern shop's day at 7 PM).
+    const tenantData = (await db.collection('tenants').doc(tenantId).get()).data() || null;
+    const zone = tenantTimeZone(tenantData);
+    const schedule = scheduleFrom(tenantData?.retailSettings);
+    const revisedAt = newDate ? endOfDay(newDate, zone) : null;
+    if (newDate && (!revisedAt || Number.isNaN(revisedAt.getTime()))) {
+      return NextResponse.json({ error: 'That date could not be read. Please check it and try again.' }, { status: 400 });
+    }
     const ordersCol = db.collection(`tenants/${tenantId}/retailOrders`);
     const snap = await ordersCol.where('hasPreorder', '==', true).limit(MAX_ORDERS).get();
     const affected = snap.docs
@@ -82,7 +92,7 @@ export async function POST(req: NextRequest) {
     const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
-    const pretty = (revisedAt as Date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const pretty = formatDay(newDate, zone);
     let updated = 0;
     let emailed = 0;
 
@@ -97,7 +107,7 @@ export async function POST(req: NextRequest) {
 
           // Capture the outgoing date BEFORE the write: the ledger line is
           // only useful if it says what the promise moved FROM.
-          const wasPromise = order.shipPromiseAt ? String(order.shipPromiseAt).slice(0, 10) : '';
+          const wasPromise = order.shipPromiseAt ? dayKey(new Date(String(order.shipPromiseAt)), zone) : '';
           const lines = (order.lines || []).map((l: any) =>
             l.productId === productId && l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status))
               ? { ...l, preorderEtaAt: newDate }
@@ -107,6 +117,8 @@ export async function POST(req: NextRequest) {
             shipPromiseAt: promiseIso,
             notifiedForPromiseAt: promiseIso,
             promiseRevisions: (Number(order.promiseRevisions) || 0) + 1,
+            // The team's due time moves with it: the new day's last pickup.
+            ...(order.promise ? { promiseAt: missedAt(newDate, zone, schedule, promiseCarrier(order)) } : {}),
           });
           const ev = o.ref.collection('events').doc();
           txn.set(ev, {

@@ -1,8 +1,9 @@
 'use client';
-// src/components/orders/PoliciesScreen.tsx — EVERY SHOP POLICY ON ONE SCREEN. Cancelling, addresses (carrier checks and
-// how long customers can change theirs, lib/address-flow), returns, restocking fees by condition, problem reports,
-// refunds and the wording customers see. Each change saves on its own path the moment it's
-// made, so nothing here can overwrite a setting changed somewhere else. Managers change them; everyone else can read.
+// src/components/orders/PoliciesScreen.tsx — EVERY SHOP POLICY ON ONE SCREEN. The shipping schedule (on its own screen),
+// cancelling, addresses (carrier checks and how long customers can change theirs, lib/address-flow), returns,
+// restocking fees by condition, problem reports, refunds and the wording customers see. Each change saves on its own
+// path the moment it's made, so nothing here can overwrite a setting changed somewhere else. Managers change them;
+// everyone else can read.
 import { rolesFor } from '@/lib/permissions';
 import { uncollectedPolicy } from '@/lib/retail-uncollected-policy';
 import * as React from 'react';
@@ -11,6 +12,7 @@ import { deleteField, doc, updateDoc, type Firestore } from 'firebase/firestore'
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { FEE_BANDS, type FeeBand } from '@/lib/restocking';
+import { clockLabel, scheduleFrom, showsDates } from '@/lib/ship-promise';
 import { C, Group, LargeTitle, Row, Seg, Toggle, UndoBar, muted, Ic } from './ui';
 
 function NumberField({ value, unit, prefix, label, onSave, disabled, max }: { value: number; unit?: string; prefix?: string; label: string; onSave: (n: number) => void; disabled?: boolean; max?: number }) {
@@ -71,12 +73,23 @@ export function PoliciesScreen() {
   const payer = rs.returnLabelPayer === 'shop' || rs.returnLabelPayer === 'customer' ? rs.returnLabelPayer : 'fault';
   const returnsOn = rs.returnsEnabled !== false;
   const addrUntil: 'packing' | 'label' | 'never' = pol.addressChangeUntil === 'packing' || pol.addressChangeUntil === 'never' ? pol.addressChangeUntil : 'label';
+  const sched = scheduleFrom(rs);
+  const scheduleLine = `${sched.processingDays === 0 ? 'Same day' : `${sched.processingDays} business day${sched.processingDays === 1 ? '' : 's'}`} · ${clockLabel(sched.cutoff)} cutoff · ${showsDates(sched) ? 'customers see dates' : 'dates not shown to customers yet'}`;
 
   return (
     <div className="min-h-[100dvh] pb-24" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-2xl px-4 pt-3">
         <Link href="/retail-orders/setup" className="inline-flex h-11 items-center gap-1 text-[17px]" style={{ color: C.ink }}>{Ic.back}Setup</Link>
         <LargeTitle title="Policies" sub={canEdit ? 'Changes save as you make them.' : 'Only a manager can change these.'} />
+
+        <Group title="Shipping">
+          <Link href="/retail-orders/policies/shipping" className="cf-press flex min-h-[60px] items-center gap-3 pl-4">
+            <span className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-3 pr-4">
+              <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">Shipping schedule</span><span className="block text-[13px]" style={muted}>{scheduleLine}</span></span>
+              <span style={muted}>{Ic.chev}</span>
+            </span>
+          </Link>
+        </Group>
 
         <Group title="Cancelling" foot="If an order misses its promised time, the customer can always cancel, whatever this says.">
           <Row label="Customers can cancel online"><Toggle label="Customers can cancel online" on={pol.cancelAllowed !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.cancelAllowed', v, 'Cancelling')} /></Row>

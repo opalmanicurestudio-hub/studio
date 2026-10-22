@@ -20,8 +20,9 @@ import { resolveVariantProductId } from '@/lib/retail-orders';
 import { shipPromiseAt } from '@/lib/retail-orders';
 import { preorderAckSnapshot } from '@/lib/preorder-terms';
 import { finalSaleFor } from '@/lib/return-eligibility';
-import { tenantTimeZone } from '@/lib/tenant-time';
-import { verifyQuote } from '@/lib/shipping-quote';
+import { dayKey, formatDay, tenantTimeZone } from '@/lib/tenant-time';
+import { verifyQuote, verifyRateFacts } from '@/lib/shipping-quote';
+import { dayLabel, isCalendarDay, orderPromise, scheduleFrom } from '@/lib/ship-promise';
 
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import {
@@ -93,13 +94,15 @@ interface CheckoutBody {
   // The customer's tick on the pre-order terms. Optional in the type because
   // most carts have no pre-order; REQUIRED at runtime the moment one does.
   preorderAck?: boolean;
+  preorderShownAt?: string;      // the ship-by date the pre-order notice showed when they ticked it
+  shownShipBy?: string;          // the ship-by day checkout showed for the shipping they chose ('YYYY-MM-DD')
   ifUnavailable?: string;
   // These three were always sent by the storefront and always read here, but
   // were missing from the interface — so every read of them was a type error
   // hidden inside the repo-wide noise. Declaring them changes no behaviour.
   tipCents?: number;
   pickupAt?: string;
-  shippingQuote?: { amountCents?: number; service?: string; carrier?: string; exp?: number; token?: string };
+  shippingQuote?: { amountCents?: number; service?: string; carrier?: string; exp?: number; token?: string; days?: number | null; facts?: string };
   tenantId?: string;
   items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
   method?: string;
@@ -287,6 +290,8 @@ async function handleCheckout(req: NextRequest) {
         showOnline: item.showOnline,
         status: item.status,
         type: item.type,
+        // Made to order is the product's, the same time its page and this checkout showed.
+        leadDays: (item as any).leadDays ?? null,
       } as SellableItem;
     }
 
@@ -398,6 +403,9 @@ async function handleCheckout(req: NextRequest) {
   let shippingCents = 0;
   let shippingService = '';
   let shippingCarrier = '';
+  // The carrier's own estimate for the rate they picked, when it came signed with the quote. The dates promised below
+  // use it; without it they use the shop's standard shipping time.
+  let transitDays: number | null = null;
   if (method === 'ship' && !digitalOnly) {
     const flat = Math.round((Number(rs.flatShippingDollars) || 0) * 100);
     const freeOver = Math.round((Number(rs.freeShippingOverDollars) || 0) * 100);
@@ -420,6 +428,8 @@ async function handleCheckout(req: NextRequest) {
         // picked before the cart qualified; otherwise the service they chose, and its carrier, so the label matches.
         shippingService = freeQualified ? 'Free shipping' : service;
         shippingCarrier = freeQualified ? '' : String(q.carrier || '').slice(0, 40);
+        const days = Number(q.days) > 0 ? Math.floor(Number(q.days)) : null;
+        if (!freeQualified && verifyRateFacts(tenantId, service, String(q.carrier || '').slice(0, 40), days, exp, String(q.facts || ''))) transitDays = days;
       }
     }
   }
@@ -506,7 +516,39 @@ async function handleCheckout(req: NextRequest) {
     etaAt: l.preorderEtaAt || null,
     qty: Number(l.qtyOrdered) || 1,
   }));
-  const promiseAt = shipPromiseAt(lines as any, now, now, shopZone);
+  // THE SHIP-BY DATE (lib/ship-promise): the shop's schedule, the items' made-to-order and pre-order times, and the
+  // carrier of the rate they picked, worked out the same way the product page and checkout showed it. The team's due
+  // time is its last pickup that day. The customer is held to it only when they were shown it, which is when the
+  // shop shows dates; otherwise the customer's promise stays the rule's 30 days (or the pre-order date), as before.
+  const promiseInput = { timeZone: shopZone, schedule: scheduleFrom(rs), lines: lines as any, carrier: shippingCarrier || null, service: shippingService, transitDays };
+  let promise = method === 'ship' && !digitalOnly ? orderPromise({ at: now, ...promiseInput }) : null;
+  // The date stored is the date they saw. When the cutoff passed while they were filling in the form, the date on
+  // their screen a few minutes ago is kept (the shop honors it); a date that moved for any other reason is shown to
+  // them before they pay.
+  const shown = String(body.shownShipBy || '');
+  if (promise?.shown && isCalendarDay(shown) && shown !== promise.shipBy) {
+    const moment = orderPromise({ at: new Date(Date.parse(now) - 15 * 60_000).toISOString(), ...promiseInput });
+    // Kept only while that date's own deadline is still ahead: a pickup that has gone since can't be promised.
+    if (moment.shipBy === shown && Date.parse(moment.shipByAt) > Date.parse(now)) promise = moment;
+    else if (shown < promise.shipBy) {
+      return NextResponse.json({
+        error: `The ship-by date just changed to ${dayLabel(promise.shipBy, shopZone)}. Please check it and pay again.`,
+        datesChanged: true, shipBy: promise.shipBy,
+      }, { status: 422 });
+    }
+  }
+  const promiseAt = promise?.shown ? promise.deadlineAt : shipPromiseAt(lines as any, now, now, shopZone);
+  // The pre-order notice they ticked has to name the date the order is stored with. If the date moved since they
+  // read it (the cutoff passed while they were paying), they see the new one and tick again.
+  if (preorderLines.length > 0 && promise?.shown && body.preorderShownAt) {
+    const shown = Date.parse(String(body.preorderShownAt));
+    if (Number.isFinite(shown) && dayKey(new Date(shown), shopZone) !== dayKey(new Date(String(promiseAt)), shopZone)) {
+      return NextResponse.json({
+        error: `The ship-by date for this order just changed to ${formatDay(String(promiseAt), shopZone)}. Please review it and tick the box again.`,
+        needsPreorderAck: true,
+      }, { status: 422 });
+    }
+  }
   const preorderAck = preorderLines.length > 0
     ? preorderAckSnapshot({ items: preorderItems, promiseAt, agreedAt: now, timeZone: shopZone })
     : null;
@@ -542,10 +584,15 @@ async function handleCheckout(req: NextRequest) {
     customerName,
     customerEmail,
     ...(digitalOnly ? { digitalOnly: true } : {}),
-    // The FTC promise, fixed at purchase: the latest pre-order date on the
-    // order, or 30 days. Stored so a later settings change can never quietly
-    // move a date the customer was already given.
+    // The FTC promise, fixed at purchase: the ship-by date the customer was shown, else the latest pre-order date on
+    // the order, or 30 days. Stored so a later settings change can never quietly move a date the customer was
+    // already given.
     ...(promiseAt && !digitalOnly ? { shipPromiseAt: promiseAt } : {}),
+    // The whole promise as worked out (dates, carrier, transit, why), and the team's due time from it. An order whose
+    // customer was told a date is watched by the hourly running-late check (lib/late-notices), which says nothing
+    // while a pre-order line is waiting (those move with their run).
+    ...(promise ? { promise, promiseAt: promise.shipByAt } : {}),
+    ...(promise?.shown ? { lateWatch: true } : {}),
     ...(preorderLines.length > 0 ? { hasPreorder: true } : {}),
     ...(groundOnly && method === 'ship' ? { groundOnly: true } : {}),
     ...(lines.some((l: any) => l.soldFor?.renterId) ? { hasRenterItems: true } : {}),

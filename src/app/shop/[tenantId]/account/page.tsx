@@ -32,6 +32,7 @@ interface AccountOrder {
   totalCents: number;
   placedAt: string;
   itemCount: number;
+  shipsBy?: string;
 }
 
 interface Session { e: string; x: number; s: string; }
@@ -309,6 +310,7 @@ function AccountInner() {
                           <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
                             {when(o.placedAt)} · {o.itemCount} item{o.itemCount === 1 ? '' : 's'}
                           </p>
+                          {o.shipsBy ? <p className="text-[11px] font-bold text-foreground">{o.shipsBy}</p> : null}
                         </div>
                         <div className="text-right shrink-0 space-y-1">
                           <Badge variant="outline" className={cn('h-6 px-2.5 font-black text-[8px] uppercase tracking-widest border-2',

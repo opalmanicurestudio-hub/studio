@@ -13,6 +13,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { addToCart, readCart, readWholesaleCode } from '@/lib/shop-cart';
 import { cn } from '@/lib/utils';
+import {
+  countdownFor, dayLabel, leadSentence, minutesLabel, normalizeSchedule, processingSentence, productPromise, shortRange,
+  type ShipSchedule,
+} from '@/lib/ship-promise';
 
 // ─── /shop/[tenantId]/product/[productId]/page.tsx ────────────────────────────
 // The full product page: gallery with thumbnail rail, tier-aware pricing,
@@ -59,6 +63,16 @@ export default function ProductPage() {
   });
   const [fulfil, setFulfil] = useState({ offersPickup: true, offersShipping: true });
   const [loadError, setLoadError] = useState('');
+  // The shop's shipping schedule (only sent once it shows dates) and its clock, so the ship-by date here is worked out
+  // the same way checkout and the order work it out, and moves by itself at the cutoff.
+  const [shipping, setShipping] = useState<{ schedule: ShipSchedule; timeZone: string; offset: number } | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (!shipping) return;
+    setNow(new Date(Date.now() + shipping.offset));
+    const t = setInterval(() => setNow(new Date(Date.now() + shipping.offset)), 30_000);
+    return () => clearInterval(t);
+  }, [shipping]);
 
   // Reviews: the API only ever returns published ones and fails soft to an
   // empty list, so a review outage can never take the product page down.
@@ -106,6 +120,9 @@ export default function ProductPage() {
           offersPickup: data.shop.offersPickup !== false,
           offersShipping: data.shop.offersShipping !== false,
         });
+        // The shop's clock, not the device's, so a phone set wrong can't move the cutoff or the countdown.
+        const serverNow = Date.parse(String(data.shop.serverNow || ''));
+        setShipping(data.shop.shipSchedule ? { schedule: normalizeSchedule(data.shop.shipSchedule), timeZone: String(data.shop.timeZone || 'UTC'), offset: Number.isFinite(serverNow) ? serverNow - Date.now() : 0 } : null);
         if (data.shop.wholesaleUnlocked && data.product.wholesaleMinQty > 0) {
           setQty(data.product.wholesaleMinQty);
         }
@@ -375,6 +392,26 @@ export default function ProductPage() {
             </span>
           </div>
 
+          {shipping && fulfil.offersShipping && product.inStock && !paused && !(product as any).digital && (() => {
+            const line = {
+              preorder: (product as any).preorder?.isPreorder === true && (product as any).preorder?.open === true,
+              preorderEtaAt: (product as any).preorder?.etaAt || null,
+              leadDays: (product as any).leadDays || null,
+            };
+            const p = productPromise(line, now, shipping.timeZone, shipping.schedule);
+            const count = shipping.schedule.countdown ? countdownFor(line, now, shipping.timeZone, shipping.schedule) : null;
+            const lead = leadSentence((product as any).leadDays || null);
+            return (
+              <div className="rounded-2xl border-2 bg-white p-4" aria-live="polite">
+                <p className="text-sm font-black">Ships by {dayLabel(p.shipBy, shipping.timeZone)}</p>
+                <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
+                  {count ? `Order in the next ${minutesLabel(count.minutesLeft)}. ` : ''}
+                  {p.arriveFrom ? `Arrives ${shortRange(p.arriveFrom, p.arriveTo)} with standard shipping.` : ''}
+                </p>
+                {lead ? <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">{lead}</p> : null}
+              </div>);
+          })()}
+
           {!product.inStock && !paused && !(product as any).preorder?.isPreorder && !(product as any).digital && (
             <RestockAlert tenantId={tenantId} productId={(product as any).id || productId} productName={product.name} />
           )}
@@ -534,7 +571,7 @@ export default function ProductPage() {
             {(cfg.faq && cfg.faq.length > 0 ? cfg.faq : [
               fulfil.offersPickup
                 ? { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' }
-                : { q: 'How fast do you ship?', a: 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
+                : { q: 'How fast do you ship?', a: shipping ? `${processingSentence(shipping.schedule)} Tracking shows on your order page, with a text or email to let you know, as soon as it ships.` : 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
               { q: 'What is the return policy?', a: 'Start a return from your order page once it has been picked up or delivered — choose the items and a reason, and the shop takes it from there.' },
               fulfil.offersShipping
                 ? { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' }

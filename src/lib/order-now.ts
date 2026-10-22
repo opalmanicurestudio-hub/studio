@@ -4,8 +4,19 @@
 export type NowAction = { label: string; kind: 'scroll' | 'link' | 'swap'; target?: string };
 export interface Now { title: string; body: string; tone: 'calm' | 'act' | 'done'; action?: NowAction; extra?: string }
 
+import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from './ship-promise';
+
 const money = (c: number) => `$${(Math.max(0, c) / 100).toFixed(2)}`;
 const firstOf = (n: string) => String(n || '').trim().split(/\s+/)[0] || '';
+
+/** The ship-by and arrival words for a shipped order's page, from the dates the customer was shown. */
+function shipWords(d: CustomerDates | null | undefined) {
+  if (!d) return null;
+  const by = longDayLabel(d.shipBy, d.timeZone);
+  const arrive = arrivalLabel(d, d.timeZone);
+  const gap = d.originalShipBy ? Math.round((Date.parse(`${d.shipBy}T12:00:00Z`) - Date.parse(`${d.originalShipBy}T12:00:00Z`)) / 86_400_000) : 0;
+  return { by, arrive, moved: !!d.originalShipBy, behind: gap === 1 ? 'a day behind' : 'behind', eta: d.carrierEta ? dayLabel(d.carrierEta, d.timeZone) : '' };
+}
 
 export function orderNow(o: any, help: any = {}): Now | null {
   if (!o || o.stage === 'cancelled') return null;
@@ -18,15 +29,18 @@ export function orderNow(o: any, help: any = {}): Now | null {
   if (o.stage === 'placed') return { tone: 'calm', title: 'Confirming your payment', body: 'This takes a few seconds and updates by itself.' };
   if (o.idCheckStatus === 'sent' || o.idCheckStatus === 'processing') return { tone: 'act', title: 'One quick step', body: 'We’ve emailed you a secure link to confirm it was you who placed this order. It takes about two minutes, then we send it.' };
   const ship = o.method === 'ship'; const curb = o.method === 'curbside';
-  if (['paid', 'picking'].includes(o.stage)) return { tone: 'calm', title: ship ? 'We’re packing your order' : 'We’re getting it ready', body: ship ? 'We’ll email you tracking as soon as it ships.' : `We’ll ${o.hasPhone ? 'text and ' : ''}email you the moment it’s ready.${curb ? ' Then just tell us when you’re here.' : ''}`, extra: refund };
-  if (o.stage === 'packed') return { tone: 'calm', title: ship ? 'Packed and ready to ship' : 'Almost ready', body: ship ? 'It goes out with the next carrier pickup. Tracking comes by email.' : 'Just finishing up.', extra: refund };
+  const w = ship ? shipWords(o.dates) : null;
+  // A date moved by a notice: said plainly, with the new date and their right to cancel, before anything else.
+  if (w?.moved && ['paid', 'picking', 'packed'].includes(o.stage)) return { tone: 'calm', title: `Running ${w.behind}`, body: `It now ships by ${w.by}${w.arrive ? ` and should arrive ${w.arrive}` : ''}. Sorry about that. You can still cancel for a full refund until it ships.`, extra: refund };
+  if (['paid', 'picking'].includes(o.stage)) return { tone: 'calm', title: ship ? 'We’re packing your order' : 'We’re getting it ready', body: ship ? (w ? `It ships by ${w.by}${w.arrive ? ` and should arrive ${w.arrive}` : ''}. We’ll email you tracking as soon as it does.` : 'We’ll email you tracking as soon as it ships.') : `We’ll ${o.hasPhone ? 'text and ' : ''}email you the moment it’s ready.${curb ? ' Then just tell us when you’re here.' : ''}`, extra: refund };
+  if (o.stage === 'packed') return { tone: 'calm', title: ship ? 'Packed and ready to ship' : 'Almost ready', body: ship ? (w ? `It goes out with the carrier by ${w.by}. Tracking comes by email.` : 'It goes out with the next carrier pickup. Tracking comes by email.') : 'Just finishing up.', extra: refund };
   if (o.stage === 'ready') return curb
     ? { tone: 'act', title: `Ready when you are${hi ? `, ${hi}` : ''}`, body: 'When you pull up, tap I’m here and we’ll bring it out to you.', action: { label: 'I’m here', kind: 'scroll', target: 'curbside' }, extra: refund }
     : { tone: 'act', title: 'Ready for pickup', body: `Show the code below at the counter${o.shelfSlot ? `. It’s on shelf ${o.shelfSlot}` : ''}.`, action: { label: 'Show my code', kind: 'scroll', target: 'pickup-code' }, extra: refund };
   if (o.stage === 'arrived') return o.curbside?.bringingOutAt
     ? { tone: 'calm', title: 'On the way out to you', body: 'Someone is bringing your order out now.' }
     : { tone: 'calm', title: 'We know you’re here', body: 'Someone will bring it out in a moment.' };
-  if (o.stage === 'shipped') return { tone: 'calm', title: 'On its way', body: o.carrier ? `Shipped with ${o.carrier}.` : 'It’s with the carrier.', action: o.trackingUrl ? { label: 'Track it', kind: 'link', target: o.trackingUrl } : undefined, extra: refund };
+  if (o.stage === 'shipped') return { tone: 'calm', title: 'On its way', body: `${o.carrier ? `Shipped with ${o.carrier}.` : 'It’s with the carrier.'}${w?.eta ? ` ${o.carrier || 'The carrier'} expects it ${w.eta}.` : w?.arrive ? ` It should arrive ${w.arrive}.` : ''}`, action: o.trackingUrl ? { label: 'Track it', kind: 'link', target: o.trackingUrl } : undefined, extra: refund };
   if (['handed_off', 'completed'].includes(o.stage)) return { tone: 'done', title: `Enjoy${hi ? `, ${hi}` : ''}`, body: 'Something not right? You can report a problem or start a return below.', action: help?.canReport ? { label: 'Get help with this order', kind: 'scroll', target: 'order-help' } : undefined, extra: refund };
   return null;
 }
