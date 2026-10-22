@@ -313,7 +313,7 @@ export function OrdersApp() {
         </div>))}
       {!selecting && tab === 'ready' && !q && shipPacked.length > 0 && perms.canShip && (
         <button type="button" onClick={() => setShipToday(true)} className="cf-press mx-4 mt-3 flex min-h-[64px] w-[calc(100%-2rem)] items-center gap-3 rounded-2xl px-4 text-left" style={{ background: C.soft }}>
-          <span className="min-w-0 flex-1"><span className="block text-[17px] font-semibold tracking-[-0.01em]">Ship today</span><span className="block text-[14px]" style={muted}>{(() => { const nl = shipPacked.filter((o) => !o.trackingNumber && !o.labelUrl).length; return nl ? `${nl} need${nl === 1 ? 's' : ''} a label · ${shipPacked.length - nl} labelled` : `${shipPacked.length} labelled, ready to hand over`; })()}</span></span>
+          <span className="min-w-0 flex-1"><span className="block text-[17px] font-semibold tracking-[-0.01em]">Ship today</span><span className="block text-[14px]" style={muted}>{(() => { const nl = shipPacked.filter((o) => !o.trackingNumber && !o.labelUrl).length; return nl ? `${nl} need${nl === 1 ? 's' : ''} a label · ${shipPacked.length - nl} labeled` : `${shipPacked.length} labeled, ready to hand over`; })()}</span></span>
           <span style={muted}>{Ic.chev}</span>
         </button>)}
       {tab === 'pack' && !nextUp && <p className="m-0 px-4 pb-1 pt-4 text-[13px] font-semibold" style={muted}>Due first</p>}
@@ -346,13 +346,33 @@ export function OrdersApp() {
     </div>);
 
   // A handheld scanner on the board: a tote tag or slip code opens that order; a shipping label is checked against its box.
+  // The box in front of someone is the one whose slip (or tote) they scanned in the last two minutes: a label that isn't
+  // that box's is the wrong box, and it says whose label it is instead of ticking it off. Orders shipped together share
+  // their box's label (lib/ship-together), so both sides are the order holding the label, and that one is ticked off.
+  // Once every label of the box in front is checked, nothing is in front any more.
+  const inFront = React.useRef<{ orderId: string; at: number } | null>(null);
+  const holderOf = (o: any) => { const h = o?.labelFromOrderId || o?.shippedWithOrderId; return h ? byId.get(String(h)) || o : o; };
   useWedgeScanner(async (v) => {
     const t = benchScanTarget(v, orders);
     if (!t) return;
     if (t.kind === 'foreignLabel') { feel(false); setToast('That label isn’t for any box waiting to ship.'); return; }
-    const num = `#${String(t.order.orderNumber ?? '').padStart(4, '0')}`;
-    if (t.kind === 'label') { const r = await markLabelChecked(fs, tenantId, t.order, actor, v).catch(() => null); feel(true); setToast(r && r.total > 1 ? (r.done ? `All ${r.total} boxes for ${num} checked. They can go out.` : `Box ${r.checked} of ${r.total} for ${num} checked. Scan the other label${r.total - r.checked > 1 ? 's' : ''}.`) : `Right box: ${num}. It can go out.`); return; }
-    feel(true); setOpenId(t.order.id); setToast(t.kind === 'tote' ? `Tote ${t.tote}: ${num}` : `${num} is open`);
+    const numOf = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
+    if (t.kind === 'label') {
+      const mine = holderOf(t.order);
+      const front = inFront.current && Date.now() - inFront.current.at < 120e3 ? byId.get(inFront.current.orderId) || null : null;
+      const box = front ? holderOf(front) : null;
+      if (box && box.id !== mine.id) {
+        feel(false);
+        setToast(`Wrong box: that’s ${firstName(mine.customerName)}’s label (${numOf(mine)}). This box is ${firstName(box.customerName)}’s (${numOf(box)}).`);
+        return;
+      }
+      const num = numOf(mine);
+      const r = await markLabelChecked(fs, tenantId, mine, actor, v).catch(() => null); feel(true);
+      if (box && (!r || r.done)) inFront.current = null;
+      setToast(r && r.total > 1 ? (r.done ? `All ${r.total} boxes for ${num} checked. They can go out.` : `Box ${r.checked} of ${r.total} for ${num} checked. Scan the other label${r.total - r.checked > 1 ? 's' : ''}.`) : `Right box: ${num}. It can go out.`); return;
+    }
+    inFront.current = { orderId: t.order.id, at: Date.now() };
+    feel(true); setOpenId(t.order.id); setToast(t.kind === 'tote' ? `Tote ${t.tote}: ${numOf(t.order)}` : `${numOf(t.order)} is open`);
   });
 
   const panel = open && (

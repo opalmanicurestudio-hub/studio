@@ -44,7 +44,7 @@ export function makeDb() {
       .map(([p, d]) => ({ id: p.split('/').pop(), ref: ref(p), exists: true, data: () => clone(d) }));
       return { empty: !docs.length, size: docs.length, docs }; } });
   const col = (c: string): any => ({ ...q(c), doc: (id?: string) => ref(`${c}/${id || `id${++n}`}`), add: async (v: Doc) => { const r = ref(`${c}/id${++n}`); await r.set(v); return r; } });
-  const db: any = { doc: ref, collection: col,
+  const db: any = { doc: ref, collection: col, getAll: async (...refs: any[]) => Promise.all(refs.map((r) => r.get())),
     batch: () => { const ops: (() => Promise<void>)[] = []; return { set: (r: any, v: Doc, o?: any) => ops.push(() => r.set(v, o)), update: (r: any, v: Doc) => ops.push(() => r.update(v)), delete: (r: any) => ops.push(() => r.delete()), commit: async () => { for (const op of ops) await op(); } }; },
     runTransaction: async (fn: any) => fn({ get: (r: any) => (r.get ? r.get() : r), set: (r: any, v: Doc, o?: any) => r.set(v, o), update: (r: any, v: Doc) => r.update(v), delete: (r: any) => r.delete() }),
     _store: store };

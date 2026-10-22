@@ -12,8 +12,9 @@ export type LabelSlot = {
   voided: boolean;
 };
 
-/** One box as a label record keeps it. `parcel` is the size and weight the label was bought for, when known. */
-export type RecordBox = { txn: string; tracking: string; labelUrl: string; trackingUrl: string; parcel?: Parcel | null; replacedBy?: string | null };
+/** One box as a label record keeps it. `parcel` is the size and weight the label was bought for, when known; `cents`
+ *  what its own label cost, when each box was bought on its own shipment (lib/box-shipments). */
+export type RecordBox = { txn: string; tracking: string; labelUrl: string; trackingUrl: string; parcel?: Parcel | null; replacedBy?: string | null; cents?: number };
 export type Parcel = { lengthIn: number; widthIn: number; heightIn: number; weightOz: number };
 
 const list = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x ?? '').trim()) : []);
@@ -75,6 +76,12 @@ export const labelKey = (txn: unknown): string => String(txn || '').replace(/[^\
 export function boxShare(totalCents: number, n: number, i: number): number {
   const total = Math.max(0, Math.round(Number(totalCents) || 0)); const k = Math.max(1, Math.floor(n) || 1);
   return Math.floor(total / k) + (i < total % k ? 1 : 0);
+}
+
+/** What box `i` of a label record cost: its own price when each box was bought on its own, else its share. */
+export function boxCents(rec: any, i: number): number {
+  const own = Number(rec?.boxes?.[i]?.cents);
+  return Number.isFinite(own) && own > 0 ? Math.round(own) : boxShare(rec?.amountCents, Math.max(1, Array.isArray(rec?.boxes) ? rec.boxes.length : 1), i);
 }
 
 export type SlotLabel = { txn: string; tracking: string; labelUrl: string; trackingUrl: string; record: string };

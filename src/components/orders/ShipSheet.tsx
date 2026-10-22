@@ -24,14 +24,16 @@ import { paidServiceRate } from '@/lib/paid-service';
 import { togetherRefunds } from '@/lib/ship-together';
 import { cardRefundableCents } from '@/lib/retail-money';
 import { labelDoubt, labelHolderId } from '@/lib/label-doubt';
-import { REPLACE_REASONS, VOID_REASONS, boxShare, boxTrail, labelSlots, reasonLine, recordOf, slotsKnown, tail, type Parcel } from '@/lib/label-boxes';
+import { REPLACE_REASONS, VOID_REASONS, boxCents, boxTrail, labelSlots, reasonLine, recordOf, slotsKnown, tail, type Parcel } from '@/lib/label-boxes';
 import { useLabelRecords } from './LabelHistory';
+import { SHIPPO_INSURANCE_RATE, packBoxesOf } from '@/lib/ship-run';
 
 type Preset = { id: string; name: string; weightOz: number; lengthIn: number; widthIn: number; heightIn: number };
 type Rate = { id: string; provider: string; service: string; amountCents: number; days: number | null };
 type Dims = { lengthIn: number; widthIn: number; heightIn: number };
-// One box: a saved size (presetId) or the size an old label had (dims), and its weight; typed means someone weighed it.
-type Box = { presetId: string | null; oz: number; typed: boolean; dims?: Dims | null; fromOld?: boolean };
+// One box: a saved size (presetId) or a size of its own (dims: an old label's, or one chosen at the bench), and its
+// weight; typed means someone weighed it. tareOz: the empty box's own weight as the bench kept it.
+type Box = { presetId: string | null; oz: number; typed: boolean; dims?: Dims | null; fromOld?: boolean; tareOz?: number };
 type Step = 'why' | 'rates' | 'box' | null;
 const MOVED = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'];
 const word = (s: string) => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
@@ -63,11 +65,20 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   }, 0), [order, together, inventory]); // eslint-disable-line react-hooks/exhaustive-deps
   // THE BOXES. Each has a size and a weight; the items' weight is shared across the boxes whose weight hasn't been typed.
   const presetOf = (id: string | null) => presets.find((p) => p.id === id) || null;
-  const tare = (b: Box) => presetOf(b.presetId)?.weightOz ?? 3;
-  const autoOz = (list: Box[], i: number) => { const untyped = list.filter((b) => !b.typed).length || 1; const typedOz = list.reduce((s, b) => s + (b.typed ? Math.max(0, b.oz - (presetOf(b.presetId)?.weightOz || 3)) : 0), 0);
-    return Math.max(4, Math.ceil(Math.max(0, itemsOz - typedOz) / untyped + tare(list[i]))); };
+  const tare = (b: Box) => (Number.isFinite(Number(b.tareOz)) && b.tareOz != null ? Number(b.tareOz) : presetOf(b.presetId)?.weightOz ?? 3);
+  const autoOz = (list: Box[], i: number) => { const untyped = list.filter((b) => !b.typed).length || 1; const typedOz = list.reduce((s, b) => s + (b.typed ? Math.max(0, b.oz - tare(b)) : 0), 0);
+    // As the bulk buy weighs them (lib/ship-run parcelsFor): never under 4 oz a box, or 8 oz for one box alone.
+    return Math.max(list.length > 1 ? 4 : 8, Math.ceil(Math.max(0, itemsOz - typedOz) / untyped + tare(list[i]))); };
   const settle = (list: Box[]) => list.map((b, i) => (b.typed ? b : { ...b, oz: autoOz(list, i) }));
-  const fresh = (): Box[] => settle([{ presetId: presets[0]?.id || null, oz: 0, typed: false }]);
+  // The boxes chosen at the bench (lib/ship-run), when the packer picked them, at the size and box weight the bench kept
+  // (as the bulk buy prices them, even if the saved size was changed since); otherwise the first saved size.
+  const fromBench = (): Box[] => packBoxesOf(order).map((b) => {
+    const p = presetOf(b.presetId);
+    const same = !!p && Math.abs(p.lengthIn - b.lengthIn) <= 0.5 && Math.abs(p.widthIn - b.widthIn) <= 0.5 && Math.abs(p.heightIn - b.heightIn) <= 0.5;
+    return same ? { presetId: b.presetId, oz: 0, typed: false, tareOz: b.weightOz }
+      : { presetId: null, dims: { lengthIn: b.lengthIn, widthIn: b.widthIn, heightIn: b.heightIn }, oz: 0, typed: false, tareOz: b.weightOz };
+  });
+  const fresh = (): Box[] => { const bench = fromBench(); return settle(bench.length ? bench : [{ presetId: presets[0]?.id || null, oz: 0, typed: false }]); };
   const [boxes, setBoxes] = React.useState<Box[]>(fresh);
   const [editing, setEditing] = React.useState<number | null>(null);
   const setBox = (i: number, patch: Partial<Box>) => setBoxes((list) => settle(list.map((b, j) => (j === i ? { ...b, ...patch } : b))));
@@ -89,6 +100,8 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
   const [replaced, setReplaced] = React.useState<{ box: number | null; refundCents: number; newCents: number; why: string; note: string } | null>(null);
 
   const [rates, setRates] = React.useState<Rate[]>([]); const [rate, setRate] = React.useState<string>('');
+  // How this box is covered (the shop's insurance and signature rules, as the label route applied them to the rates).
+  const [cover, setCover] = React.useState<{ signature: string; insuranceCents: number } | null>(null);
   const [loading, setLoading] = React.useState(false); const [err, setErr] = React.useState('');
   type LabelView = { url: string; carrier: string; number: string; trackUrl: string; extraUrls: string[]; extraNumbers: string[] };
   const labelOf = (o: any): LabelView | null => (o.labelUrl ? { url: o.labelUrl, carrier: o.carrier || '', number: o.trackingNumber || '', trackUrl: o.trackingUrl || '', extraUrls: o.extraLabelUrls || [], extraNumbers: o.extraTrackingNumbers || [] } : null);
@@ -130,7 +143,8 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     }
     return null;
   };
-  const shareOf = (slot: number) => { const b = boxRec(slot); return b ? boxShare(b.rec.amountCents, Math.max(1, b.n), b.i) : 0; };
+  // What a box's label cost: its own price when each box was bought on its own, else its share of the label's.
+  const shareOf = (slot: number) => { const b = boxRec(slot); return b ? boxCents(b.rec, b.i) : 0; };
   // What the old label (or the one box's) cost: what comes back once Shippo confirms the refund. Boxes that can't be told
   // apart (bought before each box's label was kept) are priced from the label they were all bought on.
   const oldCents = (() => {
@@ -161,6 +175,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
       // The service the customer paid for comes first (lib/paid-service); the cheapest when they chose plain shipping.
       const paid = paidServiceRate(rs2, order.shippingService, order.shippingCarrier);
       setRates(rs2); setRate((paid.rate || rs2[0])?.id || ''); setPaidId(paid.how === 'matched' ? paid.rate?.id || '' : ''); setPaidMissing(paid.how === 'missing'); setRatesFor(String(d.addressKey || ''));
+      setCover(d.protection ? { signature: String(d.protection.signature || 'NONE'), insuranceCents: Math.max(0, Number(d.protection.insuranceCents) || 0) } : null);
     }
     catch (e: any) { setErr(e.message); } setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -289,7 +304,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
           {boxes.length > 1 && !opts.fixed && <button type="button" onClick={() => removeBox(i)} className="h-9 px-1 text-[14px] font-semibold" aria-label={`Remove box ${i + 1}`}>Remove</button>}</div>
         <div className="mt-2 flex flex-wrap gap-2">
           {b.dims && !b.presetId && <span className="flex h-11 items-center rounded-full px-4 text-[15px] font-semibold" style={pill(true)}>{dimsLabel(b.dims)}</span>}
-          {presets.map((p) => <button key={p.id} type="button" onClick={() => setBox(i, { presetId: p.id, dims: null })} className="h-11 rounded-full px-4 text-[15px] font-semibold" style={pill(b.presetId === p.id)}>{p.name}</button>)}
+          {presets.map((p) => <button key={p.id} type="button" onClick={() => setBox(i, { presetId: p.id, dims: null, tareOz: undefined })} className="h-11 rounded-full px-4 text-[15px] font-semibold" style={pill(b.presetId === p.id)}>{p.name}</button>)}
           {presets.length === 0 && !b.dims && <span className="text-[15px]" style={muted}>Standard box, 10 × 8 × 4</span>}
         </div>
         <div className="mt-3 flex items-center justify-between rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.soft }}>
@@ -456,7 +471,7 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
         <div className="mt-2">
           {editor({})}
           {rateList}
-          <p className="m-0 mt-3 text-[14px]" style={muted}>Insurance and signature follow your shipping rules. {who} gets tracking when the carrier first scans the box.</p>
+          <p className="m-0 mt-3 text-[14px]" style={muted}>{cover ? `${cover.insuranceCents > 0 ? `Insured with Shippo for ${money(cover.insuranceCents)}, about ${money(Math.round(cover.insuranceCents * SHIPPO_INSURANCE_RATE))} of the price.` : `Not insured: ${chosen?.provider || 'the carrier'}’s included cover applies (up to $100 with most services).`}${cover.signature !== 'NONE' ? ' Someone signs for it.' : ''} ` : 'Insurance and signature follow your shipping rules. '}{who} gets tracking when the carrier first scans the box.</p>
           <Btn kind="primary" className="mt-4 w-full text-[17px]" disabled={loading || !chosen || !!asked} onClick={() => void buy()}>{chosen ? (boxes.length > 1 ? `Buy ${boxes.length} labels for ${money(chosen.amountCents)} and print` : `Buy label for ${money(chosen.amountCents)} and print`) : 'Choose a rate'}</Btn>
           <Btn kind="plain" className="mt-1 w-full" style={muted} onClick={() => setManual(true)}>I already have tracking</Btn>
         </div>)}

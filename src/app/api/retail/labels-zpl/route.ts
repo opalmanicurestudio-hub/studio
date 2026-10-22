@@ -1,5 +1,6 @@
 // src/app/api/retail/labels-zpl/route.ts — ALL THE RAW LABEL-PRINTER LABELS FROM A RUN IN ONE FILE. Opened from the
-// label stack page, so it carries the same short-lived print key instead of a sign-in. Orders in order-number order.
+// label stack page, so it carries the same short-lived print key instead of a sign-in. Orders in the order they were
+// packed, as the stack page prints them.
 import { NextRequest, NextResponse } from 'next/server';
 import { checkPrintKey } from '@/lib/print-key';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -17,7 +18,8 @@ export async function GET(req: NextRequest) {
   const snaps = await Promise.all(ids.map((id) => db.collection(`tenants/${tenantId}/retailOrders`).doc(id).get()));
   const orders = snaps.filter((s: any) => s.exists).map((s: any) => s.data() as any)
     .filter((o: any) => isZplLabel(o.labelUrl) && /^https:\/\//.test(String(o.labelUrl)))
-    .sort((a: any, b: any) => (Number(a.orderNumber) || 0) - (Number(b.orderNumber) || 0));
+    // The order the boxes were packed in, as the label stack page prints them (then by order number).
+    .sort((a: any, b: any) => (Date.parse(a.packedAt || '') || 0) - (Date.parse(b.packedAt || '') || 0) || (Number(a.orderNumber) || 0) - (Number(b.orderNumber) || 0));
   const parts: string[] = []; const seen = new Set<string>();   // orders shipped together share a label: printed once
   for (const o of orders) {
     // A box whose label was voided (lib/label-boxes) prints nothing until it has its new one.

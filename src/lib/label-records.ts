@@ -12,7 +12,7 @@
 // Labels bought before these records existed get one the first time they're voided or charged for, so they're
 // followed the same way from then on.
 import { createHash } from 'crypto';
-import { boxShare, labelKey, labelSlots, slotsKnown, type Parcel, type RecordBox } from './label-boxes';
+import { boxCents, labelKey, labelSlots, slotsKnown, type Parcel, type RecordBox } from './label-boxes';
 import { recordCarrierCharge, recordPostageRefund } from './postage';
 
 const SHIPPO = 'https://api.goshippo.com';
@@ -37,7 +37,10 @@ export type RefundEntry = {
 
 export function newLabelRecord(p: {
   id: string; order: any; orderId: string; orderIds?: string[]; carrier: string; service?: string; rateId?: string;
-  boxes: RecordBox[]; amountCents: number; protection?: { signature?: unknown; insuranceCents?: number } | null;
+  /** Each box's own rate, when each box was bought on its own shipment (lib/box-shipments). */
+  rateIds?: string[];
+  /** `feeCents`: what the insurance cost, as Shippo priced it into the rate. */
+  boxes: RecordBox[]; amountCents: number; protection?: { signature?: unknown; insuranceCents?: number; feeCents?: number } | null;
   at: string; by: { id: string; name: string }; how: LabelHow;
   /** The label it replaces (`slot`: just that box). `ids`: every label it replaces, when the old boxes were bought on
    *  more than one (a box had already had its own new label). */
@@ -48,10 +51,13 @@ export function newLabelRecord(p: {
     orderNumber: typeof p.order?.orderNumber === 'number' ? p.order.orderNumber : null,
     customerName: String(p.order?.customerName || ''),
     carrier: String(p.carrier || ''), service: String(p.service || ''), rateId: String(p.rateId || ''),
-    boxes: p.boxes.map((b) => ({ txn: b.txn, tracking: b.tracking, labelUrl: b.labelUrl, trackingUrl: b.trackingUrl, parcel: b.parcel || null, replacedBy: null })),
+    ...(p.rateIds && p.rateIds.length > 1 ? { rateIds: p.rateIds.map(String) } : {}),
+    boxes: p.boxes.map((b) => ({ txn: b.txn, tracking: b.tracking, labelUrl: b.labelUrl, trackingUrl: b.trackingUrl, parcel: b.parcel || null, replacedBy: null,
+      ...(Number(b.cents) > 0 ? { cents: Math.round(Number(b.cents)) } : {}) })),
     boxTxns: p.boxes.map((b) => b.txn).filter(Boolean),
     amountCents: Math.max(0, Math.round(Number(p.amountCents) || 0)),
-    protection: p.protection ? { signature: String(p.protection.signature ?? 'NONE'), insuranceCents: Math.max(0, Math.round(Number(p.protection.insuranceCents) || 0)) } : null,
+    protection: p.protection ? { signature: String(p.protection.signature ?? 'NONE'), insuranceCents: Math.max(0, Math.round(Number(p.protection.insuranceCents) || 0)),
+      ...(Number(p.protection.feeCents) > 0 ? { feeCents: Math.round(Number(p.protection.feeCents)) } : {}) } : null,
     boughtAt: p.at, boughtBy: { id: String(p.by?.id || ''), name: String(p.by?.name || '') }, how: p.how,
     replaces: p.replaces ? { id: p.replaces.id, slot: p.replaces.slot ?? null, ...(p.replaces.ids && p.replaces.ids.length > 1 ? { ids: [...new Set(p.replaces.ids)] } : {}) } : null, replacedBy: null, replacedAt: null,
     reason: p.reason ? { kind: String(p.reason.kind || ''), note: String(p.reason.note || '').slice(0, 300) } : null,
@@ -68,13 +74,15 @@ const get = async (apiKey: string, path: string): Promise<any> => {
   return r.json();
 };
 
-/** A rate's price in cents, its shipment, and its carrier and service. */
-export async function rateInfo(apiKey: string, rateId: string): Promise<{ cents: number; shipment: string; provider: string; service: string }> {
+/** A rate's price in cents, its shipment, its carrier and service, and the insurance Shippo priced into it. */
+export async function rateInfo(apiKey: string, rateId: string): Promise<{ cents: number; shipment: string; provider: string; service: string; insuranceCents: number; account: string }> {
   try {
     const d = await get(apiKey, `/rates/${encodeURIComponent(rateId)}`);
     const c = Math.round(parseFloat(d?.amount) * 100);
-    return { cents: Number.isFinite(c) ? c : 0, shipment: String(d?.shipment || ''), provider: String(d?.provider || ''), service: String(d?.servicelevel?.name || d?.servicelevel?.token || '') };
-  } catch { return { cents: 0, shipment: '', provider: '', service: '' }; }
+    const ins = Math.round(parseFloat(String(d?.included_insurance_price ?? '0')) * 100);
+    return { cents: Number.isFinite(c) ? c : 0, shipment: String(d?.shipment || ''), provider: String(d?.provider || ''), service: String(d?.servicelevel?.name || d?.servicelevel?.token || ''),
+      insuranceCents: Number.isFinite(ins) && ins > 0 ? ins : 0, account: String(d?.carrier_account || '') };
+  } catch { return { cents: 0, shipment: '', provider: '', service: '', insuranceCents: 0, account: '' }; }
 }
 
 const toParcel = (p: any): Parcel | null => {
@@ -167,13 +175,13 @@ export async function noteRefundRequests(db: any, tenantId: string, order: any, 
         const snap = await tx.get(ref);
         const rec: any = snap.exists ? snap.data() : await earlierRecord(db, tenantId, tx, order, orderId, id, now);
         const refunds: Record<string, RefundEntry> = { ...(rec.refunds || {}) };
-        const n = Math.max(1, (rec.boxes || []).length);
         let added = 0;
         for (const b of list) {
           if (refunds[b.txn] && refunds[b.txn].status !== 'withdrawn') continue;
           const a = byTxn.get(b.txn);
           const i = (rec.boxTxns || []).indexOf(b.txn);
-          const cents = boxShare(rec.amountCents, n, i < 0 ? 0 : i);
+          // The box's own price when it was bought on its own shipment, otherwise its share of the label's.
+          const cents = boxCents(rec, i < 0 ? 0 : i);
           const refused = String(a?.refused || '');
           refunds[b.txn] = { status: refused ? 'refused' : 'requested', requestedAt: now, cents, slot: i < 0 ? null : i, refundId: a?.refundId ? String(a.refundId) : null, checkedAt: null, doneAt: refused ? now : null, asks: 1, tracking: b.tracking || String(rec.boxes?.[i]?.tracking || ''), ...(refused ? { why: refused.slice(0, 160) } : {}) };
           if (!refused) added += cents;
@@ -463,8 +471,11 @@ export const BUYING = 'Someone is buying a label for this order right now. It sh
 export const VOIDING = 'Someone is voiding this order’s label right now. Open it again in a minute.';
 
 /** Claim the order for one purchase, or one void (`what`). `check` looks at the order as it is at the claim, so a label
- *  bought by someone else a moment ago is seen: it returns why nothing should be done, or nothing to go ahead. */
-export async function claimLabelBuy(db: any, ref: any, by: string, now = Date.now(), check?: (cur: any) => string | null, what: 'buy' | 'void' = 'buy'): Promise<{ token: string } | { error: string; busy?: boolean }> {
+ *  bought by someone else a moment ago is seen: it returns why nothing should be done, or nothing to go ahead.
+ *  `doubt`: rates an earlier purchase was buying when it was cut off or got no answer (labelBuyDoubt), so it may have
+ *  bought a label nobody saved; the caller asks Shippo about them before buying another (lib/label-void
+ *  settleDoubtfulBuy). */
+export async function claimLabelBuy(db: any, ref: any, by: string, now = Date.now(), check?: (cur: any) => string | null, what: 'buy' | 'void' = 'buy'): Promise<{ token: string; doubt: string[] } | { error: string; busy?: boolean }> {
   const token = `${now.toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   const r = await db.runTransaction(async (tx: any) => {
     const c: any = (await tx.get(ref)).data() || {};
@@ -472,16 +483,30 @@ export async function claimLabelBuy(db: any, ref: any, by: string, now = Date.no
     if (b && now - (Date.parse(String(b.at || '')) || 0) < BUY_STALE_MS) return { error: b.what === 'void' ? VOIDING : BUYING, busy: true };
     const why = check ? check(c) : null;
     if (why) return { error: why };
-    tx.set(ref, { labelBuying: { at: iso(now), by: String(by || '').slice(0, 80), token, what } }, { merge: true });
-    return { token };
+    // A claim left behind by a purchase that was cut off: the rates it was buying are in doubt from now on.
+    const doubt = [...new Set([...(Array.isArray(c.labelBuyDoubt?.rates) ? c.labelBuyDoubt.rates : []), ...(b && Array.isArray(b.rates) ? b.rates : [])].map(String).filter(Boolean))].slice(0, 20);
+    tx.set(ref, { labelBuying: { at: iso(now), by: String(by || '').slice(0, 80), token, what }, ...(doubt.length ? { labelBuyDoubt: { rates: doubt, at: c.labelBuyDoubt?.at || iso(now) } } : {}) }, { merge: true });
+    return { token, doubt };
   }).catch(() => ({ error: 'That didn’t go through. Try again in a minute.' }));
   return r;
 }
 
-export async function releaseLabelBuy(db: any, ref: any, token: string | null): Promise<void> {
+/** The rates this purchase is about to buy, kept on its claim: if it's cut off before the label is saved, the next
+ *  claim knows to look for a label bought on them. */
+export async function noteBuyRates(db: any, ref: any, token: string, rates: string[]): Promise<void> {
+  await db.runTransaction(async (tx: any) => {
+    const c: any = (await tx.get(ref)).data() || {};
+    if (c.labelBuying?.token === token) tx.set(ref, { labelBuying: { ...c.labelBuying, rates: rates.map(String).slice(0, 10) } }, { merge: true });
+  }).catch(() => {});
+}
+
+/** The claim let go. `doubt`: rates a purchase got no answer about, kept on the order so the next claim checks them. */
+export async function releaseLabelBuy(db: any, ref: any, token: string | null, doubt: string[] = []): Promise<void> {
   if (!token) return;
   await db.runTransaction(async (tx: any) => {
     const c: any = (await tx.get(ref)).data() || {};
-    if (c.labelBuying?.token === token) tx.set(ref, { labelBuying: null }, { merge: true });
+    if (c.labelBuying?.token !== token) return;
+    const rates = [...new Set([...(Array.isArray(c.labelBuyDoubt?.rates) ? c.labelBuyDoubt.rates : []), ...doubt].map(String).filter(Boolean))].slice(0, 20);
+    tx.set(ref, { labelBuying: null, ...(doubt.length ? { labelBuyDoubt: { rates, at: c.labelBuyDoubt?.at || new Date().toISOString() } } : {}) }, { merge: true });
   }).catch(() => {});
 }

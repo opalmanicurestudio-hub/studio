@@ -14,8 +14,8 @@ const liveUrls = (o: any): string[] => liveSlots(o).map((s) => s.labelUrl).filte
  * /print/labels/[tenantId]?ids=orderId,orderId,… — the label STACK.
  *
  * The bulk buy ends here: every label from the run on its own 4×6 page, in
- * order-number order, so one print job feeds the thermal printer and the
- * stack lands on the pack bench already sorted. PNG labels lay out as pages
+ * the order the boxes were packed, so one print job feeds the thermal printer
+ * and the stack lands on the pack bench in the same order as the boxes. PNG labels lay out as pages
  * (that's why the bulk route buys PNG_4x6); any PDF labels on these orders —
  * from the single-label dialog — can't embed in a page flow, so they're
  * listed as links on a closing sheet instead of silently dropped.
@@ -70,7 +70,9 @@ export default async function PrintLabelsPage({
     .filter((s: any) => s.exists)
     .map((s: any) => ({ id: s.id, ...(s.data() as any) }))
     .filter((o: any) => o.labelUrl)
-    .sort((a: any, b: any) => (Number(a.orderNumber) || 0) - (Number(b.orderNumber) || 0));
+    // In the order the boxes were packed, so the stack matches the pile of boxes on the bench (order number between
+    // boxes packed together).
+    .sort((a: any, b: any) => (Date.parse(a.packedAt || '') || 0) - (Date.parse(b.packedAt || '') || 0) || (Number(a.orderNumber) || 0) - (Number(b.orderNumber) || 0));
 
   const pngs = entries.filter((o: any) => isPngLabel(o.labelUrl));
   const zpls = entries.filter((o: any) => isZplLabel(o.labelUrl));

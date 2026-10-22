@@ -2,7 +2,8 @@
 // src/components/orders/PackMode.tsx — PACKING ONE ORDER. A checklist: tap an item when it's in the box, or scan it (a
 // scanner that types, or the camera). Every count can be undone for a few seconds. Missing items go to the Missing
 // sheet. The main button says what's left until everything is in, then finishes the order: pickup orders go to the
-// shelf with a spot and the customer is told; ship orders wait for a label.
+// shelf with a spot and the customer is told; ship orders wait for a label. For a ship order the packer picks the box
+// (or boxes) from the shop's saved sizes, and the labels are bought for those boxes (lib/ship-run).
 import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -18,6 +19,7 @@ import type { Actor } from '@/lib/retail-fulfill';
 import { BottomBar, Btn, C, Thumb, UndoBar, feel, muted, Ic } from './ui';
 import { compareBins } from '@/lib/bins';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
+import { MAX_PACK_BOXES, boxFrom, packBoxesOf, presetsOf, type PackBox } from '@/lib/ship-run';
 
 export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfFor, batch, onClose, onDetails, onMissing, onFinished }: {
   fs: Firestore; tenantId: string; order: any; all: any[]; actor: Actor; rs: any; photoFor: Map<string, string>; shelfFor: Map<string, string>; batch: any | null;
@@ -40,6 +42,15 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const { selectedTenant } = useTenant() as any;
   const due = dueLine(order, rs, Date.now(), tenantTimeZone(selectedTenant));
   const lines = (order.lines || []).filter((l: any) => l.digital !== true).map((l: any, i: number) => ({ l, i })).sort((a: any, b: any) => compareBins(shelfFor.get(a.l.productId) || '', shelfFor.get(b.l.productId) || '') || a.i - b.i).map((x: any) => x.l);
+  // THE BOX. A ship order goes out in the box (or boxes) chosen here; until one is picked, the shop's first saved size.
+  const presets = React.useMemo(() => presetsOf(rs), [rs]);
+  const chosen = packBoxesOf(order);
+  const boxes: PackBox[] = chosen.length ? chosen : presets.length ? [boxFrom(presets[0])] : [];
+  const showBoxes = order.method === 'ship' && presets.length > 0;
+  const saveBoxes = async (list: PackBox[]) => {
+    try { await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, order.id), { packBoxes: list.slice(0, MAX_PACK_BOXES) }); setErr(''); }
+    catch { setErr('The box didn’t save. Try again.'); }
+  };
 
   React.useEffect(() => { if (!camera) inputRef.current?.focus(); }, [camera]);
 
@@ -69,6 +80,8 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   };
   const finish = async () => {
     setBusy(true);
+    // The box it's in is kept with the order, so its label is bought for that size.
+    if (showBoxes && !chosen.length) await saveBoxes(boxes);
     const r = await finishPacking(fs, tenantId, order, all, actor, rs);
     setBusy(false);
     if (!r.ok) { setErr(r.message); return; }
@@ -135,6 +148,25 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
           })}
         </div>
         {canTap && left > 0 && <p className="m-0 mt-2 text-[14px]" style={muted}>Tap an item when it’s in the box, or scan it.</p>}
+
+        {showBoxes && (
+          <div className="mt-5">
+            <p className="m-0 text-[13px] font-semibold" style={muted}>{boxes.length > 1 ? 'Boxes' : 'Box'}</p>
+            {boxes.map((b, i) => (
+              <div key={i} role="group" aria-label={boxes.length > 1 ? `Box ${i + 1} size` : 'Box size'} className="mt-2 flex flex-wrap items-center gap-2">
+                {boxes.length > 1 && <span aria-hidden="true" className="w-full text-[14px] font-semibold">Box {i + 1}</span>}
+                {presets.map((p) => {
+                  const on = b.presetId === p.id;
+                  return <button key={p.id} type="button" aria-pressed={on} onClick={() => void saveBoxes(boxes.map((x, j) => (j === i ? boxFrom(p) : x)))}
+                    className="cf-press h-11 rounded-full px-4 text-[15px] font-semibold" style={{ border: on ? `2px solid ${C.ink}` : `1px solid ${C.line}`, background: C.paper, color: C.ink }}>{p.name}</button>;
+                })}
+                {boxes.length > 1 && <button type="button" aria-label={`Remove box ${i + 1}`} onClick={() => void saveBoxes(boxes.filter((_, j) => j !== i))} className="h-11 px-2 text-[15px] font-semibold" style={muted}>Remove</button>}
+              </div>))}
+            <div className="mt-2 flex flex-wrap items-center gap-x-3">
+              {boxes.length < MAX_PACK_BOXES && <button type="button" onClick={() => void saveBoxes([...boxes, boxFrom(presets[0])])} className="h-11 text-[15px] font-semibold">Add a box</button>}
+              <span className="text-[13px]" style={muted}>{boxes.length > 1 ? 'A label is bought for each box.' : 'The label is bought for this size.'}</span>
+            </div>
+          </div>)}
 
         {(policy.enabled || photos.length > 0) && (
           <div className="mt-4 flex flex-wrap items-center gap-2">

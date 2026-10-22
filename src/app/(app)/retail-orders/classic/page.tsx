@@ -2,6 +2,7 @@
 
 import { cancelIt } from '@/lib/orders-flow';
 import { openPrint } from '@/lib/open-print';
+import { buyLabels } from '@/components/orders/bulk';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { arrayUnion, collection, doc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { AlertTriangle, Car, Check, ClipboardList, FileText, History, Loader, Package, PackageCheck, PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, Scale, ScanLine, Settings, Ship, Store, TriangleAlert, Truck, X, Zap } from 'lucide-react';
@@ -193,23 +194,12 @@ export default function RetailFulfillmentBoard() {
     if (bulkBusy || packedShipOrders.length === 0) return;
     setBulkBusy(true);
     try {
-      const pr = packagingPresets[0];
-      const res = await fetch('/api/retail/shipping-labels-bulk', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-        body: JSON.stringify({
-          tenantId,
-          orders: packedShipOrders.map((o: any) => ({ orderId: o.id, qrToken: o.qrToken || '' })),
-          parcelDefaults: pr
-            ? { lengthIn: pr.lengthIn, widthIn: pr.widthIn, heightIn: pr.heightIn, boxWeightOz: pr.weightOz }
-            : undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Bulk purchase failed');
-      toast({ title: 'Labels bought', description: data.message });
-      const okIds = (data.results || []).filter((r: any) => r.ok && r.labelUrl).map((r: any) => r.orderId);
-      if (okIds.length > 0) {
-        void openPrint(tenantId, 'orders', `/print/labels/${tenantId}?ids=${okIds.join(',')}`);
+      // Six at a time, any the server ran out of time for sent again (components/orders/bulk).
+      const r = await buyLabels(tenantId, packedShipOrders, (selectedTenant as any)?.retailSettings || {});
+      if (!r.ok && !r.boughtIds.length) throw new Error(r.message);
+      toast({ title: 'Labels bought', description: r.message });
+      if (r.boughtIds.length > 0) {
+        void openPrint(tenantId, 'orders', `/print/labels/${tenantId}?ids=${r.boughtIds.join(',')}`);
       }
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Bulk labels failed', description: e?.message });

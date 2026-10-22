@@ -1,7 +1,7 @@
 // Checks the label route end to end against a stand-in database and Shippo (api/retail/shipping-label): a purchase
 // keeps every box's label and a record of it, one purchase at a time, a replacement voids the old label first (and
-// buys nothing if the carrier has it), one box can be replaced or given a new label or taken off, and "Got it" clears
-// the cards.
+// buys nothing if the carrier has it), one box can be replaced or given a new label or taken off, "Got it" clears
+// the cards, and several boxes are priced and bought one shipment per box (a box that fails voids the others).
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/shipping-label-route.verify.ts
 import Module from 'module';
 import { makeDb, check, failures, FV } from './fake-db';
@@ -257,6 +257,43 @@ const rec = (id: string) => db._store.get(LR(id));
   await call('o8', { action: 'refund_seen' }); await call('o8', { action: 'charge_seen' });
   check('“Got it” clears the card on the order and on every label record of the order, not just the latest', order('o8').labelRefundDenied.open === false && order('o8').labelCharge.open === false && rec('V1').deniedOpen === false && rec('V1').chargeOpen === false
     && rec('V0').deniedOpen === false && rec('V0').chargeOpen === false && order('o8').labelRefundDenied.seenBy === 'Maya Lin');
+
+  // ── Several boxes, one shipment per box (USPS takes one box per shipment) ──
+  let sn = 0; const sent: any[] = []; let failRate = '';
+  route = (u: string, init?: any): Reply => {
+    if (init?.method === 'POST' && u === '/shipments/') {
+      const b = JSON.parse(init.body); sent.push(b); const sid = `B${++sn}`;
+      return { status: 201, body: { object_id: sid, rates: [
+        { object_id: `${sid}-g`, provider: 'USPS', carrier_account: 'acct', servicelevel: { token: 'usps_ground_advantage', name: 'Ground Advantage' }, amount: sn % 2 ? '5.40' : '7.10', estimated_days: 3 },
+        { object_id: `${sid}-x`, provider: 'USPS', carrier_account: 'acct', servicelevel: { token: `only_${sid}`, name: 'Only here' }, amount: '3.00' }] } };
+    }
+    if (init?.method === 'POST' && u === '/transactions/') {
+      const rate = JSON.parse(init.body).rate;
+      if (rate === failRate) return { status: 201, body: { status: 'ERROR', messages: [{ text: 'Parcel too heavy' }] } };
+      return { status: 201, body: { status: 'SUCCESS', object_id: `T-${rate}`, tracking_number: `9400${rate.replace(/\W/g, '')}000000001`, label_url: `https://labels/${rate}.pdf`, tracking_url_provider: `https://track/${rate}` } };
+    }
+    if (init?.method === 'POST' && u === '/refunds/') return { status: 201, body: { object_id: `RF-${JSON.parse(init.body).transaction}`, status: 'QUEUED' } };
+    if (u.startsWith('/rates/')) { const id = decodeURIComponent(u.split('/')[2]); return { body: { amount: Number(id.slice(1, id.indexOf('-'))) % 2 ? '5.40' : '7.10', provider: 'USPS', servicelevel: { name: 'Ground Advantage' }, shipment: id.split('-')[0], carrier_account: 'acct' } }; }
+    return null;
+  };
+  db._store.set(OR('o30'), baseOrder());
+  const two = [{ weightOz: 20, lengthIn: 8, widthIn: 6, heightIn: 4 }, { weightOz: 30, lengthIn: 14, widthIn: 10, heightIn: 6 }];
+  r = await call('o30', { action: 'rates', parcels: two });
+  check('two boxes are priced one shipment each, and only a service both boxes can go by is offered, at both prices added',
+    r.status === 200 && sent.length === 2 && sent.every((b) => b.parcels.length === 1) && sent[1].parcels[0].length === '14' && r.body.rates.length === 1 && r.body.rates[0].id === 'boxes:B1-g,B2-g' && r.body.rates[0].amountCents === 1250, { body: r.body, sent });
+  r = await call('o30', { action: 'purchase', rateId: r.body.rates[0].id, parcels: two });
+  const o30 = order('o30'); const r30 = rec(String(o30?.labelRecs?.[0] || ''));
+  check('buying it buys each box’s own label, box 1 first, kept on the order and its record with each box’s price',
+    r.status === 200 && o30.labelTxns.join() === 'T-B1-g,T-B2-g' && o30.extraLabelUrls[0] === 'https://labels/B2-g.pdf' && o30.packageCount === 2 && r30?.amountCents === 1250 && r30.boxes[0].cents === 540 && r30.boxes[1].cents === 710 && r30.rateIds.join() === 'B1-g,B2-g' && r30.rateId === 'B1-g', { body: r.body, o: o30, rec: r30 });
+  db._store.set(OR('o31'), baseOrder());
+  sent.length = 0;
+  r = await call('o31', { action: 'rates', parcels: two });
+  failRate = String(r.body.rates[0].id).split(',')[1];
+  calls = [];
+  r = await call('o31', { action: 'purchase', rateId: r.body.rates[0].id, parcels: two });
+  const r31 = [...db._store.entries()].find(([k, v]: any) => k.includes('/shippingLabels/') && v.orderId === 'o31')?.[1];
+  check('box 2 not going through: nothing on the order, box 1’s label voided at once with its refund followed, and it says so',
+    r.status === 422 && /Box 2: Parcel too heavy/.test(r.body.error) && !order('o31').labelUrl && !order('o31').labelBuying && calls.some((c) => c === 'POST /refunds/') && r31?.boxes?.length === 1 && Object.values(r31.refunds || {}).some((e: any) => e.status === 'requested'), { body: r.body, rec: r31, calls });
 
   globalThis.fetch = realFetch;
   if (failures) { console.log(`\n${failures} failed`); process.exit(1); } else console.log('\nall good');

@@ -7,9 +7,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { addressKey, openRequest } from '@/lib/address-flow';
 import { togetherKey } from '@/lib/ship-together';
-import { boxesOf, claimLabelBuy, labelsCol, newLabelRecord, rateInfo, releaseLabelBuy } from '@/lib/label-records';
+import { boxesOf, claimLabelBuy, labelsCol, newLabelRecord, noteBuyRates, releaseLabelBuy } from '@/lib/label-records';
 import { REPLACE_REASONS, VOID_REASONS, labelKey, labelSlots, reasonLine, recordOf, slotOfTxn, slotPatch, slotsKnown, type RecordBox } from '@/lib/label-boxes';
 import { labelDoubt } from '@/lib/label-doubt';
+import { boxesFrom, buyBoxes, isBoxRates, priceOf, rateBoxes, rateIdsOf } from '@/lib/box-shipments';
 
 import {
   insurableValueCents, insuredParcels, protectionFor, protectionPolicy,
@@ -36,9 +37,13 @@ import {
 //   POST { ..., action: 'unscanned_ok' | 'voided_seen' | 'refund_seen' | 'charge_seen' } — someone has looked.
 //
 // One purchase at a time per order (lib/label-records claimLabelBuy): a double tap or a second device is told someone
-// is already buying instead of buying a second label. Config: retailSettings.shippoApiKey (per tenant; SHIPPO_API_KEY
-// env as a platform fallback) + retailSettings.shipFrom. qrToken is the same possession proof the print and support
-// routes use, on top of a signed-in team member who may ship.
+// is already buying instead of buying a second label. Several boxes are priced and bought one shipment per box
+// (lib/box-shipments: USPS takes one box per shipment). A purchase that was cut off or got no answer leaves its rates
+// on the order, and the next purchase voids any label Shippo made on them before buying another. Config:
+// retailSettings.shippoApiKey (per tenant; SHIPPO_API_KEY env as a platform fallback) + retailSettings.shipFrom.
+// qrToken is the same possession proof the print and support routes use, on top of a signed-in team member who may ship.
+
+export const maxDuration = 120;
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -57,23 +62,8 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
-const SHIPPO = 'https://api.goshippo.com';
 const GONE = ['shipped', 'handed_off', 'completed'];
 const ACTIONS = ['rates', 'purchase', 'replace', 'box', 'drop_box', 'void', 'unscanned_ok', 'voided_seen', 'refund_seen', 'charge_seen'];
-
-async function shippo(apiKey: string, path: string, payload: any) {
-  const res = await fetch(`${SHIPPO}${path}`, {
-    method: 'POST',
-    headers: { Authorization: `ShippoToken ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const detail = data?.detail || data?.__all__?.[0] || JSON.stringify(data).slice(0, 200);
-    throw new Error(`Shippo: ${detail}`);
-  }
-  return data;
-}
 
 const lower = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
 const parcelsOf = (body: any) => (Array.isArray(body.parcels) && body.parcels.length > 0 ? body.parcels.slice(0, 10) : [body.parcel || {}]);
@@ -254,11 +244,9 @@ export async function POST(req: NextRequest) {
       const insured = insuredParcels(decision, parcels);
       const extra = withOrderRef(insured.extra, rs, order);
 
-      const shipment = await shippo(apiKey, '/shipments/', {
-        address_from: addressFrom, address_to: addressTo, parcels: insured.parcels, async: false,
-        ...(extra ? { extra } : {}),
-      });
-      const rates = groundFilter(shipment.rates || [], order.groundOnly === true)
+      // One shipment per box (lib/box-shipments): a service is offered when every box can go by it.
+      const priced = await rateBoxes(apiKey, { from: addressFrom, to: addressTo, parcels: insured.parcels, extra });
+      const rates = groundFilter(priced.rates, order.groundOnly === true)
         .map((r: any) => ({
           id: r.object_id,
           provider: r.provider,
@@ -335,7 +323,12 @@ export async function POST(req: NextRequest) {
     });
     if ('error' in claim) return NextResponse.json({ error: claim.error, busy: claim.busy || false, ...(/address changed/i.test(claim.error) ? { addressChanged: true } : {}) }, { status: 409 });
     const token = claim.token;
+    // Rates a purchase here got no answer about: kept on the order when the claim is let go, for the next one to check.
+    let doubtful: string[] = [];
     try {
+      // An earlier purchase for this order that was cut off may have bought a label nobody saved: it's voided first.
+      const earlier = claim.doubt.length ? await (await import('@/lib/label-void')).settleDoubtfulBuy(db, tenantId, apiKey, orderRef, orderId, order, claim.doubt, actor).catch(() => '') : '';
+      if (earlier) console.warn('[shipping-label] earlier purchase settled', tenantId, orderId, earlier);
       const why = reason ? `replaced (${lower(reasonLine(reason))})` : '';
       // Replacing: the old label is voided first. If the carrier already has it, it isn't voided and nothing is bought.
       // A box's new label replaces its voided one; a replacement names the label it replaces.
@@ -356,22 +349,41 @@ export async function POST(req: NextRequest) {
         if (slot === null && cur.shippoTransactionId) return NextResponse.json({ error: 'A label is still on this order, so nothing new was bought. Open it again.' }, { status: 409 });
       }
 
-      const txn = await shippo(apiKey, '/transactions/', { rate: rateId, label_file_type: shippoFileType(labelFormatOf(rs)), async: false }).catch((e: any) => ({ status: 'ERROR', messages: [{ text: String(e?.message || '').replace(/^Shippo:\s*/, '') }] }));
-      if (txn.status !== 'SUCCESS') {
-        const msg = (txn.messages || []).map((m: any) => m.text).filter(Boolean).join('; ') || 'Label purchase failed';
-        if (action === 'replace') return NextResponse.json({ error: slot === null ? `The old label is voided, but the new one didn’t go through (${msg}). Choose a rate and buy it again.` : `Box ${slot + 1}’s old label is voided, but its new one didn’t go through (${msg}). Buy it again from here.`, voided: true }, { status: 422 });
-        return NextResponse.json({ error: `Shippo: ${msg}` }, { status: 422 });
+      // The rates about to be bought go on the claim first: if this is cut off, the next purchase finds what it bought.
+      const rateIds = rateIdsOf(rateId);
+      await noteBuyRates(db, orderRef, token, rateIds);
+      // Each box's label, box 1 first (lib/box-shipments). One that doesn't go through stops the rest, and the boxes
+      // already bought are voided straight away (kept on record, their refunds followed).
+      const bought = await buyBoxes(apiKey, rateId, shippoFileType(labelFormatOf(rs)));
+      if (!bought.ok) {
+        if (bought.unanswered) doubtful = rateIds.slice(bought.bought.length, bought.bought.length + 1);
+        let undone = '';
+        if (bought.bought.length) {
+          const p = await priceOf(apiKey, rateIds.slice(0, bought.bought.length));
+          const part = boxesFrom(bought.bought, parcels.map(parcelOfBody), p.boxCents);
+          const { voidUnsavedLabel, unsavedNote } = await import('@/lib/label-void');
+          const v = await voidUnsavedLabel(db, tenantId, apiKey, { orderId, order, boxes: part, cents: p.cents, carrier: p.provider || String(order.carrier || 'Carrier'), service: p.service, rateId: rateIds[0], rateIds: p.rateIds, by: actor, how: action === 'purchase' ? 'single' : action === 'box' ? 'box' : 'replace', why: 'voided straight away: another box’s label didn’t go through' }).catch(() => null);
+          undone = ` The ${part.length === 1 ? 'box' : `${part.length} boxes`} already bought: ${unsavedNote(v, part[0].tracking)}.`;
+        }
+        const msg = bought.error || 'Label purchase failed';
+        if (action === 'replace') return NextResponse.json({ error: `${slot === null ? `The old label is voided, but the new one didn’t go through (${msg}). Choose a rate and buy it again.` : `Box ${slot + 1}’s old label is voided, but its new one didn’t go through (${msg}). Buy it again from here.`}${undone}`, voided: true }, { status: 422 });
+        return NextResponse.json({ error: `Shippo: ${msg}${undone}` }, { status: 422 });
       }
-      const info = await rateInfo(apiKey, rateId);
+      const txn = bought.txns[0];
+      const info = await priceOf(apiKey, rateId);
       const single = action === 'box' || (action === 'replace' && slot !== null);
-      const boxes: RecordBox[] = single
-        ? [{ txn: String(txn.object_id || ''), tracking: String(txn.tracking_number || ''), labelUrl: String(txn.label_url || ''), trackingUrl: String(txn.tracking_url_provider || ''), parcel: parcelOfBody(parcels[0]) }]
+      // Each box on its own shipment; one box; or (a rate priced before boxes were bought one by one) one rate for
+      // several boxes, whose other labels are found through it.
+      const boxes: RecordBox[] = isBoxRates(rateId) ? boxesFrom(bought.txns, parcels.map(parcelOfBody), info.boxCents)
+        : single || parcels.length <= 1 ? boxesFrom([txn], [parcelOfBody(parcels[0])], [info.cents])
         : await boxesOf(apiKey, txn, rateId, parcels, info.shipment);
       const carrier = String(info.provider || body.provider || order.carrier || 'Carrier').slice(0, 40);
       // The rate's own price; the one the sheet showed if Shippo didn't say.
       const cents = info.cents || Math.max(0, Math.round(Number(body.amountCents) || 0));
       const id = labelKey(boxes[0].txn);
-      const decision = protectionFor(boxOrder, protectionPolicy(rs));
+      const full = protectionFor(boxOrder, protectionPolicy(rs));
+      // One box's new label of several is insured for its share of the goods, as its rates were priced.
+      const decision = single && labelSlots(order).length > 1 ? { ...full, insuranceCents: Math.round(full.insuranceCents / labelSlots(order).length) } : full;
       const expectedWeightOz = parcels.reduce((a: number, p: any) => a + (Number(p?.weightOz) || 0), 0);
       const how = action === 'purchase' ? 'single' : action === 'box' ? 'box' : 'replace';
       const at = now();
@@ -392,8 +404,9 @@ export async function POST(req: NextRequest) {
           return o && ['packed', 'shipped'].includes(String(o.stage)) && !o.shippoTransactionId && !!togetherKey(c, { labelled: true }) && togetherKey(o, { labelled: true }) === togetherKey(c, { labelled: true });
         });
         const rec = newLabelRecord({
-          id, order: c, orderId, carrier, service: info.service, rateId, boxes, amountCents: cents,
-          protection: { signature: decision.signature, insuranceCents: decision.insuranceCents }, at, by: actor, how,
+          id, order: c, orderId, carrier, service: info.service, rateId: info.rateIds[0] || rateId, rateIds: info.rateIds, boxes, amountCents: cents,
+          // What the insurance cost, as Shippo priced it into the rate.
+          protection: { signature: decision.signature, insuranceCents: decision.insuranceCents, feeCents: decision.insuranceCents > 0 ? info.insuranceCents : 0 }, at, by: actor, how,
           replaces, reason,
           orderIds: single ? copies.map((cp: any) => cp.id) : okSibs.map((s: any) => s.id),
         });
@@ -442,18 +455,20 @@ export async function POST(req: NextRequest) {
         const { carriesLabel } = await import('@/lib/label-void');
         saved = await carriesLabel(orderRef, boxes[0].txn);
         if (saved === null) {
-          // Saved or not, it was bought: its postage goes into the books (once), and the person checks the order.
+          // Saved or not, it was bought: its postage goes into the books (once), and the person checks the order. Its
+          // rates stay on the order: if the label isn't on it, the next purchase voids it before buying another.
           await recordPostage(db, tenantId, { id: orderId, orderNumber: order.orderNumber }, id, cents, carrier);
+          doubtful = rateIds;
           console.error('[shipping-label] bought, save unknown', tenantId, orderId, boxes[0].txn, String(e?.message || e).slice(0, 200));
           const end = String(boxes[0].tracking || '').slice(-4);
-          return NextResponse.json({ error: `The label was bought${end ? ` (tracking ending ${end})` : ''}, but saving it to the order didn’t go through. Open the order again: if that label isn’t on it, void it in Shippo before buying another.` }, { status: 503 });
+          return NextResponse.json({ error: `The label was bought${end ? ` (tracking ending ${end})` : ''}, but saving it to the order didn’t go through. Open the order again: if that label isn’t on it, buying again voids it first.` }, { status: 503 });
         }
       }
       if (!saved) {
         // The address changed (or a change came in) while this one was being bought: it's voided straight away. It was
         // paid for, so it's kept like any label, with its refund followed until Shippo confirms it (lib/label-void).
         const { voidUnsavedLabel, unsavedNote } = await import('@/lib/label-void');
-        const v = await voidUnsavedLabel(db, tenantId, apiKey, { orderId, order, boxes, cents, carrier, service: info.service, rateId, by: actor, how }).catch(() => null);
+        const v = await voidUnsavedLabel(db, tenantId, apiKey, { orderId, order, boxes, cents, carrier, service: info.service, rateId: info.rateIds[0] || rateId, rateIds: info.rateIds, by: actor, how }).catch(() => null);
         return NextResponse.json({ error: `The order changed while the label was being bought (the address, or another label), so ${unsavedNote(v, boxes[0].tracking)}. Get new rates and buy it again.`, addressChanged: true }, { status: 409 });
       }
       // The postage is a real cost: into the books against this order (lib/postage).
@@ -479,7 +494,7 @@ export async function POST(req: NextRequest) {
         protection: { signature: decision.signature, insuranceCents: decision.insuranceCents, reasons: decision.reasons },
       });
     } finally {
-      await releaseLabelBuy(db, orderRef, token);
+      await releaseLabelBuy(db, orderRef, token, doubtful);
     }
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || 'Shipping label request failed').slice(0, 300) }, { status: 502 });
