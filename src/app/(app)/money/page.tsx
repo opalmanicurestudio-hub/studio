@@ -53,6 +53,8 @@ import {
 } from '@/lib/state-tax-profiles';
 import { COUNTRY_OPTIONS, getCountryOption } from '@/lib/tax-jurisdictions';
 import { auditEntry } from '@/lib/audit';
+import { booksSummary, effectOf, lookupOf, netSalesOf, type BooksSummary } from '@/lib/books-summary';
+import { esc, printLine, printMoney, printPage } from '@/lib/print-style';
 import {
   buildPnlHtml, buildTaxSummaryHtml, buildPayrollRegisterHtml, buildAuditTrailHtml,
 } from '@/lib/report-builders';
@@ -78,7 +80,7 @@ import { BankFeedSection } from '@/components/shared/BankFeedSection';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { collection, doc, writeBatch, increment, arrayUnion, getDoc, getDocs, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDoc, getDocs, query, where, onSnapshot, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@/components/ui/switch';
@@ -217,304 +219,134 @@ const StatCard = ({
   );
 };
 
-// ─── Color system (unchanged from original) ───────────────────────────────────
+// ─── buildPrintHtml — the ledger report, in the app's print look (lib/print-style) ─────────────────────────────
+// The same figures as the screen (lib/books-summary), then every checkout and online order with its lines, the other
+// entries, and the receipt pictures at the back. Each line says what it is in the books (a sale, a refund, a tip, the
+// sales tax, a card fee…) in a quiet pill rather than a rainbow of colors.
 
-const TAX_BUCKET_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  'revenue':        { bg: '#dcfce7', text: '#166534', label: 'Revenue' },
-  'gratuity':       { bg: '#fef9c3', text: '#854d0e', label: 'Gratuity' },
-  'tax_collected':  { bg: '#f1f5f9', text: '#475569', label: 'Tax' },
-  'adjustment':     { bg: '#dbeafe', text: '#1e40af', label: 'Adjustment' },
-  'refund':         { bg: '#fee2e2', text: '#991b1b', label: 'Refund' },
-  'processing_fee': { bg: '#ede9fe', text: '#5b21b6', label: 'Processing Fee' },
-  'operating_cost': { bg: '#fff7ed', text: '#92400e', label: 'Operating Cost' },
-  // v59 — color audit: Money Hub introduced Payroll payouts, Profit First
-  // distributions (taxBucket 'transfer'), and Bill payments. Without these
-  // entries they fell through to random hash-picked pastels in the print
-  // report and legend — now semantically colored and auto-legended.
-  'payroll':        { bg: '#e0f2fe', text: '#075985', label: 'Payroll' },
-  'transfer':       { bg: '#ccfbf1', text: '#115e59', label: 'Transfer' },
+const SIDE_LABEL: Record<string, { label: string; tone?: 'ok' | 'warn' }> = {
+  sales: { label: 'Sale', tone: 'ok' }, returns: { label: 'Refund', tone: 'warn' }, discounts: { label: 'Discount' }, tax: { label: 'Sales tax' },
+  tips: { label: 'Tip' }, other: { label: 'Other income' }, held: { label: 'Held' }, transfer: { label: 'Transfer' }, cogs: { label: 'Cost of goods' },
+  fees: { label: 'Card fee' }, opex: { label: 'Expense' }, skip: { label: 'Note' },
 };
-
-const CATEGORY_TO_BUCKET: Record<string, string> = {
-  'Service Revenue': 'revenue', 'Retail': 'revenue', 'Retail Product': 'revenue',
-  'Membership Sales': 'revenue', 'Package Sales': 'revenue', 'Hospitality Revenue': 'revenue',
-  'Card Processing Fee': 'revenue',
-  'Tips': 'gratuity',
-  'Tax Collected': 'tax_collected',
-  'Discounts': 'adjustment', 'Protocol Recovery': 'adjustment', 'Strategic Adjustment': 'adjustment',
-  'Fee Recovery': 'adjustment', 'Adjustment Fee': 'adjustment', 'Cancellation Fee': 'adjustment',
-  'Deposit Applied': 'adjustment',
-  'Refunds': 'refund', 'Void': 'refund',
-  'Processing Fee': 'processing_fee',
-  'Supplies': 'operating_cost', 'Cost of Goods Sold': 'operating_cost', 'Spoilage': 'operating_cost',
-  'Payroll': 'payroll', 'Distribution': 'transfer', 'Bills': 'operating_cost',
-};
-
-const PRINT_CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = TAX_BUCKET_COLORS;
-
-const AUTO_PALETTE = [
-  { bg: '#fef3c7', text: '#92400e' }, { bg: '#d1fae5', text: '#065f46' },
-  { bg: '#e0e7ff', text: '#3730a3' }, { bg: '#fce7f3', text: '#9d174d' },
-  { bg: '#cffafe', text: '#164e63' }, { bg: '#fef9c3', text: '#713f12' },
-  { bg: '#f0fdf4', text: '#14532d' }, { bg: '#fdf4ff', text: '#701a75' },
-];
-const hashStr = (s: string) => s.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
-const getCatStyle = (cat: string, taxBucket?: string) => {
-  const bucket = taxBucket || CATEGORY_TO_BUCKET[cat];
-  if (bucket && PRINT_CATEGORY_COLORS[bucket]) return PRINT_CATEGORY_COLORS[bucket];
-  if (PRINT_CATEGORY_COLORS[cat]) return PRINT_CATEGORY_COLORS[cat];
-  const palette = AUTO_PALETTE[Math.abs(hashStr(cat)) % AUTO_PALETTE.length];
-  return { ...palette, label: cat };
-};
-
-const sessionRefNum = (sid: string) => `REF-${sid.slice(-6).toUpperCase()}`;
-const txnRefNum     = (id: string)  => `TXN-${id.slice(-6).toUpperCase()}`;
-const FEE_CATEGORIES = new Set(['Processing Fee']);
-
-// ─── buildPrintHtml (unchanged from original) ─────────────────────────────────
+const INCOME_SIDES = new Set(['sales', 'tips', 'other', 'tax', 'held']);
+const refOf = (id: string) => String(id || '').slice(-6).toUpperCase();
 
 function buildPrintHtml(
   transactions: Transaction[],
   staff: Staff[],
-  summary: {
-    revenue: number; cogs: number; grossProfit: number; operatingExpenses: number; net: number;
-    processingFeesPaid: number; processingFeesCollected: number; netFeeImpact: number;
-    taxLiability: number;
-  },
+  summary: BooksSummary,
   dateRange: DateRange | undefined,
+  opts: { lookup?: any[]; shopName?: string } = {},
 ) {
-  const staffInfo = (id?: string) => {
-    const s = id ? staff.find((s: Staff) => s.id === id) : null;
-    return { name: s?.name || '—', avatar: (s as any)?.avatarUrl || '', initials: (s?.name || '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() };
+  const byId = lookupOf(opts.lookup, transactions as any[]);
+  const fmtD = (d: any, f: string) => { try { return format(new Date(d), f); } catch { return '—'; } };
+  const period = dateRange?.from && dateRange?.to ? `${format(dateRange.from, 'MMM d, yyyy')} – ${format(dateRange.to, 'MMM d, yyyy')}` : 'All dates';
+  const staffName = (id?: string) => (id ? staff.find((m: Staff) => m.id === id)?.name : '') || '';
+  const shown = (t: any) => {
+    const e = effectOf(t, byId);
+    const value = e.side === 'transfer' || e.side === 'skip' ? Math.abs(Number(t.amount) || 0) : INCOME_SIDES.has(e.side) ? e.amount : -e.amount;
+    return { e, value, pill: SIDE_LABEL[e.side] || SIDE_LABEL.skip };
   };
-  const staffName = (id?: string) => staffInfo(id).name;
-  const staffChip = (id?: string) => {
-    const { name, avatar, initials } = staffInfo(id);
-    if (name === '—') return '—';
-    const firstName = name.split(' ')[0];
-    const imgTag = avatar
-      ? `<img src="${avatar}" style="width:18px;height:18px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:4px;" />`
-      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:#e0e7ff;color:#3730a3;font-size:7px;font-weight:900;vertical-align:middle;margin-right:4px;">${initials}</span>`;
-    return `${imgTag}<span style="vertical-align:middle;font-size:10px;color:#374151;">${firstName}</span>`;
-  };
-  const fmtD = (d: any, s: string) => { try { return format(new Date(d), s); } catch { return '—'; } };
-  const periodLabel = dateRange?.from && dateRange?.to
-    ? `${format(dateRange.from, 'MMM d, yyyy')} – ${format(dateRange.to, 'MMM d, yyyy')}`
-    : 'All Dates';
+  const pillHtml = (p: { label: string; tone?: string }) => `<span class="pill ${p.tone || ''}">${p.label}</span>`;
 
-  const sessionMap = new Map<string, Transaction[]>();
-  const ungrouped: Transaction[] = [];
-  transactions.forEach(t => {
-    const sid = (t as any).checkoutSessionId;
-    if (sid) { if (!sessionMap.has(sid)) sessionMap.set(sid, []); sessionMap.get(sid)!.push(t); }
-    else ungrouped.push(t);
-  });
-
-  const sessions = Array.from(sessionMap.entries()).map(([sid, txns]) => {
-    const first    = txns[0];
-    const income   = txns.filter(t => t.type === 'income');
-    const expense  = txns.filter(t => t.type === 'expense');
-    const feeTxns       = expense.filter(t => FEE_CATEGORIES.has(t.category));
-    const realExpense    = expense.filter(t => !FEE_CATEGORIES.has(t.category));
-    const stripeFeeTotal = feeTxns.reduce((s, t) => s + t.amount, 0);
-    const tax      = income.find(t => t.category === 'Tax Collected')?.amount || 0;
-    const tips     = income.filter(t => t.category === 'Tips').reduce((s, t) => s + t.amount, 0);
-    const cardFeeCollected = income.filter(t => t.category === 'Card Processing Fee').reduce((s, t) => s + t.amount, 0);
-    const discounts= realExpense.filter(t => ['Discounts','Refunds'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
-    const subtotal = income.filter(t => !['Tax Collected','Tips','Card Processing Fee'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
-    const total    = income.reduce((s, t) => s + t.amount, 0) - realExpense.reduce((s, t) => s + t.amount, 0);
-    return { sid, refNum: sessionRefNum(sid), first, txns, subtotal, tax, tips, cardFeeCollected, discounts, total, stripeFeeTotal };
+  // Checkouts at the desk and online orders, each with its lines; everything else on its own.
+  const groups = new Map<string, any[]>(); const loose: any[] = [];
+  for (const t of transactions as any[]) {
+    const key = t.checkoutSessionId ? `cs:${t.checkoutSessionId}` : t.retailOrderId ? `ro:${t.retailOrderId}` : '';
+    if (key) { if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(t); } else loose.push(t);
+  }
+  const sessions = [...groups.entries()].map(([key, lines]) => {
+    const first = lines[0];
+    const sum = (side: string) => lines.reduce((a, t) => { const x = shown(t); return x.e.side === side ? a + x.value : a; }, 0);
+    const fees = sum('fees');
+    const total = lines.reduce((a, t) => { const x = shown(t); return x.e.side === 'fees' || x.e.side === 'transfer' || x.e.side === 'skip' ? a : a + x.value; }, 0);
+    return { key, first, lines, items: sum('sales'), tax: sum('tax'), tips: sum('tips'), off: sum('discounts') + sum('returns'), fees, total };
   }).sort((a, b) => new Date(b.first.date).getTime() - new Date(a.first.date).getTime());
 
-  const catMap = new Map<string, number>();
-  transactions.filter(t => t.type === 'income').forEach(t => catMap.set(t.category, (catMap.get(t.category) || 0) + t.amount));
-  const catTotals = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
+  const appendix: { n: number; ref: string; desc: string; when: string; who: string; url: string }[] = [];
+  const picOf = new Map<string, number>();
+  for (const t of [...sessions.flatMap((x) => x.lines), ...loose]) {
+    if (!t.receiptUrl || picOf.has(t.id)) continue;
+    picOf.set(t.id, appendix.length + 1);
+    appendix.push({ n: appendix.length + 1, ref: refOf(t.checkoutSessionId || t.retailOrderId || t.id), desc: String(t.description || ''), when: fmtD(t.date, 'MMM d, yyyy · h:mm a'), who: String(t.clientOrVendor || ''), url: String(t.receiptUrl) });
+  }
+  const picTag = (t: any) => (picOf.get(t.id) ? ` <span class="pill">Receipt ${picOf.get(t.id)}</span>` : '');
 
-  const expCatMap = new Map<string, number>();
-  transactions.filter(t => t.type === 'expense').forEach(t => expCatMap.set(t.category, (expCatMap.get(t.category) || 0) + t.amount));
-  const expCatTotals = Array.from(expCatMap.entries()).sort((a, b) => b[1] - a[1]);
-
-  type AppendixItem = { refNum: string; imgNum: number; desc: string; date: string; client: string; url?: string };
-  const appendix: AppendixItem[] = [];
-  const imgNumMap = new Map<string, number>();
-  let imgCounter = 1;
-
-  sessions.forEach(s => {
-    s.txns.filter(t => (t as any).receiptUrl).forEach(t => {
-      imgNumMap.set(t.id, imgCounter);
-      appendix.push({ refNum: s.refNum, imgNum: imgCounter, desc: t.description, date: fmtD(t.date, 'MMM d, yyyy · h:mm a'), client: s.first.clientOrVendor || 'Guest', url: (t as any).receiptUrl });
-      imgCounter++;
-    });
-  });
-  ungrouped.filter(t => (t as any).receiptUrl).forEach(t => {
-    imgNumMap.set(t.id, imgCounter);
-    appendix.push({ refNum: txnRefNum(t.id), imgNum: imgCounter, desc: t.description, date: fmtD(t.date, 'MMM d, yyyy · h:mm a'), client: t.clientOrVendor || 'Unknown', url: (t as any).receiptUrl });
-    imgCounter++;
-  });
-
-  const legendHtml = (() => {
-    const seen = new Set<string>();
-    return Object.entries(PRINT_CATEGORY_COLORS)
-      .filter(([, cs]) => { if (seen.has(cs.label)) return false; seen.add(cs.label); return true; })
-      .map(([, cs]) => `<span style="background:${cs.bg};color:${cs.text};padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">${cs.label}</span>`)
-      .join(' ');
-  })();
-
-  const sessionRows = sessions.map(s => {
-    const lineItems = s.txns.map(t => {
-      const cs = getCatStyle(t.category, (t as any).taxBucket);
-      const sn = staffName((t as any).staffId);
-      const amtColor = t.category === 'Tips' ? '#854d0e' : t.category === 'Tax Collected' ? '#374151' : t.type === 'reversal' ? '#64748b' : t.type === 'expense' ? '#991b1b' : '#166534';
-      const imgNum = imgNumMap.get(t.id);
-      const imgBadge = imgNum ? `<span style="background:#111;color:#fff;padding:1px 4px;border-radius:4px;font-size:7px;font-weight:900;font-family:monospace;margin-left:4px;">IMG-${imgNum}</span>` : '';
-      return `<tr style="border-bottom:1px dashed #f3f4f6;">
-        <td style="padding:5px 8px;font-size:10px;width:52%;">
-          <span style="background:${cs.bg};color:${cs.text};padding:1px 5px;border-radius:8px;font-size:8px;font-weight:700;margin-right:4px;">${cs.label}</span>
-          ${t.description}${sn !== '—' ? `<span style="color:#9ca3af;font-size:9px;"> · </span>${staffChip((t as any).staffId)}` : ''}${imgBadge}
-        </td>
-        <td style="padding:5px 8px;font-size:10px;color:#6b7280;">${fmtD(t.date, 'h:mm a')}</td>
-        <td style="padding:5px 8px;font-size:10px;text-align:right;font-family:monospace;font-weight:700;color:${amtColor};">${t.type === 'expense' ? '-' : ''}$${t.amount.toFixed(2)}</td>
-        <td style="padding:5px 8px;font-size:8px;color:#d1d5db;font-family:monospace;">${s.refNum}</td>
-      </tr>`;
+  const sessionHtml = sessions.map((x) => {
+    const lineRows = x.lines.map((t) => {
+      const v = shown(t); const who = staffName(t.staffId);
+      return `<tr><td>${pillHtml(v.pill)} ${esc(t.description || t.category || '')}${who ? ` <span class="muted">· ${esc(who.split(' ')[0])}</span>` : ''}${picTag(t)}</td>
+        <td class="muted nowrap">${fmtD(t.date, 'h:mm a')}</td><td class="r">${printMoney(v.value)}</td></tr>`;
     }).join('');
-    const totals = [
-      s.subtotal > 0 ? `Services <strong style="font-family:monospace">$${s.subtotal.toFixed(2)}</strong>` : '',
-      s.tax > 0 ? `Tax <strong style="font-family:monospace;color:#374151">$${s.tax.toFixed(2)}</strong>` : '',
-      s.tips > 0 ? `Tip <strong style="font-family:monospace;color:#854d0e">$${s.tips.toFixed(2)}</strong>` : '',
-      s.cardFeeCollected > 0 ? `Card Fee <strong style="font-family:monospace;color:#92400e">$${s.cardFeeCollected.toFixed(2)}</strong>` : '',
-      s.discounts > 0 ? `Discount <strong style="font-family:monospace;color:#9d174d">-$${s.discounts.toFixed(2)}</strong>` : '',
-      `<strong>Total <span style="font-family:monospace">$${s.total.toFixed(2)}</span></strong>`,
-    ].filter(Boolean).join(' &nbsp;·&nbsp; ');
-    const feeNote = s.stripeFeeTotal > 0
-      ? `<div style="padding:4px 14px 8px;font-size:9px;color:#9ca3af;font-style:italic;">Stripe processing fee on this sale: $${s.stripeFeeTotal.toFixed(2)} (studio cost — not part of guest total)</div>`
-      : '';
-    return `<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
-      <div style="background:#f8fafc;padding:10px 14px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;">
-        <div>
-          <div style="font-weight:900;font-size:12px;text-transform:uppercase;">${s.first.clientOrVendor || 'Guest'}</div>
-          <div style="font-size:10px;color:#6b7280;">${fmtD(s.first.date, 'MMM d, yyyy · h:mm a')} · ${s.first.paymentMethod}</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-weight:900;font-size:15px;font-family:monospace;">$${s.total.toFixed(2)}</div>
-          <div style="font-size:9px;color:#9ca3af;font-family:monospace;font-weight:700;">${s.refNum}</div>
-        </div>
+    const parts = [
+      x.items ? `Items ${printMoney(x.items)}` : '', x.tax ? `Tax ${printMoney(x.tax)}` : '', x.tips ? `Tip ${printMoney(x.tips)}` : '',
+      x.off ? `Off ${printMoney(x.off)}` : '', `<b>Total ${printMoney(x.total)}</b>`,
+    ].filter(Boolean).join(' · ');
+    return `<div class="box keep" style="margin-bottom:12px;padding:0;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 14px;background:#f5f5f7">
+        <div><b>${esc(x.first.clientOrVendor || 'Guest')}</b><div class="muted">${fmtD(x.first.date, 'MMM d, yyyy · h:mm a')} · ${esc(x.first.paymentMethod || '')}</div></div>
+        <div class="r"><b>${printMoney(x.total)}</b><div class="faint">${x.key.startsWith('ro:') ? 'Online order' : 'Checkout'} ${refOf(x.key.slice(3))}</div></div>
       </div>
-      <table style="width:100%;border-collapse:collapse;"><tbody>${lineItems}</tbody></table>
-      <div style="padding:8px 14px;background:#f8fafc;border-top:1px solid #e5e7eb;font-size:11px;color:#6b7280;">${totals}</div>
-      ${feeNote}
+      <table><tbody>${lineRows}</tbody></table>
+      <div class="muted" style="padding:8px 14px">${parts}${x.fees ? ` <span class="faint">· Card fee ${printMoney(-x.fees)} (the shop’s cost, not the client’s)</span>` : ''}</div>
     </div>`;
   }).join('');
 
-  const ungroupedRows = ungrouped.map((t, i) => {
-    const cs = getCatStyle(t.category, (t as any).taxBucket);
-    // v59 — reversals previously rendered as red "-" expenses; they're
-    // audit-trail entries, so render slate with no sign.
-    const amtColor = t.type === 'income' ? '#166534' : t.type === 'reversal' ? '#64748b' : '#991b1b';
-    const amtPrefix = t.type === 'income' ? '+' : t.type === 'reversal' ? '' : '-';
-    const uImgNum = imgNumMap.get(t.id);
-    const uImgBadge = uImgNum ? ` <span style="background:#111;color:#fff;padding:1px 4px;border-radius:4px;font-size:7px;font-weight:900;font-family:monospace;">IMG-${uImgNum}</span>` : '';
-    return `<tr style="border-bottom:1px solid #f3f4f6;background:${i % 2 === 0 ? '#fff' : '#fafafa'};">
-      <td style="padding:6px 8px;font-size:10px;font-family:monospace;color:#9ca3af;">${txnRefNum(t.id)}</td>
-      <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${fmtD(t.date, 'MMM d, h:mm a')}</td>
-      <td style="padding:6px 8px;font-size:11px;"><div style="font-weight:600;">${t.description}${uImgBadge}</div><div style="font-size:9px;color:#9ca3af;">${t.clientOrVendor}</div></td>
-      <td style="padding:6px 8px;"><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700;">${cs.label}</span></td>
-      <td style="padding:6px 8px;font-size:10px;">${staffChip((t as any).staffId)}</td>
-      <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${t.paymentMethod}</td>
-      <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700;color:${amtColor};">${amtPrefix}$${t.amount.toFixed(2)}</td>
-    </tr>`;
+  const looseHtml = loose.map((t) => {
+    const v = shown(t);
+    return `<tr><td class="faint">${refOf(t.id)}</td><td class="muted nowrap">${fmtD(t.date, 'MMM d, h:mm a')}</td>
+      <td>${esc(t.description || '')}${picTag(t)}<div class="muted">${esc(t.clientOrVendor || '')}</div></td>
+      <td>${pillHtml(v.pill)} <span class="muted">${esc(t.category || '')}</span></td><td class="muted">${esc(staffName(t.staffId))}</td>
+      <td class="muted">${esc(t.paymentMethod || '')}</td><td class="r">${printMoney(v.value)}</td></tr>`;
   }).join('');
 
-  const appendixHtml = appendix.length > 0 ? `
-    <div style="page-break-before:always;margin-top:40px;">
-      <h2>Appendix A — Receipt Documentation (${appendix.length} attachments)</h2>
-      <p style="font-size:10px;color:#6b7280;margin-bottom:16px;">Images numbered IMG-1 through IMG-${appendix.length}.</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        ${appendix.map(item => `
-          <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
-            <div style="background:#111;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <div style="color:#fff;font-size:14px;font-weight:900;font-family:monospace;">IMG-${item.imgNum}</div>
-                <div style="color:#9ca3af;font-size:9px;font-family:monospace;">${item.refNum}</div>
-              </div>
-              <div style="text-align:right;">
-                <div style="color:#e5e7eb;font-size:11px;font-weight:600;">${item.desc}</div>
-                <div style="color:#6b7280;font-size:9px;">${item.client} · ${item.date}</div>
-              </div>
-            </div>
-            ${item.url
-              ? `<div style="padding:8px;background:#fff;"><img src="${item.url}" alt="Receipt IMG-${item.imgNum}" style="width:100%;max-height:280px;object-fit:contain;display:block;" /></div>`
-              : `<div style="padding:24px;text-align:center;color:#d1d5db;font-size:10px;font-weight:700;">POS receipt — view in ClarityFlow</div>`}
-          </div>`).join('')}
-      </div>
-    </div>` : '';
+  const cats = (list: [string, number][], none: string) => list.length ? list.map(([c, a]) => printLine(esc(c), a, 'sub')).join('') : `<p class="faint">${none}</p>`;
+  const body = `
+  <div class="grid2">
+    <div class="box">
+      <h3 style="margin-top:0">Summary</h3>
+      ${printLine('Sales', summary.sales)}
+      ${summary.returns ? printLine('Returns and refunds', -summary.returns, 'sub') : ''}
+      ${summary.discounts ? printLine('Discounts and deposits used', -summary.discounts, 'sub') : ''}
+      ${printLine('Net sales', summary.netSales, 'total')}
+      ${summary.tips ? printLine('Tips for the team', summary.tips) : ''}
+      ${summary.otherIncome ? printLine('Other income', summary.otherIncome) : ''}
+      ${printLine('Cost of goods', -summary.cogs)}
+      ${printLine('Card fees', -summary.netFees)}
+      ${printLine('Other expenses', -summary.operatingExpenses)}
+      ${printLine('Net income', summary.net, 'total', summary.net >= 0 ? 'ok' : 'bad')}
+    </div>
+    <div class="box">
+      <h3 style="margin-top:0">Held, not income</h3>
+      ${printLine('Sales tax collected', summary.taxCollected)}
+      ${summary.taxRefunded ? printLine('Given back on refunds and voids', -summary.taxRefunded, 'sub') : ''}
+      ${printLine('Sales tax owed', summary.taxOwed, 'total')}
+      ${summary.giftCardsSold ? printLine('Gift cards sold', summary.giftCardsSold) : ''}
+      ${summary.heldForRenters ? printLine('Taken for booth renters', summary.heldForRenters) : ''}
+      <h3>Card fees</h3>
+      ${printLine('Passed on to clients', summary.feesPassedOn)}
+      ${printLine('Paid to Stripe', -summary.feesPaid)}
+      ${summary.feesBack ? printLine('Returned by Stripe', summary.feesBack, 'sub') : ''}
+      ${printLine('Card fees, net', summary.feesPassedOn - summary.netFees, 'total')}
+    </div>
+  </div>
+  <div class="grid2" style="margin-top:12px">
+    <div class="box"><h3 style="margin-top:0">Sales by category</h3>${cats(summary.byCategory.sales, 'No sales this period.')}</div>
+    <div class="box"><h3 style="margin-top:0">Expenses by category</h3>${cats([...summary.byCategory.cogs, ...summary.byCategory.opex].sort((a, b) => b[1] - a[1]), 'No expenses this period.')}</div>
+  </div>
+  ${sessions.length ? `<h2>Checkouts and online orders · ${sessions.length}</h2>${sessionHtml}` : ''}
+  ${loose.length ? `<h2>Other entries · ${loose.length}</h2>
+  <table><thead><tr><th>Ref</th><th>Date</th><th>Description</th><th>In the books</th><th>Team</th><th>Paid by</th><th class="r">Amount</th></tr></thead><tbody>${looseHtml}</tbody></table>` : ''}
+  ${appendix.length ? `<div class="break"></div><h2>Receipts · ${appendix.length}</h2>
+  <div class="grid2">${appendix.map((a) => `<div class="box keep"><div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:8px"><b>Receipt ${a.n}</b><span class="muted r">${esc(a.desc)}<br>${esc(a.who)} · ${a.when}</span></div>
+    <img src="${esc(a.url)}" alt="Receipt ${a.n}" style="width:100%;max-height:280px;object-fit:contain;display:block;border-radius:10px" /></div>`).join('')}</div>` : ''}`;
 
-  return `<!DOCTYPE html><html><head><title>Studio Ledger Report</title>
-  <style>
-    * { box-sizing:border-box; margin:0; padding:0; }
-    body { font-family:-apple-system,sans-serif; color:#111; padding:32px; }
-    h1 { font-size:26px; font-weight:900; text-transform:uppercase; letter-spacing:-0.03em; }
-    h2 { font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; margin:28px 0 10px; border-bottom:2px solid #111; padding-bottom:6px; }
-    table { width:100%; border-collapse:collapse; }
-    th { background:#f8fafc; text-align:left; padding:7px 8px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; color:#6b7280; border-bottom:2px solid #e5e7eb; }
-    @media print { @page { size:A4; margin:0.65in; } body { padding:0; } .no-print { display:none; } }
-  </style></head><body>
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:20px;border-bottom:3px solid #111;">
-    <div>
-      <h1>Studio Financial Report</h1>
-      <div style="font-size:12px;color:#6b7280;font-weight:600;margin-top:4px;">Period: ${periodLabel}</div>
-      <div style="font-size:10px;color:#9ca3af;margin-top:2px;">Generated ${format(new Date(), 'MMMM d, yyyy · h:mm a')}</div>
-    </div>
-    <div style="text-align:right;font-size:10px;color:#9ca3af;">
-      <div style="font-weight:700;">ClarityFlow</div><div>Studio Management</div><div style="margin-top:4px;">Confidential</div>
-    </div>
-  </div>
-  <div style="margin-bottom:20px;padding:12px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-    <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;color:#374151;">Color Key</div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;">${legendHtml}</div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
-    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Financial Summary</div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Gross Revenue</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${(summary.revenue + summary.taxLiability).toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#94a3b8;">Tax Liability (held)</span><span style="font-family:monospace;color:#64748b;">-$${summary.taxLiability.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Net Revenue</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${summary.revenue.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">COGS</span><span style="font-family:monospace;color:#991b1b;">-$${summary.cogs.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:6px 0 3px;font-size:12px;font-weight:700;border-bottom:1px solid #f3f4f6;"><span>Gross Profit</span><span style="font-family:monospace;">$${summary.grossProfit.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#7c3aed;">Card Fees Paid</span><span style="font-family:monospace;color:#991b1b;">-$${summary.processingFeesPaid.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Other Op. Expenses</span><span style="font-family:monospace;color:#991b1b;">-$${summary.operatingExpenses.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:900;border-top:2px solid #111;margin-top:4px;"><span>Net Income</span><span style="font-family:monospace;color:${summary.net >= 0 ? '#166534' : '#991b1b'};">$${summary.net.toFixed(2)}</span></div>
-    </div>
-    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Card Processing — Write-Off Summary</div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Collected from Clients</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${summary.processingFeesCollected.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Paid to Stripe</span><span style="font-family:monospace;color:#991b1b;">-$${summary.processingFeesPaid.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:900;border-top:2px solid #111;margin-top:4px;"><span>Net Fee Cost</span><span style="font-family:monospace;color:${summary.netFeeImpact >= 0 ? '#166534' : '#991b1b'};">${summary.netFeeImpact >= 0 ? '+' : ''}$${summary.netFeeImpact.toFixed(2)}</span></div>
-      <p style="font-size:9px;color:#9ca3af;margin-top:10px;line-height:1.5;">Both figures should be reported to your accountant individually.</p>
-    </div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;">
-    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Revenue by Category</div>
-      ${catTotals.map(([cat, amt]) => { const cs = getCatStyle(cat); return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid #f9fafb;"><span><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:8px;font-weight:700;">${cs.label}</span></span><span style="font-family:monospace;color:#166534;font-weight:600;">$${amt.toFixed(2)}</span></div>`; }).join('')}
-    </div>
-    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Expenses by Category</div>
-      ${expCatTotals.length > 0
-        ? expCatTotals.map(([cat, amt]) => { const cs = getCatStyle(cat); return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid #f9fafb;"><span><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:8px;font-weight:700;">${cs.label}</span></span><span style="font-family:monospace;color:#991b1b;font-weight:600;">$${amt.toFixed(2)}</span></div>`; }).join('')
-        : `<p style="font-size:10px;color:#9ca3af;">No expenses this period.</p>`}
-    </div>
-  </div>
-  ${sessions.length > 0 ? `<h2>Checkout Sessions (${sessions.length})</h2>${sessionRows}` : ''}
-  ${ungrouped.length > 0 ? `
-  <h2>Manual & Other Entries (${ungrouped.length})</h2>
-  <table><thead><tr><th>Ref #</th><th>Date</th><th>Description</th><th>Category</th><th>Staff</th><th>Method</th><th style="text-align:right;">Amount</th></tr></thead>
-  <tbody>${ungroupedRows}</tbody></table>` : ''}
-  ${appendixHtml}
-  <div style="margin-top:40px;border-top:2px solid #111;padding-top:16px;display:flex;justify-content:space-between;font-size:9px;color:#9ca3af;">
-    <div><div style="font-weight:700;">ClarityFlow Studio Management</div><div>Confidential — Not for Distribution</div></div>
-    <div style="text-align:right;"><div>${periodLabel}</div><div>Generated ${format(new Date(), 'MMMM d, yyyy · h:mm a')}</div><div>${transactions.length} records · ${sessions.length} sessions</div></div>
-  </div>
-  </body></html>`;
+  return printPage({
+    title: 'Ledger report', heading: 'Ledger <b>report</b>', subtitle: period, shopName: opts.shopName, body,
+    footNote: `${transactions.length} entries · ${sessions.length} checkouts and orders. Sales tax and gift cards sold are held, not income.`,
+    footRight: period,
+  });
 }
 
 // ─── ReceiptPreviewDialog (unchanged) ─────────────────────────────────────────
@@ -935,27 +767,36 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
         <div className="p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Period Performance</p>
           <div className="space-y-2 text-xs">
-            {[
-              ['Gross Revenue', financialSummary.revenue + financialSummary.taxLiability, 'text-green-600'],
-              ['Tax Liability', -financialSummary.taxLiability, 'text-muted-foreground'],
-              ['Net Revenue', financialSummary.revenue, 'text-green-600'],
-              ['COGS', -financialSummary.cogs, 'text-destructive'],
-              ['Gross Profit', financialSummary.grossProfit, 'text-foreground'],
-              ['Card Fees Paid', -financialSummary.processingFeesPaid, 'text-purple-700'],
-              ['Op. Expenses', -financialSummary.operatingExpenses, 'text-destructive'],
-            ].map(([label, val, cls]) => (
-              <div key={label as string} className="flex justify-between font-bold">
-                <span className={label === 'Tax Liability' ? 'text-muted-foreground italic text-[10px]' : ''}>{label as string}</span>
-                <span className={cn('font-mono', cls as string)}>
-                  {(val as number) < 0 ? '-' : ''}${Math.abs(val as number).toFixed(2)}
-                  {label === 'Tax Liability' && <span className="text-[8px] ml-1 opacity-50">(held)</span>}
-                </span>
+            {([
+              ['Sales', financialSummary.sales, 'text-green-600'],
+              ['Returns', -financialSummary.returns, 'text-destructive'],
+              ['Discounts & deposits used', -financialSummary.discounts, 'text-muted-foreground'],
+              ['Net sales', financialSummary.netSales, 'text-green-600'],
+              ['Tips for the team', financialSummary.tips, 'text-foreground'],
+              ...(financialSummary.otherIncome ? [['Other income', financialSummary.otherIncome, 'text-green-600']] : []),
+              ['Cost of goods', -financialSummary.cogs, 'text-destructive'],
+              ['Card fees', -financialSummary.netFees, 'text-purple-700'],
+              ['Other expenses', -financialSummary.operatingExpenses, 'text-destructive'],
+            ] as [string, number, string][]).map(([label, val, cls]) => (
+              <div key={label} className={cn('flex justify-between font-bold', label === 'Net sales' && 'border-t pt-2')}>
+                <span>{label}</span>
+                <span className={cn('font-mono', cls)}>{val < 0 ? '-' : ''}${Math.abs(val).toFixed(2)}</span>
+              </div>
+            ))}
+            {([
+              ['Sales tax held', financialSummary.taxOwed],
+              ...(financialSummary.giftCardsSold ? [['Gift cards sold', financialSummary.giftCardsSold]] : []),
+              ...(financialSummary.heldForRenters ? [['Taken for renters', financialSummary.heldForRenters]] : []),
+            ] as [string, number][]).map(([label, val]) => (
+              <div key={label} className="flex justify-between text-[10px] text-muted-foreground italic">
+                <span>{label}</span>
+                <span className="font-mono">{val < 0 ? '-' : ''}${Math.abs(val).toFixed(2)}<span className="text-[8px] ml-1 opacity-50">(held)</span></span>
               </div>
             ))}
             <div className="flex justify-between border-t-4 border-primary/20 pt-3 mt-3">
               <span className="font-black uppercase text-[11px] text-primary">Net Income</span>
               <span className={cn('font-black text-xl tracking-tighter font-mono', financialSummary.net >= 0 ? 'text-primary' : 'text-destructive')}>
-                ${financialSummary.net.toFixed(2)}
+                {financialSummary.net < 0 ? '-' : ''}${Math.abs(financialSummary.net).toFixed(2)}
               </span>
             </div>
           </div>
@@ -975,7 +816,12 @@ const TxnActions = ({ transaction, onRevertClick, onPreviewReceipt, onRefundClic
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
-      {transaction.type === 'income' && (
+      {transaction.type === 'income' && (transaction as any).retailOrderId && (
+        <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); window.location.href = `/retail-orders?order=${encodeURIComponent(String((transaction as any).retailOrderId))}`; }} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
+          <Undo2 className="w-3.5 h-3.5 mr-2" /> Refund on the order
+        </DropdownMenuItem>
+      )}
+      {transaction.type === 'income' && !(transaction as any).retailOrderId && (
         <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onRefundClick(transaction); }} className="font-bold uppercase text-[10px] tracking-widest text-destructive rounded-xl h-10 px-3">
           <Undo2 className="w-3.5 h-3.5 mr-2" /> Protocol Refund
         </DropdownMenuItem>
@@ -1137,44 +983,19 @@ const LedgerTab = () => {
     }).sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [transactions, date, searchTerm, contextFilter, categoryFilter]);
 
-  // ── Financial summary — Tax Collected is now a liability, not revenue ──────
+  // ── Financial summary: one reading of the ledger (lib/books-summary), shared with the printed reports. Sales less
+  // returns and discounts; tips beside them (the team's pay includes them); sales tax and gift cards held, never income.
+  // Reversals and voids find the line they undo across the whole ledger, not just this period.
+  const ledgerById = useMemo(() => lookupOf(transactions || []), [transactions]);
   const financialSummary = useMemo(() => {
-    const cogs_cats = ['spoilage', 'supplies', 'cost of goods', 'comp'];
-
-    // Tax collected is held on behalf of the government — not studio income
-    const taxLiability = filteredTransactions
-      .filter(t => t.type === 'income' && t.category === 'Tax Collected')
-      .reduce((s, t) => s + t.amount, 0);
-
-    const revenue = filteredTransactions
-      .filter(t => t.type === 'income' && t.category !== 'Tax Collected')
-      .reduce((s, t) => s + t.amount, 0);
-
-    const cogs = filteredTransactions
-      .filter(t => t.type === 'expense' && cogs_cats.some(c => t.category.toLowerCase().includes(c)))
-      .reduce((s, t) => s + t.amount, 0);
-
-    const processingFeesPaid = filteredTransactions
-      .filter(t => t.type === 'expense' && t.category === 'Processing Fee')
-      .reduce((s, t) => s + t.amount, 0);
-
-    const processingFeesCollected = filteredTransactions
-      .filter(t => t.type === 'income' && t.category === 'Card Processing Fee')
-      .reduce((s, t) => s + t.amount, 0);
-
-    const operatingExpenses = filteredTransactions
-      .filter(t => t.type === 'expense' && !cogs_cats.some(c => t.category.toLowerCase().includes(c)) && t.category !== 'Processing Fee')
-      .reduce((s, t) => s + t.amount, 0);
-
-    const grossProfit = revenue - cogs;
-    const net = grossProfit - processingFeesPaid - operatingExpenses;
-
+    const b = booksSummary(filteredTransactions, { lookup: transactions || [] });
     return {
-      revenue, cogs, grossProfit, operatingExpenses, net, taxLiability,
-      processingFeesPaid, processingFeesCollected,
-      netFeeImpact: processingFeesCollected - processingFeesPaid,
+      ...b,
+      // The names the print report and the cards below read.
+      revenue: b.netSales, taxLiability: b.taxOwed,
+      processingFeesPaid: b.netFees, processingFeesCollected: b.feesPassedOn, netFeeImpact: b.feesPassedOn - b.netFees,
     };
-  }, [filteredTransactions]);
+  }, [filteredTransactions, transactions]);
 
   // ── Daily revenue sparkline data ──────────────────────────────────────────
   const dailyRevenueData = useMemo(() => {
@@ -1183,43 +1004,45 @@ const LedgerTab = () => {
     if (days.length > 60) return []; // too many days — skip sparkline
     return days.map(day =>
       filteredTransactions
-        .filter(t => t.type === 'income' && t.category !== 'Tax Collected' && isSameDay(safeDate(t.date), day))
-        .reduce((s, t) => s + t.amount, 0)
+        .filter(t => isSameDay(safeDate(t.date), day))
+        .reduce((s, t) => s + netSalesOf(t, ledgerById), 0)
     );
-  }, [filteredTransactions, date]);
+  }, [filteredTransactions, date, ledgerById]);
 
   // ── KPI stats ─────────────────────────────────────────────────────────────
   const kpiStats = useMemo(() => {
-    const txnCount = filteredTransactions.filter(t => t.type === 'income').length;
-    const avgTicket = txnCount > 0 ? financialSummary.revenue / txnCount : 0;
-    const totalTips = filteredTransactions.filter(t => t.category === 'Tips').reduce((s, t) => s + t.amount, 0);
-    const refundTotal = filteredTransactions.filter(t => t.type === 'reversal' || t.category === 'Refunds').reduce((s, t) => s + t.amount, 0);
-    const margin = financialSummary.revenue > 0 ? (financialSummary.net / financialSummary.revenue) * 100 : 0;
+    const txnCount = financialSummary.salesCount;
+    const avgTicket = txnCount > 0 ? financialSummary.netSales / txnCount : 0;
+    const totalTips = financialSummary.tips;
+    const refundTotal = financialSummary.returns;
+    const margin = financialSummary.netSales > 0 ? (financialSummary.net / financialSummary.netSales) * 100 : 0;
     return { txnCount, avgTicket, totalTips, refundTotal, margin };
   }, [filteredTransactions, financialSummary]);
 
   const openPrintWindow = useCallback((html: string) => {
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) { toast({ variant: 'destructive', title: 'Pop-up blocked', description: 'Allow pop-ups for this site to print.' }); return; }
+    // The document opens its own print dialog once its font and pictures have loaded (lib/print-style).
     win.document.write(html);
     win.document.close();
-    setTimeout(() => { win.focus(); win.print(); }, 400);
+    win.focus();
   }, [toast]);
 
   const handlePrint = useCallback(() => {
-    openPrintWindow(buildPrintHtml(filteredTransactions, staff || [], financialSummary, date));
-  }, [filteredTransactions, staff, financialSummary, date, openPrintWindow]);
+    openPrintWindow(buildPrintHtml(filteredTransactions, staff || [], financialSummary, date, { lookup: transactions || [], shopName: String((selectedTenant as any)?.name || '') || undefined }));
+  }, [filteredTransactions, transactions, staff, financialSummary, date, openPrintWindow, selectedTenant]);
 
   // v63 — the Reports menu: P&L, Schedule C tax summary, payroll register,
   // and the printable audit trail, all over the currently filtered period.
   const openReport = useCallback(async (kind: 'pnl' | 'tax' | 'payroll' | 'audit') => {
     let html = '';
-    if (kind === 'pnl') html = buildPnlHtml(filteredTransactions, date);
-    if (kind === 'tax') html = buildTaxSummaryHtml(filteredTransactions, date);
+    const reportOpts = { lookup: transactions || [], shopName: String((selectedTenant as any)?.name || '') || undefined };
+    if (kind === 'pnl') html = buildPnlHtml(filteredTransactions, date, 'USD', reportOpts);
+    if (kind === 'tax') html = buildTaxSummaryHtml(filteredTransactions, date, 'USD', reportOpts);
     if (kind === 'payroll') {
       const tState = (selectedTenant as any)?.taxState || null;
       const profile = tState ? getStateProfile(tState) : GENERIC_US_PROFILE;
-      html = buildPayrollRegisterHtml(filteredTransactions, staff || [], profile, date, !!tState);
+      html = buildPayrollRegisterHtml(filteredTransactions, staff || [], profile, date, !!tState, 'USD', reportOpts);
     }
     if (kind === 'audit') {
       if (!firestore || !tenantId) return;
@@ -1234,10 +1057,10 @@ const LedgerTab = () => {
         if (date?.to && t > endOfDay(date.to).getTime()) return false;
         return true;
       });
-      html = buildAuditTrailHtml(entries, date);
+      html = buildAuditTrailHtml(entries, date, 'USD', reportOpts);
     }
     if (html) openPrintWindow(html);
-  }, [filteredTransactions, date, staff, selectedTenant, firestore, tenantId, openPrintWindow]);
+  }, [filteredTransactions, transactions, date, staff, selectedTenant, firestore, tenantId, openPrintWindow]);
 
   const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
     if (!firestore || !tenantId) return;
@@ -1256,7 +1079,7 @@ const LedgerTab = () => {
     const t = target || transactionToRevert;
     if (!t || !firestore || !tenantId) return;
     if (t.type === 'reversal') { toast({ variant: 'destructive', title: 'Cannot revert a reversal.' }); setTransactionToRevert(null); return; }
-    handleAddTransaction({ ...t, date: new Date().toISOString(), description: `Reversal of: ${t.description}`, type: 'reversal', reversalOf: t.id });
+    handleAddTransaction({ ...t, date: new Date().toISOString(), description: `Reversal of: ${t.description}`, type: 'reversal', reversalOf: t.id, reversedType: t.type } as any);
     writeAudit(firestore, tenantId, {
       action: 'transaction.revert', targetType: 'transaction', targetId: t.id,
       summary: `Reverted: ${t.description}`, amount: t.amount, actor: auditActor,
@@ -1272,6 +1095,7 @@ const LedgerTab = () => {
     const isCash = transactionToRefund.paymentMethod?.toLowerCase() === 'cash';
     if ((transactionToRefund as any).refundedAt || (transactionToRefund as any).voided) { toast({ variant: 'destructive', title: 'Already refunded', description: 'This sale was already refunded or voided.' }); return; }
     if ((transactionToRefund as any).refundPendingId) { toast({ variant: 'destructive', title: 'Refund already set up', description: 'This sale has a refund on Refunds to give.' }); return; }
+    if ((transactionToRefund as any).retailOrderId) { toast({ title: 'Refund it on the order', description: 'Online orders are refunded from the order, so the items, the sales tax and the customer’s email all follow.' }); window.location.href = `/retail-orders?order=${encodeURIComponent(String((transactionToRefund as any).retailOrderId))}`; return; }
     if (data.later) {   // not here: they choose how (Refunds to give); the books change when the money actually goes
       const t0: any = transactionToRefund; const total = data.amount + (data.refundTip ? (t0.tipAmount || 0) : 0);
       const pr = data.takeBack ? reversalsFor(t0, data.amount, staff || [], services || []) : [];
@@ -1293,9 +1117,13 @@ const LedgerTab = () => {
         if (r.card) { toCard = { card: true, cents: r.refundedCents }; if (r.shortCents > 0) refundTotal = Math.round(r.refundedCents) / 100; }
       } catch { toast({ variant: 'destructive', title: 'Card refund didn’t go through', description: 'Nothing was changed. Try again.' }); return; }
     }
-    const batch = writeBatch(firestore);
+    // Written once, in one step that first checks the sale isn't refunded already: a double tap or a retry can't record
+    // the refund twice or take it out of the till twice. The refund line is named after the sale.
     const now = new Date().toISOString();
-    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+    const saleRef = doc(firestore, `tenants/${tenantId}/transactions`, transactionToRefund.id);
+    const txnRef = doc(firestore, `tenants/${tenantId}/transactions`, `refund_${transactionToRefund.id}`);
+    const writes: ((b: any) => void)[] = [];
+    const batch = { set: (r: any, v: any) => writes.push((b) => b.set(r, v)), update: (r: any, v: any) => writes.push((b) => b.update(r, v)) };
     batch.set(txnRef, { id: txnRef.id, date: now, description: `Refund for: ${transactionToRefund.description}`, clientOrVendor: transactionToRefund.clientOrVendor, clientId: transactionToRefund.clientId, type: 'reversal', context: transactionToRefund.context, category: 'Refunds', amount: refundTotal, paymentMethod: transactionToRefund.paymentMethod, reversalOf: transactionToRefund.id, appointmentId: transactionToRefund.appointmentId || null, hasReceipt: false, notes: `Refund Reason: ${data.reason}`, ...(toCard.card ? { refundedToCard: true } : {}), ...(data.refundTip && (transactionToRefund.tipAmount || 0) > 0 && data.tipStrategy !== 'absorb' && transactionToRefund.staffId ? { tipReversal: { staffId: transactionToRefund.staffId, amount: Number(transactionToRefund.tipAmount) || 0 } } : {}), ...(data.takeBack ? (() => { const r = reversalsFor(transactionToRefund, data.amount, staff || [], services || []); return r.length ? { payReversals: r, staffId: transactionToRefund.staffId } : {}; })() : {}) });
     if (isCash && activeTill) {
       const updates: any = { expectedCash: increment(-refundTotal), totalCashRefunds: increment(refundTotal) };
@@ -1307,9 +1135,13 @@ const LedgerTab = () => {
       const incident: Incident = { id: incidentId, date: now, type: 'Refund Incident', severity: 'Moderate', description: `Auto-incident filed during refund. Original: ${transactionToRefund.id}. Reason: ${data.reason}`, actionsTaken: `Reversed: $${refundTotal.toFixed(2)} via ${transactionToRefund.paymentMethod}.` };
       batch.update(doc(firestore, `tenants/${tenantId}/clients`, transactionToRefund.clientId), { 'intel.incidents': arrayUnion(incident), 'intel.hasIncidents': true });
     }
-    batch.update(doc(firestore, `tenants/${tenantId}/transactions`, transactionToRefund.id), { refundedAt: now, refundTransactionId: txnRef.id });
+    batch.update(saleRef, { refundedAt: now, refundTransactionId: txnRef.id });
     try {
-      await batch.commit();
+      await runTransaction(firestore, async (tx) => {
+        const cur: any = (await tx.get(saleRef)).data() || {};
+        if (cur.refundedAt || cur.voided) throw Object.assign(new Error('already'), { code: 'already' });
+        for (const w of writes) w(tx);
+      });
       toast({ title: 'Refund Authorized', description: toCard.card ? `$${refundTotal.toFixed(2)} sent back to the card. It shows on their statement in 5–10 days.` : `$${refundTotal.toFixed(2)} reversed.` });
       // Refunds are PIN-authorized — credit the authorizing manager by name.
       const authorizer = (staff || []).find(s => s.id === data.authorizerId);
@@ -1323,7 +1155,10 @@ const LedgerTab = () => {
       });
       setTransactionToRefund(null);
     }
-    catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Process Error' }); }
+    catch (e: any) {
+      if (e?.code === 'already') { toast({ title: 'Already refunded', description: 'This refund was already recorded.' }); setTransactionToRefund(null); return; }
+      console.error(e); toast({ variant: 'destructive', title: 'The refund wasn’t recorded', description: toCard.card ? 'The card was refunded. Try again to record it: it won’t refund the card twice.' : 'Nothing was changed. Try again.' });
+    }
   };
 
   const sharedRowProps = (transaction: Transaction) => ({
@@ -1385,8 +1220,8 @@ const LedgerTab = () => {
 
         <div className="flex md:grid md:grid-cols-4 gap-3 md:gap-4 mb-5 md:mb-8 overflow-x-auto md:overflow-visible snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0 [&>*]:min-w-[190px] [&>*]:snap-start [&>*]:shrink-0 md:[&>*]:min-w-0 md:[&>*]:shrink">
           <StatCard
-            label="Net Revenue"
-            value={fmtCurrency(financialSummary.revenue)}
+            label="Net Sales"
+            value={fmtCurrency(financialSummary.netSales)}
             icon={TrendingUp}
             accent="bg-green-100 text-green-700"
             sparkData={dailyRevenueData}
@@ -1406,14 +1241,14 @@ const LedgerTab = () => {
             value={fmtCurrency(kpiStats.avgTicket)}
             icon={Receipt}
             accent="bg-indigo-100 text-indigo-700"
-            sub={`${kpiStats.txnCount} income entries`}
+            sub={`${kpiStats.txnCount} ${kpiStats.txnCount === 1 ? 'sale' : 'sales'}`}
           />
           <StatCard
-            label="Tax Liability"
-            value={fmtCurrency(financialSummary.taxLiability)}
+            label="Sales Tax Owed"
+            value={fmtCurrency(financialSummary.taxOwed)}
             icon={AlertCircle}
             accent="bg-muted text-muted-foreground"
-            sub="Held — not your income"
+            sub={financialSummary.taxRefunded > 0 ? `Held for the state · ${fmtCurrency(financialSummary.taxRefunded)} given back` : 'Held for the state, not income'}
           />
         </div>
         <OwedToClients tenantId={tenantId} />
@@ -2667,24 +2502,23 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
     return d >= range.from && d <= range.to;
   }), [transactions, range]);
 
+  // The same reading of the ledger as the Ledger tab and the printed reports (lib/books-summary). Money in is what the
+  // shop earned (net sales, the team's tips, other income); money out is what it cost; tax and gift cards are held.
+  const periodById = useMemo(() => lookupOf(transactions), [transactions]);
   const summary = useMemo(() => {
-    const taxLiability = periodTxns.filter((t: any) => t.type === 'income' && t.category === 'Tax Collected').reduce((s: number, t: any) => s + t.amount, 0);
-    const revenue      = periodTxns.filter((t: any) => t.type === 'income' && t.category !== 'Tax Collected').reduce((s: number, t: any) => s + t.amount, 0);
-    const expenses     = periodTxns.filter((t: any) => t.type === 'expense' || t.type === 'payment').reduce((s: number, t: any) => s + t.amount, 0);
-    const tips         = periodTxns.filter((t: any) => t.category === 'Tips').reduce((s: number, t: any) => s + t.amount, 0);
-    const net = revenue - expenses;
-    return { revenue, expenses, net, taxLiability, tips };
-  }, [periodTxns]);
+    const b = booksSummary(periodTxns, { lookup: transactions });
+    return { revenue: b.income, expenses: b.cogs + b.netFees + b.operatingExpenses, net: b.net, taxLiability: b.taxOwed, tips: b.tips };
+  }, [periodTxns, transactions]);
 
   const dailyRevenueData = useMemo(() => {
     const days = eachDayOfInterval({ start: range.from, end: range.to });
     if (days.length > 60) return [];
     return days.map(day =>
       periodTxns
-        .filter((t: any) => t.type === 'income' && t.category !== 'Tax Collected' && isSameDay(safeDate(t.date), day))
-        .reduce((s: number, t: any) => s + t.amount, 0)
+        .filter((t: any) => isSameDay(safeDate(t.date), day))
+        .reduce((s: number, t: any) => s + netSalesOf(t, periodById), 0)
     );
-  }, [periodTxns, range]);
+  }, [periodTxns, range, periodById]);
 
   // ── Staff owed this period (same math as Payday tab) ──
   // The visits this period's payments belong to, read by id (who did the work), not every visit ever.
@@ -2753,14 +2587,14 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
             accent="bg-green-100 text-green-700"
             sparkData={dailyRevenueData}
             trend="up"
-            trendLabel="Net revenue"
+            trendLabel="Net sales and tips"
           />
           <StatCard
             label="Money Out"
             value={fmtCurrency(summary.expenses)}
             icon={TrendingDown}
             accent="bg-red-100 text-red-600"
-            sub="Expenses & payments"
+            sub="Costs, fees and bills"
           />
           <StatCard
             label="Net Income"

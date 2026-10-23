@@ -3,7 +3,8 @@
 // same world as the landing page: white, soft moving light, frosted glass, light headings, motion that settles in.
 // Everything happens in the browser: no sign-up, nothing sent, nothing stored. A private link packs the answers into
 // the address after the # (which browsers never send to a server). English, Spanish and Vietnamese. US rules.
-// ?brand=opal shows the Opal Nail Academy version. "Reduce motion" and printing get a still page.
+// ?brand=opal shows the Opal Nail Academy version. "Reduce motion" and printing get a still page; on paper the dark cards
+// become soft light panels and labels read as written (the app's print look, lib/print-style).
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Briefcase, Store, Scale, Clock, Lock, Sparkles, ArrowRight, ArrowLeft, Check, Link2, Printer, Compass, HelpCircle, Minus, Plus, Search, X, ChevronDown } from 'lucide-react';
 import { blank, compute, decodeState, encodeState, hoursOf, type CalcState, type Mode, type PayType, type Result } from '@/lib/pay-calc';
@@ -71,6 +72,17 @@ const CSS = `
 @media (max-width:440px){.pc-wrap{padding:16px 16px 36px}.pc-grid4{gap:10px}.pc-tile{padding:16px!important}.pc-tile .pc-tv{font-size:24px!important}}
 @media (prefers-reduced-motion:reduce){.pc *,.pc *::before,.pc *::after{animation:none!important;transition:none!important}}
 @media print{.pc-sky,.pc-noprint{display:none!important}.pc-wrap{padding:0;max-width:none}.pc-glass{background:#fff;box-shadow:none;border:1px solid ${LINE};-webkit-backdrop-filter:none;backdrop-filter:none}.pc *{animation:none!important}.pc-dark{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+@media print{
+.pc{min-height:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.pc *,.pc *::before,.pc *::after{transition:none!important}
+.pc-glass{background:#fff!important;box-shadow:none!important;border:1px solid ${LINE}!important;border-radius:16px!important}
+.pc-dark{background:${SOFT}!important;color:${INK}!important;box-shadow:none!important;border-radius:16px!important}
+.pc-dark::before,.pc-sheen::after{display:none!important}
+.pc-dark .pc-dm{color:${MUTED}!important}
+.pc-dark .pc-dg{color:${GREEN}!important}
+.pc-kick{text-transform:none!important;letter-spacing:0!important}
+.pc button[aria-pressed=true]:not(.pc-opt){background:${SOFT}!important;color:${INK}!important}
+}
 `;
 
 function Sky({ opal }: { opal: boolean }) {
@@ -177,7 +189,7 @@ function AboutWork({ s, setS, t, occTitle, title = true }: { s: CalcState; setS:
   const st = s.state; const sw = st ? STATE_MIN_WAGE[st] : null; const stName = US_STATES.find(([k]) => k === st)?.[1] || st;
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      {title && <div style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: MUTED }}>{t('aboutWork')}</div>}
+      {title && <div className="pc-kick" style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: MUTED }}>{t('aboutWork')}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
         <div style={{ position: 'relative' }}>
           {s.soc ? (
@@ -335,7 +347,7 @@ export default function PayCalculator() {
                   </div>)}
               </div>
               {liveHr !== null && <div className="pc-live-m pc-dark pc-sheen pc-in" style={{ padding: '14px 18px', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#c9cace', position: 'relative' }}><span className="pc-dot" />{t('live')}</span>
+                <span className="pc-dm" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#c9cace', position: 'relative' }}><span className="pc-dot" />{t('live')}</span>
                 <span style={{ fontSize: 24, fontWeight: 300, position: 'relative' }}><CountUp v={liveHr} fmt={hr} dur={600} /></span>
               </div>}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -347,15 +359,15 @@ export default function PayCalculator() {
             </div>
             <aside className="pc-live">
               <div className="pc-dark pc-sheen" style={{ ...card, padding: 26, gap: 8 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#c9cace', position: 'relative' }}><span className="pc-dot" />{t('live')}</span>
+                <span className="pc-dm" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#c9cace', position: 'relative' }}><span className="pc-dot" />{t('live')}</span>
                 {liveHr !== null && live ? (<div style={{ position: 'relative', display: 'grid', gap: 8 }}>
-                  <div style={{ fontSize: 13, color: '#c9cace' }}>{t('perHourAllIn')}</div>
+                  <div className="pc-dm" style={{ fontSize: 13, color: '#c9cace' }}>{t('perHourAllIn')}</div>
                   <div style={{ fontSize: 52, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 1 }}><CountUp v={liveHr} fmt={hr} dur={700} /></div>
-                  {s.mode !== 'self' && live.gross !== live.payNoTips && <div style={{ fontSize: 13, color: MINT }}>{t('withoutTips', { v: hr(live.perHourNoTips) })}</div>}
-                  <div style={{ fontSize: 13, color: '#c9cace' }}>{t('paidMonth', { v: money(live.monthBIT) })}</div>
+                  {s.mode !== 'self' && live.gross !== live.payNoTips && <div className="pc-dg" style={{ fontSize: 13, color: MINT }}>{t('withoutTips', { v: hr(live.perHourNoTips) })}</div>}
+                  <div className="pc-dm" style={{ fontSize: 13, color: '#c9cace' }}>{t('paidMonth', { v: money(live.monthBIT) })}</div>
                   {live.market && <LiveRange r={live} head={liveHr} t={t} />}
-                </div>) : <div style={{ position: 'relative', fontSize: 15, color: '#c9cace', lineHeight: 1.5 }}>{t('liveEmpty')}</div>}
-                <div style={{ position: 'relative', fontSize: 12.5, color: '#9a9ca3', marginTop: 6 }}>{t('hoursWeekTotal', { h: ((Number(s.daysPerWeek) || 0) * (Number(s.hoursPerDay) || 0)).toLocaleString('en-US') })}</div>
+                </div>) : <div className="pc-dm" style={{ position: 'relative', fontSize: 15, color: '#c9cace', lineHeight: 1.5 }}>{t('liveEmpty')}</div>}
+                <div className="pc-dm" style={{ position: 'relative', fontSize: 12.5, color: '#9a9ca3', marginTop: 6 }}>{t('hoursWeekTotal', { h: ((Number(s.daysPerWeek) || 0) * (Number(s.hoursPerDay) || 0)).toLocaleString('en-US') })}</div>
               </div>
             </aside>
           </div>)}
@@ -375,7 +387,7 @@ function LiveRange({ r, head, t }: { r: Result; head: number; t: T }) {
         <div style={{ position: 'absolute', top: 4, left: p(m.median), width: 2, height: 14, background: '#c9cace', borderRadius: 1 }} />
         <div style={{ position: 'absolute', top: 2, left: `calc(${p(head)} - 9px)`, width: 18, height: 18, borderRadius: '50%', background: MINT, boxShadow: '0 0 0 4px rgba(127,209,165,.25)', transition: 'left .7s cubic-bezier(.22,1,.36,1)' }} />
       </div>
-      <div style={{ fontSize: 12.5, color: '#c9cace' }}>{t('typical')}: {hr(m.median)} · {Math.round((head / m.median) * 100)}% {t('ofTypical')}</div>
+      <div className="pc-dm" style={{ fontSize: 12.5, color: '#c9cace' }}>{t('typical')}: {hr(m.median)} · {Math.round((head / m.median) * 100)}% {t('ofTypical')}</div>
     </div>);
 }
 
@@ -393,7 +405,7 @@ function Start({ t, begin }: { t: T; begin: (m: Mode) => void }) {
         </div>
         <In d={0.45} className="pc-sample"><Sample t={t} /></In>
       </div>
-      <In d={0.55}><div style={{ fontSize: 13, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: MUTED }}>{t('start')}</div></In>
+      <In d={0.55}><div className="pc-kick" style={{ fontSize: 13, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: MUTED }}>{t('start')}</div></In>
       <div className="pc-grid3" style={{ marginTop: -18 }}>
         {modes.map(([m, title, sub, Icon], k) => (
           <In key={m} d={0.62 + k * 0.1}>
@@ -420,11 +432,11 @@ function Sample({ t }: { t: T }) {
     <div className="pc-float">
       <div className="pc-dark pc-sheen" style={{ ...card, padding: 26, gap: 10 }}>
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 13, color: '#c9cace' }}>{t('perHourAllIn')}</span>
-          <span style={{ fontSize: 11.5, color: '#c9cace', border: '1px solid rgba(255,255,255,.2)', borderRadius: 999, padding: '3px 9px' }}>{t('sample')}</span>
+          <span className="pc-dm" style={{ fontSize: 13, color: '#c9cace' }}>{t('perHourAllIn')}</span>
+          <span className="pc-dm" style={{ fontSize: 11.5, color: '#c9cace', border: '1px solid rgba(255,255,255,.2)', borderRadius: 999, padding: '3px 9px' }}>{t('sample')}</span>
         </div>
         <div style={{ position: 'relative', fontSize: 'clamp(48px, 6vw, 64px)', fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 1 }}><CountUp v={24.6} fmt={hr} dur={1800} /></div>
-        <div style={{ position: 'relative', fontSize: 13, color: MINT }}>{t('withoutTips', { v: '$19.80' })}</div>
+        <div className="pc-dg" style={{ position: 'relative', fontSize: 13, color: MINT }}>{t('withoutTips', { v: '$19.80' })}</div>
         <div style={{ position: 'relative', height: 22, marginTop: 6 }}>
           <div style={{ position: 'absolute', inset: '9px 0', borderRadius: 999, background: 'rgba(255,255,255,.12)' }} />
           <div className="pc-bar" style={{ position: 'absolute', top: 9, height: 4, left: '24%', width: '50%', borderRadius: 999, background: 'rgba(255,255,255,.35)', ['--d' as any]: '.9s' }} />
@@ -433,7 +445,7 @@ function Sample({ t }: { t: T }) {
         </div>
         <div style={{ position: 'relative', display: 'grid', gap: 7, marginTop: 6 }}>
           {rows.map(([l, w], k) => (
-            <div key={l} style={{ display: 'grid', gridTemplateColumns: '110px 1fr', alignItems: 'center', gap: 10, fontSize: 12.5, color: '#c9cace' }}>
+            <div key={l} className="pc-dm" style={{ display: 'grid', gridTemplateColumns: '110px 1fr', alignItems: 'center', gap: 10, fontSize: 12.5, color: '#c9cace' }}>
               <span>{l}</span>
               <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,.08)' }}><div className="pc-bar" style={{ height: '100%', width: `${w * 100}%`, borderRadius: 999, background: k === 3 ? MINT : 'rgba(255,255,255,.45)', ['--d' as any]: `${1.1 + k * 0.12}s` }} /></div>
             </div>))}
@@ -534,10 +546,10 @@ function Answer({ s, r, t, lang, up, setS, est, occTitle, copyLink, copied, chan
       <div className="pc-grid4">
         <In d={0.1} className="pc-span2">
           <div className="pc-dark pc-sheen" style={{ ...card, height: '100%', boxSizing: 'border-box' }}>
-            <div style={{ position: 'relative', fontSize: 13, color: '#c9cace' }}>{t('perHourAllIn')}</div>
+            <div className="pc-dm" style={{ position: 'relative', fontSize: 13, color: '#c9cace' }}>{t('perHourAllIn')}</div>
             <div style={{ position: 'relative', fontSize: 50, fontWeight: 300, letterSpacing: '-0.04em', lineHeight: 1 }}><CountUp v={head} fmt={hr} /></div>
-            {s.mode !== 'self' && r.gross !== r.payNoTips && <div style={{ position: 'relative', fontSize: 13, color: MINT }}>{t('withoutTips', { v: hr(r.perHourNoTips) })}</div>}
-            <div style={{ position: 'relative', fontSize: 12.5, color: '#c9cace', marginTop: 'auto' }}>{t('paidMonth', { v: money(r.monthBIT) })}</div>
+            {s.mode !== 'self' && r.gross !== r.payNoTips && <div className="pc-dg" style={{ position: 'relative', fontSize: 13, color: MINT }}>{t('withoutTips', { v: hr(r.perHourNoTips) })}</div>}
+            <div className="pc-dm" style={{ position: 'relative', fontSize: 12.5, color: '#c9cace', marginTop: 'auto' }}>{t('paidMonth', { v: money(r.monthBIT) })}</div>
           </div>
         </In>
         {tiles.map(([label, v, sub], k) => (
@@ -555,10 +567,10 @@ function Answer({ s, r, t, lang, up, setS, est, occTitle, copyLink, copied, chan
         <div className="pc-2">
           <In d={0.3}>
             <div className="pc-dark pc-sheen" style={{ ...card, padding: 26 }}>
-              <div style={{ position: 'relative', fontSize: 13, color: '#c9cace' }}>{t('offerAnswer')}</div>
+              <div className="pc-dm" style={{ position: 'relative', fontSize: 13, color: '#c9cace' }}>{t('offerAnswer')}</div>
               <div style={{ position: 'relative', fontSize: 26, fontWeight: 300, letterSpacing: '-0.02em', lineHeight: 1.25 }}>{Math.abs(r.offer.diff) < 25 ? t('offerSame') : r.offer.diff > 0 ? t('offerMore', { v: money(Math.abs(r.offer.diff)) }) : t('offerLess', { v: money(Math.abs(r.offer.diff)) })}</div>
-              <div style={{ position: 'relative', fontSize: 13.5, color: '#c9cace' }}>{t('offerAllIn', { a: hr(r.offer.offerHr), b: hr(r.offer.nowHr) })}</div>
-              <div style={{ position: 'relative', fontSize: 13.5, color: MINT }}>{t('offerPay', { v: money(Math.abs(r.offer.payDiff)), dir: r.offer.payDiff >= 0 ? t('more') : t('less') })}</div>
+              <div className="pc-dm" style={{ position: 'relative', fontSize: 13.5, color: '#c9cace' }}>{t('offerAllIn', { a: hr(r.offer.offerHr), b: hr(r.offer.nowHr) })}</div>
+              <div className="pc-dg" style={{ position: 'relative', fontSize: 13.5, color: MINT }}>{t('offerPay', { v: money(Math.abs(r.offer.payDiff)), dir: r.offer.payDiff >= 0 ? t('more') : t('less') })}</div>
             </div>
           </In>
           {r.offer.crossOver !== null && <In d={0.4}><div className="pc-glass" style={card}><div style={{ fontSize: 16, lineHeight: 1.5 }}>{t('crossOver', { v: money(r.offer.crossOver) })}</div></div></In>}

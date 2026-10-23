@@ -77,7 +77,7 @@ export function writeGiveBack(tx: any, db: any, t: string, payerRef: any, payer:
     tx.set(ref, {
       id: ref.id, tenantId: t, clientId: payer.clientId || null,
       clientEmail: String(payer.customerEmail || '').toLowerCase().trim(), clientName: payer.customerName || 'Guest',
-      amountCents: asCredit, status: 'available', sourceRetailOrderId: why.forOrderId, sourceKind: why.kind, createdAt: iso(),
+      kind: 'store_credit', amountCents: asCredit, status: 'available', sourceRetailOrderId: why.forOrderId, sourceKind: why.kind, createdAt: iso(),
     });
   }
   const back = nonCardBack(payer);
@@ -96,7 +96,9 @@ export function giveBackLine(o: any, g: NonCard): string {
 }
 
 /** The sale was booked as income (through the card payment), so what goes back by gift card or credit is a refund too. */
-export const saleBooked = (o: any): boolean => !!(o?.stripeCheckoutSessionId || o?.stripePaymentIntentId);
+// Every order paid in one step has its sale in the books whatever paid for it (lib/order-paid booksAt); before that,
+// only orders paid with a card did.
+export const saleBooked = (o: any): boolean => !!(o?.booksAt || o?.stripeCheckoutSessionId || o?.stripePaymentIntentId);
 
 // ── THE SERVER'S OWN RECORD of what an order took by gift card and store credit, written in the same step as the money
 // is taken (lib/gift-cards spendGiftCard, lib/retail-webhook, api/retail/checkout), somewhere no browser can write

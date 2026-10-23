@@ -32,16 +32,16 @@ export function GiftCardFace({ design, width = 340, brand, amount, name, code, l
         <div aria-hidden className="gcf-sheen" style={{ position: 'absolute', inset: 0, background: 'linear-gradient(115deg,transparent 35%,rgba(255,255,255,.18) 48%,transparent 60%)' }} />
         <div style={{ position: 'absolute', top: 24, left: 26, right: 120, display: 'flex', alignItems: 'center', gap: 9, textShadow: sh }}>
           {brand.logo ? <img src={brand.logo} alt="" style={{ width: 30, height: 30, borderRadius: 9, objectFit: 'cover', background: '#fff' }} />
-            : <span style={{ width: 30, height: 30, borderRadius: 9, background: d.tileAccent ? acc : 'rgba(255,255,255,.16)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, textShadow: 'none' }}>{initial}</span>}
-          <span style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{brand.name}</span></div>
-        <span style={{ position: 'absolute', top: 28, right: 26, fontSize: 10.5, letterSpacing: '.16em', fontWeight: 700, color: d.sub }}>GIFT CARD</span>
-        {lineText ? <span style={{ position: 'absolute', top: 64, left: 26, maxWidth: 240, fontSize: 11, letterSpacing: '.16em', fontWeight: 800, color: d.lineColor || (d.tileAccent ? acc : d.ink), textShadow: sh, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(lineText).toUpperCase()}</span> : null}
+            : <span style={{ width: 30, height: 30, borderRadius: 9, background: d.tileAccent ? acc : 'rgba(255,255,255,.16)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 600, textShadow: 'none' }}>{initial}</span>}
+          <span style={{ fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{brand.name}</span></div>
+        <span style={{ position: 'absolute', top: 28, right: 26, fontSize: 12, fontWeight: 500, color: d.sub }}>Gift card</span>
+        {lineText ? <span style={{ position: 'absolute', top: 64, left: 26, maxWidth: 240, fontSize: 12.5, fontWeight: 600, color: d.lineColor || (d.tileAccent ? acc : d.ink), textShadow: sh, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(lineText)}</span> : null}
         <div aria-hidden style={{ position: 'absolute', top: 92, left: 26 }} dangerouslySetInnerHTML={{ __html: CHIP(d.chip[0], d.chip[1], `chip${k}`) }} />
-        <div style={{ position: 'absolute', top: 84, right: 26, textAlign: 'right', textShadow: sh, fontSize: amount.length > 7 ? 34 : 46, fontWeight: 400, letterSpacing: '-.035em', lineHeight: 1, color: d.amountAccent ? acc : d.ink }}>{amount}</div>
-        <div style={{ position: 'absolute', left: 26, bottom: 56, fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace", fontSize: 19, letterSpacing: '.14em', textShadow: sh }}>{code ? code.replace('-', '  ') : '••••  ••••'}</div>
+        <div style={{ position: 'absolute', top: 84, right: 26, textAlign: 'right', textShadow: sh, fontSize: amount.length > 7 ? 34 : 46, fontWeight: 300, letterSpacing: '-.035em', lineHeight: 1, color: d.amountAccent ? acc : d.ink }}>{amount}</div>
+        <div style={{ position: 'absolute', left: 26, bottom: 56, fontSize: 19, fontWeight: 500, letterSpacing: '.08em', fontVariantNumeric: 'tabular-nums', textShadow: sh }}>{code ? code.replace('-', '  ') : '••••  ••••'}</div>
         <div style={{ position: 'absolute', left: 26, right: 26, bottom: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', textShadow: sh }}>
-          <div style={{ minWidth: 0 }}><div style={{ fontSize: 8.5, letterSpacing: '.14em', color: d.sub }}>FOR</div><div style={{ fontSize: 13, letterSpacing: '.08em', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>{(name || 'YOU').toUpperCase()}</div></div>
-          <div style={{ textAlign: 'right' }}><div style={{ fontSize: 8.5, letterSpacing: '.14em', color: d.sub }}>EXPIRES</div><div style={{ fontSize: 13, letterSpacing: '.08em', fontWeight: 600 }}>{expires ? new Date(expires).toLocaleDateString('en-US', { month: '2-digit', year: '2-digit' }) : 'NEVER'}</div></div></div>
+          <div style={{ minWidth: 0 }}><div style={{ fontSize: 10, color: d.sub }}>For</div><div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>{name || 'You'}</div></div>
+          <div style={{ textAlign: 'right' }}><div style={{ fontSize: 10, color: d.sub }}>Expires</div><div style={{ fontSize: 13.5, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{expires ? new Date(expires).toLocaleDateString('en-US', { month: '2-digit', year: '2-digit' }) : 'Never'}</div></div></div>
       </div>
     </div>);
 }

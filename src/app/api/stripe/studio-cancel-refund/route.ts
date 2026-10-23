@@ -31,7 +31,9 @@
  * Converting a deposit to store credit isn't an expense — the client
  * already paid that money, the studio is just moving it from "applies to a
  * specific re-booking" (depositCredits) to "spendable on anything"
- * (client.totalStoreCredit). If staff want to add MORE than the deposit
+ * (client.totalStoreCredit). In the books it comes off sales (lib/books-summary):
+ * the deposit was counted as a sale when it was paid, and the credit is counted
+ * again when it's spent. If staff want to add MORE than the deposit
  * amount as a goodwill gesture, that additional amount IS a real expense
  * (nothing was collected for it) and is logged as its own ledger line,
  * separate from the deposit conversion. Pass additionalCreditCents +
@@ -54,6 +56,7 @@
  */
 
 import { staffOrServer } from '@/lib/route-guard';
+import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -149,26 +152,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'No deposit on file for this client.' }, { status: 404 });
   }
 
+  // THIS appointment's deposit (lib/credit-pools), or one carried over to it from a cancelled booking. Never store
+  // credit from a return or a goodwill gesture (same collection), and never a deposit waiting for another booking.
   const candidates = creditSnap.docs
     .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
-    .filter((c: any) => !isCreditExpired(c.expiresAt));
-  // THIS appointment's deposit first (a client can have more than one on file); otherwise the most recent.
-  candidates.sort((a: any, b: any) => {
-    const am = (a.appointmentId === appointmentId || a.sourceAppointmentId === appointmentId) ? 1 : 0, bm = (b.appointmentId === appointmentId || b.sourceAppointmentId === appointmentId) ? 1 : 0;
-    return bm - am || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-  });
-  const credit = candidates[0];
+    .filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
+  const credit: any = pickDeposit(candidates, [appointmentId], () => true) || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
   if (!credit) {
-    return NextResponse.json({ ok: false, reason: 'Deposit on file has expired.' }, { status: 404 });
+    return NextResponse.json({ ok: false, reason: 'No deposit on file for this booking.' }, { status: 404 });
   }
 
-  const depositAmountCents = Math.round(Number(credit.amountDollars ?? (credit.amountCents || 0) / 100) * 100);
+  // What's left on it: a deposit part used at the desk gives back only the rest.
+  const depositAmountCents = creditLeftCents(credit);
   const dollars = depositAmountCents / 100;
   const stripePaymentIntentId = credit.stripePaymentIntentId || null;
   const extraCents = Math.max(0, Math.round(Number(additionalCreditCents) || 0));
   const extraDollars = extraCents / 100;
 
-  const batch = db.batch();
+  const who = client.name || 'Client';
+  const what = credit.serviceName || credit.appointmentServiceName || 'booking';
 
   try {
     if (disposition === 'refund') {
@@ -201,7 +203,8 @@ export async function POST(req: NextRequest) {
             disposition: 'refund',
           },
         },
-        { stripeAccount: tenant.stripeAccountId },
+        // One refund per deposit, however often this is asked (a double tap, a retry after a dropped answer).
+        { stripeAccount: tenant.stripeAccountId, idempotencyKey: `studio-cancel-${String(credit.id || credit.ref?.id || appointmentId)}-${depositAmountCents}` },
       );
 
       // ── Fee visibility ──────────────────────────────────────────────────
@@ -221,59 +224,48 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.warn('[studio-cancel-refund] could not retrieve refund balance transaction', e);
       }
-
-      batch.set(credit.ref, {
-        status: 'refunded',
-        refundedAt: now,
-        refundedFromAppointmentId: appointmentId,
-        stripeRefundId: refund.id,
-      }, { merge: true });
-
-      batch.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
-        depositRefunded: true,
-        depositRefundedAt: now,
-        depositRefundedAmountCents: depositAmountCents,
-        depositStripeRefundId: refund.id,
-        depositDisposition: 'refunded',
-      });
-
-      const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-      batch.set(txRef, {
-        id: txRef.id, tenantId, appointmentId, clientId,
-        clientName: client.name || 'Client',
-        type: 'refund', category: 'Deposit Refund',
-        amount: -dollars, amountCents: -depositAmountCents,
-        stripePaymentIntentId, stripeRefundId: refund.id, status: 'succeeded',
-        reason: reason || 'studio_cancelled', disposition: 'refunded', createdAt: now,
-        // Informational only — the original fee was already expensed when
-        // the deposit was charged. Surfaced here so reports can show "this
-        // refund's true cost" without double-counting it as a new expense.
-        notes: originalFeeCents > 0
-          ? `Original processing fee already sunk at charge time: $${(originalFeeCents / 100).toFixed(2)} (not re-logged as a separate expense).`
-          : undefined,
-      });
-
       // NOTE: the incremental refund fee is intentionally NOT written here.
       // The Connect webhook's charge.refunded handler is the single source of
       // truth for refund-side fees — it reads the refund's balance transaction
       // and books any returned fee with the correct sign (a credit/return, not
-      // an expense), deduped by stripeBalanceTxnId. Writing it here too would
-      // double-count it, and as an expense rather than a credit it would also
-      // have the wrong sign. refundFeeCents is still surfaced in the audit
-      // detail below for visibility.
+      // an expense), deduped by stripeBalanceTxnId. refundFeeCents is still
+      // surfaced in the audit detail below for visibility.
 
-      const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
-      batch.set(auditRef, {
-        id: auditRef.id, tenantId, entityType: 'deposit_refund', entityId: appointmentId,
-        actorId: staffId || 'system', timestamp: now,
-        summary: `Deposit refunded $${dollars.toFixed(2)} to ${client.name || 'client'} — studio cancelled`,
-        detail: { disposition: 'refunded', stripeRefundId: refund.id, reason, originalFeeCents, refundFeeCents },
+      // The records, once: the refund line is named after Stripe's refund, and the deposit is marked refunded in the same
+      // step, so a second request (the same refund, by its idempotency key) finds it done.
+      const txRef = db.doc(`tenants/${tenantId}/transactions/depositrefund_${refund.id}`);
+      const already = await db.runTransaction(async (tx: any) => {
+        const [fresh, line] = await Promise.all([tx.get(credit.ref), tx.get(txRef)]);
+        if (line.exists || fresh.data()?.status === 'refunded') return true;
+        tx.set(credit.ref, { status: 'refunded', refundedAt: now, refundedFromAppointmentId: appointmentId, stripeRefundId: refund.id }, { merge: true });
+        tx.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
+          depositRefunded: true, depositRefundedAt: now, depositRefundedAmountCents: depositAmountCents,
+          depositStripeRefundId: refund.id, depositDisposition: 'refunded',
+        });
+        // A refund in the books (lib/books-summary): it comes off sales, since the deposit was counted when it was paid.
+        tx.set(txRef, {
+          id: txRef.id, tenantId, appointmentId, clientId, clientName: who, clientOrVendor: who,
+          date: now, createdAt: now, description: `Deposit refund — ${what} — ${who}`,
+          type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund', refundKind: 'deposit', taxRefunded: 0,
+          amount: dollars, amountCents: depositAmountCents, paymentMethod: 'Card (Stripe refund)', hasReceipt: false,
+          stripePaymentIntentId, stripeRefundId: refund.id, status: 'succeeded',
+          reason: reason || 'studio_cancelled', disposition: 'refunded',
+          ...(credit.ledgerSourceId ? { refundOfLine: credit.ledgerSourceId } : {}),
+          // The fee paid when the deposit was taken was already an expense then; noted, not written again.
+          ...(originalFeeCents > 0 ? { notes: `The card fee on the original deposit ($${(originalFeeCents / 100).toFixed(2)}) was recorded when it was taken; it isn't written again.` } : {}),
+        });
+        const auditRef = db.doc(`tenants/${tenantId}/auditLog/depositrefund_${refund.id}`);
+        tx.set(auditRef, {
+          id: auditRef.id, tenantId, entityType: 'deposit_refund', entityId: appointmentId,
+          actorId: staffId || 'system', timestamp: now,
+          summary: `Deposit refunded $${dollars.toFixed(2)} to ${client.name || 'client'} — studio cancelled`,
+          detail: { disposition: 'refunded', stripeRefundId: refund.id, reason: reason || null, originalFeeCents, refundFeeCents },
+        });
+        return false;
       });
-
-      await batch.commit();
       return NextResponse.json({
         ok: true, disposition: 'refunded', refundId: refund.id, amount: dollars,
-        originalFeeCents, refundFeeCents,
+        originalFeeCents, refundFeeCents, ...(already ? { already: true } : {}),
       });
 
     } else {
@@ -282,16 +274,7 @@ export async function POST(req: NextRequest) {
       if (stripePaymentIntentId && tenant.stripeAccountId) {
         originalFeeCents = await getOriginalChargeFeeCents(getStripe(), tenant.stripeAccountId, stripePaymentIntentId);
       }
-
-      // Consume the SOURCE depositCredits record (so it can't also get
-      // auto-applied to a future booking) and add the same amount to the
-      // client's general store-credit wallet.
-      batch.set(credit.ref, {
-        status: 'consumed',
-        consumedAt: now,
-        consumedReason: 'converted_to_store_credit',
-        consumedFromAppointmentId: appointmentId,
-      }, { merge: true });
+      const expiresAt = getStoreCreditExpiry(tenant);
 
       const creditEntry = {
         id: `credit_${appointmentId}`,
@@ -302,85 +285,84 @@ export async function POST(req: NextRequest) {
         reason: 'Studio cancellation — deposit converted to credit',
         cancelReason: reason || 'studio_cancelled',
         createdBy: staffId || 'system',
-        expiresAt: getStoreCreditExpiry(tenant),
+        expiresAt,
         createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
       };
-
       const storeCreditsToAdd: any[] = [creditEntry];
       let totalCreditDollars = dollars;
+      // Discretionary/goodwill credit — a REAL expense, separate from the deposit conversion, since nothing was collected for it.
+      const goodwillEntry = extraCents > 0 ? {
+        id: `goodwill_${appointmentId}_${String(credit.id || '')}`,
+        tenantId, clientId, appointmentId,
+        amountCents: extraCents, amount: extraDollars,
+        type: 'courtesy' as const,
+        source: 'goodwill' as const,
+        reason: additionalCreditReason || 'Service recovery — goodwill credit',
+        cancelReason: reason || 'studio_cancelled',
+        createdBy: staffId || 'system',
+        expiresAt,
+        createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
+      } : null;
+      if (goodwillEntry) { storeCreditsToAdd.push(goodwillEntry); totalCreditDollars += extraDollars; }
 
-      // Discretionary/goodwill credit — a REAL expense, separate from the
-      // deposit conversion above, since nothing was collected for it.
-      if (extraCents > 0) {
-        const goodwillEntry = {
-          id: `goodwill_${appointmentId}_${Date.now()}`,
-          tenantId, clientId, appointmentId,
-          amountCents: extraCents, amount: extraDollars,
-          type: 'courtesy' as const,
-          source: 'goodwill' as const,
-          reason: additionalCreditReason || 'Service recovery — goodwill credit',
-          cancelReason: reason || 'studio_cancelled',
-          createdBy: staffId || 'system',
-          expiresAt: getStoreCreditExpiry(tenant),
-          createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
-        };
-        storeCreditsToAdd.push(goodwillEntry);
-        totalCreditDollars += extraDollars;
-
-        const goodwillTxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-        batch.set(goodwillTxRef, {
-          id: goodwillTxRef.id, tenantId, appointmentId, clientId,
-          clientName: client.name || 'Client',
-          type: 'expense', category: 'Service Recovery',
-          amount: extraDollars, amountCents: extraCents, status: 'issued',
-          reason: additionalCreditReason || 'Service recovery — goodwill credit',
-          disposition: 'store_credit', createdAt: now,
-          notes: 'Discretionary credit beyond the deposit amount — staff-issued goodwill, distinct from the deposit conversion below.',
+      // All in one step that first checks the deposit is still there to convert, so a double tap or a retry can't add
+      // the credit twice. Each line is named after the deposit it came from.
+      const key = String(credit.id || credit.ref?.id || appointmentId);
+      const already = await db.runTransaction(async (tx: any) => {
+        const fresh = await tx.get(credit.ref);
+        if (fresh.data()?.status !== 'available') return true;
+        // Consume the SOURCE depositCredits record (so it can't also get auto-applied to a future booking) and add the
+        // same amount to the client's store-credit wallet.
+        tx.set(credit.ref, { status: 'consumed', consumedAt: now, consumedReason: 'converted_to_store_credit', consumedFromAppointmentId: appointmentId }, { merge: true });
+        tx.update(db.doc(`tenants/${tenantId}/clients/${clientId}`), {
+          storeCredits: FieldValue.arrayUnion(...storeCreditsToAdd),
+          totalStoreCredit: FieldValue.increment(totalCreditDollars),
         });
+        tx.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
+          depositConvertedToCredit: true, depositConvertedToCreditAt: now,
+          depositConvertedAmountCents: depositAmountCents, depositDisposition: 'store_credit',
+        });
+        if (goodwillEntry) {
+          const goodwillTxRef = db.doc(`tenants/${tenantId}/transactions/goodwill_${key}`);
+          tx.set(goodwillTxRef, {
+            id: goodwillTxRef.id, tenantId, appointmentId, clientId, clientName: who, clientOrVendor: who,
+            date: now, createdAt: now, description: `Goodwill credit — ${what}`,
+            type: 'expense', context: 'Business', category: 'Service Recovery', taxBucket: 'operating_cost',
+            amount: extraDollars, amountCents: extraCents, paymentMethod: 'Store credit', hasReceipt: false, status: 'issued',
+            reason: additionalCreditReason || 'Service recovery — goodwill credit', disposition: 'store_credit',
+            notes: 'Credit beyond the deposit, given as goodwill.',
+          });
+        }
+        // The deposit kept as store credit: in the books it comes off sales (it was counted when it was paid, and the
+        // credit counts as a sale when it's spent).
+        const txRef = db.doc(`tenants/${tenantId}/transactions/depositcredit_${key}`);
+        tx.set(txRef, {
+          id: txRef.id, tenantId, appointmentId, clientId, clientName: who, clientOrVendor: who,
+          date: now, createdAt: now, description: `Deposit kept as store credit — ${what}`,
+          type: 'store_credit_issued', context: 'Business', category: 'Store Credit',
+          amount: dollars, amountCents: depositAmountCents, paymentMethod: 'Store credit', hasReceipt: false, status: 'issued',
+          reason: reason || 'studio_cancelled', disposition: 'store_credit', expiresAt,
+          ...(originalFeeCents > 0 ? { notes: `The card fee on the original deposit ($${(originalFeeCents / 100).toFixed(2)}) isn't recoverable.` } : {}),
+        });
+        const auditRef = db.doc(`tenants/${tenantId}/auditLog/depositcredit_${key}`);
+        tx.set(auditRef, {
+          id: auditRef.id, tenantId, entityType: 'deposit_store_credit', entityId: appointmentId,
+          actorId: staffId || 'system', timestamp: now,
+          summary: `$${dollars.toFixed(2)} deposit converted to store credit for ${client.name || 'client'}${extraCents > 0 ? ` + $${extraDollars.toFixed(2)} goodwill credit` : ''}`,
+          detail: { disposition: 'store_credit', creditId: credit.id || null, reason: reason || null, originalFeeCents, additionalCreditCents: extraCents },
+        });
+        return false;
+      });
+      if (!already) {
+        try {
+          const { sendRefundNotice } = await import('@/lib/refund-notice');
+          await sendRefundNotice(db, tenantId, { key: `credit_${credit.id}_${appointmentId}`, kind: 'credit', amountCents: Math.round(totalCreditDollars * 100), clientId, appointmentId, reason: reason || null });
+        } catch (e) { console.error('[studio-cancel-refund] credit notice', e); }
       }
-
-      batch.update(db.doc(`tenants/${tenantId}/clients/${clientId}`), {
-        storeCredits: FieldValue.arrayUnion(...storeCreditsToAdd),
-        totalStoreCredit: FieldValue.increment(totalCreditDollars),
-      });
-
-      batch.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
-        depositConvertedToCredit: true,
-        depositConvertedToCreditAt: now,
-        depositConvertedAmountCents: depositAmountCents,
-        depositDisposition: 'store_credit',
-      });
-
-      const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-      batch.set(txRef, {
-        id: txRef.id, tenantId, appointmentId, clientId,
-        clientName: client.name || 'Client',
-        type: 'store_credit_issued', category: 'Store Credit',
-        amount: dollars, amountCents: depositAmountCents, status: 'issued',
-        reason: reason || 'studio_cancelled', disposition: 'store_credit',
-        expiresAt: creditEntry.expiresAt, createdAt: now,
-        notes: originalFeeCents > 0
-          ? `Processing fee already sunk on the original deposit charge: $${(originalFeeCents / 100).toFixed(2)} (not recoverable; the appointment isn't happening, so there's no revenue to offset it).`
-          : undefined,
-      });
-
-      const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
-      batch.set(auditRef, {
-        id: auditRef.id, tenantId, entityType: 'deposit_store_credit', entityId: appointmentId,
-        actorId: staffId || 'system', timestamp: now,
-        summary: `$${dollars.toFixed(2)} deposit converted to store credit for ${client.name || 'client'}${extraCents > 0 ? ` + $${extraDollars.toFixed(2)} goodwill credit` : ''}`,
-        detail: { disposition: 'store_credit', creditId: credit.id, reason, originalFeeCents, additionalCreditCents: extraCents },
-      });
-
-      await batch.commit();
-      try {
-        const { sendRefundNotice } = await import('@/lib/refund-notice');
-        await sendRefundNotice(db, tenantId, { key: `credit_${credit.id}_${appointmentId}`, kind: 'credit', amountCents: Math.round(totalCreditDollars * 100), clientId, appointmentId, reason: reason || null });
-      } catch (e) { console.error('[studio-cancel-refund] credit notice', e); }
       return NextResponse.json({
         ok: true, disposition: 'store_credit', creditId: credit.id,
         amount: dollars, additionalCredit: extraDollars, totalCredit: totalCreditDollars,
-        expiresAt: creditEntry.expiresAt, originalFeeCents,
+        expiresAt, originalFeeCents, ...(already ? { already: true } : {}),
       });
     }
   } catch (err: any) {

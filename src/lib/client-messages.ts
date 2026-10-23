@@ -28,9 +28,9 @@ export async function threadForClient(db: any, t: string, clientId: string, now 
 export async function clientWrites(db: any, t: string, a: any, text: string, now = Date.now()): Promise<{ ok: boolean; error?: string }> {
   const T = `tenants/${t}`; const body = String(text || '').trim().slice(0, 1600);
   if (!body) return { ok: false, error: 'Please write a message first.' };
-  if (!a.clientId) return { ok: false, error: 'We couldn’t find your details. Please call us instead.' };
+  if (!a.clientId) return { ok: false, error: 'We couldn’t find your details. Please reply to one of our messages instead.' };
   const today = rows(await db.collection(`${T}/smsInbox`).where('clientId', '==', String(a.clientId)).limit(300).get()).filter((m: any) => m.channel === 'app' && Date.parse(m.at) > now - 864e5);
-  if (today.length >= 20) return { ok: false, error: 'You’ve sent a lot of messages today. We’ll reply as soon as we can, or please call us.' };
+  if (today.length >= 20) return { ok: false, error: 'You’ve sent a lot of messages today. We’ll reply as soon as we can.' };
   const ref = db.collection(`${T}/smsInbox`).doc();
   await ref.set({ id: ref.id, tenantId: t, at: iso(now), channel: 'app', via: 'visit_link', from: a.clientPhone || a.clientEmail || null, fromName: a.clientName || 'Client', senderType: 'client',
     clientId: String(a.clientId), clientName: a.clientName || null, appointmentId: a.id || null, body, mediaCount: 0 });

@@ -2154,7 +2154,7 @@ const CancelGateView = ({
                     <VisitButton disabled={undoing} onClick={async () => {
                         setUndoing(true); setUndoErr(null);
                         try { const r = await fetch('/api/appointments/undo-cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId, k: accessKey }) }).then((x) => x.json());
-                            if (r.ok) setResult({ ...result, undone: true }); else setUndoErr(r.error || 'That didn’t work. Please give us a call, and we’ll be glad to help.'); }
+                            if (r.ok) setResult({ ...result, undone: true }); else setUndoErr(r.error || 'That didn’t work. Please reply to your confirmation message, and we’ll be glad to help.'); }
                         catch { setUndoErr('We couldn’t connect. Please try again.'); } finally { setUndoing(false); }
                     }}>{undoing ? 'Undoing…' : 'Undo and keep my appointment'}</VisitButton>
                 </VisitCard>}

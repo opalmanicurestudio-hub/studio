@@ -32,6 +32,7 @@
  */
 
 import { requireRole } from '@/lib/route-guard';
+import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
 import { hasRealCard } from '@/lib/card-on-file';
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
@@ -222,13 +223,15 @@ export async function POST(req: NextRequest) {
       creditSnap = await creditsCol.where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
     }
     if (!creditSnap.empty) {
+      // This booking's own deposit (lib/credit-pools), or one carried over to it from a cancelled booking: never store
+      // credit from a return (same collection), and never a deposit waiting for another booking.
       const candidates = creditSnap.docs
         .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
-        .filter((c: any) => !isCreditExpired(c.expiresAt));
-      candidates.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-      const credit = candidates[0];
+        .filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
+      const credit: any = pickDeposit(candidates, [String(appt.id || appointmentId)], () => true) || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
       if (credit) {
-        depositForfeitedAmount = Number(credit.amountDollars ?? (credit.amountCents || 0) / 100);
+        // What's left on it is what's kept.
+        depositForfeitedAmount = creditLeftCents(credit) / 100;
         batch.set(credit.ref, {
           status: 'forfeited',
           forfeitedAt: now,

@@ -1,10 +1,11 @@
 import { checkPrintKey } from '@/lib/print-key';
+import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 /**
  * /print/claim-pack/[tenantId]/[excId] — the CLAIM PACK: everything a
  * carrier or supplier claim form asks for, assembled onto one printable
  * document — claim summary (tracking, ship date, insured value, amount),
  * item costs, proof of value (what the customer actually paid), the
- * fulfilment evidence chain (scan completeness, pack photos, chronology
+ * fulfillment evidence chain (scan completeness, pack photos, chronology
  * from the order's append-only event log), and the customer's own statement
  * with their photos. Filing a claim becomes: open pack, copy fields, attach
  * this document. Server-rendered on the Admin SDK like every print surface.
@@ -28,6 +29,8 @@ function getAdminDb() {
 }
 
 const fmt = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+// A stored value such as "label_generated" as words in sentence case, for the page.
+const words = (v: any) => { const s = String(v || '').replace(/_/g, ' ').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; };
 
 export default async function PrintClaimPackPage({
   params, searchParams,
@@ -93,8 +96,8 @@ export default async function PrintClaimPackPage({
 
   const Row = ({ k, v, strong }: { k: string; v: React.ReactNode; strong?: boolean }) => (
     <tr>
-      <td style={{ width: '38%', color: '#64748b', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '4px 8px 4px 0', verticalAlign: 'top' }}>{k}</td>
-      <td style={{ fontWeight: strong ? 800 : 600, padding: '4px 0', fontVariantNumeric: 'tabular-nums' }}>{v}</td>
+      <td className="k">{k}</td>
+      <td className={strong ? 'v strong' : 'v'}>{v}</td>
     </tr>
   );
 
@@ -103,27 +106,30 @@ export default async function PrintClaimPackPage({
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`Claim pack — ${exc.name}`}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <style>{`
           @page { size: letter portrait; margin: 0.55in; }
-          * { box-sizing: border-box; }
-          body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; font-size: 11px; line-height: 1.5; }
-          h1 { font-size: 18px; margin: 0; }
-          h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; margin: 18px 0 6px; border-bottom: 2px solid #0f172a; padding-bottom: 3px; }
-          table { border-collapse: collapse; width: 100%; }
-          .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0f172a; padding-bottom: 10px; }
-          .photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-          .photos img { width: 1.55in; height: 1.55in; object-fit: cover; border: 1px solid #cbd5e1; border-radius: 6px; }
-          .chron td { padding: 2.5px 8px 2.5px 0; border-bottom: 1px dashed #e2e8f0; }
-          .quote { border-left: 3px solid #94a3b8; padding: 4px 0 4px 10px; color: #334155; white-space: pre-wrap; }
-          .foot { margin-top: 20px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 9px; color: #64748b; display: flex; justify-content: space-between; }
-          section { break-inside: avoid; }
+          body { margin: 0; }
+          ${PRINT_CSS}
+          .pp table.kv td { padding: 6px 0; }
+          .pp table.kv td.k { width: 38%; padding-right: 12px; font-size: 11px; font-weight: 500; color: #6d7075; }
+          .pp table.kv td.strong { font-weight: 600; }
+          .pp table.kv .pill { margin-right: 6px; }
+          .pp table.chron td { padding: 5px 8px 5px 0; }
+          .pp .photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+          .pp .photos img { width: 1.55in; height: 1.55in; object-fit: cover; border-radius: 12px; background: #f5f5f7; }
+          .pp .quote { background: #f5f5f7; border-radius: 14px; padding: 12px 14px; color: #45474c; white-space: pre-wrap; }
+          .pp section { break-inside: avoid; }
         `}</style>
       </head>
-      <body>
+      <body className="pp-screen">
+        <div className="pp page">
         <div className="head">
           <div>
-            <h1>{shopName} — Claim pack</h1>
-            <p style={{ margin: '3px 0 0', color: '#64748b' }}>
+            <p className="shop">{shopName}</p>
+            <h1>Claim <b>pack</b></h1>
+            <p className="sub">
               {exc.reasonGroup === 'supplier' ? 'Supplier claim' : 'Carrier claim'} · {exc.qty > 1 ? `${exc.qty} × ` : ''}{exc.name}
               {exc.orderNumber != null ? ` · order #${String(exc.orderNumber).padStart(4, '0')}` : ''}
             </p>
@@ -132,7 +138,7 @@ export default async function PrintClaimPackPage({
 
         <section>
           <h2>Claim summary</h2>
-          <table>
+          <table className="kv">
             <tbody>
               <Row k="Loss event" v={`${when(exc.at)} — ${String(exc.reason || '').replace(/_/g, ' ')}`} />
               {exc.carrier && <Row k="Carrier" v={exc.carrier} />}
@@ -151,7 +157,7 @@ export default async function PrintClaimPackPage({
 
         <section>
           <h2>Proof of value</h2>
-          <table>
+          <table className="kv">
             <tbody>
               <Row k="Item" v={`${exc.qty} × ${exc.name}${exc.sku ? ` (SKU ${exc.sku})` : ''}`} />
               <Row k="Cost basis (landed)" v={`${fmt(perUnit)} / unit — ${fmt(exc.landedCostCents)} total`} strong />
@@ -164,20 +170,20 @@ export default async function PrintClaimPackPage({
 
         {order && (
           <section>
-            <h2>Fulfilment evidence</h2>
-            <table>
+            <h2>Fulfillment evidence</h2>
+            <table className="kv">
               <tbody>
                 <Row k="Barcode scan record" v={allScanned
-                  ? `COMPLETE — every unit scanned at packing (${scanLines.map((l: any) => `${l.name}: ${l.scanned}/${l.target}`).join('; ')})`
-                  : scanLines.map((l: any) => `${l.name}: ${l.scanned}/${l.target}`).join('; ') || '—'} strong={allScanned} />
+                  ? <><span className="pill ok">Complete</span>Every unit scanned at packing ({scanLines.map((l: any) => `${l.name}: ${l.scanned}/${l.target}`).join('; ')})</>
+                  : scanLines.map((l: any) => `${l.name}: ${l.scanned}/${l.target}`).join('; ') || '—'} />
                 {order.shipmentProtection?.expectedWeightOz && <Row k="Expected parcel weight" v={`${order.shipmentProtection.expectedWeightOz} oz (recorded at label purchase)`} />}
                 {order.shipmentProtection?.signature && order.shipmentProtection.signature !== 'NONE' && <Row k="Signature confirmation" v={order.shipmentProtection.signature} />}
-                <Row k="Order stage" v={String(order.stage || '').replace(/_/g, ' ')} />
+                <Row k="Order stage" v={words(order.stage)} />
               </tbody>
             </table>
             {packPhotos.length > 0 && (
               <>
-                <p style={{ margin: '8px 0 0', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b' }}>Packing-station photos</p>
+                <p className="lbl" style={{ margin: '12px 0 0' }}>Packing-station photos</p>
                 <div className="photos">
                   {packPhotos.map((u: string, i: number) => (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -211,9 +217,9 @@ export default async function PrintClaimPackPage({
               <tbody>
                 {events.map((e: any, i: number) => (
                   <tr key={i}>
-                    <td style={{ width: '28%', whiteSpace: 'nowrap', color: '#64748b' }}>{whenT(e.at)}</td>
-                    <td style={{ fontWeight: 600 }}>
-                      {String(e.type).replace(/_/g, ' ')}
+                    <td className="nowrap muted" style={{ width: '28%' }}>{whenT(e.at)}</td>
+                    <td style={{ fontWeight: 500 }}>
+                      {words(e.type)}
                       {e.meta?.trackingNumber ? ` — ${e.meta.trackingNumber}` : ''}
                       {e.meta?.text ? ` — ${e.meta.text}` : ''}
                     </td>
@@ -227,6 +233,7 @@ export default async function PrintClaimPackPage({
         <div className="foot">
           <span>Assembled {generatedAt} · ClarityFlow claim pack · attach this document to the {exc.reasonGroup === 'supplier' ? 'supplier' : 'carrier'} claim</span>
           <span>{shopName}</span>
+        </div>
         </div>
       </body>
     </html>

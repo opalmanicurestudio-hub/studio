@@ -17,6 +17,7 @@ import { addOnIdsOf } from '@/lib/prep-checkout';
 import { rateFor, payForService } from '@/lib/commission';
 import { openVisit } from '@/lib/visit-client';
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
+import { heldShortfall, type HeldShort } from '@/lib/held-stock';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
 import { ToastAction } from '@/components/ui/toast';
@@ -63,10 +64,12 @@ export function printTicketInNewWindow(ticketHtml: string, studioName: string) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Print Ticket — ${studioName}</title>
+  <title>Ticket · ${studioName}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" />
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: white; }
+    body { margin: 0; font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 400; color: #16171a; background: white; font-variant-numeric: tabular-nums; }
     @media print {
       body { margin: 0; }
       button { display: none !important; }
@@ -554,6 +557,11 @@ export function usePosEngine() {
   }, [selectedAppointmentIds, readyForCheckoutAppointments, discounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A staff discount (% or $, with a reason; a manager approves over the staff limit) — never a price change.
+  // Units held for paid online orders (lib/held-stock): selling into them takes a manager's PIN, asked for before the
+  // payment (CheckoutHub) and checked again when the sale is saved.
+  const [heldApproval, setHeldApprovalState] = useState<{ token: string; by: string } | null>(null);
+  const heldApprovalRef = useRef<{ token: string; by: string } | null>(null);
+  const setHeldApproval = useCallback((v: { token: string; by: string } | null) => { heldApprovalRef.current = v; setHeldApprovalState(v); }, []);
   const [staffDiscount, setStaffDiscount] = useState<{ kind: 'pct' | 'amt'; value: number; reason: string; approvalToken?: string | null; approvedBy?: string | null } | null>(null);
   const staffDiscountValue = useMemo(() => !staffDiscount ? 0 : Math.round(Math.min(subtotalCalc, staffDiscount.kind === 'pct' ? subtotalCalc * (safeNumber(staffDiscount.value) / 100) : safeNumber(staffDiscount.value)) * 100) / 100, [staffDiscount, subtotalCalc]);
   const codeDiscountRaw = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0)), [appliedDiscountCodes, discounts, subtotalCalc]);
@@ -1140,6 +1148,7 @@ export function usePosEngine() {
     tipAllocations: paymentData?.tipOverride !== undefined ? ((paymentData as any)?.tipAllocationsOverride || {}) : tipAllocations, tip: paymentData?.tipOverride !== undefined ? safeNumber(paymentData.tipOverride) : tipAmount, storeCredit: storeCreditApplied, creditAtPayment: true, giftCards: giftApplied.map((g) => ({ id: g.id, cents: g.cents, holdId: giftHoldRef.current })),
     skipGroupDiscount, skipMomentReward, skipMemberDiscount,
     staffDiscount: staffDiscount ? { kind: staffDiscount.kind, value: staffDiscount.value, reason: staffDiscount.reason, approvalToken: staffDiscount.approvalToken || null } : null,
+    heldStock: heldApprovalRef.current ? { approvalToken: heldApprovalRef.current.token } : null,
     recovery: { amount: safeNumber(paymentData?.recoveryAmount), reason: paymentData?.recoveryReason || '', approvalToken: paymentData?.recoveryApprovalToken || recoveryApprovalRef.current || null },
     payment: { method: paymentData?.paymentMethod || 'card', amountTendered: safeNumber(paymentData?.amountTendered), stripePaymentIntentId: paymentData?.stripePaymentIntentId || null, cardSurcharge: safeNumber(paymentData?.cardSurcharge), skipLedger: paymentData?.skipLedger === true },
     tillId: paymentTab === 'cash' && activeTill ? activeTill.id : null,
@@ -1204,7 +1213,7 @@ export function usePosEngine() {
     toast({ title: out.already ? 'Already recorded' : 'Checkout successful', description: out.already ? 'This sale was already saved — nothing was added twice.' : undefined });
     if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(payload.expectedTotal).toFixed(2)}) — it’s flagged on the receipt for review.` });
     for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
-    pendingIdRef.current = null; lastCheckoutRef.current = null; lastTicketRef.current = null; setTicketPaid(null);
+    pendingIdRef.current = null; lastCheckoutRef.current = null; lastTicketRef.current = null; setTicketPaid(null); setHeldApproval(null);
     { const payer: any = (clients || []).find((c: any) => c.id === payload.clientId) || {}; const firstVisit = readyForCheckoutAppointments.find((a: any) => (payload.appointmentIds || []).includes(a.appointment.id));
       const tendered = safeNumber(payload.payment?.amountTendered); const collected = safeNumber(out.collected ?? out.total);
       setLastSale({ giftCards: Array.isArray(out.giftCards) ? out.giftCards : [], receiptId: out.receiptId || null, total: safeNumber(out.total), collected, depositUsed: safeNumber(out.depositUsed), method: payload.payment?.method === 'cash' ? 'cash' : payload.payment?.method === 'other' ? 'other' : 'card',
@@ -1222,8 +1231,11 @@ export function usePosEngine() {
     sendingRef.current = true;
     try {
       const auth = await staffAuthHeader();
-      const res = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(payload) });
+      // A manager's approval to sell held units given since this sale was first sent ("Save again") goes with it.
+      const send = heldApprovalRef.current && !payload.heldStock?.approvalToken ? { ...payload, heldStock: { approvalToken: heldApprovalRef.current.token } } : payload;
+      const res = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(send) });
       const out = await res.json().catch(() => ({}));
+      if (out?.code === 'held_stock') { setHeldApproval(null); toast({ variant: 'destructive', duration: 30000, title: 'A manager needs to approve this', description: out.error }); if (!charged) return false; throw new Error(out.error || 'Units held for online orders need a manager.'); }
       // Already paid another way (on this ticket, or on another screen): nothing was recorded, and the desk saves that
       // sale as it was paid.
       if (out?.code === 'ticket_paid' && out.paidWith) {
@@ -1587,7 +1599,7 @@ export function usePosEngine() {
     // Today's list first; an older sale is read on its own, so its reversal is never skipped.
     let originalTx: any = transactions?.find(t => t.id === txId);
     if (!originalTx) { try { const snap = await getDoc(txRef); if (snap.exists()) originalTx = { id: snap.id, ...(snap.data() as any) }; } catch { /* reversal needs the original */ } }
-    if (originalTx) batch.set(reversalRef, sanitizeForFirestore({ id: reversalRef.id, date: new Date().toISOString(), description: `VOID: ${originalTx.description}`, clientOrVendor: originalTx.clientOrVendor, clientId: originalTx.clientId, type: originalTx.type === 'income' ? 'expense' : 'income', context: 'Business', category: 'Void', taxBucket: 'refund', amount: originalTx.amount, paymentMethod: originalTx.paymentMethod, voidOf: txId, notes: reason, hasReceipt: false, tenantId }));
+    if (originalTx) batch.set(reversalRef, sanitizeForFirestore({ id: reversalRef.id, date: new Date().toISOString(), description: `VOID: ${originalTx.description}`, clientOrVendor: originalTx.clientOrVendor, clientId: originalTx.clientId, type: originalTx.type === 'income' ? 'expense' : 'income', context: 'Business', category: 'Void', taxBucket: 'refund', amount: originalTx.amount, paymentMethod: originalTx.paymentMethod, voidOf: txId, voidType: originalTx.type || null, voidCategory: originalTx.category || null, voidTaxBucket: (originalTx as any).taxBucket || null, notes: reason, hasReceipt: false, tenantId }));
     await batch.commit();
     toast({ title: 'Transaction Voided', description: `Reversal recorded. Authorized by ${authorizer.data().name}.` });
     setIsVoidDialogOpen(false); setVoidTransactionId(null);
@@ -1618,9 +1630,11 @@ export function usePosEngine() {
   const addProductChecked = useCallback((item: any) => {
     const inCart = (retailItems || []).find((i: any) => i.id === item.id)?.quantity || 0;
     const left = onHand(item) - inCart;
+    const heldN = Math.max(0, Math.round(Number(item.stockReserved) || 0));
     handleAddToCart(item);
     if (item.type === 'retail' || item.msrp) {
-      if (left <= 0) toast({ variant: 'destructive', title: `${item.name} added`, description: 'None on the shelf on record — check the shelf, and receive stock if it’s there.' });
+      if (left <= 0 && heldN > 0 && (Number(item.totalStock) || 0) > inCart) toast({ variant: 'destructive', title: `${item.name} added`, description: `The ${heldN === 1 ? 'one' : heldN} left on the shelf ${heldN === 1 ? 'is' : 'are'} held for paid online orders. A manager approves selling ${heldN === 1 ? 'it' : 'them'} at checkout.` });
+      else if (left <= 0) toast({ variant: 'destructive', title: `${item.name} added`, description: 'None on the shelf on record — check the shelf, and receive stock if it’s there.' });
       else if (left <= 2) toast({ title: `${item.name} added`, description: `Only ${left - 1 <= 0 ? 'this one' : `${left - 1} more`} on the shelf after this.` });
       else toast({ title: `${item.name} added` });
     }
@@ -1652,6 +1666,7 @@ export function usePosEngine() {
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
     onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
+    heldShort: heldShortfall(retailItems, inventory || []) as HeldShort[], heldApproval, setHeldApproval,
     ticketPaid, setTicketPaid, getTicketPaid: () => ticketPaidRef.current, getTicket: () => lastTicketRef.current, savePaidSale, otherPaid, saveOtherPaidSale,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue, discountBreakdown,

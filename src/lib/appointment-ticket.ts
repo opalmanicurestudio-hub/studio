@@ -41,6 +41,7 @@
 
 import { qrSvg, code128Svg } from '@/lib/scan-codes';
 import { openPrintable } from '@/lib/tour-printouts';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 /* ── The shapes this file reads ──────────────────────────────────────────── */
 
@@ -111,7 +112,7 @@ export interface TicketContext {
 
   /** Extra line in the footer, e.g. a tagline or a cancellation policy. */
   footerNote?: string | null;
-  /** The business's brand colour (Studio look accents) and logo. */
+  /** The business's brand color (Studio look accents) and logo. */
   accent?: string | null;
   logoUrl?: string | null;
   /** 'letter' (default: studio copy + guest stub on one page) or 'receipt' (80 mm thermal: the guest stub alone). */
@@ -272,7 +273,7 @@ function pills(items: (string | null | undefined)[]): string {
 }
 
 /**
- * The code block. Falls back to plain monospace text when a code cannot be
+ * The code block. Falls back to the code as large plain text when it cannot be
  * encoded, so a ticket is still usable rather than showing a blank gap — both
  * qrSvg and code128Svg return an empty string instead of emitting a symbol they
  * cannot encode correctly.
@@ -303,7 +304,7 @@ function codeBlock(svg: string, human: string, caption: string, note: string): s
  */
 export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext = {}): string {
   const studioName = String(ctx.studioName ?? '').trim() || 'Studio';
-  const accent = /^#[0-9a-fA-F]{3,8}$|^(rgb|hsl)a?\([^)]*\)$/.test(String(ctx.accent || '').trim()) ? String(ctx.accent).trim() : '#1c1917';   // only a real colour reaches the CSS
+  const accent = /^#[0-9a-fA-F]{3,8}$|^(rgb|hsl)a?\([^)]*\)$/.test(String(ctx.accent || '').trim()) ? String(ctx.accent).trim() : '#1c1917';   // only a real color reaches the CSS
   const logo = /^https:\/\//.test(String(ctx.logoUrl || '')) ? String(ctx.logoUrl) : '';
   const receipt = ctx.size === 'receipt';
   const clientName =
@@ -397,16 +398,16 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" />
+<link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="stylesheet" href="${PRINT_FONT_HREF}" />
 <title>${esc(`Ticket · ${clientName}`)}</title>
 <style>
-  /* THE STUDIO LOOK — warm paper, Plus Jakarta Sans, soft rounded cards, the business's own colour.
+  /* The app's print look (lib/print-style): Plus Jakarta Sans, light headings, sentence-case labels in grey, thin
+     lines, soft rounded panels, tabular figures, and only a whisper of the business's own color in the top band.
      The QR and the barcode are never tinted or resized: that's what keeps them scanning. */
-  :root { --ink:#16171a; --muted:#6d7075; --soft:#9a9ca1; --line:#ececee; --wash:#f5f5f7; --paper:#ffffff; --accent:${accent}; }
+  :root { --ink:#16171a; --body:#45474c; --muted:#6d7075; --soft:#9a9ca1; --line:#ececee; --wash:#f5f5f7; --paper:#ffffff; --accent:${accent}; }
   * { box-sizing:border-box; }
-  html, body { margin:0; padding:0; background:var(--paper); color:var(--ink);
-    font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  html, body { margin:0; padding:0; background:var(--paper); color:var(--ink); font-family:${PRINT_FONT_STACK}; font-weight:400;
+    font-variant-numeric:tabular-nums; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .toolbar { position:sticky; top:0; z-index:5; display:flex; gap:8px; justify-content:center; padding:14px;
     background:rgba(250,248,245,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
   .toolbar button { font:inherit; font-weight:600; font-size:14px; color:#fff; background:var(--accent); border:0; border-radius:999px;
@@ -414,59 +415,57 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
   .toolbar button.secondary { background:#fff; color:var(--ink); border:1px solid var(--line); }
 
   .sheet { max-width:720px; margin:24px auto; }
-  .ticket { background:#fff; border:1px solid var(--line); border-radius:28px; overflow:hidden; box-shadow:0 18px 50px -24px rgba(28,25,23,.25); }
+  .ticket { background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; box-shadow:0 18px 50px -24px rgba(28,25,23,.25); }
 
-  .band { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 24px;
-    background:color-mix(in srgb, var(--accent) 9%, #fff); border-bottom:1px solid var(--line); }
-  .band .who { display:flex; align-items:center; gap:10px; font-size:15px; font-weight:700; letter-spacing:-.01em; min-width:0; flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .band { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 22px;
+    background:color-mix(in srgb, var(--accent) 6%, #fff); border-bottom:1px solid var(--line); }
+  .band .who { display:flex; align-items:center; gap:10px; font-size:13px; font-weight:600; min-width:0; flex:1 1 auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .band .who img { max-height:30px; max-width:140px; object-fit:contain; }
-  .band .st { font-size:12px; font-weight:600; color:var(--accent); background:#fff; border:1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
-    border-radius:999px; padding:5px 12px; white-space:nowrap; }
+  .band .st { font-size:11.5px; font-weight:500; color:var(--body); background:#fff; border-radius:999px; padding:4px 11px; white-space:nowrap; }
 
-  .body { padding:24px 26px 26px; }
-  .eyebrow { font-size:11px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin:0 0 6px; }
-  h1 { font-size:30px; line-height:1.08; letter-spacing:-.025em; margin:0 0 4px; font-weight:700; }
-  .svc { font-size:16px; font-weight:500; color:var(--muted); margin:0; }
+  .body { padding:22px 24px 24px; }
+  .eyebrow { font-size:11.5px; font-weight:500; color:var(--muted); margin:0 0 4px; }
+  h1 { font-size:30px; line-height:1.1; letter-spacing:-.02em; margin:0 0 4px; font-weight:300; }
+  .svc { font-size:15px; font-weight:400; color:var(--muted); margin:0; }
 
-  .when { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; background:var(--wash); border-radius:18px; padding:14px 18px; margin:20px 0 4px; }
-  .when .d { font-size:14px; font-weight:600; color:var(--muted); width:100%; }
-  .when .t { font-size:26px; font-weight:700; letter-spacing:-.02em; white-space:nowrap; }
-  .when .dur { font-size:12px; font-weight:600; color:var(--muted); }
+  .when { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 14px; background:var(--wash); border-radius:14px; padding:14px 18px; margin:18px 0 4px; }
+  .when .d { font-size:12.5px; font-weight:500; color:var(--muted); width:100%; }
+  .when .t { font-size:26px; font-weight:300; letter-spacing:-.02em; white-space:nowrap; }
+  .when .dur { font-size:12px; font-weight:500; color:var(--muted); }
 
-  .fields { display:grid; grid-template-columns:1fr 1fr; gap:0 26px; margin:14px 0 0; }
-  .f { border-bottom:1px solid var(--line); padding:10px 0; min-width:0; }
-  .k { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--soft); }
-  .v { font-size:15px; font-weight:600; margin-top:2px; overflow-wrap:break-word; }
+  .fields { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; margin:12px 0 0; }
+  .f { border-bottom:1px solid var(--line); padding:9px 0; min-width:0; }
+  .k { font-size:11px; font-weight:500; color:var(--muted); }
+  .v { font-size:14px; font-weight:500; margin-top:1px; overflow-wrap:break-word; }
 
-  h2 { font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--accent); margin:22px 0 8px; }
-  .pill { display:inline-block; background:var(--wash); border-radius:999px; padding:5px 12px; font-size:12px; font-weight:600; margin:0 6px 6px 0; }
-  .note { background:var(--paper); border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:14px; padding:11px 13px;
-    font-size:13px; line-height:1.5; color:var(--muted); white-space:pre-wrap; overflow-wrap:break-word; }
+  h2 { font-size:13px; font-weight:600; color:var(--ink); margin:20px 0 8px; }
+  .pill { display:inline-block; background:var(--wash); color:var(--body); border-radius:999px; padding:4px 11px; font-size:11.5px; font-weight:500; margin:0 6px 6px 0; }
+  .note { margin:0; background:var(--wash); border-radius:12px; padding:10px 13px;
+    font-size:12.5px; line-height:1.55; color:var(--body); white-space:pre-wrap; overflow-wrap:break-word; }
   ul.amen { list-style:none; margin:0; padding:0; }
-  ul.amen li { display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom:1px solid var(--line); padding:7px 0; font-size:13px; font-weight:600; }
-  .tag { font-size:11px; font-weight:600; color:var(--muted); background:var(--wash); border-radius:999px; padding:3px 9px; white-space:nowrap; }
+  ul.amen li { display:flex; align-items:center; justify-content:space-between; gap:10px; border-bottom:1px solid var(--line); padding:7px 0; font-size:13px; font-weight:400; }
+  .tag { font-size:11px; font-weight:500; color:var(--body); background:var(--wash); border-radius:999px; padding:3px 9px; white-space:nowrap; }
 
   .code { display:flex; align-items:center; gap:16px; margin-top:10px; }
   .art { flex:0 0 auto; line-height:0; background:#fff; }
   .art svg { display:block; }
   .art-empty { line-height:1.2; }
   .code-txt { min-width:0; }
-  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:17px; font-weight:700; letter-spacing:.16em; margin-top:3px; overflow-wrap:break-word; }
-  .mono-big { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:22px; font-weight:700; letter-spacing:.14em; }
-  .hint { font-size:12px; color:var(--muted); margin-top:4px; line-height:1.45; }
+  .mono { font-size:17px; font-weight:500; letter-spacing:.06em; margin-top:2px; overflow-wrap:break-word; }
+  .mono-big { font-size:22px; font-weight:500; letter-spacing:.06em; }
+  .hint { font-size:11.5px; color:var(--muted); margin-top:4px; line-height:1.5; }
 
-  .tear { display:flex; align-items:center; gap:10px; margin:0 0 10px; padding:0 6px; color:var(--soft); font-size:11px; font-weight:600;
-    letter-spacing:.12em; line-height:1.6; text-transform:uppercase; }
-  .tear .ln { flex:1 1 auto; border-top:2px dashed var(--line); }
+  .tear { display:flex; align-items:center; gap:10px; margin:0 0 10px; padding:0 6px; color:var(--soft); font-size:11px; font-weight:400; line-height:1.6; }
+  .tear .ln { flex:1 1 auto; border-top:1.5px dashed #c9cacd; }
   .stub-wrap { margin-top:18px; }
 
-  .stub { background:#fff; border:2px dashed color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius:24px; padding:20px 22px; display:flex; gap:20px; align-items:center; }
+  .stub { background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px 20px; display:flex; gap:20px; align-items:center; }
   .stub .left { flex:1 1 auto; min-width:0; }
   .stub .right { flex:0 0 auto; text-align:center; }
-  .stub h3 { font-size:22px; letter-spacing:-.02em; margin:2px 0 2px; font-weight:700; }
-  .stub .meta { font-size:13px; color:var(--muted); font-weight:500; }
-  .stub .big-code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:28px; font-weight:700; letter-spacing:.24em; margin:10px 0 2px; color:var(--ink); }
-  .stub .url { font-size:11px; color:var(--soft); overflow-wrap:break-word; }
+  .stub h3 { font-size:22px; letter-spacing:-.02em; margin:2px 0; font-weight:300; }
+  .stub .meta { font-size:12.5px; color:var(--muted); font-weight:400; }
+  .stub .big-code { font-size:28px; font-weight:400; letter-spacing:.08em; margin:10px 0 2px; color:var(--ink); }
+  .stub .url { font-size:11px; color:var(--muted); line-height:1.5; overflow-wrap:break-word; }
 
   .foot { margin:14px 4px 0; font-size:11px; color:var(--soft); text-align:center; }
 
@@ -474,11 +473,12 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
     .sheet { margin:14px 12px; } .body { padding:20px 18px 22px; } h1 { font-size:25px; } .fields { grid-template-columns:1fr; }
     .code { flex-direction:column; align-items:flex-start; } .stub { flex-direction:column; align-items:flex-start; } .stub .right { text-align:left; }
   }
-  /* RECEIPT PRINTER (80 mm): the guest stub on its own, one narrow column, no tints (thermal paper is black on white). */
-  body.receipt .sheet { max-width:300px; margin:12px auto; }
+  /* RECEIPT PRINTER (80 mm): the guest stub on its own, one narrow column, solid black ink and no tints (thermal paper
+     can't print grey). */
+  body.receipt .sheet { max-width:300px; margin:12px auto; --ink:#000; --body:#000; --muted:#000; --soft:#000; }
   body.receipt .ticket, body.receipt .tear { display:none; }
   body.receipt .stub-wrap { margin:0; }
-  body.receipt .stub { flex-direction:column; align-items:center; text-align:center; border-radius:18px; padding:16px 14px; gap:10px; }
+  body.receipt .stub { flex-direction:column; align-items:center; text-align:center; border-radius:14px; padding:16px 14px; gap:10px; }
   body.receipt .stub .right { text-align:center; }
   body.receipt .band-mini { display:flex !important; }
   body.receipt .stub .eyebrow { display:none; }   /* the business name is already at the top */
@@ -486,7 +486,7 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
   @media print {
     body { background:#fff; } .toolbar { display:none; }
     .sheet { max-width:none; margin:0; }
-    .ticket { box-shadow:none; border-radius:20px; break-inside:avoid; page-break-inside:avoid; }
+    .ticket { box-shadow:none; border-radius:16px; break-inside:avoid; page-break-inside:avoid; }
     .stub { break-inside:avoid; page-break-inside:avoid; padding:15px 18px; }
     .stub-wrap { margin-top:8px; } .tear { margin:0 0 7px; }
     .band { padding:11px 20px; } .body { padding:16px 20px 18px; } h1 { font-size:26px; } h2 { margin:13px 0 6px; }
@@ -499,7 +499,7 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
   }
   @page receipt { size:80mm auto; margin:3mm; }
   body.receipt { page:receipt; }
-  .band-mini { display:none; flex-direction:column; align-items:center; gap:6px; margin-bottom:6px; font-size:14px; font-weight:700; }
+  .band-mini { display:none; flex-direction:column; align-items:center; gap:6px; margin-bottom:6px; font-size:14px; font-weight:600; }
   .band-mini img { max-height:34px; max-width:180px; object-fit:contain; }
 </style></head>
 <body class="${receipt ? 'receipt' : ''}">

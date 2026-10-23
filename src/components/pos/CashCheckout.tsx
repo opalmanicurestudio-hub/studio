@@ -7,8 +7,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Icon } from '@/components/pos/desk/kit';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
-const esc = (v: any) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+const esc =(v: any) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 const BILLS = [1, 5, 10, 20, 50, 100];
 
@@ -162,19 +163,22 @@ export function CashCheckout({
     const r = buildReceiptPayload();
     const win = window.open('', '_blank', 'width=340,height=700');
     if (!win) { window.print(); return; }
-    win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
+    // A narrow receipt in the app's print look (lib/print-style), kept to solid black ink so it also prints cleanly
+    // on a thermal receipt printer: hierarchy comes from weight and size, never from grey.
+    win.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Receipt</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com"><link href="${PRINT_FONT_HREF}" rel="stylesheet">
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Courier New', monospace; font-size: 13px; padding: 20px 16px; max-width: 300px; margin: 0 auto; }
-        h1 { font-size: 16px; text-align: center; font-weight: bold; margin-bottom: 2px; }
-        .sub { text-align: center; color: #666; font-size: 11px; margin-bottom: 14px; }
-        hr { border: none; border-top: 1px dashed #bbb; margin: 10px 0; }
-        .row { display: flex; justify-content: space-between; margin: 4px 0; }
-        .muted { color: #555; }
-        .bold { font-weight: bold; }
-        .total { font-size: 15px; font-weight: bold; border-top: 1px solid #000; padding-top: 8px; margin-top: 6px; }
-        .green { color: #2d6a0f; }
-        .footer { text-align: center; margin-top: 20px; color: #666; font-size: 11px; line-height: 2; }
+        body { font-family: ${PRINT_FONT_STACK}; font-size: 12.5px; line-height: 1.45; font-weight: 400; color: #000; background: #fff; font-variant-numeric: tabular-nums; padding: 20px 16px; max-width: 300px; margin: 0 auto; }
+        h1 { font-size: 15px; text-align: center; font-weight: 600; margin-bottom: 3px; }
+        .sub { text-align: center; font-size: 11px; line-height: 1.6; margin-bottom: 12px; }
+        hr { border: none; border-top: 1px dashed #000; margin: 10px 0; }
+        .row { display: flex; justify-content: space-between; gap: 12px; margin: 3px 0; }
+        .row span:last-child { white-space: nowrap; }
+        .muted { font-size: 12px; }
+        .bold { font-weight: 600; }
+        .total { font-size: 14px; font-weight: 600; border-top: 1px solid #000; padding-top: 7px; margin-top: 6px; }
+        .footer { text-align: center; margin-top: 18px; font-size: 11px; line-height: 1.8; }
         @media print { body { padding: 0; } }
       </style></head><body>
       <h1>${esc(r.studioName)}</h1>
@@ -187,10 +191,10 @@ export function CashCheckout({
       ${r.recovery > 0 ? `<div class="row muted"><span>Service adjustment</span><span>-$${r.recovery.toFixed(2)}</span></div>` : ''}
       <div class="row muted"><span>${esc(taxLabel)}</span><span>$${r.tax.toFixed(2)}</span></div>
       ${r.tip > 0 ? `<div class="row muted"><span>Tip</span><span>$${r.tip.toFixed(2)}</span></div>` : ''}
-      <div class="row total"><span>TOTAL</span><span>$${r.total.toFixed(2)}</span></div>
+      <div class="row total"><span>Total</span><span>$${r.total.toFixed(2)}</span></div>
       <hr>
       <div class="row bold"><span>Cash tendered</span><span>$${r.tendered.toFixed(2)}</span></div>
-      ${r.change > 0.005 ? `<div class="row green bold"><span>Change returned</span><span>$${r.change.toFixed(2)}</span></div>` : ''}
+      ${r.change > 0.005 ? `<div class="row bold"><span>Change returned</span><span>$${r.change.toFixed(2)}</span></div>` : ''}
       <div class="footer">Thank you, ${esc(r.clientName.split(' ')[0])}.${r.studioPhone ? `<br>${esc(r.studioPhone)}` : ''}</div>
       </body></html>`);
     win.document.close();

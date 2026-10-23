@@ -38,7 +38,7 @@ const T = 'tenants/t1';
   r = await restoreNonCardPayment(db, 't1', 'paid', 'Nightly check');
   check('…once', r.creditCents === 0 && (await credits()).length === 1);
   const books = (await db.collection(`${T}/transactions`).get()).docs.map((d: any) => d.data());
-  check('…and the books show it as a refund, since the sale was booked through the card payment', books.length === 1 && books[0].category === 'Refund' && books[0].amount === 25 && books[0].paymentMethod === 'Store credit', books);
+  check('…and the books show it as a refund, since the sale was booked through the card payment', books.length === 1 && books[0].category === 'Refunds' && books[0].amount === 25 && books[0].paymentMethod === 'Store credit', books);
 
   await db.doc(`${T}/retailOrders/short`).set({ ...base, paidAt: '2026-10-20T15:00:00Z', storeCreditRequestedCents: 2500, creditShortfallCents: 500 });
   await took('short', { creditCents: 2000 });
@@ -154,9 +154,11 @@ const T = 'tenants/t1';
   sp = await GC.spendGiftCard(db, 't1', { id: 'g9', cents: 1500, holdId: 'retail_sp', by: 'Online shop', transactionRef: 'cs_sp', record: recRef });
   check('…and spending it again for the same order (a retry) takes nothing more', sp.ok && sp.already === true && (await get(`${T}/giftCards/g9`)).balanceCents === 3500 && (await get(`${T}/giftCards/g9`)).history.length === 1, sp);
   const fsMod = await import('fs');
-  const shopSpends = ['src/lib/retail-webhook.ts', 'src/app/api/retail/checkout/route.ts'].flatMap((f) => [...fsMod.readFileSync(f, 'utf8').matchAll(/spendGiftCard\([^;]*\)/g)].map((m) => m[0]));
-  check('the online shop’s two gift card spends (with a card payment, and paid all by gift card) both write it down in the same step',
-    shopSpends.length === 2 && shopSpends.every((x) => /record: nonCardRecordRef\(db, tenantId, orderId\)/.test(x)), shopSpends);
+  const paidSrc = fsMod.readFileSync('src/lib/order-paid.ts', 'utf8');
+  const hookSrc = fsMod.readFileSync('src/lib/retail-webhook.ts', 'utf8'); const coSrc = fsMod.readFileSync('src/app/api/retail/checkout/route.ts', 'utf8');
+  check('the online shop’s two gift card spends (with a card payment, and paid all by gift card) both go through the one paid step, which writes it down in the same step',
+    /payOrder\(/.test(hookSrc) && /payOrder\(db, tenantId, orderId, \{ via: 'gift_card'/.test(coSrc) && !/spendGiftCard\(/.test(hookSrc + coSrc)
+    && /giftSpendPlan\(/.test(paidSrc) && /tx\.set\(recordRef/.test(paidSrc));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

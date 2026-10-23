@@ -462,7 +462,7 @@ const buildTimelineEvents = (opts: {
     const isCancellationFeeTxn = String(t.category || '').toLowerCase().includes('cancellation');
     if (isCancellationFeeTxn && chargeOutcomeKnown) return;
     push(t.date || t.createdAt, DollarSign, t.description || t.category || 'Transaction',
-      `${t.type === 'income' ? '+' : (t.type === 'refund' || t.type === 'reversal') ? '−' : ''}$${Math.abs(safeNumber(t.amount)).toFixed(2)}`);
+      `${t.type === 'income' ? '+' : (t.type === 'refund' || t.type === 'reversal' || t.category === 'Refunds') ? '−' : ''}$${Math.abs(safeNumber(t.amount)).toFixed(2)}`);
   });
 
   return events
@@ -1157,8 +1157,8 @@ const CancellationRecord = ({
                   <History className="w-3 h-3 text-muted-foreground opacity-40 shrink-0" />
                   <span className="text-[12px] font-bold tracking-tight text-foreground/80 truncate">{String(t.description || t.category || 'Transaction')}</span>
                 </div>
-                <span className={cn('text-[12px] font-semibold font-mono shrink-0 ml-2', t.type === 'income' ? 'text-green-600' : t.type === 'refund' || t.type === 'reversal' ? 'text-muted-foreground' : t.type === 'store_credit_issued' ? 'text-primary' : 'text-amber-600')}>
-                  {t.type === 'income' ? '+' : t.type === 'refund' || t.type === 'reversal' ? '−' : ''}${Math.abs(safeNumber(t.amount)).toFixed(2)}
+                <span className={cn('text-[12px] font-semibold font-mono shrink-0 ml-2', t.type === 'income' ? 'text-green-600' : t.type === 'refund' || t.type === 'reversal' || t.category === 'Refunds' ? 'text-muted-foreground' : t.type === 'store_credit_issued' ? 'text-primary' : 'text-amber-600')}>
+                  {t.type === 'income' ? '+' : t.type === 'refund' || t.type === 'reversal' || t.category === 'Refunds' ? '−' : ''}${Math.abs(safeNumber(t.amount)).toFixed(2)}
                 </span>
               </div>
             ))}
@@ -1950,7 +1950,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   }, [service, consentForms, signedConsents, appointment?.signedForms, (appointment as any)?.requiredFormIds, client]);
 
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
-  const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(appointment?.clientId, client?.email, tenantId, true);
+  const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(appointment?.clientId, client?.email, tenantId, true, appointment?.id);
   const cardSecured = !!(appointment?.cardOnFileSecured || hasRealCard(client));
   const depositOwedCents = safeNumber(appointment?.depositAmountCents);
   const depositUnpaid = depositOwedCents > 0 && appointment?.depositStatus !== 'paid' && !hasLiveDeposit && !isLoadingLiveDeposit;

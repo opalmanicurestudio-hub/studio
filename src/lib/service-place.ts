@@ -1,7 +1,7 @@
 // src/lib/service-place.ts — WHERE / HOW A SERVICE HAPPENS.
 //   studio → "In person" (at your business — the default)
 //   online → "Video call" (a meeting link; a booking can have its own)
-//   phone  → "Phone call" (we call them, or they call us)
+//   phone  → "Phone call" (we call them, or they call the studio)
 //   client → "At the client's location" (mobile — you go to them)
 // One source for the words every message and the visit link use, so remote and
 // mobile visits are never told to "check in when you arrive". Pure.
@@ -54,7 +54,7 @@ export function placeLine(svc: any, clientAddress?: string | null, appt?: any, o
   // The link goes LAST, with nothing after it — a full stop right after a link breaks it in some text apps.
   if (p.kind === 'online') return p.meetingLink ? `This is a video call${tz ? ` (times are in ${tz})` : ''} — join here: ${p.meetingLink}` : `This is a video call — we’ll send your link before it starts.${zone}`;
   if (p.kind === 'phone') return (p.phoneWho === 'they_call'
-    ? `This is a phone call — please call us${opts.businessPhone ? ` at ${opts.businessPhone}` : ''} at your appointment time.`
+    ? `This is a phone appointment. Please call ${opts.businessPhone || 'the studio'} at your appointment time.`
     : `This is a phone call — we’ll call you on ${tail4(opts.clientPhone)} at your appointment time.`) + zone;
   if (p.kind === 'client') return clientAddress ? `We’ll come to you at ${clientAddress}.` : 'We’ll come to you — we’ll confirm your address before your appointment.';
   return null;

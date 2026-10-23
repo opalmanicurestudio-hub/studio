@@ -14,7 +14,6 @@ import {
 import Stripe from 'stripe';
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { nanoid } from 'nanoid';
-import { makeQrToken, sendOrderConfirmation } from '@/lib/retail-webhook';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
 import { resolveVariantProductId } from '@/lib/retail-orders';
 import { shipPromiseAt } from '@/lib/retail-orders';
@@ -747,14 +746,14 @@ async function handleCheckout(req: NextRequest) {
     && normalizeEmail(String(cs.e || '')) === normalizeEmail(String(customerEmail));
   if (creditProven) {
     try {
+      // Store credit only, from what's left on it (lib/credit-pools): a deposit paid for a booking isn't the
+      // customer's to spend in the shop.
       const credSnap = await db.collection(`tenants/${tenantId}/depositCredits`)
         .where('clientEmail', '==', customerEmail)
         .where('status', '==', 'available')
-        .limit(25).get();
-      const rawAvailable = credSnap.docs.reduce((a: number, d: any) => {
-        const c = d.data();
-        return a + Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
-      }, 0);
+        .limit(40).get();
+      const { storeCreditBalance } = await import('@/lib/credit-pools');
+      const rawAvailable = storeCreditBalance(credSnap.docs.map((d: any) => d.data() || {}));
       // Partial redemption: the customer may cap how much of their credit
       // this order spends. The cap only ever LOWERS what applies — the server
       // still enforces the real balance, so no amount typed on the page can
@@ -765,105 +764,22 @@ async function handleCheckout(req: NextRequest) {
       const chargeable = subtotalCents - promoCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
 
       // ── FULL-CREDIT, ZERO-CHARGE PATH ────────────────────────────────────
-      // When credit covers the ENTIRE total, Stripe has nothing to collect —
-      // its 50¢ minimum made full redemption impossible. So we skip Stripe
-      // entirely: one atomic transaction re-verifies the credit, mints the
-      // order number, reserves stock, burns the credits FIFO, and flips the
-      // order straight to paid — the same work the webhook does after a card
-      // payment, but atomic here because no third party sits in the middle.
-      // Only on flat/no-tax tenants: with Stripe Tax the true total isn't
-      // known until session time, and guessing tax on a money path is how
-      // books start lying. If a racing checkout shrank the credit, the
-      // transaction reports it and we fall through to the normal card path.
-      // No income/deposit entry is written: no cash moved today — the cash
-      // story lives with the original credit issuance; the credit docs and
-      // the order's event trail carry the redemption.
+      // When credit covers the ENTIRE total, Stripe has nothing to collect — its 50¢ minimum made full redemption
+      // impossible. So Stripe is skipped: the order becomes paid in the same one step a card payment does
+      // (lib/order-paid), with the credit taken from what's left on it, oldest first, and the sale, its shipping and
+      // its tax in the books (store credit pays for a sale; it doesn't make it smaller). If a racing checkout spent
+      // the credit meanwhile, nothing is written and the card path below takes over. Only on flat/no-tax shops: with
+      // Stripe Tax the true total isn't known until the payment page.
       if (!stripeTax && chargeable > 0 && available >= chargeable) {
-        const zeroChargeOk = await db.runTransaction(async (txn: any) => {
-          const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
-          const credRefs = credSnap.docs.map((d: any) => d.ref);
-          const [freshOrder, counterSnap, ...credFresh] = await Promise.all([
-            txn.get(orderRef), txn.get(counterRef), ...credRefs.map((r: any) => txn.get(r)),
-          ]);
-          if (!freshOrder.exists) return false;
-          const creditDocs = credFresh
-            .map((c: any, i: number) => ({ ref: credRefs[i], ...(c.exists ? c.data() : {}) }))
-            .filter((c: any) => c.status === 'available')
-            .sort((a: any, b: any) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-          const liveAvailable = creditDocs.reduce((a: number, c: any) =>
-            a + Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0)), 0);
-          if (liveAvailable < chargeable) return false; // racing spend — card path takes over
-
-          const itemRefs = lines.map((l: any) => db.collection(`tenants/${tenantId}/inventory`).doc(l.productId));
-          const itemSnaps = await Promise.all(itemRefs.map((r: any) => txn.get(r)));
-
-          const assignedNumber = ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
-          txn.set(counterRef, { value: assignedNumber }, { merge: true });
-          // As a card payment does (lib/retail-webhook): shelf items are held, adding up two lines of one item, and a
-          // pre-order takes a place in its run rather than shelf stock that doesn't exist yet.
-          const addHeld = new Map<string, number>(); const addRun = new Map<string, number>();
-          itemSnaps.forEach((snap: any, i: number) => {
-            if (!snap.exists) return;
-            if (lines[i].digital === true) return;
-            const pid = String(lines[i].productId); const q = Number(lines[i].qtyOrdered) || 0;
-            if (lines[i].preorder === true) { txn.update(itemRefs[i], { preorderSold: Math.max(0, Math.floor(Number(snap.data().preorderSold) || 0)) + (addRun.get(pid) || 0) + q }); addRun.set(pid, (addRun.get(pid) || 0) + q); return; }
-            txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + (addHeld.get(pid) || 0) + q }); addHeld.set(pid, (addHeld.get(pid) || 0) + q);
-          });
-
-          let remaining = chargeable;
-          for (const c of creditDocs) {
-            if (remaining <= 0) break;
-            const avail = Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
-            if (avail <= 0) continue;
-            const take = Math.min(avail, remaining);
-            remaining -= take;
-            txn.set(c.ref, {
-              usedCents: (Number(c.usedCents) || 0) + take,
-              status: take >= avail ? 'used' : 'available',
-              lastUsedAt: new Date().toISOString(),
-              lastUsedOnRetailOrderId: orderId,
-            }, { merge: true });
-          }
-
-          const qrToken = makeQrToken(orderId);
-          txn.update(orderRef, {
-            // A digital-only order paid entirely with credit never touches
-            // Stripe, so the webhook that normally completes digital orders
-            // never runs. Finish it HERE or it parks on the board as work
-            // nobody can do.
-            stage: digitalOnly ? 'completed' : 'paid',
-            paidAt: new Date().toISOString(),
-            ...(digitalOnly ? { completedAt: new Date().toISOString() } : {}),
-            isDraft: false,
-            orderNumber: assignedNumber, qrToken,
-            storeCreditRequestedCents: chargeable, creditShortfallCents: remaining,
-            paidVia: 'store_credit',
-          });
-          // What it really took, where only the server writes (lib/non-card-back).
-          txn.set(db.doc(`tenants/${tenantId}/private/nonCardPaid/orders/${orderId}`), { creditCents: chargeable - remaining, at: new Date().toISOString() }, { merge: true });
-          const evRef = orderRef.collection('events').doc();
-          txn.set(evRef, {
-            id: evRef.id, type: 'paid', at: new Date().toISOString(),
-            actorId: 'system', actorName: 'Store credit',
-            meta: { text: `Paid in full with store credit \u2014 $${(chargeable / 100).toFixed(2)} redeemed, nothing charged` },
-          });
-          return true;
-        });
-
-        if (zeroChargeOk) {
-          const paidSnap = await orderRef.get();
-          const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
-          try { const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tenant, orderId, paidOrder); } catch { /* loyalty is best effort */ }
-          if (promo) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch { /* best effort */ } }
-          try {
-            await sendOrderConfirmation(db, tenantId, orderId, paidOrder, null);
-          } catch (e: any) {
-            console.error('[checkout] zero-charge receipt failed (order is paid):', e?.message);
-          }
+        const { payOrder } = await import('@/lib/order-paid');
+        const r = await payOrder(db, tenantId, orderId, { via: 'store_credit', cents: chargeable });
+        if (r.won) {
+          const { finishPaidOrder } = await import('@/lib/retail-webhook');
+          try { await finishPaidOrder(db, tenantId, orderId, null); } catch (e: any) { console.error('[checkout] after a credit-paid order (it is paid):', e?.message); }
           const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
           return NextResponse.json({
             url: `${origin}/shop/${tenantId}/order/${orderId}?paid=credit`,
-            orderId, orderNumber: (paidOrder as any).orderNumber ?? null, isDraft: false, zeroCharge: true,
+            orderId, orderNumber: r.orderNumber ?? null, isDraft: false, zeroCharge: true,
           });
         }
       }
@@ -899,48 +815,21 @@ async function handleCheckout(req: NextRequest) {
       // ── The gift card covers the WHOLE order: nothing for the card processor to collect, so skip it (its 50¢
       // minimum would otherwise leave 50¢ to pay). Any store credit is left untouched for next time. Same atomic
       // finish as the store-credit path above; flat/no-tax only, because with automatic tax the total isn't known yet.
-      const { available: giftAvail, spendGiftCard, notifyGiftUse } = await import('@/lib/gift-cards');
+      const { available: giftAvail } = await import('@/lib/gift-cards');
       if (!stripeTax && chargeable > 0 && giftAvail(g) >= chargeable) {
         const h: any = await holdGiftCard(db, tenantId, { id: g.id, holdId: `retail_${orderId}`, cents: chargeable });
         if (!h.ok) return NextResponse.json({ error: h.error || 'That gift card can’t be used right now.' }, { status: 400 });
         if (h.cents >= chargeable) {
-          const paidOk = await db.runTransaction(async (txn: any) => {
-            const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
-            const [freshOrder, counterSnap] = await Promise.all([txn.get(orderRef), txn.get(counterRef)]);
-            if (!freshOrder.exists) return false;
-            const itemRefs = lines.map((l: any) => db.collection(`tenants/${tenantId}/inventory`).doc(l.productId));
-            const itemSnaps = await Promise.all(itemRefs.map((r: any) => txn.get(r)));
-            const assignedNumber = ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
-            txn.set(counterRef, { value: assignedNumber }, { merge: true });
-            // As a card payment does (lib/retail-webhook): shelf items are held, adding up two lines of one item, and a
-            // pre-order takes a place in its run rather than shelf stock that doesn't exist yet.
-            const addHeld = new Map<string, number>(); const addRun = new Map<string, number>();
-            itemSnaps.forEach((snap: any, i: number) => { if (!snap.exists || lines[i].digital === true) return;
-              const pid = String(lines[i].productId); const q = Number(lines[i].qtyOrdered) || 0;
-              if (lines[i].preorder === true) { txn.update(itemRefs[i], { preorderSold: Math.max(0, Math.floor(Number(snap.data().preorderSold) || 0)) + (addRun.get(pid) || 0) + q }); addRun.set(pid, (addRun.get(pid) || 0) + q); return; }
-              txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + (addHeld.get(pid) || 0) + q }); addHeld.set(pid, (addHeld.get(pid) || 0) + q); });
-            const now = new Date().toISOString();
-            txn.update(orderRef, { stage: digitalOnly ? 'completed' : 'paid', paidAt: now, ...(digitalOnly ? { completedAt: now } : {}), isDraft: false,
-              orderNumber: assignedNumber, qrToken: makeQrToken(orderId), paidVia: 'gift_card', storeCreditRequestedCents: 0,
-              giftCardId: g.id, giftCardCode: g.code, giftCardCents: chargeable });
-            const evRef = orderRef.collection('events').doc();
-            txn.set(evRef, { id: evRef.id, type: 'paid', at: now, actorId: 'system', actorName: 'Gift card',
-              meta: { text: `Paid in full with gift card ${g.code} \u2014 $${(chargeable / 100).toFixed(2)} redeemed, nothing charged` } });
-            return true;
-          });
-          if (paidOk) {
-            // Written down where only the server writes, in the same step as the spend (lib/non-card-back).
-            const { nonCardRecordRef } = await import('@/lib/non-card-back');
-            const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: chargeable, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: orderId, record: nonCardRecordRef(db, tenantId, orderId) });
-            await orderRef.set(r.ok ? { giftSpentAt: new Date().toISOString() } : { giftShortfallCents: chargeable }, { merge: true });
-            if (r.ok) { if (!r.already) void notifyGiftUse(db, tenantId, g.id, chargeable).catch(() => {}); }
-            else console.error('[checkout] gift card spend after a paid order failed — needs a look:', r.error);
-            const paidSnap = await orderRef.get(); const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
-            try { const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tenant, orderId, paidOrder); } catch { /* loyalty is best effort */ }
-            if (promo) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch { /* best effort */ } }
-            try { await sendOrderConfirmation(db, tenantId, orderId, paidOrder, null); } catch (e: any) { console.error('[checkout] gift-paid receipt failed (order is paid):', e?.message); }
+          // The order becomes paid in one step (lib/order-paid), the gift card spent from its hold in the same step, and
+          // the sale in the books. If the card can't pay all of it after all, nothing is written and the card path
+          // below takes over.
+          const { payOrder } = await import('@/lib/order-paid');
+          const r = await payOrder(db, tenantId, orderId, { via: 'gift_card', gift: { id: g.id, code: g.code, cents: chargeable } });
+          if (r.won) {
+            const { finishPaidOrder } = await import('@/lib/retail-webhook');
+            try { await finishPaidOrder(db, tenantId, orderId, null); } catch (e: any) { console.error('[checkout] after a gift-paid order (it is paid):', e?.message); }
             const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
-            return NextResponse.json({ url: `${origin}/shop/${tenantId}/order/${orderId}?paid=gift`, orderId, orderNumber: (paidOrder as any).orderNumber ?? null, isDraft: false, zeroCharge: true });
+            return NextResponse.json({ url: `${origin}/shop/${tenantId}/order/${orderId}?paid=gift`, orderId, orderNumber: r.orderNumber ?? null, isDraft: false, zeroCharge: true });
           }
         }
         await holdGiftCard(db, tenantId, { id: g.id, holdId: `retail_${orderId}`, cents: 0 }).catch(() => {});   // fall back to the card path below

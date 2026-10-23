@@ -3,6 +3,8 @@ import { familyRefundableCents, followUpLabel, followUpsOf, isFollowUp, payingOr
 import { giveBackLine, readGift, roomCents, saleBooked, withNonCardRecord, writeGiveBack } from '@/lib/non-card-back';
 import { ensureNonCardRecord } from '@/lib/non-card-record';
 import { returnCreditGiven } from '@/lib/return-credit';
+import { refundTaxPart, refundTipPart, splitTax } from '@/lib/refund-tax';
+import { partRefundAsk, partRefundApply, partRefundSent, type PartRefund } from '@/lib/part-refund';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -48,6 +50,12 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 // ran. The Connect webhook's charge.refunded handler independently credits
 // back Stripe's fee portion, exactly as it does for dashboard refunds; it
 // never touches refundedCents, so nothing double-counts.
+//
+// A REFUND ASKED FOR AND SENT IN ONE GO ("Refund part of this order", body.add: some items, the shipping, or an
+// amount, with the reason): only for someone allowed to send refunds, within their limit and what's left of what was
+// paid. The amount is worked out here from the order (lib/part-refund: the items at what was paid for them with their
+// tax, the shipping with none) and added to what's waiting in the same step that claims it, so it's never queued
+// without being sent: if Stripe says no, it comes off again.
 //
 // Two idempotency layers: the pending-refund check (a second tap finds
 // pending=0 and refuses before Stripe), and a Stripe idempotency key
@@ -166,6 +174,19 @@ export async function POST(req: NextRequest) {
     actor = auth.actor;
   }
 
+  // Refund part of this order (body.add): someone allowed to send refunds, never the automatic paths. Worked out from the
+  // order as it is now (and again inside the claim, from the order as it is then).
+  let add: PartRefund | null = null;
+  if (body.add) {
+    if (!limitFor) return NextResponse.json({ error: 'Refunds need someone allowed to refund payments.' }, { status: 403 });
+    // The same ask again (a double tap, a retry after a dropped answer): it was sent once, and isn't sent twice.
+    if (partRefundSent(order, String(body.add?.id || ''))) return NextResponse.json({ ok: true, already: true, message: 'That refund was already sent.' });
+    const ask = partRefundAsk(order, body.add);
+    if (!ask.ok) return NextResponse.json({ error: ask.error }, { status: 422 });
+    add = ask.add;
+  }
+  const addCents = add ? add.cents : 0;
+
   // What it paid by gift card or store credit: the server's own record (lib/non-card-back), made sure of first for an
   // order paid before the record was kept (lib/non-card-record). What its fields show that can't be matched to a real
   // payment doesn't go back that way: the team is told.
@@ -182,7 +203,7 @@ export async function POST(req: NextRequest) {
   // Store credit already given for a return on the order (or one made from it) counts as given back (lib/return-credit).
   const credited0 = await returnCreditGiven(read, db, tenantId, payerId, family0.filter((f: any) => isFollowUp(f)).map((f: any) => String(f.id)));
   if (limitFor) {
-    const allowed = limitFor(Math.min(pendingNow, Math.max(0, room0 + other0 - credited0)));
+    const allowed = limitFor(Math.min(pendingNow + addCents, Math.max(0, room0 + other0 - credited0)));
     if (!allowed.ok) return NextResponse.json({ error: allowed.message, limitCents: allowed.limit }, { status: 403 });
   }
   if (!piId && other0 <= 0) {
@@ -232,6 +253,8 @@ export async function POST(req: NextRequest) {
       recordOnly = true; cents = Math.max(0, Math.round(Number(found.amount) || 0)); seq = Number(found.metadata.seq); refundId = String(found.id || '');
       other = String(found.metadata.seq) === String(lapsed.seq) ? Math.max(0, Math.round(Number(lapsed.other) || 0)) : 0;
       policyPath = policyPath || lapsed.auto === true;
+      // A part refund that try asked for: already added to what's waiting; its items and shipping are marked now.
+      add = String(found.metadata.seq) === String(lapsed.seq) && lapsed.add ? lapsed.add : null;
     }
   }
 
@@ -252,7 +275,13 @@ export async function POST(req: NextRequest) {
         if (held(cur.refundInFlight) || (follow && held(payer.refundInFlight))) throw new Error('busy');
         // The card first, never more than it can take back (whatever has already gone back to it for any order in
         // the family is spoken for); then the gift card or store credit the order was paid with, within that.
-        const pending = Number(cur.pendingRefundCents) || 0;
+        // With a part refund, its amount joins what's waiting (worked out again from the order as it is now).
+        let addNow: PartRefund | null = null;
+        if (add) {
+          if (partRefundSent(cur, add.id)) throw new Error('add_done');
+          const again = partRefundAsk({ ...cur, id: orderId }, body.add); if (!again.ok) throw Object.assign(new Error('add'), { why: again.error }); addNow = again.add;
+        }
+        const pending = (Number(cur.pendingRefundCents) || 0) + (addNow ? addNow.cents : 0);
         if (pending <= 0) throw new Error('none');
         if (autoCap && pending > autoCap) throw new Error('over');
         if (policyPath && pending + autoUsed(autoSnap) > autoCap) throw new Error('over');
@@ -260,6 +289,8 @@ export async function POST(req: NextRequest) {
         const cardRoom = piId ? familyRefundableCents(payer, family) : 0;
         const otherRoom = roomCents(payer);
         const overall = Math.max(0, cardRoom + otherRoom - credited);
+        // A part refund is never more than is left of what was paid: it isn't queued to wait for a look.
+        if (addNow && pending > overall) throw Object.assign(new Error('add'), { why: overall > 0 ? `That’s more than is left of what they paid (${money(overall)}${pending - addNow.cents > 0 ? `, with the ${money(pending - addNow.cents)} already waiting` : ''}).` : 'Everything they paid has already gone back.' });
         cents = Math.min(pending, cardRoom, overall);
         other = Math.min(pending - cents, otherRoom, overall - cents);
         if (cents + other <= 0) throw new Error('nocard');
@@ -267,8 +298,9 @@ export async function POST(req: NextRequest) {
         if (!allowed.ok) { limitHit = { message: allowed.message, limit: allowed.limit }; throw new Error('limit'); }
         overCard = pending - cents - other;
         seq = Math.max((Number(cur.refundSeq) || 0) + 1, floorSeq + 1);
-        const lock = { cents, other, seq, at: new Date().toISOString(), by: actor.uid, refundedBefore: Number(cur.refundedCents) || 0, ...(policyPath ? { auto: true } : {}) };
-        tx.update(oRef, { refundInFlight: lock });
+        const lock = { cents, other, seq, at: new Date().toISOString(), by: actor.uid, refundedBefore: Number(cur.refundedCents) || 0, ...(policyPath ? { auto: true } : {}), ...(addNow ? { add: addNow } : {}) };
+        add = addNow;
+        tx.update(oRef, { refundInFlight: lock, ...(addNow ? { pendingRefundCents: pending } : {}) });
         if (follow) tx.update(pRef, { refundInFlight: { ...lock, forOrderId: orderId } });
       });
     } catch (e: any) {
@@ -280,6 +312,8 @@ export async function POST(req: NextRequest) {
             : follow ? 'Everything paid on the original order has already gone back the way it was paid.' : 'Everything paid on this order has already gone back the way it was paid.'),
         }, { status: 409 });
       }
+      if (e?.message === 'add_done') return NextResponse.json({ ok: true, already: true, message: 'That refund was already sent.' });
+      if (e?.message === 'add') return NextResponse.json({ error: String(e?.why || 'That refund can’t be worked out from the order.') }, { status: 422 });
       if (e?.message === 'none') return NextResponse.json({ error: 'No refund is pending on this order.' }, { status: 409 });
       if (e?.message === 'over') return NextResponse.json({ error: 'This is more than your automatic amount allows for this order, so someone allowed to refund needs to send it.' }, { status: 403 });
       if (e?.message === 'limit' && limitHit) return NextResponse.json({ error: (limitHit as any).message, limitCents: (limitHit as any).limit }, { status: 403 });
@@ -309,8 +343,10 @@ export async function POST(req: NextRequest) {
         if (refused) {
           try {
             await db.runTransaction(async (tx: any) => {
+              const c = add ? (await tx.get(oRef)).data() || {} : null;
               const p = follow ? (await tx.get(pRef)).data() || {} : null;
-              tx.update(oRef, { refundInFlight: null });
+              // A part refund asked for in this go comes off again: nothing was sent.
+              tx.update(oRef, { refundInFlight: null, ...(add && c ? { pendingRefundCents: Math.max(0, (Number(c.pendingRefundCents) || 0) - add.cents) } : {}) });
               if (p && mine(p.refundInFlight)) tx.update(pRef, { refundInFlight: null });
             });
           } catch { /* the locks expire on their own */ }
@@ -333,7 +369,8 @@ export async function POST(req: NextRequest) {
   const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
   const otherTxnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
   let left = 0; let recorded = false; let already = false;
-  let gave = { giftCents: 0, creditCents: 0 }; let fromGift = 0; let payerNow: any = payer0;
+  let gave = { giftCents: 0, creditCents: 0 }; let fromGift = 0; let payerNow: any = payer0; let taxCard = 0; let taxOther = 0;
+  let tipCard = 0; let tipOther = 0; let tipMeta = { tipCard: 0, tipOther: 0, tipBooked: false };
   for (let attempt = 0; attempt < 3 && !recorded; attempt++) {
     try {
       await db.runTransaction(async (tx: any) => {
@@ -361,14 +398,31 @@ export async function POST(req: NextRequest) {
         gave = giveNow; fromGift = fromGiftNow;
         const given = gave.giftCents + gave.creditCents;
         left = Math.max(0, afterCard - given);
+        // The sales tax that goes back with it (lib/refund-tax): the paying order's tax comes down by that much in the
+        // books. Shipping refunded on its own (shipped in one box with another order) carries none.
+        // The tip inside it (a cancelled order gives back its tip too): not a sale, so the books keep it out of returns
+        // (lib/refund-tax). Only the order paid on has a tip.
+        const tipPart = follow ? 0 : refundTipPart(cur, cents + given, { backBeforeCents: c0(cur.refundedCents) + c0(cur.refundedOtherCents) });
+        [tipCard, tipOther] = splitTax(tipPart, [cents, given]);
+        // In the books already: shared with the team, or (an order paid before orders were paid in one step) booked when paid.
+        const tipBooked = !!cur.tipSharedAt || !cur.booksAt;
+        // Shipping refunded (on its own, or as a part refund) carries no tax.
+        const shipPart = add && add.kind === 'shipping' ? Math.min(add.cents, cents + given) : 0;
+        const taxPart = refundTaxPart(payerNow, Math.max(0, cents + given - shipPart - tipPart), { refundedTaxCents: Number(payerNow?.refundedTaxCents) || 0, shippingOnly: together });
+        [taxCard, taxOther] = splitTax(taxPart, [cents, given]);
+        tipMeta = { tipCard, tipOther, tipBooked };
         tx.update(oRef, {
           pendingRefundCents: left,
           refundedCents: (Number(cur.refundedCents) || 0) + cents,
           ...(given ? { refundedOtherCents: (Number(cur.refundedOtherCents) || 0) + given } : {}),
           refundSeq: seq, refundInFlight: null,
           ...(refundId ? { lastStripeRefundId: refundId } : {}),
+          ...(!follow && taxPart ? { refundedTaxCents: (Number(cur.refundedTaxCents) || 0) + taxPart } : {}),
+          ...(tipPart ? { refundedTipCents: c0(cur.refundedTipCents) + tipPart } : {}),
+          // A part refund: the items it was for (so they can't be refunded twice), the shipping, and the note.
+          ...(add ? partRefundApply(cur, add, { at: now, by: actor.name, seq, refundId }) : {}),
         });
-        if (p && mine(p.refundInFlight)) tx.update(pRef, { refundInFlight: null });
+        if (p && (mine(p.refundInFlight) || (follow && taxPart))) tx.update(pRef, { ...(mine(p.refundInFlight) ? { refundInFlight: null } : {}), ...(follow && taxPart ? { refundedTaxCents: (Number(p.refundedTaxCents) || 0) + taxPart } : {}) });
         // Sent within the shop's automatic amount: counted for the order paid on, for everything made from it.
         if (policyPath && cents + given > 0) tx.set(autoRef, { cents: autoUsed(autoSnap) + cents + given, at: now }, { merge: true });
         const otherLine = given ? giveBackLine(payerNow, gave) : '';
@@ -381,7 +435,8 @@ export async function POST(req: NextRequest) {
             ...(given ? { toCardCents: cents, giftCents: gave.giftCents, creditCents: gave.creditCents } : {}),
             scope: follow ? (cur.stage === 'cancelled' ? 'full' : 'partial') : cents + given >= (Number(order.totalCents) || 0) ? 'full' : 'partial',
             ...(refundId ? { refundId } : {}),
-            text: `Refund sent by ${actor.name}: ${[cardLine, otherLine].filter(Boolean).join(' and ')}`,
+            text: `Refund sent by ${actor.name}: ${[cardLine, otherLine].filter(Boolean).join(' and ')}${add?.note ? `. ${add.what}: ${add.note}` : add ? `. ${add.what}` : ''}`,
+            ...(add ? { part: { kind: add.kind, cents: add.cents, note: add.note, lines: add.lines } } : {}),
             ...(follow ? { paidOnOrderId: payerId } : {}),
           },
         });
@@ -395,11 +450,11 @@ export async function POST(req: NextRequest) {
         if (cents) {
           tx.set(txnRef, {
             id: txnRef.id, date: now,
-            description: `Refund sent through Stripe — Order #${order.orderNumber}${follow ? ` (${what.replace(/^the /, '')})` : ''} · ${refundId}`,
+            description: `Refund sent through Stripe — Order #${order.orderNumber}${follow ? ` (${what.replace(/^the /, '')})` : ''}${add ? ` · ${add.what}` : ''} · ${refundId}`,
             clientOrVendor: order.customerName || 'Guest',
-            type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
-            amount: cents / 100, paymentMethod: 'Card (Online)', hasReceipt: true,
-            retailOrderId: orderId, ...(follow ? { paidOnOrderId: payerId } : {}), tenantId,
+            type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund',
+            amount: cents / 100, taxRefunded: taxCard / 100, ...(tipMeta.tipCard ? { tipRefunded: tipMeta.tipCard / 100, ...(tipMeta.tipBooked ? { tipBooked: true } : {}) } : {}), paymentMethod: 'Card (Online)', hasReceipt: true,
+            retailOrderId: orderId, ...(follow ? { paidOnOrderId: payerId } : {}), channel: 'online', ...(refundId ? { stripeRefundId: refundId } : {}), tenantId,
           });
         }
         // The sale was booked as income, gift card and credit included: what goes back that way is a refund too.
@@ -408,9 +463,9 @@ export async function POST(req: NextRequest) {
             id: otherTxnRef.id, date: now,
             description: `Refund to ${gave.giftCents && !gave.creditCents ? 'gift card' : gave.creditCents && !gave.giftCents ? 'store credit' : 'gift card and store credit'} — Order #${order.orderNumber}${follow ? ` (${what.replace(/^the /, '')})` : ''}`,
             clientOrVendor: order.customerName || 'Guest',
-            type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
-            amount: given / 100, paymentMethod: gave.giftCents && !gave.creditCents ? 'Gift card' : 'Store credit', hasReceipt: true,
-            retailOrderId: orderId, ...(follow ? { paidOnOrderId: payerId } : {}), tenantId,
+            type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund',
+            amount: given / 100, taxRefunded: taxOther / 100, ...(tipMeta.tipOther ? { tipRefunded: tipMeta.tipOther / 100, ...(tipMeta.tipBooked ? { tipBooked: true } : {}) } : {}), paymentMethod: gave.giftCents && !gave.creditCents ? 'Gift card' : 'Store credit', hasReceipt: true,
+            retailOrderId: orderId, ...(follow ? { paidOnOrderId: payerId } : {}), channel: 'online', tenantId,
           });
         }
       });
@@ -425,8 +480,9 @@ export async function POST(req: NextRequest) {
     if (!cents) {
       try {
         await db.runTransaction(async (tx: any) => {
+          const c = add ? (await tx.get(oRef)).data() || {} : null;
           const p = follow ? (await tx.get(pRef)).data() || {} : null;
-          tx.update(oRef, { refundInFlight: null });
+          tx.update(oRef, { refundInFlight: null, ...(add && c ? { pendingRefundCents: Math.max(0, (Number(c.pendingRefundCents) || 0) - add.cents) } : {}) });
           if (p && mine(p.refundInFlight)) tx.update(pRef, { refundInFlight: null });
         });
       } catch { /* the hold expires on its own */ }

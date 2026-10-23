@@ -1,4 +1,6 @@
 import QRCode from 'qrcode';
+import { checkPrintKey } from '@/lib/print-key';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 // ─── /print/wave/[tenantId]/[waveId] ──────────────────────────────────────────
 // The paper half of a wave: a pick sheet you carry, then tote labels you cut
@@ -19,6 +21,10 @@ import QRCode from 'qrcode';
 //
 // Deliberately NOT here: shipping labels. Weights are not final until the box
 // is packed, and a label printed early becomes a label voided later.
+//
+// Staff only: it has customers' names on it, so it opens with a 15-minute key from the app (lib/print-key, scope
+// wave:{waveId}), the same key the wave's packing slips take. In the app's print look (lib/print-style): light
+// headings, sentence-case labels, thin lines; the quantity is the biggest thing on a row by size, not by weight.
 
 export const dynamic = 'force-dynamic';
 
@@ -47,11 +53,16 @@ const when = (iso: string) => {
 };
 
 export default async function PrintWavePage({
-  params,
+  params, searchParams,
 }: {
   params: Promise<{ tenantId: string; waveId: string }>;
+  searchParams: Promise<{ k?: string; x?: string }>;
 }) {
   const { tenantId, waveId } = await params;
+  const { k, x } = await searchParams;
+  if (!checkPrintKey(tenantId, `wave:${waveId}`, k, x)) {
+    return <p style={{ fontFamily: 'system-ui, sans-serif', padding: 32 }}>This link has expired. Open the wave again and tap Print.</p>;
+  }
   const db = getAdminDb();
 
   const [tenantSnap, waveSnap] = await Promise.all([
@@ -131,7 +142,7 @@ export default async function PrintWavePage({
       tote: w.tote,
       orderNumber: w.orderNumber,
       customerName: w.customerName,
-      method: String(w.method || 'pickup').replace('_', ' '),
+      method: w.method === 'ship' ? 'Ship' : w.method === 'curbside' ? (tenant.retailSettings?.curbsideMode === 'drive_thru' ? 'Drive-through' : 'Curbside') : w.method === 'digital' ? 'Download' : 'Pickup',
       itemCount: w.itemCount,
       cancelled,
       qr: await QRCode.toDataURL(
@@ -150,62 +161,61 @@ export default async function PrintWavePage({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`${shopName} — ${wave.name || 'Wave'}`}</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <style>{`
           @page { size: letter portrait; margin: 0.45in; }
           * { box-sizing: border-box; }
           body {
             margin: 0; background: #fff; color: #16171a;
-            font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-weight: 400;
+            font-family: ${PRINT_FONT_STACK}; font-weight: 400;
             -webkit-print-color-adjust: exact; print-color-adjust: exact;
           }
           .sheet { max-width: 7.6in; margin: 0 auto; padding: 0 0 24px; }
 
           .bar { display: flex; gap: 8px; padding: 10px 0 14px; }
-          .bar button { font-family: inherit; font-size: 12px; font-weight: 600; padding: 9px 14px; border-radius: 10px; border: 1px solid #16171a; background: #16171a; color: #fff; cursor: pointer; }
+          .bar button, .bar a { font-family: inherit; font-size: 13px; font-weight: 500; padding: 9px 16px; border-radius: 999px; border: 0; background: #16171a; color: #fff; cursor: pointer; text-decoration: none; }
+          .bar a { background: #f5f5f7; color: #16171a; }
           @media print { .bar { display: none; } }
 
-          .head { display: flex; align-items: center; gap: 14px; border-bottom: 2px solid #16171a; padding-bottom: 12px; }
-          .head img.logo { width: 46px; height: 46px; object-fit: cover; border-radius: 10px; border: 1px solid #e6e6e8; }
-          .head h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
-          .head p { margin: 2px 0 0; font-size: 11px; color: #6d7075; letter-spacing: .04em; }
-          .head .totals { margin-left: auto; text-align: right; font-size: 11px; color: #6d7075; }
-          .head .totals b { display: block; font-size: 20px; color: #16171a; }
+          .head { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid #ececee; padding-bottom: 12px; }
+          .head img.logo { width: 44px; height: 44px; object-fit: cover; border-radius: 12px; }
+          .head h1 { margin: 0; font-size: 24px; font-weight: 300; letter-spacing: -.02em; }
+          .head p { margin: 3px 0 0; font-size: 11.5px; color: #6d7075; }
+          .head .totals { margin-left: auto; text-align: right; font-size: 11.5px; color: #6d7075; }
+          .head .totals b { display: block; font-size: 22px; font-weight: 300; color: #16171a; font-variant-numeric: tabular-nums; }
 
-          .loc { margin: 20px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-                 border-bottom: 1px solid #e6e6e8; padding-bottom: 5px;
+          .loc { margin: 20px 0 4px; font-size: 13px; font-weight: 600;
+                 border-bottom: 1px solid #ececee; padding-bottom: 6px;
                  break-after: avoid; page-break-after: avoid; }
 
-          .row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid #f1f1f2;
+          .row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid #ececee;
                  break-inside: avoid; page-break-inside: avoid; }
-          .box { width: 7mm; height: 7mm; border: 1.5px solid #16171a; border-radius: 3px; flex: 0 0 auto; }
-          .nm { font-size: 14px; font-weight: 600; line-height: 1.25; }
-          .sub { font-size: 11px; color: #6d7075; margin-top: 2px; }
-          .qty { margin-left: auto; font-size: 26px; font-weight: 700; letter-spacing: -.02em; min-width: 44px; text-align: right; }
+          .box { width: 7mm; height: 7mm; border: 1px solid #9a9ca1; border-radius: 4px; flex: 0 0 auto; }
+          .nm { display: block; font-size: 14px; font-weight: 500; line-height: 1.25; }
+          .sub { display: block; font-size: 11.5px; color: #6d7075; margin-top: 2px; }
+          .qty { margin-left: auto; font-size: 24px; font-weight: 500; letter-spacing: -.01em; min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
 
           .labels { break-before: page; page-break-before: always; }
-          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-          .tote { border: 1.5px dashed #b8b8bb; border-radius: 10px; padding: 12px; display: flex; gap: 12px; align-items: center;
+          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+          .tote { border: 1px dashed #c9cacd; border-radius: 14px; padding: 12px 14px; display: flex; gap: 12px; align-items: center;
                   break-inside: avoid; page-break-inside: avoid; min-height: 1.5in; }
-          .tote .n { font-size: 46px; font-weight: 700; line-height: 1; letter-spacing: -.03em; min-width: 64px; text-align: center; }
-          .tote .meta { font-size: 12px; }
+          .tote .n { font-size: 44px; font-weight: 300; line-height: 1; letter-spacing: -.03em; min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+          .tote .meta { font-size: 12px; line-height: 1.5; }
           .tote .meta b { display: block; font-size: 14px; font-weight: 600; }
           .tote .meta span { color: #6d7075; }
           .tote img { width: 54px; height: 54px; margin-left: auto; }
-          .dead { background: #fdf2f2; border-color: #d97070; }
-          .dead .n { color: #b23c3c; }
+          .dead { background: #fdecea; border-color: #f2c3be; }
+          .dead .n { color: #b42318; }
+          .dead .gone { color: #b42318; font-weight: 600; }
 
-          .foot { margin-top: 18px; padding-top: 10px; border-top: 1px solid #e6e6e8; font-size: 10px; color: #6d7075; display: flex; justify-content: space-between; }
+          .foot { margin-top: 18px; padding-top: 10px; border-top: 1px solid #ececee; font-size: 10.5px; color: #6d7075; display: flex; justify-content: space-between; }
         `}</style>
       </head>
       <body>
         <div className="sheet">
           <div className="bar">
             <button type="button" id="printBtn">Print / save as PDF</button>
-            <a href={`/print/slips/${tenantId}/${waveId}`} style={{ fontFamily: 'inherit', fontSize: 12, fontWeight: 600, padding: '9px 14px', borderRadius: 10, border: '1px solid #16171a', color: '#16171a', textDecoration: 'none' }}>Packing slips for this wave →</a>
+            <a href={`/print/slips/${tenantId}/${waveId}?k=${encodeURIComponent(String(k || ''))}&x=${encodeURIComponent(String(x || ''))}`}>Packing slips for this wave</a>
           </div>
 
           <div className="head">
@@ -249,13 +259,13 @@ export default async function PrintWavePage({
 
           <div className="foot">
             <span>{shopName}</span>
-            <span>tote 1 waited longest · scan each item again at the bench</span>
+            <span>Tote 1 has waited longest · scan each item again at the bench</span>
           </div>
 
           <div className="labels">
             <div className="head">
               <div>
-                <h1>Tote labels</h1>
+                <h1>Tote <b style={{ fontWeight: 600 }}>labels</b></h1>
                 <p>Cut and clip to each bin. Scan the code at the bench to open the order.</p>
               </div>
               <div className="totals"><b>{totes.length}</b>labels</div>
@@ -269,7 +279,7 @@ export default async function PrintWavePage({
                     <span>{t.customerName}</span>
                     <br />
                     <span>{t.itemCount} item{t.itemCount === 1 ? '' : 's'} · {t.method}</span>
-                    {t.cancelled ? <><br /><span style={{ color: '#b23c3c', fontWeight: 700 }}>CANCELLED — do not pack</span></> : null}
+                    {t.cancelled ? <><br /><span className="gone">Cancelled — don’t pack it</span></> : null}
                   </span>
                   <img src={t.qr} alt={`Order ${t.orderNumber} code`} />
                 </div>

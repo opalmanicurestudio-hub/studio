@@ -23,6 +23,62 @@ import { useTenant } from '@/context/TenantContext';
 import { canSeeFinancials } from '@/lib/privacy';
 import { useClient } from '@/hooks/use-clients';
 
+// What reaches paper, in the app's print look (lib/print-style): Plus Jakarta Sans, a light name, sentence-case grey
+// labels, soft panels, thin #ececee lines, soft status pills, tabular figures. Scoped to #print-area and to print only,
+// so the screen is untouched; the id selectors outrank the global print rules that keep app screens uppercase and heavy.
+const PAPER_CSS = `
+@media print {
+  @page { margin: 0.55in; }
+  #print-area { font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #16171a; font-size: 12px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print-area * { color: inherit !important; background-color: transparent !important; border-color: #ececee !important; box-shadow: none !important; text-shadow: none !important; text-transform: none !important; letter-spacing: normal !important; opacity: 1 !important; font-variant-numeric: tabular-nums; }
+  #print-area svg, #print-area button { display: none !important; }
+  #print-area .capitalize { text-transform: capitalize !important; }
+  #print-area .font-mono { font-family: inherit !important; font-weight: 400 !important; }
+  #print-area .font-bold, #print-area .font-semibold, #print-area .font-medium { font-weight: 500 !important; }
+  #print-area .font-black, #print-area .font-extrabold, #print-area h2, #print-area h4 { font-weight: 600 !important; }
+  #print-area .text-muted-foreground { color: #6d7075 !important; }
+  #print-area .text-sm, #print-area .text-base { font-size: 12.5px !important; }
+  #print-area .text-xs { font-size: 11px !important; }
+  #print-area .text-lg { font-size: 13px !important; }
+  #print-area .text-2xl { font-size: 20px !important; font-weight: 300 !important; letter-spacing: -0.01em !important; }
+  #print-area .border-2 { border-width: 1px !important; }
+  #print-area .rounded-lg { border-radius: 14px !important; }
+  #print-area .rounded-md { border-radius: 10px !important; }
+  #print-area .bg-border { background-color: #ececee !important; }
+  #print-area [class~="bg-muted/50"], #print-area [class~="bg-muted/30"], #print-area [class~="bg-muted"] { background-color: #f5f5f7 !important; border-color: transparent !important; }
+  #print-area [class~="bg-card"] { background-color: #fff !important; }
+  #print-area h2 { margin: 22px 0 8px !important; font-size: 13px !important; }
+
+  #print-area .rp-head { align-items: flex-start !important; text-align: left !important; gap: 16px !important; margin-bottom: 18px !important; padding-bottom: 14px; border-bottom: 1px solid #ececee; }
+  #print-area .rp-head > :first-child { width: 56px !important; height: 56px !important; margin: 0 !important; font-size: 15px !important; }
+  #print-area .rp-head h1 { margin: 0; font-size: 26px !important; font-weight: 300 !important; letter-spacing: -0.02em !important; line-height: 1.15; }
+  #print-area .rp-head > :last-child { font-size: 11px !important; color: #6d7075 !important; text-align: right !important; }
+
+  #print-area .rp-summary { background-color: #f5f5f7 !important; border: 0 !important; border-radius: 14px !important; padding: 12px 14px !important; break-inside: avoid; }
+  #print-area .rp-summary > div { padding: 0 !important; }
+  #print-area .rp-summary > div:first-child { padding-bottom: 6px !important; }
+  #print-area .rp-summary > div:first-child > * { font-size: 13px !important; font-weight: 600 !important; line-height: 1.3 !important; }
+  #print-area .rp-summary p, #print-area .rp-summary li { color: #45474c !important; }
+
+  #print-area .rp-three { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 10px !important; margin: 18px 0 !important; }
+  #print-area .rp-three > div { border-radius: 14px !important; padding: 12px 14px !important; break-inside: avoid; }
+  #print-area .rp-three > div > div { padding: 0 !important; }
+  #print-area .rp-three > div > div:first-child { padding-bottom: 6px !important; }
+  #print-area .rp-three > div > div:first-child > * { font-size: 13px !important; font-weight: 600 !important; }
+
+  #print-area .rp-list > div { padding: 8px 12px !important; break-inside: avoid; }
+  #print-area .rp-two { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 16px !important; padding: 14px !important; }
+  #print-area .rp-two .rounded-lg { padding: 10px 12px !important; }
+  #print-area .rp-two .rounded-md { padding: 6px 10px !important; }
+  #print-area .rp-key { font-size: 11px !important; font-weight: 500 !important; }
+  #print-area .rp-key::first-letter { text-transform: uppercase; }
+
+  #print-area [class~="rounded-full"][class~="px-2.5"] { display: inline-flex; padding: 2px 8px !important; border: 0 !important; border-radius: 999px !important; background-color: #f5f5f7 !important; color: #45474c !important; font-size: 10.5px !important; font-weight: 500 !important; line-height: 1.5 !important; }
+  #print-area [class~="px-2.5"][class~="bg-destructive"], #print-area [class~="px-2.5"][class~="bg-yellow-100"] { background-color: #fdf3e7 !important; color: #b45309 !important; }
+  #print-area [class~="px-2.5"][class~="bg-green-100"] { background-color: #eaf6ef !important; color: #1f7a4d !important; }
+}
+`;
+
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { services } = useInventory();
@@ -150,7 +206,7 @@ const ClientReportPage = () => {
                 </div>
 
                 <div id="print-area" className="max-w-4xl mx-auto bg-card p-8 rounded-lg shadow-sm print:shadow-none print:p-0">
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6 mb-8">
+                    <div className="rp-head flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-4 sm:gap-6 mb-8">
                         <Avatar className="w-24 h-24 text-xl border mx-auto sm:mx-0">
                             <AvatarImage src={client.avatarUrl} alt={client.name} />
                             <AvatarFallback>{client.name.substring(0, 2)}</AvatarFallback>
@@ -172,7 +228,7 @@ const ClientReportPage = () => {
                          </div>
                     </div>
                     
-                    <Card className="bg-primary/5 border-primary/20">
+                    <Card className={cn('rp-summary bg-primary/5 border-primary/20', !aiSummary && 'print:hidden')}>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2 text-primary">
                                 <Sparkles className="h-5 w-5" /> AI-Powered Summary
@@ -226,7 +282,7 @@ const ClientReportPage = () => {
                         </CardContent>
                     </Card>
 
-                    <div className="grid md:grid-cols-3 gap-6 my-8">
+                    <div className="rp-three grid md:grid-cols-3 gap-6 my-8">
                         <Card>
                             <CardHeader className="pb-2"><CardTitle className="text-base font-medium flex items-center gap-2"><DollarSign/>Financials</CardTitle></CardHeader>
                             <CardContent className="space-y-1 text-sm">
@@ -254,7 +310,7 @@ const ClientReportPage = () => {
                     <div className="space-y-6">
                         <div>
                             <h2 className="text-xl font-semibold mb-4">Appointment History</h2>
-                            <div className="border rounded-lg">
+                            <div className="rp-list border rounded-lg">
                                 {clientAppointments.slice(0, 5).map((apt, index) => {
                                     const service = services.find(s => s.id === apt.serviceId);
                                     return (
@@ -308,7 +364,7 @@ const ClientReportPage = () => {
                         <div>
                             <h2 className="text-xl font-semibold mb-4">Referrals &amp; Loyalty</h2>
                             <Card>
-                                <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <CardContent className="rp-two p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="space-y-4">
                                         <div className="p-4 rounded-lg bg-muted/50">
                                             <div className="text-sm text-muted-foreground flex items-center gap-2"><Gift className="h-4 w-4"/>Wallet Balance</div>
@@ -337,6 +393,7 @@ const ClientReportPage = () => {
                     </div>
                 </div>
 
+                <style>{PAPER_CSS}</style>
                 <style jsx global>{`
                     @media print {
                       body * {

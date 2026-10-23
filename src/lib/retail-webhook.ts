@@ -1,59 +1,27 @@
 /**
  * retail-webhook.ts
  * ─────────────────────────────────────────────────────────────────────────────
- * Handles the 'retail_order' branch of checkout.session.completed for the
- * EXISTING /api/stripe/connect-webhook route. Lives as its own module so the
- * webhook file only needs a 4-line insertion (see bottom of this file).
+ * A shop order's card payment, confirmed (checkout.session.completed on the connected account: lib/connect-webhook,
+ * the five-minute check and the order page's own check: lib/retail-payment-check). The order becomes paid in ONE
+ * step (lib/order-paid): its number, the stock held, the store credit and gift card it used, and its lines in the
+ * books, together, so nothing is half done and a retry can never do any of it twice. What follows the payment — the
+ * receipt, loyalty points, the promo code's count, a low-stock alert — runs after, each once (finishPaidOrder), and
+ * the five-minute check finishes any that didn't (the receipt's own marker stops it going twice).
  *
- * Responsibilities (all idempotent — safe on Stripe event retries):
- *   1. placed → paid transition inside a Firestore transaction
- *   2. Reserve stock per line (stockReserved += qty on each inventory item)
- *   3. Generate the HMAC-signed pickup QR token
- *   4. Match-or-create the client by email (mirrors the deposit flow)
- *   5. Post the sale to the ledger SPLIT BY BUCKET — merchandise + shipping
- *      as 'revenue' (with checkoutSessionId so the existing charge.succeeded
- *      handler backfills the exact Stripe fee onto exactly that one entry),
- *      collected sales tax as 'tax_collected' (a liability held for the
- *      state, never income), and the tip as 'gratuity'. One fused number
- *      would overstate revenue by the tax and the tip — money that was never
- *      the shop's to keep.
- *   6. Append payment_confirmed + stock_reserved audit events
- *
- * NOTE on oversell races: if two orders paid for the last unit simultaneously,
- * we still reserve in full here (stockReserved may exceed totalStock). The
- * shelf is the source of truth — the picker resolves it via the shortLine
- * partial-fulfillment flow. Payment confirmation is never blocked on stock.
+ * NOTE on oversell races: if two orders paid for the last unit simultaneously, we still reserve in full (stockReserved
+ * may exceed totalStock). The shelf is the source of truth — the picker resolves it via the short-line partial
+ * fulfilment flow. Payment confirmation is never blocked on stock.
  */
 
-import { onlineSellable } from './retail-orders';
+import { buildEvent, onlineSellable } from './retail-orders';
 import { assessRisk, riskPolicy, type RiskResult } from './retail-risk';
-import { createHmac, timingSafeEqual } from 'crypto';
 
-import { buildEvent, buildOrderQrValue } from '@/lib/retail-orders';
-import { buildEntry } from '@/lib/stock-ledger';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
+import { payOrder } from '@/lib/order-paid';
+import { sendNotification } from '@/lib/notify';
 
-/* ── QR token (HMAC-signed; raw ids are never scannable) ─────────────────── */
-
-function qrSecret(): string {
-  return process.env.RETAIL_QR_SECRET || process.env.STRIPE_SECRET_KEY || 'dev-secret';
-}
-
-export function makeQrToken(orderId: string): string {
-  const sig = createHmac('sha256', qrSecret()).update(orderId).digest('hex').slice(0, 24);
-  return `${orderId}.${sig}`;
-}
-
-/** Returns the orderId if the token is authentic, null otherwise. */
-export function verifyQrToken(token: string): string | null {
-  const dot = token.lastIndexOf('.');
-  if (dot <= 0) return null;
-  const orderId = token.slice(0, dot);
-  const given = token.slice(dot + 1);
-  const expected = createHmac('sha256', qrSecret()).update(orderId).digest('hex').slice(0, 24);
-  if (given.length !== expected.length) return null;
-  return timingSafeEqual(Buffer.from(given), Buffer.from(expected)) ? orderId : null;
-}
+/* ── QR token (HMAC-signed; raw ids are never scannable): lib/order-qr ────── */
+export { makeQrToken, verifyQrToken } from '@/lib/order-qr';
 
 /* ── The webhook branch ──────────────────────────────────────────────────── */
 
@@ -77,38 +45,10 @@ export async function handleRetailOrderPaid(
     console.warn(`[connect-webhook] retail order ${orderId} not found for tenant ${tenantId}`);
     return;
   }
-  let order = orderSnap.data();
+  const order = orderSnap.data();
 
-  // Idempotency — Stripe retries events; only the first one does work.
+  // Idempotency — Stripe retries events; only the first one does work (and the payment step checks again).
   if (order.stage !== 'placed') return;
-
-  // In stripe-tax mode the draft was written with taxCents 0 — Stripe only
-  // learns the jurisdiction when the customer types an address — so the tax
-  // exists nowhere but on the session until this handler writes it back.
-  const clampCents = (v: any) => Math.max(0, Math.round(Number(v) || 0));
-  const stripeTaxMode = order.taxMode === 'stripe';
-  const sessionTaxCents = clampCents(session?.total_details?.amount_tax);
-  const sessionTotalCents = session?.amount_total != null ? clampCents(session.amount_total) : null;
-
-  // Sanity: what Stripe collected should match what we quoted at checkout.
-  // In stripe-tax mode the quote deliberately excluded tax, so the honest
-  // comparison adds Stripe's own tax figure back before crying mismatch —
-  // and a store-credit discount LOWERS the collected amount on purpose, so
-  // the expectation subtracts it too, or every credit order would cry wolf.
-  const expectedTotal = (Number(order.totalCents) || 0)
-    + (stripeTaxMode ? sessionTaxCents : 0)
-    - Math.max(0, Number((order as any).storeCreditRequestedCents) || 0)
-    - Math.max(0, Number((order as any).giftCardCents) || 0);
-  if (sessionTotalCents != null && sessionTotalCents !== expectedTotal) {
-    console.warn(
-      `[connect-webhook] retail order ${orderId} amount mismatch: ` +
-      `session ${sessionTotalCents} vs expected ${expectedTotal} — proceeding, flagging in events`
-    );
-  }
-
-  const piId = typeof session.payment_intent === 'string'
-    ? session.payment_intent
-    : session.payment_intent?.id || null;
 
   // ── Match-or-create the client by email (mirrors the deposit flow) ──────
   const email = String(order.customerEmail || '').toLowerCase().trim();
@@ -134,10 +74,9 @@ export async function handleRetailOrderPaid(
     }
   }
 
-  const qrToken = makeQrToken(orderId);
   const now = new Date().toISOString();
 
-  // ── Should this order wait for a person? (lib/retail-risk) Read before the transaction; written with 'paid'. ──
+  // ── Should this order wait for a person? (lib/retail-risk) Read before the payment step; written with 'paid'. ──
   let risk: RiskResult | null = null;
   try {
     const rsNow = ((await db.collection('tenants').doc(tenantId).get()).data() as any)?.retailSettings || {};
@@ -151,107 +90,18 @@ export async function handleRetailOrderPaid(
     }
   } catch { risk = null; }
 
-  // ── draft → paid: mint the number, reserve stock, all atomically ─────────
-  // The order number is issued HERE and nowhere else. Checkout creates a draft
-  // with orderNumber null; money landing is what turns it into a sale. Because
-  // the mint lives inside the same transaction that flips the stage, a webhook
-  // retry finds stage !== 'placed' and returns before touching the counter —
-  // so a redelivered event can never burn a second number, and the sequence
-  // stays gapless and in payment order.
-  const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
-  let assignedNumber: number | null = null;
-
-  // Did THIS call flip the order to paid? Set only by the attempt that commits (a retried attempt resets it), so
-  // when the payment webhook, the payment cron and the customer's order page race, exactly one runs the side effects.
-  let won = false;
-  await db.runTransaction(async (txn: any) => {
-    won = false;
-    const freshSnap = await txn.get(orderRef);
-    if (!freshSnap.exists || freshSnap.data().stage !== 'placed') return;
-    const fresh = freshSnap.data();
-
-    const itemRefs = (fresh.lines || []).map((l: any) =>
-      db.collection(`tenants/${tenantId}/inventory`).doc(l.productId)
-    );
-    // Every read must precede every write in a Firestore transaction, so the
-    // counter is read alongside the inventory docs rather than after them.
-    const [counterSnap, itemSnaps] = await Promise.all([
-      txn.get(counterRef),
-      Promise.all(itemRefs.map((r: any) => txn.get(r))),
-    ]);
-
-    // A legacy order that already carries a number keeps it — this route has
-    // to stay safe for anything created before drafts existed.
-    assignedNumber = typeof fresh.orderNumber === 'number' && fresh.orderNumber > 0
-      ? fresh.orderNumber
-      : ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
-    txn.set(counterRef, { value: assignedNumber }, { merge: true });
-
-    // Two lines can be the same shelf item (one product, different options): add up, don't overwrite.
-    const addedReserved = new Map<string, number>(); const addedPreorder = new Map<string, number>();
-    itemSnaps.forEach((snap: any, i: number) => {
-      if (!snap.exists) {
-        console.warn(`[connect-webhook] inventory item ${fresh.lines[i].productId} missing — reservation skipped`);
-        return;
-      }
-      const pid = String(fresh.lines[i].productId);
-      const current = (snap.data().stockReserved ?? 0) + (addedReserved.get(pid) || 0);
-      if (fresh.lines[i].digital === true) return;
-      // Pre-orders consume RUN SLOTS, not shelf stock (reserving stock that
-      // doesn't exist yet would understate what everyone else can buy). The
-      // slot is claimed HERE, inside the paid transaction, so two people
-      // paying at once can't both take the last one.
-      if (fresh.lines[i].preorder === true) {
-        const d = snap.data() as any;
-        const sold = Math.max(0, Math.floor(Number(d.preorderSold) || 0)) + (addedPreorder.get(pid) || 0);
-        txn.update(itemRefs[i], { preorderSold: sold + fresh.lines[i].qtyOrdered });
-        addedPreorder.set(pid, (addedPreorder.get(pid) || 0) + fresh.lines[i].qtyOrdered);
-        return;
-      }
-      txn.update(itemRefs[i], { stockReserved: current + fresh.lines[i].qtyOrdered });
-      addedReserved.set(pid, (addedReserved.get(pid) || 0) + fresh.lines[i].qtyOrdered);
-      // A hold that is never released hides stock from everyone forever, with
-      // no symptom but a count that looks wrong. Recording both halves — the
-      // hold here, the release at fulfilment — makes a leak findable.
-      txn.set(orderRef.firestore.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
-        productId: fresh.lines[i].productId,
-        type: 'reserved',
-        field: 'stockReserved',
-        delta: fresh.lines[i].qtyOrdered,
-        unit: (snap.data() as any).unit || 'units',
-        reason: `Held for online order #${assignedNumber}`,
-        actorId: 'system',
-        actorName: 'Checkout',
-        ref: { kind: 'order', id: orderId },
-        balanceAfter: current + fresh.lines[i].qtyOrdered,
-      }));
-    });
-
-    txn.update(orderRef, {
-      orderNumber: assignedNumber,
-      isDraft: false,
-      // The customer's order page, the receipt email and every refund
-      // calculation read these off the order — so the moment tax becomes
-      // known it becomes part of the order, atomically with 'paid'.
-      ...(fresh.taxMode === 'stripe' ? {
-        taxCents: sessionTaxCents,
-        ...(sessionTotalCents != null ? { totalCents: sessionTotalCents } : {}),
-      } : {}),
-      stage: 'paid',
-      paidAt: now,
-      ...(sessionTotalCents != null ? { chargedCents: sessionTotalCents } : {}),
-      qrToken,
-      clientId: clientId || fresh.clientId || null,
-      stripePaymentIntentId: piId,
-      stripeCheckoutSessionId: session.id,
-      ...(risk ? { riskCheck: { at: now, level: risk.riskLevel, score: risk.riskScore, reasons: risk.reasons } } : {}),
-      ...(risk?.hold ? { holdForReview: true, holdAuto: true, holdReason: risk.reasons.join(' · '), heldAt: now, heldBy: 'Automatic check' } : {}),
-    });
-    won = true;
-  });
-  if (!won) return;
+  // ── placed → paid, with everything that goes with it, in one step (lib/order-paid) ─────────────────────────
+  // The order number is issued there and nowhere else. Checkout creates a draft with orderNumber null; money landing
+  // is what turns it into a sale. Only the try that flips it to paid does anything, so when the payment webhook, the
+  // payment cron and the customer's order page race, exactly one wins.
+  const paid = await payOrder(db, tenantId, orderId, {
+    via: 'card', session, chargeId, connAcct, clientId,
+    risk: risk ? { level: risk.riskLevel, score: risk.riskScore, reasons: risk.reasons, hold: risk.hold } : null,
+  }, now);
+  if (!paid.won) return;
+  console.log(`[connect-webhook] Retail order ${orderId} paid — stock reserved for tenant ${tenantId}`);
   if (risk?.hold) {
-    try { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, type: 'order_held', read: false, createdAt: now, link: `/retail-orders/problems?order=${orderId}`, message: `Order #${String(assignedNumber ?? '').padStart(4, '0')} is held for review: ${risk.reasons[0]}` }); } catch { /* the Problems list shows it */ }
+    try { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); await n.set({ id: n.id, type: 'order_held', read: false, createdAt: now, link: `/retail-orders/problems?order=${orderId}`, message: `Order #${String(paid.orderNumber ?? '').padStart(4, '0')} is held for review: ${risk.reasons[0]}` }); } catch { /* the Problems list shows it */ }
   }
   // Running low online? Tell the team the moment an order takes an item down to its alert level, once per drop.
   try {
@@ -267,230 +117,50 @@ export async function handleRetailOrderPaid(
       }
     }
   } catch { /* the inventory screen shows it too */ }
-  const confirmed = await orderRef.get();
+  await finishPaidOrder(db, tenantId, orderId, session);
+}
 
-  // Everything below (income transaction description, confirmation email) read
-  // the PRE-transaction snapshot, whose orderNumber is still null on a draft.
-  // Re-point them at the freshly numbered document.
-  order = { ...order, ...(confirmed.data() || {}) };
-
+/**
+ * WHAT FOLLOWS A PAYMENT, EACH ONCE: the gift card's wallet, loyalty points for the order's products, the promo
+ * code's count, and the receipt. Run straight after the order is paid (whichever way), and again by the five-minute
+ * check for any order whose follow-up didn't finish (afterPaidAt missing), so a request cut off after the payment
+ * step can't leave a customer without their receipt. Each part is safe to run again: points and promo counts are
+ * kept once per order by their own modules, and the receipt is claimed on the order before it's sent.
+ */
+export async function finishPaidOrder(db: any, tenantId: string, orderId: string, session?: any): Promise<void> {
+  const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
+  const snap = await orderRef.get();
+  if (!snap.exists) return;
+  const order: any = { ...(snap.data() || {}), id: orderId };
+  if (!order.paidAt || order.stage === 'placed' || order.afterPaidAt) return;
+  let ok = true;
+  // A gift card topped down: the customer's wallet shows it.
+  if (Number(order.giftCardCents) > 0 && order.giftCardId && order.giftSpentAt) {
+    try { const { syncClientGift, notifyGiftUse } = await import('@/lib/gift-cards'); const g = await db.doc(`tenants/${tenantId}/giftCards/${String(order.giftCardId)}`).get(); await syncClientGift(db, tenantId, g.data()?.recipientId);
+      if (!order.giftUseNotifiedAt) { await orderRef.set({ giftUseNotifiedAt: new Date().toISOString() }, { merge: true }); void notifyGiftUse(db, tenantId, String(order.giftCardId), Number(order.giftCardCents) || 0).catch(() => {}); } }
+    catch (e) { console.error('[retail-webhook] gift card wallet', e); }
+  }
   // Loyalty (lib/loyalty): the order's products earn, once.
-  try { const tSnap = await db.doc(`tenants/${tenantId}`).get(); const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tSnap.data() || {}, orderId, order); } catch (e) { console.error('[retail-webhook] loyalty', e); }
+  try { const tSnap = await db.doc(`tenants/${tenantId}`).get(); const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tSnap.data() || {}, orderId, order); } catch (e) { ok = false; console.error('[retail-webhook] loyalty', e); }
   // A promo code on the order: one more use, counted once (lib/promo-codes-server).
-  if ((order as any)?.promo?.discountId) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch (e) { console.error('[retail-webhook] promo use', e); } }
-
-  // ── DIGITAL-ONLY: nothing to pick, pack, or post. The receipt below IS the
-  // delivery, so the order is finished the moment money lands — it must never
-  // appear on the board as work nobody can do. Physical orders and mixed carts
-  // are untouched: a mixed cart still has a parcel to fulfil.
-  if ((order as any).digitalOnly === true && order.stage === 'paid') {
-    try {
-      const nowIso = new Date().toISOString();
-      const dBatch = db.batch();
-      dBatch.set(orderRef, { stage: 'completed', completedAt: nowIso }, { merge: true });
-      const evD = orderRef.collection('events').doc();
-      dBatch.set(evD, {
-        id: evD.id, type: 'note', at: nowIso, actorId: 'system', actorName: 'Digital delivery',
-        meta: { text: 'Digital order \u2014 delivered by email on payment, nothing to fulfil' },
-      });
-      await dBatch.commit();
-      order = { ...order, stage: 'completed', completedAt: nowIso };
-    } catch (e: any) {
-      console.error('[retail-webhook] digital auto-complete failed (order is paid):', e?.message);
-    }
+  if (order?.promo?.discountId) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch (e) { ok = false; console.error('[retail-webhook] promo use', e); } }
+  // The receipt the customer expects within seconds of paying, claimed on the order first so it goes once. A send that
+  // fails gives the claim back, so the five-minute check tries again.
+  const claimed = await db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(orderRef)).data() || {};
+    // A send cut off part way (its claim never given back) is tried again after ten minutes.
+    if (cur.receiptSentAt || (cur.receiptSending && Date.now() - (Date.parse(String(cur.receiptSending)) || 0) < 10 * 60000)) return false;
+    tx.set(orderRef, { receiptSending: new Date().toISOString() }, { merge: true });
+    return true;
+  }).catch(() => false);
+  if (claimed) {
+    let how: 'sent' | 'skipped' | 'failed' = 'failed';
+    try { how = await sendOrderConfirmation(db, tenantId, orderId, order, session || null); }
+    catch (e: any) { console.error('[connect-webhook] confirmation email failed:', e?.message); }
+    await orderRef.set(how === 'failed' ? { receiptSending: null } : { receiptSentAt: new Date().toISOString(), ...(how === 'skipped' ? { receiptSkipped: true } : {}), receiptSending: null }, { merge: true }).catch(() => {});
+    if (how === 'failed') ok = false;
   }
-
-  // ── Store credit consumption. The checkout gave the discount UP FRONT on
-  // the Stripe page; the credits burn only now, when money actually moved.
-  // FIFO oldest-first, partial docs tracked via usedCents. A racing second
-  // checkout can leave a shortfall — consumed < requested — which is
-  // RECORDED on the order and flagged as an event instead of silently
-  // eaten; a person settles the rare race, the books never lie.
-  // ── A gift card on the order: spend what was set aside for it (the discount was given on the payment page).
-  const giftCents = Math.max(0, Number((order as any).giftCardCents) || 0);
-  if (giftCents > 0 && (order as any).giftCardId && !(order as any).giftSpentAt) {
-    try { const { spendGiftCard, notifyGiftUse } = await import('@/lib/gift-cards');
-      const { nonCardRecordRef } = await import('@/lib/non-card-back');
-      // Written down where only the server writes, in the same step as the spend (lib/non-card-back): what a refund or
-      // cancellation gives back. A spend already written down for the order isn't made again.
-      const r: any = await spendGiftCard(db, tenantId, { id: String((order as any).giftCardId), cents: giftCents, holdId: `retail_${orderId}`, by: 'Online shop', transactionRef: session.id, record: nonCardRecordRef(db, tenantId, orderId) });
-      if (!r.already) {
-        const ev = orderRef.collection('events').doc();
-        await ev.set({ id: ev.id, type: 'note', at: new Date().toISOString(), actorId: 'system', actorName: 'Gift card',
-          meta: { text: r.ok ? `Gift card ${(order as any).giftCardCode} — $${(giftCents / 100).toFixed(2)} redeemed` : `Gift card ${(order as any).giftCardCode} couldn’t be charged ($${(giftCents / 100).toFixed(2)}): ${r.error} — needs a look` } });
-      }
-      await orderRef.set(r.ok ? { giftSpentAt: new Date().toISOString() } : { giftShortfallCents: giftCents }, { merge: true });
-      if (r.ok && !r.already) void notifyGiftUse(db, tenantId, String((order as any).giftCardId), giftCents).catch(() => {});
-    } catch (e: any) { console.error('[retail-webhook] gift card spend failed:', e?.message); }
-  }
-  const requestedCredit = Math.max(0, Number((order as any).storeCreditRequestedCents) || 0);
-  if (requestedCredit > 0) {
-    try {
-      const credSnap = await db.collection(`tenants/${tenantId}/depositCredits`)
-        .where('clientEmail', '==', String(order.customerEmail || '').toLowerCase().trim())
-        .where('status', '==', 'available')
-        .limit(25).get();
-      const docs = credSnap.docs
-        .map((d: any) => ({ ref: d.ref, ...(d.data() || {}) }))
-        .sort((a: any, b: any) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-      let remaining = requestedCredit;
-      const consumeBatch = db.batch();
-      for (const c of docs) {
-        if (remaining <= 0) break;
-        const avail = Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
-        if (avail <= 0) continue;
-        const take = Math.min(avail, remaining);
-        remaining -= take;
-        consumeBatch.set(c.ref, {
-          usedCents: (Number(c.usedCents) || 0) + take,
-          status: take >= avail ? 'used' : 'available',
-          lastUsedAt: new Date().toISOString(),
-          lastUsedOnRetailOrderId: orderId,
-        }, { merge: true });
-      }
-      const consumed = requestedCredit - remaining;
-      const evRef2 = orderRef.collection('events').doc();
-      consumeBatch.set(evRef2, {
-        id: evRef2.id, type: 'note', at: new Date().toISOString(),
-        actorId: 'system', actorName: 'Store credit',
-        meta: { text: remaining > 0
-          ? `Store credit: $${(consumed / 100).toFixed(2)} of the $${(requestedCredit / 100).toFixed(2)} discount was still available \u2014 $${(remaining / 100).toFixed(2)} shortfall needs a look`
-          : `Store credit applied \u2014 $${(consumed / 100).toFixed(2)} redeemed` },
-      });
-      // The shortfall is recorded every time (0 when the credit was all there): it marks the credit as really taken,
-      // so a cancellation or refund gives back exactly what was spent (lib/non-card-back).
-      consumeBatch.set(orderRef, { creditShortfallCents: remaining }, { merge: true });
-      // And where only the server writes (lib/non-card-back): what a refund or cancellation gives back.
-      consumeBatch.set(db.doc(`tenants/${tenantId}/private/nonCardPaid/orders/${orderId}`), { creditCents: consumed, at: new Date().toISOString() }, { merge: true });
-      await consumeBatch.commit();
-    } catch (e: any) {
-      console.error('[retail-webhook] store-credit consumption failed:', e?.message);
-    }
-  }
-
-  // ── Audit events + income transaction (batched) ─────────────────────────
-  const batch = db.batch();
-  const eventsCol = orderRef.collection('events');
-
-  const evPaid = eventsCol.doc();
-  batch.set(evPaid, {
-    id: evPaid.id,
-    ...buildEvent('payment_confirmed', 'system', 'Stripe', {
-      checkoutSessionId: String(session.id),
-      amountCents: Number(session.amount_total ?? order.totalCents),
-      amountMatched: session.amount_total == null || session.amount_total === order.totalCents,
-    }),
-  });
-
-  const evReserved = eventsCol.doc();
-  batch.set(evReserved, {
-    id: evReserved.id,
-    ...buildEvent('stock_reserved', 'system', 'Retail Engine', {
-      lineCount: (order.lines || []).length,
-      units: (order.lines || []).reduce((a: number, l: any) => a + l.qtyOrdered, 0),
-      qr: buildOrderQrValue(qrToken),
-    }),
-  });
-
-  // ── The ledger split ─────────────────────────────────────────────────────
-  // order is the re-merged post-transaction snapshot, so in stripe-tax mode
-  // taxCents/totalCents here are already the written-back real figures. Every
-  // number is clamped and derived so junk cents on a legacy order degrade to
-  // zero instead of a negative posting.
-  const grossCents = clampCents(order.totalCents);
-  const taxCollectedCents = clampCents(order.taxCents);
-  const tipCollectedCents = clampCents(order.tipCents);
-  const shippingCollectedCents = clampCents(order.shippingCents);
-  const merchandiseCents = Math.max(
-    0, grossCents - taxCollectedCents - tipCollectedCents - shippingCollectedCents
-  );
-  const orderLabel = `Order #${String(order.orderNumber).padStart(4, '0')}`;
-
-  // Merchandise + shipping = the shop's actual revenue. This entry alone
-  // carries checkoutSessionId, so the charge.succeeded fee backfill still
-  // finds exactly one 'revenue' transaction to stamp the Stripe fee onto.
-  const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-  batch.set(txnRef, {
-    id: txnRef.id,
-    date: now,
-    description: `${order.priceTier === 'wholesale' ? 'Wholesale Sale' : 'Online Retail Sale'} — ${orderLabel}${order.poNumber ? ` (PO ${order.poNumber})` : ''}`,
-    clientOrVendor: order.customerName || 'Guest',
-    clientId: clientId || null,
-    type: 'income',
-    context: 'Business',
-    category: 'Retail',
-    taxBucket: 'revenue',
-    amount: (merchandiseCents + shippingCollectedCents) / 100,
-    grossOrderTotal: grossCents / 100,
-    merchandiseSubtotal: merchandiseCents / 100,
-    shippingCollected: shippingCollectedCents / 100,
-    paymentMethod: 'Online Checkout',
-    hasReceipt: false,
-    retailOrderId: orderId,
-    checkoutSessionId: session.id,
-    stripeChargeId: chargeId,
-    stripeConnectedAccountId: connAcct,
-    tenantId,
-  });
-
-  // Tax collected is the state's money passing through — 'tax_collected'
-  // keeps it out of revenue so income is never overstated and the quarterly
-  // remittance figure is one filtered column. A tax-exempt wholesale order
-  // carries zero tax and posts nothing here.
-  if (taxCollectedCents > 0) {
-    const taxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-    batch.set(taxRef, {
-      id: taxRef.id,
-      date: now,
-      description: `Sales tax collected — ${orderLabel}`,
-      clientOrVendor: order.customerName || 'Guest',
-      clientId: clientId || null,
-      type: 'income',
-      context: 'Business',
-      category: 'Tax Collected',
-      taxBucket: 'tax_collected',
-      amount: taxCollectedCents / 100,
-      taxMode: order.taxMode || 'flat',
-      paymentMethod: 'Online Checkout',
-      hasReceipt: false,
-      retailOrderId: orderId,
-      stripeConnectedAccountId: connAcct,
-      tenantId,
-    });
-  }
-
-  if (tipCollectedCents > 0) {
-    const tipRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-    batch.set(tipRef, {
-      id: tipRef.id,
-      date: now,
-      description: `Tip — ${orderLabel}`,
-      clientOrVendor: order.customerName || 'Guest',
-      clientId: clientId || null,
-      type: 'income',
-      context: 'Business',
-      category: 'Tips',
-      taxBucket: 'gratuity',
-      amount: tipCollectedCents / 100,
-      paymentMethod: 'Online Checkout',
-      hasReceipt: false,
-      retailOrderId: orderId,
-      stripeConnectedAccountId: connAcct,
-      tenantId,
-    });
-  }
-
-  await batch.commit();
-  console.log(`[connect-webhook] Retail order ${orderId} paid — stock reserved for tenant ${tenantId}`);
-
-  // Confirmation email — the receipt the customer expects within seconds of
-  // paying. Best-effort by design: a mail failure must never roll back a
-  // completed payment, so it runs after the commit and swallows its errors.
-  try {
-    await sendOrderConfirmation(db, tenantId, orderId, order, session);
-  } catch (e: any) {
-    console.error('[connect-webhook] confirmation email failed:', e?.message);
-  }
+  if (ok) await orderRef.set({ afterPaidAt: new Date().toISOString() }, { merge: true }).catch(() => {});
 }
 
 /**
@@ -504,11 +174,11 @@ export async function sendOrderConfirmation(
   orderId: string,
   order: any,
   session: any
-): Promise<void> {
+): Promise<'sent' | 'skipped' | 'failed'> {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   const to = String(order.customerEmail || '').trim();
-  if (!RESEND_API_KEY || !RESEND_FROM || !to) return;
+  if (!RESEND_API_KEY || !RESEND_FROM || !to) return 'skipped';
 
   let origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim();
   try {
@@ -516,7 +186,7 @@ export async function sendOrderConfirmation(
   } catch {
     // keep the env fallback
   }
-  if (!origin) return;
+  if (!origin) return 'skipped';
 
   let shopName = 'Our team';
   let emailBrand = { shopName: 'Your shop', brandColor: '#16171a' };
@@ -614,7 +284,6 @@ export async function sendOrderConfirmation(
 
   // Through the mailroom: the confirmation is the one retail email a customer
   // will go looking for, so it has to be findable in the delivery log.
-  const { sendNotification } = await import('./notify');
   const r = await sendNotification(db, {
     tenantId, channel: 'email', to,
     subject: `${shopName}: your order ${num} is confirmed`,
@@ -623,7 +292,10 @@ export async function sendOrderConfirmation(
   });
   if (!r.ok) {
     console.error('[connect-webhook] confirmation not sent:', r.status, r.error);
+    // Turned off by the shop or held for quiet hours is the shop's choice, not a failure to try again.
+    return String(r.status || '') === 'failed' ? 'failed' : 'skipped';
   }
+  return 'sent';
 }
 
 /**
@@ -730,8 +402,7 @@ async function sendCartRecovery(
       <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${shopName.charAt(0).toUpperCase()}${shopName.slice(1)}</p>`;
     const html = brandedEmail(emailBrand, recoveryBody, { preheader: 'Your cart has been saved. Nothing was charged.' });
 
-    const { sendNotification } = await import('./notify');
-    const r = await sendNotification(db, {
+      const r = await sendNotification(db, {
       tenantId, channel: 'email', to,
       subject: `Your cart at ${shopName} has been saved`,
       html, kind: 'cart_recovery',
@@ -843,7 +514,6 @@ export async function sendStoreCreditEmail(
 
   const html = brandedEmail(emailBrand, emailBody, { preheader: `${money(args.grantedCents)} in store credit has been added. Your balance is ${money(args.balanceCents)}.` });
 
-  const { sendNotification } = await import('./notify');
   const r = await sendNotification(db, {
     tenantId, channel: 'email', to,
     subject: `${emailBrand.shopName}: ${money(args.grantedCents)} in store credit has been added to your account`,

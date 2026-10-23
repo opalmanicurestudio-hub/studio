@@ -13,6 +13,7 @@ import { PosCatalog } from '@/components/pos/PosCatalog';
 import { useClientScreen } from '@/components/pos/ClientScreen';
 import { SaleComplete } from '@/components/pos/SaleComplete';
 import { DESK_CSS, Icon as DIcon, Ring } from '@/components/pos/desk/kit';
+import { HeldStockGate } from '@/components/pos/desk/HeldStockGate';
 import { useTerminalOptional } from '@/components/pos/StripeTerminalProvider';
 import { ReaderPanel } from '@/components/pos/ReaderPanel';
 import { approveWithPin } from '@/lib/approve-client';
@@ -458,6 +459,7 @@ export const CheckoutHub = ({
   walletOffers = [],
   offerClientId = null,
   offerServiceIds = [],
+  heldShort = [], heldApproval = null, setHeldApproval,
  }: any) => {
 
   const [promoCodeInput,        setPromoCodeInput]        = useState('');
@@ -1314,7 +1316,8 @@ export const CheckoutHub = ({
           </section>}
           <section className={card} style={cardStyle} aria-label="Pay">
             <p className={h}>How they’re paying</p>
-            {splitActive && prepareNow ? <SplitBill tenantId={tenantId} owed={safeNumber(finalTotal)} lines={splitLines} people={splitPeople} payerId={selectedClientId || null}
+            <HeldStockGate tenantId={tenantId} held={heldShort || []} approval={heldApproval} manager={['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase())} onApproved={(a) => setHeldApproval?.(a)} />
+            {(heldShort || []).length > 0 && !heldApproval && !['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase()) ? null : splitActive && prepareNow ? <SplitBill tenantId={tenantId} owed={safeNumber(finalTotal)} lines={splitLines} people={splitPeople} payerId={selectedClientId || null}
               prepare={async () => prepareNow()} takenShares={() => getTicket?.()?.tenders || []} onCancel={() => setSplitActive?.(false)} onFinish={(paid) => onCheckout({ paymentMethod: 'split', amountTendered: paid, recoveryAmount, recoveryReason, recoveryApprovalToken })}
               screen={cs.connected ? { connected: true, name: cs.name, ask: cs.ask, askFull: cs.askFull, response: cs.response } : null} askTip={autoTipOn} tipBaseFor={(amt: number) => (safeNumber(finalTotal) > 0 ? Math.round(tipBase * (amt / safeNumber(finalTotal)) * 100) / 100 : 0)} />
             : <>

@@ -5,6 +5,7 @@
 // card pays for that first, and what it can't cover stays with the shop out of the gift card or credit part. One
 // transaction with the gift card and the credit, so a retry can never give it twice; the order is stamped once
 // everything due has gone back. Server only.
+import { refundTaxPart, refundTipPart } from '@/lib/refund-tax';
 import { giveBackLine, readGift, roomCents, saleBooked, withNonCardRecord, writeGiveBack } from './non-card-back';
 import { ensureNonCardRecord } from './non-card-record';
 import { cancelWithFollowUps, familyRefundableCents, followUpsOf, isFollowUp } from './order-family';
@@ -46,15 +47,19 @@ export async function restoreNonCardPayment(db: any, t: string, orderId: string,
       : { giftCents: 0, creditCents: 0, toCreditFromGift: 0 };
     out = { giftCents: g.giftCents, creditCents: g.creditCents };
     order = o;
-    tx.update(ref, { nonCardRestoredAt: at });
     const given = g.giftCents + g.creditCents;
-    // The sale was booked as income through the card payment, gift card and credit included: their return is a refund.
+    // The sales tax that goes back with it (lib/refund-tax), so the books lower the tax owed by that much.
+    // The tip inside it goes back last (lib/refund-tax), and is kept out of returns.
+    const tipPart = given > 0 && saleBooked(o) && !o.parentOrderId ? refundTipPart(o, given) : 0;
+    const taxPart = given > 0 && saleBooked(o) ? refundTaxPart(o, Math.max(0, given - tipPart)) : 0;
+    tx.update(ref, { nonCardRestoredAt: at, ...(taxPart ? { refundedTaxCents: (Number(o.refundedTaxCents) || 0) + taxPart } : {}), ...(tipPart ? { refundedTipCents: (Number(o.refundedTipCents) || 0) + tipPart } : {}) });
+    // The sale was booked as income, gift card and credit included: their return is a refund.
     if (given > 0 && saleBooked(o)) {
       const txnRef = db.collection(`tenants/${t}/transactions`).doc();
       tx.set(txnRef, {
         id: txnRef.id, date: at, description: `Refund to ${g.giftCents && !g.creditCents ? 'gift card' : g.creditCents && !g.giftCents ? 'store credit' : 'gift card and store credit'} — Order #${o.orderNumber} cancelled`,
-        clientOrVendor: o.customerName || 'Guest', type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
-        amount: given / 100, paymentMethod: g.giftCents && !g.creditCents ? 'Gift card' : 'Store credit', hasReceipt: true, retailOrderId: orderId, tenantId: t,
+        clientOrVendor: o.customerName || 'Guest', type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund',
+        amount: given / 100, taxRefunded: taxPart / 100, ...(tipPart ? { tipRefunded: tipPart / 100, ...(o.tipSharedAt || !o.booksAt ? { tipBooked: true } : {}) } : {}), paymentMethod: g.giftCents && !g.creditCents ? 'Gift card' : 'Store credit', hasReceipt: true, retailOrderId: orderId, channel: 'online', tenantId: t,
       });
     }
     const ev = ref.collection('events').doc();

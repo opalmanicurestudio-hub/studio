@@ -22,6 +22,7 @@ import {
   TICKET_STATUS_LABELS, TICKET_STATUS_TONES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_TONES, TICKET_CATEGORIES,
   type TicketPriority, type TicketStatus,
 } from '@/lib/maintenance';
+import { PRINT, esc, printPage } from '@/lib/print-style';
 
 const todayISO = () => {
   const d = new Date();
@@ -392,18 +393,18 @@ export function MaintenanceSection({
   // A branded, comprehensive document: header with the studio's name and
   // ticket number, status chip, meta grid, description, a real cost
   // breakdown (materials + labor hours × rate + total), the full activity
-  // timeline, the photo record, and sign-off lines. Browser print dialog
-  // handles paper or Save-as-PDF.
+  // timeline, the photo record, and sign-off lines, in the app's print look
+  // (lib/print-style). Browser print dialog handles paper or Save-as-PDF.
   const printTicket = (t: any) => {
     try {
-      const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const brand = esc(studioName || (ownerName || '').replace(/ team$/i, '') || 'Studio');
+      const brandName = studioName || (ownerName || '').replace(/ team$/i, '') || 'Studio';
+      const brand = esc(brandName);
       const num = esc(String(t.id).slice(0, 8).toUpperCase());
       const statusLabel = esc(TICKET_STATUS_LABELS[t.status as TicketStatus] || t.status);
-      const chipColor = t.status === 'resolved' ? '#047857' : t.status === 'in_progress' ? '#4338ca' : t.status === 'cancelled' ? '#64748b' : '#b45309';
-      const chipBg = t.status === 'resolved' ? '#d1fae5' : t.status === 'in_progress' ? '#e0e7ff' : t.status === 'cancelled' ? '#f1f5f9' : '#fef3c7';
-      const rows = (t.updates || []).map((u: any, i: number) =>
-        `<tr${i % 2 ? ' class="alt"' : ''}><td class="nowrap">${esc(fmtWhen(u.at))}</td><td><strong>${esc(u.by)}</strong> <span class="who">${esc(u.byType || '')}</span></td><td>${u.status ? `<span class="move">→ ${esc(TICKET_STATUS_LABELS[u.status as TicketStatus] || u.status)}</span> ` : ''}${esc(u.note || '')}${u.photoUrl ? ' <span class="who">(photo)</span>' : ''}</td></tr>`).join('');
+      const tone = t.status === 'resolved' ? 'ok' : t.status === 'in_progress' || t.status === 'cancelled' ? '' : 'warn';
+      const sentence = (s: any) => { const v = String(s || ''); return v ? v.charAt(0).toUpperCase() + v.slice(1) : ''; };
+      const rows = (t.updates || []).map((u: any) =>
+        `<tr><td class="nowrap">${esc(fmtWhen(u.at))}</td><td><b>${esc(u.by)}</b>${u.byType ? ` <span class="who">${esc(sentence(u.byType))}</span>` : ''}</td><td>${u.status ? `<span class="move">→ ${esc(TICKET_STATUS_LABELS[u.status as TicketStatus] || u.status)}</span> ` : ''}${esc(u.note || '')}${u.photoUrl ? ' <span class="who">(photo)</span>' : ''}</td></tr>`).join('');
       const photos = (Array.isArray(t.photoUrls) ? t.photoUrls : []).map((u: string) =>
         `<img src="${esc(u)}" />`).join('');
       const mat = Math.max(0, Number(t.costCents) || 0);
@@ -423,69 +424,47 @@ export function MaintenanceSection({
       ].join('');
       const w = window.open('', '_blank');
       if (!w) { toast({ variant: 'destructive', title: 'Allow pop-ups to print' }); return; }
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Work order ${num} — ${esc(t.title)}</title><style>
-        @page{margin:16mm}
-        *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;max-width:760px;margin:0 auto;padding:28px;font-size:13px;line-height:1.5}
-        .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:14px;border-bottom:3px solid #0f172a}
-        .brand{font-size:11px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#64748b}
-        h1{font-size:24px;margin:4px 0 0;letter-spacing:-.02em}
-        .ttl{font-size:15px;font-weight:700;color:#334155;margin-top:2px}
-        .numbox{text-align:right;flex-shrink:0}
-        .num{font-size:15px;font-weight:800;font-family:ui-monospace,Menlo,monospace}
-        .chip{display:inline-block;margin-top:6px;padding:3px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:${chipColor};background:${chipBg}}
-        .printed{font-size:10px;color:#94a3b8;margin-top:6px}
-        .meta{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin:18px 0;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
-        .meta>div{padding:10px 14px;border-bottom:1px solid #e2e8f0;border-right:1px solid #e2e8f0}
-        .meta>div:nth-child(3n){border-right:none}.meta>div:nth-last-child(-n+3){border-bottom:none}
-        .lbl{display:block;color:#94a3b8;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;margin-bottom:2px}
-        .desc{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;white-space:pre-wrap;margin:0 0 18px}
-        h2{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.18em;color:#64748b;margin:22px 0 8px}
-        table{width:100%;border-collapse:collapse;font-size:12px}
-        th{background:#0f172a;color:#fff;text-align:left;padding:7px 10px;font-size:9px;text-transform:uppercase;letter-spacing:.12em}
-        td{padding:7px 10px;border-bottom:1px solid #e2e8f0;vertical-align:top}
-        tr.alt td{background:#f8fafc}
-        .nowrap{white-space:nowrap}.who{color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
-        .move{color:#4338ca;font-weight:700}
-        .amt{text-align:right;font-weight:700;font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
-        .total td{border-top:2px solid #0f172a;border-bottom:none;font-weight:800;font-size:14px}
-        .photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-        .photos img{width:100%;height:150px;object-fit:cover;border:1px solid #e2e8f0;border-radius:10px}
-        .sig{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
-        .sig div{border-top:1.5px solid #0f172a;padding-top:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#64748b}
-        .foot{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:9px;color:#94a3b8;display:flex;justify-content:space-between}
-        @media print{.noprint{display:none}}
-      </style></head><body>
-        <div class="top">
-          <div>
-            <p class="brand">${brand}</p>
-            <h1>Work Order</h1>
-            <p class="ttl">${esc(t.title)}</p>
-          </div>
-          <div class="numbox">
-            <p class="num">#${num}</p>
-            <span class="chip">${statusLabel}</span>
-            <p class="printed">Printed ${esc(new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }))}</p>
-          </div>
-        </div>
-        <div class="meta">
-          <div><span class="lbl">Location</span>${esc([t.boothName, t.resourceName].filter(Boolean).join(' · ') || '—')}</div>
-          <div><span class="lbl">Category</span>${esc(TICKET_CATEGORIES.find((c) => c.value === t.category)?.label || t.category)}</div>
-          <div><span class="lbl">Priority</span>${esc(TICKET_PRIORITY_LABELS[t.priority as TicketPriority] || t.priority)}</div>
-          <div><span class="lbl">Reported by</span>${esc(t.reporter?.name || '—')}<br/><span style="color:#94a3b8;font-size:11px">${esc(fmtWhen(t.createdAt))}</span></div>
-          <div><span class="lbl">Assigned to</span>${esc(t.assigneeName || 'Unassigned')}</div>
-          <div><span class="lbl">${t.resolvedAt ? 'Resolved' : 'Due'}</span>${esc(t.resolvedAt ? fmtWhen(t.resolvedAt) : t.dueAt ? fmtWhen(t.dueAt) : '—')}</div>
+      // printPage opens the print dialog itself once the font and the photos have loaded.
+      w.document.write(printPage({
+        title: `Work order ${num} · ${t.title || ''}`,
+        heading: 'Work <b>order</b>',
+        shopName: brandName,
+        subtitle: esc(t.title),
+        meta: [`<span class="wo">#${num}</span>`, `<span class="pill ${tone}">${statusLabel}</span>`],
+        body: `
+        <div class="panel facts">
+          <div><p class="lbl">Location</p><p>${esc([t.boothName, t.resourceName].filter(Boolean).join(' · ') || '—')}</p></div>
+          <div><p class="lbl">Category</p><p>${esc(TICKET_CATEGORIES.find((c) => c.value === t.category)?.label || t.category)}</p></div>
+          <div><p class="lbl">Priority</p><p>${esc(TICKET_PRIORITY_LABELS[t.priority as TicketPriority] || t.priority)}</p></div>
+          <div><p class="lbl">Reported by</p><p>${esc(t.reporter?.name || '—')}</p><p class="muted">${esc(fmtWhen(t.createdAt))}</p></div>
+          <div><p class="lbl">Assigned to</p><p>${esc(t.assigneeName || 'Unassigned')}</p></div>
+          <div><p class="lbl">${t.resolvedAt ? 'Resolved' : 'Due'}</p><p>${esc(t.resolvedAt ? fmtWhen(t.resolvedAt) : t.dueAt ? fmtWhen(t.dueAt) : '—')}</p></div>
         </div>
         ${t.description ? `<p class="desc">${esc(t.description)}</p>` : ''}
-        ${costRows ? `<h2>Cost breakdown</h2><table><tr><th>Item</th><th style="text-align:right">Amount</th></tr>${costRows}<tr class="total"><td>Total job cost</td><td class="amt">$${((purchased + mat + lab + Math.max(0, Number(t.mileageCents) || 0)) / 100).toFixed(2)}</td></tr></table>` : ''}
+        ${costRows ? `<h2>Cost breakdown</h2><table><thead><tr><th>Item</th><th class="r">Amount</th></tr></thead><tbody>${costRows}<tr class="total"><td>Total job cost</td><td class="amt">$${((purchased + mat + lab + Math.max(0, Number(t.mileageCents) || 0)) / 100).toFixed(2)}</td></tr></tbody></table>` : ''}
         <h2>Activity log</h2>
-        <table><tr><th>When</th><th>Who</th><th>Update</th></tr>${rows || '<tr><td colspan="3">No updates yet</td></tr>'}</table>
+        <table><thead><tr><th>When</th><th>Who</th><th>Update</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="faint">No updates yet</td></tr>'}</tbody></table>
         ${photos ? `<h2>Photo record</h2><div class="photos">${photos}</div>` : ''}
         <div class="sig"><div>Completed by / date</div><div>Approved by / date</div></div>
-        <div class="foot"><span>${brand} · Maintenance work order #${num}</span><span>Keep with receipts for tax records</span></div>
-        <p class="noprint" style="margin-top:24px;text-align:center"><button onclick="window.print()" style="padding:12px 28px;font-weight:800;border-radius:10px;border:2px solid #0f172a;background:#0f172a;color:#fff;letter-spacing:.1em;text-transform:uppercase;font-size:11px">Print / Save as PDF</button></p>
-        <script>setTimeout(function(){ try { window.print(); } catch (e) {} }, 400)</script>
-      </body></html>`);
+        <p class="no-print" style="margin-top:24px;text-align:center"><button type="button" class="print" onclick="window.print()">Print or save as PDF</button></p>`,
+        footNote: `${brand} · Maintenance work order #${num}`,
+        footRight: 'Keep with receipts for tax records',
+        css: `
+        @page { margin: 16mm; }
+        .pp .meta .wo { font-size: 15px; font-weight: 600; color: ${PRINT.ink}; }
+        .pp .meta .pill { margin: 4px 0; }
+        .pp .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin: 0 0 16px; }
+        .pp .desc { background: ${PRINT.soft}; border-radius: 14px; padding: 12px 14px; white-space: pre-wrap; color: ${PRINT.body}; margin: 0 0 16px; }
+        .pp .who { color: ${PRINT.muted}; font-size: 11px; }
+        .pp .move { font-weight: 500; }
+        .pp td.amt { text-align: right; white-space: nowrap; }
+        .pp tr.total td { border-top: 1px solid ${PRINT.ink}; border-bottom: none; font-weight: 600; font-size: 13px; }
+        .pp .photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        .pp .photos img { width: 100%; height: 150px; object-fit: cover; border: 1px solid ${PRINT.line}; border-radius: 12px; }
+        .pp .sig { margin-top: 36px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; break-inside: avoid; }
+        .pp .sig div { border-top: 1px solid ${PRINT.ink}; padding-top: 6px; font-size: 11px; color: ${PRINT.muted}; }
+        .pp .print { font: inherit; font-size: 13px; font-weight: 600; color: #fff; background: ${PRINT.ink}; border: 0; border-radius: 999px; padding: 10px 22px; cursor: pointer; }`,
+      }));
       w.document.close();
     } catch { toast({ variant: 'destructive', title: 'Could not open the print view' }); }
   };

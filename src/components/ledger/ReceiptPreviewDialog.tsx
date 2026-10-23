@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useFirebase } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 type ReceiptLineItem = { label: string; amount: number; type?: string; staff?: string };
 
@@ -78,38 +79,41 @@ export function ReceiptPreviewDialog({ transaction, tenantId, open, onOpenChange
     if (!receipt) return;
     const win = window.open('', '_blank', 'width=340,height=700');
     if (!win) { window.print(); return; }
-    win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
+    // A narrow receipt in the app's print look (lib/print-style), kept to solid black ink so it also prints cleanly
+    // on a thermal receipt printer: hierarchy comes from weight and size, never from grey.
+    win.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Receipt</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com"><link href="${PRINT_FONT_HREF}" rel="stylesheet">
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Courier New', monospace; font-size: 13px; padding: 20px 16px; max-width: 300px; margin: 0 auto; }
-        h1 { font-size: 16px; text-align: center; font-weight: bold; margin-bottom: 2px; }
-        .sub { text-align: center; color: #666; font-size: 11px; margin-bottom: 14px; }
-        hr { border: none; border-top: 1px dashed #bbb; margin: 10px 0; }
-        .row { display: flex; justify-content: space-between; margin: 4px 0; }
-        .muted { color: #555; }
-        .bold { font-weight: bold; }
-        .total { font-size: 15px; font-weight: bold; border-top: 1px solid #000; padding-top: 8px; margin-top: 6px; }
-        .green { color: #2d6a0f; }
-        .footer { text-align: center; margin-top: 20px; color: #666; font-size: 11px; line-height: 2; }
+        body { font-family: ${PRINT_FONT_STACK}; font-size: 12.5px; line-height: 1.45; font-weight: 400; color: #000; background: #fff; font-variant-numeric: tabular-nums; padding: 20px 16px; max-width: 300px; margin: 0 auto; }
+        h1 { font-size: 15px; text-align: center; font-weight: 600; margin-bottom: 3px; }
+        .sub { text-align: center; font-size: 11px; line-height: 1.6; margin-bottom: 12px; }
+        hr { border: none; border-top: 1px dashed #000; margin: 10px 0; }
+        .row { display: flex; justify-content: space-between; gap: 12px; margin: 3px 0; }
+        .row span:last-child { white-space: nowrap; }
+        .muted { font-size: 12px; }
+        .bold { font-weight: 600; }
+        .total { font-size: 14px; font-weight: 600; border-top: 1px solid #000; padding-top: 7px; margin-top: 6px; }
+        .footer { text-align: center; margin-top: 18px; font-size: 11px; line-height: 1.8; }
         @media print { body { padding: 0; } }
       </style></head><body>
-      <h1>${receipt.studioName || 'Studio'}</h1>
+      <h1>${esc(receipt.studioName || 'Studio')}</h1>
       <div class="sub">${receipt.date ? format(new Date(receipt.date), 'MMM d, yyyy · h:mm a') : ''}
-        <br>Guest: ${receipt.clientName || 'Guest'}
-        ${receipt.cashierName ? `<br>Served by: ${receipt.cashierName}` : ''}
+        <br>Guest: ${esc(receipt.clientName || 'Guest')}
+        ${receipt.cashierName ? `<br>Served by: ${esc(receipt.cashierName)}` : ''}
       </div>
       <hr>
-      ${(receipt.lineItems || []).map(l => `<div class="row"><span>${l.label}${l.staff ? ` · ${l.staff}` : ''}</span><span>$${l.amount.toFixed(2)}</span></div>`).join('')}
+      ${(receipt.lineItems || []).map(l => `<div class="row"><span>${esc(l.label)}${l.staff ? ` · ${esc(l.staff)}` : ''}</span><span>$${l.amount.toFixed(2)}</span></div>`).join('')}
       <hr>
       <div class="row muted"><span>Subtotal</span><span>$${receipt.subtotal?.toFixed(2) || '0.00'}</span></div>
       ${(receipt.discount || 0) > 0 ? `<div class="row muted"><span>Discount</span><span>-$${receipt.discount.toFixed(2)}</span></div>` : ''}
       <div class="row muted"><span>Tax (7%)</span><span>$${receipt.tax?.toFixed(2) || '0.00'}</span></div>
       ${(receipt.tip || 0) > 0 ? `<div class="row muted"><span>Gratuity</span><span>$${receipt.tip.toFixed(2)}</span></div>` : ''}
-      <div class="row total"><span>TOTAL</span><span>$${receipt.total?.toFixed(2) || '0.00'}</span></div>
+      <div class="row total"><span>Total</span><span>$${receipt.total?.toFixed(2) || '0.00'}</span></div>
       <hr>
-      <div class="row bold"><span>${receipt.paymentMethod || 'Payment'}</span><span>$${receipt.tendered?.toFixed(2) || receipt.total?.toFixed(2) || '0.00'}</span></div>
-      ${(receipt.change || 0) > 0.005 ? `<div class="row green bold"><span>Change</span><span>$${receipt.change.toFixed(2)}</span></div>` : ''}
-      <div class="footer">Thank you, ${(receipt.clientName || 'Guest').split(' ')[0]}!<br>We appreciate your business.</div>
+      <div class="row bold"><span>${esc(receipt.paymentMethod || 'Payment')}</span><span>$${receipt.tendered?.toFixed(2) || receipt.total?.toFixed(2) || '0.00'}</span></div>
+      ${(receipt.change || 0) > 0.005 ? `<div class="row bold"><span>Change</span><span>$${receipt.change.toFixed(2)}</span></div>` : ''}
+      <div class="footer">Thank you, ${esc((receipt.clientName || 'Guest').split(' ')[0])}!<br>We appreciate your business.</div>
       </body></html>`);
     win.document.close();
     setTimeout(() => win.print(), 300);

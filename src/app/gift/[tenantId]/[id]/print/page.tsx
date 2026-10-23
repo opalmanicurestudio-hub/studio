@@ -6,6 +6,7 @@ import { bonusWhen } from '@/lib/gift-offers';
 import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { PRINT, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 const W = 324, H = 204;   // 3.375 × 2.125 in at 96 px per inch
 const money = (c: number) => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`;
@@ -18,14 +19,15 @@ export default function PrintGiftCard() {
   if (err) return <p style={{ padding: 24, fontFamily: 'system-ui' }}>{err}</p>;
   if (!d) return <p style={{ padding: 24, fontFamily: 'system-ui', color: '#6d7075' }}>Loading…</p>;
   const c = d.card;
-  const mark = (pos: React.CSSProperties) => <span aria-hidden style={{ position: 'absolute', width: 12, height: 12, borderColor: '#999', borderStyle: 'solid', borderWidth: 0, ...pos }} />;
+  const mark = (pos: React.CSSProperties) => <span aria-hidden style={{ position: 'absolute', width: 12, height: 12, borderColor: PRINT.faint, borderStyle: 'solid', borderWidth: 0, ...pos }} />;
   const cut = (child: React.ReactNode) => (
     <div style={{ position: 'relative', width: W, height: H, margin: 14 }}>
       {mark({ left: -14, top: -1, borderTopWidth: 1 })}{mark({ left: -1, top: -14, borderLeftWidth: 1 })}{mark({ right: -14, top: -1, borderTopWidth: 1 })}{mark({ right: -1, top: -14, borderRightWidth: 1 })}
       {mark({ left: -14, bottom: -1, borderBottomWidth: 1 })}{mark({ left: -1, bottom: -14, borderLeftWidth: 1 })}{mark({ right: -14, bottom: -1, borderBottomWidth: 1 })}{mark({ right: -1, bottom: -14, borderRightWidth: 1 })}
       <div style={{ width: W, height: H, borderRadius: 14, overflow: 'hidden' }}>{child}</div></div>);
   return (
-    <div style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: '#16171a', padding: 24 }}>
+    <div style={{ fontFamily: PRINT_FONT_STACK, color: PRINT.ink, padding: 24 }}>
+      <link rel="stylesheet" href={PRINT_FONT_HREF} />
       <style>{`@page { size: letter; margin: 0.5in } @media print { .no-print { display: none !important } body { background: #fff } * { -webkit-print-color-adjust: exact; print-color-adjust: exact } }`}</style>
       <div className="no-print" style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 18, flexWrap: 'wrap' }}>
         <button type="button" onClick={() => window.print()} style={{ height: 44, padding: '0 22px', borderRadius: 999, border: 0, background: '#16171a', color: '#fff', fontWeight: 600, fontSize: 15 }}>Print</button>
@@ -33,13 +35,13 @@ export default function PrintGiftCard() {
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {cut(<GiftCardFace design={c.design} brand={d.brand} amount={c.kind === 'service' ? '1 visit' : money(c.initialCents)} name={c.recipientName} code={c.code} line={c.line || ''} expires={c.expiresAt} width={W} style={{ boxShadow: 'none' }} />)}
-        {cut(<div style={{ position: 'relative', width: W, height: H, background: '#fff', border: '1px solid #ececee', borderRadius: 14, boxSizing: 'border-box', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ height: 26, background: '#16171a', margin: '-16px -16px 0' }} />
+        {cut(<div style={{ position: 'relative', width: W, height: H, background: '#fff', border: `1px solid ${PRINT.line}`, borderRadius: 14, boxSizing: 'border-box', padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ height: 26, background: PRINT.soft, margin: '-16px -16px 0' }} />
           <div style={{ display: 'flex', gap: 12 }}>
-            {qr ? <img src={qr} alt="" style={{ width: 78, height: 78, flexShrink: 0 }} /> : <div style={{ width: 78, height: 78, background: '#f3f3f5' }} />}
-            <div style={{ fontSize: 9.5, lineHeight: 1.45 }}><b style={{ fontSize: 10.5 }}>Scan to see what’s left and book.</b><br /><span style={{ color: '#6d7075' }}>{c.promo ? `A thank-you bonus${c.offerName ? ` (${c.offerName})` : ''}. ${bonusWhen(c)}. Use it at the studio — not for cash.` : d.rules}</span></div>
+            {qr ? <img src={qr} alt="" style={{ width: 78, height: 78, flexShrink: 0 }} /> : <div style={{ width: 78, height: 78, flexShrink: 0, borderRadius: 8, background: PRINT.soft }} />}
+            <div style={{ fontSize: 9.5, lineHeight: 1.45 }}><b style={{ fontSize: 10.5, fontWeight: 600 }}>Scan to see what’s left and book.</b><br /><span style={{ color: PRINT.muted }}>{c.promo ? `A thank-you bonus${c.offerName ? ` (${c.offerName})` : ''}. ${bonusWhen(c)}. Use it at the studio — not for cash.` : d.rules}</span></div>
           </div>
-          <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#6d7075' }}><span>{[d.brand?.name, d.brand?.phone, d.site].filter(Boolean).join(' · ')}</span><span style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: '.1em', whiteSpace: 'nowrap', marginLeft: 8 }}>{c.code}</span></div>
+          <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 9, color: PRINT.muted }}><span>{[d.brand?.name, d.brand?.phone, d.site].filter(Boolean).join(' · ')}</span><span style={{ fontSize: 9.5, fontWeight: 500, color: PRINT.ink, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', marginLeft: 8 }}>{c.code}</span></div>
         </div>)}
       </div>
     </div>);

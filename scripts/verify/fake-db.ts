@@ -68,3 +68,31 @@ export function makeDb() {
 }
 export let failures = 0;
 export function check(name: string, ok: any, detail?: any) { if (ok) console.log(`  ✓ ${name}`); else { failures++; console.log(`  ✗ ${name}`, detail === undefined ? '' : JSON.stringify(detail)); } }
+
+/** Transactions as the database runs them: writes wait until the end, and if a document the step read changed
+ *  meanwhile, the whole step runs again (so two requests at once can't both pass the same check). Reads of a query
+ *  aren't watched; the code under test reads each document it relies on by itself. */
+export function strictTransactions(db: any) {
+  db.runTransaction = async (fn: any) => {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const reads = new Map<string, string>(); const writes: (() => any)[] = [];
+      const tx = {
+        get: async (r: any) => { const snap = await r.get(); if (r.path && !r.where) reads.set(r.path, JSON.stringify(db._store.get(r.path) ?? null)); return snap; },
+        set: (r: any, v: any, o?: any) => { writes.push(() => r.set(v, o)); },
+        update: (r: any, v: any) => { writes.push(() => r.update(v)); },
+        create: (r: any, v: any) => { writes.push(() => r.create(v)); },
+        delete: (r: any) => { writes.push(() => r.delete()); },
+      };
+      const out = await fn(tx);
+      // Give the other request a chance to run between this one's reads and its writes.
+      await new Promise((r) => setTimeout(r, Math.random() * 2));
+      let changed = false;
+      for (const [path, before] of reads) if (JSON.stringify(db._store.get(path) ?? null) !== before) { changed = true; break; }
+      if (changed) { await new Promise((r) => setTimeout(r, Math.random() * 3)); continue; }
+      for (const w of writes) await w();
+      return out;
+    }
+    throw new Error('transaction kept conflicting');
+  };
+  return db;
+}

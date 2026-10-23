@@ -72,6 +72,7 @@
  */
 
 import { hasRealCard } from '@/lib/card-on-file';
+import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
 import { hoursToDeadline } from '@/lib/change-rules';
 import { logAuditClient } from '@/lib/audit-client';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -420,14 +421,17 @@ export function useCancellationConfirm(
             creditSnap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(client.email).toLowerCase().trim())));
           }
           if (creditSnap && !creditSnap.empty) {
+            // This booking's own deposit (lib/credit-pools), or one carried over to it from a cancelled booking; never
+            // store credit from a return (same collection), and never a deposit waiting for another booking.
             const candidates = creditSnap.docs
-              .map(d => ({ ref: d.ref, ...(d.data() as any) }))
-              .filter((c: any) => !isCreditExpired(c.expiresAt));
-            candidates.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            const credit = candidates[0];
+              .map(d => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
+              .filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
+            const credit: any = pickDeposit(candidates, [appointment.id], () => true)
+              || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
 
             if (credit) {
-              const amount = Number(credit.amountDollars ?? (credit.amountCents || 0) / 100);
+              // What's left on it (a deposit part used at the desk keeps only the rest).
+              const amount = creditLeftCents(credit) / 100;
               const decisionNow = new Date().toISOString();
 
               if (isNoShowCancel && (!depositOutcome || depositOutcome === 'forfeit' || depositOutcome === 'applied')) {

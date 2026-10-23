@@ -41,6 +41,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { SeatingChartTab } from '@/components/events/SeatingChartTab';
+import { PRINT, esc, printPage } from '@/lib/print-style';
 
 const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(v) : new Date(v));
 const safeNum  = (v: any) => Number(v) || 0;
@@ -321,6 +322,17 @@ const CourseFireConfirmDialog = ({ open, onOpenChange, courseNumber, courseName,
 };
 
 // ─── KITCHEN PRINT MODAL ───────────────────────────────────────────────────────
+// Both printouts are in the app's print look (lib/print-style). A critical allergy is red and carries a small warning
+// mark, so it still stands out on a black-and-white printer; an intolerance is amber; a preference is plain.
+const WARN_MARK = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3L12 4z"/><path d="M12 10v4M12 17v.5"/></svg>';
+const allergyPill = (a: any) => {
+  const label = typeof a === 'object' ? a.label : a;
+  const sev   = typeof a === 'object' ? a.severity : 'preference';
+  if (sev === 'critical') return `<span class="pill bad">${WARN_MARK}${esc(label)}</span>`;
+  if (sev === 'intolerance') return `<span class="pill warn">${esc(label)}</span>`;
+  return `<span class="pill">${esc(label)}</span>`;
+};
+
 const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, courseNumbers }: {
   open: boolean; onOpenChange: (v: boolean) => void;
   event: any; guests: any[]; menuItems: any[]; courseNumbers: number[];
@@ -351,88 +363,66 @@ const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, cours
       return { courseNumber: n, name: courseLabels[n] || `Course ${n}`, counts };
     });
 
-    win.document.write(`<!DOCTYPE html><html><head>
-      <title>Kitchen Run Sheet — ${event?.title || 'Event'}</title>
-      <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11px; color: #1e293b; padding: 24px; }
-        h1 { font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: -0.5px; }
-        h2 { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; margin: 20px 0 8px; border-bottom: 2px solid #0f172a; padding-bottom: 4px; }
-        h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; margin: 12px 0 4px; color: #64748b; }
-        .meta { color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 4px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-        th { background: #0f172a; color: white; font-weight: 900; text-transform: uppercase; font-size: 9px; letter-spacing: 1px; padding: 6px 8px; text-align: left; }
-        td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-        tr:nth-child(even) td { background: #f8fafc; }
-        .allergy-critical { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; padding: 2px 6px; border-radius: 99px; font-size: 8px; font-weight: 900; text-transform: uppercase; display: inline-block; margin: 1px; }
-        .allergy-intolerance { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: 2px 6px; border-radius: 99px; font-size: 8px; font-weight: 900; text-transform: uppercase; display: inline-block; margin: 1px; }
-        .allergy-pref { background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 2px 6px; border-radius: 99px; font-size: 8px; font-weight: 700; text-transform: uppercase; display: inline-block; margin: 1px; }
-        .count-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
-        .count-box { border: 2px solid #e2e8f0; border-radius: 8px; padding: 8px; text-align: center; }
-        .count-box .num { font-size: 24px; font-weight: 900; color: #0f172a; }
-        .count-box .lbl { font-size: 9px; font-weight: 900; text-transform: uppercase; color: #94a3b8; margin-top: 2px; }
-        .alert-box { background: #fef2f2; border: 2px solid #fca5a5; border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
-        .alert-box p { color: #991b1b; font-weight: 900; font-size: 10px; text-transform: uppercase; }
-        @media print { @page { margin: 0.4in; } }
-      </style>
-    </head><body>
-      <h1>${event?.title || 'Event'} — Kitchen Run Sheet</h1>
-      <p class="meta">${event?.date ? format(new Date(event.date), 'EEEE, MMMM d, yyyy') : ''} ${event?.time ? '· ' + event.time : ''} ${event?.venue ? '· ' + event.venue : ''}</p>
-      <p class="meta">${guests.filter(g => g.checkedIn).length} of ${guests.length} guests checked in · Printed ${format(new Date(), 'MMM d, h:mm a')}</p>
+    const checkedIn = guests.filter(g => g.checkedIn).length;
+    const when = [event?.date ? format(new Date(event.date), 'EEEE, MMMM d, yyyy') : '', event?.time || '', event?.venue || ''].filter(Boolean).map(esc).join(' · ');
 
-      <h2>Course Summary</h2>
+    const body = `
+      <h2>Course summary</h2>
       ${countsPerCourse.map(c => `
-        <h3>${c.name}</h3>
-        <div class="count-grid">
-          ${Object.entries(c.counts).map(([name, count]) => `
-            <div class="count-box"><div class="num">${count}</div><div class="lbl">${name}</div></div>
-          `).join('')}
+        <h3>${esc(c.name)}</h3>
+        <div class="grid3">
+          ${Object.entries(c.counts).map(([name, count]) => `<div class="panel stat"><div class="v">${count}</div><div class="l">${esc(name)}</div></div>`).join('')}
         </div>
       `).join('')}
 
       ${criticalAllergies.length > 0 ? `
-        <h2>⚠ Critical Allergies — ${criticalAllergies.length} Guest${criticalAllergies.length !== 1 ? 's' : ''}</h2>
+        <h2 class="bad">Critical allergies · ${criticalAllergies.length} guest${criticalAllergies.length !== 1 ? 's' : ''}</h2>
         ${criticalAllergies.map(g => `
-          <div class="alert-box">
-            <p>${g.name}${g.tableNumber ? ` · Table ${g.tableNumber}` : ''}${g.seatNumber ? ` · Seat ${g.seatNumber}` : ''}</p>
-            <div style="margin-top:4px">${
-              (g.allergies || []).map((a: any) => {
-                const label = typeof a === 'object' ? a.label : a;
-                const sev   = typeof a === 'object' ? a.severity : 'preference';
-                return `<span class="allergy-${sev === 'critical' ? 'critical' : sev === 'intolerance' ? 'intolerance' : 'pref'}">${label}</span>`;
-              }).join('')
-            }</div>
+          <div class="alert">
+            <p class="who">${esc(g.name)}${g.tableNumber ? ` · Table ${esc(g.tableNumber)}` : ''}${g.seatNumber ? ` · Seat ${esc(g.seatNumber)}` : ''}</p>
+            <div class="pills">${(g.allergies || []).map(allergyPill).join('')}</div>
           </div>
         `).join('')}
       ` : ''}
 
-      <h2>Full Guest List (Checked In)</h2>
+      <h2>Full guest list (checked in)</h2>
       <table>
         <thead><tr>
-          <th>Guest</th><th>Table / Seat</th>
-          ${courseNumbers.map(n => `<th>${courseLabels[n] || 'Course ' + n}</th>`).join('')}
-          <th>Allergies / Dietary</th>
+          <th>Guest</th><th>Table / seat</th>
+          ${courseNumbers.map(n => `<th>${esc(courseLabels[n] || 'Course ' + n)}</th>`).join('')}
+          <th>Allergies / dietary</th>
         </tr></thead>
         <tbody>
           ${rows.map(g => `<tr>
-            <td><strong>${g.name}</strong></td>
-            <td>${g.tableNumber ? 'T' + g.tableNumber : '—'}${g.seatNumber ? ' · ' + g.seatNumber : ''}</td>
+            <td><b>${esc(g.name)}</b></td>
+            <td class="nowrap">${g.tableNumber ? 'T' + esc(g.tableNumber) : '—'}${g.seatNumber ? ' · ' + esc(g.seatNumber) : ''}</td>
             ${courseNumbers.map(n => {
               const id   = g.courseSelections?.[n] || (n === 1 ? g.mealChoiceId : null);
               const name = id ? menuItems.find(m => m.id === id)?.name || '—' : '—';
-              return `<td>${name}</td>`;
+              return `<td>${esc(name)}</td>`;
             }).join('')}
-            <td>${(g.allergies || []).map((a: any) => {
-              const label = typeof a === 'object' ? a.label : a;
-              const sev   = typeof a === 'object' ? a.severity : 'preference';
-              return `<span class="allergy-${sev === 'critical' ? 'critical' : sev === 'intolerance' ? 'intolerance' : 'pref'}">${label}</span>`;
-            }).join('')}</td>
+            <td><div class="pills">${(g.allergies || []).map(allergyPill).join('')}</div></td>
           </tr>`).join('')}
         </tbody>
-      </table>
-    </body></html>`);
+      </table>`;
+
+    win.document.write(printPage({
+      title: `Kitchen run sheet · ${event?.title || 'Event'}`,
+      heading: 'Kitchen run <b>sheet</b>',
+      subtitle: [esc(event?.title || 'Event'), when].filter(Boolean).join(' · '),
+      meta: [`${checkedIn} of ${guests.length} guests checked in`],
+      body,
+      css: `
+        .pp h3 { margin: 14px 0 6px; }
+        .pp .stat .l { margin-top: 2px; }
+        .pp .alert { background: ${PRINT.redSoft}; border-radius: 14px; padding: 10px 14px; margin: 0 0 8px; break-inside: avoid; }
+        .pp .alert .who { font-weight: 600; color: ${PRINT.red}; }
+        .pp .alert .pill { background: #fff; }
+        .pp .pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+        .pp td .pills { margin-top: 0; }
+      `,
+    }));
     win.document.close();
-    setTimeout(() => win.print(), 300);
   };
 
   // Per-guest allergen cards
@@ -445,41 +435,39 @@ const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, cours
     const win = window.open('', '_blank');
     if (!win) return;
 
-    win.document.write(`<!DOCTYPE html><html><head>
-      <title>Allergen Cards — ${event?.title || 'Event'}</title>
-      <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 16px; }
-        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-        .card { border: 3px solid #0f172a; border-radius: 12px; padding: 12px; page-break-inside: avoid; min-height: 100px; }
-        .card.critical { border-color: #dc2626; background: #fef2f2; }
-        .name { font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacing: -0.3px; }
-        .seat { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #64748b; margin: 2px 0 6px; }
-        .pill { display: inline-block; margin: 2px; padding: 3px 8px; border-radius: 99px; font-size: 10px; font-weight: 900; text-transform: uppercase; border: 1.5px solid; }
-        .critical-pill { background: #fef2f2; border-color: #ef4444; color: #991b1b; }
-        .intolerance-pill { background: #fffbeb; border-color: #f59e0b; color: #78350f; }
-        .pref-pill { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
-        @media print { @page { margin: 0.3in; } }
-      </style>
-    </head><body>
-      <div class="grid">
+    const body = `
+      <div class="cards">
         ${flaggedGuests.map(g => {
           const hasCritical = (g.allergies || []).some((a: any) => a.severity === 'critical');
-          return `<div class="card ${hasCritical ? 'critical' : ''}">
-            <div class="name">${g.name}</div>
-            <div class="seat">${g.tableNumber ? 'Table ' + g.tableNumber : ''}${g.seatNumber ? ' · Seat ' + g.seatNumber : ''}</div>
-            ${(g.allergies || []).map((a: any) => {
-              const label = typeof a === 'object' ? a.label : a;
-              const sev   = typeof a === 'object' ? a.severity : 'preference';
-              const cls   = sev === 'critical' ? 'critical-pill' : sev === 'intolerance' ? 'intolerance-pill' : 'pref-pill';
-              return `<span class="pill ${cls}">${sev === 'critical' ? '⚠ ' : ''}${label}</span>`;
-            }).join('')}
+          const seat = [g.tableNumber ? 'Table ' + esc(g.tableNumber) : '', g.seatNumber ? 'Seat ' + esc(g.seatNumber) : ''].filter(Boolean).join(' · ');
+          return `<div class="card${hasCritical ? ' critical' : ''}">
+            ${hasCritical ? '<p class="flag">Critical allergy</p>' : ''}
+            <p class="name">${esc(g.name)}</p>
+            ${seat ? `<p class="seat">${seat}</p>` : ''}
+            <div class="pills">${(g.allergies || []).map(allergyPill).join('')}</div>
           </div>`;
         }).join('')}
-      </div>
-    </body></html>`);
+      </div>`;
+
+    win.document.write(printPage({
+      title: `Allergen cards · ${event?.title || 'Event'}`,
+      heading: 'Allergen <b>cards</b>',
+      subtitle: esc(event?.title || 'Event'),
+      meta: [`${flaggedGuests.length} checked-in guest${flaggedGuests.length !== 1 ? 's' : ''} with allergies or dietary needs`],
+      body,
+      css: `
+        .pp .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+        .pp .card { border: 1px solid ${PRINT.line}; border-radius: 14px; padding: 12px 14px; min-height: 100px; break-inside: avoid; }
+        .pp .card.critical { background: ${PRINT.redSoft}; border-color: ${PRINT.redSoft}; }
+        .pp .card .flag { font-size: 11px; font-weight: 600; color: ${PRINT.red}; margin-bottom: 2px; }
+        .pp .card .name { font-size: 15px; font-weight: 600; line-height: 1.25; }
+        .pp .card .seat { font-size: 11px; color: ${PRINT.muted}; margin-top: 2px; }
+        .pp .pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+        .pp .card .pill { font-size: 11.5px; padding: 3px 9px; }
+        .pp .card.critical .pill { background: #fff; }
+      `,
+    }));
     win.document.close();
-    setTimeout(() => win.print(), 300);
   };
 
   const allergenGuestCount = guests.filter(g => g.checkedIn && (g.allergies || []).length > 0).length;

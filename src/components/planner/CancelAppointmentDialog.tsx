@@ -168,6 +168,7 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
     client?.email,
     tenant?.id,
     open,
+    appointment.id,
   );
 
   const hasCardOnFile = !!hasRealCard(client);

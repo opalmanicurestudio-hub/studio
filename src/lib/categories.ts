@@ -28,6 +28,7 @@ export const CATEGORY_LIBRARY: CategoryDef[] = [
   { name: 'Tips',                type: 'income',  taxBucket: 'gratuity' },
   { name: 'Tax Collected',       type: 'income',  taxBucket: 'tax_collected',  hint: 'Held for the state — not your income' },
   { name: 'Card Processing Fee', type: 'income',  taxBucket: 'revenue',        hint: 'Fee passed through to clients' },
+  { name: 'Shipping Charged',    type: 'income',  taxBucket: 'revenue',        hint: 'What customers paid for shipping or delivery' },
   { name: 'Other Income',        type: 'income',  taxBucket: 'revenue' },
 
   // ── Expenses ──
@@ -50,6 +51,7 @@ export const CATEGORY_LIBRARY: CategoryDef[] = [
   { name: 'Meals & Entertainment',  type: 'expense', taxBucket: 'operating_cost' },
   { name: 'Bills',                  type: 'expense', taxBucket: 'operating_cost' },
   { name: 'Spoilage',               type: 'expense', taxBucket: 'operating_cost' },
+  { name: 'Shipping',               type: 'expense', taxBucket: 'operating_cost', hint: 'Postage and shipping labels' },
   { name: 'Refunds',                type: 'expense', taxBucket: 'refund' },
   { name: 'Discounts',              type: 'expense', taxBucket: 'adjustment' },
   { name: 'Distribution',           type: 'expense', taxBucket: 'transfer',       hint: 'Profit First / owner transfers' },
@@ -98,6 +100,11 @@ const SCHEDULE_C_MAP: Record<string, string> = {
   'Meals & Entertainment':   'Line 24b — Meals (50% limit)',
   'Bills':                   'Line 27a — Other expenses',
   'Refunds':                 'Line 2 — Returns & allowances',
+  'Refund':                  'Line 2 — Returns & allowances',
+  'Deposit Refund':          'Line 2 — Returns & allowances',
+  'Void':                    'Line 2 — Returns & allowances',
+  'Deposit Applied':         'Line 2 — Returns & allowances',
+  'Shipping':                'Line 27a — Other expenses (postage and shipping)',
   'Discounts':               'Line 2 — Returns & allowances',
   'Distribution':            'Not deductible — owner draw',
   'Personal Needs':          'Not deductible — personal',

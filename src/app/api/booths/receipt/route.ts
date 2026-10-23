@@ -24,6 +24,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 
 const esc = (s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
@@ -47,112 +48,90 @@ function buildReceiptHtml(data: {
   const fmt = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const rows = data.lineItems.map(li => `
     <tr>
-      <td style="padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:13px;">${esc(li.description)}</td>
-      <td style="padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:13px;text-align:right;">${fmt(li.amountDollars)}</td>
+      <td>${esc(li.description)}</td>
+      <td class="r nowrap">${fmt(li.amountDollars)}</td>
     </tr>`).join('');
+  const contact = [data.studioAddress, data.studioPhone, data.studioEmail].filter(Boolean).map((s) => esc(s));
 
+  // The app's print look (lib/print-style): a light heading, sentence-case labels in grey, thin lines, soft panels.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Receipt ${esc(data.receiptNumber)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link href="${PRINT_FONT_HREF}" rel="stylesheet" />
   <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;background:#fff;padding:40px;max-width:680px;margin:auto}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;padding-bottom:24px;border-bottom:3px solid #111}
-    .studio-name{font-size:22px;font-weight:900;letter-spacing:-0.5px}
-    .studio-meta{font-size:11px;color:#6b7280;margin-top:4px;line-height:1.6}
-    .receipt-label{text-align:right}
-    .receipt-label h1{font-size:28px;font-weight:900;letter-spacing:-1px;color:#111}
-    .receipt-label .num{font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.1em;margin-top:4px}
-    .receipt-label .date{font-size:11px;color:#6b7280;margin-top:2px}
-    .parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px}
-    .party-block .label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;color:#9ca3af;margin-bottom:6px}
-    .party-block .name{font-size:14px;font-weight:800}
-    .party-block .meta{font-size:12px;color:#6b7280;margin-top:2px}
-    .period-block{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 18px;margin-bottom:28px;display:flex;justify-content:space-between;align-items:center}
-    .period-block .label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;color:#9ca3af}
-    .period-block .value{font-size:14px;font-weight:800;margin-top:3px}
-    table{width:100%;border-collapse:collapse}
-    thead th{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;color:#9ca3af;padding-bottom:10px;border-bottom:2px solid #111;text-align:left}
-    thead th:last-child{text-align:right}
-    .total-row td{padding:16px 0 4px;font-size:16px;font-weight:900;border-top:2px solid #111}
-    .total-row td:last-child{text-align:right}
-    .payment-row{font-size:11px;color:#6b7280;padding:6px 0 0}
-    .payment-row td{padding:6px 0 0}
-    .footer{margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:10px;color:#9ca3af}
-    .tax-note{margin-top:20px;padding:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:11px;color:#166534;line-height:1.6}
-    @media print{body{padding:20px}@page{margin:1cm}}
+    @page { margin: 0.55in; }
+    ${PRINT_CSS}
+    .pp.page { max-width: 680px; }
+    .pp .v { font-size: 13px; font-weight: 500; margin-top: 2px; }
+    .pp .who { margin-bottom: 14px; }
+    .pp .period { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 18px; }
+    .pp .period .pill { margin-top: 4px; }
+    .pp .line.total { font-size: 14px; }
+    .pp .tax { margin-top: 18px; }
   </style>
 </head>
-<body>
-  <div class="header">
+<body class="pp-screen">
+<div class="pp page">
+  <div class="head">
     <div>
-      <div class="studio-name">${esc(data.studioName)}</div>
-      <div class="studio-meta">
-        ${data.studioAddress ? esc(data.studioAddress) + '<br>' : ''}
-        ${data.studioPhone ? esc(data.studioPhone) + '<br>' : ''}
-        ${data.studioEmail ? esc(data.studioEmail) : ''}
-      </div>
+      <p class="shop">${esc(data.studioName)}</p>
+      <h1>Receipt</h1>
+      ${contact.length ? `<p class="sub">${contact.join(' · ')}</p>` : ''}
     </div>
-    <div class="receipt-label">
-      <h1>RECEIPT</h1>
-      <div class="num">#${esc(data.receiptNumber)}</div>
-      <div class="date">Issued ${esc(new Date(data.issuedAt).toLocaleDateString('en-US', { year:'numeric',month:'long',day:'numeric' }))}</div>
+    <div class="meta">
+      <div>Receipt #${esc(data.receiptNumber)}</div>
+      <div>Issued ${esc(new Date(data.issuedAt).toLocaleDateString('en-US', { year:'numeric',month:'long',day:'numeric' }))}</div>
     </div>
   </div>
 
-  <div class="parties">
-    <div class="party-block">
-      <div class="label">Billed to</div>
-      <div class="name">${esc(data.renterName)}</div>
-      ${data.renterBusiness ? `<div class="meta">${esc(data.renterBusiness)}</div>` : ''}
+  <div class="grid2 who">
+    <div>
+      <p class="lbl">Billed to</p>
+      <p class="v">${esc(data.renterName)}</p>
+      ${data.renterBusiness ? `<p class="muted">${esc(data.renterBusiness)}</p>` : ''}
     </div>
-    <div class="party-block">
-      <div class="label">Space</div>
-      <div class="name">${esc(data.spaceName)}</div>
+    <div>
+      <p class="lbl">Space</p>
+      <p class="v">${esc(data.spaceName)}</p>
     </div>
   </div>
 
-  <div class="period-block">
+  <div class="panel period">
     <div>
-      <div class="label">Period</div>
-      <div class="value">${esc(data.periodLabel)}</div>
+      <p class="lbl">Period</p>
+      <p class="v">${esc(data.periodLabel)}</p>
     </div>
-    <div style="text-align:right">
-      <div class="label">Status</div>
-      <div class="value" style="color:#16a34a">✓ Paid</div>
+    <div class="r">
+      <p class="lbl">Status</p>
+      <span class="pill ok">Paid</span>
     </div>
   </div>
 
   <table>
     <thead>
-      <tr><th>Description</th><th style="text-align:right">Amount</th></tr>
+      <tr><th>Description</th><th class="r">Amount</th></tr>
     </thead>
     <tbody>${rows}</tbody>
-    <tr class="total-row">
-      <td>Total paid</td>
-      <td>${fmt(data.totalDollars)}</td>
-    </tr>
-    <tr class="payment-row">
-      <td>Payment method: ${esc(data.paymentMethod)}</td>
-      <td style="text-align:right;font-size:11px;color:#6b7280">${data.paymentRef ? `Ref: ${esc(data.paymentRef.slice(0,20))}` : ''}</td>
-    </tr>
   </table>
+  <div class="line total"><span>Total paid</span><span>${fmt(data.totalDollars)}</span></div>
+  <div class="line memo"><span>Payment method: ${esc(data.paymentMethod)}</span><span>${data.paymentRef ? `Ref: ${esc(data.paymentRef.slice(0,20))}` : ''}</span></div>
 
-  ${data.notes ? `<p style="margin-top:20px;font-size:12px;color:#6b7280">${esc(data.notes)}</p>` : ''}
+  ${data.notes ? `<p class="muted" style="margin-top:14px">${esc(data.notes)}</p>` : ''}
 
-  <div class="tax-note">
-    <strong>Tax note:</strong> This receipt serves as documentation for business space rental expenses.
+  <div class="panel note tax">
+    <b>Tax note:</b> This receipt serves as documentation for business space rental expenses.
     Retain for your records — it may be deductible as a business expense on Schedule C or your applicable business tax return.
     Consult your tax advisor to confirm deductibility in your specific situation.
   </div>
 
-  <div class="footer">
-    <span>${esc(data.studioName)} · Space Rental Receipt</span>
+  <div class="foot">
+    <span>${esc(data.studioName)} · Space rental receipt</span>
     <span>Receipt ${esc(data.receiptNumber)} · Generated ${new Date().toLocaleDateString()}</span>
   </div>
+</div>
 
   <script>
     // Auto-open print dialog when loaded in a new tab.

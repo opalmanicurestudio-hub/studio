@@ -120,10 +120,9 @@ export async function POST(req: NextRequest) {
         const email = str(gr ? gr.email : order.customerEmail, 200).toLowerCase();
         const credSnap = await db.collection(`tenants/${tenantId}/depositCredits`)
           .where('clientEmail', '==', email).limit(50).get();
-        balanceCents = credSnap.docs.reduce((a: number, d: any) => {
-          const c = d.data();
-          return a + (c.status === 'available' ? Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0)) : 0);
-        }, 0);
+        // Store credit only (a booking's deposit isn't spendable in the shop), from what's left (lib/credit-pools).
+        const { storeCreditBalance } = await import('@/lib/credit-pools');
+        balanceCents = storeCreditBalance(credSnap.docs.map((d: any) => d.data() || {}));
         const mine = credSnap.docs.find((d: any) => (d.data() as any).sourceRetailReturnId === returnId);
         if (mine && !(mine.data() as any).grantEmailAt) {
           await mine.ref.set({ grantEmailAt: new Date().toISOString() }, { merge: true });

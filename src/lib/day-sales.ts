@@ -13,8 +13,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const methodOf = (m: any): SaleMethod => { const x = String(m || '').toLowerCase();
   if (x === 'cash') return 'cash'; if (x === 'split') return 'split'; if (/card|terminal|tap|chip|swipe|cof/.test(x)) return 'card'; if (/online|stripe|link|deposit|web|checkout/.test(x)) return 'online'; return 'other'; };
+// An online order's lines carry its Stripe Checkout session (cs_…); a desk checkout's own id never starts that way.
+const deskCheckout = (t: any) => !!t.checkoutSessionId && !String(t.checkoutSessionId).startsWith('cs_');
 function sourceOf(lines: any[]): SaleSource {
-  if (lines.some((t) => t.checkoutSessionId)) return 'checkout';
+  if (lines.some((t) => t.retailOrderId)) return 'order';
+  if (lines.some(deskCheckout)) return 'checkout';
   const text = lines.map((t) => `${t.category || ''} ${t.description || ''} ${t.source || ''}`).join(' ').toLowerCase();
   if (/retainer|deposit/.test(text)) return 'deposit';
   if (/no.?show|late cancel|cancellation fee|change fee|reschedule fee/.test(text)) return 'fee';
@@ -30,7 +33,8 @@ export function groupDaySales(txs: any[], receipts: any[], from: Date, to: Date)
   const groups = new Map<string, any[]>();
   for (const t of txs || []) {
     if (!inDay(t.date) || t.category === 'Void') continue;
-    const key = t.checkoutSessionId ? `co:${t.checkoutSessionId}` : t.stripePaymentIntentId ? `pi:${t.stripePaymentIntentId}` : t.appointmentId && t.type === 'income' ? `ap:${t.appointmentId}` : `tx:${t.id}`;
+    // An online order is one sale (its items, shipping and tax lines); a desk checkout is one; then a card payment, a visit.
+    const key = t.retailOrderId ? `ro:${t.retailOrderId}` : deskCheckout(t) ? `co:${t.checkoutSessionId}` : t.stripePaymentIntentId ? `pi:${t.stripePaymentIntentId}` : t.appointmentId && t.type === 'income' ? `ap:${t.appointmentId}` : `tx:${t.id}`;
     (groups.get(key) || groups.set(key, []).get(key)!).push(t);
   }
   const byCheckout = new Map((receipts || []).map((r: any) => [String(r.checkoutSessionId || ''), r]));
@@ -38,15 +42,22 @@ export function groupDaySales(txs: any[], receipts: any[], from: Date, to: Date)
   for (const [key, lines] of groups) {
     const income = lines.filter((t) => t.type === 'income');
     if (!income.length) continue;                                   // e.g. a card-fee line on its own isn't a sale
+    // An online order's tips are written for the team when it's fulfilled, often another day: not a sale of their own.
+    const orderSale = key.startsWith('ro:') ? lines.find((t) => String(t.id || '').startsWith('osale_')) : null;
+    if (key.startsWith('ro:') && !orderSale && income.every((t) => t.category === 'Tips')) continue;
     const receipt = key.startsWith('co:') ? byCheckout.get(key.slice(3)) || null : null;
     const off = lines.filter((t) => t.type === 'expense' && ['Discounts', 'Deposit Applied'].includes(String(t.category))).reduce((s, t) => s + num(t.amount), 0);
-    const total = receipt ? num(receipt.total) : round2(income.reduce((s, t) => s + num(t.amount), 0) - off);
+    const nonTip = income.filter((t) => t.category !== 'Tips').reduce((s, t) => s + num(t.amount), 0);
+    // An online order is what the customer paid for it, tip included (its sale line carries the whole).
+    const orderTotal = orderSale && num(orderSale.grossOrderTotal) > 0 ? num(orderSale.grossOrderTotal) : 0;
+    const total = receipt ? num(receipt.total) : orderTotal ? orderTotal : round2(income.reduce((s, t) => s + num(t.amount), 0) - off);
+    const orderTips = orderTotal ? Math.max(0, round2(orderTotal - nonTip)) : 0;
     const voided = receipt ? !!receipt.voided : income.every((t) => t.voided);
     const source = sourceOf(lines);
     const first = lines.slice().sort((a, b) => Date.parse(a.date) - Date.parse(b.date))[0];
     sales.push({ key, at: receipt?.date || first.date, clientName: receipt?.clientName || first.clientOrVendor || null, clientId: receipt?.clientId || first.clientId || null, paidBy: receipt?.paidBy || first.paidBy || null,
       source, label: SOURCE_LABEL[source], method: methodOf(receipt?.paymentMethod || income[0]?.paymentMethod), total: round2(total), voided,
-      tips: round2(income.filter((t) => t.category === 'Tips').reduce((s, t) => s + num(t.amount), 0)), lines, receipt, staffIds: Array.from(new Set(income.map((t) => t.staffId).filter(Boolean))) });
+      tips: orderTotal ? orderTips : round2(income.filter((t) => t.category === 'Tips').reduce((s, t) => s + num(t.amount), 0)), lines, receipt, staffIds: Array.from(new Set(income.map((t) => t.staffId).filter(Boolean))) });
   }
   // POS receipts with no lines yet (e.g. a sale recorded moments ago) still count.
   for (const r of receipts || []) if (!groups.has(`co:${r.checkoutSessionId}`) && inDay(r.date))

@@ -13,7 +13,7 @@ import { linkOrigin } from '@/lib/app-origin';
 import { findByPin, issueApproval, isApprover } from '@/lib/approvals';
 
 export const dynamic = 'force-dynamic';
-const KIND_LABEL: Record<string, string> = { waive: 'waive fees', recovery: 'give service recovery', discount: 'give a discount', void: 'void a sale', cancel_override: 'override a cancellation fee', service_override: 'override a service rule', client_recovery: 'issue a recovery credit', pos_override: 'approve an override' };
+const KIND_LABEL: Record<string, string> = { held_stock: 'sell units held for online orders', waive: 'waive fees', recovery: 'give service recovery', discount: 'give a discount', void: 'void a sale', cancel_override: 'override a cancellation fee', service_override: 'override a service rule', client_recovery: 'issue a recovery credit', pos_override: 'approve an override' };
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
 export async function GET(req: NextRequest) {

@@ -1,168 +1,138 @@
 // src/lib/report-builders.ts
 //
-// Printable report builders for the Money Hub's Reports menu.
-// Each returns a complete standalone HTML document to write into a print
-// window (same pattern as the existing Studio Financial Report).
+// Printable reports for the Money page's Reports menu, each a whole HTML document to open in a print window, in the
+// app's print look (lib/print-style):
+//   buildPnlHtml             — Profit & Loss
+//   buildTaxSummaryHtml      — Schedule C summary (US)
+//   buildPayrollRegisterHtml — pay by person, with the employer tax estimate
+//   buildAuditTrailHtml      — the money audit log
 //
-//   buildPnlHtml             — accountant-standard Profit & Loss
-//   buildTaxSummaryHtml      — Schedule C-mapped tax summary (US)
-//   buildPayrollRegisterHtml — per-staff payroll register + employer taxes
-//   buildAuditTrailHtml      — the append-only audit log, printable
-//
-// Correctness notes baked in:
-//   • Distributions / owner draws (taxBucket 'transfer') are EXCLUDED from
-//     P&L expenses — owner pay is not a business expense for a sole prop.
-//   • Tax Collected is a liability, never revenue.
-//   • Reversals net against their side rather than inflating expenses.
+// The figures come from lib/books-summary, the same reading of the ledger the Money page shows, so the paper and the
+// screen always agree: refunds are returns (their sales tax comes off the tax owed), discounts and deposits applied
+// come off sales, gift cards sold and money taken for renters are held, owner draws and transfers are left out, and
+// sales tax is never income. Lines marked Personal are left out of the P&L and the tax summary.
 
 import { scheduleCFor } from './categories';
+import { booksSummary, effectOf, lookupOf } from './books-summary';
+import { esc, printLine, printMoney, printPage } from './print-style';
 import { format } from 'date-fns';
 
 type Txn = any;
 type Range = { from?: Date; to?: Date } | undefined;
-
-const money = (n: number, currency = 'USD') =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2 }).format(n);
+export type ReportOptions = { lookup?: Txn[]; shopName?: string; currency?: string };
 
 const periodLabel = (range: Range) =>
   range?.from && range?.to
     ? `${format(range.from, 'MMM d, yyyy')} – ${format(range.to, 'MMM d, yyyy')}`
-    : 'All Dates';
+    : 'All dates';
 
-const sum = (list: Txn[]) => list.reduce((s, t) => s + (t.amount || 0), 0);
-
-const row = (label: string, amount: number, opts: { bold?: boolean; color?: string; indent?: boolean; currency?: string } = {}) =>
-  `<div style="display:flex;justify-content:space-between;padding:${opts.bold ? '8px' : '4px'} 0 ${opts.bold ? '4px' : '4px'};font-size:${opts.bold ? '13px' : '12px'};${opts.bold ? 'font-weight:900;border-top:2px solid #111;margin-top:6px;' : 'border-bottom:1px solid #f3f4f6;'}${opts.indent ? 'padding-left:16px;' : ''}">
-    <span style="color:${opts.bold ? '#111' : '#555'};">${label}</span>
-    <span style="font-family:monospace;font-weight:700;color:${opts.color || '#111'};">${money(amount, opts.currency)}</span>
-  </div>`;
-
-function shell(title: string, subtitle: string, range: Range, bodyHtml: string, footNote?: string) {
-  return `<!DOCTYPE html><html><head><title>${title}</title>
-  <style>
-    * { box-sizing:border-box; margin:0; padding:0; }
-    body { font-family:-apple-system,sans-serif; color:#111; padding:32px; max-width:800px; margin:0 auto; }
-    h1 { font-size:24px; font-weight:900; text-transform:uppercase; letter-spacing:-0.03em; }
-    h2 { font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; margin:26px 0 10px; border-bottom:2px solid #111; padding-bottom:6px; }
-    table { width:100%; border-collapse:collapse; }
-    th { background:#f8fafc; text-align:left; padding:7px 8px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; color:#6b7280; border-bottom:2px solid #e5e7eb; }
-    td { padding:6px 8px; font-size:11px; border-bottom:1px solid #f3f4f6; vertical-align:top; }
-    @media print { @page { size:A4; margin:0.65in; } body { padding:0; } }
-  </style></head><body>
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:18px;border-bottom:3px solid #111;">
-    <div>
-      <h1>${title}</h1>
-      <div style="font-size:12px;color:#6b7280;font-weight:600;margin-top:4px;">${subtitle}</div>
-      <div style="font-size:11px;color:#6b7280;margin-top:2px;">Period: ${periodLabel(range)}</div>
-      <div style="font-size:10px;color:#9ca3af;margin-top:2px;">Generated ${format(new Date(), 'MMMM d, yyyy · h:mm a')}</div>
-    </div>
-    <div style="text-align:right;font-size:10px;color:#9ca3af;">
-      <div style="font-weight:700;">ClarityFlow</div><div>Studio Management</div><div style="margin-top:4px;">Confidential</div>
-    </div>
-  </div>
-  ${bodyHtml}
-  ${footNote ? `<div style="margin-top:28px;padding:12px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;font-size:9px;color:#6b7280;line-height:1.6;">${footNote}</div>` : ''}
-  <div style="margin-top:32px;border-top:2px solid #111;padding-top:12px;display:flex;justify-content:space-between;font-size:9px;color:#9ca3af;">
-    <div>ClarityFlow — Confidential, Not for Distribution</div>
-    <div>${periodLabel(range)}</div>
-  </div>
-  </body></html>`;
-}
-
-const byCategory = (txns: Txn[]) => {
-  const m = new Map<string, number>();
-  txns.forEach(t => m.set(t.category, (m.get(t.category) || 0) + (t.amount || 0)));
-  return [...m.entries()].sort((a, b) => b[1] - a[1]);
-};
+const rows = (list: [string, number][], kind: '' | 'sub' = 'sub', none = 'None recorded') =>
+  list.length ? list.map(([c, a]) => printLine(esc(c), a, kind)).join('') : `<div class="line sub"><span class="faint">${none}</span><span></span></div>`;
 
 // ─── Profit & Loss ────────────────────────────────────────────────────────────
 
-export function buildPnlHtml(txns: Txn[], range: Range, currency = 'USD') {
-  const COGS_CATS = new Set(['Cost of Goods Sold', 'Spoilage', 'Supplies']);
-  const isTransfer = (t: Txn) => t.taxBucket === 'transfer' || t.category === 'Distribution';
-
-  const income   = txns.filter(t => t.type === 'income');
-  const expenses = txns.filter(t => (t.type === 'expense' || t.type === 'payment') && !isTransfer(t));
-  const reversals = sum(txns.filter(t => t.type === 'reversal'));
-  const transfers = sum(txns.filter(t => (t.type === 'expense' || t.type === 'payment') && isTransfer(t)));
-
-  const taxCollected = sum(income.filter(t => t.category === 'Tax Collected'));
-  const revenueTxns  = income.filter(t => t.category !== 'Tax Collected');
-  const revenue      = sum(revenueTxns) - reversals;
-  const cogsTxns     = expenses.filter(t => COGS_CATS.has(t.category));
-  const cogs         = sum(cogsTxns);
-  const opexTxns     = expenses.filter(t => !COGS_CATS.has(t.category));
-  const grossProfit  = revenue - cogs;
-  const net          = grossProfit - sum(opexTxns);
-
+export function buildPnlHtml(txns: Txn[], range: Range, currency = 'USD', opts: ReportOptions = {}) {
+  const s = booksSummary(txns, { lookup: opts.lookup, businessOnly: true });
+  const fees = [['Card processing fees', s.feesPaid], ...(s.feesBack ? [['Fees returned by Stripe', -s.feesBack]] : [])] as [string, number][];
   const body = `
-    <h2>Revenue</h2>
-    ${byCategory(revenueTxns).map(([c, a]) => row(c, a, { color: '#166534', currency })).join('')}
-    ${reversals > 0 ? row('Less: refunds & reversals', -reversals, { color: '#991b1b', currency }) : ''}
-    ${row('Total Revenue', revenue, { bold: true, color: '#166534', currency })}
+    <h2>Income</h2>
+    ${rows(s.byCategory.sales)}
+    ${printLine('Sales', s.sales)}
+    ${s.returns ? printLine('Less returns and refunds', -s.returns, 'sub') : ''}
+    ${s.discounts ? printLine('Less discounts and deposits used', -s.discounts, 'sub') : ''}
+    ${printLine('Net sales', s.netSales, 'total')}
+    ${s.tips ? printLine('Tips collected for the team', s.tips) : ''}
+    ${s.otherIncome ? printLine('Other income', s.otherIncome) : ''}
+    ${printLine('Total income', s.income, 'total')}
 
-    <h2>Cost of Goods & Supplies</h2>
-    ${byCategory(cogsTxns).map(([c, a]) => row(c, a, { color: '#991b1b', currency })).join('') || row('None recorded', 0, { currency })}
-    ${row('Gross Profit', grossProfit, { bold: true, currency })}
+    <h2>Cost of goods</h2>
+    ${rows(s.byCategory.cogs)}
+    ${printLine('Gross profit', s.grossProfit, 'total')}
 
-    <h2>Operating Expenses</h2>
-    ${byCategory(opexTxns).map(([c, a]) => row(c, a, { color: '#991b1b', currency })).join('') || row('None recorded', 0, { currency })}
-    ${row('Net Income', net, { bold: true, color: net >= 0 ? '#166534' : '#991b1b', currency })}
+    <h2>Expenses</h2>
+    ${rows(fees)}
+    ${rows(s.byCategory.opex)}
+    ${printLine('Total expenses', s.netFees + s.operatingExpenses, 'total')}
+    ${printLine('Net income', s.net, 'total', s.net >= 0 ? 'ok' : 'bad')}
 
-    <h2>Excluded From P&amp;L (memo)</h2>
-    ${row('Sales tax collected (liability, held)', taxCollected, { color: '#64748b', currency })}
-    ${row('Owner draws & internal transfers', transfers, { color: '#0f766e', currency })}
+    <h2>Not in the profit (for your records)</h2>
+    ${printLine('Sales tax collected', s.taxCollected, 'memo')}
+    ${s.taxRefunded ? printLine('Sales tax given back on refunds and voids', -s.taxRefunded, 'memo') : ''}
+    ${printLine('Sales tax owed to the state', s.taxOwed, 'memo')}
+    ${s.giftCardsSold ? printLine('Gift cards sold (counted as sales when used)', s.giftCardsSold, 'memo') : ''}
+    ${s.heldForRenters ? printLine('Taken for booth renters', s.heldForRenters, 'memo') : ''}
+    ${printLine('Owner draws and transfers', s.transfers, 'memo')}
+    ${s.shippingCharged || s.shippingCost ? printLine('Shipping charged / shipping cost', `${printMoney(s.shippingCharged, currency)} / ${printMoney(s.shippingCost, currency)}`, 'memo') : ''}
   `;
-  return shell('Profit & Loss', 'Income statement', range, body,
-    'Owner draws and internal transfers are not business expenses and are excluded from Net Income. Sales tax collected is a liability held for the state, not revenue. Prepared by ClarityFlow from the studio ledger — verify with your accountant.');
+  return printPage({
+    title: 'Profit and loss', heading: 'Profit and <b>loss</b>', subtitle: periodLabel(range), shopName: opts.shopName,
+    body,
+    footNote: 'Tips are shown beside sales because the team’s pay, an expense, includes the tips paid out. Owner draws and transfers aren’t expenses. Sales tax is held for the state. Check with your accountant before filing.',
+    footRight: periodLabel(range),
+  });
 }
 
 // ─── Tax Summary (Schedule C map) ─────────────────────────────────────────────
 
-export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD') {
-  const isTransfer = (t: Txn) => t.taxBucket === 'transfer' || t.category === 'Distribution';
-  const income   = txns.filter(t => t.type === 'income');
-  const expenses = txns.filter(t => (t.type === 'expense' || t.type === 'payment'));
-  const reversals = sum(txns.filter(t => t.type === 'reversal'));
-
-  const taxCollected  = sum(income.filter(t => t.category === 'Tax Collected'));
-  const grossReceipts = sum(income.filter(t => t.category !== 'Tax Collected')) - reversals;
-
-  // Group deductible expenses by Schedule C line
-  const lines = new Map<string, number>();
-  const nonDeductible = new Map<string, number>();
-  expenses.forEach(t => {
-    const line = scheduleCFor(t.category);
-    const target = (isTransfer(t) || line.startsWith('Not deductible')) ? nonDeductible : lines;
-    target.set(line, (target.get(line) || 0) + (t.amount || 0));
-  });
-  const sortedLines = [...lines.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const deductibleTotal = [...lines.values()].reduce((s, v) => s + v, 0);
-
+export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD', opts: ReportOptions = {}) {
+  const s = booksSummary(txns, { lookup: opts.lookup, businessOnly: true });
+  // Expenses by Schedule C line, each net of what came back on it (a reversal, a fee Stripe returned, a postage refund).
+  const byId = lookupOf(opts.lookup, txns);
+  const lines = new Map<string, number>(); const notDeductible = new Map<string, number>();
+  for (const t of txns) {
+    if (String(t?.context || '').toLowerCase() === 'personal') continue;
+    const e = effectOf(t, byId);
+    if (e.side !== 'opex' && e.side !== 'fees' && e.side !== 'transfer') continue;
+    const line = e.side === 'fees' ? scheduleCFor('Processing Fee') : e.side === 'transfer' ? 'Not deductible — owner draws and transfers' : scheduleCFor(e.category);
+    const target = e.side === 'transfer' || line.startsWith('Not deductible') ? notDeductible : lines;
+    target.set(line, (target.get(line) || 0) + e.amount);
+  }
+  const sortedLines = [...lines.entries()].filter(([, v]) => Math.abs(v) >= 0.005).sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
+  const deductions = sortedLines.reduce((a, [, v]) => a + v, 0);
+  const line1 = s.sales + s.tips;
+  const line2 = s.returns + s.discounts;
+  const line5 = line1 - line2 - s.cogs;
+  const line7 = line5 + s.otherIncome;
   const body = `
     <h2>Income</h2>
-    ${row('Line 1 — Gross receipts (net of returns)', grossReceipts, { color: '#166534', currency })}
+    ${printLine('Line 1 — Gross receipts', line1)}
+    ${s.tips ? printLine('Includes tips collected for the team', s.tips, 'sub') : ''}
+    ${printLine('Line 2 — Returns and allowances', -line2)}
+    ${s.returns ? printLine('Refunds and returns', -s.returns, 'sub') : ''}
+    ${s.discounts ? printLine('Discounts and deposits used', -s.discounts, 'sub') : ''}
+    ${printLine('Line 4 — Cost of goods sold', -s.cogs)}
+    ${printLine('Line 5 — Gross profit', line5, 'total')}
+    ${s.otherIncome ? printLine('Line 6 — Other income', s.otherIncome) : ''}
+    ${printLine('Line 7 — Gross income', line7, 'total')}
 
-    <h2>Deductible Expenses by Schedule C Line</h2>
-    <table><thead><tr><th>Schedule C Line</th><th style="text-align:right;">Amount</th></tr></thead><tbody>
-      ${sortedLines.map(([line, amt]) => `<tr><td>${line}</td><td style="text-align:right;font-family:monospace;font-weight:700;color:#991b1b;">${money(amt, currency)}</td></tr>`).join('') || '<tr><td colspan="2" style="color:#9ca3af;">No expenses this period.</td></tr>'}
+    <h2>Expenses by Schedule C line</h2>
+    <table><thead><tr><th>Line</th><th class="r">Amount</th></tr></thead><tbody>
+      ${sortedLines.map(([line, amt]) => `<tr><td>${esc(line)}</td><td class="r">${printMoney(amt, currency)}</td></tr>`).join('') || '<tr><td colspan="2" class="faint">No expenses this period.</td></tr>'}
     </tbody></table>
-    ${row('Total deductions (mapped)', deductibleTotal, { bold: true, color: '#991b1b', currency })}
-    ${row('Tentative profit (Line 1 − deductions)', grossReceipts - deductibleTotal, { bold: true, currency })}
+    ${printLine('Total expenses', deductions, 'total')}
+    ${printLine('Tentative profit (Line 7 less expenses)', line7 - deductions, 'total', line7 - deductions >= 0 ? 'ok' : 'bad')}
 
-    <h2>Not Deductible / Held (memo)</h2>
-    ${[...nonDeductible.entries()].map(([line, amt]) => row(line, amt, { color: '#64748b', currency })).join('') || row('None', 0, { currency })}
-    ${row('Sales tax collected — remit to state', taxCollected, { color: '#64748b', currency })}
+    <h2>Not deductible or held (for your records)</h2>
+    ${[...notDeductible.entries()].map(([line, amt]) => printLine(esc(line), amt, 'memo')).join('')}
+    ${printLine('Sales tax collected', s.taxCollected, 'memo')}
+    ${s.taxRefunded ? printLine('Sales tax given back on refunds and voids', -s.taxRefunded, 'memo') : ''}
+    ${printLine('Sales tax to pay the state', s.taxOwed, 'memo')}
+    ${s.giftCardsSold ? printLine('Gift cards sold (income when they’re used)', s.giftCardsSold, 'memo') : ''}
+    ${s.heldForRenters ? printLine('Taken for booth renters', s.heldForRenters, 'memo') : ''}
   `;
-  return shell('Tax Summary', 'Schedule C mapping (US sole proprietor / single-member LLC)', range, body,
-    '⚠ PLANNING AID ONLY — NOT TAX ADVICE. Line mappings are conventional defaults; your accountant may classify differently (e.g., equipment capitalization, meals limits, home office). Self-employment tax, estimated payments, and state filings are not computed here.');
+  return printPage({
+    title: 'Tax summary', heading: 'Tax <b>summary</b>', subtitle: `Schedule C (US sole proprietor or single-member LLC) · ${periodLabel(range)}`, shopName: opts.shopName,
+    body,
+    footNote: 'A planning aid, not tax advice. The lines are common defaults; your accountant may place some differently (equipment, meals, a home office). Self-employment tax, estimated payments and state filings aren’t worked out here.',
+    footRight: periodLabel(range),
+  });
 }
 
 // ─── Payroll Register ─────────────────────────────────────────────────────────
 
 export function buildPayrollRegisterHtml(
   txns: Txn[], staff: any[], profile: { code: string; employerPayrollTaxPct: number },
-  range: Range, hasStateSet: boolean, currency = 'USD',
+  range: Range, hasStateSet: boolean, currency = 'USD', opts: ReportOptions = {},
 ) {
   const payouts = txns.filter(t => t.category === 'Payroll' && (t.type === 'expense' || t.type === 'payment'));
   const byStaff = new Map<string, { name: string; count: number; total: number }>();
@@ -173,48 +143,48 @@ export function buildPayrollRegisterHtml(
     cur.count += 1; cur.total += t.amount || 0;
     byStaff.set(key, cur);
   });
-  const rows = [...byStaff.values()].sort((a, b) => b.total - a.total);
-  const gross = rows.reduce((s, r) => s + r.total, 0);
+  const list = [...byStaff.values()].sort((a, b) => b.total - a.total);
+  const gross = list.reduce((s, r) => s + r.total, 0);
   const employerTaxes = gross * (profile.employerPayrollTaxPct / 100);
 
   const body = `
-    <h2>Payouts by Staff</h2>
-    <table><thead><tr><th>Staff</th><th>Payouts</th><th style="text-align:right;">Gross Paid</th></tr></thead><tbody>
-      ${rows.map(r => `<tr><td style="font-weight:700;">${r.name}</td><td>${r.count}</td><td style="text-align:right;font-family:monospace;font-weight:700;">${money(r.total, currency)}</td></tr>`).join('') || '<tr><td colspan="3" style="color:#9ca3af;">No payroll payouts in this period.</td></tr>'}
+    <h2>Pay by person</h2>
+    <table><thead><tr><th>Person</th><th>Payouts</th><th class="r">Paid</th></tr></thead><tbody>
+      ${list.map(r => `<tr><td>${esc(r.name)}</td><td>${r.count}</td><td class="r">${printMoney(r.total, currency)}</td></tr>`).join('') || '<tr><td colspan="3" class="faint">No pay in this period.</td></tr>'}
     </tbody></table>
-    ${row('Gross payroll', gross, { bold: true, currency })}
-    ${row(`Est. employer payroll taxes (${hasStateSet ? profile.code : 'federal-only baseline'} · ${profile.employerPayrollTaxPct}%)`, employerTaxes, { color: '#92400e', currency })}
-    ${row('Total payroll cost', gross + employerTaxes, { bold: true, currency })}
+    ${printLine('Total pay', gross, 'total')}
+    ${printLine(`Employer payroll taxes, estimated (${hasStateSet ? esc(profile.code) : 'federal only'} · ${profile.employerPayrollTaxPct}%)`, employerTaxes, 'sub')}
+    ${printLine('Total cost of pay', gross + employerTaxes, 'total')}
   `;
-  return shell('Payroll Register', 'Staff payouts & employer tax estimate', range, body,
-    `Employer taxes are estimates (FICA + FUTA + approximate SUTA${hasStateSet ? '' : ' — set your state in Payday for state-accurate numbers'}). When Gusto is connected, Gusto's filings are the authoritative record; this register is the studio-side view.`);
+  return printPage({
+    title: 'Payroll register', heading: 'Payroll <b>register</b>', subtitle: periodLabel(range), shopName: opts.shopName,
+    body,
+    footNote: `Employer taxes are estimates (FICA, FUTA and an approximate SUTA${hasStateSet ? '' : '; set your state in Payday for your state’s figures'}). When Gusto is connected, Gusto’s filings are the record.`,
+    footRight: periodLabel(range),
+  });
 }
 
 // ─── Audit Trail ──────────────────────────────────────────────────────────────
 
-export function buildAuditTrailHtml(entries: any[], range: Range, currency = 'USD') {
-  const actorChip = (a: any) => a?.type === 'system'
-    ? `<span style="background:#e0f2fe;color:#075985;padding:1px 6px;border-radius:10px;font-size:8px;font-weight:900;text-transform:uppercase;">⚙ ${a.name || 'system'}</span>`
-    : `<span style="background:#f1f5f9;color:#475569;padding:1px 6px;border-radius:10px;font-size:8px;font-weight:900;text-transform:uppercase;">👤 ${a?.name || 'owner'}</span>`;
-
+export function buildAuditTrailHtml(entries: any[], range: Range, currency = 'USD', opts: ReportOptions = {}) {
   const systemCount = entries.filter(e => e.actor?.type === 'system').length;
-
+  const who = (a: any) => a?.type === 'system' ? `<span class="pill">Automatic · ${esc(a.name || 'system')}</span>` : `<span class="pill">${esc(a?.name || 'Owner')}</span>`;
   const body = `
-    <div style="display:flex;gap:16px;margin-bottom:16px;font-size:11px;color:#6b7280;font-weight:600;">
-      <span>${entries.length} actions</span><span>·</span>
-      <span>${entries.length - systemCount} by people</span><span>·</span>
-      <span>${systemCount} automated</span>
-    </div>
-    <table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th><th style="text-align:right;">Amount</th></tr></thead><tbody>
+    <p class="muted" style="margin-bottom:12px">${entries.length} actions · ${entries.length - systemCount} by people · ${systemCount} automatic</p>
+    <table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th><th class="r">Amount</th></tr></thead><tbody>
       ${entries.map(e => `<tr>
-        <td style="white-space:nowrap;color:#6b7280;">${e.at ? format(new Date(e.at), 'MMM d, h:mm a') : '—'}</td>
-        <td>${actorChip(e.actor)}</td>
-        <td style="font-family:monospace;font-size:10px;color:#475569;">${e.action || '—'}</td>
-        <td>${e.summary || '—'}</td>
-        <td style="text-align:right;font-family:monospace;font-weight:700;">${typeof e.amount === 'number' ? money(e.amount, currency) : ''}</td>
-      </tr>`).join('') || '<tr><td colspan="5" style="color:#9ca3af;">No audit entries in this period.</td></tr>'}
+        <td class="nowrap muted">${e.at ? format(new Date(e.at), 'MMM d, h:mm a') : '—'}</td>
+        <td>${who(e.actor)}</td>
+        <td class="muted">${esc(e.action || '—')}</td>
+        <td>${esc(e.summary || '—')}</td>
+        <td class="r">${typeof e.amount === 'number' ? printMoney(e.amount, currency) : ''}</td>
+      </tr>`).join('') || '<tr><td colspan="5" class="faint">No entries in this period.</td></tr>'}
     </tbody></table>
   `;
-  return shell('Audit Trail', 'Append-only record of every money action', range, body,
-    'Entries are written at the moment of each action and are never edited or deleted; corrections appear as new entries (e.g., transaction.revert). ⚙ marks automated actions (nightly bank sync, payroll drafts); 👤 marks human actions.');
+  return printPage({
+    title: 'Audit trail', heading: 'Audit <b>trail</b>', subtitle: `Every money action · ${periodLabel(range)}`, shopName: opts.shopName,
+    body,
+    footNote: 'Each entry is written when the action happens and is never edited or deleted; a correction is a new entry.',
+    footRight: periodLabel(range),
+  });
 }

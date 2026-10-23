@@ -90,10 +90,9 @@ export async function GET(req: NextRequest) {
         : 0,
     }));
 
-  const creditCents = creditSnap.docs
-    .map((d: any) => d.data())
-    .filter((c: any) => c.status === 'available')
-    .reduce((s: number, c: any) => s + Math.max(0, (c.amountCents || 0) - (c.usedCents || 0)), 0);
+  // Store credit only (a booking's deposit isn't spendable in the shop), from what's left on it (lib/credit-pools).
+  const { storeCreditBalance } = await import('@/lib/credit-pools');
+  const creditCents = storeCreditBalance(creditSnap.docs.map((d: any) => d.data() || {}));
 
   // ── One shelf for everything they've ever bought that isn't a parcel.
   // Assembled across ALL their orders, newest first, deduped by product so

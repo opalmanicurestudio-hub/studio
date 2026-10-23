@@ -1,10 +1,14 @@
 import QRCode from 'qrcode';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
+import { methodWords } from '@/lib/order-method';
 
 // ─── /print/label/[tenantId]/[orderId]?t=<qrToken> ────────────────────────────
 // 4x6 label, token-gated. For SHIP orders it's an address label (affix
 // postage, or replace with a carrier-API label later — same slot). For pickup
 // orders it's a bag/shelf tag. The QR is the order token, so scanning the
 // label at handoff/staging verifies the right label is on the right package.
+// A label printer prints solid black only, so everything stays black ink, in
+// the app's lighter type with thin rules.
 
 export const dynamic = 'force-dynamic';
 
@@ -55,43 +59,45 @@ export default async function OrderLabelPage({
     <html>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <title>{`Label ${num}`}</title>
         <style>{`
           @page { size: 4in 6in; margin: 0.15in; }
           * { box-sizing: border-box; }
-          body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; color: #0f172a; margin: 0; width: 3.7in; }
-          .band { border: 3px solid #0f172a; border-radius: 14px; padding: 12px; }
-          .from { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 2px solid #0f172a; padding-bottom: 8px; }
-          .kind { font-size: 8px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #64748b; margin: 8px 0 2px; }
-          .to { font-size: 15px; font-weight: 800; line-height: 1.35; }
-          .num { font-size: 24px; font-weight: 800; margin-top: 8px; }
-          .qr { width: 1.9in; height: 1.9in; display: block; margin: 10px auto 0; }
-          .note { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #64748b; text-align: center; margin-top: 4px; }
+          body { font-family: ${PRINT_FONT_STACK}; font-weight: 400; color: #000; margin: 0; width: 3.7in; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          p { margin: 0; }
+          .band { border: 1.5px solid #000; border-radius: 14px; padding: 14px 16px 12px; }
+          .from { font-size: 11px; line-height: 1.4; border-bottom: 1px solid #000; padding-bottom: 9px; }
+          .from b { font-weight: 600; }
+          .kind { font-size: 11px; font-weight: 500; margin: 12px 0 3px; }
+          .to { font-size: 16px; line-height: 1.4; }
+          .to b { font-weight: 600; }
+          .who { font-size: 24px; letter-spacing: -0.01em; line-height: 1.2; }
+          .num { font-size: 26px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.15; margin-top: 12px; font-variant-numeric: tabular-nums; }
+          .num b { font-weight: 600; }
+          .qr { width: 1.9in; height: 1.9in; display: block; margin: 12px auto 0; }
+          .note { font-size: 10.5px; text-align: center; margin-top: 6px; }
         `}</style>
       </head>
       <body>
         <div className="band">
-          <p className="from">From: {shopName}</p>
+          <p className="from">From <b>{shopName}</b></p>
           {a ? (
             <div>
               <p className="kind">Ship to</p>
               <p className="to">
-                {a.name}<br />{a.line1}{a.line2 ? <><br />{a.line2}</> : null}<br />{a.city}, {a.state} {a.postalCode}
+                <b>{a.name}</b><br />{a.line1}{a.line2 ? <><br />{a.line2}</> : null}<br />{a.city}, {a.state} {a.postalCode}
               </p>
             </div>
           ) : (
             <div>
-              <p className="kind">{order.method === 'curbside' ? 'Curbside pickup' : 'Counter pickup'}</p>
-              <p className="to">{order.customerName}</p>
+              <p className="kind">{methodWords(order.method, tenant.retailSettings || {}).long}</p>
+              <p className="who">{order.customerName}</p>
             </div>
           )}
-          <p className="num">{num} · {units} item{units === 1 ? '' : 's'}</p>
+          <p className="num"><b>{num}</b> · {units} item{units === 1 ? '' : 's'}</p>
           <img className="qr" src={qrDataUrl} alt="Order QR" />
-          <p className="note">Scan to verify package ↔ order</p>
+          <p className="note">Scan to check this package matches its order</p>
         </div>
         <script dangerouslySetInnerHTML={{ __html: 'setTimeout(function(){window.print()},400);' }} />
       </body>

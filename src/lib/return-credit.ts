@@ -132,7 +132,7 @@ export async function resolveCreditReturn(db: any, t: string, returnId: string, 
     if (cents > 0) {
       tx.set(cRef, {
         id: cRef.id, tenantId: t, clientId: to.clientId, clientEmail: to.email, clientName: to.name,
-        amountCents: cents, status: 'available', sourceRetailReturnId: returnId, returnForOrderId: payerId, sourceKind: 'return',
+        kind: 'store_credit', amountCents: cents, status: 'available', sourceRetailReturnId: returnId, returnForOrderId: payerId, sourceKind: 'return',
         createdAt: now, issuedBy: actor.name,
       });
     }

@@ -5,6 +5,7 @@ import { printOrigin } from '@/components/print/slip';
 import { slipFor } from '@/lib/order-slip-server';
 import { isPngLabel, isZplLabel, labelFormatOf, slipAfterLabel } from '@/lib/label-format';
 import { liveSlots } from '@/lib/label-boxes';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 // The labels that still work, one per box: a box whose label was voided (lib/label-boxes) prints nothing until it has
 // its new one.
@@ -89,31 +90,32 @@ export default async function PrintLabelsPage({
     <html lang="en">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`Label stack — ${pngCount} label${pngCount === 1 ? '' : 's'}`}</title>
         <style>{`
           @page { size: ${paper ? '8.5in 11in' : '4in 6in'}; margin: 0; }
           * { box-sizing: border-box; }
-          body { margin: 0; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+          body { margin: 0; font-family: ${PRINT_FONT_STACK}; font-weight: 400; }
           .label { width: ${paper ? '8.5in' : '4in'}; height: ${paper ? '11in' : '6in'}; page-break-after: always; display: flex; align-items: ${paper ? 'flex-start' : 'center'}; justify-content: center; overflow: hidden; ${paper ? 'padding-top: 0.5in; border-bottom: 0;' : ''} }
-          .cut { ${paper ? 'position: absolute; left: 0.5in; right: 0.5in; top: 6.75in; border-top: 1px dashed #94a3b8;' : 'display: none;'} }
+          .cut { ${paper ? 'position: absolute; left: 0.5in; right: 0.5in; top: 6.75in; border-top: 1.5px dashed #c9cacd;' : 'display: none;'} }
           .label { position: relative; }
           ${SMART_SLIP_CSS}
           .label img { width: 4in; height: 6in; object-fit: contain; }
-          .sheet { width: 4in; min-height: 6in; padding: 0.25in; font-size: 10px; color: #0f172a; }
-          .sheet h1 { font-size: 12px; margin: 0 0 8px; }
-          .sheet a { color: #0f172a; word-break: break-all; }
-          .bar { position: fixed; top: 0; left: 0; right: 0; background: #0f172a; color: #fff; padding: 10px 14px; font-size: 12px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
-          .bar button { background: #fff; color: #0f172a; border: 0; border-radius: 8px; padding: 6px 14px; font-weight: 800; font-size: 12px; }
+          .sheet { width: 4in; min-height: 6in; padding: 0.25in; font-size: 11px; line-height: 1.5; color: #000; }
+          .sheet h1 { font-size: 18px; font-weight: 300; letter-spacing: -0.01em; line-height: 1.2; margin: 0 0 12px; }
+          .sheet p { margin: 0 0 10px; }
+          .sheet a { color: #000; word-break: break-all; }
+          .bar { position: fixed; top: 0; left: 0; right: 0; background: #16171a; color: #fff; padding: 10px 16px; font-size: 13px; font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
+          .bar button { background: #fff; color: #16171a; border: 0; border-radius: 999px; padding: 8px 16px; font-weight: 600; font-size: 13px; }
           @media print { .bar { display: none; } }
-          @media screen { body { background: #e2e8f0; padding-top: 46px; } .label, .sheet { background: #fff; margin: 10px auto; box-shadow: 0 1px 4px rgba(0,0,0,.2); } }
+          @media screen { body { background: #f5f5f7; padding-top: 46px; } .label, .sheet { background: #fff; margin: 10px auto; box-shadow: 0 1px 4px rgba(0,0,0,.2); } }
         `}</style>
       </head>
       <body>
         <div className="bar">
           <span>{pngCount} label{pngCount === 1 ? '' : 's'} ready{pdfs.length ? ` · ${pdfs.length} PDF listed at the end` : ''}{zpls.length ? ` · ${zpls.length} for the label printer` : ''}</span>
-          {zplHref ? <a href={zplHref} style={{ color: '#fff', fontWeight: 800 }}>Download printer file</a> : null}
+          {zplHref ? <a href={zplHref} style={{ color: '#fff', fontWeight: 600 }}>Download printer file</a> : null}
           <button type="button" data-print>Print stack</button>
         </div>
         {pngs.map((o: any) => { const all = liveUrls(o).filter((u) => isPngLabel(u) && !printedLabels.has(u)); all.forEach((u) => printedLabels.add(u)); return (

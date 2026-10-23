@@ -1,6 +1,7 @@
 'use client';
 
 import { openPrint } from '@/lib/open-print';
+import { methodWords } from '@/lib/order-method';
 import { collection, doc, onSnapshot, orderBy, query, type Firestore } from 'firebase/firestore';
 import {
   ArrowLeft, Camera, Check, ClipboardList, Loader, Package, Printer, Scale,
@@ -223,7 +224,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
             )}
             <Badge className="border-2 font-black text-[9px] uppercase tracking-widest">{String(order.stage || '')}</Badge>
             <Badge variant="outline" className="border-2 font-black text-[9px] uppercase tracking-widest">
-              {order.method === 'ship' ? 'Shipping' : order.method === 'curbside' ? 'Curbside' : 'Pickup'}
+              {methodWords(order.method).long}
             </Badge>
             {order.priceTier === 'wholesale' && (
               <Badge variant="outline" className="border-2 font-black text-[9px] uppercase tracking-widest">Wholesale</Badge>

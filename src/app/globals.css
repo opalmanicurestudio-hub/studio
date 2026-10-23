@@ -181,13 +181,8 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
-/* Print keeps its voice — receipts, packing slips and product labels are
-   scanned by machines and read across a room. */
-@media print {
-  .uppercase { text-transform: uppercase; }
-  .font-black { font-weight: 800; }
-  .border-2 { border-width: 2px; }
-}
+/* Print looks like the app: printed screens keep the screen's light type and thin lines. (Receipts, slips and labels
+   carry their own print styles, lib/print-style.) */
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -848,16 +843,12 @@ html.studio .tracking-tighter { letter-spacing: -0.02em; }
 html.studio body { background-color: hsl(var(--background)); background-image: none; }
 html.studio .bg-background { background-color: hsl(var(--background)); }
 html.studio [role="dialog"] .bg-background, html.studio [data-radix-popper-content-wrapper] .bg-background { background-color: hsl(var(--card)); }
-/* Print keeps its voice. */
-@media print {
-  html.studio .uppercase { text-transform: uppercase; }
-  html.studio .font-black { font-weight: 800; }
-}
+/* A screen printed from the browser looks as it does on screen: the same light type, never bolder. */
 
 /* ── CUSTOMER PAGES (.cf-shop, every /shop page: order page, checkout, account, gift exchange). Customers see the
    app's own look: text as written (never shouted or lowercased), readable small text, semibold labels, light large
-   headings, hairline borders, soft corners, round buttons. Printing is left alone. */
-@media screen {
+   headings, hairline borders, soft corners, round buttons. Printed the same way. */
+@media screen, print {
   .cf-shop .uppercase { text-transform: none; }
   .cf-shop :is(.tracking-widest, .tracking-wider, .tracking-wide, [class*="tracking-[0."]) { letter-spacing: 0; }
   .cf-shop :is(.text-\[6px\], .text-\[7px\], .text-\[8px\], .text-\[9px\], .text-\[10px\]) { font-size: 12.5px; }

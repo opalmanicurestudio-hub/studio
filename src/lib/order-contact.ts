@@ -143,8 +143,11 @@ export async function applyOrderContact(db: any, tenantId: string, orderId: stri
 type Send = (db: any, m: any) => Promise<any>;
 
 /** Send a 6-digit code to the NEW email or mobile. A few an hour per order, and per address. */
-export async function sendContactCode(db: any, tenantId: string, orderId: string, o: any, field: 'email' | 'phone', value: string, opt: { now?: number; send?: Send; origin?: string } = {}) {
+export async function sendContactCode(db: any, tenantId: string, orderId: string, o: any, field: 'email' | 'phone', value: string, opt: { now?: number; send?: Send; origin?: string; purpose?: 'order_contact' | 'order_pass' } = {}) {
   const now = opt.now ?? Date.now(); const T = `tenants/${tenantId}`;
+  // A code to show it's them (lib/order-pass) goes to the email or mobile already on the order; a code for a new
+  // email or mobile goes to the new one. Both count against the same limits.
+  const purpose = opt.purpose || 'order_contact';
   const key = `order:${orderId}`;
   // Counted in one step (so many at once can't all slip through), on the server's own records (never the browser's).
   const vk = valueKey(field, value); const day = new Date(now).toISOString().slice(0, 10).replace(/-/g, '');
@@ -161,18 +164,19 @@ export async function sendContactCode(db: any, tenantId: string, orderId: string
   if (!allowed) return { ok: false, error: 'We’ve sent several codes already. Please wait a little while and try again.' };
   const code = String(randomInt(0, 1000000)).padStart(6, '0');
   const ref = db.collection(`${T}/clientVerifications`).doc();
-  await ref.set({ id: ref.id, clientId: key, orderId, purpose: 'order_contact', field, value, channel: field === 'email' ? 'email' : 'sms',
+  await ref.set({ id: ref.id, clientId: key, orderId, purpose, field, value, channel: field === 'email' ? 'email' : 'sms',
     codeHash: hash(`${ref.id}:${code}`), createdAt: new Date(now).toISOString(), expiresAt: new Date(now + CONTACT_CODE_MIN * 60000).toISOString(), tries: 0, usedAt: null });
   const send = opt.send || ((d: any, m: any) => sendNotification(d, m));
   const brand = await getEmailBrand(db, tenantId).catch(() => ({ shopName: '' } as any));
   const shop = brand.shopName || 'the shop';
   const num = `#${String(o.orderNumber ?? '').padStart(4, '0')}`;
+  const forWhat = purpose === 'order_pass' ? `to see order ${num} and change your details` : field === 'email' ? `to use this email for order ${num}` : `to get updates about order ${num} at this number`;
   const r: any = field === 'email'
     ? await send(db, { tenantId, channel: 'email', to: value, subject: `Your code: ${code}`, kind: 'verify_code', essential: true, recipientType: 'client', recipientId: orderId, orderId,
-        html: brandedEmail(brand, `<p style="font-size:14px;color:#334155;line-height:1.6">Enter this code on your order page to use this email for order ${num}:</p><p style="font-size:30px;letter-spacing:6px;font-weight:700;color:#16171a;margin:14px 0">${code}</p><p style="font-size:13px;color:#6d7075;line-height:1.6">It expires in ${CONTACT_CODE_MIN} minutes. If you didn’t ask for this, you can ignore this email.</p>`, { title: 'Your code', tag: `Order ${num}`, preheader: `Your code is ${code}` }),
-        text: `Your ${shop} code is ${code}. Enter it on your order page to use this email for order ${num}. It expires in ${CONTACT_CODE_MIN} minutes.` }).catch(() => null)
+        html: brandedEmail(brand, `<p style="font-size:14px;color:#334155;line-height:1.6">Enter this code on your order page ${forWhat}:</p><p style="font-size:30px;letter-spacing:6px;font-weight:600;color:#16171a;margin:14px 0">${code}</p><p style="font-size:13px;color:#6d7075;line-height:1.6">It expires in ${CONTACT_CODE_MIN} minutes. If you didn’t ask for this, you can ignore this email.</p>`, { title: 'Your code', tag: `Order ${num}`, preheader: `Your code is ${code}` }),
+        text: `Your ${shop} code is ${code}. Enter it on your order page ${forWhat}. It expires in ${CONTACT_CODE_MIN} minutes.` }).catch(() => null)
     : await send(db, { tenantId, channel: 'sms', to: value, kind: 'verify_code', essential: true, recipientType: 'client', recipientId: orderId, orderId,
-        text: `${shop}: your code is ${code}. Enter it on your order page to get updates about order ${num} at this number. It expires in ${CONTACT_CODE_MIN} minutes.` }).catch(() => null);
+        text: `${shop}: your code is ${code}. Enter it on your order page ${forWhat}. It expires in ${CONTACT_CODE_MIN} minutes.` }).catch(() => null);
   if (!r || r.ok === false) {
     await ref.set({ usedAt: new Date(now).toISOString(), failed: true }, { merge: true }).catch(() => {});
     return { ok: false, error: field === 'email' ? 'We couldn’t send a code to that email. Check it and try again.' : 'We couldn’t text a code to that number. Check it and try again.' };
@@ -181,11 +185,11 @@ export async function sendContactCode(db: any, tenantId: string, orderId: string
 }
 
 /** Check the code. Once right, it can't be used again; five wrong tries and a new one is needed. */
-export async function confirmContactCode(db: any, tenantId: string, orderId: string, verificationId: string, code: string, now = Date.now()): Promise<{ ok: true; field: 'email' | 'phone'; value: string } | { ok: false; error: string }> {
+export async function confirmContactCode(db: any, tenantId: string, orderId: string, verificationId: string, code: string, now = Date.now(), purpose: 'order_contact' | 'order_pass' = 'order_contact'): Promise<{ ok: true; field: 'email' | 'phone'; value: string } | { ok: false; error: string }> {
   const ref = db.doc(`tenants/${tenantId}/clientVerifications/${String(verificationId || '').replace(/[^\w-]/g, '').slice(0, 80) || 'none'}`);
   return db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref); const v: any = snap.exists ? snap.data() : null;
-    if (!v || v.purpose !== 'order_contact' || v.orderId !== orderId || v.usedAt) return { ok: false, error: 'That code has already been used or has expired. Please ask for a new one.' };
+    if (!v || v.purpose !== purpose || v.orderId !== orderId || v.usedAt) return { ok: false, error: 'That code has already been used or has expired. Please ask for a new one.' };
     if (Date.parse(v.expiresAt) < now) return { ok: false, error: 'That code has expired. Please ask for a new one.' };
     if ((Number(v.tries) || 0) >= CONTACT_CODE_TRIES) return { ok: false, error: 'Too many tries. Please ask for a new code.' };
     if (hash(`${ref.id}:${String(code || '').replace(/\D/g, '')}`) !== v.codeHash) { tx.set(ref, { tries: (Number(v.tries) || 0) + 1 }, { merge: true }); return { ok: false, error: 'That code doesn’t match. Please check it and try again.' }; }

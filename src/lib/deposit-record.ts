@@ -43,7 +43,7 @@ export type CardDeposit = {
 export function cardDepositCredit(tenantId: string, appointmentId: string, ap: any, d: CardDeposit, now = new Date().toISOString()) {
   const id = depositCreditId(d.paymentIntentId);
   return { id, data: {
-    id, tenantId, clientId: ap?.clientId || null, clientEmail: lower(ap?.clientEmail || d.clientEmail), clientName: ap?.clientName || 'Guest',
+    id, tenantId, kind: 'deposit', clientId: ap?.clientId || null, clientEmail: lower(ap?.clientEmail || d.clientEmail), clientName: ap?.clientName || 'Guest',
     amountCents: c0(d.cents), status: 'available', sourceAppointmentId: appointmentId, serviceName: ap?.serviceName || null,
     createdAt: now, via: d.via, stripePaymentIntentId: String(d.paymentIntentId), stripeChargeId: d.chargeId || null,
   } };

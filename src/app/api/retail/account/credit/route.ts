@@ -44,10 +44,9 @@ export async function GET(req: NextRequest) {
     .where('status', '==', 'available')
     .limit(100).get();
 
-  const creditCents = creditSnap.docs.reduce((a: number, d: any) => {
-    const c = d.data();
-    return a + Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
-  }, 0);
+  // Store credit only (a booking's deposit isn't spendable in the shop), from what's left on it (lib/credit-pools).
+  const { storeCreditBalance } = await import('@/lib/credit-pools');
+  const creditCents = storeCreditBalance(creditSnap.docs.map((d: any) => d.data() || {}));
 
   return NextResponse.json({ creditCents });
 }

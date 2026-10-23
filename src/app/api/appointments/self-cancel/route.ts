@@ -54,6 +54,7 @@
 import { laterSeriesVisits, seriesMoveDepositOn, markDepositMoved, cancelLaterVisits } from '@/lib/series';
 import { staffOrServer } from '@/lib/route-guard';
 import { hasRealCard } from '@/lib/card-on-file';
+import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
 import { resolveDepositPolicy, rolloverExpiryISO } from '@/lib/deposit-policy';
 import { planCancellation, cancellationOutcomeLines } from '@/lib/policy-copy';
 import { unpaidFeeRuleOf, unpaidFeeLine } from '@/lib/booking-policies';
@@ -134,10 +135,11 @@ async function planSelfCancel(db: any, tenantId: string, appointmentId: string, 
   if (!isReschedule && !appt.isRenterBooking && appt.clientId) {
     try {
       const snap = await db.collection(`tenants/${tenantId}/depositCredits`).where('clientId', '==', String(appt.clientId)).where('status', '==', 'available').get();
-      const list = snap.docs.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt));
-      list.sort((a: any, b: any) => (b.appointmentId === appointmentId ? 1 : 0) - (a.appointmentId === appointmentId ? 1 : 0) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-      credit = list[0] || null;
-      if (credit) credit.amount = Number(credit.amountDollars ?? (Number(credit.amountCents) || 0) / 100) || 0;
+      // This booking's own deposit (lib/credit-pools), or one carried over to it from a cancelled booking: never store
+      // credit from a return (same collection), never a deposit waiting for another booking, and what's left on it.
+      const list = snap.docs.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
+      credit = pickDeposit(list, [appointmentId], () => true) || pickDeposit(list.filter((c: any) => c.rolledOver === true), [], () => false) || null;
+      if (credit) credit.amount = creditLeftCents(credit) / 100;
     } catch { credit = null; }
   }
   const pmId = client?.cardOnFile?.paymentMethodId || (hasRealCard(client) ? client?.cardOnFile?.token : null) || null;
@@ -182,7 +184,7 @@ export async function GET(req: NextRequest) {
   // The business's cut-off for cancelling online (Booking policies; 0 = right up to the start). Closer than that, call.
   const cutH = Number((tenant as any)?.bookingPolicies?.onlineCancelCutoffHours) || 0;
   const tooClose = cutH > 0 && Date.parse(String(appt.startTime || '')) - Date.now() < cutH * 3600e3;
-  const tooCloseMsg = `As outlined in our cancellation policy, appointments cannot be cancelled online within ${cutH} hours of their start time. Please call us${(tenant as any)?.phone ? ` at ${(tenant as any).phone}` : ''}, and we will be happy to help.`;
+  const tooCloseMsg = `As outlined in our cancellation policy, appointments cannot be cancelled online within ${cutH} hours of their start time. Please reply to your confirmation message, and we will be happy to help.`;
   if (tooClose) return NextResponse.json({ ok: false, error: tooCloseMsg, code: 'too_close' }, { status: 409 });
   const svcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
   const service = svcSnap.data() || {};
@@ -281,7 +283,7 @@ export async function POST(req: NextRequest) {
   // The business's cut-off for cancelling online (Booking policies; 0 = right up to the start). Closer than that, call.
   const cutH = Number((tenant as any)?.bookingPolicies?.onlineCancelCutoffHours) || 0;
   const tooClose = cutH > 0 && Date.parse(String(appt.startTime || '')) - Date.now() < cutH * 3600e3;
-  const tooCloseMsg = `As outlined in our cancellation policy, appointments cannot be cancelled online within ${cutH} hours of their start time. Please call us${(tenant as any)?.phone ? ` at ${(tenant as any).phone}` : ''}, and we will be happy to help.`;
+  const tooCloseMsg = `As outlined in our cancellation policy, appointments cannot be cancelled online within ${cutH} hours of their start time. Please reply to your confirmation message, and we will be happy to help.`;
   if (tooClose && keyOk) return NextResponse.json({ ok: false, error: tooCloseMsg, code: 'too_close' }, { status: 409 });   // staff can still cancel
   const clientSnap = appt.clientId ? await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get() : null;
   const client = clientSnap?.exists ? clientSnap.data() : {};
@@ -606,14 +608,17 @@ async function resolveDepositForClientCancel(opts: {
   }
   if (snap.empty) return; // no deposit credit on file for this client — nothing to resolve
 
+  // This booking's own deposit (lib/credit-pools), or one carried over to it from a cancelled booking: never store
+  // credit from a return (same collection), and never a deposit waiting for another booking.
   const candidates = snap.docs
-    .map((d: any) => ({ ref: d.ref, ...(d.data() as any) }))
-    .filter((c: any) => !isCreditExpired(c.expiresAt));
-  candidates.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-  const credit = (opts.creditId && candidates.find((c: any) => c.ref?.id === opts.creditId)) || candidates[0];
+    .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
+    .filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
+  const credit: any = (opts.creditId && candidates.find((c: any) => c.ref?.id === opts.creditId))
+    || pickDeposit(candidates, [appointmentId], () => true) || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
   if (!credit) return;
 
-  const amount = Number(credit.amountDollars ?? (credit.amountCents || 0) / 100);
+  // What's left on it (a deposit part used at the desk keeps only the rest).
+  const amount = creditLeftCents(credit) / 100;
   const oc = opts.outcome || (isLate ? 'forfeit' : 'refund');
 
   // Becomes credit for their next visit (the deposit policy's early-cancel default).

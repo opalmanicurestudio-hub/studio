@@ -14,6 +14,47 @@ import { format, isPast, parseISO, differenceInMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { type InventoryItem } from '@/lib/data';
 
+// What reaches paper, in the app's print look (lib/print-style): Plus Jakarta Sans, a light title, sentence-case grey
+// labels, soft stat panels, thin #ececee lines, tabular figures. Scoped to #print-area and to print only, so the screen
+// is untouched; the id selectors outrank the global print rules that keep app screens uppercase and heavy on paper.
+const PAPER_CSS = `
+@media print {
+  @page { margin: 0.55in; }
+  #print-area { font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #16171a; font-size: 12px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print-area > * + * { margin-top: 20px !important; }
+  #print-area * { color: inherit !important; background-color: transparent !important; border-color: #ececee !important; box-shadow: none !important; text-shadow: none !important; text-transform: none !important; letter-spacing: normal !important; opacity: 1 !important; font-variant-numeric: tabular-nums; }
+  #print-area svg, #print-area button { display: none !important; }
+  #print-area .font-mono { font-family: inherit !important; font-weight: 400 !important; }
+  #print-area .font-bold, #print-area .font-semibold, #print-area .font-medium { font-weight: 500 !important; }
+  #print-area .text-muted-foreground { color: #6d7075 !important; }
+
+  #print-area > header { padding-bottom: 14px; border-bottom: 1px solid #ececee; }
+  #print-area > header h1 { margin: 0; font-size: 26px !important; font-weight: 300 !important; letter-spacing: -0.02em !important; line-height: 1.15; }
+  #print-area > header p { margin-top: 4px !important; color: #6d7075 !important; }
+
+  #print-area .rp-card { border: 0 !important; border-radius: 0 !important; break-inside: auto; }
+  #print-area .rp-card > div:first-child { padding: 0 0 8px !important; }
+  #print-area .rp-card > div:first-child > :first-child { font-size: 13px !important; font-weight: 600 !important; line-height: 1.3 !important; }
+  #print-area .rp-card > div:first-child > :first-child + * { margin-top: 2px; font-size: 11px !important; color: #6d7075 !important; }
+  #print-area .rp-card > div:last-child { padding: 0 !important; }
+  #print-area .rp-two { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 20px !important; }
+
+  #print-area .rp-stats { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 10px !important; }
+  #print-area .rp-stats > div { background-color: #f5f5f7 !important; border-radius: 14px !important; padding: 12px 14px !important; text-align: left !important; break-inside: avoid; }
+  #print-area .rp-stats > div > div:first-child { display: block !important; font-size: 11px !important; font-weight: 500 !important; color: #6d7075 !important; }
+  #print-area .rp-stats > div > div:last-child { margin-top: 3px; font-size: 20px !important; font-weight: 300 !important; letter-spacing: -0.01em !important; line-height: 1.25; }
+
+  #print-area table { width: 100%; border-collapse: collapse; }
+  #print-area thead { display: table-header-group; }
+  #print-area tr { border-bottom: 1px solid #ececee !important; break-inside: avoid; }
+  #print-area th { height: auto !important; padding: 6px 8px !important; font-size: 11px !important; font-weight: 500 !important; color: #6d7075 !important; }
+  #print-area td { padding: 7px 8px !important; vertical-align: top; font-size: 12px !important; }
+  #print-area td p, #print-area td div { font-size: inherit !important; }
+  #print-area td .text-xs { font-size: 11px !important; }
+  #print-area td [class~="rounded-full"] { display: inline-flex; padding: 2px 8px !important; border: 0 !important; border-radius: 999px !important; background-color: #f5f5f7 !important; color: #45474c !important; font-size: 10.5px !important; font-weight: 500 !important; }
+}
+`;
+
 // Component for the report page
 const InventoryReportPage = () => {
     const { inventory, stockCorrections } = useInventory();
@@ -183,9 +224,9 @@ const InventoryReportPage = () => {
                         <p className="text-muted-foreground">Generated on {format(new Date(), 'MMMM d, yyyy')}</p>
                     </header>
 
-                    <Card className="print:shadow-none print:border-border">
+                    <Card className="rp-card print:shadow-none print:border-border">
                         <CardHeader><CardTitle>Inventory Snapshot</CardTitle></CardHeader>
-                        <CardContent className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <CardContent className="rp-stats grid grid-cols-2 md:grid-cols-5 gap-4">
                             <div className="p-3 bg-primary/10 rounded-lg text-center print:bg-transparent">
                                 <div className="text-sm font-medium text-primary print:text-foreground">Total Value</div>
                                 <div className="text-2xl font-bold text-primary print:text-foreground">${stats.totalValue.toFixed(2)}</div>
@@ -209,8 +250,8 @@ const InventoryReportPage = () => {
                         </CardContent>
                     </Card>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <Card className="print:shadow-none print:border-border">
+                    <div className="rp-two grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <Card className="rp-card print:shadow-none print:border-border">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive"/>Low Stock Alerts</CardTitle>
                             </CardHeader>
@@ -223,7 +264,7 @@ const InventoryReportPage = () => {
                                 ) : <p className="text-sm text-muted-foreground text-center py-4">No items are low on stock.</p>}
                             </CardContent>
                         </Card>
-                         <Card className="print:shadow-none print:border-border">
+                         <Card className="rp-card print:shadow-none print:border-border">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive"/>Expired Stock</CardTitle>
                             </CardHeader>
@@ -238,7 +279,7 @@ const InventoryReportPage = () => {
                         </Card>
                     </div>
 
-                    <Card className="print:shadow-none print:border-border">
+                    <Card className="rp-card print:shadow-none print:border-border">
                         <CardHeader><CardTitle>Full Inventory Stock Details</CardTitle></CardHeader>
                         <CardContent>
                             <Table>
@@ -304,7 +345,7 @@ const InventoryReportPage = () => {
                         </CardContent>
                     </Card>
                     
-                    <Card className="print:shadow-none print:border-border">
+                    <Card className="rp-card print:shadow-none print:border-border">
                         <CardHeader>
                             <CardTitle>Retail Performance</CardTitle>
                             <CardDescription>A breakdown of your retail product sales performance.</CardDescription>
@@ -339,7 +380,7 @@ const InventoryReportPage = () => {
                         </CardContent>
                     </Card>
                     
-                    <Card className="print:shadow-none print:border-border">
+                    <Card className="rp-card print:shadow-none print:border-border">
                         <CardHeader><CardTitle>Professional Product Usage</CardTitle><CardDescription>Top 10 most used products in completed services.</CardDescription></CardHeader>
                         <CardContent>
                              <Table>
@@ -358,6 +399,7 @@ const InventoryReportPage = () => {
 
                 </div>
             </main>
+             <style>{PAPER_CSS}</style>
              <style jsx global>{`
                 @media print {
                   body * {

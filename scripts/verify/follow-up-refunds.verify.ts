@@ -149,7 +149,7 @@ const payer = (x: any = {}) => ({ id: 'p1', tenantId: 't1', orderNumber: 1042, s
     cEv.length === 1 && cEv[0].type === 'refund_issued' && cEv[0].meta.paidOnOrderId === 'p1' && cEv[0].meta.scope === 'full' && /original order/.test(cEv[0].meta.text)
     && pEv.length === 1 && pEv[0].type === 'note' && pEv[0].meta.kind === 'follow_up_refund' && pEv[0].meta.amountCents === 3024 && /for the backorder/.test(pEv[0].meta.text), { cEv, pEv });
   check('…one refund in the books, for the backorder, saying which order paid',
-    txns.length === 1 && txns[0].category === 'Refund' && txns[0].amount === 30.24 && txns[0].retailOrderId === 'c1' && txns[0].paidOnOrderId === 'p1' && /#1042 \(backorder\)/.test(txns[0].description), txns);
+    txns.length === 1 && txns[0].category === 'Refunds' && txns[0].amount === 30.24 && txns[0].retailOrderId === 'c1' && txns[0].paidOnOrderId === 'p1' && /#1042 \(backorder\)/.test(txns[0].description), txns);
   const rev = await get(`${T}/loyaltyLedger/rev_order_p1_re_1`);
   const card = (await all(`${T}/retailOrders/c1/inbox`)).find((x: any) => x.kind === 'refund_issued');
   check('…the points come off the sale that earned them, and the refund is posted on the backorder’s page for Dana',

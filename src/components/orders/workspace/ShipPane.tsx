@@ -7,6 +7,7 @@ import type { Firestore } from 'firebase/firestore';
 import { bringingOut } from '@/lib/orders-flow';
 import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import { firstName, itemCount, money } from '@/lib/orders-view';
+import { methodWords } from '@/lib/order-method';
 import { formatTime } from '@/lib/tenant-time';
 import { packBoxesOf } from '@/lib/ship-run';
 import { packPhotosOf } from '@/lib/pack-photo';
@@ -92,8 +93,8 @@ export function ShipPane({ fs, tenantId, order, inventory, rs, actor, recs, canS
 }
 
 /** Pickup and curbside: the shelf, whether they're here, bringing it out, and handing it over. */
-export function PickupPane({ fs, tenantId, order, actor, shopZone, onHandover, onToast }: {
-  fs: Firestore; tenantId: string; order: any; actor: Actor; shopZone: string; onHandover: () => void; onToast: (m: string) => void;
+export function PickupPane({ fs, tenantId, order, actor, shopZone, rs, onHandover, onToast }: {
+  fs: Firestore; tenantId: string; order: any; actor: Actor; shopZone: string; rs?: any; onHandover: () => void; onToast: (m: string) => void;
 }) {
   const [busy, setBusy] = React.useState(false);
   const who = firstName(order.customerName);
@@ -123,7 +124,7 @@ export function PickupPane({ fs, tenantId, order, actor, shopZone, onHandover, o
           <p className="m-0 text-[13px]" style={muted}>{itemCount(order)} item{itemCount(order) === 1 ? '' : 's'}{order.readyAt ? ` · ready ${formatTime(order.readyAt, shopZone)}` : ''}</p>
         </div>
         <div className="rounded-2xl p-4" style={{ background: outside && !out ? C.warnSoft : C.soft }}>
-          <p className="m-0 text-[13px] font-semibold" style={outside && !out ? { color: C.warn } : muted}>{order.method === 'curbside' ? 'Curbside' : 'At the counter'}</p>
+          <p className="m-0 text-[13px] font-semibold" style={outside && !out ? { color: C.warn } : muted}>{order.method === 'curbside' ? methodWords('curbside', rs).short : 'At the counter'}</p>
           <p className="m-0 mt-0.5 text-[17px] font-semibold" style={outside && !out ? { color: C.warn } : undefined}>{out ? 'On the way out' : outside ? (mins < 1 ? 'Outside now' : `Outside ${mins} min`) : 'Not here yet'}</p>
           <p className="m-0 text-[13px]" style={muted}>{order.curbside?.spotOrVehicle || (order.method === 'curbside' ? 'They tap I’m here when they arrive' : 'They show their code at the counter')}</p>
         </div>

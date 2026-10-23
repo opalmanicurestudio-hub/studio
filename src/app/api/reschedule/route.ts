@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
       const { brandedEmailHtml } = await import('@/lib/email-template');
       if (email) {
         const r = await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'appointment_rescheduled', subject: `Your ${svcName} has been rescheduled to ${whenNew}`,
-          html: brandedEmailHtml({ studioName: studio, title: 'Your appointment has been rescheduled', bodyLines: [`Hi ${String(appt.clientName || '').split(' ')[0] || 'there'},`, `Your ${svcName} has been moved to ${whenNew}${who?.name ? ` with ${who.name}` : ''}. Your previous time was ${whenOld}.`, 'If the new time does not work for you, please reply to this email or give us a call.', `Kind regards, ${studio}`],
+          html: brandedEmailHtml({ studioName: studio, title: 'Your appointment has been rescheduled', bodyLines: [`Hi ${String(appt.clientName || '').split(' ')[0] || 'there'},`, `Your ${svcName} has been moved to ${whenNew}${who?.name ? ` with ${who.name}` : ''}. Your previous time was ${whenOld}.`, 'If the new time does not work for you, please reply to this email.', `Kind regards, ${studio}`],
             ...(link ? { cta: { label: 'View my appointment', url: link } } : {}) }),
           recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId } as any).catch(() => null);
         told.email = (r as any)?.status === 'sent';

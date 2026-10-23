@@ -33,9 +33,13 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
     setToken(t);
     (async () => {
       try {
-        const res = await fetch(`/api/retail/order-status?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&t=${encodeURIComponent(t)}`);
+        // The pass the order page keeps on this device (lib/order-pass) opens an order whose link has expired.
+        let pass = '';
+        try { pass = window.localStorage.getItem(`cfshop-pass-${tenantId}-${orderId}`) || ''; } catch { /* private browsing */ }
+        const res = await fetch(`/api/retail/order-status?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&t=${encodeURIComponent(t)}${pass ? `&pass=${encodeURIComponent(pass)}` : ''}`);
         const d = await res.json();
         if (!res.ok) { setErr(d.error || 'This library could not be loaded.'); return; }
+        if (d.expired) { setErr('This order’s link has expired. Open your order page and confirm it’s you to see it again.'); return; }
         const digital = (d.order?.lines || []).filter((l: any) => l.digital === true);
         if (digital.length === 0) setErr('There’s nothing digital on this order.');
         const paid = d.order?.timestamps?.paidAt || d.order?.timestamps?.placedAt || '';
@@ -129,7 +133,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
             >
               <span className="min-w-0">
                 <span className="block text-sm font-bold">{it.name}</span>
-                <span className={cn('block text-[10px] font-black uppercase tracking-widest', it.expired ? 'text-red-600' : 'text-muted-foreground')}>
+                <span className={cn('block text-[10px] font-black uppercase tracking-widest', it.expired ? 'text-[#b45309]' : 'text-muted-foreground')}>
                   {it.expired
                     ? `Access ended ${new Date(it.endsAt as string).toLocaleDateString()}`
                     : it.endsAt

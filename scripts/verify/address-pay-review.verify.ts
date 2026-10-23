@@ -115,7 +115,10 @@ const paySession = (sid: string, pi: string) => { sessions[sid] = { ...sessions[
   const { POST: staffAddress } = await import('../../src/app/api/retail/address/route');
   const { addressCostFor, costAfterMove } = await import('../../src/lib/address-cost');
   const { finishAddressPay, cancelAddressPay, sweepAddressPays } = await import('../../src/lib/address-pay');
-  const ss = (body: any) => selfServe(req({ tenantId: 't1', orderId: 'o1', qrToken: 'qr1', ...body })) as any;
+  // The customer's pass (lib/order-pass): changing their details needs it as well as the link.
+  const { makePass } = await import('../../src/lib/order-pass');
+  const pass = makePass('t1', 'qr1');
+  const ss = (body: any) => selfServe(req({ tenantId: 't1', orderId: 'o1', qrToken: 'qr1', pass, ...body })) as any;
   const team = (body: any) => staffAddress(req({ tenantId: 't1', orderId: 'o1', ...body })) as any;
   const payFor = async (address: any, pi: string) => { const q = await ss({ action: 'update_address', address }); await ss({ action: 'address_pay', address, pay: q.body.pay }); const sid = (await order()).addressPay.sessionId; paySession(sid, pi); return { q, sid }; };
 
@@ -165,7 +168,7 @@ const paySession = (sid: string, pi: string) => { sessions[sid] = { ...sessions[
   o = await order();
   check('a page paid after a second one replaced it is refunded in full, never left in limbo', second !== first && f.result === 'refunded' && stripeCalls.refunds.some((x) => x.payment_intent === 'pi_first' && x.amount === 320) && o.addressPaid?.[first]?.refundedAt, { f, refunds: stripeCalls.refunds });
   const ledger = (await all(`${T}/transactions`)).filter((x: any) => x.retailOrderId === 'o1');
-  check('…and the books show it in and back out', ledger.some((x: any) => x.type === 'income' && x.addressChangeSessionId === first) && ledger.some((x: any) => x.type === 'expense' && x.category === 'Refund' && x.amount === 3.2));
+  check('…and the books show it in and back out', ledger.some((x: any) => x.type === 'income' && x.addressChangeSessionId === first) && ledger.some((x: any) => x.type === 'expense' && x.category === 'Refunds' && x.amount === 3.2));
   f = await finishAddressPay(db, 't1', 'o1', first, { session: sessions[first] });
   check('…once, however often Stripe says so', f.result === 'refunded' && stripeCalls.refunds.filter((x) => x.payment_intent === 'pi_first').length === 1);
   paySession(second, 'pi_second');
@@ -306,7 +309,7 @@ const paySession = (sid: string, pi: string) => { sessions[sid] = { ...sessions[
   refundedByHand = true;
   await sweepAddressPays(db, 't1', await get(T));
   o = await order();
-  check('one the team refunded in Stripe by hand meanwhile is written down as refunded (and in the books), not tried forever', o.addressPaid.cs_6.refundedAt && o.addressPaid.cs_6.refundedOutside === true && o.addressPaidRetry === false && (await all(`${T}/transactions`)).some((x: any) => x.category === 'Refund' && x.amount === 2.5));
+  check('one the team refunded in Stripe by hand meanwhile is written down as refunded (and in the books), not tried forever', o.addressPaid.cs_6.refundedAt && o.addressPaid.cs_6.refundedOutside === true && o.addressPaidRetry === false && (await all(`${T}/transactions`)).some((x: any) => x.category === 'Refunds' && x.amount === 2.5));
   refundedByHand = false;
 
   console.log('The second review');

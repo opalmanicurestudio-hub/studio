@@ -7,6 +7,8 @@ import { dayKey, formatShortDay, formatTime } from '@/lib/tenant-time';
 import { voidedSlots } from '@/lib/label-boxes';
 import { labelDoubt, trailStatus } from '@/lib/label-doubt';
 import { carrierName } from '@/lib/ship-promise';
+import { methodWords } from '@/lib/order-method';
+import { tagText } from '@/lib/order-tags';
 
 export type OrdersTab = 'pack' | 'ready' | 'done';
 export const ACTIVE_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
@@ -24,7 +26,8 @@ export function tabOf(o: any): OrdersTab {
   return 'done';
 }
 
-export const methodLabel = (m: any) => (m === 'curbside' ? 'Curbside' : m === 'ship' ? 'Ship' : m === 'digital' ? 'Download' : 'Pickup');
+/** "Ship", "Pickup", "Curbside" (or "Drive-through" when the shop runs curbside as a lane), "Download" (lib/order-method). */
+export const methodLabel = (m: any, rs?: any) => methodWords(m, rs).short;
 
 /** Units the order still needs in the box, and how many are in. Digital and missing lines don't count. */
 export function packProgress(o: any): { done: number; total: number; missing: number } {
@@ -140,6 +143,7 @@ export function matchesSearch(o: any, q: string): boolean {
   if (String(o.customerName || '').toLowerCase().includes(s)) return true;
   if (String(o.customerEmail || '').toLowerCase().includes(s)) return true;
   if (digits.length >= 4 && String(o.customerPhone || '').replace(/\D/g, '').endsWith(digits)) return true;
+  if (tagText(o).includes(s)) return true;   // its tags, the shop's own and its own (lib/order-tags)
   return (o.lines || []).some((l: any) => String(l.name || '').toLowerCase().includes(s));
 }
 

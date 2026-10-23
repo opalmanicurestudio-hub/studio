@@ -1,5 +1,6 @@
 'use client';
 
+import { refundTaxPart, refundTipPart } from '@/lib/refund-tax';
 import { syncRenterCredits } from './renter-credit-client';
 import { staffAuthHeader } from './staff-fetch';
 import { restockingFee } from './restocking';
@@ -489,9 +490,15 @@ export async function markRefundExecuted(
       const cents = order.pendingRefundCents || 0;
       if (cents <= 0) return { ok: false, message: 'No refund pending on this order.' };
 
+      // The sales tax that went back with it (lib/refund-tax), so the books lower the tax owed by that much.
+      // The tip inside it (lib/refund-tax: the tip goes back last) is kept out of returns; the tax part is on the rest.
+      const tipPart = (order as any).parentOrderId ? 0 : refundTipPart(order as any, cents);
+      const taxPart = refundTaxPart(order as any, Math.max(0, cents - tipPart));
       txn.update(oRef, {
         pendingRefundCents: 0,
         refundedCents: (order.refundedCents || 0) + cents,
+        ...(taxPart ? { refundedTaxCents: (Number((order as any).refundedTaxCents) || 0) + taxPart } : {}),
+        ...(tipPart ? { refundedTipCents: (Number((order as any).refundedTipCents) || 0) + tipPart } : {}),
       });
       txn.set(doc(collection(oRef, 'events')), evPayload('refund_issued', actor, {
         amountCents: cents, scope: cents >= order.totalCents ? 'full' : 'partial',
@@ -502,9 +509,9 @@ export async function markRefundExecuted(
         id: txnRef.id, date: new Date().toISOString(),
         description: `Refund executed — Order #${order.orderNumber}`,
         clientOrVendor: order.customerName || 'Guest',
-        type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund',
-        amount: cents / 100, paymentMethod: 'Card (Online)', hasReceipt: true,
-        retailOrderId: orderId, tenantId,
+        type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund',
+        amount: cents / 100, taxRefunded: taxPart / 100, ...(tipPart ? { tipRefunded: tipPart / 100, ...((order as any).tipSharedAt || !(order as any).booksAt ? { tipBooked: true } : {}) } : {}), paymentMethod: 'Card (Online)', hasReceipt: true,
+        retailOrderId: orderId, channel: 'online', tenantId,
       });
       return { ok: true, message: `$${(cents / 100).toFixed(2)} refund recorded` };
     });

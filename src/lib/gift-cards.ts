@@ -13,7 +13,7 @@ const now = () => new Date().toISOString();
 const ALPHA = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';   // no 0/O, 1/I — easy to read aloud and type
 export const codeKey = (s: any) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 export const newCode = () => { let s = ''; for (let i = 0; i < 8; i++) s += ALPHA[randomInt(ALPHA.length)]; return `${s.slice(0, 4)}-${s.slice(4)}`; };
-const HOLD_MIN = 30;
+const HOLD_MIN = 32;   // a little longer than the shop's payment page lives (31 minutes), so a hold never lapses while it's open
 // Message greetings: "Hi Ana," (or "Hello," when there is no name). Texts get the business name in front automatically.
 const firstOf = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
 const hiLine = (n: any) => (firstOf(n) ? `Hi ${firstOf(n)},` : 'Hello,');
@@ -103,19 +103,31 @@ export async function spendGiftCard(db: any, tenantId: string, o: { id: string; 
 }
 async function spendTx(db: any, ref: any, o: any) {
   return db.runTransaction(async (tx: any) => {
-    const cur: any = (await tx.get(ref)).data(); if (!cur) return { ok: false as const, error: 'That gift card wasn’t found.' };
+    const cur: any = (await tx.get(ref)).data();
     const rec: any = o.record ? (await tx.get(o.record)).data() || null : null;
-    if (rec && Number(rec.giftCents) > 0) return { ok: true as const, cents: Math.round(Number(rec.giftCents)), balanceAfter: Number(cur.balanceCents) || 0, code: cur.code, already: true };
-    if (cur.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
-    if (cur.expiresAt && Date.parse(cur.expiresAt) < Date.now()) return { ok: false as const, error: `Gift card ${cur.code} has expired.` };
-    const want = Math.round(Number(o.cents) || 0); if (want <= 0) return { ok: true as const, cents: 0 };
-    if (want > available(cur, o.holdId || null)) return { ok: false as const, error: `Only $${(available(cur, o.holdId || null) / 100).toFixed(2)} is left on gift card ${cur.code}.` };
-    const bal = (Number(cur.balanceCents) || 0) - want; const holds = { ...(cur.holds || {}) }; if (o.holdId) delete holds[o.holdId];
-    tx.update(ref, { balanceCents: bal, status: bal > 0 ? 'active' : 'used', lastUsedAt: now(), holds, recipientId: cur.recipientId || o.clientId || null,
-      history: [...(cur.history || []).slice(-80), { at: now(), type: 'spend', cents: -want, balanceAfter: bal, by: o.by, ...(o.transactionRef ? { ref: o.transactionRef } : {}), ...(o.appointmentId ? { appointmentId: o.appointmentId } : {}), ...(o.locationId ? { locationId: o.locationId } : {}) }] });
-    if (o.record) tx.set(o.record, { at: now(), giftCents: want, giftCardId: ref.id }, { merge: true });
-    return { ok: true as const, cents: want, balanceAfter: bal, code: cur.code };
+    const r = giftSpendPlan(cur, rec, { ...o, giftCardId: ref.id });
+    if (r.ok && !r.already && r.cents > 0) { tx.update(ref, r.patch); if (o.record) tx.set(o.record, r.record, { merge: true }); }
+    const { patch: _p, record: _r, ...out } = r as any;
+    return out;
   });
+}
+
+/** What spending from a card does (pure): the card's new balance, holds and history, and what the order's record of
+ *  it (lib/non-card-back) says, from the card and that record as read. A spend already on the record is never made
+ *  again (`already`). Used inside a transaction that has read both: the gift card spend above, and an online order
+ *  becoming paid (lib/order-paid), which spends its gift card in the same step. */
+export function giftSpendPlan(cur: any, rec: any, o: { cents: number; holdId?: string | null; by: string; transactionRef?: string | null; appointmentId?: string | null; clientId?: string | null; locationId?: string | null; giftCardId?: string }):
+  { ok: true; cents: number; balanceAfter?: number; code?: string; already?: boolean; patch?: any; record?: any } | { ok: false; error: string } {
+  if (!cur) return { ok: false as const, error: 'That gift card wasn’t found.' };
+  if (rec && Number(rec.giftCents) > 0) return { ok: true as const, cents: Math.round(Number(rec.giftCents)), balanceAfter: Number(cur.balanceCents) || 0, code: cur.code, already: true };
+  if (cur.status === 'void') return { ok: false as const, error: 'That gift card was cancelled.' };
+  if (cur.expiresAt && Date.parse(cur.expiresAt) < Date.now()) return { ok: false as const, error: `Gift card ${cur.code} has expired.` };
+  const want = Math.round(Number(o.cents) || 0); if (want <= 0) return { ok: true as const, cents: 0 };
+  if (want > available(cur, o.holdId || null)) return { ok: false as const, error: `Only $${(available(cur, o.holdId || null) / 100).toFixed(2)} is left on gift card ${cur.code}.` };
+  const bal = (Number(cur.balanceCents) || 0) - want; const holds = { ...(cur.holds || {}) }; if (o.holdId) delete holds[o.holdId];
+  const patch = { balanceCents: bal, status: bal > 0 ? 'active' : 'used', lastUsedAt: now(), holds, recipientId: cur.recipientId || o.clientId || null,
+    history: [...(cur.history || []).slice(-80), { at: now(), type: 'spend', cents: -want, balanceAfter: bal, by: o.by, ...(o.transactionRef ? { ref: o.transactionRef } : {}), ...(o.appointmentId ? { appointmentId: o.appointmentId } : {}), ...(o.locationId ? { locationId: o.locationId } : {}) }] };
+  return { ok: true as const, cents: want, balanceAfter: bal, code: cur.code, patch, record: { at: now(), giftCents: want, giftCardId: o.giftCardId || cur.id || null } };
 }
 
 /** Managers: put money back (a refunded visit), correct a balance, or cancel a card. */
@@ -160,7 +172,7 @@ export async function deliverGiftCard(db: any, tenantId: string, tenant: any, g:
     const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#16171a;max-width:520px;margin:0 auto;padding:24px">
 <p style="font-size:13px;color:#6d7075;margin:0 0 6px">${esc(biz)}</p><h1 style="font-weight:400;font-size:28px;letter-spacing:-.02em;margin:0 0 18px">${from ? `${esc(from)} has sent you a gift` : 'You have received a gift'}</h1>
 <p style="font-size:15px;line-height:1.55;margin:0 0 6px">${esc(hiLine(g.recipientName))}</p><p style="font-size:15px;line-height:1.55;margin:0 0 18px">You have received a ${esc(amount)} gift card${from ? ` from ${esc(from)}` : ''}. You can use it at ${esc(biz)}.</p>
-<div style="border-radius:20px;background:${A};color:#fff;padding:24px 26px;margin:0 0 18px"><div style="font-size:12px;letter-spacing:.16em;opacity:.8">GIFT CARD${g.line ? ` · ${esc(g.line)}` : ''}</div><div style="font-size:44px;letter-spacing:-.03em;margin:12px 0 10px">${amount}</div><div style="font-family:Menlo,monospace;font-size:18px;letter-spacing:.14em">${esc(g.code)}</div><div style="font-size:13px;opacity:.85;margin-top:12px">FOR ${esc(String(g.recipientName || 'you').toUpperCase())} · EXPIRES NEVER</div></div>
+<div style="border-radius:20px;background:${A};color:#fff;padding:24px 26px;margin:0 0 18px"><div style="font-size:13px;font-weight:500;opacity:.85">Gift card${g.line ? ` · ${esc(g.line)}` : ''}</div><div style="font-size:44px;font-weight:300;letter-spacing:-.03em;margin:12px 0 10px">${amount}</div><div style="font-size:18px;font-weight:500;letter-spacing:.08em">${esc(g.code)}</div><div style="font-size:13px;opacity:.85;margin-top:12px">For ${esc(String(g.recipientName || 'you'))} · ${g.expiresAt ? `Expires ${esc(new Date(g.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }))}` : 'Never expires'}</div></div>
 ${g.message ? `<p style="font-size:17px;line-height:1.55;font-style:italic;margin:0 0 6px">“${esc(String(g.message))}”</p><p style="font-size:13px;color:#6d7075;margin:0 0 18px">— ${esc(from || '')}</p>` : ''}
 ${link ? `<p style="margin:0 0 18px"><a href="${link}" style="display:inline-block;background:#16171a;color:#fff;text-decoration:none;border-radius:999px;padding:13px 24px;font-weight:600;font-size:15px">Open your gift card</a></p>` : ''}
 <p style="font-size:13px;color:#6d7075;line-height:1.5;margin:0 0 18px">Please show your code when you pay, or book online and use it at your visit. Your gift card link always shows your remaining balance.</p><p style="font-size:15px;line-height:1.55;margin:0">${htmlText(closing)}</p></div>`;

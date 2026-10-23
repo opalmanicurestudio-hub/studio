@@ -9,6 +9,8 @@ const SCOPES: Record<string, (caps: string[], isManager: boolean) => boolean> = 
   // A claim pack has the customer's details and what they paid: for the people who file claims.
   'claim-pack': (c, m) => m || c.includes('money.view'),
   orders: () => true,
+  // A wave's pick sheet and its packing slips (one key opens both): customers' names and addresses, for the team.
+  wave: () => true,
 };
 
 export async function POST(req: NextRequest) {

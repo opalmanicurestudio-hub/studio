@@ -4,8 +4,58 @@ import * as React from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { designsSync } from '@/lib/gift-designs';
+import { PRINT_FONT_STACK } from '@/lib/print-style';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
+
+// The paper, in the app's print look (lib/print-style): Plus Jakarta Sans, a light heading, labels in grey, thin lines,
+// a soft panel for rewards and a soft red one when the sale was voided. On a narrow receipt printer it turns to solid
+// black ink with outlined panels, because thermal paper can't print grey.
+const RC_CSS = `
+.rc { position: relative; max-width: 380px; margin: 0 auto; padding: 22px 20px 20px; background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  font-family: ${PRINT_FONT_STACK}; color: #16171a; font-size: 13.5px; line-height: 1.5; font-weight: 400; font-variant-numeric: tabular-nums;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.rc-top { text-align: center; margin-bottom: 10px; }
+.rc-shop { font-size: 15px; font-weight: 600; }
+.rc-contact { font-size: 12px; color: #6d7075; }
+.rc-title { text-align: center; font-size: 24px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.2; margin: 6px 0 12px; }
+.rc-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.rc-row > :last-child { text-align: right; }
+.rc-meta { font-size: 12.5px; color: #45474c; }
+.rc-meta .rc-row > :first-child { color: #6d7075; }
+.rc-rule { border: 0; border-top: 1px solid #ececee; margin: 10px 0; }
+.rc-line { margin-bottom: 5px; }
+.rc-sub, .rc-note, .rc-dim, .rc-share { color: #6d7075; }
+.rc-sub { font-size: 12px; }
+.rc-share { padding-left: 12px; font-size: 12.5px; }
+.rc-lbl { font-size: 12px; font-weight: 500; color: #6d7075; margin-bottom: 2px; }
+.rc-line + .rc-lbl { margin-top: 10px; }
+.rc-strong { font-weight: 600; }
+.rc-total { margin-top: 6px; padding-top: 7px; border-top: 1px solid #16171a; font-size: 15px; font-weight: 600; }
+.rc-warn { color: #b45309; }
+.rc-panel, .rc-void { margin-top: 14px; padding: 12px 14px; border-radius: 14px; background: #f5f5f7; }
+.rc-void { background: #fdecea; }
+.rc-head { font-weight: 600; margin-bottom: 2px; }
+.rc-void .rc-head { color: #b42318; }
+.rc-link { display: inline-block; margin-top: 6px; font-weight: 600; color: #16171a; }
+.rc-fine { margin-top: 6px; font-size: 12px; color: #6d7075; }
+.rc-sign { margin-top: 30px; padding-top: 4px; border-top: 1px solid #16171a; font-size: 12px; color: #6d7075; }
+.rc-thanks { text-align: center; color: #6d7075; margin-top: 16px; }
+.rc-mark { position: absolute; top: 72px; left: 0; right: 0; text-align: center; transform: rotate(-12deg); font-size: 60px; font-weight: 300; letter-spacing: -0.02em; color: rgba(180, 35, 24, .16); pointer-events: none; }
+@media print {
+  body { background: #fff !important; } .no-print { display: none !important; } main { background: #fff !important; padding: 0 !important; }
+  .rc { box-shadow: none; border-radius: 0; }
+}
+@media print and (max-width: 90mm) {
+  .rc { max-width: none; padding: 0; color: #000; font-size: 12.5px; }
+  .rc :is(.rc-contact, .rc-meta, .rc-sub, .rc-note, .rc-dim, .rc-share, .rc-lbl, .rc-warn, .rc-fine, .rc-sign, .rc-thanks, .rc-head) { color: #000; }
+  .rc .rc-meta .rc-row > :first-child, .rc .rc-void .rc-head { color: #000; }
+  .rc .rc-rule { border-top: 1px dashed #000; }
+  .rc .rc-total, .rc .rc-sign { border-top-color: #000; }
+  .rc .rc-panel, .rc .rc-void { background: none; border: 1px solid #000; border-radius: 10px; }
+  .rc .rc-mark { position: static; transform: none; font-size: 32px; color: #000; margin-bottom: 6px; }
+}
+`;
 export default function ReceiptPage() {
   const { tenantId, id } = useParams() as { tenantId: string; id: string };
   const k = useSearchParams().get('k') || '';
@@ -18,96 +68,98 @@ export default function ReceiptPage() {
   const { business: b, receipt: r } = d; const tz = b.timezone || undefined;
   const when = (iso: string) => new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: tz });
   const cash = String(r.paymentMethod) === 'cash';
-  const row = (l: React.ReactNode, v: React.ReactNode, bold = false) => <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontWeight: bold ? 700 : 400 }}><span>{l}</span><span>{v}</span></div>;
+  const row = (l: React.ReactNode, v: React.ReactNode, cls = '') => <div className={cls ? `rc-row ${cls}` : 'rc-row'}><span>{l}</span><span>{v}</span></div>;
   return (
     <main style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: '#1c1917', background: '#f7f5f2', minHeight: '100vh', padding: '24px 12px' }}>
-      <style>{`@media print { body { background: #fff !important; } .no-print { display: none !important; } main { background: #fff !important; padding: 0 !important; } .paper { box-shadow: none !important; border: none !important; } }`}</style>
-      <div className="paper" style={{ maxWidth: 380, margin: '0 auto', background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,.08)', position: 'relative', fontSize: 14, lineHeight: 1.5 }}>
-        {r.voided && <div aria-hidden style={{ position: 'absolute', top: 70, left: 0, right: 0, textAlign: 'center', transform: 'rotate(-12deg)', fontSize: 56, fontWeight: 800, color: 'rgba(185,28,28,.18)', letterSpacing: 6 }}>VOIDED</div>}
-        <div style={{ textAlign: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{b.name}</div>
-          {b.address && <div style={{ color: '#57534e' }}>{b.address}</div>}
-          {(b.phone || b.email) && <div style={{ color: '#57534e' }}>{[b.phone, b.email].filter(Boolean).join(' · ')}</div>}
+      <style>{RC_CSS}</style>
+      <div className="rc cf-paper">
+        {r.voided && <div aria-hidden className="rc-mark">Voided</div>}
+        <div className="rc-top">
+          <div className="rc-shop">{b.name}</div>
+          {b.address && <div className="rc-contact">{b.address}</div>}
+          {(b.phone || b.email) && <div className="rc-contact">{[b.phone, b.email].filter(Boolean).join(' · ')}</div>}
         </div>
-        <div style={{ textAlign: 'center', fontWeight: 700, margin: '8px 0' }}>{r.voided ? 'VOID SLIP' : 'RECEIPT'}</div>
-        <div style={{ color: '#57534e', marginBottom: 8 }}>
+        <div className="rc-title">{r.voided ? 'Void slip' : 'Receipt'}</div>
+        <div className="rc-meta">
           {row('Sale', when(r.date))}{r.clientName && row('Client', r.clientName)}{r.paidBy && r.paidBy !== r.clientName && row('Paid by', r.paidBy)}{r.cashierName && row('Served by', r.cashierName)}{row('Receipt', `#${String(id).slice(-8).toUpperCase()}`)}
         </div>
-        <hr style={{ border: 0, borderTop: '1px dashed #d6d3d1', margin: '8px 0' }} />
+        <hr className="rc-rule" />
         {r.detail ? (() => {
           // The full receipt: every line and who did it, fees by reason, each discount, what was already paid, the tax,
           // each provider's share of the tip, every payment and the card used, and what's left on an account.
-          const D = r.detail; const sub = (t: React.ReactNode) => <div style={{ color: '#78716c', fontSize: 12, marginTop: -2 }}>{t}</div>;
+          const D = r.detail; const sub = (t: React.ReactNode) => <div className="rc-sub">{t}</div>;
           const card = (x: any) => x.method === 'cash' ? 'Cash' : x.brand ? `${String(x.brand).replace(/^\w/, (c: string) => c.toUpperCase())} ••${x.last4 || ''}${x.wallet ? ` (${String(x.wallet).split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')})` : ''}` : x.method === 'card' || x.method === 'card_on_file' || x.method === 'terminal' ? 'Card' : String(x.method || 'Payment').replace(/_/g, ' ');
           return (<>
             {(D.lines || []).map((l: any, i: number) => (
-              <div key={i} style={{ marginBottom: 4 }}>
-                {l.kind === 'note' ? <div style={{ color: '#78716c', fontStyle: 'italic' }}>{l.label}</div>
-                  : row(<span>{l.kind === 'addon' ? '+ ' : ''}{l.label}{l.qty > 1 ? <span style={{ color: '#78716c' }}> · {l.qty} × {money(l.unit)}</span> : null}</span>, l.redeemed ? 'Included' : money(l.amount))}
+              <div key={i} className="rc-line">
+                {l.kind === 'note' ? <div className="rc-note">{l.label}</div>
+                  : row(<span>{l.kind === 'addon' ? '+ ' : ''}{l.label}{l.qty > 1 ? <span className="rc-dim"> · {l.qty} × {money(l.unit)}</span> : null}</span>, l.redeemed ? 'Included' : money(l.amount))}
                 {[l.staff && (l.bookedWith ? `Done by ${l.staff} (booked with ${l.bookedWith})` : `With ${l.staff}`), l.soldBy && `Sold by ${l.soldBy}`, l.for && `For ${l.for}`,
                   l.collectedFor && `Collected for ${l.collectedFor} (independent provider)`, l.redeemed && 'From their package or membership'].filter(Boolean).length > 0
                   && sub([l.staff && (l.bookedWith ? `Done by ${l.staff} (booked with ${l.bookedWith})` : `With ${l.staff}`), l.soldBy && `Sold by ${l.soldBy}`, l.for && `For ${l.for}`,
                     l.collectedFor && `Collected for ${l.collectedFor} (independent provider)`, l.redeemed && 'From their package or membership'].filter(Boolean).join(' · '))}
               </div>))}
             {(D.fees || []).length > 0 && <>
-              <div style={{ fontWeight: 600, marginTop: 8 }}>Fees paid</div>
-              {D.fees.map((f: any, i: number) => <div key={`f${i}`}>{row(<span>{f.label}{f.date ? <span style={{ color: '#78716c' }}> · {/^\d{4}-\d{2}-\d{2}$/.test(String(f.date)) ? new Date(`${f.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : new Date(f.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })}</span> : null}{f.for ? <span style={{ color: '#78716c' }}> · for {f.for}</span> : null}</span>, money(f.amount))}</div>)}
+              <div className="rc-lbl">Fees paid</div>
+              {D.fees.map((f: any, i: number) => <div key={`f${i}`}>{row(<span>{f.label}{f.date ? <span className="rc-dim"> · {/^\d{4}-\d{2}-\d{2}$/.test(String(f.date)) ? new Date(`${f.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : new Date(f.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })}</span> : null}{f.for ? <span className="rc-dim"> · for {f.for}</span> : null}</span>, money(f.amount))}</div>)}
             </>}
-            <hr style={{ border: 0, borderTop: '1px dashed #d6d3d1', margin: '8px 0' }} />
+            <hr className="rc-rule" />
             {row('Subtotal', money(r.subtotal))}
             {Array.isArray(r.discounts) && r.discounts.length ? r.discounts.map((d: any, i: number) => <React.Fragment key={i}>{row(d.label, `−${money(d.amount)}`)}</React.Fragment>) : Number(r.discount) > 0 && row('Discounts', `−${money(r.discount)}`)}
             {Number(r.tax) > 0 && row(r.taxLabel || 'Tax', money(r.tax))}
             {Number(D.cardSurcharge) > 0 && row('Card fee', money(D.cardSurcharge))}
             {Number(r.tip) > 0 && row('Tip', money(r.tip))}
-            {Number(r.tip) > 0 && (D.tipShares || []).length > 0 && D.tipShares.map((t: any, i: number) => <div key={`t${i}`} style={{ paddingLeft: 12, color: '#57534e' }}>{row(t.name, money(t.amount))}</div>)}
+            {Number(r.tip) > 0 && (D.tipShares || []).length > 0 && D.tipShares.map((t: any, i: number) => <div key={`t${i}`} className="rc-share">{row(t.name, money(t.amount))}</div>)}
             {Number(D.depositUsed) > 0 && row('Deposit already paid', `−${money(D.depositUsed)}`)}
             {Number(D.storeCredit) > 0 && row('Store credit used', `−${money(D.storeCredit)}`)}
-            {row('Total', money(r.total), true)}
-            {Array.isArray(r.refunds) && r.refunds.map((x: any, i: number) => <React.Fragment key={`rf${i}`}>{row(`Refunded${x.reason ? ` — ${String(x.reason).toLowerCase()}` : ''}`, `−${money(x.cents / 100)}`)}</React.Fragment>)}
-            <hr style={{ border: 0, borderTop: '1px dashed #d6d3d1', margin: '8px 0' }} />
-            <div style={{ fontWeight: 600 }}>{(D.payments || []).length > 1 ? 'Payments' : 'Payment'}</div>
-            {(D.payments || []).map((x: any, i: number) => <div key={`p${i}`}>{row(<span>{card(x)}{x.payer ? <span style={{ color: '#78716c' }}> · {x.payer}</span> : null}</span>, money(Number(x.amount) + Number(x.tip || 0)))}</div>)}
+            {row('Total', money(r.total), 'rc-total')}
+            {Array.isArray(r.refunds) && r.refunds.map((x: any, i: number) => <React.Fragment key={`rf${i}`}>{row(`Refunded${x.reason ? ` — ${String(x.reason).toLowerCase()}` : ''}`, `−${money(x.cents / 100)}`, 'rc-warn')}</React.Fragment>)}
+            <hr className="rc-rule" />
+            <div className="rc-lbl">{(D.payments || []).length > 1 ? 'Payments' : 'Payment'}</div>
+            {(D.payments || []).map((x: any, i: number) => <div key={`p${i}`}>{row(<span>{card(x)}{x.payer ? <span className="rc-dim"> · {x.payer}</span> : null}</span>, money(Number(x.amount) + Number(x.tip || 0)))}</div>)}
             {cash && Number(r.amountTendered) > 0 && <>{row('Cash given', money(r.amountTendered))}{row('Change', money(r.change))}</>}
             {(D.accounts || []).length > 0 && <>
-              <hr style={{ border: 0, borderTop: '1px dashed #d6d3d1', margin: '8px 0' }} />
+              <hr className="rc-rule" />
               {D.accounts.map((a: any, i: number) => <div key={`a${i}`}>{row(a.kind === 'rent' ? `Rent — ${a.name}` : `Tuition — ${a.name}${a.program ? ` (${a.program})` : ''}`,
                 a.kind === 'rent' ? (Number(a.owedAfterCents) > 0 ? `Still owed ${money(a.owedAfterCents / 100)}` : Number(a.creditCents) > 0 ? `${money(a.creditCents / 100)} paid ahead` : 'All paid up')
                   : Number(a.remainingCents) > 0 ? `Remaining ${money(a.remainingCents / 100)}` : 'Paid in full')}</div>)}
             </>}
           </>);
         })() : (<>
-        {(r.lineItems || []).map((l: any, i: number) => <div key={i}>{row(<span>{l.label}{l.for ? <span style={{ color: '#78716c' }}> — for {l.for}</span> : null}{l.staff ? <span style={{ color: '#78716c' }}> · {l.staff}</span> : null}</span>, money(l.amount))}</div>)}
-        <hr style={{ border: 0, borderTop: '1px dashed #d6d3d1', margin: '8px 0' }} />
+        {(r.lineItems || []).map((l: any, i: number) => <div key={i}>{row(<span>{l.label}{l.for ? <span className="rc-dim"> — for {l.for}</span> : null}{l.staff ? <span className="rc-dim"> · {l.staff}</span> : null}</span>, money(l.amount))}</div>)}
+        <hr className="rc-rule" />
         {row('Subtotal', money(r.subtotal))}
         {Array.isArray(r.discounts) && r.discounts.length ? r.discounts.map((d: any, i: number) => <React.Fragment key={i}>{row(d.label, `−${money(d.amount)}`)}</React.Fragment>)
           : Number(r.discount) > 0 && row('Discounts', `−${money(r.discount)}`)}
         {Number(r.tax) > 0 && row(r.taxLabel, money(r.tax))}
         {Number(r.tip) > 0 && row('Tip', money(r.tip))}
-        {row('Total', money(r.total), true)}
-        {Array.isArray(r.refunds) && r.refunds.map((x: any, i: number) => <React.Fragment key={`rf${i}`}>{row(`Refunded${x.reason ? ` — ${String(x.reason).toLowerCase()}` : ''}`, `−${money(x.cents / 100)}`)}</React.Fragment>)}
+        {row('Total', money(r.total), 'rc-total')}
+        {Array.isArray(r.refunds) && r.refunds.map((x: any, i: number) => <React.Fragment key={`rf${i}`}>{row(`Refunded${x.reason ? ` — ${String(x.reason).toLowerCase()}` : ''}`, `−${money(x.cents / 100)}`, 'rc-warn')}</React.Fragment>)}
         {row('Paid by', cash ? 'Cash' : 'Card')}
         {cash && Number(r.amountTendered) > 0 && <>{row('Cash given', money(r.amountTendered))}{row('Change', money(r.change))}</>}
         </>)}
-        {d?.loyalty && (d.loyalty.earned > 0 || d.loyalty.used > 0) && <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 14, background: '#f5f5f7' }}>
-          <div style={{ fontWeight: 700 }}>Rewards</div>
+        {d?.loyalty && (d.loyalty.earned > 0 || d.loyalty.used > 0) && <div className="rc-panel">
+          <div className="rc-head">Rewards</div>
           {d.loyalty.earned > 0 && row(`Earned this visit`, `+${d.loyalty.earned} ${d.loyalty.unit}`)}
           {d.loyalty.used > 0 && row(`Used`, `−${d.loyalty.used} ${d.loyalty.unit}`)}
-          {row('Your balance', `${d.loyalty.balance} ${d.loyalty.unit}`, true)}
-          <a className="no-print" href={d.loyalty.url} style={{ display: 'inline-block', marginTop: 6, fontWeight: 600, color: '#16171a' }}>See your rewards</a></div>}
+          {row('Your balance', `${d.loyalty.balance} ${d.loyalty.unit}`, 'rc-strong')}
+          <a className="no-print rc-link" href={d.loyalty.url}>See your rewards</a></div>}
         {r.voided && <>
-          <hr style={{ border: 0, borderTop: '2px solid #1c1917', margin: '12px 0 8px' }} />
-          <div style={{ fontWeight: 700 }}>This sale was voided</div>
-          {row('Voided', when(r.voidedAt))}
-          {r.voidReason && row('Reason', r.voidReason)}
-          {r.voidedBy && row('Approved by', r.voidedBy)}
-          {r.requestedBy && r.requestedBy !== r.voidedBy && row('Done by', r.requestedBy)}
-          {r.refunded && row('Refunded to card', money(r.total), true)}
-          {r.cashReturned && <>{row('Cash returned', money(r.cashReturned), true)}
-            <div style={{ marginTop: 28 }}><div style={{ borderTop: '1px solid #1c1917', paddingTop: 4, color: '#57534e' }}>Client signature — cash received</div></div>
-            <div style={{ marginTop: 28 }}><div style={{ borderTop: '1px solid #1c1917', paddingTop: 4, color: '#57534e' }}>Staff signature — cash handed back</div></div></>}
-          {r.refunded && <div style={{ color: '#57534e', marginTop: 6 }}>Refunds usually show within 5–10 business days, depending on the bank.</div>}
+          <div className="rc-void">
+            <div className="rc-head">This sale was voided</div>
+            {row('Voided', when(r.voidedAt))}
+            {r.voidReason && row('Reason', r.voidReason)}
+            {r.voidedBy && row('Approved by', r.voidedBy)}
+            {r.requestedBy && r.requestedBy !== r.voidedBy && row('Done by', r.requestedBy)}
+            {r.refunded && row('Refunded to card', money(r.total), 'rc-strong')}
+            {r.cashReturned ? row('Cash returned', money(r.cashReturned), 'rc-strong') : null}
+            {r.refunded && <div className="rc-fine">Refunds usually show within 5–10 business days, depending on the bank.</div>}
+          </div>
+          {r.cashReturned ? <>
+            <div className="rc-sign">Client signature — cash received</div>
+            <div className="rc-sign">Staff signature — cash handed back</div></> : null}
         </>}
-        <div style={{ textAlign: 'center', color: '#78716c', marginTop: 14 }}>Thank you</div>
+        <div className="rc-thanks">Thank you</div>
       </div>
       <div className="no-print" style={{ maxWidth: 380, margin: '12px auto 0', display: 'flex', gap: 8 }}>
         <button type="button" onClick={() => window.print()} style={{ flex: 1, height: 44, borderRadius: 999, border: 0, background: '#1c1917', color: '#fff', fontWeight: 600 }}>Print</button>

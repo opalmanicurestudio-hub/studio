@@ -22,7 +22,7 @@ export default function CallbackDetailsPage() {
   if (!info) return <VisitShell brand={brand} title={err ? 'Link not found' : 'Loading…'}>{err && <VisitCard tone="warn"><p className="text-[15px]">{err}</p></VisitCard>}</VisitShell>;
   return (
     <VisitShell brand={brand} title={<>Before we <b>get back to you</b></>} subtitle={`${info.owner || info.business} will get back to you${info.about ? ` about ${info.about}` : ''}.`}>
-      {!info.open ? <VisitCard tone="ok"><p className="text-[15px]">We’ve already got back to you about this. If you need anything else, please call us.</p></VisitCard>
+      {!info.open ? <VisitCard tone="ok"><p className="text-[15px]">We’ve already got back to you about this. If you need anything else, please reply to our last message.</p></VisitCard>
         : sent ? <>
           <VisitCard tone="ok"><p className="text-[15px]">Thanks{info.first ? `, ${info.first}` : ''} — we’ve added that to your request.</p></VisitCard>
           <VisitButton quiet onClick={() => setSent(false)}>Add something else</VisitButton>

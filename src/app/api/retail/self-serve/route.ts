@@ -8,6 +8,7 @@ import { requestForensics } from '@/lib/request-forensics';
 import { delayNotified, isPromiseLate, returnRefundCents } from '@/lib/retail-orders';
 import { canReturnLine } from '@/lib/return-eligibility';
 import { windowOpen } from '@/lib/order-windows';
+import { checkPass } from '@/lib/order-pass';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -55,6 +56,11 @@ import { windowOpen } from '@/lib/order-windows';
 //   { action: 'resend_receipt', tenantId, orderId, qrToken }
 //     Re-sends the original confirmation email. Capped at 5 per order inside
 //     the transaction, so a stuck retry button can't become a mail cannon.
+//
+// CHANGING THEIR DETAILS takes more than the order link: the address, the email or mobile, texts on or off and
+// confirming the address need the customer's pass too (lib/order-pass: from the device that paid, their account, or a
+// code to the email or mobile on the order), so someone who only found the link, or the card in the box, can see the
+// order but can't redirect it. Without one: 401 { code: 'pass_needed' }, and the page asks for a code.
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -104,6 +110,14 @@ export async function POST(req: NextRequest) {
 
   const db = getAdminDb();
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
+
+  // Their details: the pass as well as the link (lib/order-pass). Coming back from paying for an address change carries
+  // its own proof (the paid Stripe session, checked there).
+  if (['update_address', 'address_pay', 'address_pay_cancel', 'contact_code', 'contact_confirm', 'texts', 'confirm_address'].includes(action) && !checkPass(tenantId, qrToken, body.pass)) {
+    const pre = await orderRef.get().catch(() => null);
+    if (!pre?.exists || (pre.data() as any)?.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
+    return NextResponse.json({ error: 'To change your details, first confirm it’s you. We’ll send a code to the email or mobile on your order.', code: 'pass_needed' }, { status: 401 });
+  }
 
   try {
     if (action === 'cancel') {

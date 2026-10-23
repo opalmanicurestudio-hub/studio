@@ -5,13 +5,10 @@ import { topUpDue, depositPaidCents } from '../../src/lib/prep-topup';
 import { accuracyOf } from '../../src/lib/prep-accuracy';
 import { isSoloTeam } from '../../src/lib/solo';
 import { prepTopUpPaid, prepDeskKey, prepKey } from '../../src/lib/prep-check-server';
+import { makeDb, strictTransactions } from './fake-db';
 let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.log('✗', m); } else console.log('✓', m); };
-const store: Record<string, any> = {};
-const docRef = (p: string) => ({ get: async () => ({ exists: !!store[p], data: () => store[p] }), set: async (v: any, o?: any) => { store[p] = o?.merge ? { ...(store[p] || {}), ...v } : v; } });
-let n = 0;
-const coll = (p: string) => { const rows = () => Object.entries(store).filter(([k]) => k.startsWith(p + '/') && !k.slice(p.length + 1).includes('/')).map(([k, v]) => ({ id: k.split('/').pop(), data: () => v, ref: docRef(k) }));
-  return { get: async () => ({ docs: rows() }), where: (f: string, _o: string, val: any) => ({ get: async () => ({ docs: rows().filter((d) => d.data()[f] === val) }) }), doc: (id?: string) => docRef(`${p}/${id || `n${++n}`}`) }; };
-const db: any = { doc: docRef, collection: coll };
+const store = (p: string) => db._store.get(p);
+const db: any = strictTransactions(makeDb());
 
 (async () => {
   const paid = { depositStatus: 'paid', depositAmountCents: 2000 };
@@ -26,13 +23,24 @@ const db: any = { doc: docRef, collection: coll };
 
   ok(prepDeskKey('t', 'a') !== prepKey('t', 'a') && prepDeskKey('t', 'a') === prepDeskKey('t', 'a'), 'the desk link has its own key');
 
-  store['tenants/t/appointments/a'] = { clientId: 'c', clientName: 'Kim', serviceName: 'Gel fill', depositStatus: 'paid', depositAmountCents: 2000, depositTopUp: { cents: 500, status: 'due' } };
-  store['tenants/t/depositCredits/dc'] = { amountCents: 2000, status: 'available', sourceAppointmentId: 'a' };
+  await db.doc('tenants/t/appointments/a').set({ clientId: 'c', clientName: 'Kim', serviceName: 'Gel fill', depositStatus: 'paid', depositAmountCents: 2000, depositTopUp: { cents: 500, status: 'due' } });
+  await db.doc('tenants/t/depositCredits/dc').set({ amountCents: 2000, status: 'available', sourceAppointmentId: 'a', kind: 'deposit' });
   await prepTopUpPaid(db, 't', 'a', { cents: 500, sessionId: 's1' });
-  ok(store['tenants/t/appointments/a'].depositAmountCents === 2500 && store['tenants/t/appointments/a'].depositTopUp.status === 'paid', 'paid → the deposit is now $25');
-  ok(store['tenants/t/depositCredits/dc'].amountCents === 2500, 'the credit that comes off at checkout grows too');
+  ok(store('tenants/t/appointments/a').depositAmountCents === 2500 && store('tenants/t/appointments/a').depositTopUp.status === 'paid', 'paid → the deposit is now $25');
+  ok(store('tenants/t/depositCredits/dc').amountCents === 2500, 'the credit that comes off at checkout grows too');
+  const incomes = () => [...db._store.keys()].filter((k: string) => k.includes('/transactions/'));
   await prepTopUpPaid(db, 't', 'a', { cents: 500, sessionId: 's1' });
-  ok(store['tenants/t/appointments/a'].depositAmountCents === 2500 && Object.keys(store).filter((k) => k.includes('/transactions/')).length === 1, 'the same payment twice changes nothing');
+  ok(store('tenants/t/appointments/a').depositAmountCents === 2500 && incomes().length === 1, 'the same payment twice changes nothing');
+  // Two notices for one payment at once (Stripe sends the same event twice): added once.
+  await db.doc('tenants/t/appointments/b').set({ clientId: 'c', clientName: 'Kim', serviceName: 'Gel fill', depositStatus: 'paid', depositAmountCents: 2000, depositTopUp: { cents: 500, status: 'due' } });
+  await db.doc('tenants/t/depositCredits/db1').set({ amountCents: 2000, status: 'available', sourceAppointmentId: 'b', kind: 'deposit' });
+  const both = await Promise.all([prepTopUpPaid(db, 't', 'b', { cents: 500, sessionId: 's2' }), prepTopUpPaid(db, 't', 'b', { cents: 500, sessionId: 's2' })]);
+  ok(store('tenants/t/appointments/b').depositAmountCents === 2500 && store('tenants/t/depositCredits/db1').amountCents === 2500 && incomes().length === 2 && both.some((x: any) => x.already), 'two notices at once: the deposit, its credit and the income go up once');
+  // No open deposit on the visit (used at the desk already): a new deposit credit is made for the top-up, tied to the visit.
+  await db.doc('tenants/t/appointments/c').set({ clientId: 'c', clientName: 'Kim', serviceName: 'Gel fill', depositStatus: 'paid', depositAmountCents: 2000, depositTopUp: { cents: 500, status: 'due' } });
+  await prepTopUpPaid(db, 't', 'c', { cents: 500, sessionId: 's3' });
+  const made = store('tenants/t/depositCredits/topup_s3');
+  ok(made && made.amountCents === 500 && made.kind === 'deposit' && made.sourceAppointmentId === 'c', 'no open deposit: one made for the top-up, as a deposit for that visit');
 
   const past = '2026-09-01T15:00:00Z'; const v = (o: any) => ({ startTime: past, serviceName: 'Gel fill', prepSentAt: past, status: 'completed', ...o });
   const rows = [v({ prep: { answeredAt: past } }), v({ prep: { answeredAt: past }, dayChanges: [{ answer: 'yes' }] }), v({}), v({ dayChanges: [{ answer: 'no' }] }), v({ status: 'cancelled', prep: { answeredAt: past } }), { startTime: past, serviceName: 'Lash fill', status: 'completed' }];

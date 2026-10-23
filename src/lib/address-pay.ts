@@ -342,5 +342,5 @@ async function writeIncome(db: any, tenantId: string, orderId: string, order: an
 export async function writeRefund(db: any, tenantId: string, orderId: string, order: any, cents: number, key: string, why: string) {
   const ref = db.doc(`tenants/${tenantId}/transactions/addrshiprefund_${String(key).replace(/[^A-Za-z0-9_]/g, '')}`);
   await ref.create({ id: ref.id, date: new Date().toISOString(), description: `Refund of shipping to a new address (${why}) — Order ${num(order)}`, clientOrVendor: order.customerName || 'Guest',
-    type: 'expense', context: 'Business', category: 'Refund', taxBucket: 'refund', amount: cents / 100, paymentMethod: 'Card (Online)', hasReceipt: true, retailOrderId: orderId, tenantId }).catch(() => {});
+    type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund', amount: cents / 100, taxRefunded: 0, paymentMethod: 'Card (Online)', hasReceipt: true, retailOrderId: orderId, channel: 'online', tenantId }).catch(() => {});
 }

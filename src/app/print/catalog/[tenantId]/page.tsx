@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 
 import { collectImages } from '@/lib/product-public';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 // ─── /print/catalog/[tenantId]?tier=retail|wholesale&cat=Oils&qr=1 ────────────
 // The branded catalog — a lookbook at retail tier, a line sheet at wholesale.
@@ -105,47 +106,45 @@ export default async function PrintCatalogPage({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`${shopName} — ${wholesale ? 'Line sheet' : 'Catalog'}`}</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <style>{`
           @page { size: letter portrait; margin: 0.5in; }
           * { box-sizing: border-box; }
           body {
             margin: 0; background: #fff; color: #16171a;
-            font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-weight: 400;
+            font-family: ${PRINT_FONT_STACK}; font-weight: 400; line-height: 1.45;
             -webkit-print-color-adjust: exact; print-color-adjust: exact;
           }
+          p { margin: 0; }
           .sheet { max-width: 7.5in; margin: 0 auto; padding: 0 0 24px; }
 
-          .cover { display: flex; align-items: center; gap: 14px; padding: 4px 0 16px; border-bottom: 1.5px solid #16171a; }
-          .cover img { width: 54px; height: 54px; object-fit: cover; border-radius: 12px; border: 1px solid #e6e6e8; }
-          .cover h1 { margin: 0; font-size: 25px; font-weight: 400; letter-spacing: -.03em; }
-          .cover .kind { margin: 3px 0 0; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 10px; letter-spacing: .12em; text-transform: lowercase; color: #6d7075; }
-          .cover .meta { margin-left: auto; text-align: right; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 10px; letter-spacing: .08em; color: #6d7075; }
+          .cover { display: flex; align-items: center; gap: 14px; padding: 4px 0 16px; border-bottom: 1px solid #ececee; }
+          .cover img { width: 54px; height: 54px; object-fit: cover; border-radius: 12px; border: 1px solid #ececee; }
+          .cover h1 { margin: 0; font-size: 26px; font-weight: 300; letter-spacing: -.02em; line-height: 1.15; }
+          .cover .kind { margin: 4px 0 0; font-size: 12px; color: #6d7075; }
+          .cover .meta { margin-left: auto; text-align: right; font-size: 11px; line-height: 1.6; color: #6d7075; font-variant-numeric: tabular-nums; }
 
-          .cat { margin: 22px 0 10px; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 11px; letter-spacing: .14em; text-transform: lowercase; color: #16171a; border-bottom: 1px solid #e6e6e8; padding-bottom: 6px; }
+          .cat { margin: 22px 0 10px; font-size: 13px; font-weight: 600; color: #16171a; border-bottom: 1px solid #ececee; padding-bottom: 6px; }
 
           .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-          .item { border: 1px solid #e6e6e8; border-radius: 14px; padding: 10px; break-inside: avoid; page-break-inside: avoid; }
-          .ph { width: 100%; aspect-ratio: 1/1; border-radius: 10px; object-fit: cover; background: #f4f4f5; display: block; }
-          .ph-empty { width: 100%; aspect-ratio: 1/1; border-radius: 10px; background: #f4f4f5; }
-          .nm { margin: 8px 0 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
-          .ds { margin: 4px 0 0; font-size: 10px; color: #6d7075; line-height: 1.45; }
-          .row { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 8px; }
-          .pr { font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 700; }
-          .sk { font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 9px; letter-spacing: .06em; color: #6d7075; }
-          .moq { display: inline-block; margin-top: 4px; padding: 2px 7px; border: 1px solid #e6e6e8; border-radius: 999px; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 9px; color: #16171a; }
+          .item { border: 1px solid #ececee; border-radius: 14px; padding: 10px; break-inside: avoid; page-break-inside: avoid; }
+          .ph { width: 100%; aspect-ratio: 1/1; border-radius: 10px; object-fit: cover; background: #f5f5f7; display: block; }
+          .ph-empty { width: 100%; aspect-ratio: 1/1; border-radius: 10px; background: #f5f5f7; }
+          .nm { margin: 9px 0 0; font-size: 13px; font-weight: 500; letter-spacing: -.01em; line-height: 1.3; }
+          .ds { margin: 3px 0 0; font-size: 10px; color: #6d7075; line-height: 1.45; }
+          .row { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 9px; }
+          .pr { font-size: 16px; font-weight: 400; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+          .sk { margin-top: 1px; font-size: 9.5px; color: #6d7075; font-variant-numeric: tabular-nums; }
+          .moq { display: inline-block; margin-top: 5px; padding: 2px 8px; border-radius: 999px; background: #f5f5f7; font-size: 9.5px; font-weight: 500; color: #45474c; font-variant-numeric: tabular-nums; }
           .qr { width: 46px; height: 46px; }
 
-          .foot { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e6e6e8; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 9px; letter-spacing: .06em; color: #6d7075; display: flex; justify-content: space-between; }
+          .foot { margin-top: 24px; padding-top: 10px; border-top: 1px solid #ececee; font-size: 10.5px; color: #6d7075; display: flex; justify-content: space-between; gap: 12px; }
 
           .bar { position: sticky; top: 0; background: #fff; padding: 10px 0 14px; display: flex; gap: 8px; }
           .bar button, .bar a { font-family: inherit; font-size: 12px; font-weight: 600; padding: 9px 14px; border-radius: 10px; border: 1px solid #16171a; background: #16171a; color: #fff; cursor: pointer; text-decoration: none; }
           .bar a.alt { background: #fff; color: #16171a; }
-          .cat .count { float: right; color: #6d7075; font-size: 10px; }
-          .terms { margin-top: 18px; padding: 10px 12px; border: 1px solid #e6e6e8; border-radius: 10px; font-size: 10px; line-height: 1.5; color: #16171a; }
+          .cat .count { float: right; color: #6d7075; font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; }
+          .terms { margin-top: 18px; padding: 12px 14px; background: #f5f5f7; border-radius: 12px; font-size: 10.5px; line-height: 1.55; color: #45474c; }
 
           /* Screen on a phone: three across is unreadable, and the toolbar
              needs to wrap. Print keeps the three-up sheet either way. */
@@ -188,7 +187,7 @@ export default async function PrintCatalogPage({
             {logoUrl ? <img src={logoUrl} alt="" /> : null}
             <div>
               <h1>{shopName}</h1>
-              <p className="kind">{wholesale ? 'wholesale line sheet' : 'product catalog'}</p>
+              <p className="kind">{wholesale ? 'Wholesale line sheet' : 'Product catalog'}</p>
             </div>
             <div className="meta">
               {printed}
@@ -201,7 +200,7 @@ export default async function PrintCatalogPage({
           {categories.map((c) => (
             <section key={c}>
               <p className="cat">
-                {c.toLowerCase()}
+                {c}
                 <span className="count">{items.filter((i) => i.category === c).length}</span>
               </p>
               <div className="grid">
@@ -215,7 +214,7 @@ export default async function PrintCatalogPage({
                       <div>
                         <p className="pr">{money(i.price)}</p>
                         {i.sku ? <p className="sk">{i.sku}</p> : null}
-                        {i.minQty > 0 ? <span className="moq">min {i.minQty}</span> : null}
+                        {i.minQty > 0 ? <span className="moq">Minimum {i.minQty}</span> : null}
                       </div>
                       {i.qr ? <img className="qr" src={i.qr} alt={`Reorder code for ${i.name}`} /> : null}
                     </div>
@@ -227,14 +226,14 @@ export default async function PrintCatalogPage({
 
           {wholesale ? (
             <p className="terms">
-              to order: scan an item&rsquo;s code, or send this sheet back with quantities marked.
-              prices are wholesale and exclude shipping and tax. minimums shown per item.
+              To order, scan an item&rsquo;s code or send this sheet back with quantities marked.
+              Prices are wholesale and don&rsquo;t include shipping or tax. Each item shows its minimum.
             </p>
           ) : null}
 
           <div className="foot">
             <span>{shopName}</span>
-            <span>{wholesale ? 'prices are wholesale · minimums apply' : 'prices in usd · subject to change'}</span>
+            <span>{wholesale ? 'Prices are wholesale · minimums apply' : 'Prices in USD · subject to change'}</span>
           </div>
         </div>
 

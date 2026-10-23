@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { ACCOUNT_TOKEN_DAYS, normalizeEmail, signAccountToken } from '@/lib/retail-account';
+import { checkPass } from '@/lib/order-pass';
 
 // ─── POST /api/retail/account/exchange ────────────────────────────────────────
 // { tenantId, orderId, qrToken } → { email, exp, sig }
@@ -12,8 +13,11 @@ import { ACCOUNT_TOKEN_DAYS, normalizeEmail, signAccountToken } from '@/lib/reta
 // link at /account/request stays the way in for someone arriving cold.)
 //
 // Never returns an account token for an email the caller can't already prove
-// they hold: the qrToken must match the order, and the email comes from the
-// order document, never from the request body.
+// they hold: the qrToken must match the order, the customer's pass must be
+// right (lib/order-pass: the device that paid, or a code to the email or mobile
+// on the order), and the email comes from the order document, never from the
+// request body. The link alone (or the card in the box) doesn't open every
+// order they've placed.
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -52,6 +56,9 @@ export async function POST(req: NextRequest) {
     const order = snap.data() as any;
     if (String(order.qrToken || '') !== qrToken) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+    }
+    if (!checkPass(tenantId, qrToken, body.pass)) {
+      return NextResponse.json({ error: 'First confirm it’s you: we’ll send a code to the email or mobile on your order.', code: 'pass_needed' }, { status: 401 });
     }
 
     const email = normalizeEmail(order.customerEmail);

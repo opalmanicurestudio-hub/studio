@@ -1,3 +1,4 @@
+import { creditLeftCents, isDepositCredit } from '@/lib/credit-pools';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
@@ -72,10 +73,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Studio has no connected payment account' }, { status: 400 });
     }
 
-    const amountDollars = typeof credit.amountDollars === 'number'
-      ? credit.amountDollars
-      : (credit.amountCents || 0) / 100;
-    const amountCents = Math.round(amountDollars * 100);
+    // A booking's deposit only (store credit from a return lives in the same collection and isn't refunded to a card
+    // here), and only what's left on it: a deposit part used at the desk gives back the rest (lib/credit-pools).
+    if (!isDepositCredit(credit)) {
+      return NextResponse.json({ error: 'That isn’t a booking deposit.' }, { status: 409 });
+    }
+    const amountCents = creditLeftCents(credit);
+    const amountDollars = amountCents / 100;
     if (!(amountCents > 0)) {
       return NextResponse.json({ error: 'Nothing to refund on this deposit' }, { status: 400 });
     }
@@ -114,7 +118,11 @@ export async function POST(req: NextRequest) {
         clientId:              credit.clientId || null,
         type:                  'expense',
         context:               'Business',
-        category:              'Deposit Refund',
+        // One category for every refund, a return in the books (lib/books-summary); no sales tax was on a deposit.
+        category:              'Refunds',
+        taxBucket:             'refund',
+        refundKind:            'deposit',
+        taxRefunded:           0,
         amount:                amountDollars,
         paymentMethod:         'Card (Stripe)',
         reversalOf:            credit.ledgerSourceId || null,

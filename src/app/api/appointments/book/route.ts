@@ -1078,7 +1078,7 @@ export async function POST(req: NextRequest) {
                 ...(depCents > 0 ? [r.plan?.fullPayment ? `Payment: ${money$(depCents)}. This is payment in full, and nothing more will be due.` : `Deposit: ${money$(depCents)}. This will be deducted from your total on the day of your visit.`] : []),
                 ...((r as any).balanceCollectCents > 0 ? [`Your ${money$((r as any).balanceCollectCents)} balance from a previous visit will be collected together with the deposit, for a total of ${money$(depCents + (r as any).balanceCollectCents)}. The balance is not part of the deposit.`] : []),
                 holdLine(tAny, trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now() ? new Date(body.holdUntil) : null),
-                'If you have any questions, please reply to this email or give us a call.',
+                'If you have any questions, please reply to this email.',
                 `Kind regards, ${studioName}`,
               ],
               cta: { label: 'Complete my booking', url: checkInUrl },

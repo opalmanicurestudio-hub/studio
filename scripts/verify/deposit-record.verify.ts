@@ -189,10 +189,16 @@ const fresh = async (x: any = {}) => {
   // ── A deposit refund gives back the deposit only ──
   const { POST: refund } = await import('../../src/app/api/stripe/deposit-refund/route');
   await fresh();
-  await db.doc(`${T}/depositCredits/deposit_pi_5`).set({ amountCents: 2500, status: 'available', stripePaymentIntentId: 'pi_5', clientName: 'Maya Lopez' });
+  await db.doc(`${T}/depositCredits/deposit_pi_5`).set({ amountCents: 2500, status: 'available', kind: 'deposit', sourceAppointmentId: 'a1', stripePaymentIntentId: 'pi_5', clientName: 'Maya Lopez' });
   r = await refund(req({ tenantId: 't1', creditId: 'deposit_pi_5' })) as any;
   check('refunding a deposit taken with a $10 balance in one charge: $25 goes back, not the whole $35',
     r.body.ok && refunds[0].params.amount === 2500 && refunds[0].params.payment_intent === 'pi_5' && (await get(`${T}/depositCredits/deposit_pi_5`)).status === 'refunded', { r: r.body, p: refunds[0]?.params });
+  await db.doc(`${T}/depositCredits/sc_ret1`).set({ amountCents: 2500, status: 'available', kind: 'store_credit', stripePaymentIntentId: 'pi_6', clientName: 'Maya Lopez' });
+  r = await refund(req({ tenantId: 't1', creditId: 'sc_ret1' })) as any;
+  check('store credit (from a return) isn’t sent back to a card as a deposit', r.status === 409 && refunds.length === 1 && (await get(`${T}/depositCredits/sc_ret1`)).status === 'available', r.body);
+  await db.doc(`${T}/depositCredits/deposit_pi_7`).set({ amountCents: 2500, usedCents: 1000, status: 'available', kind: 'deposit', sourceAppointmentId: 'a1', stripePaymentIntentId: 'pi_7', clientName: 'Maya Lopez' });
+  r = await refund(req({ tenantId: 't1', creditId: 'deposit_pi_7' })) as any;
+  check('a deposit $10 of which was used at the desk: the $15 left goes back', r.body.ok && refunds[1]?.params.amount === 1500, { r: r.body, p: refunds[1]?.params });
 
   // ── Nothing in a browser writes deposit credit ──
   const src = (p: string) => fs.readFileSync(p, 'utf8');

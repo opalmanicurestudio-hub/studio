@@ -10,6 +10,8 @@
 //    is a hint, not proof either way.
 //  - Opened the link / signed / agreed / paid: the client's own action on their private link. This is the strong kind.
 
+import { PRINT, PRINT_CSS, PRINT_FONT_HREF } from './print-style';
+
 export type Who = 'studio' | 'carrier' | 'client';
 export type Strength = 'strong' | 'good' | 'hint' | 'problem';
 export type RecordRow = { at: string; who: Who; what: string; detail?: string; strength: Strength; body?: string };
@@ -71,15 +73,26 @@ const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&l
 const stamp = (t: string, tz?: string) => { try { return new Date(t).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short', ...(tz ? { timeZone: tz } : {}) }); } catch { return t; } };
 const WHO: Record<Who, string> = { studio: 'Sent by us', carrier: 'Provider report', client: 'Client' };
 
-/** A plain, printable page. */
+/** A plain, printable page in the app's print look (lib/print-style). */
 export function contactRecordHtml(o: { studio: string; clientName: string; visitWhen: string; service?: string; appointmentId: string; rows: RecordRow[]; printedBy?: string; tz?: string }) {
   const s = contactSummary(o.rows);
   const lines = o.rows.map((r) => `<tr class="${r.strength}"><td class="t">${esc(stamp(r.at, o.tz))}</td><td class="w">${esc(WHO[r.who])}</td><td><b>${esc(r.what)}</b>${r.detail ? `<div class="d">${esc(r.detail)}</div>` : ''}${r.body ? `<div class="b">${esc(r.body).replace(/\n/g, '<br>')}</div>` : ''}</td></tr>`).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Contact record · ${esc(o.clientName)}</title>
-<style>body{font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:#16171a;background:#fff;margin:0;padding:32px 24px;max-width:860px;margin:auto;letter-spacing:-.01em}h1{font-weight:300;font-size:26px;margin:0 0 4px}p{margin:0}.m{color:#6d7075;font-size:13px}.sum{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0}.sum div{border:1px solid #ececee;border-radius:12px;padding:10px 14px;min-width:120px}.sum b{display:block;font-size:20px;font-weight:400}table{width:100%;border-collapse:collapse;font-size:13px}td{border-top:1px solid #ececee;padding:10px 8px;vertical-align:top}.t{white-space:nowrap;color:#6d7075;width:210px}.w{white-space:nowrap;color:#6d7075;width:110px}.d{color:#6d7075;margin-top:2px}.b{margin-top:6px;padding:8px 10px;background:#f5f5f7;border-radius:8px;white-space:normal}tr.strong b{color:#1f7a4d}tr.problem b{color:#b45309}.note{margin-top:24px;font-size:12px;color:#6d7075;line-height:1.55}@media print{body{padding:0}button{display:none}}button{font:inherit;border:1px solid #16171a;background:#16171a;color:#fff;border-radius:999px;padding:8px 16px;cursor:pointer;margin-top:16px}@media(max-width:600px){.t,.w{width:auto;white-space:normal}}</style></head><body>
-<p class="m">${esc(o.studio)}</p><h1>Contact record</h1><p class="m">${esc(o.clientName)} · ${esc(o.service || 'Visit')} · ${esc(o.visitWhen)}</p><p class="m">Visit reference ${esc(o.appointmentId)} · printed ${esc(stamp(new Date().toISOString(), o.tz))}${o.printedBy ? ` by ${esc(o.printedBy)}` : ''}</p>
-<div class="sum"><div><b>${s.sent}</b>messages sent</div><div><b>${s.delivered}</b>delivered</div><div><b>${s.acted}</b>client actions</div>${s.problems ? `<div><b>${s.problems}</b>not delivered or held</div>` : ''}</div>
-<table>${lines || '<tr><td>Nothing recorded for this visit yet.</td></tr>'}</table>
-<p class="note">Times come from our system and from the text and email providers’ delivery reports. “Delivered” means the phone carrier or the receiving mail server accepted the message. “Email opened” means the email’s images loaded; some mail apps do this automatically and some block it, so it is shown as a hint only. Opening a link, signing, agreeing and paying are the client’s own actions on their private link.</p>
-<button onclick="window.print()">Print or save as PDF</button></body></html>`;
+  const tile = (n: number, label: string) => `<div class="panel stat"><div class="v">${n}</div><div class="l">${label}</div></div>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Contact record · ${esc(o.clientName)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="${PRINT_FONT_HREF}" rel="stylesheet">
+<style>@page{margin:0.55in}${PRINT_CSS}
+.pp .sum{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 18px}.pp .sum .panel{min-width:130px}
+.pp td{font-size:12.5px}.pp td.t{white-space:nowrap;color:${PRINT.muted};width:210px}.pp td.w{white-space:nowrap;color:${PRINT.muted};width:110px}
+.pp tr.strong td b{color:${PRINT.green}}.pp tr.problem td b{color:${PRINT.amber}}
+.pp .d{color:${PRINT.muted};margin-top:2px}.pp .b{margin-top:6px;padding:8px 10px;background:${PRINT.soft};border-radius:10px;color:${PRINT.body}}
+.pp .print{font:inherit;font-size:13px;font-weight:600;border:1px solid ${PRINT.ink};background:${PRINT.ink};color:#fff;border-radius:999px;padding:9px 18px;cursor:pointer;margin-top:18px}
+@media(max-width:600px){.pp td.t,.pp td.w{width:auto;white-space:normal}}</style></head>
+<body class="pp-screen"><div class="pp page">
+<div class="head"><div><p class="shop">${esc(o.studio)}</p><h1>Contact <b>record</b></h1><p class="sub">${esc(o.clientName)} · ${esc(o.service || 'Visit')} · ${esc(o.visitWhen)}</p></div>
+<div class="meta"><div>Visit reference ${esc(o.appointmentId)}</div><div>Printed ${esc(stamp(new Date().toISOString(), o.tz))}${o.printedBy ? ` by ${esc(o.printedBy)}` : ''}</div></div></div>
+<div class="sum">${tile(s.sent, 'Messages sent')}${tile(s.delivered, 'Delivered')}${tile(s.acted, 'Client actions')}${s.problems ? tile(s.problems, 'Not delivered or held') : ''}</div>
+<table><tbody>${lines || '<tr><td class="faint">Nothing recorded for this visit yet.</td></tr>'}</tbody></table>
+<p class="note" style="margin-top:22px">Times come from our system and from the text and email providers’ delivery reports. “Delivered” means the phone carrier or the receiving mail server accepted the message. “Email opened” means the email’s images loaded; some mail apps do this automatically and some block it, so it is shown as a hint only. Opening a link, signing, agreeing and paying are the client’s own actions on their private link.</p>
+<button type="button" class="print no-print" onclick="window.print()">Print or save as PDF</button>
+</div></body></html>`;
 }

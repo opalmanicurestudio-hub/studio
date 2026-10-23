@@ -21,6 +21,7 @@ import { refundPaymentIntent } from '@/lib/stripe-refund';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { monthKey } from '@/lib/team-discount';
 import { consumeApproval, isApprover } from '@/lib/approvals';
+import { heldLine, heldShortfall } from '@/lib/held-stock';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -763,15 +764,36 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   { let over = giftUse.reduce((s2, g) => s2 + g.cents, 0) - Math.round(num((calc as any).giftCard) * 100); for (let i = giftUse.length - 1; i >= 0 && over > 0; i--) { const cut = Math.min(over, giftUse[i].cents); giftUse[i].cents -= cut; over -= cut; } }
   const recoveryReason = String(b.recovery?.reason || 'Service Recovery Adjustment').slice(0, 200);
   const cardSurcharge = Math.max(0, num(pay.cardSurcharge));
-  // ── Deposit credit (newest available, not expired) ──
-  let depositCredit: any = null;
-  try {
-    let cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientId', '==', clientId).get();
-    if (cs.empty && client.email) cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
-    const found = cs.docs.map((d: any) => ({ ref: d.ref, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt)).sort((x: any, y: any) => Date.parse(y.createdAt || 0) - Date.parse(x.createdAt || 0));
-    depositCredit = found[0] || null;
-  } catch (e) { console.warn('[checkout] deposit credit lookup', e); }
-  const depositCreditDollars = depositCredit ? num(depositCredit.amountDollars ?? num(depositCredit.amountCents) / 100) : 0;
+  // ── Deposits for these visits (lib/credit-pools) ──
+  // A deposit is money paid for one booking: it comes off that visit's bill, from what's left on it. Only a sale with a
+  // visit takes one: each visit's own deposit; otherwise one carried over from a booking that isn't still to come (a
+  // booking moved to a new time keeps its first booking's deposit). Never store credit (it shares the collection) and
+  // never a deposit paid for another booking still to come. Each one is used in the same step as the sale, only if it
+  // hasn't changed since it was read (two checkouts at once can't both use it).
+  let depositsUsing: { ref: any; id: string; data: any; updateTime: any; left: number }[] = [];
+  if (apptIds.length) {
+    try {
+      const { creditLeftCents, isDepositCredit, pickDeposit, spendable } = await import('@/lib/credit-pools');
+      let cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientId', '==', clientId).get();
+      if (cs.empty && client.email) cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
+      const all = cs.docs.map((d: any) => ({ ref: d.ref, id: d.id, updateTime: d.updateTime, ...(d.data() as any) })).filter((c: any) => isDepositCredit(c) && spendable(c) && !isCreditExpired(c.expiresAt));
+      const mine = all.filter((c: any) => apptIds.includes(String(c.sourceAppointmentId || '')));
+      let picked: any[] = mine;
+      if (!picked.length) {
+        // A deposit from another booking is used only when that booking isn't still to come.
+        const upcoming = new Set<string>();
+        for (const c of all.slice(0, 10)) {
+          const src = String(c.sourceAppointmentId || ''); if (!src) continue;
+          const a: any = (await db.doc(`${T}/appointments/${src}`).get()).data();
+          if (a && !['cancelled', 'canceled', 'completed', 'no_show', 'noshow', 'rescheduled'].includes(String(a.status || '')) && (Date.parse(String(a.startTime || '')) || 0) > Date.now()) upcoming.add(src);
+        }
+        const one = pickDeposit(all, [], (id) => upcoming.has(id)); picked = one ? [one] : [];
+      }
+      depositsUsing = picked.map((c: any) => ({ ref: c.ref, id: c.id, data: c, updateTime: c.updateTime, left: creditLeftCents(c) })).filter((x) => x.left > 0);
+    } catch (e) { console.warn('[checkout] deposit credit lookup', e); depositsUsing = []; }
+  }
+  const depositCredit: any = depositsUsing[0] || null;
+  const depositCreditDollars = depositsUsing.reduce((t, x) => t + x.left, 0) / 100;
 
   // A card sale is only ever saved with the card payment that paid for it (checked above): one with no card payment is
   // refused before anything is used up, so a sale is never recorded as paid by card when nothing was charged.
@@ -808,6 +830,18 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       if (!ok) { await failPending('Service recovery above the limit wasn’t approved.'); return json({ ok: false, error: `Service recovery over your limit needs a manager’s approval ($${recoveryAmount.toFixed(2)}).` }, 403); }
       recoveryApprovedBy = ok.approverName;
     } else if (over) recoveryApprovedBy = auth.actor.name;
+  }
+  // Units held for paid online orders (lib/held-stock): selling into them would leave one of those orders short, so a
+  // manager says yes — signed in, or their PIN at the desk (one approval, used here).
+  const heldShort = heldShortfall(items, inventory);
+  let heldApprovedBy: string | null = null;
+  if (heldShort.length) {
+    if (actorIsManager) heldApprovedBy = auth.actor.name;
+    else {
+      const ok = await consumeApproval(db, tenantId, b.heldStock?.approvalToken, { kind: 'held_stock' });
+      if (!ok) { await failPending('Units held for online orders weren’t approved to sell.'); return json({ ok: false, code: 'held_stock', held: heldShort, error: `${heldShort.map(heldLine).join('; ')}. A manager needs to approve selling them.` }, 409); }
+      heldApprovedBy = ok.approverName;
+    }
   }
   // The "up to" price the client agreed (before the visit or in person) — the work can't go over it unless they agreed again.
   for (const [idx, v] of visits.entries()) {
@@ -960,10 +994,22 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (calc.tax > 0) txn({ description: calc.taxLabel, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: calc.tax, paymentMethod: method, hasReceipt: false });
   if (cardSurcharge > 0) { txn({ description: 'Card Processing Fee (passed to client)', type: 'income', context: 'Business', category: 'Card Processing Fee', taxBucket: 'revenue', amount: cardSurcharge, paymentMethod: method, hasReceipt: false }); totalLtvIncrease += cardSurcharge; }
   let cashDepositOffset = 0;
-  if (depositCredit && depositCreditDollars > 0) {
-    txn({ depositCreditId: depositCredit.ref.id, description: 'Deposit applied (prepaid online)', type: 'expense', context: 'Business', category: 'Deposit Applied', taxBucket: 'adjustment', amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false });
-    batch.set(depositCredit.ref, { status: 'consumed', consumedAt: now, appointmentId: apptIds[0] || null }, { merge: true });
-    cashDepositOffset = Math.min(depositCreditDollars, totalCashIncrease);
+  // What the deposits pay of this bill (never more than it comes to), each from what's left on it, in one step with
+  // the sale: what's left over stays on the deposit for the rest of the visit or a refund.
+  const depositsUsed: { id: string; cents: number }[] = [];
+  if (depositsUsing.length && depositCreditDollars > 0) {
+    let need = Math.round(Math.min(depositCreditDollars, calc.total) * 100);
+    for (const d of depositsUsing) {
+      if (need <= 0) break;
+      const use = Math.min(d.left, need); if (use <= 0) continue; need -= use;
+      const usedAfter = Math.max(0, Math.round(Number(d.data.usedCents) || 0)) + use;
+      const allUsed = use >= d.left;
+      txn({ depositCreditId: d.id, description: 'Deposit applied (prepaid)', type: 'expense', context: 'Business', category: 'Deposit Applied', taxBucket: 'adjustment', amount: use / 100, paymentMethod: 'Deposit', hasReceipt: false, ...(d.data.sourceAppointmentId ? { appointmentId: d.data.sourceAppointmentId } : {}) });
+      const patch = { usedCents: usedAfter, status: allUsed ? 'consumed' : 'available', ...(allUsed ? { consumedAt: now } : {}), lastUsedAt: now, appointmentId: d.data.sourceAppointmentId || apptIds[0] || null };
+      if (d.updateTime) batch.update(d.ref, patch, { lastUpdateTime: d.updateTime }); else batch.set(d.ref, patch, { merge: true });
+      depositsUsed.push({ id: d.id, cents: use });
+    }
+    cashDepositOffset = Math.min(depositsUsed.reduce((t, x) => t + x.cents, 0) / 100, totalCashIncrease);
   }
   // Cash into the till = what the client actually handed over: the sale total (tax included; discounts and recovery
   // taken off) less any deposit they'd already paid. (The old way added up line prices — tax was missed and
@@ -974,7 +1020,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       const shares = Object.keys(alloc).length ? splitTip(cashTip, Object.entries(alloc).map(([id, a]) => ({ id, name: id, weight: Number(a) })), 'value') : { [tipKey(mainTip)]: cashTip };
       for (const [k, v] of Object.entries(shares)) { cashTipsByStaff[k] = FieldValue.increment(num(v)); cashTipsPlain[k] = (cashTipsPlain[k] || 0) + num(v); } }
   }
-  const depositUsed = depositCredit && depositCreditDollars > 0 ? Math.min(depositCreditDollars, calc.total) : 0;
+  const depositUsed = depositsUsed.reduce((t, x) => t + x.cents, 0) / 100;
   const cashIn = method === 'cash' ? Math.max(0, Math.round((calc.total - depositUsed) * 100) / 100) : split ? Math.round(splitCash * 100) / 100 : 0;
   let splitOver = 0;
   if (split) {   // the shares must cover what's owed (and more than that is flagged, never recorded quietly)
@@ -1042,7 +1088,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     reversal: { ...(rentPayments.length ? { rentPayments } : {}), ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount) + num(x.tip), stripePaymentIntentId: x.stripePaymentIntentId || null })) } : {}), method, tillId: (method === 'cash' || (split && cashIn > 0)) ? (b.tillId || null) : null, cashIn, cashSales: cashSalesAmt, cashTips: method === 'cash' ? cashTipsTotal : 0, cashTipsByStaff: cashTipsPlain,
       spend, products: items.filter((x) => x.type === 'product').map((x) => ({ id: x.id, name: x.name, quantity: x.quantity })),
       fees: fees.map((f: any) => ({ feeId: f.feeId, feeAmount: num(f.feeAmount), reason: f.reason || null, owner: f.__owner, fee: (({ __owner, ...rest }) => rest)(f) })),
-      depositCreditId: depositCredit && depositCreditDollars > 0 ? depositCredit.ref.id : null,
+      depositCreditId: depositsUsed[0]?.id || null, ...(depositsUsed.length ? { depositsUsed } : {}),
       redeemed: redeemedOffer ? { ...redeemedOffer, clientId: usedBy.id } : null,
       discountIds: (discounts as any[]).map((d) => d.id), groupDiscount: calc.groupDiscount > 0 ? { amount: calc.groupDiscount, month: gMonth, clientId } : null, momentKey: calc.momentDiscount > 0 && calc.moment ? calc.moment.key : null, memberships: items.filter((x) => x.type === 'membership' || x.type === 'package').map((x) => ({ type: x.type, id: x.id, name: x.name })),
       visits: visits.map((v) => ({ id: v.appointment.id, statusBefore: v.appointment.status || 'checked_in', checkInToken: v.appointment.checkInToken || null, clientId: v.appointment.clientId || clientId })),
@@ -1107,11 +1153,18 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     // A share was added to the split (or taken off) while it was being saved: nothing is recorded, so it's finished again
     // with the shares as they are now.
     if (pendingRef && split && isChangedMeanwhile(e)) return json({ ok: false, code: 'bill_changed', pendingId: pendingRef.id, error: 'A payment on this split changed while it was being saved, so nothing was recorded. Check the split, then finish again.' }, 409);
+    // The client's deposit was used or changed by another sale at the same moment: nothing is recorded, so the sale is
+    // finished again with the deposit as it is now.
+    if (depositsUsed.length && isChangedMeanwhile(e)) { await failPending('The deposit changed while the sale was being saved'); return json({ ok: false, code: 'deposit_changed', ...(pendingRef ? { pendingId: pendingRef.id } : {}), error: 'The client’s deposit changed while this sale was being saved, so nothing was recorded. Finish the sale again.' }, 409); }
     console.error('[checkout] save failed', e); await failPending(String(e?.message || e)); return json({ ok: false, error: 'Checkout didn’t save — nothing was recorded. Please try again.' }, 500);
   }
 
   // After the sale is saved: enrol memberships / packages; confirm next-visit deposits.
   const warnings: string[] = [];
+  if (heldShort.length) {
+    warnings.push(`${heldShort.map((h) => h.name).join(', ')} came out of what was held for online orders${heldApprovedBy ? ` (approved by ${heldApprovedBy})` : ''}. An order may be short when it’s packed.`);
+    await logAuditAdmin(db, tenantId, { action: 'checkout.held_stock_sold', targetType: 'client', targetId: clientId || '', summary: `Sold at the desk from units held for online orders: ${heldShort.map((h) => `${h.name} (${h.want} sold, ${h.free} free)`).join('; ')}${heldApprovedBy ? ` — approved by ${heldApprovedBy}` : ''}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
+  }
   if (splitOver > 0) warnings.push(`The split was paid $${splitOver.toFixed(2)} more than the sale comes to. Give that back to whoever paid it; the receipt is flagged.`);
   // Its card payment, if it was kept apart as extra on its sale's ticket (it landed while that sale was being discarded,
   // say): it's on this receipt now, so it's off that list and never refunded or kept a second time.

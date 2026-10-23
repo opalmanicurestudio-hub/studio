@@ -12,6 +12,7 @@ import QRCode from 'qrcode';
 import { doc, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { PRINT, esc, printPage } from '@/lib/print-style';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 export type Seat = {
@@ -638,30 +639,38 @@ export function SeatingChartTab({ tenantId, eventId, firestore, guests, staff, e
   };
 
   // ── Print all QR codes ─────────────────────────────────────────────────────
+  // In the app's print look (lib/print-style). The sheet waits for the Print all button, as before.
   const printAllQrCodes = async () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-    let html = `<html><head><title>Seat QR Codes</title><style>
-      body{font-family:sans-serif;padding:20px}
-      .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-      .card{text-align:center;border:1px solid #e2e8f0;border-radius:12px;padding:12px}
-      .table-name{font-weight:900;font-size:11px;text-transform:uppercase;letter-spacing:0.2em;color:#64748b;margin-bottom:4px}
-      .seat-label{font-weight:900;font-size:14px;color:#1e293b;margin-top:8px}
-      img{width:100%;max-width:140px}
-      @media print{.no-print{display:none}}
-    </style></head><body>
-    <button class="no-print" onclick="window.print()" style="margin-bottom:16px;padding:8px 16px;background:#1e293b;color:white;border:none;border-radius:8px;font-weight:900;cursor:pointer">Print All</button>
-    <div class="grid">`;
+    let cards = '';
+    let count = 0;
 
     for (const table of tables) {
       for (const seat of table.seats) {
         const url    = `${baseUrl}/request/${tenantId}/${eventId}/${table.id}/${seat.id}`;
         const qrData = await QRCode.toDataURL(url, { width: 200, margin: 1 });
-        html += `<div class="card"><div class="table-name">${table.name}</div><img src="${qrData}" /><div class="seat-label">Seat ${seat.label}</div></div>`;
+        cards += `<div class="qr"><p class="tbl">${esc(table.name)}</p><img src="${qrData}" alt="" /><p class="seat">Seat ${esc(seat.label)}</p></div>`;
+        count++;
       }
     }
 
-    html += `</div></body></html>`;
+    const html = printPage({
+      title: 'Seat QR codes',
+      heading: 'Seat QR <b>codes</b>',
+      subtitle: event?.title ? esc(event.title) : undefined,
+      meta: [`${count} seat${count === 1 ? '' : 's'}`],
+      body: `<p class="no-print" style="margin:0 0 16px"><button type="button" class="print" onclick="window.print()">Print all</button></p><div class="qrs">${cards}</div>`,
+      css: `
+        .pp .qrs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+        .pp .qr { text-align: center; border: 1px solid ${PRINT.line}; border-radius: 14px; padding: 12px; break-inside: avoid; }
+        .pp .qr .tbl { font-size: 11px; font-weight: 500; color: ${PRINT.muted}; margin-bottom: 6px; }
+        .pp .qr img { display: block; width: 100%; max-width: 140px; margin: 0 auto; }
+        .pp .qr .seat { font-size: 14px; font-weight: 600; margin-top: 8px; }
+        .pp .print { font: inherit; font-size: 13px; font-weight: 600; color: #fff; background: ${PRINT.ink}; border: 0; border-radius: 999px; padding: 9px 18px; cursor: pointer; }
+      `,
+      autoPrint: false,
+    });
     printWindow.document.write(html);
     printWindow.document.close();
   };

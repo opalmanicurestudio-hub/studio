@@ -1,5 +1,6 @@
 import { SLIP_CSS, SlipSheet, printOrigin } from '@/components/print/slip';
 import { checkPrintKey } from '@/lib/print-key';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 // /print/orders/[tenantId]?ids=a,b,c&show=slips|picks&k=…&x=… — PRINT FOR THE ORDERS YOU PICKED.
 // "picks" is one walking list: every item across the chosen orders, added up, sorted by shelf, with which order
@@ -30,25 +31,29 @@ const openQty = (l: any) => Math.max(0, (Number(l.qtyOrdered) || 0) - (Number(l.
 
 const BAR_CSS = `
   .bar { position: fixed; top: 0; left: 0; right: 0; background: #16171a; color: #fff; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; z-index: 5; }
-  .bar button { background: #fff; color: #16171a; border: 0; border-radius: 999px; padding: 8px 16px; font-weight: 700; font-size: 13px; }
+  .bar button { background: #fff; color: #16171a; border: 0; border-radius: 999px; padding: 8px 16px; font-weight: 600; font-size: 13px; }
   .sheet { page-break-after: always; }
   .sheet:last-child { page-break-after: auto; }
   @media print { .bar { display: none; } }
   @media screen { body { padding: 64px 24px 24px; max-width: 8.5in; margin: 0 auto; } }
 `;
 
+// The pick list is read while walking the shelves, so the shelf and the quantity stay large by size, not by weight.
 const PICK_CSS = `
   @page { size: letter; margin: 0.5in; }
   * { box-sizing: border-box; }
-  body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; color: #16171a; margin: 0; }
-  h1 { font-size: 26px; font-weight: 300; margin: 0; letter-spacing: -0.02em; }
+  body { font-family: ${PRINT_FONT_STACK}; font-weight: 400; line-height: 1.45; color: #16171a; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  h1 { font-size: 26px; font-weight: 300; margin: 0; letter-spacing: -0.02em; line-height: 1.15; }
+  h1 b { font-weight: 600; }
   .sub { font-size: 12px; color: #6d7075; margin: 4px 0 18px; }
   table { width: 100%; border-collapse: collapse; }
-  th { font-size: 10px; font-weight: 700; text-align: left; color: #6d7075; padding: 8px 6px; border-bottom: 2px solid #16171a; }
-  td { font-size: 13px; padding: 10px 6px; border-bottom: 1px solid #ececee; vertical-align: top; }
-  .box { display: inline-block; width: 16px; height: 16px; border: 2px solid #16171a; border-radius: 5px; }
-  .qty { font-size: 18px; font-weight: 700; }
-  .shelf { font-weight: 700; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  th { font-size: 11px; font-weight: 500; text-align: left; color: #6d7075; padding: 8px 6px; border-bottom: 1px solid #ececee; }
+  td { font-size: 13px; padding: 10px 6px; border-bottom: 1px solid #ececee; vertical-align: top; font-variant-numeric: tabular-nums; }
+  .box { display: inline-block; width: 16px; height: 16px; border: 1px solid #9a9ca1; border-radius: 5px; vertical-align: middle; }
+  .qty { font-size: 24px; font-weight: 500; letter-spacing: -0.01em; line-height: 1.1; }
+  .shelf { font-size: 16px; font-weight: 500; }
   .to { color: #6d7075; font-size: 12px; }
 `;
 
@@ -77,7 +82,7 @@ export default async function PrintOrdersPage({ params, searchParams }: {
   const fonts = (
     <>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&display=swap" rel="stylesheet" />
+      <link href={PRINT_FONT_HREF} rel="stylesheet" />
     </>);
   const printBtn = <script dangerouslySetInnerHTML={{ __html: `document.querySelector('[data-print]')?.addEventListener('click', () => window.print());` }} />;
 
@@ -119,7 +124,7 @@ export default async function PrintOrdersPage({ params, searchParams }: {
       <head>{fonts}<title>{`Pick list · ${orders.length} orders`}</title><style>{PICK_CSS + BAR_CSS}</style></head>
       <body>
         <div className="bar"><span>Pick list · {units} item{units === 1 ? '' : 's'} for {orders.length} order{orders.length === 1 ? '' : 's'}</span><button type="button" data-print>Print</button></div>
-        <h1>Pick list</h1>
+        <h1>Pick <b>list</b></h1>
         <p className="sub">{orders.map(num).join(' · ')}</p>
         {list.length === 0 ? <p>Everything on these orders is already in its box.</p> : (
           <table>

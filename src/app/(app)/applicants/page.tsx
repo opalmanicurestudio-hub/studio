@@ -74,7 +74,7 @@ ${v.business}`,
     subject: v => `Good news from ${v.business}`,
     body: v => `Hi ${v.first},
 
-We'd like to offer you${v.role ? ` the ${v.role} position` : ' a position with us'}. Reply here or call us and we'll walk through the details together.
+We'd like to offer you${v.role ? ` the ${v.role} position` : ' a position with us'}. Reply here and we'll walk through the details together.
 
 ${v.business}`,
   },

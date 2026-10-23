@@ -79,8 +79,23 @@ const order = () => get(`${T}/retailOrders/o1`);
   const { costPolicy, splitCost, addressCostFor } = await import('../../src/lib/address-cost');
   const { finishAddressPay, sweepAddressPays } = await import('../../src/lib/address-pay');
   const { hideCodes } = await import('../../src/lib/code-redact');
-  const ss = (body: any) => selfServe(req({ tenantId: 't1', orderId: 'o1', qrToken: 'qr1', ...body })) as any;
+  // The customer's pass (lib/order-pass): changing their details needs it as well as the link.
+  const { makePass } = await import('../../src/lib/order-pass');
+  const pass = makePass('t1', 'qr1');
+  const ss = (body: any) => selfServe(req({ tenantId: 't1', orderId: 'o1', qrToken: 'qr1', pass, ...body })) as any;
   const codeIn = (m: any) => String(m?.text || '').match(/\b(\d{6})\b/)?.[1] || '';
+
+  // ── The link alone can't change their details: the pass is needed too (lib/order-pass) ──
+  await fresh();
+  for (const action of ['contact_code', 'texts', 'update_address', 'confirm_address']) {
+    const r0 = await selfServe(req({ tenantId: 't1', orderId: 'o1', qrToken: 'qr1', action, field: 'email', value: 'x@example.com', address: FAR })) as any;
+    check(`${action} without a pass asks them to confirm it’s them first`, r0.status === 401 && r0.body.code === 'pass_needed' && sent.length === 0, r0.body);
+  }
+  const other = makePass('t1', 'qr-other');
+  const r1 = await selfServe(req({ tenantId: 't1', orderId: 'o1', qrToken: 'qr1', pass: other, action: 'contact_code', field: 'email', value: 'x@example.com' })) as any;
+  check('a pass for another order doesn’t work here', r1.status === 401);
+  const r2 = await selfServe(req({ tenantId: 't1', orderId: 'o1', qrToken: 'qr-wrong', pass, action: 'contact_code', field: 'email', value: 'x@example.com' })) as any;
+  check('a wrong order link is still refused', r2.status === 403);
 
   // ── A new email, with a code sent to it ──
   await fresh();
@@ -232,7 +247,7 @@ const order = () => get(`${T}/retailOrders/o1`);
   r = await ss({ action: 'address_paid', sessionId: s2 });
   check('it had already gone out: the address can’t change, and the payment is refunded straight away', r.body.result === 'refunded' && stripeCalls.refunds.some((x) => x.payment_intent === 'pi_addr3') && (await order()).shippingAddress.postalCode === '97201');
   const lines = (await all(`${T}/transactions`)).filter((x: any) => x.retailOrderId === 'o1');
-  check('…and the books show it in and back out', lines.some((x: any) => x.type === 'income' && x.amount === 3.2) && lines.some((x: any) => x.type === 'expense' && x.category === 'Refund' && x.amount === 3.2));
+  check('…and the books show it in and back out', lines.some((x: any) => x.type === 'income' && x.amount === 3.2) && lines.some((x: any) => x.type === 'expense' && x.category === 'Refunds' && x.amount === 3.2));
 
   await fresh({}, { addressCostPayer: 'customer' });
   r = await ss({ action: 'update_address', address: FAR });

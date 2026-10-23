@@ -287,7 +287,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
 
       {toFinish.length > 0 && (
         <Section title="Picked, ready to finish">
-          {toFinish.map((o) => <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${toteOf(o) ? `Tote ${toteOf(o)} · ` : ''}${orderNum(o)} · ${methodLabel(o.method)} · picked by ${firstName(o.claimedByName) || 'someone'}`} trail={<Btn kind="primary" className="h-10 px-4 text-[14px]" onClick={() => void finish(o)}>Finish</Btn>} />)}
+          {toFinish.map((o) => <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${toteOf(o) ? `Tote ${toteOf(o)} · ` : ''}${orderNum(o)} · ${methodLabel(o.method, rs)} · picked by ${firstName(o.claimedByName) || 'someone'}`} trail={<Btn kind="primary" className="h-10 px-4 text-[14px]" onClick={() => void finish(o)}>Finish</Btn>} />)}
         </Section>)}
 
       {toShip.length > 0 && (
@@ -298,13 +298,13 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       {shelfOrders.length > 0 && (
         <Section title="Pickup shelf" sub={`${shelfOrders.length}`}>
           {shelfOrders.map((o) => <ListRow key={o.id} onClick={() => setHandId(o.id)} lead={<Initials name={o.customerName} />} title={o.customerName}
-            detail={[o.stage === 'arrived' ? `Outside${o.curbside?.spotOrVehicle ? ` in ${o.curbside.spotOrVehicle}` : ''}` : methodLabel(o.method), o.shelfSlot ? `Shelf ${o.shelfSlot}` : '', `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
+            detail={[o.stage === 'arrived' ? `Outside${o.curbside?.spotOrVehicle ? ` in ${o.curbside.spotOrVehicle}` : ''}` : methodLabel(o.method, rs), o.shelfSlot ? `Shelf ${o.shelfSlot}` : '', `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
             trail={<span className="text-[14px] font-semibold" style={o.stage === 'arrived' ? { color: C.warn } : muted}>{o.stage === 'arrived' ? 'Now' : 'Hand over'}</span>} />)}
         </Section>)}
 
       <Section title="Waiting to be picked" sub={queue.length ? `${queue.length}` : undefined}>
         {!loading && queue.length === 0 ? <p className="m-0 px-4 py-8 text-center text-[15px]" style={muted}>Nothing waiting. Nice work.</p>
-          : queue.slice(0, 12).map((o) => { const d = dueLine(o, rs, Date.now(), shopZone); return <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${methodLabel(o.method)} · ${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`} trail={<span className="text-[14px]" style={d.late ? { color: C.warn, fontWeight: 600 } : muted}>{d.text}</span>} />; })}
+          : queue.slice(0, 12).map((o) => { const d = dueLine(o, rs, Date.now(), shopZone); return <ListRow key={o.id} lead={<Initials name={o.customerName} />} title={o.customerName} detail={`${orderNum(o)} · ${methodLabel(o.method, rs)} · ${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`} trail={<span className="text-[14px]" style={d.late ? { color: C.warn, fontWeight: 600 } : muted}>{d.text}</span>} />; })}
       </Section>
 
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} actor={actor as any} autoBelow={Math.max(0, Number(rs?.policies?.refundAutoBelowCents) || 0)} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); say(m); }} />}

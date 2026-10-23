@@ -72,7 +72,8 @@ export async function POST(req: NextRequest) {
     // A studio gift card's rent credit for this sale stops counting (the part already taken off rent stays noted).
     if (v.type === 'gift_card_credit' && v.status !== 'voided') batch.set(d.ref, { status: 'voided', voidedAt: now, voidReason: reason || null, appliedBeforeVoidCents: Number(v.appliedCents) || 0, appliedCents: Math.abs(Number(v.amountCents) || 0) }, { merge: true });
   }
-  // Payment lines: originals marked void, one reversing line each (same shape as a single-line void).
+  // Payment lines: originals marked void, one reversing line each (same shape as a single-line void). Each says what it
+  // undid (voidType / voidCategory / voidTaxBucket), so the books put it back where that line was (lib/books-summary).
   const lines = (await db.collection(`${T}/transactions`).where('checkoutSessionId', '==', rc.checkoutSessionId).get()).docs;
   const cardLines = R.stripePaymentIntentId ? (await db.collection(`${T}/transactions`).where('stripePaymentIntentId', '==', String(R.stripePaymentIntentId)).get()).docs : [];
   const seen = new Set<string>();
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
     const t: any = d.data(); if (seen.has(d.id) || t.voided || t.category === 'Void') continue; seen.add(d.id);
     batch.set(d.ref, { voided: true, voidedAt: now, voidedBy: approvedBy, voidReason: reason }, { merge: true });
     const rv = db.collection(`${T}/transactions`).doc();
-    batch.set(rv, { id: rv.id, date: now, description: `VOID: ${t.description || ''}`, clientOrVendor: t.clientOrVendor || null, clientId: t.clientId || null, type: t.type === 'income' ? 'expense' : 'income', context: 'Business', category: 'Void', taxBucket: 'refund', amount: num(t.amount), paymentMethod: t.paymentMethod || null, voidOf: d.id, notes: reason, hasReceipt: false, tenantId, checkoutSessionId: rc.checkoutSessionId, voidOfSale: receiptId });
+    batch.set(rv, { id: rv.id, date: now, description: `VOID: ${t.description || ''}`, clientOrVendor: t.clientOrVendor || null, clientId: t.clientId || null, type: t.type === 'income' ? 'expense' : 'income', context: 'Business', category: 'Void', taxBucket: 'refund', amount: num(t.amount), paymentMethod: t.paymentMethod || null, voidOf: d.id, voidType: t.type || null, voidCategory: t.category || null, voidTaxBucket: t.taxBucket || null, notes: reason, hasReceipt: false, tenantId, checkoutSessionId: rc.checkoutSessionId, voidOfSale: receiptId });
   }
   // Stock back on the shelf.
   for (const p of R.products || []) {
@@ -95,7 +96,11 @@ export async function POST(req: NextRequest) {
   for (const f of R.fees || []) (feesByOwner[f.owner] = feesByOwner[f.owner] || []).push(f);
   for (const [owner, list] of Object.entries(feesByOwner)) batch.set(db.doc(`${T}/clients/${owner}`), { unpaidFees: FieldValue.arrayUnion(...list.map((f: any) => f.fee || { feeId: f.feeId, feeAmount: f.feeAmount, reason: f.reason })), outstandingBalance: FieldValue.increment(list.reduce((s: number, f: any) => s + num(f.feeAmount), 0)) }, { merge: true });
   // The deposit credit, available again.
-  if (R.depositCreditId) batch.set(db.doc(`${T}/depositCredits/${R.depositCreditId}`), { status: 'available', consumedAt: null, appointmentId: null, restoredByVoid: receiptId }, { merge: true });
+  // What the sale used of each deposit goes back on it (lib/credit-pools); a sale saved before that was kept used up
+  // the whole deposit, so it's simply available again.
+  if (Array.isArray(R.depositsUsed) && R.depositsUsed.length) {
+    for (const d of R.depositsUsed) if (d?.id && Number(d.cents) > 0) batch.set(db.doc(`${T}/depositCredits/${String(d.id)}`), { status: 'available', consumedAt: null, usedCents: FieldValue.increment(-Math.round(Number(d.cents))), restoredByVoid: receiptId }, { merge: true });
+  } else if (R.depositCreditId) batch.set(db.doc(`${T}/depositCredits/${R.depositCreditId}`), { status: 'available', consumedAt: null, appointmentId: null, restoredByVoid: receiptId }, { merge: true });
   // A package session / perk given back.
   if (R.redeemed?.clientId) {
     const c: any = ((await db.doc(`${T}/clients/${R.redeemed.clientId}`).get()).data() as any) || {};

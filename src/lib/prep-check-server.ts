@@ -193,15 +193,23 @@ export async function prepTopUpLink(db: any, tenantId: string, v: { id: string; 
 
 /** The top-up was paid (the connect webhook): the deposit grows, the credit that comes off at checkout grows with it. Safe to run twice. */
 export async function prepTopUpPaid(db: any, tenantId: string, apptId: string, x: { cents: number; sessionId: string; chargeId?: string | null }) {
-  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`); const a: any = (await ref.get()).data(); if (!a) return { ok: false };
-  if (a.depositTopUp?.status === 'paid' && a.depositTopUp?.sessionId === x.sessionId) return { ok: true, already: true };
-  const now = new Date().toISOString(); const cents = Math.max(0, Math.round(x.cents));
-  await ref.set({ depositAmountCents: (Number(a.depositAmountCents) || 0) + cents, depositTopUp: { ...(a.depositTopUp || {}), status: 'paid', paidAt: now, paidCents: cents, sessionId: x.sessionId } }, { merge: true });
-  const credits = await db.collection(`${T(tenantId)}/depositCredits`).where('sourceAppointmentId', '==', apptId).get();
-  const open = credits.docs.find((d: any) => (d.data() || {}).status === 'available');
-  if (open) await open.ref.set({ amountCents: (Number(open.data().amountCents) || 0) + cents, toppedUpAt: now }, { merge: true });
-  else { const c = db.collection(`${T(tenantId)}/depositCredits`).doc(); await c.set({ id: c.id, tenantId, clientId: a.clientId || null, clientEmail: String(a.clientEmail || '').toLowerCase().trim(), clientName: a.clientName || 'Guest', amountCents: cents, status: 'available', sourceAppointmentId: apptId, createdAt: now, checkoutSessionId: x.sessionId, stripeChargeId: x.chargeId || null }); }
-  const tx = db.collection(`${T(tenantId)}/transactions`).doc();
-  await tx.set({ id: tx.id, date: now, description: `Deposit top-up — ${a.serviceName || 'Appointment'}`, clientOrVendor: a.clientName || 'Guest', clientId: a.clientId || null, type: 'income', context: 'Business', category: 'Retainers', taxBucket: 'revenue', amount: cents / 100, paymentMethod: 'Online Checkout', hasReceipt: false, appointmentId: apptId, staffId: a.staffId || null, checkoutSessionId: x.sessionId, stripeChargeId: x.chargeId || null, tenantId });
-  return { ok: true };
+  // Once per payment page, in one step: the deposit goes up, the visit's open credit grows (or one is made), and the
+  // income is written under the page's own name, so a notice Stripe sends twice (or two at once) adds it once.
+  const ref = db.doc(`${T(tenantId)}/appointments/${apptId}`);
+  const key = String(x.sessionId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
+  const incomeRef = db.doc(`${T(tenantId)}/transactions/topup_${key}`);
+  return db.runTransaction(async (tx: any) => {
+    const [as, is] = await Promise.all([tx.get(ref), tx.get(incomeRef)]);
+    const a: any = as.data(); if (!a) return { ok: false };
+    if (is.exists || (a.depositTopUp?.status === 'paid' && a.depositTopUp?.sessionId === x.sessionId)) return { ok: true, already: true };
+    const credits = await tx.get(db.collection(`${T(tenantId)}/depositCredits`).where('sourceAppointmentId', '==', apptId));
+    const open = credits.docs.find((d: any) => (d.data() || {}).status === 'available');
+    const openNow = open ? await tx.get(open.ref) : null;
+    const now = new Date().toISOString(); const cents = Math.max(0, Math.round(x.cents));
+    tx.set(ref, { depositAmountCents: (Number(a.depositAmountCents) || 0) + cents, depositTopUp: { ...(a.depositTopUp || {}), status: 'paid', paidAt: now, paidCents: cents, sessionId: x.sessionId } }, { merge: true });
+    if (openNow?.exists && (openNow.data() || {}).status === 'available') tx.set(openNow.ref, { amountCents: (Number(openNow.data().amountCents) || 0) + cents, toppedUpAt: now, kind: 'deposit' }, { merge: true });
+    else { const c = db.doc(`${T(tenantId)}/depositCredits/topup_${key}`); tx.set(c, { id: c.id, tenantId, kind: 'deposit', clientId: a.clientId || null, clientEmail: String(a.clientEmail || '').toLowerCase().trim(), clientName: a.clientName || 'Guest', amountCents: cents, status: 'available', sourceAppointmentId: apptId, createdAt: now, checkoutSessionId: x.sessionId, stripeChargeId: x.chargeId || null }); }
+    tx.set(incomeRef, { id: incomeRef.id, date: now, description: `Deposit top-up — ${a.serviceName || 'Appointment'}`, clientOrVendor: a.clientName || 'Guest', clientId: a.clientId || null, type: 'income', context: 'Business', category: 'Retainers', taxBucket: 'revenue', amount: cents / 100, paymentMethod: 'Online Checkout', hasReceipt: false, appointmentId: apptId, staffId: a.staffId || null, checkoutSessionId: x.sessionId, stripeChargeId: x.chargeId || null, tenantId });
+    return { ok: true };
+  });
 }

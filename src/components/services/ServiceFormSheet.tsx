@@ -696,7 +696,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 </div>}
                 {(watch('where') === 'online' || (watch('clientChoosesPlace') && ((watch('placeAlternatives') as any) || []).includes('online'))) && <Input {...register('meetingLink')} placeholder="Meeting link — e.g. https://zoom.us/j/…" className="h-11 rounded-xl border" />}
                 {(watch('where') === 'phone' || (watch('clientChoosesPlace') && ((watch('placeAlternatives') as any) || []).includes('phone'))) && <div className="grid grid-cols-2 gap-2">
-                  {([['we_call', 'We call them'], ['they_call', 'They call us']] as const).map(([k, l]) => {
+                  {([['we_call', 'We call them'], ['they_call', 'They call the studio']] as const).map(([k, l]) => {
                     const on = (watch('phoneWho') || 'we_call') === k;
                     return <button key={k} type="button" aria-pressed={on} onClick={() => setValue('phoneWho', k, { shouldDirty: true })} className={`h-10 rounded-xl border text-sm ${on ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>;
                   })}

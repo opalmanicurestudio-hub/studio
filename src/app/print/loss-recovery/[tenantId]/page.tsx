@@ -1,4 +1,5 @@
 import { checkPrintKey } from '@/lib/print-key';
+import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 /**
  * /print/loss-recovery/[tenantId]?month=YYYY-MM — the Loss & Recovery
  * REGISTER as a letter document: every inventory exception for the month
@@ -29,6 +30,8 @@ function getAdminDb() {
 }
 
 const fmt = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+// A stored value such as "in_progress" as words in sentence case, for the page.
+const words = (v: any) => { const s = String(v || '').replace(/_/g, ' ').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; };
 
 const REASON_LABELS: Record<string, string> = {
   return_opened: 'Return — opened', return_damaged: 'Return — damaged', return_contaminated: 'Return — disposed',
@@ -102,39 +105,44 @@ export default async function PrintLossRecoveryPage({
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`${shopName} — loss & recovery register ${label}`}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <style>{`
           @page { size: letter landscape; margin: 0.5in; }
-          * { box-sizing: border-box; }
-          body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; font-size: 10px; line-height: 1.4; }
-          h1 { font-size: 17px; margin: 0; }
-          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-          th { text-align: left; font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; padding: 4px 5px; border-bottom: 2px solid #0f172a; }
-          td { padding: 4px 5px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-          .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-          .head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0f172a; padding-bottom: 9px; }
-          .tot { display: flex; gap: 22px; margin-top: 10px; flex-wrap: wrap; }
-          .tot .k { font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; }
-          .tot .v { font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; }
-          .foot { margin-top: 18px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 8.5px; color: #64748b; line-height: 1.5; }
-          .flag { color: #c2410c; font-weight: 700; }
-          tr { break-inside: avoid; }
-          tfoot td { border-top: 2px solid #0f172a; border-bottom: none; font-weight: 800; }
+          body { margin: 0; }
+          ${PRINT_CSS}
+          .pp.reg { font-size: 10px; line-height: 1.4; }
+          .pp.reg .head .sub { font-size: 11.5px; }
+          .pp.reg .tot { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+          .pp.reg .tot .l { margin-bottom: 2px; }
+          .pp.reg table { margin-top: 16px; }
+          .pp.reg th { font-size: 9.5px; padding: 5px 5px; }
+          .pp.reg td { padding: 5px 5px; }
+          .pp.reg .num { text-align: right; white-space: nowrap; }
+          .pp.reg td .pill { font-size: 9px; padding: 1px 7px; margin-left: 4px; }
+          .pp.reg tfoot td { border-top: 1px solid #16171a; border-bottom: none; font-weight: 600; }
+          .pp.reg .note { margin-top: 18px; font-size: 9.5px; }
+          .pp.reg .note b { font-weight: 600; color: #45474c; }
+          .pp.reg .foot { margin-top: 10px; font-size: 9.5px; }
+          @media screen { .pp.page.reg { max-width: 1100px; } }
         `}</style>
       </head>
-      <body>
+      <body className="pp-screen">
+        <div className="pp page reg">
         <div className="head">
           <div>
-            <h1>{shopName} — Loss &amp; Recovery register</h1>
-            <p style={{ margin: '3px 0 0', color: '#64748b' }}>{label} · {rows.length} exception{rows.length === 1 ? '' : 's'}{uncosted ? ` · ${uncosted} missing product cost` : ''}{dupFlags ? ` · ${dupFlags} flagged possible duplicate` : ''}</p>
+            <p className="shop">{shopName}</p>
+            <h1>Loss &amp; recovery <b>register</b></h1>
+            <p className="sub">{label} · {rows.length} exception{rows.length === 1 ? '' : 's'}{uncosted ? ` · ${uncosted} missing product cost` : ''}{dupFlags ? ` · ${dupFlags} flagged possible duplicate` : ''}</p>
           </div>
         </div>
 
-        <div className="tot">
-          <div><div className="k">Landed cost lost</div><div className="v">{fmt(totals.landed)}</div></div>
-          <div><div className="k">Recovered</div><div className="v">{fmt(totals.recovered)}</div></div>
-          <div><div className="k">Net unrecovered</div><div className="v">{fmt(totals.net)}</div></div>
-          <div><div className="k">Retail affected (analytics)</div><div className="v">{fmt(totals.retail)}</div></div>
-          <div><div className="k">Margin affected (analytics)</div><div className="v">{fmt(totals.margin)}</div></div>
+        <div className="panel tot">
+          <div className="stat"><div className="l">Landed cost lost</div><div className="v">{fmt(totals.landed)}</div></div>
+          <div className="stat"><div className="l">Recovered</div><div className="v">{fmt(totals.recovered)}</div></div>
+          <div className="stat"><div className="l">Net unrecovered</div><div className="v">{fmt(totals.net)}</div></div>
+          <div className="stat"><div className="l">Retail affected (analytics)</div><div className="v">{fmt(totals.retail)}</div></div>
+          <div className="stat"><div className="l">Margin affected (analytics)</div><div className="v">{fmt(totals.margin)}</div></div>
         </div>
 
         <table>
@@ -150,9 +158,9 @@ export default async function PrintLossRecoveryPage({
             {rows.map((r: any) => (
               <tr key={r.id}>
                 <td style={{ whiteSpace: 'nowrap' }}>{when(r.at)}</td>
-                <td>{r.qty > 1 ? `${r.qty} × ` : ''}{r.name}{Array.isArray(r.flags) && r.flags.includes('possible_duplicate') ? <span className="flag"> ⚑ dup?</span> : null}</td>
+                <td>{r.qty > 1 ? `${r.qty} × ` : ''}{r.name}{Array.isArray(r.flags) && r.flags.includes('possible_duplicate') ? <span className="pill warn">Duplicate?</span> : null}</td>
                 <td>{REASON_LABELS[r.reason] || r.reason}</td>
-                <td>{r.responsibleParty}</td>
+                <td>{words(r.responsibleParty)}</td>
                 <td>{r.orderNumber != null ? `#${String(r.orderNumber).padStart(4, '0')}` : '—'}</td>
                 <td className="num">{r.qty}</td>
                 <td className="num">{r.costed === false ? '—' : fmt(r.landedCostCents)}</td>
@@ -160,12 +168,12 @@ export default async function PrintLossRecoveryPage({
                 <td className="num">{fmt(r.marginCents)}</td>
                 <td className="num">{(Number(r.recovery?.recoveredCents) || 0) > 0 ? fmt(r.recovery.recoveredCents) : '—'}</td>
                 <td className="num">{r.costed === false ? '—' : fmt(net(r))}</td>
-                <td>{r.recovery?.status && r.recovery.status !== 'none' ? String(r.recovery.status).replace('_', ' ') : '—'}</td>
+                <td>{r.recovery?.status && r.recovery.status !== 'none' ? words(r.recovery.status) : '—'}</td>
                 <td>{r.accountingStatus === 'handed_off' ? 'Handed off' : r.accountingStatus === 'ledgered' ? 'On the books' : 'Recorded'}</td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={13} style={{ color: '#64748b' }}>No inventory exceptions this month.</td></tr>
+              <tr><td colSpan={13} className="muted">No inventory exceptions this month.</td></tr>
             )}
           </tbody>
           {rows.length > 0 && (
@@ -183,12 +191,13 @@ export default async function PrintLossRecoveryPage({
           )}
         </table>
 
+        <p className="note">
+          <b>Classification rule.</b> Landed cost is the deduction basis and appears as Spoilage expense lines in the money ledger, linked per row. Retail and margin are operational analytics only, never tax figures. Recoveries are separate Loss-recovery income lines that offset without erasing; final journal treatment is the accountant&apos;s call under the company&apos;s method. A row marked Duplicate? may have been recorded twice; review it before booking.
+        </p>
         <div className="foot">
-          <div>Classification rule: LANDED COST is the deduction basis and appears as Spoilage expense lines in the money ledger, linked per row. RETAIL and MARGIN are operational analytics only — never tax figures. RECOVERIES are separate Loss-recovery income lines that offset without erasing; final journal treatment is the accountant&apos;s call per the company&apos;s method. ⚑ = possible duplicate recognition, review before booking.</div>
-          <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
-            <span>Generated {generatedAt} · ClarityFlow Loss &amp; Recovery register</span>
-            <span>{shopName}</span>
-          </div>
+          <span>Generated {generatedAt} · ClarityFlow loss &amp; recovery register</span>
+          <span>{shopName}</span>
+        </div>
         </div>
       </body>
     </html>

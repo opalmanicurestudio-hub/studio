@@ -8,7 +8,7 @@
 //   photo     a picture with a caption (images[0], body = caption)
 //   video     a video link (YouTube, Vimeo, or a video file link) with a caption
 //   normal    (client aftercare) what's normal afterwards — one per line, shown green with ticks
-//   callus    (client aftercare) when to call us — one per line, shown red, with the Something's wrong button
+//   callus    (client aftercare) when to get in touch — one per line, shown red, with the Something's wrong button
 // Signing can ask a quick check first (doc.quiz: [{ id, q, options[], answer }]) and a drawn signature
 // (doc.requireSignature). Pure — the editor, readers and the print page share it.
 
@@ -22,7 +22,7 @@ export const BLOCKS: Array<{ type: BlockType; label: string; hint: string; clien
   { type: 'video', label: 'Video', hint: 'A YouTube, Vimeo or video link' },
   { type: 'text', label: 'Text', hint: 'A heading and a paragraph' },
   { type: 'normal', label: 'What’s normal', hint: 'What clients can expect afterwards — one per line', client: true },
-  { type: 'callus', label: 'Call us if', hint: 'When clients should get in touch — one per line', client: true },
+  { type: 'callus', label: 'Contact us if', hint: 'When clients should get in touch — one per line', client: true },
 ];
 /** The blocks a document of this kind offers (aftercare gets the client blocks; it has no checklists). */
 export const blocksFor = (category?: string) => BLOCKS.filter((b) => (category === 'aftercare' ? b.type !== 'checklist' : !b.client));

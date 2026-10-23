@@ -13,6 +13,7 @@ import { format, parseISO, startOfDay, subDays } from 'date-fns';
 import SignatureCanvas from 'react-signature-canvas';
 import { useInventory } from '@/context/InventoryContext';
 import { Drawer, Icon, Seg } from '@/components/pos/desk/kit';
+import { PRINT_FONT_STACK } from '@/lib/print-style';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -62,21 +63,23 @@ const DepositSlip = ({ session, staff, business }: { session: any; staff: Staff[
         return { ...d, counted, kept, deposited: Math.max(0, counted - kept) };
     }).filter((r) => r.counted > 0 || r.deposited > 0);
     const staffTips = Object.entries(session.cashTipsByStaff || {}).map(([id, amount]) => ({ name: nameOf(id) || 'Team member', amount: safeNumber(amount) })).filter((t) => t.amount > 0);
-    const row = (l: React.ReactNode, v: React.ReactNode, strong = false) => <div className={`flex justify-between gap-3 ${strong ? 'font-bold' : ''}`}><span>{l}</span><span className="tabular-nums">{v}</span></div>;
-    const signer = (label: string, id?: string, sig?: string) => id ? <div className="space-y-1"><div className="flex justify-between"><span style={{ opacity: 0.55 }}>{label}</span><b>{nameOf(id) || '—'}</b></div>{sig && <img src={sig} alt={`${label} signature`} className="h-12 w-full object-contain" style={{ border: '1px solid hsl(var(--border))' }} />}</div> : null;
+    // The slip is paper (a narrow receipt printer, often thermal), so it stays solid black ink in the app's print look:
+    // Plus Jakarta Sans, a light heading, semibold for what matters, thin dashed rules and tabular figures.
+    const row = (l: React.ReactNode, v: React.ReactNode, strong = false) => <div className={`flex justify-between gap-3 ${strong ? 'font-semibold' : ''}`}><span>{l}</span><span className="tabular-nums">{v}</span></div>;
+    const signer = (label: string, id?: string, sig?: string) => id ? <div className="space-y-1"><div className="flex justify-between gap-3"><span>{label}</span><span className="font-semibold">{nameOf(id) || '—'}</span></div>{sig && <img src={sig} alt={`${label} signature`} className="h-12 w-full object-contain" style={{ borderBottom: '1px solid #000' }} />}</div> : null;
     return (
-        <div id="deposit-slip-print" className="cf-paper mx-auto w-[320px] space-y-4 rounded-2xl bg-white p-6 text-left font-mono text-[12px] text-black" style={{ border: '1px solid #e5e5e5' }}>
+        <div id="deposit-slip-print" className="cf-paper mx-auto w-[320px] space-y-4 rounded-2xl bg-white p-6 text-left text-[12px] leading-[1.45] text-black tabular-nums" style={{ border: '1px solid #ececee', fontFamily: PRINT_FONT_STACK }}>
             <div className="space-y-0.5 text-center">
-                <p className="text-[14px] font-bold">{business || 'Deposit slip'}</p>
-                <p>Till deposit slip</p>
-                <p style={{ opacity: 0.55 }}>{format(safeDate(session.closedAt || session.openedAt), 'MMM d, yyyy, h:mm a')} · {String(session.id || '').slice(0, 8)}</p>
+                <p className="text-[13px] font-semibold">{business || 'Deposit slip'}</p>
+                <p className="text-[20px] font-light leading-tight">Till deposit slip</p>
+                <p className="text-[11px]">{format(safeDate(session.closedAt || session.openedAt), 'MMM d, yyyy, h:mm a')} · {String(session.id || '').slice(0, 8)}</p>
             </div>
             <div className="space-y-1 border-y border-dashed border-black py-3">
-                <div className="grid grid-cols-4 gap-2 font-bold"><span>Note</span><span className="text-center">Count</span><span className="text-center">Kept</span><span className="text-right">Deposit</span></div>
+                <div className="grid grid-cols-4 gap-2 font-semibold"><span>Note</span><span className="text-center">Count</span><span className="text-center">Kept</span><span className="text-right">Deposit</span></div>
                 {auditRows.map((r) => <div key={r.key} className="grid grid-cols-4 gap-2"><span>{r.label}</span><span className="text-center">{r.counted}</span><span className="text-center">{r.kept}</span><span className="text-right">{money(r.deposited * r.val)}</span></div>)}
                 <div className="pt-1">{row('Bank deposit', money(session.cashToDeposit || session.openingFloat), true)}</div>
             </div>
-            {staffTips.length > 0 && <div className="space-y-1 border-b border-dashed border-black pb-3"><p className="font-bold">Cash tips</p>{staffTips.map((t, i) => <div key={i}>{row(t.name, money(t.amount))}</div>)}{row('Total cash tips', money(session.totalCashTips), true)}</div>}
+            {staffTips.length > 0 && <div className="space-y-1 border-b border-dashed border-black pb-3"><p className="font-semibold">Cash tips</p>{staffTips.map((t, i) => <div key={i}>{row(t.name, money(t.amount))}</div>)}{row('Total cash tips', money(session.totalCashTips), true)}</div>}
             <div className="space-y-1 border-b border-dashed border-black pb-3">
                 {row('Opening float', money(session.openingFloat))}
                 {row('Cash sales', money(session.totalCashSales))}

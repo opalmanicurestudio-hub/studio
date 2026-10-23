@@ -21,8 +21,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { PRINT, PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 
-const esc = (s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const esc =(s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const fmt = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (s: string) => { try { return new Date(s.slice(0,10)+'T00:00:00').toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' }); } catch { return s.slice(0,10); } };
 
@@ -48,93 +49,81 @@ function buildStatementHtml(data: {
   totalDollars:   number;
   generatedAt:    string;
 }): string {
-  const rowsHtml = data.rows.map((r, i) => `
-    <tr style="background:${i%2===0?'#f9fafb':'#fff'}">
-      <td style="padding:9px 12px;font-size:12px;border-bottom:1px solid #e5e7eb">${esc(r.date.slice(0,10))}</td>
-      <td style="padding:9px 12px;font-size:12px;border-bottom:1px solid #e5e7eb">${esc(r.space)}</td>
-      <td style="padding:9px 12px;font-size:12px;border-bottom:1px solid #e5e7eb">${esc(r.period)}</td>
-      <td style="padding:9px 12px;font-size:12px;border-bottom:1px solid #e5e7eb">${esc(r.method)}</td>
-      <td style="padding:9px 12px;font-size:12px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:700">${fmt(r.amount)}</td>
+  const rowsHtml = data.rows.map((r) => `
+    <tr>
+      <td class="nowrap">${esc(r.date.slice(0,10))}</td>
+      <td>${esc(r.space)}</td>
+      <td>${esc(r.period)}</td>
+      <td class="muted">${esc(r.method)}</td>
+      <td class="r nowrap">${fmt(r.amount)}</td>
     </tr>`).join('');
 
   const threshold = data.totalDollars >= 600;
+  const contact = [data.studioAddress, data.studioPhone, data.studioEmail].filter(Boolean).map((s) => esc(s));
 
+  // The app's print look (lib/print-style): a light heading, sentence-case labels in grey, thin lines, soft panels,
+  // and amber only for the $600 note that needs a second look.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>Annual Rent Statement ${data.year} — ${esc(data.renterName)}</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Annual rent statement ${data.year} — ${esc(data.renterName)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link href="${PRINT_FONT_HREF}" rel="stylesheet" />
   <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;background:#fff;padding:48px;max-width:760px;margin:auto}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:36px;padding-bottom:24px;border-bottom:3px solid #111}
-    .studio-name{font-size:20px;font-weight:900;letter-spacing:-0.5px}
-    .studio-meta{font-size:11px;color:#6b7280;margin-top:4px;line-height:1.7}
-    .doc-type{text-align:right}
-    .doc-type h1{font-size:24px;font-weight:900;letter-spacing:-0.5px}
-    .doc-type .year{font-size:36px;font-weight:900;color:#111;line-height:1;letter-spacing:-1px}
-    .doc-type .gen{font-size:10px;color:#9ca3af;margin-top:4px}
-    .parties{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:28px;padding:20px;background:#f9fafb;border-radius:12px}
-    .party .label{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;color:#9ca3af;margin-bottom:6px}
-    .party .name{font-size:14px;font-weight:800}
-    .party .meta{font-size:12px;color:#6b7280;margin-top:2px}
-    .total-bar{display:flex;justify-content:space-between;align-items:center;background:#111;color:#fff;border-radius:12px;padding:16px 24px;margin-bottom:24px}
-    .total-bar .label{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.15em;opacity:0.6}
-    .total-bar .amount{font-size:32px;font-weight:900;letter-spacing:-1px}
-    table{width:100%;border-collapse:collapse;margin-bottom:24px}
-    thead th{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;color:#9ca3af;padding:10px 12px;border-bottom:2px solid #111;text-align:left}
-    thead th:last-child{text-align:right}
-    .note{border-radius:10px;padding:14px 18px;font-size:11px;line-height:1.7;margin-bottom:16px}
-    .note.tax{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
-    .note.threshold{background:#fefce8;border:1px solid #fef08a;color:#713f12}
-    .note.disclaimer{background:#f8fafc;border:1px solid #e2e8f0;color:#64748b}
-    .footer{margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:10px;color:#9ca3af}
-    .sig-block{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:32px;padding-top:24px;border-top:2px solid #111}
-    .sig-line{border-bottom:1px solid #111;height:36px;margin-bottom:6px}
-    .sig-label{font-size:10px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.1em}
-    @media print{body{padding:24px}@page{margin:1.5cm;size:letter}}
+    @page { size: letter; margin: 0.55in; }
+    ${PRINT_CSS}
+    .pp.page { max-width: 760px; }
+    .pp .v { font-size: 13px; font-weight: 500; margin-top: 2px; }
+    .pp .parties { margin-bottom: 14px; }
+    .pp .sum { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; }
+    .pp .sum .big { font-size: 30px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .pp tfoot td { border-top: 1px solid ${PRINT.ink}; border-bottom: 0; padding-top: 9px; font-weight: 600; }
+    .pp .callout { margin-top: 14px; }
+    .pp .callout.warn { background: ${PRINT.amberSoft}; color: ${PRINT.body}; }
+    .pp .callout.warn b { color: ${PRINT.amber}; }
+    .pp .sig { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 30px; break-inside: avoid; }
+    .pp .sig-line { height: 36px; margin-bottom: 6px; border-bottom: 1px solid ${PRINT.ink}; }
+    .pp .disclaimer { margin-top: 20px; }
+    .pp .empty { text-align: center; padding: 28px 0; }
   </style>
 </head>
-<body>
+<body class="pp-screen">
+<div class="pp page">
 
-  <div class="header">
+  <div class="head">
     <div>
-      <div class="studio-name">${esc(data.studioName)}</div>
-      <div class="studio-meta">
-        ${data.studioAddress ? esc(data.studioAddress)+'<br>' : ''}
-        ${data.studioPhone ? esc(data.studioPhone)+'<br>' : ''}
-        ${data.studioEmail ? esc(data.studioEmail) : ''}
-      </div>
+      <p class="shop">${esc(data.studioName)}</p>
+      <h1>Annual rent statement <b>${data.year}</b></h1>
     </div>
-    <div class="doc-type">
-      <h1>ANNUAL RENT STATEMENT</h1>
-      <div class="year">${data.year}</div>
-      <div class="gen">Generated ${esc(new Date(data.generatedAt).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}))}</div>
+    <div class="meta">
+      ${contact.map((c) => `<div>${c}</div>`).join('')}
+      <div>Generated ${esc(new Date(data.generatedAt).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}))}</div>
     </div>
   </div>
 
-  <div class="parties">
-    <div class="party">
-      <div class="label">Paid to (Landlord)</div>
-      <div class="name">${esc(data.studioName)}</div>
-      ${data.studioAddress ? `<div class="meta">${esc(data.studioAddress)}</div>` : ''}
-    </div>
-    <div class="party">
-      <div class="label">Paid by (Tenant)</div>
-      <div class="name">${esc(data.renterName)}</div>
-      ${data.renterBusiness ? `<div class="meta">${esc(data.renterBusiness)}</div>` : ''}
-    </div>
-  </div>
-
-  <div class="total-bar">
+  <div class="grid2 parties">
     <div>
-      <div class="label">Total rent paid · January 1 – December 31, ${data.year}</div>
-      <div class="amount">${fmt(data.totalDollars)}</div>
+      <p class="lbl">Paid to (landlord)</p>
+      <p class="v">${esc(data.studioName)}</p>
+      ${data.studioAddress ? `<p class="muted">${esc(data.studioAddress)}</p>` : ''}
     </div>
-    <div style="text-align:right;font-size:12px;font-weight:700;opacity:0.7">${data.rows.length} payment${data.rows.length===1?'':'s'}</div>
+    <div>
+      <p class="lbl">Paid by (tenant)</p>
+      <p class="v">${esc(data.renterName)}</p>
+      ${data.renterBusiness ? `<p class="muted">${esc(data.renterBusiness)}</p>` : ''}
+    </div>
   </div>
 
-  ${data.rows.length === 0 ? '<p style="text-align:center;color:#9ca3af;padding:32px;font-size:13px">No payments recorded for this period.</p>' : `
+  <div class="panel sum">
+    <div>
+      <p class="lbl">Total rent paid · January 1 – December 31, ${data.year}</p>
+      <p class="big">${fmt(data.totalDollars)}</p>
+    </div>
+    <p class="muted">${data.rows.length} payment${data.rows.length===1?'':'s'}</p>
+  </div>
+
+  ${data.rows.length === 0 ? '<p class="faint empty">No payments recorded for this period.</p>' : `
   <table>
     <thead>
       <tr>
@@ -142,54 +131,55 @@ function buildStatementHtml(data: {
         <th>Space</th>
         <th>Period covered</th>
         <th>Method</th>
-        <th style="text-align:right">Amount</th>
+        <th class="r">Amount</th>
       </tr>
     </thead>
     <tbody>${rowsHtml}</tbody>
     <tfoot>
       <tr>
-        <td colspan="4" style="padding:12px;font-size:13px;font-weight:900;border-top:2px solid #111">TOTAL</td>
-        <td style="padding:12px;font-size:15px;font-weight:900;border-top:2px solid #111;text-align:right">${fmt(data.totalDollars)}</td>
+        <td colspan="4">Total</td>
+        <td class="r nowrap">${fmt(data.totalDollars)}</td>
       </tr>
     </tfoot>
   </table>`}
 
-  <div class="note tax">
-    <strong>Tax guidance:</strong> Rent paid for a business workspace is typically deductible as a business expense.
-    Report on <strong>Schedule C, Line 20b</strong> (Rent on business property) or your applicable business tax schedule.
+  <div class="panel note callout">
+    <b>Tax guidance:</b> Rent paid for a business workspace is typically deductible as a business expense.
+    Report on <b>Schedule C, Line 20b</b> (Rent on business property) or your applicable business tax schedule.
     Retain this statement and individual receipts. Consult your tax advisor or CPA to confirm deductibility
     based on your business structure and specific situation.
   </div>
 
   ${threshold ? `
-  <div class="note threshold">
-    <strong>Note — $600 threshold:</strong> Total rent paid to ${esc(data.studioName)} in ${data.year} exceeds $600.
+  <div class="panel note callout warn">
+    <b>Note — $600 threshold:</b> Total rent paid to ${esc(data.studioName)} in ${data.year} exceeds $600.
     Under IRS rules, if you paid a landlord more than $600 in rent for business property during the year,
     you may be required to report this on your tax return. The studio may issue a 1099-NEC or equivalent.
     This statement is <em>not</em> a 1099-NEC — keep it alongside any 1099 you receive.
   </div>` : ''}
 
-  <div class="sig-block">
+  <div class="sig">
     <div>
       <div class="sig-line"></div>
-      <div class="sig-label">Prepared by · ${esc(data.studioName)}</div>
+      <p class="lbl">Prepared by · ${esc(data.studioName)}</p>
     </div>
     <div>
       <div class="sig-line"></div>
-      <div class="sig-label">Received by · ${esc(data.renterName)}</div>
+      <p class="lbl">Received by · ${esc(data.renterName)}</p>
     </div>
   </div>
 
-  <div class="note disclaimer" style="margin-top:24px">
+  <p class="note disclaimer">
     This document is a payment record prepared by ${esc(data.studioName)} for informational purposes.
     It is not a legal or accounting document and does not constitute tax advice.
     ${esc(data.studioName)} is not responsible for the tax treatment of these payments.
-  </div>
+  </p>
 
-  <div class="footer">
-    <span>${esc(data.studioName)} · Annual Rent Statement · ${data.year}</span>
+  <div class="foot">
+    <span>${esc(data.studioName)} · Annual rent statement · ${data.year}</span>
     <span>Tenant: ${esc(data.renterName)} · ${esc(data.generatedAt.slice(0,10))}</span>
   </div>
+</div>
 
   <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),400))</script>
 </body>

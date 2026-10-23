@@ -15,6 +15,7 @@ import { auditEntry } from '@/lib/audit';
 import { FileText, Scissors, FileSignature, MoreHorizontal } from 'lucide-react';
 import { contactKey as boothContactKey } from '@/lib/booth-contacts';
 import { buildGuestBook } from '@/lib/guest-book';
+import { PRINT, esc, printPage } from '@/lib/print-style';
 
 type OverflowItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
 
@@ -260,41 +261,40 @@ const refundReservation = async (r: any) => {
   };
 
 const openSignedAgreement = (r: any) => {
-    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]);
     const title = r.agreementTitle || 'Short-Term Rental Agreement';
     const signedAt = r.agreementSignedAt ? new Date(r.agreementSignedAt).toLocaleString() : '';
     const window_ = r.bookingType === 'hourly'
       ? `${r.startDate || ''} · ${r.startTime || ''}–${r.endTime || ''}`
       : (r.startDate === r.endDate ? (r.startDate || '') : `${r.startDate || ''} → ${r.endDate || ''}`);
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} — ${esc(r.name || 'Guest')}</title>
-<style>
-  @media print { .noprint { display:none } }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#0f172a; max-width:720px; margin:40px auto; padding:0 24px; line-height:1.6; }
-  h1 { font-size:20px; margin:0 0 4px; }
-  .muted { color:#64748b; font-size:12px; text-transform:uppercase; letter-spacing:.08em; font-weight:800; }
-  .meta { margin:16px 0 24px; padding:14px 16px; border:2px solid #e2e8f0; border-radius:14px; font-size:13px; }
-  .meta div { margin:2px 0; }
-  .terms { white-space:pre-wrap; font-size:13px; border-top:2px solid #e2e8f0; padding-top:18px; }
-  .sig { margin-top:28px; padding-top:18px; border-top:2px solid #e2e8f0; }
-  .sig .name { font-family:'Dancing Script', cursive; font-size:30px; }
-  .btn { display:inline-block; margin:0 0 20px; padding:10px 16px; background:#4f46e5; color:#fff; border:0; border-radius:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; font-size:11px; cursor:pointer; }
-</style></head><body>
-  <button class="btn noprint" onclick="window.print()">Print / Save as PDF</button>
-  <h1>${esc(title)}</h1>
-  <div class="muted">Signed electronically</div>
-  <div class="meta">
-    <div><b>Guest:</b> ${esc(r.name || 'Guest')}</div>
-    <div><b>Space:</b> ${esc(r.boothName || 'Space')}</div>
-    <div><b>When:</b> ${esc(window_)}</div>
-    ${r.amountCents ? `<div><b>Amount:</b> $${((r.amountCents || 0) / 100).toFixed(2)}</div>` : ''}
+    // In the app's print look (lib/print-style). The window waits for its Print button, as before.
+    const html = printPage({
+      title: `${title} · ${r.name || 'Guest'}`,
+      heading: esc(title),
+      subtitle: 'Signed electronically',
+      body: `
+  <p class="no-print" style="margin:0 0 16px"><button type="button" class="print" onclick="window.print()">Print or save as PDF</button></p>
+  <div class="panel facts">
+    <div><p class="lbl">Guest</p><p>${esc(r.name || 'Guest')}</p></div>
+    <div><p class="lbl">Space</p><p>${esc(r.boothName || 'Space')}</p></div>
+    <div><p class="lbl">When</p><p>${esc(window_)}</p></div>
+    ${r.amountCents ? `<div><p class="lbl">Amount</p><p>$${((r.amountCents || 0) / 100).toFixed(2)}</p></div>` : ''}
   </div>
   <div class="terms">${esc(r.agreementText || 'No agreement text was captured for this booking.')}</div>
   <div class="sig">
-    <div class="muted">Signature</div>
-    <div class="name">${esc(r.agreementSignedName || '—')}</div>
-    <div class="muted" style="margin-top:6px">Signed ${esc(signedAt)}${r.agreementSignedName ? ' · typed name = legal electronic signature' : ''}</div>
-  </div>
-</body></html>`;
+    <p class="lbl">Signature</p>
+    <p class="name">${esc(r.agreementSignedName || '—')}</p>
+    <p class="muted">Signed ${esc(signedAt)}${r.agreementSignedName ? ' · typed name = legal electronic signature' : ''}</p>
+  </div>`,
+      footNote: 'The terms exactly as the guest signed them, kept with the booking.',
+      css: `
+  .pp .print { font: inherit; font-size: 13px; font-weight: 600; color: #fff; background: ${PRINT.ink}; border: 0; border-radius: 999px; padding: 9px 18px; cursor: pointer; }
+  .pp .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; margin: 0 0 20px; }
+  .pp .facts p + p { font-size: 13px; margin-top: 1px; }
+  .pp .terms { white-space: pre-wrap; font-size: 12.5px; line-height: 1.65; color: ${PRINT.body}; }
+  .pp .sig { margin-top: 26px; padding-top: 16px; border-top: 1px solid ${PRINT.line}; break-inside: avoid; }
+  .pp .sig .name { font-size: 26px; font-weight: 300; letter-spacing: -0.01em; line-height: 1.2; margin: 4px 0 6px; }`,
+      autoPrint: false,
+    });
     try {
       const w = window.open('', '_blank');
       if (!w) { toast({ variant: 'destructive', title: 'Popup blocked', description: 'Allow popups to open the signed agreement.' }); return; }

@@ -286,7 +286,7 @@ export default function RetailSupportPage() {
         tenantId,
         clientEmail: t.customerEmail.toLowerCase().trim(),
         clientName: t.customerName || 'Guest',
-        amountCents: cents, status: 'available',
+        kind: 'store_credit', amountCents: cents, status: 'available',
         sourceSupportTicketId: t.id,
         createdAt: new Date().toISOString(),
       });

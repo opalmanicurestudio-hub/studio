@@ -63,6 +63,35 @@ import { TrainingTasksPanel } from '@/components/staff/TrainingTasksPanel';
 import { doc, setDoc } from 'firebase/firestore';
 import { MessageCircle } from 'lucide-react';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
+import { PRINT_FONT_STACK } from '@/lib/print-style';
+
+// What the Print button puts on paper: just this sheet, flowing over as many pages as it needs, in the app's print look
+// (lib/print-style) rather than the screen's bolder print voice: text as written, semibold at most, thin lines, no
+// shadows, tabular figures instead of a monospace font, and light colors even when the screen is dark. The controls
+// (period picker, search, tabs, buttons) stay off the paper. Screen styles are untouched.
+const SHEET_PRINT_CSS = `@media print {
+  @page { margin: 0.55in; }
+  html body, html body[data-scroll-locked] { overflow: visible !important; }
+  body:has(.sds-sheet) > *:not(:has(.sds-sheet)):not(.sds-sheet) { display: none !important; }
+  body:has(.sds-sheet) [data-sidebar], body:has(.sds-sheet) header { display: none !important; }
+  .sds-sheet { position: static !important; inset: auto !important; transform: none !important; animation: none !important; width: auto !important; max-width: none !important; height: auto !important; max-height: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; background: #fff !important; color: #16171a; color-scheme: light; font-family: ${PRINT_FONT_STACK}; font-variant-numeric: tabular-nums;
+    --background: 0 0% 100%; --foreground: 225 8% 9%; --card: 0 0% 100%; --card-foreground: 225 8% 9%; --popover: 0 0% 100%; --popover-foreground: 225 8% 9%; --primary: 225 8% 9%; --primary-foreground: 0 0% 100%; --secondary: 240 8% 97%; --secondary-foreground: 225 8% 9%; --muted: 240 8% 97%; --muted-foreground: 216 4% 44%; --accent: 240 8% 97%; --border: 240 6% 93%; --input: 240 5% 89%; --destructive: 4 76% 40%; }
+  .sds-sheet > button { display: none !important; }
+  .sds-sheet :is(.overflow-hidden, .overflow-y-auto, .overflow-x-auto) { overflow: visible !important; }
+  .sds-sheet .h-full { height: auto !important; }
+  .sds-sheet .uppercase { text-transform: none !important; }
+  .sds-sheet :is([class*="tracking-"], .text-\\[8px\\], .text-\\[9px\\]) { letter-spacing: 0 !important; }
+  .sds-sheet :is(.font-black, .font-extrabold, .font-bold) { font-weight: 600 !important; }
+  .sds-sheet :is(.text-xl, .text-2xl, .text-3xl):is(.font-black, .font-extrabold, .font-bold) { font-weight: 300 !important; }
+  .sds-sheet .font-mono { font-family: inherit !important; font-variant-numeric: tabular-nums; }
+  .sds-sheet :is(.border-2, .border-4) { border-width: 1px !important; }
+  .sds-sheet :is(.rounded-3xl, .rounded-\\[2rem\\], .rounded-\\[2\\.5rem\\], .rounded-\\[3rem\\]) { border-radius: 16px !important; }
+  .sds-sheet :is(.shadow-sm, .shadow, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl, .shadow-inner) { box-shadow: none !important; }
+  .sds-sheet :is(.text-green-500, .text-green-600, .text-green-700) { color: #1f7a4d !important; }
+  .sds-sheet .text-destructive { color: #b42318 !important; }
+  .sds-sheet .text-yellow-500 { color: #b45309 !important; }
+  .sds-sheet .text-red-500 { color: #b42318 !important; }
+}`;
 
 // Deterministic thread id for a DM pair — same scheme used in
 // messages-page.tsx and the team thread page, so a conversation started
@@ -327,7 +356,7 @@ export const StaffDetailsSheet = ({
             </section>); })()}
           {tenantId && staffMember?.id && <CommissionByService tenantId={tenantId} staffMember={staffMember} services={staffServices.length ? staffServices : (services || [])} />}
           {tenantId && staffMember?.id && <TypicalTimes tenantId={tenantId} staffId={staffMember.id} staffMember={staffMember} services={staffServices.length ? staffServices : (services || [])} />}
-          <div className={cn("p-5 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50", isMobile && "mb-6")}>
+          <div className={cn("p-5 rounded-3xl bg-muted/30 border-2 border-dashed border-border/50 print:hidden", isMobile && "mb-6")}>
               <div className="space-y-4">
                   <div className="flex flex-col sm:flex-row items-center gap-3">
                       <div className="flex-1 w-full text-left">
@@ -394,7 +423,7 @@ export const StaffDetailsSheet = ({
           </div>
 
            <Tabs defaultValue="activity" className="w-full">
-              <div className="w-full overflow-x-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="w-full overflow-x-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden print:hidden">
                   <TabsList className="bg-muted/50 p-1 rounded-2xl mb-6">
                       <TabsTrigger value="activity" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Activity</TabsTrigger>
                       <TabsTrigger value="transactions" className="rounded-xl font-black uppercase text-[10px] tracking-widest h-9">Ledger</TabsTrigger>
@@ -409,7 +438,7 @@ export const StaffDetailsSheet = ({
               </TabsContent>
 
               <TabsContent value="activity" className="mt-0 space-y-4">
-                  <div className="relative">
+                  <div className="relative print:hidden">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                       <Input placeholder="SEARCH ACTIONS..." className="pl-9 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20 shadow-inner bg-muted/5" value={activitySearch} onChange={(e) => setActivitySearch(e.target.value)} />
                   </div>
@@ -419,7 +448,7 @@ export const StaffDetailsSheet = ({
               </TabsContent>
 
               <TabsContent value="transactions" className="mt-0 space-y-4">
-                  <div className="relative">
+                  <div className="relative print:hidden">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                     <Input placeholder="SEARCH LEDGER..." className="pl-9 h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest focus-visible:ring-primary/20 shadow-inner bg-muted/5" value={transactionSearch} onChange={(e) => setTransactionSearch(e.target.value)} />
                   </div>
@@ -498,8 +527,10 @@ export const StaffDetailsSheet = ({
                   </Card>
                </TabsContent>
           </Tabs>
+          <style>{SHEET_PRINT_CSS}</style>
       </div>
   );
+  const periodOnPaper = dateRange?.from && dateRange?.to ? `${format(dateRange.from, 'MMM d, yyyy')} – ${format(dateRange.to, 'MMM d, yyyy')}` : 'All dates';
 
   const handleMessage = async () => {
     if (!firestore || !tenantId || !currentUser?.uid || !staffMember?.id || currentUser.uid === staffMember.id) return;
@@ -519,7 +550,7 @@ export const StaffDetailsSheet = ({
 
   if (inline) {
     return (
-      <div className="w-full max-w-2xl mx-auto">
+      <div className="sds-sheet w-full max-w-2xl mx-auto">
         <div className="rounded-[2rem] border-2 bg-card overflow-hidden">
           <div className="border-b bg-muted/5 p-4 text-left">
             <div className="flex items-center gap-4">
@@ -537,9 +568,10 @@ export const StaffDetailsSheet = ({
               <div className="min-w-0 flex-1 text-left">
                 <h2 className="mb-1 truncate text-lg font-black uppercase tracking-tighter leading-none text-foreground">{staffMember.name}</h2>
                 <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Performance</p>
+                <p className="hidden text-[12px] text-muted-foreground print:block">{periodOnPaper}</p>
               </div>
               {currentUser?.uid !== staffMember?.id && (
-                <Button size="sm" variant="outline" onClick={handleMessage} className="h-9 shrink-0 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest">
+                <Button size="sm" variant="outline" onClick={handleMessage} className="h-9 shrink-0 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest print:hidden">
                   <MessageCircle className="mr-1.5 h-3.5 w-3.5" /> Message
                 </Button>
               )}
@@ -548,7 +580,7 @@ export const StaffDetailsSheet = ({
           <div className="p-4">
             {content}
           </div>
-          <div className="border-t bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="border-t bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] print:hidden">
             <Button onClick={() => onOpenChange(false)} className="h-12 w-full rounded-2xl text-xs font-black uppercase tracking-tight">
               Back to team
             </Button>
@@ -560,7 +592,7 @@ export const StaffDetailsSheet = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background flex flex-col", isMobile ? "h-[92dvh] rounded-t-[1.75rem] shadow-2xl" : "sm:max-w-2xl")}>
+      <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("sds-sheet p-0 border-none bg-background flex flex-col", isMobile ? "h-[92dvh] rounded-t-[1.75rem] shadow-2xl" : "sm:max-w-2xl")}>
         <div className="flex flex-col h-full overflow-hidden">
             <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-4" : "p-8 pb-6")}>
                 <div className="flex items-center gap-4">
@@ -578,13 +610,14 @@ export const StaffDetailsSheet = ({
                     <div className='text-left flex-1'>
                         <SheetTitle className={cn("font-black uppercase tracking-tighter text-foreground leading-none mb-1", isMobile ? "text-lg" : "text-3xl")}>{staffMember.name}</SheetTitle>
                         <SheetDescription className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest opacity-60">Performance Intelligence</SheetDescription>
+                        <p className="hidden text-[12px] text-muted-foreground print:block">{periodOnPaper}</p>
                     </div>
                     {currentUser?.uid !== staffMember?.id && (
                         <Button
                             size="sm"
                             variant="outline"
                             onClick={handleMessage}
-                            className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2 shrink-0"
+                            className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2 shrink-0 print:hidden"
                         >
                             <MessageCircle className="w-3.5 h-3.5 mr-1.5" /> Message
                         </Button>
@@ -598,7 +631,7 @@ export const StaffDetailsSheet = ({
                 </div>
             </div>
             
-            <SheetFooter className={cn("border-t bg-background flex-shrink-0", isMobile ? "p-3" : "p-8 pt-4")}>
+            <SheetFooter className={cn("border-t bg-background flex-shrink-0 print:hidden", isMobile ? "p-3" : "p-8 pt-4")}>
                 <Button onClick={() => onOpenChange(false)} className={cn("w-full rounded-2xl font-black uppercase tracking-tight shadow-2xl shadow-primary/20 transition-all active:scale-95", isMobile ? "h-11 text-xs" : "h-16 text-xl")}>Close Dashboard</Button>
             </SheetFooter>
         </div>

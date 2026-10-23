@@ -212,7 +212,7 @@ export async function saveBalances(db: any, tenantId: string, rows: any[], o: { 
   for (const r of rows) {
     const { client, made } = await clientFor(db, tenantId, idx, r, o); if (made) clientsAdded++;
     if (Number(r.credit) > 0) { const cRef = db.collection(`${T(tenantId)}/depositCredits`).doc(); const cents = Math.round(Number(r.credit) * 100);
-      await cRef.set({ id: cRef.id, tenantId, clientId: client.id, clientEmail: String(client.email || '').toLowerCase(), clientName: client.name || null, amountCents: cents, usedCents: 0, status: 'available',
+      await cRef.set({ id: cRef.id, tenantId, clientId: client.id, clientEmail: String(client.email || '').toLowerCase(), clientName: client.name || null, kind: 'store_credit', amountCents: cents, usedCents: 0, status: 'available',
         source: 'import', reason: r.note || `Credit brought over from ${o.app || 'your old app'}`, importId: o.importId, importedFrom: o.app || null, createdAt: now() }); creditCents += cents; }
     if (Number(r.owed) > 0) { const ref = db.doc(`${T(tenantId)}/clients/${client.id}`); const cur: any = (await ref.get()).data() || {}; const owed = Math.round(Number(r.owed) * 100) / 100;
       const fee = { feeId: `imp_${o.importId}_${client.id}`, appointmentId: '', appointmentDate: now().slice(0, 10), feeAmount: owed, reason: r.note || `Balance brought over from ${o.app || 'your old app'}` };

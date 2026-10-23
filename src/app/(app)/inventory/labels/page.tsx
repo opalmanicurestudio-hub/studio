@@ -415,6 +415,22 @@ function LabelPageContent() {
             width: 100%;
             height: 100%;
             transform: scale(1);
+            font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+            font-variant-numeric: tabular-nums;
+          }
+          .label-print-area * {
+            color: #000 !important;
+            text-transform: none !important;
+            letter-spacing: normal !important;
+            box-shadow: none !important;
+          }
+          .label-print-area .font-mono {
+            font-family: inherit !important;
+            font-weight: 500 !important;
+          }
+          .label-print-area .font-black,
+          .label-print-area .font-bold {
+            font-weight: 600 !important;
           }
         }
         

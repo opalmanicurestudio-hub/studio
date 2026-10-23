@@ -54,38 +54,38 @@ const StationCard = ({
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(orderUrl)}`;
 
     return (
-        <div className="bg-white border-2 border-slate-900 rounded-[2rem] p-6 md:p-8 flex flex-col items-center justify-between gap-4 md:gap-6 w-full max-w-[280px] sm:max-w-[300px] aspect-[2/3] mx-auto break-inside-avoid shadow-sm print:shadow-none print:m-4 print:w-[300px] print:h-[450px]">
+        <div className="station-card bg-white border-2 border-slate-900 rounded-[2rem] p-6 md:p-8 flex flex-col items-center justify-between gap-4 md:gap-6 w-full max-w-[280px] sm:max-w-[300px] aspect-[2/3] mx-auto break-inside-avoid shadow-sm print:shadow-none print:m-4 print:w-[300px] print:h-[450px]">
             <div className="text-center space-y-2 md:space-y-3">
-                <div className="relative w-10 h-10 md:w-12 md:h-12 mx-auto overflow-hidden rounded-xl bg-muted/5 border flex items-center justify-center">
+                <div className="station-logo relative w-10 h-10 md:w-12 md:h-12 mx-auto overflow-hidden rounded-xl bg-muted/5 border flex items-center justify-center">
                     {logoUrl ? (
                         <Image src={logoUrl} alt={tenantName} fill className="object-cover" />
                     ) : (
                         <ClarityFlowLogo className="w-6 h-6 md:w-8 md:h-8" />
                     )}
                 </div>
-                <p className="font-black uppercase tracking-tighter text-[10px] md:text-sm leading-tight">{tenantName}</p>
-                <div className="h-px w-8 md:w-12 bg-slate-900/10 mx-auto" />
+                <p className="station-shop font-black uppercase tracking-tighter text-[10px] md:text-sm leading-tight">{tenantName}</p>
+                <div className="station-rule h-px w-8 md:w-12 bg-slate-900/10 mx-auto" />
             </div>
 
             <div className="space-y-2 md:space-y-4 text-center">
-                <p className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary">Station Identity</p>
-                <h2 className="text-5xl md:text-7xl font-black tracking-tighter text-slate-900">#{seatNumber}</h2>
+                <p className="station-kicker text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary">Station Identity</p>
+                <h2 className="station-num text-5xl md:text-7xl font-black tracking-tighter text-slate-900">#{seatNumber}</h2>
             </div>
 
             <div className="space-y-4 md:space-y-6 text-center">
-                <div className="p-2 md:p-3 bg-white rounded-2xl shadow-xl border-2 border-slate-900/5">
+                <div className="station-qr p-2 md:p-3 bg-white rounded-2xl shadow-xl border-2 border-slate-900/5">
                     <img src={qrUrl} alt="Ordering QR Code" className="w-20 h-20 md:w-24 md:h-24 mx-auto" />
                 </div>
                 <div className="space-y-1">
-                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-900">Scan to Order</p>
-                    <p className="text-[7px] md:text-[8px] font-bold text-muted-foreground uppercase opacity-60 leading-relaxed px-4">
+                    <p className="station-scan text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-900">Scan to Order</p>
+                    <p className="station-note text-[7px] md:text-[8px] font-bold text-muted-foreground uppercase opacity-60 leading-relaxed px-4">
                         Unlock refreshments directly from your device.
                     </p>
                 </div>
             </div>
 
             <div className="pt-1">
-                <p className="text-[6px] md:text-[7px] font-black text-slate-300 uppercase tracking-[0.4em]">ClarityFlow Concierge</p>
+                <p className="station-brand text-[6px] md:text-[7px] font-black text-slate-300 uppercase tracking-[0.4em]">ClarityFlow Concierge</p>
             </div>
         </div>
     );
@@ -196,6 +196,76 @@ export const PrintStationCardsDialog: React.FC<PrintStationCardsDialogProps> = (
                 transform: none !important;
                 margin: 0 !important;
                 padding: 0 !important;
+            }
+            #station-cards-print-area .station-card {
+                font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif !important;
+                color: #16171a !important;
+                background: #fff !important;
+                border: 1px solid #ececee !important;
+                border-radius: 16px !important;
+                box-shadow: none !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            #station-cards-print-area .station-card * {
+                text-transform: none !important;
+                letter-spacing: normal !important;
+                opacity: 1 !important;
+                box-shadow: none !important;
+            }
+            #station-cards-print-area .station-logo {
+                background: #fff !important;
+                border: 1px solid #ececee !important;
+                border-radius: 12px !important;
+            }
+            #station-cards-print-area .station-shop {
+                font-size: 13px !important;
+                font-weight: 600 !important;
+                color: #16171a !important;
+            }
+            #station-cards-print-area .station-rule {
+                background: #ececee !important;
+            }
+            #station-cards-print-area .station-kicker {
+                font-size: 11px !important;
+                font-weight: 500 !important;
+                color: #6d7075 !important;
+                text-transform: lowercase !important;
+            }
+            #station-cards-print-area .station-kicker::first-letter {
+                text-transform: uppercase !important;
+            }
+            #station-cards-print-area .station-num {
+                font-size: 56px !important;
+                font-weight: 300 !important;
+                letter-spacing: -0.03em !important;
+                line-height: 1 !important;
+                font-variant-numeric: tabular-nums;
+                color: #16171a !important;
+            }
+            #station-cards-print-area .station-qr {
+                background: #fff !important;
+                border: 1px solid #ececee !important;
+                border-radius: 14px !important;
+            }
+            #station-cards-print-area .station-scan {
+                font-size: 12px !important;
+                font-weight: 600 !important;
+                color: #16171a !important;
+                text-transform: lowercase !important;
+            }
+            #station-cards-print-area .station-scan::first-letter {
+                text-transform: uppercase !important;
+            }
+            #station-cards-print-area .station-note {
+                font-size: 11px !important;
+                font-weight: 400 !important;
+                color: #6d7075 !important;
+            }
+            #station-cards-print-area .station-brand {
+                font-size: 10px !important;
+                font-weight: 400 !important;
+                color: #9a9ca1 !important;
             }
             @page {
                 size: portrait;

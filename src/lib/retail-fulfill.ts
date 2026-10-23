@@ -1,7 +1,7 @@
 'use client';
 
 import { staffAuthHeader } from './staff-fetch';
-import { syncRenterCredits } from './renter-credit-client';
+import { shareOrderTipSoon, syncRenterCredits } from './renter-credit-client';
 import { shrinkStock } from './retail-orders';
 import { taxShareCents } from './restocking';
 import {
@@ -495,7 +495,12 @@ export async function resolveShortLine(
             `Shelf short during pick: ${reason} (Order #${order.orderNumber})`, orderId, actor));
       }
 
-      const orderUpdate: Record<string, unknown> = { lines: JSON.parse(JSON.stringify(lines)) };
+      // A backorder is its own order; the line it came from links to it, and the order lists it, so anyone looking at
+      // either can find the other (lib/order-tags).
+      const childRef = resolution === 'backorder' ? doc(orderCol(fs, tenantId)) : null;
+      const linked = childRef ? lines.map((l: any) => (l.lineId === lineId ? { ...l, backorderOrderId: childRef.id } : l)) : lines;
+      const orderUpdate: Record<string, unknown> = { lines: JSON.parse(JSON.stringify(linked)) };
+      if (childRef) orderUpdate.backorderOrderIds = [...(Array.isArray((order as any).backorderOrderIds) ? (order as any).backorderOrderIds : []), childRef.id];
       if (resolution === 'refund') {
         // The tax paid on the missing items goes back too.
         orderUpdate.pendingRefundCents = (order.pendingRefundCents || 0) + refundCents + taxShareCents(order as any, refundCents);
@@ -505,8 +510,7 @@ export async function resolveShortLine(
         lineId, qtyShorted, reason, resolution,
       }));
 
-      if (resolution === 'backorder') {
-        const childRef = doc(orderCol(fs, tenantId));
+      if (resolution === 'backorder' && childRef) {
         const child = {
           id: childRef.id, tenantId,
           orderNumber: order.orderNumber, // shares the customer-facing number
@@ -814,7 +818,7 @@ export async function handoffByScan(
       return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, order };
     });
     // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
-    if (done?.ok && done.order) syncRenterCredits(tenantId, done.order);
+    if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }
     if (done && typeof done === 'object') delete done.order;
     return done;
   } catch (e: any) {
@@ -848,7 +852,7 @@ export async function handoffWithoutScan(
       return { ok: true, message: `Order #${order.orderNumber} handed off (no scan — logged)`, order };
     });
     // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
-    if (done?.ok && done.order) syncRenterCredits(tenantId, done.order);
+    if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }
     if (done && typeof done === 'object') delete done.order;
     return done;
   } catch (e: any) {
@@ -1118,7 +1122,7 @@ export async function markShipped(
       return { ok: true, message: `Order #${order.orderNumber} shipped`, order };
     });
     // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
-    if (done?.ok && done.order) syncRenterCredits(tenantId, done.order);
+    if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }
     if (done && typeof done === 'object') delete done.order;
     return done;
   } catch (e: any) {
@@ -1187,7 +1191,7 @@ export async function splitReadyFromWaiting(
         placedAt: new Date().toISOString(), paidAt: order.paidAt || new Date().toISOString(),
       };
       txn.set(childRef, JSON.parse(JSON.stringify(child)));
-      txn.update(oRef, { lines: JSON.parse(JSON.stringify(ready)), splitChildOrderId: childRef.id });
+      txn.update(oRef, { lines: JSON.parse(JSON.stringify(ready)), splitChildOrderId: childRef.id, backorderOrderIds: [...(Array.isArray((order as any).backorderOrderIds) ? (order as any).backorderOrderIds : []), childRef.id] });
       txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, {
         text: `Split shipment \u2014 ${ready.length} item(s) ship now, ${waiting.length} pre-order item(s) follow when they land`,
       }));

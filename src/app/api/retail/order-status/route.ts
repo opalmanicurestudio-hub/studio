@@ -7,15 +7,23 @@ import { dayKey, tenantTimeZone } from '@/lib/tenant-time';
 import { liveSlots } from '@/lib/label-boxes';
 import { effectiveUnitCents, swapLines } from '@/lib/retail-swap';
 import { windowOpen } from '@/lib/order-windows';
+import { checkPass, linkExpiresAt, linkOpen, makePass, maskAddress, paidHere, passUntil } from '@/lib/order-pass';
+import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
+import { maskEmail } from '@/lib/contact-change';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
 // GET ?tenantId=...&orderId=...
 //
 // Public, unauthenticated — the unguessable Firestore orderId in the URL is
-// the access secret (same model as e-commerce order-status links). The
-// response is SANITIZED for that trust level: line items, stage, totals, and
-// the pickup QR, but no email, no full street address (city/state only), and
-// nothing internal (costs, staff, batches).
+// the access secret (same model as e-commerce order-status links), while the
+// order can still be helped with (lib/order-pass: until it's finished, then the
+// longest of 30 days and its return and delivery-problem windows). The response
+// is SANITIZED for that trust level: line items, stage, totals and the pickup
+// QR, the town it ships to, their first name, the email masked, and nothing internal.
+// The customer's full email and address come back only with a PASS (lib/order-pass):
+// ?pass= (kept on their device), ?session_id= (the device that paid, for two days),
+// or their shop account (?ae=&ax=&as=), which also hand back a fresh pass. Past
+// the link's window, without a pass, only enough to ask for a code comes back.
 //
 // Designed for polling: the storefront status page calls this every few
 // seconds while the order is active. Reads are 2-4 docs per call.
@@ -63,6 +71,35 @@ export async function GET(req: NextRequest) {
     }
   }
   const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
+
+  // IS IT THE CUSTOMER? A pass from this device, the device that paid, or their account at the shop (lib/order-pass).
+  const sp = req.nextUrl.searchParams;
+  const passIn = String(sp.get('pass') || '');
+  const passValid = checkPass(tenantId, String(order.qrToken || ''), passIn);
+  const fromAccount = (() => {
+    const e = String(sp.get('ae') || ''); const x = Number(sp.get('ax')); const sg = String(sp.get('as') || '');
+    if (!e || !sg) return false;
+    return verifyAccountToken(tenantId, e, x, sg).ok && normalizeEmail(e) === normalizeEmail(order.customerEmail) && !!normalizeEmail(e);
+  })();
+  const passOk = passValid || paidHere(order, sp.get('session_id')) || fromAccount;
+  const newPass = passOk && !passValid && order.qrToken ? makePass(tenantId, String(order.qrToken)) : null;
+  const verify = {
+    passOk, needed: !passOk,
+    emailMasked: order.customerEmail ? maskEmail(String(order.customerEmail)) : null,
+    phoneEnding: String(order.customerPhone || '').replace(/\D/g, '').slice(-4) || null,
+    canText: !!String(order.customerPhone || '').trim() && order.textsOff !== true,
+    until: passValid ? passUntil(passIn) : newPass ? passUntil(newPass) : null,
+  };
+  const linkUntil = linkExpiresAt(order, rs);
+  // Past the link's window: only enough to ask for a code (lib/order-pass).
+  if (!passOk && !linkOpen(order, rs)) {
+    const t: any = tenantSnap.exists ? tenantSnap.data() : {};
+    return NextResponse.json({
+      expired: true, linkExpiresAt: linkUntil, verify,
+      shopName: String(t?.businessName || t?.name || ''),
+      order: { id: orderId, orderNumber: order.orderNumber, stage: order.stage },
+    });
+  }
 
   // Queue position — how many active orders entered the queue before this one.
   // Only meaningful while waiting to be picked; skipped otherwise to save reads.
@@ -221,8 +258,8 @@ export async function GET(req: NextRequest) {
     const others: string[] = order.shippedWithOrderId ? [String(order.shippedWithOrderId)] : Array.isArray(order.shippedWithOrderIds) ? order.shippedWithOrderIds.map(String).slice(0, 9) : [];
     if (others.length) shippedWith = (await Promise.all(others.map((id) => db.doc(`tenants/${tenantId}/retailOrders/${id}`).get()))).filter((d: any) => d.exists).map((d: any) => `#${String((d.data() as any)?.orderNumber ?? '').padStart(4, '0')}`);
   } catch { /* cosmetic */ }
-  return NextResponse.json({
-    help,
+  const body: any = {
+    help, verify, linkExpiresAt: linkUntil, ...(newPass ? { newPass } : {}),
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
     // Where the shop physically is, so the customer's phone can answer "am I
     // there yet?" locally. Sent to the browser deliberately: the alternative
@@ -255,6 +292,7 @@ export async function GET(req: NextRequest) {
         unitPriceCents: l.unitPriceCents,
         status: l.status === 'returned' && (l.qtyGiftReturned || 0) > 0 && (l.qtyReturned || 0) - (l.qtyGiftReturned || 0) < (l.qtyOrdered || 0) - (l.qtyShorted || 0) ? 'picked' : l.status,
         digital: l.digital === true,
+        digitalAccessDays: l.digital === true ? Math.max(0, Number(l.digitalAccessDays) || 0) : 0,
         optionsLabel: l.optionsLabel || '',
         swappedToName: l.swappedToName || '',
         swapForName: l.swapForName || '',
@@ -339,6 +377,8 @@ export async function GET(req: NextRequest) {
       // them here (not on an order held for review, which is never said).
       contact: { phoneEnding: String(order.customerPhone || '').replace(/\D/g, '').slice(-4) || null, textsOff: order.textsOff === true, locked: order.holdForReview === true || order.stage === 'placed' },
       storeCreditRequestedCents: order.storeCreditRequestedCents || 0,
+      // How it was paid (lib/order-paid): by card, store credit and gift card, for the invoice.
+      tenders: order.tenders ? { cardCents: Math.max(0, Number(order.tenders.cardCents) || 0), creditCents: Math.max(0, Number(order.tenders.creditCents) || 0), giftCents: Math.max(0, Number(order.tenders.giftCents) || 0) } : null,
       shipPromiseAt: order.shipPromiseAt || null,
       // The ship-by and arrival dates they were shown (lib/ship-promise), as they stand now; null when they never were.
       dates: order.method === 'ship' ? customerDates(order, tenantTimeZone(tenantSnap.exists ? tenantSnap.data() : null)) : null,
@@ -372,5 +412,15 @@ export async function GET(req: NextRequest) {
     },
     qrValue,
     active,
-  });
+  };
+  // Without a pass: the town it ships to, never the street, their first name, and the email masked (lib/order-pass).
+  if (!passOk && body.order) {
+    const o2 = body.order;
+    o2.customerEmail = o2.customerEmail ? maskEmail(String(o2.customerEmail)) : '';
+    o2.customerName = String(o2.customerName || '').trim().split(/\s+/)[0] || '';
+    if (o2.shippingAddress) o2.shippingAddress = maskAddress(o2.shippingAddress);
+    if (o2.addressRequest?.to) o2.addressRequest = { ...o2.addressRequest, to: maskAddress(o2.addressRequest.to) };
+    if (o2.addressPay?.to) o2.addressPay = { ...o2.addressPay, to: maskAddress(o2.addressPay.to), url: null };
+  }
+  return NextResponse.json(body);
 }

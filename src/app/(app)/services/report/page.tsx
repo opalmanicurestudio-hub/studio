@@ -14,6 +14,52 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useHistoryStats } from '@/hooks/use-history-stats';
 
+// What reaches paper, in the app's print look (lib/print-style): Plus Jakarta Sans, a light title, sentence-case grey
+// labels, soft stat panels, thin #ececee lines, tabular figures. Scoped to #print-area and to print only, so the screen
+// is untouched; the id selectors outrank the global print rules that keep app screens uppercase and heavy on paper.
+const PAPER_CSS = `
+@media print {
+  @page { margin: 0.55in; }
+  #print-area { font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #16171a; font-size: 12px; line-height: 1.5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #print-area > * + * { margin-top: 18px !important; }
+  #print-area * { color: inherit !important; background-color: transparent !important; border-color: #ececee !important; box-shadow: none !important; text-shadow: none !important; text-transform: none !important; letter-spacing: normal !important; opacity: 1 !important; font-variant-numeric: tabular-nums; }
+  #print-area svg, #print-area button, #print-area .rp-hide { display: none !important; }
+  #print-area .font-mono { font-family: inherit !important; font-weight: 400 !important; }
+  #print-area .font-bold, #print-area .font-semibold { font-weight: 500 !important; }
+  #print-area .font-black, #print-area .font-extrabold { font-weight: 600 !important; }
+  #print-area .border-2, #print-area .border-4 { border-width: 1px !important; }
+  #print-area .border-b-2, #print-area .border-b-4 { border-bottom-width: 1px !important; }
+  #print-area .text-destructive { color: #b42318 !important; }
+
+  #print-area .rp-head { justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid #ececee; }
+  #print-area .rp-title { margin: 0; font-size: 26px; font-weight: 300 !important; letter-spacing: -0.02em !important; line-height: 1.15; }
+  #print-area .rp-title b { font-weight: 600 !important; }
+  #print-area .rp-sub { margin-top: 4px; color: #6d7075 !important; }
+  #print-area .rp-meta { font-size: 11px; color: #6d7075 !important; text-align: right; white-space: nowrap; }
+
+  #print-area .rp-kpis { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)) !important; gap: 10px !important; }
+  #print-area .rp-kpis > div { background-color: #f5f5f7 !important; border: 0 !important; border-radius: 14px !important; padding: 12px 14px !important; break-inside: avoid; }
+  #print-area .rp-kpis > div > div { padding: 0 !important; }
+  #print-area .rp-kpis > div > div:nth-last-child(2) * { font-size: 11px !important; font-weight: 500 !important; color: #6d7075 !important; }
+  #print-area .rp-kpis > div > div:last-child > p:first-child { margin: 3px 0 0 !important; font-size: 20px !important; font-weight: 300 !important; letter-spacing: -0.01em !important; line-height: 1.25 !important; white-space: normal !important; }
+  #print-area .rp-kpis > div > div:last-child > p + p { margin: 2px 0 0 !important; font-size: 11px !important; font-weight: 400 !important; color: #6d7075 !important; }
+
+  #print-area .rp-ledger { border: 0 !important; border-radius: 0 !important; overflow: visible !important; }
+  #print-area .rp-ledger > div:first-child { padding: 0 0 8px !important; border: 0 !important; }
+  #print-area .rp-ledger > div:first-child > div:first-child > :first-child { font-size: 13px !important; font-weight: 600 !important; }
+  #print-area .rp-ledger > div:first-child > div:first-child > :last-child { font-size: 11px !important; font-weight: 400 !important; color: #6d7075 !important; }
+  #print-area .rp-ledger > div:last-child { padding: 0 !important; overflow: visible !important; }
+  #print-area table { width: 100%; border-collapse: collapse; }
+  #print-area thead { display: table-header-group; }
+  #print-area tr { border-bottom: 1px solid #ececee !important; break-inside: avoid; }
+  #print-area th { height: auto !important; padding: 6px 8px !important; font-size: 11px !important; font-weight: 500 !important; color: #6d7075 !important; }
+  #print-area td { padding: 7px 8px !important; vertical-align: top; font-size: 12px !important; }
+  #print-area td * { font-size: inherit !important; line-height: 1.4 !important; }
+  #print-area td [class~="rounded-full"] { display: inline-flex; height: auto !important; margin-top: 3px !important; padding: 2px 8px !important; border: 0 !important; border-radius: 999px !important; background-color: #f5f5f7 !important; color: #45474c !important; font-size: 10.5px !important; font-weight: 500 !important; }
+  #print-area td [class~="bg-green-500"] { background-color: #eaf6ef !important; color: #1f7a4d !important; }
+}
+`;
+
 export default function ServiceReportPage() {
     const { services, isLoading: ctxLoading } = useInventory();
     const { stats: history, isLoading: histLoading } = useHistoryStats();   // all-time numbers, worked out on the server
@@ -125,12 +171,15 @@ export default function ServiceReportPage() {
                 </div>
 
                 <div id="print-area" className="space-y-10">
-                    <div className="hidden print:block space-y-2 border-b-4 border-black pb-6 mb-10">
-                        <h1 className="text-4xl font-black uppercase tracking-tighter">Studio Yield Dossier</h1>
-                        <p className="text-xs font-black uppercase tracking-widest opacity-60">Generated on {format(new Date(), 'PPPP')}</p>
+                    <div className="rp-head hidden print:flex">
+                        <div>
+                            <h1 className="rp-title">Yield <b>report</b></h1>
+                            <p className="rp-sub">Price, cost and margin for every service, with all-time bookings and revenue</p>
+                        </div>
+                        <p className="rp-meta">Printed {format(new Date(), 'MMM d, yyyy, h:mm a')}</p>
                     </div>
 
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                    <div className="rp-kpis grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                         <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
                             <div className="absolute top-0 right-0 p-4 opacity-5 transition-opacity group-hover:opacity-10">
                                 <TrendingUp className="w-16 h-16 text-primary" />
@@ -183,13 +232,13 @@ export default function ServiceReportPage() {
                         </Card>
                     </div>
 
-                    <Card className="border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-card">
+                    <Card className="rp-ledger border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-card">
                         <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-row items-center justify-between">
                             <div className="space-y-1">
                                 <CardTitle className="text-base md:text-lg font-black uppercase tracking-tight">Performance Ledger</CardTitle>
                                 <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Departmental yield & efficiency audit</CardDescription>
                             </div>
-                            <div className="hidden sm:flex items-center gap-2 p-2 bg-primary/5 rounded-full border border-primary/10">
+                            <div className="rp-hide hidden sm:flex items-center gap-2 p-2 bg-primary/5 rounded-full border border-primary/10">
                                 <Sparkles className="w-4 h-4 text-primary" />
                                 <span className="text-[10px] font-black uppercase text-primary tracking-widest px-2">Live Insights</span>
                             </div>
@@ -236,6 +285,7 @@ export default function ServiceReportPage() {
                     </Card>
                 </div>
             </main>
+             <style>{PAPER_CSS}</style>
              <style jsx global>{`
                 @media print {
                   body * {

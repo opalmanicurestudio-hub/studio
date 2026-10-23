@@ -29,6 +29,7 @@ import { format, differenceInSeconds } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
 import { type InventoryItem, type Tenant, type Staff } from '@/lib/data';
+import { esc, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const INACTIVITY_MS = 30 * 60 * 1000;
@@ -187,17 +188,19 @@ async function networkPrint(payload: LabelPayload, cfg: PrinterConfig): Promise<
 }
 
 // ─── Browser print ────────────────────────────────────────────────────────────
+// The same ticket the thermal printer gets, in the app's typeface: solid black ink (thermal heads can't print grey),
+// semibold instead of black-weight lines, a thin black divider, and tabular figures for the counts.
 function buildPrintHtml(payload: LabelPayload): string {
   const lines = payload.lines.map(line => {
-    if (line.divider) return `<hr style="border:none;border-top:1px dashed #aaa;margin:5px 0;">`;
+    if (line.divider) return `<hr style="border:none;border-top:1px dashed #000;margin:5px 0;">`;
     const size    = line.size === 'large' ? '18px' : line.size === 'wide' ? '14px' : '11px';
-    const weight  = line.bold ? '900' : '400';
-    const spacing = line.size === 'wide' ? 'letter-spacing:1px;' : '';
+    const weight  = line.bold ? '600' : '400';
     const align   = line.align === 'center' ? 'text-align:center;' : '';
-    return `<div style="font-size:${size};font-weight:${weight};${spacing}${align}line-height:1.4;margin:1px 0;">${line.content}</div>`;
+    return `<div style="font-size:${size};font-weight:${weight};${align}line-height:1.4;margin:1px 0;">${esc(line.content)}</div>`;
   }).join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Label</title>
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Courier New',monospace;width:72mm;padding:4px 6px;background:#fff;color:#000;}
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="${PRINT_FONT_HREF}" rel="stylesheet">
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:${PRINT_FONT_STACK};font-variant-numeric:tabular-nums;width:72mm;padding:4px 6px;background:#fff;color:#000;}
 @media print{@page{margin:0;size:80mm auto;}body{width:80mm;}}</style>
 </head><body>${lines}<div style="height:16px"></div></body></html>`;
 }
@@ -209,7 +212,12 @@ function browserPrint(payload: LabelPayload): void {
   w.document.open();
   w.document.write(html);
   w.document.close();
-  w.onload = () => { w.focus(); w.print(); w.close(); };
+  // Prints once the typeface has arrived, so the ticket never comes out in a fallback font.
+  w.onload = () => {
+    const go = () => { w.focus(); w.print(); w.close(); };
+    const fonts = (w.document as any).fonts;
+    if (fonts && fonts.ready) fonts.ready.then(go, go); else go();
+  };
 }
 
 // ─── Audio helper ─────────────────────────────────────────────────────────────

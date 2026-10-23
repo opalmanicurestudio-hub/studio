@@ -137,7 +137,8 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
                       {r && <Btn quiet onClick={() => openReceipt(tenantId, r.id)}>{r.voided ? 'Void slip' : 'Receipt'}</Btn>}
                       {r && !r.voided && r.reversal && <Btn quiet onClick={() => { reset(); setSel(r); }}>Void sale</Btn>}
                       {(() => { const aid = x.lines.map((t: any) => t.appointmentId).find(Boolean); return aid ? <Btn quiet onClick={() => openVisit(String(aid))}>Visit ticket</Btn> : null; })()}
-                      {!r && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>{x.source === 'planner' ? 'Completed from the planner — no receipt was made.' : x.method === 'online' ? 'Paid online — refunds are made from the payment’s page in Money.' : 'Recorded outside checkout — see it in Money.'}</p>}
+                      {(() => { const oid = x.source === 'order' ? x.lines.map((t: any) => t.retailOrderId).find(Boolean) : null; return oid ? <Btn quiet onClick={() => { window.location.href = `/retail-orders?order=${encodeURIComponent(String(oid))}`; }}>Open the order</Btn> : null; })()}
+                      {!r && <p className="text-[12px]" style={{ color: 'var(--muted)' }}>{x.source === 'planner' ? 'Completed from the planner — no receipt was made.' : x.source === 'order' ? 'An online order — refunds and changes are made from the order.' : x.method === 'online' ? 'Paid online — refunds are made from the payment’s page in Money.' : 'Recorded outside checkout — see it in Money.'}</p>}
                     </div>
                   </div>}
                 </div>;

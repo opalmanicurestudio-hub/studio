@@ -42,6 +42,7 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { esc, printPage } from '@/lib/print-style';
 
 const safeDate = (v: any) => v?.toDate?.() ?? (typeof v === 'string' ? parseISO(v) : new Date(v));
 const safeNum  = (v: any) => Number(v) || 0;
@@ -846,22 +847,23 @@ const KitchenPrintModal = ({ open, onOpenChange, event, guests, menuItems, cours
       if (a.tableNumber && b.tableNumber) return a.tableNumber.localeCompare(b.tableNumber);
       return a.name.localeCompare(b.name);
     });
-    win.document.write(`<!DOCTYPE html><html><head><title>Kitchen Run Sheet</title>
-      <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11px; color: #1e293b; padding: 24px; } h1 { font-size: 22px; font-weight: 900; text-transform: uppercase; letter-spacing: -0.5px; } h2 { font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; margin: 20px 0 8px; border-bottom: 2px solid #0f172a; padding-bottom: 4px; } .meta { color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 4px; } table { width: 100%; border-collapse: collapse; margin-top: 6px; } th { background: #0f172a; color: white; font-weight: 900; text-transform: uppercase; font-size: 9px; letter-spacing: 1px; padding: 6px 8px; text-align: left; } td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; } tr:nth-child(even) td { background: #f8fafc; } @media print { @page { margin: 0.4in; } }</style>
-    </head><body>
-      <h1>${event?.title || 'Event'} — Kitchen Run Sheet</h1>
-      <p class="meta">${guests.filter(g => g.checkedIn).length} of ${guests.length} guests checked in · Printed ${format(new Date(), 'MMM d, h:mm a')}</p>
-      <h2>Full Guest List (Checked In)</h2>
-      <table><thead><tr><th>Guest</th><th>Table / Seat</th>${courseNumbers.map(n => `<th>${courseLabels[n] || 'Course ' + n}</th>`).join('')}<th>Allergies</th></tr></thead>
-      <tbody>${rows.map(g => `<tr><td><strong>${g.name}</strong></td><td>${g.tableNumber ? 'T' + g.tableNumber : '—'}${g.seatNumber ? ' · ' + g.seatNumber : ''}</td>${courseNumbers.map(n => {
+    // The app's print look (lib/print-style); it opens the print dialog itself once the font has loaded.
+    win.document.write(printPage({
+      title: 'Kitchen run sheet',
+      heading: 'Kitchen run <b>sheet</b>',
+      subtitle: esc(event?.title || 'Event'),
+      meta: [`${guests.filter(g => g.checkedIn).length} of ${guests.length} guests checked in`],
+      body: `
+      <h2>Full guest list (checked in)</h2>
+      <table><thead><tr><th>Guest</th><th>Table / seat</th>${courseNumbers.map(n => `<th>${esc(courseLabels[n] || 'Course ' + n)}</th>`).join('')}<th>Allergies</th></tr></thead>
+      <tbody>${rows.map(g => `<tr><td><b>${esc(g.name)}</b></td><td class="nowrap">${g.tableNumber ? 'T' + esc(g.tableNumber) : '—'}${g.seatNumber ? ' · ' + esc(g.seatNumber) : ''}</td>${courseNumbers.map(n => {
         const id = g.courseSelections?.[n] || (n === 1 ? g.mealChoiceId : null);
         const name = id ? menuItems.find((m: any) => m.id === id)?.name || '—' : '—';
-        return `<td>${name}</td>`;
-      }).join('')}<td>${(g.allergies || []).map((a: any) => typeof a === 'object' ? a.label : a).join(', ')}</td></tr>`).join('')}
-      </tbody></table>
-    </body></html>`);
+        return `<td>${esc(name)}</td>`;
+      }).join('')}<td>${esc((g.allergies || []).map((a: any) => typeof a === 'object' ? a.label : a).join(', '))}</td></tr>`).join('')}
+      </tbody></table>`,
+    }));
     win.document.close();
-    setTimeout(() => win.print(), 300);
   };
 
   return (

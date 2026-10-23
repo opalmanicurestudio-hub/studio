@@ -13,6 +13,9 @@ export async function refundSaleToCard(db: any, tenantId: string, tenant: any, t
   if (!xSnap.exists) return { ok: false, error: 'That sale wasn’t found.', status: 404 };
   const x: any = xSnap.data();
   if (x.refundedAt || x.voided) return { ok: false, error: 'This sale was already refunded.', status: 409 };
+  // An online order is refunded on the order (api/retail/refund), so its items, its sales tax and the customer's email
+  // all follow; a refund from here would miss them.
+  if (x.retailOrderId) return { ok: false, error: 'This is an online order. Refund it from the order in Orders, so the items, the sales tax and the customer’s email all follow.', status: 409 };
   if (String(x.paymentMethod || '').toLowerCase() === 'cash') return { ok: true, card: false };
   let cards: { pi: string; cents: number }[] = [];
   if (x.stripePaymentIntentId) cards = [{ pi: String(x.stripePaymentIntentId), cents: Math.round((num(x.amount) + num(x.tipAmount)) * 100) }];

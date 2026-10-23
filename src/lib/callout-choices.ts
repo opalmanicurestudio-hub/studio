@@ -150,7 +150,7 @@ export async function takeKeptTime(db: any, t: string, a: any, keptId: string, n
   const r = await db.runTransaction(async (tx: any) => {
     const rec: any = (await tx.get(cRef)).data(); const list: KeptTime[] = rec?.choices?.keptTimes || [];
     const k = list.find((x) => x.id === keptId);
-    if (!rec || rec.choices?.done || ms(rec.choices?.holdUntil) <= now) return { ok: false, error: "We're sorry, these times are no longer being held. Please choose a new time from your visit link, or give us a call." };
+    if (!rec || rec.choices?.done || ms(rec.choices?.holdUntil) <= now) return { ok: false, error: "We're sorry, these times are no longer being held. Please choose a new time from your visit link." };
     if (!k || ms(k.start) <= now + 2 * H) return { ok: false, error: "We're sorry, that time is no longer available. Please choose another." };
     if (k.takenBy && k.takenBy !== a.id) return { ok: false, error: "We're sorry, that time has just been chosen by someone else. Please choose another." };
     if (k.minutes < durMin(a)) return { ok: false, error: "We're sorry, that time is too short for your appointment. Please choose another." };

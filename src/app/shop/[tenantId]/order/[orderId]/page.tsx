@@ -23,6 +23,7 @@ import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { cn } from '@/lib/utils';
 import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
 import { OrderContactCard } from '@/components/shop/OrderContactCard';
+import { OrderVerify } from '@/components/shop/OrderVerify';
 import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
@@ -182,12 +183,33 @@ export default function OrderStatusPage() {
   const [appealNote, setAppealNote] = useState('');
   const [appealSending, setAppealSending] = useState(false);
   const activeRef = useRef(true);
+  // THE CUSTOMER'S PASS (lib/order-pass): kept on this device for 30 days. It shows their full address and email and
+  // lets them change their details; without it the page shows the order and the town it ships to. The device that paid
+  // (Stripe's session on the way back) or their shop account gets one by itself; otherwise a code to the email or mobile.
+  const passKey = `cfshop-pass-${tenantId}-${orderId}`;
+  const passRef = useRef<string>('');
+  const [verify, setVerify] = useState<any>(null);
+  const [expired, setExpired] = useState<any>(null);
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const keepPass = (p: string) => { passRef.current = p; try { window.localStorage.setItem(passKey, p); } catch { /* private browsing: kept for this visit */ } };
+  if (typeof window !== 'undefined' && !passRef.current) { try { passRef.current = window.localStorage.getItem(passKey) || ''; } catch { /* none */ } }
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/retail/order-status?tenantId=${tenantId}&orderId=${orderId}`, { cache: 'no-store' });
+      const qs = new URLSearchParams({ tenantId: String(tenantId), orderId: String(orderId) });
+      if (passRef.current) qs.set('pass', passRef.current);
+      try {
+        const here = new URLSearchParams(window.location.search).get('session_id'); if (here) qs.set('session_id', here);
+        const acct = JSON.parse(window.localStorage.getItem(`cfshop-acct-${tenantId}`) || 'null');
+        if (acct?.e && acct?.x && acct?.s && Date.now() < Number(acct.x)) { qs.set('ae', String(acct.e)); qs.set('ax', String(acct.x)); qs.set('as', String(acct.s)); }
+      } catch { /* the link alone still opens the order */ }
+      const res = await fetch(`/api/retail/order-status?${qs.toString()}`, { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Order not found');
+      if (data.newPass) keepPass(String(data.newPass));
+      setVerify(data.verify || null);
+      if (data.expired) { setExpired(data); activeRef.current = false; setLoadError(''); return; }
+      setExpired(null);
       setOrder(data.order);
       if (data.help) setHelpElig(data.help);
       const thread = Array.isArray(data.support) ? data.support : data.order?.support;
@@ -368,9 +390,10 @@ export default function OrderStatusPage() {
       const res = await fetch('/api/retail/account/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, orderId, qrToken }),
+        body: JSON.stringify({ tenantId, orderId, qrToken, pass: passRef.current }),
       });
       const data = await res.json();
+      if (data?.code === 'pass_needed') { setVerifyOpen(true); return; }
       if (!res.ok) throw new Error(data.error || 'Could not open your account');
       router.push(`/shop/${tenantId}/account?e=${encodeURIComponent(data.email)}&x=${data.exp}&s=${data.sig}`);
     } catch (e: any) {
@@ -383,10 +406,12 @@ export default function OrderStatusPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tenantId, orderId, qrToken: selfToken || '', ...payload,
+        tenantId, orderId, qrToken: selfToken || '', pass: passRef.current, ...payload,
       }),
     });
     const data = await res.json();
+    // Changing their details takes a pass: the page asks for a code first (lib/order-pass).
+    if (data?.code === 'pass_needed') setVerifyOpen(true);
     if (!res.ok) throw new Error(data.error || 'Request failed');
     return data;
   };
@@ -417,6 +442,8 @@ export default function OrderStatusPage() {
     void addrReview.start({ ...fixAddr });
   };
   const openAddressForm = () => {
+    // Their address is theirs to change: the page asks them to confirm it's them first (lib/order-pass).
+    if (verify?.needed) { setVerifyOpen(true); return; }
     const a = (order as any)?.shippingAddress || {};
     setFixAddr({ name: String(a.name || ''), line1: String(a.line1 || ''), line2: String(a.line2 || ''), city: String(a.city || ''), state: String(a.state || ''), postalCode: String(a.postalCode || '') });
     addrReview.setReview(null);
@@ -805,6 +832,9 @@ export default function OrderStatusPage() {
     }
   };
 
+  if (expired) {
+    return <OrderVerify tenantId={String(tenantId)} orderId={String(orderId)} verify={expired.verify || verify} expired shopName={expired.shopName} orderNumber={expired.order?.orderNumber} onPass={(p) => { keepPass(p); setExpired(null); void load(); }} />;
+  }
   if (loadError) {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center gap-4 p-8 text-center bg-muted/5">
@@ -1674,8 +1704,9 @@ export default function OrderStatusPage() {
                     {fixOpen ? 'Never mind' : 'Change'}
                   </Button>)}
               </div>
-              {!fixOpen && (
-                <p className="text-sm font-bold leading-snug">{addressLinesOf(order.shippingAddress).map((l, i) => <React.Fragment key={i}>{i ? <br /> : null}{l}</React.Fragment>)}</p>)}
+              {!fixOpen && ((order.shippingAddress as any)?.masked
+                ? <p className="text-sm font-bold leading-snug">{[(order.shippingAddress as any).city, (order.shippingAddress as any).state].filter(Boolean).join(', ')}<span className="block text-[12px] font-semibold text-muted-foreground">Confirm it’s you to see the full address.</span></p>
+                : <p className="text-sm font-bold leading-snug">{addressLinesOf(order.shippingAddress).map((l, i) => <React.Fragment key={i}>{i ? <br /> : null}{l}</React.Fragment>)}</p>)}
               {asking && !fixOpen && (<>
                 <p className="text-[12px] font-bold text-muted-foreground">{why}</p>
                 <Button disabled={confirmSending} onClick={() => void confirmAddress()} className="w-full h-12 rounded-2xl font-black uppercase text-xs tracking-widest">
@@ -2211,7 +2242,13 @@ export default function OrderStatusPage() {
             View all my orders
           </Button>
         )}
+        {selfToken && verify?.needed && order.stage !== 'placed' && (
+          <button type="button" onClick={() => setVerifyOpen(true)} className="w-full text-center text-[13px] font-semibold underline underline-offset-4 py-2">
+            Is this your order? Confirm it’s you to see your full details
+          </button>
+        )}
       </main>
+      {verifyOpen && <OrderVerify tenantId={String(tenantId)} orderId={String(orderId)} verify={verify} shopName={(order as any)?.shopName || ''} orderNumber={order.orderNumber} onPass={(p) => { keepPass(p); setVerifyOpen(false); toast({ title: 'Thanks, that’s you', description: 'This device is confirmed for 30 days.' }); void load(); }} onClose={() => setVerifyOpen(false)} />}
     </div>
   );
 }

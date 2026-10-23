@@ -19,6 +19,7 @@ import { permissionsFor } from '@/lib/fulfilment-access';
 import { notifyCurbside, sweepStaleClaims, type Actor } from '@/lib/retail-fulfill';
 import { curbsideWaitMinutes, lineMatchesScan } from '@/lib/retail-orders';
 import { scanInto, startPacking } from '@/lib/orders-flow';
+import { orderTags } from '@/lib/order-tags';
 import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabel, money, needsYou, packQueue, soloShop, tabOf, type NeedItem, type OrdersTab } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Empty, IconBtn, Initials, LargeTitle, ListRow, Seg, Sheet, UndoBar, feel, muted, Ic } from './ui';
@@ -79,6 +80,8 @@ export function OrdersApp() {
   const [batches, setBatches] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [tab, setTab] = React.useState<OrdersTab>('pack');
+  // One tag at a time narrows the list (a backorder, a gift, the shop's own tags); "waiting" is orders waiting on stock.
+  const [tagOn, setTagOn] = React.useState<string>('');
   const [q, setQ] = React.useState(''); const [searching, setSearching] = React.useState(false);
   const [openId, setOpenId] = React.useState<string | null>(null);
   // Open an order on one of its tabs (packing it, buying its label); n tells a second ask from the first.
@@ -230,11 +233,14 @@ export function OrdersApp() {
   const showToday = !!schedule.savedAt || orders.some((o) => o.method === 'ship') || day.carrier.length > 0;
   const list = React.useMemo(() => {
     const src = tab === 'done' ? done : orders.filter((o) => tabOf(o) === tab);
-    const f = src.filter((o) => matchesSearch(o, q));
+    const f = src.filter((o) => matchesSearch(o, q) && (!tagOn || hasTag(o, tagOn, rs)));
     if (tab === 'pack') { const order = new Map(queue.map((o, i) => [o.id, i])); return f.sort((a, b) => (order.get(a.id) ?? 999) - (order.get(b.id) ?? 999)); }
     if (tab === 'ready') { const r = (o: any) => (o.stage === 'arrived' ? 0 : o.curbside?.arrivedAt ? 1 : o.method === 'ship' ? 3 : 2); return f.sort((a, b) => r(a) - r(b)); }
     return f;
-  }, [tab, orders, done, q, queue]);
+  }, [tab, orders, done, q, queue, tagOn, rs]);
+  // The tags on this tab's orders, for the filter (only shown when there's more than nothing to sort by).
+  const tabTags = React.useMemo(() => tagChoices(tab === 'done' ? done : orders.filter((o) => tabOf(o) === tab), rs), [tab, orders, done, rs]);
+  React.useEffect(() => { if (tagOn && !tabTags.some((t) => t.id === tagOn)) setTagOn(''); }, [tabTags, tagOn]);
 
   const arrivedKey = orders.filter((o) => o.stage === 'arrived').map((o) => o.id).join(',');
   const announced = React.useRef<Set<string>>(new Set());
@@ -367,13 +373,15 @@ export function OrdersApp() {
       : ['waiting', 'approving'].includes(String(o.addressRequest?.status)) ? 'Address change to approve'
       : o.addressConfirm?.status === 'waiting' ? `Waiting on ${firstName(o.customerName)} to confirm the address`
       : o.addressChanged && ['picking', 'packed', 'label'].includes(String(o.addressChanged.after)) && !o.labelUrl ? 'New address' : '';
-    const extra = o.isTest ? 'Test order' : o.stage === 'picking' && o.claimedByName ? `${o.claimedBy === actor.id ? 'You’re' : `${firstName(o.claimedByName)} is`} packing` : o.holdForReview ? 'Held for review' : o.stage === 'cancelled' ? 'Cancelled' : addrNote;
+    const extra = o.isTest ? 'Test order' : o.stage === 'picking' && o.claimedByName ? `${o.claimedBy === actor.id ? 'You’re' : `${firstName(o.claimedByName)} is`} packing` : o.holdForReview ? 'Held for review' : o.stage === 'cancelled' ? 'Cancelled' : o.holdUntilRestock && o.stage === 'paid' ? 'Waiting on stock' : addrNote;
+    // Up to two of its tags (a backorder, a gift, the shop's own), so the row says what's different about it.
+    const tg = orderTags(o, rs).filter((t) => !['test', 'tip'].includes(t.id)).slice(0, 2).map((t) => t.label);
     const on = picked.has(o.id);
     const lead = selecting
       ? <span key={on ? 'on' : 'off'} className={`${on ? 'cf-anim-pop ' : ''}grid h-11 w-11 shrink-0 place-items-center`}><span className="grid h-6 w-6 place-items-center rounded-full border-2" style={on ? { background: C.ink, borderColor: C.ink } : { borderColor: '#c7c8cc' }}>{on ? Ic.check : null}</span></span>
       : <Initials name={o.customerName} />;
     return <ListRow key={o.id} onClick={() => (selecting ? toggle(o.id) : setOpenId(o.id))} active={selecting ? on : wide && openId === o.id} lead={lead}
-      title={o.customerName || 'Customer'} detail={[methodLabel(o.method), `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`, extra].filter(Boolean).join(' · ')}
+      title={o.customerName || 'Customer'} detail={[methodLabel(o.method, rs), `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`, extra, ...tg].filter(Boolean).join(' · ')}
       trail={<span className="shrink-0 text-[14px]" style={d.late ? { color: C.warn, fontWeight: 600 } : muted}>{tab === 'done' ? (o.stage === 'cancelled' ? 'Cancelled' : o.stage === 'shipped' ? 'Shipped' : 'Done') : d.text}</span>} />;
   };
 
@@ -384,7 +392,7 @@ export function OrdersApp() {
       {nextUp && (
         <div className="mx-4 mt-3 rounded-3xl border-2 p-4" style={{ borderColor: C.ink }}>
           <p className="m-0 text-[13px] font-semibold" style={muted}>Next up</p>
-          <div className="mt-1 flex items-start justify-between gap-2"><div><p className="m-0 text-[22px] font-light">{nextUp.customerName}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{methodLabel(nextUp.method)} · {itemCount(nextUp)} item{itemCount(nextUp) === 1 ? "" : "s"}</p></div><span className="text-[14px] font-semibold" style={dueLine(nextUp, rs, now, shopZone).late ? { color: C.warn } : muted}>{dueLine(nextUp, rs, now, shopZone).text}</span></div>
+          <div className="mt-1 flex items-start justify-between gap-2"><div><p className="m-0 text-[22px] font-light">{nextUp.customerName}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{methodLabel(nextUp.method, rs)} · {itemCount(nextUp)} item{itemCount(nextUp) === 1 ? "" : "s"}</p></div><span className="text-[14px] font-semibold" style={dueLine(nextUp, rs, now, shopZone).late ? { color: C.warn } : muted}>{dueLine(nextUp, rs, now, shopZone).text}</span></div>
           <Btn kind="primary" className="mt-3 w-full" onClick={() => void beginPack(nextUp)}>Start packing</Btn>
         </div>)}
       {selecting && <div className="flex items-center justify-between px-4 pb-1 pt-3"><span className="text-[13px] font-semibold" style={muted}>{picked.size ? `${picked.size} of ${list.length}` : 'Tap orders to pick them'}</span><button type="button" onClick={() => setPicked(picked.size === list.length ? new Set() : new Set(list.map((o) => o.id)))} className="h-11 text-[15px] font-semibold">{picked.size === list.length ? 'Clear' : `Select all ${list.length}`}</button></div>}
@@ -434,6 +442,10 @@ export function OrdersApp() {
           <span className="flex min-w-0 items-center gap-1.5 font-medium"><span className="truncate">{firstNeed}</span>{Ic.chev}</span>
         </button>)}
       <div className="mt-3 lg:max-w-md"><Seg value={tab} onChange={(v) => { setTab(v); if (wide) setOpenId(null); }} options={[{ id: 'pack', label: `To pack ${counts.pack || ''}`.trim() }, { id: 'ready', label: `Ready ${counts.ready || ''}`.trim() }, { id: 'done', label: 'Done' }]} /></div>
+      {tabTags.length > 0 && (
+        <div className="-mx-4 mt-2.5 flex gap-2 overflow-x-auto px-4 pb-1" role="group" aria-label="Show only">
+          {tabTags.map((t) => { const sel = tagOn === t.id; return <button key={t.id} type="button" aria-pressed={sel} onClick={() => setTagOn(sel ? '' : t.id)} className="h-9 shrink-0 rounded-full px-3.5 text-[14px] font-semibold" style={sel ? { background: C.ink, color: C.paper } : { background: C.soft, color: t.warn ? C.warn : C.ink }}>{t.label} <span style={sel ? undefined : muted}>{t.n}</span></button>; })}
+        </div>)}
     </div>);
 
   // AN ITEM SCANNED ON THE BOARD (no order open for packing): it's counted into the order of yours that still needs it,
@@ -518,7 +530,7 @@ export function OrdersApp() {
     <OrderWorkspace key={open.id} fs={fs} tenantId={tenantId} order={open} all={orders} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor}
       batch={batches.find((b) => b.id === open.batchId) || null} inventory={inventory || []} perms={perms} canRefund={canRefund} isManager={isManager} canEditContact={canEditContact}
       shopZone={shopZone} layout={layout} requestTab={focus} startMessage={startMessage && startMessage.orderId === open.id ? startMessage.text : null}
-      onClose={() => { setOpenId(null); setStartMessage(null); }} onToast={setToast} />);
+      onClose={() => { setOpenId(null); setStartMessage(null); }} onToast={setToast} onOpenOrder={(id) => setOpenId(id)} />);
 
   return (
     <div className="cf-settings min-h-[100dvh]" style={{ background: C.paper, color: C.ink }}>
@@ -582,3 +594,19 @@ function Arrival({ o, now, onOut, onHand }: { o: any; now: number; onOut: () => 
     </div>);
 }
 
+
+/** Whether an order carries a tag (by its id), or is waiting on stock ("waiting"). */
+function hasTag(o: any, id: string, rs: any): boolean {
+  if (id === 'waiting') return o?.holdUntilRestock === true && o?.stage === 'paid';
+  return orderTags(o, rs).some((t) => t.id === id);
+}
+/** The tags on a list of orders, with how many carry each, for the filter. */
+function tagChoices(list: any[], rs: any): { id: string; label: string; n: number; warn: boolean }[] {
+  const m = new Map<string, { id: string; label: string; n: number; warn: boolean }>();
+  const bump = (id: string, label: string, warn: boolean) => { const x = m.get(id) || { id, label, n: 0, warn }; x.n++; m.set(id, x); };
+  for (const o of list) {
+    if (o?.holdUntilRestock === true && o?.stage === 'paid') bump('waiting', 'Waiting on stock', true);
+    for (const t of orderTags(o, rs)) if (!['tip', 'test'].includes(t.id)) bump(t.id, t.id === 'part_backorder' ? 'Part on backorder' : t.label, t.tone === 'warn');
+  }
+  return [...m.values()].sort((a, b) => Number(b.warn) - Number(a.warn) || b.n - a.n).slice(0, 12);
+}

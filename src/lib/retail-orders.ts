@@ -420,7 +420,7 @@ export interface FinancialTransactionEntry {
   clientOrVendor: string;
   type: 'income' | 'expense';
   context: 'Business';
-  category: 'Retail' | 'Spoilage' | 'Refund';
+  category: 'Retail' | 'Spoilage' | 'Refunds';
   amount: number;              // DOLLARS, existing convention
   paymentMethod: string;
   hasReceipt: boolean;
@@ -457,7 +457,7 @@ export function buildRefundTransaction(
     clientOrVendor: order.customerName,
     type: 'expense',
     context: 'Business',
-    category: 'Refund',
+    category: 'Refunds',
     amount: amountCents / 100,
     paymentMethod: 'Card (Online)',
     hasReceipt: true,

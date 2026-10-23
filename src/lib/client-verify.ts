@@ -25,10 +25,10 @@ const defaultSend: Send = async (m) => { const { sendNotification } = await impo
 export async function startVerify(db: any, t: string, clientId: string, o: { channel?: 'sms' | 'email'; purpose?: string; now?: number; send?: Send } = {}) {
   const now = o.now ?? Date.now(); const T = `tenants/${t}`;
   const c: any = (await db.doc(`${T}/clients/${clientId}`).get()).data(); if (!c) return { ok: false, error: 'We couldn’t find your details.' };
-  if (c.phoneReportedWrongAt && (o.channel || 'sms') === 'sms') return { ok: false, error: 'We can’t send a code to this number. Please call us so we can update your details.' };
+  if (c.phoneReportedWrongAt && (o.channel || 'sms') === 'sms') return { ok: false, error: 'We can’t send a code to this number. Please reply to one of our emails, or let us know at your next visit, so we can update your details.' };
   const ch: 'sms' | 'email' = o.channel === 'email' ? 'email' : c.phone && c.smsOptOut !== true ? 'sms' : 'email';
   const to = ch === 'sms' ? String(c.phone || '') : String(c.email || '');
-  if (!to || (ch === 'email' && !to.includes('@'))) return { ok: false, error: 'There’s no phone number or email on your record. Please call us.' };
+  if (!to || (ch === 'email' && !to.includes('@'))) return { ok: false, error: 'There’s no phone number or email on your record. Please let us know at your next visit so we can add one.' };
   // At most 5 codes an hour for a client.
   const recent = (await db.collection(`${T}/clientVerifications`).where('clientId', '==', clientId).limit(50).get()).docs.map((d: any) => d.data())
     .filter((v: any) => Date.parse(v.createdAt) > now - 60 * MIN);

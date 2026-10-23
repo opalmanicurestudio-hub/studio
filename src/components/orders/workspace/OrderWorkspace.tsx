@@ -18,6 +18,9 @@ import type { FulfilmentPermissions } from '@/lib/fulfilment-access';
 import { setHold } from '../bulk';
 import { MissingSheet } from '../MissingSheet';
 import { HandoverSheet } from '../HandoverSheet';
+import { RefundPartSheet } from '../RefundPartSheet';
+import { NoteSheet, TagsSheet } from '../TagsSheet';
+import { OrderFacts } from './OrderFacts';
 import { useLabelRecords } from '../LabelHistory';
 import { BottomBar, Btn, C, IconBtn, Sheet, feel, muted, Ic } from '../ui';
 import { PackPane, type PackMode } from './PackPane';
@@ -76,7 +79,7 @@ function useFeeds(fs: Firestore, tenantId: string, orderId: string, wantEvents: 
   return { inbox, tickets, returns, events };
 }
 
-export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, shelfFor, batch, inventory, perms, canRefund, isManager, canEditContact, shopZone, layout, requestTab, startMessage, onClose, onToast, onDone }: {
+export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, shelfFor, batch, inventory, perms, canRefund, isManager, canEditContact, shopZone, layout, requestTab, startMessage, onClose, onToast, onDone, onOpenOrder }: {
   fs: Firestore; tenantId: string; order: any; all: any[]; actor: Actor; rs: any; photoFor: Map<string, string>; shelfFor: Map<string, string>; batch: any | null; inventory: any[];
   perms: FulfilmentPermissions; canRefund: boolean; isManager: boolean; canEditContact: boolean; shopZone: string; layout: Layout;
   /** Open on this tab (the list's "Ship today", a label to buy, a message to answer); changes with each ask. */
@@ -86,6 +89,8 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   onClose: () => void; onToast: (m: string) => void;
   /** Packing finished: the list can move on to the next order. */
   onDone?: (message: string) => void;
+  /** Open another order (a backorder, the order it came from). */
+  onOpenOrder?: (orderId: string) => void;
 }) {
   const phone = layout === 'phone';
   const [tab, setTab] = React.useState<WorkTab>(() => defaultTab(order));
@@ -93,6 +98,8 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const [handing, setHanding] = React.useState(false);
   const [more, setMore] = React.useState(false);
   const [boxSizes, setBoxSizes] = React.useState(false);
+  const [partRefund, setPartRefund] = React.useState(false);
+  const [tagsOpen, setTagsOpen] = React.useState(false); const [noteOpen, setNoteOpen] = React.useState(false);
   const [confirmCancel, setConfirmCancel] = React.useState(false); const [reason, setReason] = React.useState('');
   const [busy, setBusy] = React.useState(''); const [err, setErr] = React.useState('');
   const [msgStart, setMsgStart] = React.useState<string | null>(startMessage ?? null);
@@ -158,6 +165,8 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
     && (order.lines || []).some((l: any) => l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status)))
     && (order.lines || []).some((l: any) => l.preorder !== true);
   const canCancel = !terminal && (perms.canManage || canRefund || isManager);
+  // Refund part of it (some items, the shipping, an amount): someone allowed to send refunds, once it's paid.
+  const canRefundPart = canRefund && !!order.qrToken && !['placed', 'cancelled', 'refunded'].includes(stage) && !order.isTest;
   const doCancel = async () => { setBusy('cancel'); const r = await cancelIt(fs, tenantId, order, actor, reason.trim() || 'Cancelled by the shop'); setBusy(''); if (r.ok) { setConfirmCancel(false); onToast(r.message); } else setErr(r.message); };
   const split = async () => { setBusy('split'); setMore(false); const r = await splitReadyFromWaiting(fs, tenantId, order.id, actor); setBusy(''); feel(r.ok); if (r.ok) onToast(r.message); else setErr(r.message); };
   const hold = async () => { setBusy('hold'); setMore(false); onToast(await setHold(fs, tenantId, [order], actor, true)); setBusy(''); };
@@ -182,11 +191,11 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
       </div>
       <p className="m-0 mt-2.5 text-[28px] font-light leading-tight tracking-[-0.02em] lg:text-[30px]">{order.customerName || 'Customer'}</p>
       <p className="m-0 mt-0.5 text-[15px]" style={muted}>
-        {ship && order.shippingAddress ? `Ships to ${order.shippingAddress.city}, ${order.shippingAddress.state}` : methodLabel(order.method)}
+        {ship && order.shippingAddress ? `Ships to ${order.shippingAddress.city}, ${order.shippingAddress.state}` : methodLabel(order.method, rs)}
         {order.shippingService && ship ? ` · ${paidService(order)}` : ''} · <span style={due.late && !terminal ? { color: C.warn, fontWeight: 600 } : undefined}>{stage === 'cancelled' ? 'Cancelled' : due.text}</span>
         {order.claimedByName && stage === 'picking' ? ` · ${order.claimedBy === actor.id ? 'you’re packing' : `${firstName(order.claimedByName)} is packing`}` : ''}
-        {order.isTest ? ' · Test order' : ''}{follow ? ' · Follow-up order' : ''}
       </p>
+      <OrderFacts fs={fs} tenantId={tenantId} order={order} all={all} rs={rs} onOpen={(id) => (onOpenOrder ? onOpenOrder(id) : window.location.assign(`/retail-orders?order=${encodeURIComponent(id)}`))} />
       {stage !== 'cancelled' && stage !== 'refunded' && (
         <div className="mt-4 flex gap-1.5" aria-label="Where this order is">
           {steps.map((s, i) => (
@@ -207,7 +216,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
           canManage={isManager} onMissing={(l) => setMissing(l)} onFinished={(m) => { onToast(m); onDone?.(m); }} onPutDown={() => { onToast('Put back in the queue.'); if (phone) onClose(); }} onBoxSizes={() => setBoxSizes(true)} onToast={onToast} />}
         {tab === 'ship' && (ship
           ? <ShipPane fs={fs} tenantId={tenantId} order={order} inventory={inventory} rs={rs} actor={actor} recs={recs} canShip={perms.canShip} addressBeside={layout === 'three'} onToast={onToast} />
-          : <PickupPane fs={fs} tenantId={tenantId} order={order} actor={actor} shopZone={shopZone} onHandover={() => setHanding(true)} onToast={onToast} />)}
+          : <PickupPane fs={fs} tenantId={tenantId} order={order} actor={actor} shopZone={shopZone} rs={rs} onHandover={() => setHanding(true)} onToast={onToast} />)}
         {tab === 'customer' && customer(false)}
         {tab === 'record' && <RecordPane tenantId={tenantId} order={order} events={feeds.events} inbox={feeds.inbox} tickets={feeds.tickets} recs={recs} returns={feeds.returns} onToast={onToast} />}
       </div>
@@ -235,6 +244,9 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
       {missing && <MissingSheet fs={fs} tenantId={tenantId} order={order} line={missing} shelf={shelfFor.get(missing.productId)} inventory={inventory} actor={actor} autoBelow={Math.max(0, Number(rs.policies?.refundAutoBelowCents) || 0)} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); onToast(m); }} />}
       {handing && <HandoverSheet fs={fs} tenantId={tenantId} order={order} actor={actor} onClose={() => setHanding(false)} onDone={(m) => { setHanding(false); onToast(m); }} />}
       {boxSizes && <BoxSizesSheet tenantId={tenantId} rs={rs} onClose={() => setBoxSizes(false)} onToast={onToast} />}
+      {tagsOpen && <TagsSheet fs={fs} tenantId={tenantId} order={order} all={all} rs={rs} actor={actor} onClose={() => setTagsOpen(false)} onDone={(m) => { setTagsOpen(false); onToast(m); }} />}
+      {noteOpen && <NoteSheet fs={fs} tenantId={tenantId} order={order} actor={actor} onClose={() => setNoteOpen(false)} onDone={(m) => { setNoteOpen(false); onToast(m); }} />}
+      {partRefund && <RefundPartSheet tenantId={tenantId} order={order} onClose={() => setPartRefund(false)} onDone={(m) => { setPartRefund(false); onToast(m); }} />}
       {more && (
         <Sheet title={`${orderNum(order)} · ${who}`} sub="More for this order" onClose={() => setMore(false)} closeLabel="Done">
           <div className="mt-2 flex flex-col gap-2">
@@ -243,6 +255,9 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
             {canSplit && <Btn kind="soft" className="w-full" disabled={!!busy} onClick={() => void split()}>Ship what’s ready now, the rest when it comes in</Btn>}
             {isManager && !order.holdForReview && ['paid', 'picking'].includes(stage) && <Btn kind="soft" className="w-full" disabled={!!busy} onClick={() => void hold()}>Hold it for review</Btn>}
             {isManager && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setBoxSizes(true); }}>Box sizes</Btn>}
+            <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setTagsOpen(true); }}>Tags{Array.isArray(order.tags) && order.tags.length ? ` · ${order.tags.length}` : ''}</Btn>
+            <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setNoteOpen(true); }}>{order.staffNote?.text ? 'Change the note' : 'Add a note for the team'}</Btn>
+            {canRefundPart && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setPartRefund(true); }}>Refund part of this order</Btn>}
             {canCancel && <Btn kind="danger" className="w-full" onClick={() => { setMore(false); setConfirmCancel(true); }}>Cancel the order</Btn>}
           </div>
         </Sheet>)}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
+import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
 
 export interface DepositCredit {
   id: string;
@@ -30,22 +31,25 @@ interface UseDepositCreditResult {
  * appointment.depositStatus / appointment.depositAmountCents, which aren't
  * reliably populated by the deposit-payment webhook in this codebase.
  *
- * Lookup order: by clientId, falling back to clientEmail. Most-recent-first,
- * excludes expired credits. Mirrors the pattern used by
- * studio-cancel-refund, handle-no-show-action, and the self-cancel route —
- * this hook exists so every consumer agrees with those server-side paths
- * instead of trusting a derived flag that can drift out of sync.
+ * Lookup order: by clientId, falling back to clientEmail. Only DEPOSITS count (lib/credit-pools): store credit
+ * from a return or a goodwill gesture lives in the same collection and is never a booking's deposit. With an
+ * appointment, that appointment's own deposit first; otherwise one carried over from a cancelled booking. Not expired,
+ * and what's LEFT on it (a deposit part used at the desk shows the rest). Mirrors studio-cancel-refund,
+ * handle-no-show-action and the self-cancel route, so every consumer agrees with those server-side paths instead of
+ * trusting a derived flag that can drift out of sync.
  *
  * @param clientId - appointment.clientId
  * @param clientEmail - client?.email (fallback lookup key)
  * @param tenantId - selectedTenant?.id
  * @param enabled - skip the query entirely when false (e.g. dialog closed)
+ * @param appointmentId - the booking it's for, so its own deposit is the one found
  */
 export function useDepositCredit(
   clientId: string | undefined,
   clientEmail: string | undefined,
   tenantId: string | undefined,
   enabled: boolean = true,
+  appointmentId?: string,
 ): UseDepositCreditResult {
   const { firestore } = useFirebase();
   const [depositCredit, setDepositCredit] = useState<DepositCredit | null>(null);
@@ -75,13 +79,13 @@ export function useDepositCredit(
         }
         if (cancelled) return;
         if (snap && !snap.empty) {
-          const candidates = snap.docs
-            .map(d => ({ id: d.id, ...(d.data() as any) }))
-            .filter((c: any) => !c.expiresAt || new Date(c.expiresAt).getTime() > Date.now());
-          candidates.sort(
-            (a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
-          );
-          setDepositCredit(candidates[0] || null);
+          const candidates = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter((c: any) => isDepositCredit(c));
+          // This booking's own deposit; otherwise one carried over from a booking that was cancelled (never a deposit
+          // still waiting for another booking).
+          const picked = pickDeposit(candidates, appointmentId ? [appointmentId] : [], () => true)
+            || (appointmentId ? null : pickDeposit(candidates, [], () => false))
+            || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
+          setDepositCredit(picked ? { ...picked, amountCents: creditLeftCents(picked), amountDollars: undefined } as any : null);
         } else {
           setDepositCredit(null);
         }
@@ -95,7 +99,7 @@ export function useDepositCredit(
     return () => {
       cancelled = true;
     };
-  }, [enabled, firestore, tenantId, clientId, clientEmail]);
+  }, [enabled, firestore, tenantId, clientId, clientEmail, appointmentId]);
 
   const hasDeposit = !!depositCredit;
   const depositDollars = depositCredit

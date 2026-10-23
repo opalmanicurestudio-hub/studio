@@ -17,7 +17,7 @@ const LATE_CHOICES = [5, 10, 15, 20, 30, 45];
 export const DayOfView = ({ hero, place, callNumber, lateChoices, onLateChoice, accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel, onMessage, openLate, notice }: {
     /** Where it happens — online (with a link) or at the client's place skip check-in, directions and trips. */
     place?: ServicePlace | null;
-    /** Their number to call, for "they call us" phone appointments. */
+    /** The studio's number, for phone appointments where the client calls. */
     callNumber?: string | null;
     /** Running late past the grace time — the options we sent them. */
     lateChoices?: { status?: string; choice?: string | null; options?: string[]; dropNames?: string[]; toStaffName?: string | null; etaAt?: string } | null;
@@ -163,8 +163,8 @@ export const DayOfView = ({ hero, place, callNumber, lateChoices, onLateChoice, 
                         ? <a href={place.meetingLink} target="_blank" rel="noreferrer" className={`${btn} font-semibold text-white shadow-sm`} style={{ background: 'var(--accent)' }}>Join your appointment</a>
                         : <div className="pub-card p-4 text-center"><p className="text-[15px]">This is an online appointment — your link will be here before it starts.</p></div>)
                     : place?.kind === 'phone' ? (place.phoneWho === 'they_call'
-                        ? (callNumber ? <a href={`tel:${callNumber.replace(/[^\d+]/g, '')}`} className={`${btn} font-semibold text-white shadow-sm`} style={{ background: 'var(--accent)' }}>Call us at {callNumber}</a>
-                            : <div className="pub-card p-4 text-center"><p className="text-[15px]">This is a phone call — please call us at your appointment time.</p></div>)
+                        ? (callNumber ? <a href={`tel:${callNumber.replace(/[^\d+]/g, '')}`} className={`${btn} font-semibold text-white shadow-sm`} style={{ background: 'var(--accent)' }}>Call {callNumber}</a>
+                            : <div className="pub-card p-4 text-center"><p className="text-[15px]">This is a phone appointment. Please call the studio at your appointment time.</p></div>)
                         : <div className="pub-card p-4 text-center"><p className="text-[15px]">This is a phone call — we’ll call you at your appointment time. Keep your phone nearby.</p></div>)
                     : place?.kind === 'client' ? <div className="pub-card p-4 text-center"><p className="text-[15px]">We’ll come to you{provider?.name ? ` — ${String(provider.name).split(' ')[0]} will let you know when they’re on the way` : ''}.</p></div>
                     : !selfCheckIn ? <div className="pub-card p-4 text-center"><p className="text-[15px]">Please check in at the front desk when you arrive.</p></div> : confirmHere ? (

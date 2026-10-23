@@ -14,6 +14,7 @@ import { brandOf, printCodeLabels } from '@/lib/print-labels';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { useSeconds } from '@/components/pos/desk/LiveTimer';
 import { Ring } from '@/components/pos/desk/hk-ui';
+import { printPage } from '@/lib/print-style';
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
@@ -74,10 +75,13 @@ export function Sterilisation({ tenantId, tenant, kits, manager, incoming = null
     scanFeedback(true); if (open !== 'start') { setOpen('start'); setLoad([k.id]); } else setLoad((l) => (l.includes(k.id) ? l : [...l, k.id])); setMsg({ ok: true, text: `${k.name} ${k.code} added to the load.` }); };
   scanRef.current = handleScan;
   const saveOps = async (patch: any) => { try { await updateDoc(doc(firestore, 'tenants', tenantId), { ops: { ...(tenant?.ops || {}), ...patch } }); void logAuditClient(firestore, tenantId, { action: 'sterilisation.settings', targetType: 'tenant', actor: actor(), after: patch, summary: `Sterilisation settings changed: ${Object.keys(patch).join(', ')}` }); } catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
+  // The inspector's log, in the app's print look (lib/print-style); it opens the print dialog once the font has loaded.
   const printLog = (days: number) => { const brand = brandOf(tenant); const rows = logRows(cycles, Date.now() - days * 86400000); const w = window.open('', '_blank'); if (!w) { setMsg({ ok: false, text: 'Allow pop-ups to print the log.' }); return; }
-    w.document.write(`<!doctype html><meta charset="utf-8"><title>Sterilisation log</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet"><style>@page{margin:12mm}body{font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:#16171a;font-size:9pt}h1{font-size:15pt;margin:0}p{margin:2px 0 10px;color:#6b6760}table{width:100%;border-collapse:collapse}th{text-align:left;font-size:7.5pt;letter-spacing:.08em;text-transform:uppercase;color:#6b6760;border-bottom:1.5px solid #16171a;padding:5px 6px}td{border-bottom:1px solid #ddd;padding:5px 6px;vertical-align:top}.f{font-weight:700}tr{break-inside:avoid}</style>
-<h1>${esc(brand.name || 'Sterilisation log')}</h1><p>Sterilisation log · last ${days} days · printed ${esc(new Date().toLocaleString())} · ${rows.length} record${rows.length === 1 ? '' : 's'}</p>
-<table><thead><tr><th>When</th><th>Record</th><th>Machine</th><th>Settings</th><th>Load</th><th>Result</th><th>By</th><th>Note</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(r.when)}</td><td>${esc(r.what)}</td><td>${esc(r.device)}</td><td>${esc(r.settings)}</td><td>${esc(r.load)}</td><td class="${r.result === 'FAIL' ? 'f' : ''}">${esc(r.result)}</td><td>${esc(r.by)}</td><td>${esc(r.note)}</td></tr>`).join('')}</tbody></table><script>onload=()=>setTimeout(()=>print(),200)<\/script>`); w.document.close(); };
+    const result = (r: string) => (r === 'FAIL' ? '<span class="pill bad">Fail</span>' : r === 'Pass' ? '<span class="pill ok">Pass</span>' : `<span class="pill">${esc(r)}</span>`);
+    w.document.write(printPage({ title: 'Sterilization log', heading: 'Sterilization <b>log</b>', shopName: brand.name || undefined,
+      subtitle: `Last ${days} days · ${rows.length} record${rows.length === 1 ? '' : 's'}`,
+      body: `<table><thead><tr><th>When</th><th>Record</th><th>Machine</th><th>Settings</th><th>Load</th><th>Result</th><th>By</th><th>Note</th></tr></thead><tbody>${rows.map((r) => `<tr><td class="nowrap">${esc(r.when)}</td><td>${esc(r.what)}</td><td>${esc(r.device)}</td><td>${esc(r.settings)}</td><td>${esc(r.load)}</td><td>${result(r.result)}</td><td>${esc(r.by)}</td><td>${esc(r.note)}</td></tr>`).join('') || '<tr><td colspan="8" class="faint">No records in this period.</td></tr>'}</tbody></table>`,
+      css: '.pp th, .pp td { padding: 6px 6px; } .pp td { font-size: 11.5px; }' })); w.document.close(); };
 
   return (
     <div className="space-y-3">

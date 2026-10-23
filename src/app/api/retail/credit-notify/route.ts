@@ -73,13 +73,12 @@ export async function POST(req: NextRequest) {
       .limit(50).get();
     const docs = allSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
 
-    const balanceCents = docs.reduce((a: number, c: any) =>
-      a + (c.status === 'available'
-        ? Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0))
-        : 0), 0);
+    // Store credit only (a booking's deposit isn't spendable in the shop), from what's left on it (lib/credit-pools).
+    const { isStoreCredit, storeCreditBalance } = await import('@/lib/credit-pools');
+    const balanceCents = storeCreditBalance(docs);
 
     const history: { at: string; label: string; deltaCents: number }[] = [];
-    for (const c of docs) {
+    for (const c of docs.filter((x: any) => isStoreCredit(x))) {
       history.push({
         at: String(c.createdAt || ''),
         label: c.sourceRetailReturnId ? 'Store credit \u2014 return' : 'Store credit added',

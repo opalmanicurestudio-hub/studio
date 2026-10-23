@@ -5,6 +5,7 @@ import { type Staff, type ActivityLog } from '@/lib/data';
 import type { Transaction } from '@/lib/financial-data';
 import { DateRange } from 'react-day-picker';
 import { format, parseISO, startOfDay, endOfDay } from 'date-fns';
+import { PRINT, PRINT_CSS } from '@/lib/print-style';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -95,129 +96,135 @@ export function PrintableStaffReport({
   ];
 
   const noteSections = ['What went well', 'Areas to grow', 'Goals for next period'];
+  const roleLine = [String(member.role || '').replace(/_/g, ' '), member.payStructure ? String(member.payStructure).replace(/_/g, ' ') : ''].filter(Boolean).join(' · ');
 
+  // In the app's print look (lib/print-style): a light heading, sentence-case labels in grey, thin lines, tabular
+  // figures. The heading is a div rather than a <header>, so the rule that hides the app's header on paper leaves it be.
   return (
-    <div id="staff-review-print" className="hidden print:block bg-white text-black">
-      <style>{`
+    <div id="staff-review-print" className="pp cf-paper hidden print:block">
+      <style>{`${PRINT_CSS}
         @media print {
           @page { size: letter; margin: 0.6in; }
           body:has(#staff-review-print) [data-sidebar],
           body:has(#staff-review-print) header {
             display: none !important;
           }
-          #staff-review-print {
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-            font-variant-numeric: tabular-nums;
-          }
+          #staff-review-print { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           #staff-review-print .avoid-break { break-inside: avoid; }
         }
+        #staff-review-print { background: #fff; }
+        #staff-review-print .who { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+        #staff-review-print .who h2 { font-size: 20px; font-weight: 300; letter-spacing: -0.01em; margin: 0; }
+        #staff-review-print .rows { column-gap: 32px; row-gap: 0; }
+        #staff-review-print .write { height: 28px; border-bottom: 1px solid #c9cacd; }
+        #staff-review-print .sign { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 36px; }
+        #staff-review-print .sign .ln { height: 40px; border-bottom: 1px solid ${PRINT.ink}; }
+        #staff-review-print .sign .lbl { margin-top: 6px; }
       `}</style>
 
-      <header className="flex items-start justify-between border-b-2 border-black pb-4 mb-6">
+      <div className="head">
         <div>
-          <p className="text-[11px] font-black uppercase tracking-[0.2em]">{businessName}</p>
-          <h1 className="text-3xl font-black tracking-tight mt-1">Performance review</h1>
+          <p className="shop">{businessName}</p>
+          <h1>Performance <b>review</b></h1>
         </div>
-        <div className="text-right text-[11px] font-bold leading-relaxed">
-          <p>Period: {periodLabel}</p>
-          <p>Prepared: {format(new Date(), 'MMM d, yyyy')}</p>
+        <div className="meta">
+          <div>{periodLabel}</div>
+          <div>Prepared {format(new Date(), 'MMM d, yyyy')}</div>
         </div>
-      </header>
+      </div>
 
-      <section className="mb-6 avoid-break">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-xl font-black tracking-tight">{member.name}</h2>
-          <p className="text-[11px] font-bold uppercase tracking-widest">{member.role}{member.payStructure ? ` · ${String(member.payStructure).replace(/_/g, ' ')}` : ''}</p>
-        </div>
+      <section className="who avoid-break">
+        <h2>{member.name}</h2>
+        {roleLine && <p className="muted">{roleLine.charAt(0).toUpperCase() + roleLine.slice(1)}</p>}
       </section>
 
-      <section className="mb-6 avoid-break">
-        <h3 className="text-[11px] font-black uppercase tracking-[0.2em] border-b border-black pb-1 mb-3">Results this period</h3>
-        <div className="grid grid-cols-2 gap-x-8">
+      <section className="avoid-break">
+        <h2>Results this period</h2>
+        <div className="grid2 rows">
           {scorecard.map(row => (
-            <div key={row.label} className="flex items-baseline justify-between border-b border-black/20 py-1.5">
-              <span className="text-[12px] font-bold">{row.label}</span>
-              <span className="text-[13px] font-black">{row.value}</span>
+            <div key={row.label} className="line">
+              <span className="body">{row.label}</span>
+              <span>{row.value}</span>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="mb-6 avoid-break">
-        <h3 className="text-[11px] font-black uppercase tracking-[0.2em] border-b border-black pb-1 mb-3">Attendance & pay</h3>
-        <div className="grid grid-cols-2 gap-x-8">
-          <div className="flex items-baseline justify-between border-b border-black/20 py-1.5">
-            <span className="text-[12px] font-bold">Shifts clocked</span>
-            <span className="text-[13px] font-black">{attendance.sessions}</span>
+      <section className="avoid-break">
+        <h2>Attendance and pay</h2>
+        <div className="grid2 rows">
+          <div className="line">
+            <span className="body">Shifts clocked</span>
+            <span>{attendance.sessions}</span>
           </div>
-          <div className="flex items-baseline justify-between border-b border-black/20 py-1.5">
-            <span className="text-[12px] font-bold">Breaks taken</span>
-            <span className="text-[13px] font-black">{attendance.breaks}{attendance.breakMinutes ? ` (${attendance.breakMinutes} min)` : ''}</span>
+          <div className="line">
+            <span className="body">Breaks taken</span>
+            <span>{attendance.breaks}{attendance.breakMinutes ? ` (${attendance.breakMinutes} min)` : ''}</span>
           </div>
           {earnings.map(row => (
-            <div key={row.label} className="flex items-baseline justify-between border-b border-black/20 py-1.5">
-              <span className="text-[12px] font-bold">{row.label}</span>
-              <span className="text-[13px] font-black">{row.value}</span>
+            <div key={row.label} className="line">
+              <span className="body">{row.label}</span>
+              <span>{row.value}</span>
             </div>
           ))}
         </div>
       </section>
 
       {payments.total > 0 && (
-        <section className="mb-6">
-          <h3 className="text-[11px] font-black uppercase tracking-[0.2em] border-b border-black pb-1 mb-2">Recent payments credited</h3>
-          <table className="w-full text-[11px]">
+        <section>
+          <h2>Recent payments credited</h2>
+          <table>
             <thead>
-              <tr className="text-left font-black uppercase tracking-widest border-b border-black">
-                <th className="py-1 pr-3">Date</th>
-                <th className="py-1 pr-3">Description</th>
-                <th className="py-1 pr-3">Type</th>
-                <th className="py-1 text-right">Amount</th>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Type</th>
+                <th className="r">Amount</th>
               </tr>
             </thead>
             <tbody>
               {payments.rows.map(t => (
-                <tr key={t.id} className="border-b border-black/15 align-top">
-                  <td className="py-1 pr-3 whitespace-nowrap font-bold">{format(safeDate(t.date), 'MMM d')}</td>
-                  <td className="py-1 pr-3">{t.description}</td>
-                  <td className="py-1 pr-3 font-bold">{t.category}</td>
-                  <td className="py-1 text-right font-black">{money(t.amount)}</td>
+                <tr key={t.id}>
+                  <td className="nowrap muted">{format(safeDate(t.date), 'MMM d')}</td>
+                  <td>{t.description}</td>
+                  <td className="muted">{t.category}</td>
+                  <td className="r">{money(t.amount)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {payments.total > MAX_PAYMENT_ROWS && (
-            <p className="text-[10px] font-bold mt-1">Showing the {MAX_PAYMENT_ROWS} most recent of {payments.total} entries this period.</p>
+            <p className="note" style={{ marginTop: 6 }}>Showing the {MAX_PAYMENT_ROWS} most recent of {payments.total} entries this period.</p>
           )}
         </section>
       )}
 
       {noteSections.map(title => (
-        <section key={title} className="mb-6 avoid-break">
-          <h3 className="text-[11px] font-black uppercase tracking-[0.2em] border-b border-black pb-1 mb-4">{title}</h3>
+        <section key={title} className="avoid-break">
+          <h2>{title}</h2>
           <div>
             {[0, 1, 2, 3].map(i => (
-              <div key={i} className="border-b border-black/25 h-7" />
+              <div key={i} className="write" />
             ))}
           </div>
         </section>
       ))}
 
-      <section className="mt-10 grid grid-cols-2 gap-12 avoid-break">
+      <section className="sign avoid-break">
         <div>
-          <div className="border-b-2 border-black h-10" />
-          <p className="text-[10px] font-black uppercase tracking-widest mt-1.5">Team member signature · date</p>
+          <div className="ln" />
+          <p className="lbl">Team member signature · date</p>
         </div>
         <div>
-          <div className="border-b-2 border-black h-10" />
-          <p className="text-[10px] font-black uppercase tracking-widest mt-1.5">Reviewer signature · date</p>
+          <div className="ln" />
+          <p className="lbl">Reviewer signature · date</p>
         </div>
       </section>
 
-      <footer className="mt-8 pt-3 border-t border-black/30">
-        <p className="text-[9px] font-bold uppercase tracking-widest">Pay shown is an estimate from recorded activity for the period and is not a pay statement.</p>
-      </footer>
+      <div className="foot">
+        <span>Pay shown is an estimate from recorded activity for the period and is not a pay statement.</span>
+        <span>{businessName}</span>
+      </div>
     </div>
   );
 }

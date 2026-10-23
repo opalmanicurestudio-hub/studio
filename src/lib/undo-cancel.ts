@@ -36,7 +36,7 @@ export async function undoCancel(db: any, t: string, id: string, key: string, no
   const a: any = { id, ...snap.data() };
   if (!key || key !== a.checkInToken) return { ok: false, code: 'needs_link', error: 'Please use the link from your confirmation message.' };
   if (!DEAD.includes(String(a.status || ''))) return { ok: true };   // already back on — tapping twice is fine
-  if (!a.undoUntil || ms(a.undoUntil) < now) return { ok: false, code: 'too_late', error: "We're sorry, but it's been more than 15 minutes, so this cancellation can no longer be undone here. Please book a new time or give us a call, and we'll be glad to help." };
+  if (!a.undoUntil || ms(a.undoUntil) < now) return { ok: false, code: 'too_late', error: "We're sorry, but it's been more than 15 minutes, so this cancellation can no longer be undone here. Please book a new time, or reply to your cancellation message and we'll be glad to help." };
   if (!(await timeStillFree(db, t, a, now))) return { ok: false, code: 'taken', error: "We're sorry, but that time has just been booked by someone else. Please choose another time that suits you." };
   await ref.set({ status: a.statusBeforeCancel || 'confirmed', cancelledAt: null, cancellationAudit: null, cancellationFeeCharged: null, cancellationFeeWaived: null,
     undoUntil: null, statusBeforeCancel: null, cancellationUndoneAt: new Date(now).toISOString(), waitlistOpeningId: null }, { merge: true });

@@ -1,5 +1,6 @@
 import { checkPrintKey } from '@/lib/print-key';
 import { PACK_PHOTO_KIND_LABEL, packPhotosOf } from '@/lib/pack-photo';
+import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 /**
  * /print/evidence/[tenantId]/[orderId] — the order-integrity record as a
  * DOCUMENT.
@@ -21,7 +22,7 @@ const EVENT_LABELS: Record<string, string> = {
   placed: 'Order placed',
   payment_confirmed: 'Payment confirmed',
   stock_reserved: 'Stock reserved',
-  batch_claimed: 'Claimed for fulfilment',
+  batch_claimed: 'Claimed for fulfillment',
   batch_released: 'Released back to queue',
   batch_auto_released: 'Claim timed out — released',
   item_scanned: 'Item scanned',
@@ -75,6 +76,8 @@ const when = (iso: any) => {
     : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
 };
 const money = (c: any) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+// A stored value such as "ready_for_pickup" as words in sentence case, for the page.
+const words = (v: any) => { const s = String(v || '').replace(/_/g, ' ').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; };
 
 const metaLine = (e: any): string => {
   const m = e.meta || {};
@@ -131,109 +134,105 @@ export default async function PrintEvidencePage({
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`${shopName} — Order record ${num}`}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <style>{`
           @page { size: letter portrait; margin: 0.55in; }
-          * { box-sizing: border-box; }
-          body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; font-size: 12px; line-height: 1.45; }
-          h1 { font-size: 19px; margin: 0; letter-spacing: -0.01em; }
-          h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: #64748b; margin: 22px 0 6px; }
-          table { width: 100%; border-collapse: collapse; }
-          th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; padding: 4px 6px; border-bottom: 2px solid #0f172a; }
-          td { padding: 5px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #0f172a; padding-bottom: 10px; }
-          .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px; }
-          .k { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; }
-          .v { font-weight: 700; }
-          .num { font-variant-numeric: tabular-nums; text-align: right; }
-          .photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-          .photos img { width: 100%; height: 2.2in; object-fit: cover; border: 1px solid #cbd5e1; border-radius: 4px; }
-          .foot { margin-top: 26px; padding-top: 8px; border-top: 1px solid #cbd5e1; font-size: 9px; color: #64748b; display: flex; justify-content: space-between; }
-          .flag { display: inline-block; padding: 1px 7px; border: 1.5px solid #0f172a; border-radius: 999px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
-          tr, .photos img { break-inside: avoid; }
+          body { margin: 0; }
+          ${PRINT_CSS}
+          .pp .num { text-align: right; }
+          .pp td.item { font-weight: 500; }
+          .pp .facts { row-gap: 10px; }
+          .pp .facts .v { font-size: 12.5px; font-weight: 500; margin-top: 1px; overflow-wrap: anywhere; }
+          .pp .photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+          .pp .photos figure { margin: 0; break-inside: avoid; }
+          .pp .photos img { display: block; width: 100%; height: 2.2in; object-fit: cover; border-radius: 12px; background: #f5f5f7; }
+          .pp .photos figcaption { font-size: 10.5px; color: #6d7075; margin-top: 4px; line-height: 1.45; }
         `}</style>
       </head>
-      <body>
-        <div className="head">
-          <div>
-            <h1>{shopName} — Order Integrity Record</h1>
-            <p style={{ margin: '3px 0 0', color: '#64748b' }}>
-              Order {num} · {order.customerName || 'Guest'} · append-only fulfilment record
-            </p>
-          </div>
-          <span className="flag">{String(order.stage || '').replace('_', ' ')}</span>
-        </div>
-
-        <h2>Order</h2>
-        <div className="grid">
-          <div><div className="k">Placed</div><div className="v">{when(order.placedAt)}</div></div>
-          <div><div className="k">Paid</div><div className="v">{when(order.paidAt)}</div></div>
-          <div><div className="k">Method</div><div className="v">{String(order.method || 'pickup')}</div></div>
-          <div><div className="k">Customer</div><div className="v">{order.customerName || 'Guest'}</div></div>
-          <div><div className="k">Email</div><div className="v">{order.customerEmail || '—'}</div></div>
-          <div><div className="k">Phone</div><div className="v">{order.customerPhone || '—'}</div></div>
-          <div><div className="k">Total</div><div className="v">{money(order.totalCents)}</div></div>
-          <div><div className="k">Refunded</div><div className="v">{money(order.refundedCents)}</div></div>
-          <div><div className="k">Tracking</div><div className="v">{order.trackingNumber || '—'}</div></div>
-        </div>
-
-        <h2>Items — ordered vs scan-verified</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Item</th><th className="num">Ordered</th><th className="num">Scanned</th>
-              <th className="num">Shorted</th><th className="num">Returned</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((l: any, i: number) => (
-              <tr key={i}>
-                <td style={{ fontWeight: 700 }}>{l.name || 'Item'}{l.optionsLabel ? ` (${l.optionsLabel})` : ''}</td>
-                <td className="num">{l.qtyOrdered ?? 0}</td>
-                <td className="num">{l.qtyScanned ?? 0}</td>
-                <td className="num">{l.qtyShorted || 0}</td>
-                <td className="num">{l.qtyReturned || 0}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <h2>Timeline — every recorded event, oldest first</h2>
-        <table>
-          <thead>
-            <tr><th style={{ width: '1.7in' }}>When</th><th style={{ width: '1.9in' }}>Event</th><th style={{ width: '1.1in' }}>By</th><th>Detail</th></tr>
-          </thead>
-          <tbody>
-            {events.map((e: any) => (
-              <tr key={e.id}>
-                <td style={{ whiteSpace: 'nowrap' }}>{when(e.at)}</td>
-                <td style={{ fontWeight: 700 }}>{EVENT_LABELS[e.type] || e.type}</td>
-                <td>{e.actorName || e.actorId || '—'}</td>
-                <td style={{ color: '#475569' }}>{metaLine(e)}</td>
-              </tr>
-            ))}
-            {events.length === 0 && (
-              <tr><td colSpan={4} style={{ color: '#64748b' }}>No granular events recorded — see the order stamps above.</td></tr>
-            )}
-          </tbody>
-        </table>
-
-        {photos.length > 0 && (
-          <>
-            <h2>Packing photos — taken at the bench before sealing</h2>
-            <div className="photos">
-              {packPhotosOf(order).slice(0, 9).map((p, i) => (
-                <figure key={p.url} style={{ margin: 0 }}>
-                  <img src={p.url} alt={`Packing photo ${i + 1} for order ${num}`} />
-                  <figcaption style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>Box {p.box} · {PACK_PHOTO_KIND_LABEL[p.kind]}{p.by ? ` · ${p.by}` : ''}{p.at ? ` · ${String(p.at).slice(0, 16).replace('T', ' ')}` : ''}</figcaption>
-                </figure>
-              ))}
+      <body className="pp-screen">
+        <div className="pp page">
+          <div className="head">
+            <div>
+              <p className="shop">{shopName}</p>
+              <h1>Order integrity <b>record</b></h1>
+              <p className="sub">Order {num} · {order.customerName || 'Guest'} · append-only fulfillment record</p>
             </div>
-          </>
-        )}
+            {words(order.stage) ? <span className="pill">{words(order.stage)}</span> : null}
+          </div>
 
-        <div className="foot">
-          <span>Generated {generatedAt} · ClarityFlow order-integrity record · order id {orderId}</span>
-          <span>{shopName}</span>
+          <h2>Order</h2>
+          <div className="panel grid3 facts">
+            <div><p className="lbl">Placed</p><p className="v">{when(order.placedAt)}</p></div>
+            <div><p className="lbl">Paid</p><p className="v">{when(order.paidAt)}</p></div>
+            <div><p className="lbl">Method</p><p className="v">{words(order.method || 'pickup')}</p></div>
+            <div><p className="lbl">Customer</p><p className="v">{order.customerName || 'Guest'}</p></div>
+            <div><p className="lbl">Email</p><p className="v">{order.customerEmail || '—'}</p></div>
+            <div><p className="lbl">Phone</p><p className="v">{order.customerPhone || '—'}</p></div>
+            <div><p className="lbl">Total</p><p className="v">{money(order.totalCents)}</p></div>
+            <div><p className="lbl">Refunded</p><p className="v">{money(order.refundedCents)}</p></div>
+            <div><p className="lbl">Tracking</p><p className="v">{order.trackingNumber || '—'}</p></div>
+          </div>
+
+          <h2>Items — ordered vs scan-verified</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th><th className="num">Ordered</th><th className="num">Scanned</th>
+                <th className="num">Shorted</th><th className="num">Returned</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((l: any, i: number) => (
+                <tr key={i}>
+                  <td className="item">{l.name || 'Item'}{l.optionsLabel ? <span className="muted"> ({l.optionsLabel})</span> : null}</td>
+                  <td className="num">{l.qtyOrdered ?? 0}</td>
+                  <td className="num">{l.qtyScanned ?? 0}</td>
+                  <td className="num">{l.qtyShorted || 0}</td>
+                  <td className="num">{l.qtyReturned || 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <h2>Timeline — every recorded event, oldest first</h2>
+          <table>
+            <thead>
+              <tr><th style={{ width: '1.7in' }}>When</th><th style={{ width: '1.9in' }}>Event</th><th style={{ width: '1.1in' }}>By</th><th>Detail</th></tr>
+            </thead>
+            <tbody>
+              {events.map((e: any) => (
+                <tr key={e.id}>
+                  <td className="nowrap muted">{when(e.at)}</td>
+                  <td className="item">{EVENT_LABELS[e.type] || e.type}</td>
+                  <td>{e.actorName || e.actorId || '—'}</td>
+                  <td className="body">{metaLine(e)}</td>
+                </tr>
+              ))}
+              {events.length === 0 && (
+                <tr><td colSpan={4} className="muted">No granular events recorded — see the order stamps above.</td></tr>
+              )}
+            </tbody>
+          </table>
+
+          {photos.length > 0 && (
+            <>
+              <h2>Packing photos — taken at the bench before sealing</h2>
+              <div className="photos">
+                {packPhotosOf(order).slice(0, 9).map((p, i) => (
+                  <figure key={p.url}>
+                    <img src={p.url} alt={`Packing photo ${i + 1} for order ${num}`} />
+                    <figcaption>Box {p.box} · {PACK_PHOTO_KIND_LABEL[p.kind]}{p.by ? ` · ${p.by}` : ''}{p.at ? ` · ${String(p.at).slice(0, 16).replace('T', ' ')}` : ''}</figcaption>
+                  </figure>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="foot">
+            <span>Generated {generatedAt} · ClarityFlow order-integrity record · order id {orderId}</span>
+            <span>{shopName}</span>
+          </div>
         </div>
       </body>
     </html>

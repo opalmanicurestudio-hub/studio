@@ -85,7 +85,7 @@ const mixed = (x: any = {}) => ({ id: 'm1', tenantId: 't1', orderNumber: 1050, s
   const ev = (await all(`${T}/retailOrders/m1/events`)).find((e: any) => e.type === 'refund_issued');
   check('…one refund in the order’s history, split by where it went', ev?.meta?.amountCents === 3000 && ev.meta.toCardCents === 2500 && ev.meta.giftCents === 500 && /\$25\.00 to the card/.test(ev.meta.text) && /\$5\.00 back on gift card GIFT-1234/.test(ev.meta.text), ev);
   let books = await all(`${T}/transactions`);
-  check('…two refunds in the books: $25 by card and $5 by gift card', books.length === 2 && books.some((b: any) => b.amount === 25 && b.paymentMethod === 'Card (Online)') && books.some((b: any) => b.amount === 5 && b.paymentMethod === 'Gift card' && b.category === 'Refund'), books);
+  check('…two refunds in the books: $25 by card and $5 by gift card', books.length === 2 && books.some((b: any) => b.amount === 25 && b.paymentMethod === 'Card (Online)') && books.some((b: any) => b.amount === 5 && b.paymentMethod === 'Gift card' && b.category === 'Refunds'), books);
   check('…the team is told where it all went', /\$30\.00 refunded: \$25\.00 through Stripe to the card and \$5\.00 back on gift card GIFT-1234/.test(r.body.message), r.body.message);
   const card = (await all(`${T}/retailOrders/m1/inbox`)).find((x: any) => x.kind === 'refund_issued');
   check('…and so is Dana, on her order page: $30 in all, $5 of it on her gift card, usable right away',

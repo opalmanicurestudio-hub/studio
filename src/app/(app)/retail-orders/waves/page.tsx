@@ -22,6 +22,7 @@ import {
 } from '@/lib/waves';
 import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
+import { openPrint } from '@/lib/open-print';
 import { unitCodes } from '@/lib/product-codes';
 
 // ─── Wave picking ─────────────────────────────────────────────────────────────
@@ -375,20 +376,18 @@ export default function WavesPage() {
           {active && (
             <div className="flex shrink-0 gap-2">
               <Button
-                asChild variant="outline"
+                variant="outline" type="button"
                 className="h-10 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest"
+                onClick={async () => { const e = await openPrint(String(tenantId), `wave:${active.id}`, `/print/wave/${tenantId}/${active.id}`); if (e) toast({ variant: 'destructive', title: e }); }}
               >
-                <a href={`/print/wave/${tenantId}/${active.id}`} target="_blank" rel="noreferrer">
-                  <Printer className="mr-1.5 h-4 w-4" aria-hidden="true" /> Pick sheet
-                </a>
+                <Printer className="mr-1.5 h-4 w-4" aria-hidden="true" /> Pick sheet
               </Button>
               <Button
-                asChild variant="outline"
+                variant="outline" type="button"
                 className="h-10 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest"
+                onClick={async () => { const e = await openPrint(String(tenantId), `wave:${active.id}`, `/print/slips/${tenantId}/${active.id}`); if (e) toast({ variant: 'destructive', title: e }); }}
               >
-                <a href={`/print/slips/${tenantId}/${active.id}`} target="_blank" rel="noreferrer">
-                  All slips
-                </a>
+                All slips
               </Button>
             </div>
           )}

@@ -19,11 +19,15 @@
 //                 customizable, with no code change.
 //
 // These are framework-free: each function returns a complete, self-contained
-// HTML string (inline CSS, no external assets) so it prints identically
-// anywhere. openPrintable() opens one in a new tab and fires the print dialog.
+// HTML string in the app's print look (lib/print-style: Plus Jakarta Sans,
+// light headings, sentence-case grey labels, thin lines, soft panels). The font
+// link is the only outside asset. openPrintable() opens one in a new tab, and
+// the sheet's own Print button opens the print dialog.
 //
 // Everything user-provided (studio, tour, AND custom copy) is HTML-escaped — a
 // visitor named "A & B <Studio>" can never break the layout or inject markup.
+
+import { PRINT, PRINT_CSS, PRINT_FONT_HREF, PRINT_FONT_STACK } from './print-style';
 
 export interface TourStudio {
   name?: string | null;
@@ -160,73 +164,49 @@ const todayLabel = (): string => {
   catch { return ''; }
 };
 
-// Shared page chrome: print button (hidden on paper), studio wordmark, footer.
-function page(title: string, studioName: string, innerHtml: string, footerNote: string, hideBranding: boolean): string {
-  const footerBits = [
-    esc(studioName),
-    footerNote ? esc(footerNote) : '',
-    `Generated ${esc(todayLabel())}`,
-    hideBranding ? '' : 'Powered by ClarityFlow',
-  ].filter(Boolean).join(' · ');
+const sentence = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+// Shared page chrome: a toolbar that stays on screen (never on paper), the
+// studio's name over the sheet's title, then the body and a quiet footer.
+function page(o: { title: string; studioName: string; heading: string; intro: string; body: string; footerNote: string; hideBranding: boolean }): string {
+  const footLeft = [esc(o.studioName), o.footerNote ? esc(o.footerNote) : ''].filter(Boolean).join(' · ');
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${esc(title)}</title>
+<title>${esc(o.title)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="${PRINT_FONT_HREF}" rel="stylesheet" />
 <style>
-  :root { --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --accent:#4f46e5; }
-  * { box-sizing: border-box; }
-  html, body { margin:0; padding:0; background:#f1f5f9; color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
-  .toolbar { position:sticky; top:0; display:flex; gap:8px; justify-content:center;
-    padding:14px; background:#0f172a; }
-  .toolbar button { font:inherit; font-weight:800; font-size:12px; letter-spacing:.08em;
-    text-transform:uppercase; color:#0f172a; background:#fff; border:0; border-radius:10px;
-    padding:10px 18px; cursor:pointer; }
-  .toolbar button.secondary { background:transparent; color:#fff; border:1px solid #334155; }
-  .sheet { max-width:760px; margin:24px auto; background:#fff; border:1px solid var(--line);
-    border-radius:14px; padding:40px 44px; box-shadow:0 10px 40px rgba(15,23,42,.08); }
-  .brand { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted);
-    margin:0 0 4px; }
-  h1 { font-size:26px; letter-spacing:-.02em; margin:0 0 2px; }
-  .sub { color:var(--muted); font-size:13px; margin:0 0 22px; }
-  .hero { border:2px solid var(--ink); border-radius:12px; padding:18px 20px; margin:0 0 24px; }
-  .hero .lbl { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); }
-  .hero .big { font-size:20px; font-weight:800; letter-spacing:-.01em; margin-top:2px; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 28px; margin:0 0 22px; }
-  .row { border-bottom:1px solid var(--line); padding:9px 0; }
-  .row .k { font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
-  .row .v { font-size:15px; font-weight:600; margin-top:1px; }
-  h2 { font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
-    margin:26px 0 10px; }
-  ul.check { list-style:none; margin:0; padding:0; }
-  ul.check li { display:flex; align-items:flex-start; gap:10px; padding:7px 0; font-size:14px;
-    border-bottom:1px solid #f1f5f9; }
-  .box { display:inline-block; width:15px; height:15px; border:2px solid var(--ink); border-radius:4px;
-    margin-top:1px; flex:0 0 auto; }
-  .lines { margin-top:8px; }
-  .lines .ln { border-bottom:1px solid var(--line); height:26px; }
-  .pill { display:inline-block; border:1.5px solid var(--ink); border-radius:999px;
-    padding:5px 12px; font-size:12px; font-weight:800; margin:0 6px 6px 0; }
-  .note { background:#f8fafc; border:1px solid var(--line); border-radius:10px; padding:12px 14px;
-    font-size:14px; color:#334155; white-space:pre-wrap; }
-  .foot { margin-top:30px; padding-top:14px; border-top:1px solid var(--line);
-    font-size:11px; color:#94a3b8; text-align:center; }
-  @media print {
-    body { background:#fff; }
-    .toolbar { display:none; }
-    .sheet { margin:0; border:0; border-radius:0; box-shadow:none; padding:0.4in 0.5in; max-width:none; }
-    @page { margin:0.5in; }
-  }
+  @page { margin: 0.5in; }
+  ${PRINT_CSS}
+  .toolbar { position: sticky; top: 0; z-index: 1; display: flex; gap: 8px; justify-content: center; padding: 12px; background: ${PRINT.soft}; font-family: ${PRINT_FONT_STACK}; }
+  .toolbar button { font: inherit; font-size: 13px; font-weight: 600; color: #fff; background: ${PRINT.ink}; border: 1px solid ${PRINT.ink}; border-radius: 999px; padding: 9px 20px; cursor: pointer; }
+  .toolbar button.quiet { color: ${PRINT.ink}; background: #fff; border-color: ${PRINT.line}; }
+  .pp .when { background: ${PRINT.soft}; border-radius: 14px; padding: 14px 16px; margin: 0 0 14px; break-inside: avoid; }
+  .pp .when .big { font-size: 22px; font-weight: 300; letter-spacing: -0.01em; line-height: 1.25; margin-top: 3px; }
+  .pp .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+  .pp .fact { padding: 8px 0; border-bottom: 1px solid ${PRINT.line}; break-inside: avoid; }
+  .pp .fact .v { font-size: 13.5px; font-weight: 500; margin-top: 1px; }
+  .pp ul.check { list-style: none; margin: 0; padding: 0; }
+  .pp ul.check li { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px solid ${PRINT.line}; font-size: 13px; color: ${PRINT.body}; break-inside: avoid; }
+  .pp .ck { flex: 0 0 auto; width: 14px; height: 14px; margin-top: 2px; border: 1px solid ${PRINT.faint}; border-radius: 4px; }
+  .pp .said { margin: 0; padding: 12px 14px; border-radius: 12px; background: ${PRINT.soft}; color: ${PRINT.body}; font-size: 13px; white-space: pre-wrap; break-inside: avoid; }
+  .pp .opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .pp .opt { display: inline-block; padding: 4px 12px; border-radius: 999px; background: ${PRINT.soft}; color: ${PRINT.body}; font-size: 12px; font-weight: 500; }
+  .pp .ln { height: 28px; border-bottom: 1px solid ${PRINT.line}; }
 </style></head>
-<body>
-  <div class="toolbar">
-    <button onclick="window.print()">Print</button>
-    <button class="secondary" onclick="window.close()">Close</button>
+<body class="pp-screen">
+  <div class="toolbar no-print">
+    <button type="button" onclick="window.print()">Print</button>
+    <button type="button" class="quiet" onclick="window.close()">Close</button>
   </div>
-  <div class="sheet">
-    <p class="brand">${esc(studioName)}</p>
-    ${innerHtml}
-    <div class="foot">${footerBits}</div>
+  <div class="pp page">
+    <div class="head">
+      <div><p class="shop">${esc(o.studioName)}</p><h1>${esc(o.heading)}</h1><p class="sub">${esc(o.intro)}</p></div>
+      <div class="meta"><div>Printed ${esc(todayLabel())}</div></div>
+    </div>
+    ${o.body}
+    <div class="foot"><span>${footLeft}</span><span>${o.hideBranding ? '' : 'Powered by ClarityFlow'}</span></div>
   </div>
   <script>try{window.focus();}catch(e){}</script>
 </body></html>`;
@@ -235,11 +215,11 @@ function page(title: string, studioName: string, innerHtml: string, footerNote: 
 function row(k: string, v: any): string {
   const val = String(v ?? '').trim();
   if (!val) return '';
-  return `<div class="row"><div class="k">${esc(k)}</div><div class="v">${esc(val)}</div></div>`;
+  return `<div class="fact"><div class="lbl">${esc(k)}</div><div class="v">${esc(val)}</div></div>`;
 }
 
 function checklistItems(items: string[]): string {
-  return items.map((it) => `<li><span class="box"></span> ${esc(it)}</li>`).join('');
+  return items.map((it) => `<li><span class="ck"></span><span>${esc(it)}</span></li>`).join('');
 }
 
 // ── Visitor confirmation ─────────────────────────────────────────────────────
@@ -252,16 +232,13 @@ export function visitorConfirmationHtml(tour: TourLike, studio: TourStudio = {},
     studio.website || '',
   ].filter(Boolean).map(esc).join(' · ');
 
-  const inner = `
-    <h1>${esc(c.confirmationTitle)}</h1>
-    <p class="sub">${esc(c.confirmationIntro)}</p>
-
-    <div class="hero">
+  const body = `
+    <div class="when">
       <div class="lbl">When</div>
       <div class="big">${esc(tourWhen(tour))}</div>
     </div>
 
-    <div class="grid">
+    <div class="facts">
       ${row('Guest', tour.name)}
       ${row('Space', tour.boothName || 'Studio tour')}
       ${studio.address ? row('Where', studio.address) : ''}
@@ -274,9 +251,9 @@ export function visitorConfirmationHtml(tour: TourLike, studio: TourStudio = {},
     </ul>
 
     <h2>${esc(c.changeTimeTitle)}</h2>
-    <p class="note">${esc(c.changeTimeNote)}${contactBits ? `\n${esc(studioName)}: ${contactBits}` : ''}</p>
+    <p class="said">${esc(c.changeTimeNote)}${contactBits ? `\n${esc(studioName)}: ${contactBits}` : ''}</p>
   `;
-  return page('Tour confirmation', studioName, inner, c.footerNote, c.hideBranding);
+  return page({ title: 'Tour confirmation', studioName, heading: c.confirmationTitle, intro: c.confirmationIntro, body, footerNote: c.footerNote, hideBranding: c.hideBranding });
 }
 
 // ── Staff prep sheet ─────────────────────────────────────────────────────────
@@ -285,26 +262,23 @@ export function staffPrepSheetHtml(tour: TourLike, studio: TourStudio = {}, conf
   const c = resolveTourPrintoutConfig(config);
   const contact = [tour.phone, tour.email].filter(Boolean).map(esc).join(' · ');
 
-  const inner = `
-    <h1>${esc(c.prepTitle)}</h1>
-    <p class="sub">${esc(c.prepIntro)}</p>
-
-    <div class="hero">
-      <div class="lbl">${esc(tour.name || 'Visitor')} &nbsp;·&nbsp; ${esc(tour.boothName || 'Studio tour')}</div>
+  const body = `
+    <div class="when">
+      <div class="lbl">${esc(tour.name || 'Visitor')} · ${esc(tour.boothName || 'Studio tour')}</div>
       <div class="big">${esc(tourWhen(tour))}</div>
     </div>
 
-    <div class="grid">
+    <div class="facts">
       ${row('Visitor', tour.name)}
-      ${contact ? `<div class="row"><div class="k">Contact</div><div class="v">${contact}</div></div>` : ''}
+      ${contact ? `<div class="fact"><div class="lbl">Contact</div><div class="v">${contact}</div></div>` : ''}
       ${row('Specialty', tour.specialty)}
       ${row('Timing', tour.timing)}
       ${row('Move-in', tour.moveInDate)}
-      ${row('Status', (tour.status || 'requested').replace(/_/g, ' '))}
+      ${row('Status', sentence((tour.status || 'requested').replace(/_/g, ' ')))}
     </div>
 
-    ${tour.message ? `<h2>What they said</h2><p class="note">${esc(tour.message)}</p>` : ''}
-    ${tour.tourNotes ? `<h2>Prior notes</h2><p class="note">${esc(tour.tourNotes)}</p>` : ''}
+    ${tour.message ? `<h2>What they said</h2><p class="said">${esc(tour.message)}</p>` : ''}
+    ${tour.tourNotes ? `<h2>Prior notes</h2><p class="said">${esc(tour.tourNotes)}</p>` : ''}
 
     <h2>${esc(c.checklistTitle)}</h2>
     <ul class="check">
@@ -312,32 +286,25 @@ export function staffPrepSheetHtml(tour: TourLike, studio: TourStudio = {}, conf
     </ul>
 
     <h2>${esc(c.captureTitle)}</h2>
-    <div class="grid" style="margin-bottom:8px;">
-      <div>
-        <div class="row"><div class="k">Interest level</div>
-          <div class="v" style="margin-top:6px;">
-            ${c.interestLevels.map((v) => `<span class="pill">${esc(v)}</span>`).join('')}
-          </div>
-        </div>
+    <div class="facts">
+      <div class="fact">
+        <div class="lbl">Interest level</div>
+        <div class="opts">${c.interestLevels.map((v) => `<span class="opt">${esc(v)}</span>`).join('')}</div>
       </div>
-      <div>
-        <div class="row"><div class="k">Next step</div>
-          <div class="v" style="margin-top:6px;">
-            ${c.nextSteps.filter((v) => v && v.toLowerCase() !== 'none').map((v) => `<span class="pill">${esc(v)}</span>`).join('')}
-          </div>
-        </div>
+      <div class="fact">
+        <div class="lbl">Next step</div>
+        <div class="opts">${c.nextSteps.filter((v) => v && v.toLowerCase() !== 'none').map((v) => `<span class="opt">${esc(v)}</span>`).join('')}</div>
       </div>
     </div>
 
     <h2>${esc(c.notesTitle)}</h2>
-    <div class="lines">
-      <div class="ln"></div><div class="ln"></div><div class="ln"></div><div class="ln"></div>
-    </div>
+    <div class="ln"></div><div class="ln"></div><div class="ln"></div><div class="ln"></div>
   `;
-  return page('Tour prep sheet', studioName, inner, c.footerNote, c.hideBranding);
+  return page({ title: 'Tour prep sheet', studioName, heading: c.prepTitle, intro: c.prepIntro, body, footerNote: c.footerNote, hideBranding: c.hideBranding });
 }
 
-// Open a generated HTML document in a new tab and trigger the print dialog.
+// Open a generated HTML document in a new tab; the document's own Print button
+// (or its own script) opens the print dialog.
 // Returns false if a popup blocker prevented it (caller can surface a hint).
 export function openPrintable(html: string): boolean {
   if (typeof window === 'undefined') return false;

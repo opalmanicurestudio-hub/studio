@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 // ─── /print/product-labels/[tenantId]?ids=a,b,c ───────────────────────────────
 // Shelf/product label sheet for selected inventory items — name, SKU, price,
@@ -55,22 +56,21 @@ export default async function ProductLabelsPage({
     <html>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <title>Product labels</title>
         <style>{`
           @page { size: letter; margin: 0.4in; }
           * { box-sizing: border-box; }
-          body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; color: #0f172a; margin: 0; }
+          body { font-family: ${PRINT_FONT_STACK}; font-weight: 400; color: #16171a; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          p { margin: 0; }
           .grid { display: flex; flex-wrap: wrap; gap: 0.12in; }
-          .lab { width: 2.6in; height: 1.5in; border: 2px solid #0f172a; border-radius: 12px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; page-break-inside: avoid; }
-          .lab img { width: 1.05in; height: 1.05in; }
-          .lab .nm { font-size: 10px; font-weight: 800; text-transform: uppercase; line-height: 1.25; }
-          .lab .sk { font-size: 8px; font-weight: 800; letter-spacing: 1px; color: #64748b; margin-top: 3px; }
-          .lab .tp { font-size: 8px; font-weight: 800; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; margin-top: 3px; border: 1.5px solid #0f172a; border-radius: 5px; padding: 1px 5px; display: inline-block; }
-          .lab .pr { font-size: 14px; font-weight: 800; margin-top: 4px; }
+          .lab { width: 2.6in; height: 1.5in; border: 1px dashed #c9cacd; border-radius: 12px; padding: 8px 12px 8px 8px; display: flex; gap: 10px; align-items: center; overflow: hidden; break-inside: avoid; page-break-inside: avoid; }
+          .lab img { width: 1.05in; height: 1.05in; flex-shrink: 0; }
+          .lab div { min-width: 0; }
+          .lab .nm { font-size: 11px; font-weight: 500; line-height: 1.3; letter-spacing: -0.005em; }
+          .lab .sk { font-size: 9px; color: #6d7075; margin-top: 2px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+          .lab .tp { display: inline-block; margin-top: 5px; padding: 1px 7px; border-radius: 999px; background: #f5f5f7; font-size: 8.5px; font-weight: 500; color: #45474c; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+          .lab .pr { font-size: 16px; font-weight: 300; letter-spacing: -0.01em; margin-top: 5px; font-variant-numeric: tabular-nums; }
         `}</style>
       </head>
       <body>
@@ -81,7 +81,7 @@ export default async function ProductLabelsPage({
               <div>
                 <p className="nm">{it.name}</p>
                 {it.sku ? <p className="sk">{it.sku}</p> : null}
-                <p className="tp">TYPE {it.sku || it.id}</p>
+                <p className="tp">Type {it.sku || it.id}</p>
                 {it.price ? <p className="pr">{it.price}</p> : null}
               </div>
             </div>

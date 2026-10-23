@@ -7,10 +7,11 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { stationKeyOk } from '@/lib/training-proof';
 import { docsForStation } from '@/lib/doc-links';
 import { PrintButton } from '@/components/documents/PrintButton';
+import { PRINT, PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 export const dynamic = 'force-dynamic';
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee';
-const font = { fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif', color: INK, letterSpacing: '-0.01em' } as const;
+const INK = PRINT.ink, MUTED = PRINT.muted, LINE = PRINT.line;
+const font = { fontFamily: PRINT_FONT_STACK, color: INK, letterSpacing: '-0.01em' } as const;
 
 export default async function StationSign({ params, searchParams }: { params: Promise<{ tenantId: string; stationId: string }>; searchParams: Promise<{ k?: string }> }) {
   const { tenantId, stationId } = await params; const { k } = await searchParams;
@@ -27,18 +28,19 @@ export default async function StationSign({ params, searchParams }: { params: Pr
   const business = String(tenant.name || tenant.businessName || 'The business');
   return (
     <div style={{ ...font, background: '#f7f7f8', minHeight: '100vh' }}>
-      <style>{`@page { size: letter; margin: 0.5in; } @media print { .no-print { display: none !important; } body, .sheet-bg { background: #fff !important; } .sheet { box-shadow: none !important; border: none !important; } }`}</style>
+      <link rel="stylesheet" href={PRINT_FONT_HREF} />
+      <style>{`@page { size: letter; margin: 0.5in; } .sheet { -webkit-print-color-adjust: exact; print-color-adjust: exact; } @media print { .no-print { display: none !important; } body, .sheet-bg { background: #fff !important; } .sheet { box-shadow: none !important; border: none !important; } }`}</style>
       <div className="sheet-bg" style={{ maxWidth: 760, margin: '0 auto', padding: '24px 20px 60px' }}>
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 14 }}><span style={{ fontSize: 14, color: MUTED }}>Station sign · print and stick it where people work</span><PrintButton label="Print the sign" /></div>
         <div className="sheet" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 18, padding: '44px 48px', textAlign: 'center', boxShadow: '0 14px 34px -24px rgba(22,23,26,.35)' }}>
           <div style={{ fontSize: 15, fontWeight: 600 }}>{business}</div>
-          <div style={{ fontSize: 13, color: MUTED, marginTop: 28 }}>station</div>
-          <h1 style={{ margin: '2px 0 0', fontSize: 52, fontWeight: 400, letterSpacing: '-.03em', lineHeight: 1.05 }}>{station.name || 'Station'}</h1>
+          <div style={{ fontSize: 13, color: MUTED, marginTop: 28 }}>Station</div>
+          <h1 style={{ margin: '2px 0 0', fontSize: 52, fontWeight: 300, letterSpacing: '-.03em', lineHeight: 1.05 }}>{station.name || 'Station'}</h1>
           <img src={qr} alt="QR code" style={{ width: 300, height: 300, margin: '30px auto 18px', display: 'block' }} />
           <div style={{ fontSize: 18 }}>Scan for how we do things at this station</div>
           <div style={{ fontSize: 14, color: MUTED, marginTop: 4 }}>Opens the staff app — sign in with your PIN.</div>
           {docs.length > 0 && <div style={{ marginTop: 30, borderTop: `1px solid ${LINE}`, paddingTop: 18, display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
-            {docs.map((d: any) => <span key={d.id} style={{ fontSize: 14, padding: '7px 14px', borderRadius: 999, background: '#f3f3f5' }}>{d.title || 'Document'}</span>)}</div>}
+            {docs.map((d: any) => <span key={d.id} style={{ fontSize: 14, padding: '7px 14px', borderRadius: 999, background: PRINT.soft, color: PRINT.body }}>{d.title || 'Document'}</span>)}</div>}
         </div>
       </div>
     </div>);

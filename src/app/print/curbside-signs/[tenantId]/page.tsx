@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 
 // ─── /print/curbside-signs/[tenantId]?spots=1,2,3  (or ?count=6) ──────────────
 // Numbered signs for the pickup bays. Each QR opens the shop's arrival page
@@ -77,36 +78,34 @@ export default async function CurbsideSignsPage({
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
+        <link href={PRINT_FONT_HREF} rel="stylesheet" />
         <title>Curbside spot signs</title>
         <style>{`
           @page { size: letter portrait; margin: 0.35in; }
           * { box-sizing: border-box; }
-          body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; color: #0f172a; margin: 0; }
+          body { font-family: ${PRINT_FONT_STACK}; font-weight: 400; color: #16171a; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .sign {
             width: 7.8in; height: 10.3in;
-            border: 6px solid #0f172a; border-radius: 28px;
+            border: 1px solid #ececee; border-radius: 28px;
             padding: 0.5in 0.45in;
             display: flex; flex-direction: column; align-items: center; text-align: center;
             page-break-after: always;
           }
           .sign:last-child { page-break-after: auto; }
-          .shop { font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: 3px; }
-          .kicker { margin-top: 4px; font-size: 15px; font-weight: 700; color: #475569; }
+          .shop { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+          .kicker { margin-top: 4px; font-size: 18px; color: #6d7075; }
           .num {
             margin: 0.22in 0 0.1in;
-            font-size: 210px; line-height: 0.9; font-weight: 800;
-            font-variant-numeric: tabular-nums; letter-spacing: -6px;
+            font-size: 240px; line-height: 0.9; font-weight: 300;
+            font-variant-numeric: tabular-nums; letter-spacing: -0.04em;
           }
-          .num.small { font-size: 120px; letter-spacing: -3px; }
-          .qrwrap { margin-top: 0.15in; padding: 14px; border: 4px solid #0f172a; border-radius: 20px; }
+          .num.small { font-size: 130px; letter-spacing: -0.03em; }
+          .qrwrap { margin-top: 0.15in; padding: 18px; border: 1px solid #ececee; border-radius: 24px; }
           .qrwrap img { width: 3.1in; height: 3.1in; display: block; }
-          .how { margin-top: 0.22in; font-size: 22px; font-weight: 800; }
-          .sub { margin-top: 8px; font-size: 15px; font-weight: 600; color: #475569; line-height: 1.45; max-width: 5.6in; }
-          .foot { margin-top: auto; font-size: 12px; font-weight: 700; color: #94a3b8; letter-spacing: 1px; text-transform: uppercase; }
+          .how { margin-top: 0.22in; font-size: 28px; font-weight: 300; letter-spacing: -0.015em; }
+          .how b { font-weight: 600; }
+          .sub { margin-top: 8px; font-size: 16px; color: #45474c; line-height: 1.5; max-width: 5.6in; }
+          .foot { margin-top: auto; font-size: 13px; color: #9a9ca1; }
         `}</style>
       </head>
       <body>
@@ -118,7 +117,7 @@ export default async function CurbsideSignsPage({
             <div className="qrwrap">
               <img src={s.qr} alt={`Check in from spot ${s.spot}`} />
             </div>
-            <div className="how">Scan to tell us you&apos;re here</div>
+            <div className="how"><b>Scan</b> to tell us you&apos;re here</div>
             <div className="sub">
               Point your phone camera at the code. We&apos;ll know you&apos;re in spot {s.spot} and
               bring your order straight out — no need to type anything.
