@@ -468,11 +468,12 @@ export async function POST(req: NextRequest) {
       const choice = String(body.choice || '');
       const nowIso = new Date().toISOString();
       if (choice === 'keep') {
-        // An optional thank-you credit for waiting (Booking policies) — issued once.
+        // An optional thank-you credit for waiting (Booking policies) — issued once: the credit is named after this
+        // booking, so two replies at the same moment (or a retry) add it once.
         const creditCents = Math.round((Number(tDoc.bookingPolicies?.providerDelayCredit) || 0) * 100);
         let credited = 0;
         if (creditCents > 0 && a.clientId && !pd.creditIssued) {
-          const r = await internalPost(internalOrigin(tDoc, req.nextUrl.origin), '/api/credits/issue', { tenantId, clientId: a.clientId, amountCents: creditCents, type: 'courtesy', source: 'provider_delay', reason: `Thank you for waiting (${pd.minutes} min delay)`, createdBy: 'system' }, { retries: 0 });
+          const r = await internalPost(internalOrigin(tDoc, req.nextUrl.origin), '/api/credits/issue', { tenantId, clientId: a.clientId, appointmentId: apptId, amountCents: creditCents, type: 'courtesy', source: 'provider_delay', reason: `Thank you for waiting (${pd.minutes} min delay)`, createdBy: 'system' }, { retries: 0 });
           if (r.ok && r.data?.ok !== false) credited = creditCents;
         }
         const f = { providerDelay: { ...pd, reply: 'keep', replyAt: nowIso, ...(credited ? { creditIssued: credited } : {}) } };

@@ -265,24 +265,34 @@ export async function matchOnBooking(db: any, t: string, o: { clientId: string; 
 }
 
 // ── Credit ────────────────────────────────────────────────────────────────────────────
-/** Store credit the same shape as everywhere else (client.storeCredits + totalStoreCredit), source referral_reward. */
+/** Store credit the same shape as everywhere else (client.storeCredits + totalStoreCredit), source referral_reward.
+ *  Named after the referral, and added in one step that reads the client's credits as they are at that moment, so it's
+ *  added once however often it's asked, and a credit spent at checkout meanwhile is never put back. */
 async function issueCredit(db: any, t: string, clientId: string, cents: number, months: number, reason: string, refId: string, now: number) {
-  const cRef = db.doc(`${T(t)}/clients/${clientId}`); const c: any = (await cRef.get()).data() || {};
-  const id = `ref_${refId}`; const list = Array.isArray(c.storeCredits) ? c.storeCredits : [];
-  if (list.some((x: any) => x.id === id)) return id;   // never twice
+  const cRef = db.doc(`${T(t)}/clients/${clientId}`);
+  const id = `ref_${refId}`; const aRef = db.doc(`${T(t)}/auditLog/credit_issued_${id}`);
   const exp = new Date(now); exp.setMonth(exp.getMonth() + months);
   const entry = { id, tenantId: t, clientId, amountCents: cents, amount: cents / 100, type: 'earned', source: 'referral_reward', reason, createdBy: 'referrals', approvedBy: null, expiresAt: exp.toISOString(), createdAt: iso(now), usedAt: null, usedOnAppointmentId: null, status: 'available', referralId: refId };
-  await cRef.set({ storeCredits: [...list, entry], totalStoreCredit: Math.round(((Number(c.totalStoreCredit) || 0) + cents / 100) * 100) / 100 }, { merge: true });
-  const a = db.collection(`${T(t)}/auditLog`).doc(); await a.set({ id: a.id, entityType: 'credit_issued', entityId: id, clientId, amountCents: cents, source: 'referral_reward', reason, at: iso(now), by: 'referrals' }).catch(() => {});
+  await db.runTransaction(async (tx: any) => {
+    const c: any = (await tx.get(cRef)).data() || {};
+    const list = Array.isArray(c.storeCredits) ? c.storeCredits : [];
+    if (list.some((x: any) => x.id === id)) return;   // never twice
+    tx.set(cRef, { storeCredits: [...list, entry], totalStoreCredit: Math.round(((Number(c.totalStoreCredit) || 0) + cents / 100) * 100) / 100 }, { merge: true });
+    tx.set(aRef, { id: aRef.id, entityType: 'credit_issued', entityId: id, clientId, amountCents: cents, source: 'referral_reward', reason, at: iso(now), by: 'referrals' });
+  });
   return id;
 }
-/** Take back unused referral credit (a refunded visit). Returns whether it was still unused. */
+/** Take back unused referral credit (a refunded visit). Returns whether it was still unused. In one step that reads the
+ *  client's credits as they are at that moment, so nothing spent or added meanwhile is undone. */
 async function voidCredit(db: any, t: string, clientId: string, creditId: string, now: number): Promise<boolean> {
-  const cRef = db.doc(`${T(t)}/clients/${clientId}`); const c: any = (await cRef.get()).data() || {};
-  const list = Array.isArray(c.storeCredits) ? c.storeCredits : []; const e = list.find((x: any) => x.id === creditId);
-  if (!e || (e.status && e.status !== 'available') || e.usedAt) return false;
-  await cRef.set({ storeCredits: list.map((x: any) => (x.id === creditId ? { ...x, status: 'voided', voidedAt: iso(now), voidReason: 'The friend’s visit was refunded.' } : x)), totalStoreCredit: Math.max(0, Math.round(((Number(c.totalStoreCredit) || 0) - (Number(e.amount) || 0)) * 100) / 100) }, { merge: true });
-  return true;
+  const cRef = db.doc(`${T(t)}/clients/${clientId}`);
+  return db.runTransaction(async (tx: any) => {
+    const c: any = (await tx.get(cRef)).data() || {};
+    const list = Array.isArray(c.storeCredits) ? c.storeCredits : []; const e = list.find((x: any) => x.id === creditId);
+    if (!e || (e.status && e.status !== 'available') || e.usedAt) return false;
+    tx.set(cRef, { storeCredits: list.map((x: any) => (x.id === creditId ? { ...x, status: 'voided', voidedAt: iso(now), voidReason: 'The friend’s visit was refunded.' } : x)), totalStoreCredit: Math.max(0, Math.round(((Number(c.totalStoreCredit) || 0) - (Number(e.amount) || 0)) * 100) / 100) }, { merge: true });
+    return true;
+  });
 }
 async function refundedVisit(db: any, t: string, apptId: string): Promise<boolean> {
   const tx = rows(await db.collection(`${T(t)}/transactions`).where('appointmentId', '==', apptId).get().catch(() => ({ docs: [] })));

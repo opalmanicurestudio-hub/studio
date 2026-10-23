@@ -222,8 +222,12 @@ export async function walletView(db: any, tenantId: string, c64: string, k: stri
 // the money comes off the card, the booking is confirmed exactly as a card deposit would be (a deposit credit that comes
 // off the total at the visit), and the client gets the same "You're booked" email. A card with less than the deposit is
 // kept for the visit — they pay the deposit by card, and the desk takes the gift card at checkout.
+// Once, however often it's asked: in one step the booking is checked (still waiting on its deposit), the card is spent,
+// and the deposit's line in the books and its credit are written, both named after the booking. A double tap or a
+// retry finds it paid and takes nothing more from the card.
+const bookingPart = (s: any) => String(s || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
 export async function payDepositWithGiftCard(db: any, tenantId: string, appointmentId: string, code: string, reqOrigin?: string | null) {
-  const { findByCode, spendGiftCard, available } = await import('@/lib/gift-cards');
+  const { findByCode, giftSpendPlan, syncClientGift, available } = await import('@/lib/gift-cards');
   const aRef = db.doc(`${T(tenantId)}/appointments/${appointmentId}`); const ap: any = (await aRef.get()).data();
   if (!ap) return { ok: false as const, error: 'We couldn’t find that booking.' };
   if (ap.depositStatus === 'paid') return { ok: true as const, already: true };
@@ -235,21 +239,33 @@ export async function payDepositWithGiftCard(db: any, tenantId: string, appointm
   if (g.ownerRenterId) return { ok: false as const, error: 'That card is for another provider’s services.' };
   if (g.promo) return { ok: false as const, error: 'Bonus cards are used at the studio on your visit, not for deposits.' };
   if (available(g) < cents) return { ok: false as const, error: `This card has ${money(available(g))} on it — not quite the ${money(cents)} deposit. Pay the deposit by card and use your gift card at your visit.` };
-  const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents, by: ap.clientName || 'Online booking', transactionRef: `deposit:${appointmentId}`, appointmentId, clientId: ap.clientId || null });
-  if (!r.ok) return { ok: false as const, error: r.error };
   const t: any = (await db.doc(T(tenantId)).get()).data() || {}; const nowIso = now();
   if (!ap.clientEmail && ap.clientId) ap.clientEmail = ((((await db.doc(`${T(tenantId)}/clients/${ap.clientId}`).get()).data() as any) || {}).email) || null;
   const service = ap.serviceName || ap.renterServiceName || (ap.serviceId ? ((((await db.doc(`${T(tenantId)}/services/${ap.serviceId}`).get()).data() as any) || {}).name) : null) || 'Appointment';
-  const batch = db.batch();
-  batch.set(aRef, { status: 'confirmed', depositStatus: 'paid', depositPaidAt: nowIso, depositPaidVia: 'gift_card', depositGiftCardId: g.id, paymentDueAt: null }, { merge: true });
-  if (ap.checkInToken) batch.set(db.collection('appointmentCheckIns').doc(String(ap.checkInToken)), { status: 'confirmed', depositStatus: 'paid' }, { merge: true });
-  const txRef = db.collection(`${T(tenantId)}/transactions`).doc();
-  batch.set(txRef, { id: txRef.id, date: nowIso, description: `Deposit — ${service} (gift card ${g.code})`, clientOrVendor: ap.clientName || 'Guest', clientId: ap.clientId || null, type: 'income', context: 'Business', category: 'Retainers', taxBucket: 'revenue',
-    amount: cents / 100, paymentMethod: 'Gift Card', hasReceipt: false, appointmentId, staffId: ap.staffId || null, giftCardId: g.id, tenantId });
-  const crRef = db.collection(`${T(tenantId)}/depositCredits`).doc();
-  batch.set(crRef, { id: crRef.id, tenantId, clientId: ap.clientId || null, clientEmail: String(ap.clientEmail || '').toLowerCase().trim(), clientName: ap.clientName || 'Guest', kind: 'deposit', amountCents: cents, status: 'available', sourceAppointmentId: appointmentId, createdAt: nowIso, giftCardId: g.id, paidVia: 'gift_card' });
-  try { await batch.commit(); }
-  catch (e) { const { adjustGiftCard } = await import('@/lib/gift-cards'); await adjustGiftCard(db, tenantId, { id: g.id, kind: 'add', cents, note: 'Deposit didn’t save — put back', by: 'System' }).catch(() => {}); throw e; }
+  const gRef = db.doc(`${T(tenantId)}/giftCards/${g.id}`);
+  const txRef = db.doc(`${T(tenantId)}/transactions/gift_deposit_${bookingPart(appointmentId)}`);
+  const crRef = db.doc(`${T(tenantId)}/depositCredits/deposit_gift_${bookingPart(appointmentId)}`);
+  const r: any = await db.runTransaction(async (tx: any) => {
+    const as = await tx.get(aRef); const gs = await tx.get(gRef); const cs = await tx.get(crRef);
+    const a: any = as.exists ? as.data() || {} : null;
+    if (!a) return { ok: false, error: 'We couldn’t find that booking.' };
+    // Paid already (a second tap, or asked again after the answer was lost): nothing more comes off the card.
+    if (a.depositStatus === 'paid' || cs.exists) return { ok: true, already: true };
+    if (a.status !== 'pending_payment') return { ok: false, error: a.status === 'cancelled' ? 'This hold has ended — please pick a time again.' : 'No deposit is due for this booking.' };
+    if (Math.round(Number(a.depositAmountCents) || 0) !== cents) return { ok: false, error: 'The deposit for this booking has changed. Please refresh the page and try again.' };
+    const plan: any = giftSpendPlan(gs.exists ? { ...(gs.data() || {}), id: g.id } : null, null, { cents, by: a.clientName || 'Online booking', transactionRef: `deposit:${appointmentId}`, appointmentId, clientId: a.clientId || null, giftCardId: g.id });
+    if (!plan.ok) return { ok: false, error: plan.error };
+    tx.update(gRef, plan.patch);
+    tx.set(aRef, { status: 'confirmed', depositStatus: 'paid', depositPaidAt: nowIso, depositPaidVia: 'gift_card', depositGiftCardId: g.id, paymentDueAt: null }, { merge: true });
+    if (a.checkInToken) tx.set(db.collection('appointmentCheckIns').doc(String(a.checkInToken)), { status: 'confirmed', depositStatus: 'paid' }, { merge: true });
+    tx.set(txRef, { id: txRef.id, date: nowIso, description: `Deposit — ${service} (gift card ${g.code})`, clientOrVendor: a.clientName || 'Guest', clientId: a.clientId || null, type: 'income', context: 'Business', category: 'Retainers', taxBucket: 'revenue',
+      amount: cents / 100, paymentMethod: 'Gift Card', hasReceipt: false, appointmentId, staffId: a.staffId || null, giftCardId: g.id, tenantId });
+    tx.set(crRef, { id: crRef.id, tenantId, clientId: a.clientId || null, clientEmail: String(a.clientEmail || ap.clientEmail || '').toLowerCase().trim(), clientName: a.clientName || 'Guest', kind: 'deposit', amountCents: cents, status: 'available', sourceAppointmentId: appointmentId, createdAt: nowIso, giftCardId: g.id, paidVia: 'gift_card' });
+    return { ok: true, balanceAfter: plan.balanceAfter, cardOwner: plan.patch?.recipientId || null };
+  });
+  if (!r.ok) return { ok: false as const, error: r.error };
+  if (r.already) return { ok: true as const, already: true };
+  void syncClientGift(db, tenantId, r.cardOwner).catch(() => {});
   try {
     const { logAuditAdmin } = await import('@/lib/audit'); await logAuditAdmin(db, tenantId, { action: 'deposit.paid', targetType: 'appointment', targetId: appointmentId, amount: cents / 100, summary: `Online booking deposit paid with gift card ${g.code} — ${ap.clientName || 'Guest'}, booking confirmed`, actor: { type: 'user', name: ap.clientName || 'Guest', role: 'client', via: 'online booking' } } as any);
   } catch { /* the deposit is recorded */ }

@@ -3,7 +3,7 @@
 import { overStaffLimit, staffLimit } from '@/lib/staff-limit';
 import { approveWithPin } from '@/lib/approve-client';
 import { staffAuthHeader } from '@/lib/staff-fetch';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Dialog,
@@ -87,6 +87,10 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
   const [reason, setReason] = useState('');
   const [pin, setPin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // One key per credit being given: kept when a try fails or its answer is lost, so trying again can't add it twice.
+  // A new amount, reason or client is a new credit, with a new key.
+  const attemptKey = useRef<string | null>(null);
+  useEffect(() => { attemptKey.current = null; }, [amount, reason, client.id, mode]);
 
   const needsPin = mode !== 'wallet' || (!isMgr && overStaffLimit(selectedTenant, amount));
   const handleAction = async () => {
@@ -118,6 +122,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
             setIsSubmitting(false);
             return;
         }
+        if (!attemptKey.current) attemptKey.current = `recovery_${nanoid()}`;
         try {
             const res = await fetch('/api/credits/issue', {
                 method: 'POST',
@@ -131,6 +136,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                     reason,
                     createdBy: authorizer.id,
                     approvalToken: authorizer.approvalToken || undefined,
+                    attemptKey: attemptKey.current,
                 }),
             });
             const out = await res.json().catch(() => null);
