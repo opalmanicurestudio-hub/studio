@@ -11,7 +11,7 @@ import { nanoid } from 'nanoid';
 
 import {
   BATCH_CLAIM_TIMEOUT_MIN, MAX_SHIP_ORDERS_PER_BATCH, STAGE_LABELS,
-  applyPackScan, isPackComplete,
+  applyPackScan, applyBoxScan, isPackComplete,
   applyScan, buildEvent, canAdvance, depleteBatchesFIFO, fulfilledQty,
   isClaimStale, isPickComplete, parseOrderQr, queuePriority, shortLine,
   type FulfillmentBatch, type FulfilmentPolicy, type InventoryBatchRef, type OrderEventType,
@@ -165,6 +165,48 @@ export async function claimSpecificOrder(
   }
 }
 
+/**
+ * Take over an order someone else is packing (or picked at the shelf and left at the bench): it moves out of their
+ * batch into one of yours, with every count kept, and the record says who took it from whom. Re-checked inside the
+ * transaction, so two people can't both take it.
+ */
+export async function takeOverOrder(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor
+): Promise<{ ok: boolean; message: string }> {
+  const newRef = doc(batchCol(fs, tenantId));
+  const now = new Date().toISOString();
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const ref = doc(orderCol(fs, tenantId), orderId);
+      const snap = await txn.get(ref);
+      if (!snap.exists()) return { ok: false, message: 'Order not found.' };
+      const o = snap.data() as RetailOrder & Record<string, any>;
+      if (o.stage !== 'picking') return { ok: false, message: 'This order isn’t being packed any more.' };
+      if (o.claimedBy === actor.id) return { ok: true, message: 'You’re packing it.' };
+      // A wave order is packed from its tote without a batch of its own (lib/waves): only who's packing it changes, so it
+      // never goes back to the queue on a claim timer and out of its wave.
+      if (o.waveId) {
+        txn.update(ref, { claimedBy: actor.id, claimedByName: actor.name, claimedAt: now });
+        txn.set(doc(collection(ref, 'events')), evPayload('note', actor, { kind: 'taken_over', from: o.claimedByName || null, text: `Took over packing${o.claimedByName ? ` from ${o.claimedByName}` : ''}` }));
+        return { ok: true, message: 'You’re packing it now.' };
+      }
+      const oldRef = o.batchId ? doc(batchCol(fs, tenantId), String(o.batchId)) : null;
+      const oldSnap = oldRef ? await txn.get(oldRef) : null;
+      if (oldRef && oldSnap?.exists()) {
+        const rest = ((oldSnap.data() as FulfillmentBatch).orderIds || []).filter((id) => id !== orderId);
+        txn.update(oldRef, rest.length ? { orderIds: rest } : { orderIds: rest, active: false, releasedAt: now, releaseType: 'taken_over' });
+      }
+      const batchDoc: FulfillmentBatch = { id: newRef.id, tenantId, orderIds: [orderId], phase: 'pack', assignedTo: actor.id, assignedToName: actor.name, claimedAt: now, active: true } as any;
+      txn.set(newRef, JSON.parse(JSON.stringify(batchDoc)));
+      txn.update(ref, { batchId: newRef.id, claimedBy: actor.id, claimedByName: actor.name, claimedAt: now });
+      txn.set(doc(collection(ref, 'events')), evPayload('note', actor, { kind: 'taken_over', from: o.claimedByName || null, text: `Took over packing${o.claimedByName ? ` from ${o.claimedByName}` : ''}` }));
+      return { ok: true, message: 'You’re packing it now.' };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'That didn’t go through. Try again.' };
+  }
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
  * RELEASE + AUTO-RELEASE SWEEP
  * ════════════════════════════════════════════════════════════════════════════ */
@@ -207,12 +249,14 @@ export async function sweepStaleClaims(fs: Firestore, tenantId: string): Promise
  * PICKING — scan gate + shortline
  * ════════════════════════════════════════════════════════════════════════════ */
 
-export type ScanAnswer = { ok: boolean; message: string; pickComplete?: boolean; packComplete?: boolean; lineId?: string; name?: string; miss?: ScanResolution['kind'] };
+export type ScanAnswer = { ok: boolean; message: string; pickComplete?: boolean; packComplete?: boolean; lineId?: string; name?: string; miss?: ScanResolution['kind'];
+  /** A scan at the box: picked and into the box at once, or (second scan) an item picked at the shelf checked in. */
+  kind?: 'picked' | 'checked' };
 
 /** Works a scan out against the products' current records when the order's own codes don't match (lib/scan-resolve):
  *  a barcode added after the order was placed, another code the product carries, a test order, a duplicate label, a
  *  parent product's code. Best-effort: the order's own codes are always checked in the transaction. */
-async function resolveFirst(fs: Firestore, tenantId: string, orderId: string, scannedValue: string, packCheck: boolean): Promise<ScanResolution | null> {
+async function resolveFirst(fs: Firestore, tenantId: string, orderId: string, scannedValue: string, packCheck: boolean | 'box'): Promise<ScanResolution | null> {
   try {
     const pre = await getDoc(doc(orderCol(fs, tenantId), orderId));
     if (!pre.exists()) return null;
@@ -275,6 +319,48 @@ export async function recordItemScan(
   }
 }
 
+/**
+ * A scan AT THE BOX, on the order's packing screen (lib/retail-orders applyBoxScan): the unit counts as picked and as in
+ * the box, so an order packed this way is never asked for a second scan. With the shop's second scan on (`secondScan`),
+ * an item picked at the shelf is checked into the box by the same scan. Same event discipline as a pick scan; the
+ * record says it was at the box.
+ */
+export async function recordBoxScan(
+  fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor, opts: { secondScan?: boolean } = {}
+): Promise<ScanAnswer> {
+  const secondScan = opts.secondScan === true;
+  // With the second scan on, the code is worked out against lines still to pick and lines still to check in.
+  const found = await resolveFirst(fs, tenantId, orderId, scannedValue, secondScan ? 'box' : false);
+  const hint = found?.kind === 'line' ? found.hint : null;
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = oSnap.data() as RetailOrder;
+      if (order.stage !== 'picking') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]}, so scanning is closed.` };
+      const { result, lines } = applyBoxScan(order.lines, scannedValue, hint, secondScan);
+      if (!result.ok) {
+        txn.set(doc(collection(oRef, 'events')), evPayload('scan_mismatch', actor, { scannedValue: scannedValue.slice(0, 80), code: result.code, phase: 'pack', atBox: true }));
+        const message = result.code === 'unknown_sku' && found ? scanMissMessage(found, scannedValue, order.lines as any) : result.message;
+        return { ok: false, message, miss: result.code === 'unknown_sku' ? (found?.kind || 'unknown') : undefined };
+      }
+      txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
+      txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, {
+        lineId: result.lineId, qtyScanned: result.qtyScanned, qtyOrdered: result.qtyOrdered,
+        phase: result.kind === 'checked' ? 'pack_check' : (order as any).waveId ? 'pack' : 'pick', atBox: true,
+        ...(hint ? { matchedBy: (found as any).via } : {}),
+      }));
+      const wasPicked = isPickComplete(order.lines);
+      if (result.pickComplete && !wasPicked) txn.set(doc(collection(oRef, 'events')), evPayload('pick_complete', actor));
+      if (secondScan && result.packComplete && !isPackComplete(order.lines)) txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Every unit is in the box, checked by scan' }));
+      return { ok: true, message: `${result.qtyScanned}/${result.qtyOrdered}`, pickComplete: result.pickComplete, packComplete: result.packComplete, lineId: result.lineId, name: result.name, kind: result.kind };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'The scan did not go through. Please try again.' };
+  }
+}
+
 /** Tap-to-pack: one unit of one line counted by hand, for shops that don't scan. Same guards and timeline as a scan,
  *  marked as a tap so the record shows it wasn't scanned. Shops that want every unit scanned turn taps off in setup. */
 export async function recordLineTap(
@@ -306,7 +392,7 @@ export async function recordLineTap(
 
 /** Undo one tick or scan on a line (a slip of the finger). Only while the order is still being packed. */
 export async function undoLineCount(
-  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor
+  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor, what: 'scan' | 'box' | 'check' = 'scan'
 ): Promise<{ ok: boolean; message: string }> {
   try {
     return await runTransaction(fs, async (txn) => {
@@ -316,8 +402,14 @@ export async function undoLineCount(
       const order = oSnap.data() as RetailOrder;
       if (order.stage !== 'picking') return { ok: false, message: 'Packing is already finished for this order.' };
       const idx = order.lines.findIndex((l) => l.lineId === lineId);
-      if (idx < 0 || order.lines[idx].qtyScanned <= 0) return { ok: false, message: 'Nothing to undo.' };
-      const lines = order.lines.map((l, i) => i === idx ? { ...l, qtyScanned: l.qtyScanned - 1 } : l);
+      // What's taken back: a counted unit (scan), a unit counted at the box (picked and in the box), or a unit's check
+      // into the box (second scan) only.
+      if (idx < 0 || (what === 'check' ? (order.lines[idx].qtyPacked || 0) <= 0 : order.lines[idx].qtyScanned <= 0)) return { ok: false, message: 'Nothing to undo.' };
+      const lines = order.lines.map((l, i) => i !== idx ? l : {
+        ...l,
+        ...(what !== 'check' ? { qtyScanned: l.qtyScanned - 1 } : {}),
+        ...(what !== 'scan' ? { qtyPacked: Math.max(0, (l.qtyPacked || 0) - 1) } : {}),
+      });
       txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
       txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { kind: 'count_undone', lineId, text: `Took one ${order.lines[idx].name} back out` }));
       return { ok: true, message: 'Undone' };

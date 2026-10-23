@@ -11,10 +11,12 @@
 // the appointment is cancelled ("payment not received"), the check-in copy
 // follows, it's in the activity log, and — for accepted requests, where the
 // client was expecting it — the client is told, with a link to book again.
-// Runs from the booking page (throttled per business) and the daily job.
+// Runs from the booking page (throttled per business) and the daily job. A deposit taken on the card reader that
+// the booking screen never confirmed is recorded first (lib/reader-deposit), so a paid visit is never released.
 
 import { logAuditAdmin } from '@/lib/audit';
 import { tenantTimeZone } from '@/lib/tenant-time';
+import { recordWaitingReaderDeposit } from '@/lib/reader-deposit';
 
 export async function releaseUnpaidHolds(db: any, tenantId: string, opts: { origin?: string; now?: number } = {}): Promise<{ released: number }> {
   const T = `tenants/${tenantId}`; const now = opts.now ?? Date.now();
@@ -25,6 +27,11 @@ export async function releaseUnpaidHolds(db: any, tenantId: string, opts: { orig
   for (const d of snap.docs) {
     const a: any = d.data() || {};
     if (a.depositStatus === 'paid') continue; // paid in the meantime — the webhook confirms it
+    // Taken on the card reader, but the screen never confirmed it (lost connection): recorded now, never released.
+    if (a.depositReaderPi?.id) {
+      const r = await recordWaitingReaderDeposit(db, tenantId, { id: d.id, ...a }, { tenant: t, origin: opts.origin || null }).catch((e: any) => { console.error('[release-unpaid] reader deposit', e); return null; });
+      if (r?.ok) continue;
+    }
     // Never on the visit's own morning: inside the protected window the desk decides (lib/deposit-release).
     const { releaseCall, tellDeskDeposit } = await import('@/lib/deposit-release');
     const call = releaseCall({ id: d.id, ...a }, now, t, holdMin);

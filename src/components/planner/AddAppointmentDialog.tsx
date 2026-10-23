@@ -447,8 +447,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             ? { name: data.newClientName, email: data.newClientEmail, phone: data.newClientPhone }
             : { id: data.clientId },
           inspirationPhotoUrl: inspirationPhotoUrl || undefined,
-          // A desk booking waiting for the client's deposit is held for a day, not the online few minutes.
-          ...(payLater ? { holdUntil: new Date(Date.now() + 24 * 3600000).toISOString() } : {}),
+          // A desk booking waiting for the client's deposit is held for a day, not the online few minutes (and so is one
+          // whose deposit goes on the card reader, in case the card doesn't go through).
+          ...(payLater || viaReader ? { holdUntil: new Date(Date.now() + 24 * 3600000).toISOString() } : {}),
         }),
       });
       out = await res.json().catch(() => null);
@@ -466,20 +467,28 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     setAssignedStaffId(out.staffId);
     setCheckInToken(out.checkInToken);
     if (depositDetails && viaReader) {
-      // The card on the reader now: the deposit (and a balance collected with it), named for this booking, then recorded
-      // by the server with its income line (api/appointments/desk-deposit, reader).
-      const depCents = Math.max(0, Math.round(Number(out.depositCents) || depositDetails.amount * 100));
+      // The card on the reader now, for the deposit (and a balance collected with it) as the booking has it: the server
+      // sets the amount and records it as the payment is captured (lib/reader-deposit). The screen then confirms it,
+      // asking again a few times if the connection drops; the booking is held for a day meanwhile.
+      const depCents = Math.max(0, Math.round(Number(out.depositCents) || 0));
       const total = depCents + Math.max(0, Math.round(Number(out.balanceCollectCents) || 0));
       const t = readerRef.current;
-      const paid = t ? await t.collectPayment({ tenantId, clientId: out.clientId || undefined, amountCents: total, description: `Deposit — ${selectedService?.name || 'appointment'}`, appointmentId: out.appointmentId, kind: 'deposit' }).catch((e: any) => ({ ok: false, error: e?.message })) : { ok: false, error: 'The card reader disconnected.' };
-      if (!paid?.ok || !paid.paymentIntentId) {
-        toast({ variant: 'destructive', title: 'Booked — deposit not taken', description: `${paid?.error || 'The card didn’t go through.'} Take it from the booking when you’re ready.` });
+      if (depCents <= 0) {
+        toast({ title: 'Booked', description: 'This booking doesn’t need a deposit, so nothing was taken on the card reader.' });
       } else {
-        const d = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: auth, body: JSON.stringify({ tenantId, appointmentId: out.appointmentId, action: 'reader', paymentIntentId: paid.paymentIntentId }) })
-          .then((r) => r.json()).catch(() => ({}));
-        if (!d?.ok) toast({ variant: 'destructive', title: 'The card was charged', description: `${d?.error || 'The booking didn’t update.'} Open the booking: it won’t be charged twice.` });
-        else if (d.paidTwice) toast({ title: 'Deposit paid twice', description: 'The deposit was also paid another way. Both are on the booking; refund one from the booking.' });
-        else toast({ title: 'Deposit taken', description: `$${(total / 100).toFixed(2)} on the card reader${total > depCents ? `: the $${(depCents / 100).toFixed(2)} deposit and the balance they owed` : ''}.` });
+        const paid: any = t ? await t.collectPayment({ tenantId, clientId: out.clientId || undefined, amountCents: total, description: `Deposit — ${selectedService?.name || 'appointment'}`, appointmentId: out.appointmentId, kind: 'deposit' }).catch((e: any) => ({ ok: false, error: e?.message })) : { ok: false, error: 'The card reader disconnected.' };
+        let d: any = paid?.ok && paid.deposit?.ok ? paid.deposit : null;
+        for (let i = 0; !d && paid?.paymentIntentId && i < 3; i++) {
+          if (i) await new Promise((r) => setTimeout(r, 1500 * i));
+          const r = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: auth, body: JSON.stringify({ tenantId, appointmentId: out.appointmentId, action: 'reader', paymentIntentId: paid.paymentIntentId }) })
+            .then(async (x) => ({ status: x.status, ...(await x.json().catch(() => ({}))) })).catch(() => ({ status: 0 }));
+          if (r.ok) d = r;
+          else if (r.status === 402 || r.status === 409 || r.status === 403) { d = { ok: false, declined: r.status === 402, error: r.error }; break; }
+        }
+        if (d?.ok && d.paidTwice) toast({ title: 'Deposit paid twice', description: 'The deposit was also paid another way. Both payments are on the booking; refund one from the booking.' });
+        else if (d?.ok) toast({ title: 'Deposit taken', description: `$${(total / 100).toFixed(2)} on the card reader${total > depCents ? `: the $${(depCents / 100).toFixed(2)} deposit and the balance they owed` : ''}.` });
+        else if (!paid?.paymentIntentId || d?.declined) toast({ variant: 'destructive', title: 'Booked — deposit not taken', description: `${(!paid?.ok && paid?.error) || d?.error || 'The card didn’t go through.'} The time is held for a day: take the deposit from the booking when you’re ready.` });
+        else toast({ variant: 'destructive', title: 'Check the booking before taking it again', description: 'The card may have gone through, but we couldn’t confirm it yet. The booking shows the deposit as soon as the payment is confirmed, and taking the deposit from the booking records this payment first instead of charging again.' });
       }
     } else if (depositDetails && !payLater) {
       // Card on file is charged by the server; paid at the desk another way is recorded with its income line.
@@ -487,6 +496,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
       const d = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: auth, body: JSON.stringify({ tenantId, appointmentId: out.appointmentId, action, ...(action === 'settled' ? { amountCents: Math.round(depositDetails.amount * 100), via: deskVia, withBalance: true } : {}) }) })
         .then((r) => r.json()).catch(() => ({}));
       if (!d?.ok) toast({ variant: 'destructive', title: 'Booked — deposit not taken', description: `${d?.error || 'The deposit step didn’t go through.'} Take it from the booking when you’re ready.` });
+      else if (d.paidTwice || d.viaReader) toast({ variant: 'destructive', title: d.paidTwice ? 'Deposit paid twice' : 'Already paid on the card reader', description: d.message || 'Check the booking before taking anything more.' });
     } else if (payLater) {
       toast({ title: 'Payment link sent', description: 'The client got a link to pay their deposit and finish up. The time is held for 24 hours.' });
     }

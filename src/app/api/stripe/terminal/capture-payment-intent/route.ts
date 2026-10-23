@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
+import { recordReaderDeposit } from '@/lib/reader-deposit';
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
       customerId,
       saveCard = false,
     } = await req.json();
-    { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
+    const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny;
 
     if (!tenantId || !paymentIntentId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -78,7 +79,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ok: true, paymentIntentId: intent.id });
+    // A booking's deposit is recorded here, as the money is captured, so a screen that loses its connection now can't
+    // leave the card charged with nothing on the booking (lib/reader-deposit). The booking screen confirms it after.
+    let deposit: any = null;
+    const meta: any = intent.metadata || {};
+    if (meta.kind === 'deposit' && meta.appointmentId && String(meta.tenantId || '') === String(tenantId)) {
+      try {
+        deposit = await recordReaderDeposit(db, String(tenantId), String(meta.appointmentId), { paymentIntentId: intent.id, tenant: tenantSnap.data(), actorName: g.actor?.name || null, origin: req.nextUrl.origin });
+      } catch (e) { console.error('[terminal/capture] deposit record failed (the booking screen and the hold sweep record it)', e); }
+    }
+
+    return NextResponse.json({ ok: true, paymentIntentId: intent.id, ...(deposit ? { deposit } : {}) });
   } catch (err: any) {
     console.error('[terminal/capture-payment-intent]', err);
     return NextResponse.json({ ok: false, error: err.message }, { status: 500 });

@@ -23,7 +23,7 @@ import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabe
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Empty, IconBtn, Initials, LargeTitle, ListRow, Seg, Sheet, UndoBar, feel, muted, Ic } from './ui';
 import { OrderWorkspace, type Layout, type WorkTab } from './workspace/OrderWorkspace';
-import { countedAtBox } from './workspace/PackPane';
+import { lineProductId, productMatch } from '@/lib/product-codes';
 import { ShipSheet } from './ShipSheet';
 import { HandoverSheet } from './HandoverSheet';
 import { PhoneShopBar, useWide, useWidest } from './shell';
@@ -290,7 +290,13 @@ export function OrdersApp() {
     return onSnapshot(doc(fs, `tenants/${tenantId}/retailOrders`, openId), (d) => setSingle(d.exists() ? { ...(d.data() as any), id: d.id } : null), () => setSingle(null));
   }, [fs, tenantId, openId, inLists]);
   const open = openId ? byId.get(openId) || (single?.id === openId ? single : null) : null;
-  React.useEffect(() => { if (wide && !openId && list.length && tab !== 'done') setOpenId(list[0].id); }, [wide, list, openId, tab]);
+  // On a computer the first order opens beside the list: the first one that isn't someone else's to pack, so a scan at
+  // this screen never lands on a colleague's order.
+  React.useEffect(() => {
+    if (!wide || openId || !list.length || tab === 'done') return;
+    const free = list.find((o: any) => !(o.stage === 'picking' && o.claimedBy && o.claimedBy !== actor.id)) || list[0];
+    setOpenId(free.id);
+  }, [wide, list, openId, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Packing happens inside the order (components/orders/workspace): claim it, then open it on its Pack tab.
   const beginPack = async (o: any) => {
@@ -299,7 +305,8 @@ export function OrdersApp() {
     if (!r.ok) { feel(false); setToast(r.message); return; }
     openOn(o.id, 'pack');
   };
-  const packNext = () => { const o = queue[0]; if (!o) { setToast('Nothing is waiting to be packed.'); return; } void beginPack(o); };
+  // The next order to pack: the most urgent one waiting (an order in a wave walk is packed from its tote instead).
+  const packNext = () => { const o = queue.find((x: any) => x.stage === 'paid' && !x.waveId); if (!o) { setToast('Nothing is waiting to be packed.'); return; } void beginPack(o); };
   const canRefund = typeof can === 'function' ? can('checkout.refund') : false;
 
   // THE TODAY LISTS' NEXT STEPS. A new date goes through the delay notice (one message with the date and the right to
@@ -437,17 +444,23 @@ export function OrdersApp() {
     const v = String(raw || '').trim();
     if (v.length < 3) return;
     const numOf = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
-    const wants = (o: any) => (o.lines || []).some((l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && (l.qtyScanned || 0) < (l.qtyOrdered || 0) && lineMatchesScan(l, v));
+    // The products this code belongs to today, so a code added after an order was placed still finds it.
+    const owners = new Set((inventory || []).filter((i: any) => productMatch(i, v)).map((i: any) => String(i.id)));
+    const matches = (l: any) => lineMatchesScan(l, v) || owners.has(lineProductId(l));
+    const toPick = (l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && (l.qtyScanned || 0) < (l.qtyOrdered || 0);
+    // With the second scan on, a unit picked at the shelf and not yet in the box is still wanted by its order.
+    const toBox = (l: any) => rs?.requirePackScan === true && l.digital !== true && (l.qtyPacked || 0) < (l.qtyOrdered || 0) - (l.qtyShorted || 0);
+    const wants = (o: any) => (o.lines || []).some((l: any) => matches(l) && toPick(l));
+    const wantsHere = (o: any) => (o.lines || []).some((l: any) => matches(l) && (toPick(l) || (!o.waveId && toBox(l))));
     const count = async (o: any, claimed: boolean) => {
-      const r = await scanInto(fs, tenantId, o.id, v, actor);
+      const r = await scanInto(fs, tenantId, o.id, v, actor, rs);
       feel(r.ok);
-      if (r.ok) countedAtBox(tenantId, o.id);
       setToast(r.ok ? `${claimed ? `${numOf(o)} is yours. ` : `${numOf(o)}: `}${r.name || 'Item'} counted.` : `${claimed ? `${numOf(o)} is yours. ` : ''}${r.message}`);
       openOn(o.id, 'pack');
     };
-    const mineOpen = orders.find((o) => o.stage === 'picking' && o.claimedBy === actor.id && wants(o));
+    const mineOpen = orders.find((o) => o.stage === 'picking' && o.claimedBy === actor.id && wantsHere(o));
     if (mineOpen) { await count(mineOpen, false); return; }
-    const waiting = perms.canPick ? queue.find((o: any) => o.stage === 'paid' && wants(o)) : null;
+    const waiting = perms.canPick ? queue.find((o: any) => o.stage === 'paid' && !o.waveId && wants(o)) : null;
     if (waiting) {
       // Two items scanned back to back for the same order share one claim, and both count.
       let claim = claiming.current.get(waiting.id);
@@ -459,7 +472,7 @@ export function OrdersApp() {
       if (await claim) await count(waiting, true);
       return;
     }
-    const theirs = orders.find((o) => o.stage === 'picking' && o.claimedBy !== actor.id && wants(o));
+    const theirs = orders.find((o) => o.stage === 'picking' && o.claimedBy !== actor.id && wantsHere(o));
     if (theirs) { feel(false); setToast(`That’s for ${numOf(theirs)}, which ${theirs.claimedByName ? firstName(theirs.claimedByName) : 'someone else'} is packing.`); return; }
     feel(false); setToast('No order waiting to be packed needs that item.');
   };

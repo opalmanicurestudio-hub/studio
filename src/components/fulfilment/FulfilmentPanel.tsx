@@ -42,7 +42,7 @@ function ScanBanner({ b }: { b: Banner }) {
 type BoardOrder = RetailOrder & { id: string } & Record<string, any>;
 const ACTIVE = ['paid', 'picking', 'packed', 'ready', 'arrived'];
 /** Units still to be scanned into the box (the second scan). */
-const toCheck = (o: any) => (o?.lines || []).reduce((a: number, l: any) => (l.digital === true || ['refunded', 'backordered'].includes(l.status) ? a : a + Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyPacked || 0))), 0);
+const toCheck = (o: any) => (o?.lines || []).reduce((a: number, l: any) => (l.digital === true ? a : a + Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyPacked || 0))), 0);
 
 function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
@@ -232,7 +232,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
           {banner && <ScanBanner b={banner} />}
           <div className="mt-3 overflow-hidden rounded-2xl"><ScanGate onScan={(v) => void onScan(v)} paused={busy === 'scan'} label="Scan each item into the box" cameraFirst={false} /></div>
           <div className="mt-3">
-            {(checkOrder.lines || []).filter((l: any) => l.digital !== true && !['refunded', 'backordered'].includes(l.status) && (l.qtyOrdered || 0) - (l.qtyShorted || 0) > 0).map((l: any) => { const owed = (l.qtyOrdered || 0) - (l.qtyShorted || 0); const done = (l.qtyPacked || 0) >= owed; return (
+            {(checkOrder.lines || []).filter((l: any) => l.digital !== true && (l.qtyOrdered || 0) - (l.qtyShorted || 0) > 0).map((l: any) => { const owed = (l.qtyOrdered || 0) - (l.qtyShorted || 0); const done = (l.qtyPacked || 0) >= owed; return (
               <div key={l.lineId} className="flex min-h-[56px] items-center gap-3 border-b py-2.5" style={{ borderColor: C.line, opacity: done ? 0.5 : 1 }}>
                 <span key={done ? 'd' : 'n'} className={`${done ? 'cf-anim-pop ' : ''}grid h-7 w-7 shrink-0 place-items-center rounded-full border-2`} style={done ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{done ? Ic.check : null}</span>
                 <span className="min-w-0 flex-1 truncate text-[16px] font-semibold">{l.name}{l.optionsLabel ? ` · ${l.optionsLabel}` : ''}</span>

@@ -4,8 +4,8 @@
 // Returns { ok, message } so every screen (and Klair later) reports the same way.
 import { type Firestore, doc, updateDoc } from 'firebase/firestore';
 import {
-  claimSpecificOrder, markPacked, markReady, notifyCurbside, recordItemScan, recordLineTap, resolveShortLine,
-  releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffWithoutScan, markShipped, cancelOrder, releaseBackorder, type Actor,
+  claimSpecificOrder, markPacked, markReady, notifyCurbside, recordBoxScan, recordLineTap, resolveShortLine,
+  releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffWithoutScan, markShipped, cancelOrder, releaseBackorder, takeOverOrder, type Actor,
 } from '@/lib/retail-fulfill';
 import { nextFreeSlot } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -18,19 +18,29 @@ export async function startPacking(fs: Firestore, t: string, o: any, actor: Acto
   if (o.stage !== 'paid') return { ok: false, message: 'This order isn’t waiting to be packed.' };
   if (o.holdForReview === true) return { ok: false, message: 'This order is held for review. Decide on it first.' };
   if (o.holdUntilRestock === true) return { ok: false, message: 'This order is waiting on stock. Release it from its page once the items are on the shelf.' };
+  // An order in a wave walk is picked with the wave and packed from its tote when the wave comes back (lib/waves).
+  if (o.waveId) return { ok: false, message: 'This order is being picked with a wave. It’s packed from its tote when the wave is done.' };
   const r = await claimSpecificOrder(fs, t, o.id, actor);
   return 'error' in r ? { ok: false, message: r.error } : { ok: true, message: 'Packing' };
 }
 
-export async function scanInto(fs: Firestore, t: string, orderId: string, value: string, actor: Actor) {
-  return recordItemScan(fs, t, orderId, value, actor);
+/** Someone else is packing it (or picked it at the shelf): it's yours now, with every count kept. */
+export async function takeOverPacking(fs: Firestore, t: string, o: any, actor: Actor): Promise<Result> {
+  return takeOverOrder(fs, t, o.id, actor);
+}
+
+/** A scan on the packing screen is a scan at the box: picked and in the box at once. With the shop's second scan on
+ *  (`rs.requirePackScan`), an item picked at the shelf is checked into the box by it (lib/retail-fulfill recordBoxScan). */
+export async function scanInto(fs: Firestore, t: string, orderId: string, value: string, actor: Actor, rs?: any) {
+  return recordBoxScan(fs, t, orderId, value, actor, { secondScan: rs?.requirePackScan === true });
 }
 export async function tapInto(fs: Firestore, t: string, orderId: string, lineId: string, actor: Actor) {
   return recordLineTap(fs, t, orderId, lineId, actor);
 }
 
-export async function undoTick(fs: Firestore, t: string, orderId: string, lineId: string, actor: Actor) {
-  return undoLineCount(fs, t, orderId, lineId, actor);
+/** Takes back the last count: a tap (`scan`), a scan at the box (`box`), or a second scan's check into the box (`check`). */
+export async function undoTick(fs: Firestore, t: string, orderId: string, lineId: string, actor: Actor, what: 'scan' | 'box' | 'check' = 'scan') {
+  return undoLineCount(fs, t, orderId, lineId, actor, what);
 }
 
 /** A backorder waiting on stock goes into the packing queue (lib/retail-fulfill releaseBackorder). Without `anyway`,
@@ -52,11 +62,11 @@ export async function markMissing(fs: Firestore, t: string, orderId: string, lin
 }
 
 /** Everything is in. Pickup and curbside orders go straight to the shelf with a spot, and the customer is told.
- *  Ship orders stay packed, ready for a label. Packing here is the scan at the box (with "second scan at packing" on,
- *  every unit is scanned in, not tapped), so it isn't asked for a second time; an order picked at the shelf first is
- *  checked again at the bench (lib/retail-fulfill markPacked). */
+ *  Ship orders stay packed, ready for a label. With "second scan at packing" on, every unit must be counted into the box
+ *  (a scan at the box counts it; an item picked at the shelf is scanned again), and the engine checks that as it marks
+ *  the order packed (lib/retail-fulfill markPacked), whichever screen finishes it. */
 export async function finishPacking(fs: Firestore, t: string, o: any, all: any[], actor: Actor, rs: any): Promise<Result & { slot?: string }> {
-  const p = await markPacked(fs, t, o.id, actor, { requirePackScan: false });
+  const p = await markPacked(fs, t, o.id, actor, { requirePackScan: rs?.requirePackScan === true });
   if (!p.ok) return p;
   if (o.method === 'ship') return { ok: true, message: 'Packed. Ready for a label.' };
   const r: any = await markReady(fs, t, o.id, actor);

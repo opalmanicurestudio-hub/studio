@@ -18,7 +18,11 @@ export type ScanResolution =
   | { kind: 'unknown' };                                                   // no product has this code
 
 const CLOSED = ['shorted', 'refunded', 'backordered'];
-const isOpen = (l: OrderLine, packCheck: boolean) => !CLOSED.includes(l.status) && (packCheck ? (l.qtyPacked || 0) < l.qtyOrdered - l.qtyShorted : l.qtyScanned < l.qtyOrdered);
+// Still waiting for a scan: to be picked, to be checked into the box (the units still going out, whatever happened to the
+// rest), or (a scan at the box, 'box') either.
+const pickOpen = (l: OrderLine) => !CLOSED.includes(l.status) && l.qtyScanned < l.qtyOrdered;
+const packOpen = (l: OrderLine) => (l.qtyPacked || 0) < l.qtyOrdered - (l.qtyShorted || 0);
+const isOpen = (l: OrderLine, packCheck: boolean | 'box') => packCheck === 'box' ? pickOpen(l) || packOpen(l) : packCheck ? packOpen(l) : pickOpen(l);
 const identityOf = (item: any) => ({
   ...(Number(item?.casePack) > 1 ? { casePack: Math.floor(Number(item.casePack)) } : {}),
   ...(item?.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
@@ -42,12 +46,14 @@ export async function productsWithCode(fs: Firestore, tenantId: string, raw: str
   return [...found.values()].filter((i) => i.status !== 'archived' && productMatch(i, raw));
 }
 
-/** Works out which line of the order a scan is for. `packCheck` is the second scan at the box. */
-export async function resolveOrderScan(fs: Firestore, tenantId: string, lines: OrderLine[], raw: string, packCheck = false): Promise<ScanResolution> {
+/** Works out which line of the order a scan is for. `packCheck` is the second scan at the box; 'box' is a scan at the
+ *  box with the second scan on (a unit to pick, or one picked at the shelf to check in: a line still to pick first). */
+export async function resolveOrderScan(fs: Firestore, tenantId: string, lines: OrderLine[], raw: string, packCheck: boolean | 'box' = false): Promise<ScanResolution> {
   const t = String(raw || '').trim();
   if (!t) return { kind: 'unknown' };
   if (lines.some((l) => lineMatchesScan(l, t))) return { kind: 'snapshot' };
-  const lineFor = (pid: string) => lines.find((l) => lineProductId(l) === pid && isOpen(l, packCheck)) || lines.find((l) => lineProductId(l) === pid) || null;
+  const lineFor = (pid: string) => (packCheck === 'box' ? lines.find((l) => lineProductId(l) === pid && pickOpen(l)) : null)
+    || lines.find((l) => lineProductId(l) === pid && isOpen(l, packCheck)) || lines.find((l) => lineProductId(l) === pid) || null;
 
   // The products on the order, as they are now.
   const ids = [...new Set(lines.map(lineProductId).filter(Boolean))];

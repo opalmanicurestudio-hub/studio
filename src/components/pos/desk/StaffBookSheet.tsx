@@ -242,10 +242,15 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     const dueNow: string[] = mode === 'repeat' && (allNow || out.depositPolicy === 'all_now') ? (out.results || []).filter((x: any) => x.ok).map((x: any) => x.appointmentId) : firstId ? [firstId] : [];
     if (hasDeposit && deposit !== 'link' && dueNow.length) {
       const action = deposit === 'charge' ? 'charge' : deposit === 'paid' ? 'settled' : 'waive';
-      let okCount = 0; let lastErr = '';
-      for (const id of dueNow) { const d = await staffJson('/api/appointments/desk-deposit', { tenantId, appointmentId: id, action, ...(action === 'settled' ? { via: depVia } : {}) }); if (d?.ok) okCount++; else lastErr = d?.error || ''; }
+      let okCount = 0; let lastErr = ''; let notice = '';
+      for (const id of dueNow) {
+        const d = await staffJson('/api/appointments/desk-deposit', { tenantId, appointmentId: id, action, ...(action === 'settled' ? { via: depVia } : {}) });
+        if (d?.ok) okCount++; else lastErr = d?.error || '';
+        // Paid already (on the card reader, or another way): the desk is told, so nothing is taken twice unseen.
+        if (d?.ok && (d.paidTwice || d.viaReader) && d.message) notice = d.message;
+      }
       const what = deposit === 'charge' ? 'charged to their card' : deposit === 'paid' ? 'marked as paid' : 'waived';
-      depositNote = okCount === dueNow.length ? `${dueNow.length > 1 ? `${dueNow.length} deposits` : 'Deposit'} ${what}.` : `Booked — but ${dueNow.length - okCount} deposit${dueNow.length - okCount === 1 ? '' : 's'} didn’t go through${lastErr ? `: ${lastErr}` : ''}. Take it from the booking.`;
+      depositNote = notice || (okCount === dueNow.length ? `${dueNow.length > 1 ? `${dueNow.length} deposits` : 'Deposit'} ${what}.` : `Booked — but ${dueNow.length - okCount} deposit${dueNow.length - okCount === 1 ? '' : 's'} didn’t go through${lastErr ? `: ${lastErr}` : ''}. Take it from the booking.`);
     } else if (hasDeposit && deposit === 'link') depositNote = 'They’ve been sent a link to pay the deposit — the time is held for 24 hours.';
     if (hasDeposit && mode === 'repeat' && !(allNow || out.depositPolicy === 'all_now')) depositNote = `${depositNote ? `${depositNote} ` : ''}${out.depositPolicy === 'before_each' ? `Each later visit’s deposit is taken ${seriesDays} days before it.` : 'Later visits are held by their card on file — no more deposits.'}`;
     if (hasDeposit && (mode === 'group' || mode === 'steps')) depositNote = `${depositNote ? `${depositNote} ` : ''}One deposit covers the whole ${mode === 'group' ? 'group' : 'visit'}.`;

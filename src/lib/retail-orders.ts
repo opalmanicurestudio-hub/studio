@@ -1530,11 +1530,12 @@ export function physicalLines(lines: OrderLine[]): OrderLine[] {
   return lines.filter((l) => l.digital !== true);
 }
 
+/** Every unit going out is in the box. A line marked refunded or sent later for the units that went missing still ships
+ *  the ones picked before (qtyOrdered - qtyShorted), so those are counted in too. */
 export function isPackComplete(lines: OrderLine[]): boolean {
   return lines.every((l) =>
     l.digital === true ||
-    ['refunded', 'backordered'].includes(l.status) ||
-    (l.qtyPacked || 0) >= l.qtyOrdered - l.qtyShorted
+    (l.qtyPacked || 0) >= Math.max(0, l.qtyOrdered - (l.qtyShorted || 0))
   );
 }
 
@@ -1544,14 +1545,15 @@ export function applyPackScan(lines: OrderLine[], scannedValue: string, hint?: S
 } {
   const raw = scannedValue.trim();
   const matchesPack = (l: OrderLine) => (hint?.lineId ? l.lineId === hint.lineId : lineMatchesScan(l, raw));
-  const firstOpenPack = lines.findIndex((l) => matchesPack(l) && !['refunded', 'backordered'].includes(l.status) && (l.qtyPacked || 0) < l.qtyOrdered - l.qtyShorted);
+  const firstOpenPack = lines.findIndex((l) => matchesPack(l) && (l.qtyPacked || 0) < l.qtyOrdered - (l.qtyShorted || 0));
   const idx = firstOpenPack >= 0 ? firstOpenPack : lines.findIndex(matchesPack);
   if (idx === -1) {
     return { result: { ok: false, code: 'unknown_sku', message: `Scanned code "${raw}" is not on this order.` }, lines };
   }
   const line = lines[idx];
-  const owed = line.qtyOrdered - line.qtyShorted;
-  if (['refunded', 'backordered'].includes(line.status)) {
+  const owed = line.qtyOrdered - (line.qtyShorted || 0);
+  // Refunded or sent later in full: nothing of it goes in the box. Part of it: the units picked before still do.
+  if (['refunded', 'backordered'].includes(line.status) && owed <= 0) {
     return { result: { ok: false, code: 'line_closed', message: `${line.name} was ${line.status} — it doesn't go in the box.` }, lines };
   }
   if ((line.qtyPacked || 0) >= owed) {
@@ -1575,6 +1577,37 @@ export function applyPackScan(lines: OrderLine[], scannedValue: string, hint?: S
     },
     lines: nextLines,
   };
+}
+
+/**
+ * A scan AT THE BOX (the packing screen): the unit goes into the box as it's counted, so it counts as picked and as in
+ * the box at once (qtyScanned and qtyPacked). With the shop's second scan on, a scan of an item already picked at the
+ * shelf is that unit's check into the box (applyPackScan); without it, a fully counted item says so, as a pick does.
+ * Pure. `kind` says which it was, so it can be undone exactly.
+ */
+export function applyBoxScan(lines: OrderLine[], scannedValue: string, hint: ScanHint | null | undefined, secondScan: boolean): {
+  result: ScanResult & { kind?: 'picked' | 'checked'; packComplete?: boolean };
+  lines: OrderLine[];
+} {
+  const pick = applyScan(lines, scannedValue, hint);
+  if (pick.result.ok) {
+    const r = pick.result;
+    const nextLines = pick.lines.map((l) => {
+      if (l.lineId !== r.lineId) return l;
+      const before = lines.find((x) => x.lineId === l.lineId);
+      const inc = Math.max(0, l.qtyScanned - (before?.qtyScanned || 0));
+      const owed = Math.max(0, l.qtyOrdered - (l.qtyShorted || 0));
+      return { ...l, qtyPacked: Math.min(owed, (l.qtyPacked || 0) + inc) };
+    });
+    return { result: { ...r, kind: 'picked', packComplete: isPackComplete(nextLines) }, lines: nextLines };
+  }
+  // Picked already (or the rest of it went missing): its units picked before are checked into the box.
+  if (secondScan && (pick.result.code === 'over_scan' || pick.result.code === 'line_closed')) {
+    const check = applyPackScan(lines, scannedValue, hint);
+    if (check.result.ok) return { result: { ...check.result, kind: 'checked', pickComplete: isPickComplete(check.lines), packComplete: check.result.pickComplete }, lines: check.lines };
+    return { result: check.result, lines };
+  }
+  return { result: pick.result, lines };
 }
 
 /**

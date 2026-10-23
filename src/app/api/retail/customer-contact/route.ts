@@ -1,7 +1,9 @@
 // src/app/api/retail/customer-contact/route.ts — THE TEAM CHANGES A CUSTOMER'S CONTACT DETAILS ON AN ORDER: name, email,
 // mobile, and whether updates come by text. Managers and the front desk only (lib/contact-change), and a manager for an
-// email change on an order held for review. POST { tenantId, orderId, name?, email?, phone?, textsOff? }.
-// The order, its follow-ups (a backorder, a replacement) and the open cases on them all take the new details, so
+// email or mobile change on an order held for review (the new contact gets the order's link, and the link is the order).
+// POST { tenantId, orderId, name?, email?, phone?, textsOff? }.
+// The order, its whole family (the order it came from and every follow-up, a backorder of a backorder too) and the
+// open cases on them all take the new details, so
 // replies, updates and the order page reach them; the customer's profile keeps its own. A new email gets the order's
 // link, and the old one is told it changed (a change they didn't ask for is noticed); a new mobile gets one text with
 // the link. Every change is on the order's record with who made it.
@@ -11,6 +13,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
 import { changeLine, cleanContact, contactDiff, maskEmail, mayEditContact } from '@/lib/contact-change';
 import { sendNotification } from '@/lib/notify';
+import { followUpsOf } from '@/lib/order-family';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,16 +40,18 @@ export async function POST(req: NextRequest) {
   if (!changes.length) return NextResponse.json({ ok: true, unchanged: true, message: 'Nothing changed.' });
   const emailChange = changes.find((c) => c.field === 'email') || null;
   const phoneChange = changes.find((c) => c.field === 'phone') || null;
-  // An order held for review can be a stolen card: a new email on it is a manager's call.
-  if (emailChange && o.holdForReview === true && !auth.actor.isManager) return bad('This order is held for review, so a manager changes its email.', 403);
-
-  // The order's family: the order it came from (when it's a follow-up) and the follow-ups made from either.
-  const root = String(o.parentOrderId || orderId);
+  // The order's whole family: up the chain to the order the customer placed, then every follow-up made from it.
   const famIds = new Set<string>([orderId]);
   try {
-    if (root !== orderId) famIds.add(root);
-    const kids = await db.collection(`tenants/${tenantId}/retailOrders`).where('parentOrderId', '==', root).limit(20).get();
-    kids.docs.forEach((d: any) => famIds.add(d.id));
+    let root = orderId; let cur: any = o;
+    for (let i = 0; i < 4 && cur?.parentOrderId; i++) {
+      const pid = String(cur.parentOrderId);
+      const ps = await db.doc(`tenants/${tenantId}/retailOrders/${pid}`).get();
+      if (!ps.exists) break;
+      root = pid; cur = ps.data(); famIds.add(pid);
+    }
+    const kids = await followUpsOf((q: any) => q.get(), db.collection(`tenants/${tenantId}/retailOrders`), root);
+    kids.forEach((k: any) => famIds.add(String(k.id)));
   } catch { /* the order itself is still changed */ }
   const oldEmail = String(o.customerEmail || '').trim().toLowerCase();
   const oldPhone = String(o.customerPhone || '');
@@ -59,22 +64,37 @@ export async function POST(req: NextRequest) {
     ...(changes.some((c) => c.field === 'texts') ? { textsOff: next.textsOff } : {}),
     contactChangedAt: now, contactChangedBy: auth.actor.name,
   });
+  const family: { id: string; x: any }[] = [];
+  for (const id of famIds) {
+    const x: any = id === orderId ? o : (((await db.doc(`tenants/${tenantId}/retailOrders/${id}`).get().catch(() => null))?.data?.()) || null);
+    if (x) family.push({ id, x });
+  }
+  // An order held for review can be a stolen card: a new email or mobile on it (which gets the order's link) is a
+  // manager's call, from any order in its family (a change here reaches all of them).
+  if ((emailChange || phoneChange) && !auth.actor.isManager && family.some((f) => f.x.holdForReview === true)) return bad('This order, or one it belongs with, is held for review, so a manager changes its email or mobile.', 403);
   const batch = db.batch();
   const touched: string[] = [];
-  for (const id of famIds) {
-    const r = db.doc(`tenants/${tenantId}/retailOrders/${id}`);
-    const x: any = id === orderId ? o : (((await r.get().catch(() => null))?.data?.()) || null);
-    if (!x) continue;
-    batch.set(r, patchFor(x), { merge: true });
+  for (const { id, x } of family) {
+    batch.set(db.doc(`tenants/${tenantId}/retailOrders/${id}`), patchFor(x), { merge: true });
     touched.push(id);
   }
-  // The open cases on these orders reply to the new email.
-  if (emailChange) {
+  // The open cases on these orders reply to the new email and mobile.
+  if (emailChange || phoneChange) {
+    const ids = [...famIds];
     for (const col of ['retailSupport', 'retailClaims']) {
-      try {
-        const s = await db.collection(`tenants/${tenantId}/${col}`).where('orderId', 'in', [...famIds].slice(0, 10)).limit(60).get();
-        s.docs.forEach((d: any) => { if (String(d.data()?.customerEmail || '').trim().toLowerCase() === oldEmail) batch.set(d.ref, { customerEmail: next.email }, { merge: true }); });
-      } catch { /* the order still changes */ }
+      for (let i = 0; i < ids.length; i += 10) {
+        try {
+          const s = await db.collection(`tenants/${tenantId}/${col}`).where('orderId', 'in', ids.slice(i, i + 10)).limit(60).get();
+          s.docs.forEach((d: any) => {
+            const c: any = d.data() || {};
+            const patch = {
+              ...(emailChange && String(c.customerEmail || '').trim().toLowerCase() === oldEmail ? { customerEmail: next.email } : {}),
+              ...(phoneChange && c.customerPhone && d10(c.customerPhone) === d10(oldPhone) ? { customerPhone: next.phone } : {}),
+            };
+            if (Object.keys(patch).length) batch.set(d.ref, patch, { merge: true });
+          });
+        } catch { /* the order still changes */ }
+      }
     }
   }
   const ev = ref.collection('events').doc();

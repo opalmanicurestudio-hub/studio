@@ -41,6 +41,7 @@ const claims = src('src/app/api/retail/claims/route.ts');
 const ai = src('src/app/api/retail/ai-support/route.ts');
 check('starting a return asks the shared window', /windowOpen\(order, windowDays\)/.test(selfServe) && !/new Date\(order\.completedAt\)\.getTime\(\)\) \/ 86400000;\s*\n\s*if \(Number\.isFinite\(ageDays\) && ageDays > windowDays\)/.test(selfServe));
 check('the order page’s menu asks the same window the route enforces', /const returnWindowOk = windowOpen\(order, rs\.returnWindowDays\);/.test(status));
+check('…and only offers to report a problem while the report window is open', /canReport: \['shipped', 'handed_off', 'completed'\]\.includes\(order\.stage\) && windowOpen\(order, Math\.max\(0, Math\.floor\(Number\(rs\.deliveryIssueWindowDays\) \|\| 0\)\)\)/.test(status));
 check('reporting a problem asks the shared window, and names delivery or shipping in its refusal', /windowOpen\(order, issueDays\)/.test(claims) && /startedAgo\(order\)/.test(claims));
 check('the order assistant is told the windows count from delivery, and whether they’re open for this order', /days of delivery \(\$\{windowOpen\(order, rs\.returnWindowDays\)/.test(ai) && !/days of completion/.test(ai));
 

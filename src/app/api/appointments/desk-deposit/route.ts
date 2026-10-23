@@ -18,8 +18,12 @@
 //   reader   { appointmentId, paymentIntentId }  Taken on the shop's card
 //            reader (Stripe Terminal) just now: the payment is checked with the
 //            card processor (this business, succeeded, in person), then recorded
-//            once by that payment (lib/deposit-record) with its Retainers line, so
-//            it can be refunded to the card like any card deposit.
+//            once by that payment with its Retainers line (lib/reader-deposit), so
+//            it can be refunded to the card like any card deposit. Usually the
+//            capture recorded it already, and this only confirms it.
+// A reader payment still waiting on the booking is recorded before anything
+// else is taken (settled, charge, link, waive), so a deposit taken on the
+// reader is never taken again another way.
 //   charge   { appointmentId }  Charge the client's saved card now (the secured
 //            charge-card route writes its own Retainers line) → then recorded
 //            once, by the card payment (lib/deposit-record). One charge at a
@@ -34,16 +38,17 @@
 // booking (the time may be taken) — it is flagged, like online.
 
 import { balanceDueWith, settleCollectedBalance } from '@/lib/balance-with-deposit';
-import { bookingPolicyLines, holdLine } from '@/lib/policy-copy';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from '@/lib/audit';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { linkOrigin } from '@/lib/app-origin';
 import { internalPost, internalOrigin } from '@/lib/message-policy';
 import { graceHoursOf } from '@/lib/deposit-policy';
 import { recordCardDepositSafely } from '@/lib/deposit-record';
-import Stripe from 'stripe';
+import { tellDepositClient } from '@/lib/deposit-notify';
+import { recordReaderDeposit, recordWaitingReaderDeposit, tellDeskPaidTwice } from '@/lib/reader-deposit';
 
 export const dynamic = 'force-dynamic';
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
@@ -53,26 +58,6 @@ const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 const CHARGE_LOCK_MS = 90_000;
 // How a deposit paid at the desk with no sale in the app came in, as the ledger names it.
 const DESK_METHOD: Record<string, string> = { cash: 'Cash', terminal: 'Card machine', card: 'Card machine', card_machine: 'Card machine', other: 'Other' };
-
-async function tellClient(db: any, tenant: any, tenantId: string, ap: any, base: string, kind: 'confirmed' | 'pay_link', cents: number) {
-  try {
-    const { sendNotification } = await import('@/lib/notify');
-    const { brandedEmailHtml } = await import('@/lib/email-template');
-    const cl = ap.clientId ? (((await db.doc(`tenants/${tenantId}/clients/${ap.clientId}`).get()).data() as any) || {}) : {};
-    const email = String(cl.email || ap.clientEmail || '').trim(), phone = String(cl.phone || ap.clientPhone || '').trim();
-    const first = String(ap.clientName || '').split(' ')[0] || 'there'; const studio = tenant.name || tenant.businessName || 'the studio';
-    const when = ap.startTime ? new Date(ap.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined }) : 'your next visit';
-    const link = ap.checkInToken ? `${base}/check-in/${ap.checkInToken}` : `${base}/book/${tenantId}`;
-    const money = `$${(cents / 100).toFixed(2)}`;
-    const subject = kind === 'confirmed' ? `Your appointment is confirmed for ${when}` : `Please pay your ${money} deposit to confirm ${when}`;
-    const policy = bookingPolicyLines(tenant, null, { depositCents: cents });
-    const lines = kind === 'confirmed'
-      ? [`Hi ${first},`, `Thank you for booking with us. Your next visit at ${studio} is confirmed for ${when}.${cents > 0 ? ` We have received your ${money} deposit.` : ''}`, ...policy, `Kind regards, ${studio}`]
-      : [`Hi ${first},`, `We are holding ${when} for you at ${studio}. To confirm your appointment, please pay your ${money} deposit using the button below.`, holdLine(tenant, ap.paymentDueAt ? new Date(ap.paymentDueAt) : null), ...policy, `Kind regards, ${studio}`];
-    if (email) await sendNotification(db, { tenantId, channel: 'email', to: email, subject, html: brandedEmailHtml({ studioName: studio, title: kind === 'confirmed' ? 'Your appointment is confirmed' : 'Confirm your next visit', bodyLines: lines, cta: { label: kind === 'confirmed' ? 'View your visit' : `Pay ${money} deposit`, url: link } }), kind: kind === 'confirmed' ? 'desk_booking_confirmed' : 'deposit_pay_link', appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
-    if (phone) await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `${kind === 'confirmed' ? `Hi ${first}, your appointment is confirmed for ${when}. Your visit link:` : `Hi ${first}, to confirm your appointment on ${when}, please pay your ${money} deposit here:`} ${link}`, kind: kind === 'confirmed' ? 'desk_booking_confirmed' : 'deposit_pay_link', appointmentId: ap.id, clientId: ap.clientId || null, clientName: ap.clientName || null } as any);
-  } catch (e) { console.error('[desk-deposit] notify failed (the deposit is safe)', e); }
-}
 
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
@@ -93,13 +78,21 @@ export async function POST(req: NextRequest) {
   // Paid already: nothing is taken again (a card payment that was charged but never recorded is recorded below).
   // A payment already taken on the card reader for this booking is always recorded, even if the deposit was paid another
   // way meanwhile: the money came in, so its credit and income line are kept, and the booking is flagged.
-  if (ap.depositStatus === 'paid' && action !== 'link' && action !== 'reader' && !(action === 'charge' && ap.depositStripePaymentIntentId)) return NextResponse.json({ ok: true, already: true, status: ap.status });
+  // A deposit paid at the desk or on a sale ('settled') for a booking already paid another way is money that came in
+  // twice: it's recorded and flagged below, never dropped.
+  if (ap.depositStatus === 'paid' && !['link', 'reader', 'settled'].includes(action) && !(action === 'charge' && ap.depositStripePaymentIntentId)) return NextResponse.json({ ok: true, already: true, status: ap.status });
+  // Taken on the card reader already and not recorded yet (the screen lost its connection): recorded now. Nothing is
+  // charged or asked for again; a payment the desk took anyway is recorded as a second one (settled, below).
+  if (action !== 'reader' && ap.depositReaderPi?.id && ap.depositStatus !== 'paid') {
+    const r = await recordWaitingReaderDeposit(db, tenantId, ap, { tenant, actorName: auth.actor.name, origin: base });
+    if (r?.ok && action !== 'settled') return NextResponse.json({ ok: true, already: true, viaReader: true, status: r.status, depositCents: r.depositCents, message: `The ${money(r.depositCents)} deposit was already taken on the card reader.` });
+  }
 
   // After a deposit is recorded: the activity log, and the client hears their visit is confirmed.
   const after = async (cents: number, via: string, released: boolean, how?: string) => {
     const where = via === 'checkout' ? 'on today’s bill' : via === 'desk' ? `paid at the desk${how ? `, ${how.toLowerCase()}` : ''}` : via === 'card_reader' ? 'card reader' : 'card on file';
     await logAuditAdmin(db, tenantId, { action: 'deposit.paid', targetType: 'appointment', targetId: appointmentId, amount: cents / 100, summary: `Deposit ${money(cents)} taken at the front desk (${where}) — ${ap.clientName || 'client'}`, actor } as any).catch(() => {});
-    if (!released) await tellClient(db, tenant, tenantId, ap, base, 'confirmed', cents);
+    if (!released) await tellDepositClient(db, tenant, tenantId, ap, base, 'confirmed', cents);
   };
   // The money a deposit brings in, as a ledger line (the same shape a card deposit's line has).
   const depositIncome = (cents: number, method: string, more: Record<string, any> = {}) => ({
@@ -110,14 +103,23 @@ export async function POST(req: NextRequest) {
 
   // Paid on a sale (or at the desk): the credit is named after the sale and the booking, so a repeat can't add another.
   // Paid at the desk with no sale: its income line is written with the credit, under the booking's name, once.
-  const settle = async (cents: number, via: string, creditId: string, extra: any = {}, income: { id: string; method: string } | null = null) => {
+  const settle = async (cents: number, via: string, creditId: string, extra: any = {}, income: { id: string; method: string } | null = null, afterRecord?: () => Promise<void>) => {
     const cRef = db.doc(`${T}/depositCredits/${creditId}`);
     const iRef = income ? db.doc(`${T}/transactions/${income.id}`) : null;
     const done = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(aRef)).data() || {};
       const had = (await tx.get(cRef)).exists;
       const hadIncome = iRef ? (await tx.get(iRef)).exists : false;
-      if (had || cur.depositStatus === 'paid') return null;
+      if (had) return null;
+      // Paid already another way (the card reader, a link, a card on file, another sale): this money came in too. Its
+      // credit (and income line, for money with no sale) is kept, the booking keeps its first payment, and it's flagged.
+      if (cur.depositStatus === 'paid') {
+        tx.set(aRef, { needsAttention: 'deposit_paid_twice', needsAttentionAt: nowIso, depositSecondPaidVia: via, ...(extra.depositReceiptId ? { depositSecondReceiptId: extra.depositReceiptId } : {}) }, { merge: true });
+        tx.set(cRef, { id: cRef.id, tenantId, clientId: cur.clientId || null, clientEmail: String(cur.clientEmail || '').toLowerCase().trim(), clientName: cur.clientName || 'Guest',
+          amountCents: cents, status: 'available', sourceAppointmentId: appointmentId, createdAt: nowIso, via, secondPayment: true });
+        if (iRef && income && !hadIncome) tx.set(iRef, { id: iRef.id, tenantId, date: nowIso, ...depositIncome(cents, income.method) });
+        return { next: String(cur.status || ''), released: cur.status === 'cancelled', twice: true, cur };
+      }
       const released = cur.status === 'cancelled';
       const next = released ? 'cancelled' : (cur.status === 'pending_payment' ? 'confirmed' : cur.status);
       tx.set(aRef, { status: next, depositStatus: 'paid', depositPaidAt: nowIso, depositAmountCents: cents, paymentDueAt: null, depositPaidVia: via, ...extra,
@@ -127,9 +129,15 @@ export async function POST(req: NextRequest) {
       tx.set(cRef, { id: cRef.id, tenantId, clientId: cur.clientId || null, clientEmail: String(cur.clientEmail || '').toLowerCase().trim(), clientName: cur.clientName || 'Guest',
         amountCents: cents, status: 'available', sourceAppointmentId: appointmentId, createdAt: nowIso, via });
       if (iRef && income && !hadIncome) tx.set(iRef, { id: iRef.id, tenantId, date: nowIso, ...depositIncome(cents, income.method) });
-      return { next, released };
+      return { next, released, twice: false, cur };
     });
     if (!done) return NextResponse.json({ ok: true, already: true, status: ap.status });
+    if (afterRecord) await afterRecord().catch((e) => console.error('[desk-deposit] after record', e));
+    if (done.twice) {
+      await logAuditAdmin(db, tenantId, { action: 'deposit.paid_twice', targetType: 'appointment', targetId: appointmentId, amount: cents / 100, summary: `Deposit ${money(cents)} taken at the front desk for ${ap.clientName || 'a client'}, but it was already paid another way: both payments are kept`, actor } as any).catch(() => {});
+      await tellDeskPaidTwice(db, tenantId, { ...done.cur, id: appointmentId }, cents).catch((e) => console.error('[desk-deposit] desk notice', e));
+      return NextResponse.json({ ok: true, paidTwice: true, status: done.next, depositCents: cents, message: `This deposit was already paid another way, so it’s now paid twice. Both payments are on the booking: refund one of them from the booking.` });
+    }
     await after(cents, via, done.released, income?.method);
     return NextResponse.json({ ok: true, status: done.next, released: done.released, depositCents: cents });
   };
@@ -146,50 +154,24 @@ export async function POST(req: NextRequest) {
     const method = desk ? DESK_METHOD[String(b.via || '').toLowerCase()] || 'Paid at the desk' : '';
     // Paid at the desk covers a balance collected with this deposit too (unless the desk says it wasn't taken).
     const bal = balanceDueWith(ap);
-    if (bal > 0 && b.withBalance !== false) await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: desk ? method : 'Paid at the desk', via: 'front desk', actorName: auth.actor.name });
+    const balPaid = bal > 0 && b.withBalance !== false ? await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: desk ? method : 'Paid at the desk', via: 'front desk', actorName: auth.actor.name }) : false;
+    // Cash goes in the drawer: the open till expects it (the deposit, and a balance paid with it), so it balances at close.
+    const toTill = desk && method === 'Cash' ? async () => {
+      const till = (await db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(1).get()).docs[0];
+      const inCash = cents + (balPaid ? bal : 0);
+      if (till && inCash > 0) await till.ref.set({ expectedCash: FieldValue.increment(inCash / 100),
+        cashAdjustments: FieldValue.arrayUnion({ amount: inCash / 100, reason: `Deposit paid in cash (${ap.clientName || 'client'})`, at: nowIso, by: auth.actor.name || 'Front desk', appointmentId }) }, { merge: true });
+    } : undefined;
     // Which sale paid it, and how — so an undo can refund it through that payment.
     return settle(cents, desk ? 'desk' : 'checkout', receiptId ? `deposit_${receiptId}_${appointmentId}` : `deposit_desk_${appointmentId}`,
       { depositReceiptId: receiptId || null, depositPaidMethod: desk ? method : b.paidMethod ? String(b.paidMethod) : null },
-      desk ? { id: `deposit_desk_${appointmentId}`, method } : null);
+      desk ? { id: `deposit_desk_${appointmentId}`, method } : null, toTill);
   }
 
   if (action === 'reader') {
-    const owed = c0(ap.depositAmountCents);
-    if (owed <= 0) return bad('This booking has no deposit to take.');
-    const pi = String(b.paymentIntentId || '').trim();
-    if (!/^pi_[A-Za-z0-9_]+$/.test(pi)) return bad('The card payment is missing.');
-    const acct = String(tenant.stripeAccountId || '');
-    if (!acct) return bad('Card payments aren’t set up for this business.');
-    // The payment as the card processor has it: this business's, taken in person, and gone through.
-    let intent: any = null;
-    try {
-      const stripe: any = new (Stripe as any)(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any });
-      intent = await stripe.paymentIntents.retrieve(pi, { expand: ['latest_charge'] }, { stripeAccount: acct });
-    } catch (e) { console.error('[desk-deposit] reader payment lookup failed', e); }
-    if (!intent) return bad('We couldn’t confirm that card payment. Check the booking in a moment: the card won’t be charged twice.', 502);
-    // Only a payment the reader took for this booking's deposit (the booking screen names it when it starts one).
-    if (String(intent.metadata?.tenantId || '') !== tenantId) return bad('That card payment isn’t this business’s.', 403);
-    if (String(intent.metadata?.appointmentId || '') !== appointmentId || String(intent.metadata?.kind || '') !== 'deposit') return bad('That card payment wasn’t for this booking’s deposit.', 409);
-    if (intent.status !== 'succeeded') return bad('That card payment didn’t go through.', 402);
-    if (!(intent.payment_method_types || []).includes('card_present')) return bad('That payment wasn’t taken on a card reader.');
-    const received = c0(intent.amount_received ?? intent.amount);
-    const cents = Math.min(owed, received);
-    if (cents <= 0) return bad('That card payment has no amount.');
-    const chargeId = typeof intent.latest_charge === 'string' ? intent.latest_charge : intent.latest_charge?.id || null;
-    const clientEmail = String(ap.clientEmail || '').toLowerCase().trim() || null;
-    // A balance taken in the same payment is the fee payment it is; only the rest is the deposit.
-    const bal = balanceDueWith(ap);
-    if (bal > 0 && received >= cents + bal) await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: 'Card reader', via: 'card reader', chargeId, actorName: auth.actor.name });
-    // Paid another way while the card was on the reader: both payments are kept, and someone looks at it.
-    const twice = ap.depositStatus === 'paid' && String(ap.depositStripePaymentIntentId || '') !== pi;
-    const rec = await recordCardDepositSafely(db, tenantId, appointmentId, {
-      cents, paymentIntentId: pi, chargeId, via: 'card_reader', clientEmail,
-      extra: { stripePaymentIntentId: pi, depositPaidMethod: 'Card reader', ...(twice ? { needsAttention: 'deposit_paid_twice', needsAttentionAt: nowIso } : {}) },
-      income: { id: `reader_deposit__${pi.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120)}`, data: depositIncome(cents, 'Card reader', { stripePaymentIntentId: pi, stripeChargeId: chargeId }) },
-    }, { status: ap.status === 'pending_payment' ? 'confirmed' : ap.status, depositStatus: 'paid', depositPaidAt: nowIso, depositPaidVia: 'card_reader', paymentDueAt: null });
-    if (!rec.ok) return NextResponse.json({ ok: false, error: rec.error, code: 'not_recorded' }, { status: 500 });
-    if (!rec.already && !twice) await after(cents, 'card_reader', rec.released);
-    return NextResponse.json({ ok: true, already: rec.already, status: rec.status, released: rec.released, depositCents: cents, chargedCents: received, ...(twice && !rec.already ? { paidTwice: true } : {}) });
+    const r = await recordReaderDeposit(db, tenantId, appointmentId, { paymentIntentId: String(b.paymentIntentId || ''), tenant, actorName: auth.actor.name, origin: base });
+    if (!r.ok) return NextResponse.json({ ok: false, error: r.error, ...(r.code ? { code: r.code } : {}) }, { status: r.status });
+    return NextResponse.json({ ok: true, already: r.already, status: r.status, released: r.released, depositCents: r.depositCents, chargedCents: r.chargedCents, ...(r.paidTwice ? { paidTwice: true } : {}) });
   }
 
   if (action === 'charge') {
@@ -268,7 +250,7 @@ export async function POST(req: NextRequest) {
       serviceName: ap.serviceName || null, appointmentStartTime: ap.startTime, depositAmountCents: cents, skipCardStep: false, status: 'pending', createdAt: nowIso, createdVia: 'front desk' }, { merge: true });
     await batch.commit();
     await logAuditAdmin(db, tenantId, { action: 'deposit.link_sent', targetType: 'appointment', targetId: appointmentId, amount: cents / 100, summary: `Deposit link sent — ${ap.clientName || 'client'}, held until ${new Date(due).toLocaleString('en-US', { timeZone: tenant.timezone || undefined })}`, actor } as any).catch(() => {});
-    await tellClient(db, tenant, tenantId, { ...ap, paymentDueAt: due }, base, 'pay_link', cents);
+    await tellDepositClient(db, tenant, tenantId, { ...ap, paymentDueAt: due }, base, 'pay_link', cents);
     return NextResponse.json({ ok: true, heldUntil: due });
   }
 
@@ -290,7 +272,7 @@ export async function POST(req: NextRequest) {
     if (ap.checkInToken) batch.set(db.doc(`appointmentCheckIns/${ap.checkInToken}`), { status: ap.status === 'pending_payment' ? 'confirmed' : ap.status, depositStatus: 'waived' }, { merge: true });
     await batch.commit();
     await logAuditAdmin(db, tenantId, { action: 'deposit.waived', targetType: 'appointment', targetId: appointmentId, summary: `Confirmed without a deposit — ${ap.clientName || 'client'} (${reason})`, actor } as any).catch(() => {});
-    await tellClient(db, tenant, tenantId, ap, base, 'confirmed', 0);
+    await tellDepositClient(db, tenant, tenantId, ap, base, 'confirmed', 0);
     return NextResponse.json({ ok: true, status: 'confirmed' });
   }
   return bad('Unknown action.');

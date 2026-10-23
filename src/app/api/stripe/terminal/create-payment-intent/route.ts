@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
+import { readerDepositAmount, recordWaitingReaderDeposit } from '@/lib/reader-deposit';
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -39,11 +40,30 @@ export async function POST(req: NextRequest) {
     const purpose = String(kind || '') === 'deposit' && forBooking ? 'deposit' : '';
     { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
 
-    if (!tenantId || !amountCents || amountCents <= 0) {
+    const db = getAdminDb();
+    // A booking's deposit: the amount is the booking's own (its deposit, and a balance collected with it), as the server
+    // has it, never what the screen sent; a booking that owes none, or has paid it, isn't charged.
+    let charge = Math.round(Number(amountCents) || 0);
+    let bookingRef: any = null;
+    if (purpose === 'deposit') {
+      bookingRef = db.doc(`tenants/${tenantId}/appointments/${forBooking}`);
+      const ap: any = (await bookingRef.get()).data();
+      if (!ap) return NextResponse.json({ error: 'That booking wasn’t found.' }, { status: 404 });
+      if (ap.depositStatus === 'paid') return NextResponse.json({ error: 'This booking’s deposit is already paid.', code: 'already_paid' }, { status: 409 });
+      // An earlier reader payment for it that went through but wasn't recorded (the screen lost its connection) is
+      // recorded now, and the card isn't charged again.
+      if (ap.depositReaderPi?.id) {
+        const earlier = await recordWaitingReaderDeposit(db, String(tenantId), { id: forBooking, ...ap }, { origin: req.nextUrl.origin });
+        if (earlier?.ok) return NextResponse.json({ error: 'This booking’s deposit was already taken on the card reader.', code: 'already_paid' }, { status: 409 });
+      }
+      const due = readerDepositAmount(ap);
+      if (due.depositCents <= 0) return NextResponse.json({ error: 'This booking has no deposit to take.', code: 'no_deposit' }, { status: 409 });
+      charge = due.totalCents;
+    }
+    if (!tenantId || !charge || charge <= 0) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    const db = getAdminDb();
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
@@ -69,7 +89,7 @@ export async function POST(req: NextRequest) {
 
     const intent = await stripe.paymentIntents.create(
       {
-        amount: amountCents,
+        amount: charge,
         currency: 'usd',
         payment_method_types: ['card_present'],
         capture_method: 'manual', // Terminal requires manual capture
@@ -83,10 +103,15 @@ export async function POST(req: NextRequest) {
       { stripeAccount: stripeAccountId }
     );
 
+    // The booking knows a reader payment was started for it, so it's recorded even if the screen loses its connection
+    // before saying so (lib/reader-deposit).
+    if (bookingRef) await bookingRef.set({ depositReaderPi: { id: intent.id, at: new Date().toISOString(), cents: charge } }, { merge: true });
+
     return NextResponse.json({
       clientSecret: intent.client_secret,
       paymentIntentId: intent.id,
       customerId: customerId || null,
+      amountCents: charge,
     });
   } catch (err: any) {
     console.error('[terminal/create-payment-intent]', err);

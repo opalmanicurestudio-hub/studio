@@ -9,6 +9,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
+import { recordWaitingReaderDeposit } from '@/lib/reader-deposit';
 export const dynamic = 'force-dynamic';
 
 const DESK_SOURCES = ['front_desk', 'planner', 'pos_add_appointment', 'staff', 'admin', 'add_appointment', 'staff_portal'];
@@ -19,8 +20,15 @@ export async function POST(req: NextRequest) {
   const auth: any = tenantId ? await verifyStaffActor(req, tenantId) : null;
   if (!auth?.ok) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const ref = db.doc(`${T}/appointments/${appointmentId}`);
-  const a: any = (await ref.get()).data();
+  let a: any = (await ref.get()).data();
   if (!a) return NextResponse.json({ ok: false, error: 'That booking wasn’t found.' }, { status: 404 });
+  // A deposit taken on the card reader that the screen never confirmed is recorded first, so it's refunded with the rest.
+  if (a.depositReaderPi?.id && a.depositStatus !== 'paid') {
+    const r = await recordWaitingReaderDeposit(db, tenantId, { id: appointmentId, ...a }, { actorName: auth.actor?.name || null, origin: req.nextUrl.origin }).catch(() => null);
+    if (r?.ok) a = (await ref.get()).data() || a;
+  }
+  // Paid twice: one payment is refunded from the booking first, so each goes back the way it came.
+  if (a.needsAttention === 'deposit_paid_twice') return NextResponse.json({ ok: false, error: 'This deposit was paid twice. Refund one of the payments from the booking first, then undo it.' }, { status: 409 });
   const made = Date.parse(a.createdAt || a.bookedAt || '');
   if (!DESK_SOURCES.includes(String(a.source || '')) || !Number.isFinite(made) || Date.now() - made > UNDO_WINDOW_MS)
     return NextResponse.json({ ok: false, error: 'Undo is only for a booking made here in the last 30 minutes — cancel it from the planner instead.' }, { status: 409 });
@@ -35,7 +43,8 @@ export async function POST(req: NextRequest) {
     const receiptRef = a.depositReceiptId ? db.doc(`${T}/receipts/${a.depositReceiptId}`) : null; const receipt: any = receiptRef ? (await receiptRef.get()).data() : null;
     // Which card payment to refund: a deposit charged on its own, or this sale's card payment (or a card share of a split).
     const piFor = (): string | null => {
-      if (a.depositPaidVia === 'card_on_file') return a.stripePaymentIntentId || null;
+      // Charged to the saved card, or taken on the card reader: refunded through that payment.
+      if (a.depositPaidVia === 'card_on_file' || a.depositPaidVia === 'card_reader') return a.depositStripePaymentIntentId || a.stripePaymentIntentId || null;
       if (!receipt) return null;
       if (Array.isArray(receipt.payments)) { const share = receipt.payments.find((x: any) => x.stripePaymentIntentId && (Number(x.amount) || 0) * 100 >= cents); return share?.stripePaymentIntentId || null; }
       return receipt.paymentMethod !== 'cash' ? receipt.stripePaymentIntentId || null : null;
@@ -58,6 +67,11 @@ export async function POST(req: NextRequest) {
       await receiptRef.set({ refunds: FieldValue.arrayUnion({ line: `deposit-${appointmentId}`, cents, at: now, by: auth.actor.name || 'Front desk', how: refundedCents ? 'card' : 'cash', reason: 'Booking undone at the desk', transactionId: tx.id }),
         refundedCents: FieldValue.increment(cents) }, { merge: true });
       if (!refundedCents && receipt.tillId) await db.doc(`${T}/tillSessions/${receipt.tillId}`).set({ expectedCash: FieldValue.increment(-cents / 100), totalCashRefunds: FieldValue.increment(cents / 100) }, { merge: true });
+    } else if (!refundedCents && a.depositPaidMethod === 'Cash') {
+      // Cash paid at the desk with no sale went into the open till; handing it back takes it out again.
+      const till = (await db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(1).get()).docs[0];
+      if (till) await till.ref.set({ expectedCash: FieldValue.increment(-cents / 100), totalCashRefunds: FieldValue.increment(cents / 100),
+        cashAdjustments: FieldValue.arrayUnion({ amount: -cents / 100, reason: `Deposit handed back (booking undone, ${a.clientName || 'client'})`, at: now, by: auth.actor.name || 'Front desk', appointmentId }) }, { merge: true });
     }
   }
   await ref.set({ status: 'cancelled', cancelReason: 'undone_at_desk', undoneAt: now, undoneBy: auth.actor.name || 'Front desk', noFee: true, paymentDueAt: null,

@@ -8,7 +8,7 @@
 // What needs someone (a hold, a refund, an address change, label trouble) is at the top with its fix on it.
 import * as React from 'react';
 import { collection, limit, onSnapshot, orderBy, query, where, type Firestore } from 'firebase/firestore';
-import { cancelIt, releaseHeld, startPacking } from '@/lib/orders-flow';
+import { cancelIt, releaseHeld, startPacking, takeOverPacking } from '@/lib/orders-flow';
 import { splitReadyFromWaiting, type Actor } from '@/lib/retail-fulfill';
 import { dueLine, firstName, methodLabel, money, orderNum } from '@/lib/orders-view';
 import { formatTime } from '@/lib/tenant-time';
@@ -112,8 +112,18 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const terminal = DONE.includes(stage);
   const due = dueLine(order, rs, Date.now(), shopZone);
 
-  // PACKING: being packed now (anyone can pick up where it was left), not started, or done.
-  const packMode: PackMode = stage === 'picking' ? 'active' : stage === 'paid' ? 'preview' : 'review';
+  // PACKING: being packed by you, not started, or done. Someone else's order in packing is shown, not counted into: its
+  // scanner stays off (so a scan at this screen can't land on a colleague's order) until you take it over.
+  const theirs = stage === 'picking' && !!order.claimedBy && order.claimedBy !== actor.id;
+  const packMode: PackMode = stage === 'picking' ? (theirs ? 'review' : 'active') : stage === 'paid' ? 'preview' : 'review';
+  const takeOver = async () => {
+    if (!perms.canPick) { onToast('Packing isn’t part of your role. Ask a manager to add it.'); return; }
+    setBusy('pack'); setErr('');
+    const r = await takeOverPacking(fs, tenantId, order, actor);
+    setBusy(''); feel(r.ok);
+    if (!r.ok) { setErr(r.message); return; }
+    setTab('pack'); onToast(`You’re packing #${String(order.orderNumber ?? '').padStart(4, '0')} now.`);
+  };
   const beginPack = async () => {
     if (!perms.canPick) { onToast('Packing isn’t part of your role. Ask a manager to add it.'); return; }
     setBusy('pack'); setErr('');
@@ -130,7 +140,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
     order.holdForReview || (ship && openRequest(order)) || terminal ? null
     : held ? { label: 'Release it to packing', run: () => void release() }
     : stage === 'paid' ? { label: 'Start packing', run: () => void beginPack() }
-    : stage === 'picking' ? (tab === 'pack' ? null : { label: 'Continue packing', run: () => setTab('pack') })
+    : stage === 'picking' ? (theirs ? { label: `Take over from ${firstName(order.claimedByName) || 'them'}`, run: () => void takeOver() } : tab === 'pack' ? null : { label: 'Continue packing', run: () => setTab('pack') })
     : stage === 'packed' && ship ? (tab === 'ship' ? null : { label: order.labelUrl ? 'Mark as shipped' : 'Ship it', run: () => setTab('ship') })
     : stage === 'packed' ? { label: 'Continue packing', run: () => setTab('pack') }
     : ['ready', 'arrived'].includes(stage) ? (tab === 'ship' ? null : { label: `Hand over to ${who}`, run: () => setHanding(true) })

@@ -43,7 +43,8 @@ type TerminalContextValue = {
   discoverReaders:   () => Promise<TerminalReader[]>;
   connectReader:     (reader: TerminalReader, quiet?: boolean) => Promise<boolean>;
   disconnectReader:  () => Promise<void>;
-  collectPayment:    (params: CollectParams) => Promise<{ ok: boolean; paymentIntentId?: string; error?: string }>;
+  /** `deposit`: for a booking's deposit, how the server recorded it when the payment was captured (lib/reader-deposit). */
+  collectPayment:    (params: CollectParams) => Promise<{ ok: boolean; paymentIntentId?: string; error?: string; deposit?: any; captured?: boolean }>;
   cancelPayment:     () => Promise<void>;
 };
 
@@ -176,7 +177,7 @@ export function StripeTerminalProvider({
     (async () => { const found = await discoverReaders(); const r = found.find((x) => x.id === saved!.id); if (r) await connectReader(r, true); })().catch(() => {});
   }, [isLoaded, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const collectPayment = useCallback(async (params: CollectParams): Promise<{ ok: boolean; paymentIntentId?: string; error?: string }> => {
+  const collectPayment = useCallback(async (params: CollectParams): Promise<{ ok: boolean; paymentIntentId?: string; error?: string; deposit?: any; captured?: boolean }> => {
     if (!terminalRef.current || (readerStatus !== 'connected' && readerStatus !== 'busy')) {
       return { ok: false, error: 'No reader connected' };
     }
@@ -184,11 +185,15 @@ export function StripeTerminalProvider({
     setPaymentStatus('creating');
     setPaymentError(null);
     setReaderStatus('busy');
+    // The payment's id once it exists: it goes back with any failure after that, so a deposit whose answer was lost (the
+    // connection dropped as it was captured) can still be checked and recorded by it.
+    let piId: string | undefined;
 
     try {
       // 1. Create PaymentIntent on server
       const piRes = await post('/api/stripe/terminal/create-payment-intent', params);
       const piData = await piRes.json();
+      piId = piData.paymentIntentId || undefined;
       if (!piData.clientSecret) {
         setPaymentStatus('failed');
         setPaymentError(piData.error || 'Failed to create payment');
@@ -203,7 +208,7 @@ export function StripeTerminalProvider({
       if (collectResult.error) {
         setPaymentStatus('failed');
         setPaymentError(collectResult.error.message);
-        return { ok: false, error: collectResult.error.message };
+        return { ok: false, error: collectResult.error.message, paymentIntentId: piId, captured: false };
       }
 
       // 3. Process payment
@@ -213,7 +218,7 @@ export function StripeTerminalProvider({
       if (processResult.error) {
         setPaymentStatus('failed');
         setPaymentError(processResult.error.message);
-        return { ok: false, error: processResult.error.message };
+        return { ok: false, error: processResult.error.message, paymentIntentId: piId, captured: false };
       }
 
       // 4. Capture on server
@@ -225,22 +230,24 @@ export function StripeTerminalProvider({
         customerId:      piData.customerId,
         saveCard:        params.saveCard,
       });
-      const captureData = await captureRes.json();
+      const captureData = await captureRes.json().catch(() => null);
 
-      if (!captureData.ok) {
+      if (!captureData?.ok) {
         setPaymentStatus('failed');
-        setPaymentError(captureData.error || 'Capture failed');
-        return { ok: false, error: captureData.error };
+        setPaymentError(captureData?.error || 'Capture failed');
+        // The answer may be lost after the money was captured: the payment's id goes back with the failure, so a deposit
+        // can still be checked and recorded by it.
+        return { ok: false, error: captureData?.error || 'We couldn’t confirm the payment.', paymentIntentId: processResult.paymentIntent.id, captured: false };
       }
 
       setPaymentStatus('succeeded');
       activePaymentRef.current = null;
-      return { ok: true, paymentIntentId: processResult.paymentIntent.id };
+      return { ok: true, paymentIntentId: processResult.paymentIntent.id, deposit: captureData.deposit || null, captured: true };
 
     } catch (err: any) {
       setPaymentStatus('failed');
       setPaymentError(err.message);
-      return { ok: false, error: err.message };
+      return { ok: false, error: err.message, paymentIntentId: piId, captured: false };
     } finally {
       setReaderStatus((s) => (s === 'busy' ? 'connected' : s));
     }

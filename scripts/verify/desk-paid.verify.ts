@@ -138,18 +138,24 @@ const readerPi = (id: string, x: any = {}) => { pis[id] = { id, status: 'succeed
   await refused('a payment that wasn’t taken in person is refused', { payment_method_types: ['card'] }, 400);
   await fresh();
   r = await run({ action: 'reader', paymentIntentId: 'pi_missing' });
-  check('a payment the processor can’t find isn’t recorded, and says it won’t be charged twice', !r.body.ok && r.status === 502 && /won’t be charged twice/.test(r.body.error) && !(await all(`${T}/depositCredits`)).length);
+  check('a payment the processor can’t find isn’t recorded, and says not to take the deposit again', !r.body.ok && r.status === 502 && r.body.code === 'unconfirmed' && /don’t take the deposit again/.test(r.body.error) && !(await all(`${T}/depositCredits`)).length);
   await fresh();
   r = await run({ action: 'reader', paymentIntentId: 'not-a-payment' });
   check('a malformed payment id is refused before asking anyone', !r.body.ok && r.status === 400 && !looked.length);
 
   // Paid by link while the card was on the reader: both are kept, and the booking is flagged.
   await fresh({ depositStatus: 'paid', status: 'confirmed', depositStripePaymentIntentId: 'pi_link' });
+  await db.doc(`${T}/staff/k1`).set({ name: 'Kai Park', role: 'front_desk' });
   readerPi('pi_r3');
   r = await run({ action: 'reader', paymentIntentId: 'pi_r3' });
   check('a reader payment for a deposit already paid another way is still recorded (the money came in), and flagged to refund one',
     r.body.ok && r.body.paidTwice && (await get(`${T}/depositCredits/${depositCreditId('pi_r3')}`))?.amountCents === 2500 && (await get(`${T}/appointments/a1`)).needsAttention === 'deposit_paid_twice'
     && (await all(`${T}/transactions`)).filter((t: any) => t.category === 'Retainers').length === 1, r.body);
+  const ap2 = await get(`${T}/appointments/a1`);
+  check('…the booking keeps its record of the first payment, notes the second, and the desk is told to refund one',
+    ap2.depositStripePaymentIntentId === 'pi_link' && ap2.depositSecondPaymentIntentId === 'pi_r3' && (await all(`${T}/notifications`)).some((n: any) => n.type === 'deposit_paid_twice' && /paid twice/.test(n.message)), ap2);
+  r = await run({ action: 'reader', paymentIntentId: 'pi_r3' });
+  check('…asked again, it still says paid twice, and adds nothing', r.body.ok && r.body.already && r.body.paidTwice && (await all(`${T}/depositCredits`)).length === 1, r.body);
 
   // A card payment recorded for one booking is never moved onto another.
   await fresh();

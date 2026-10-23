@@ -28,6 +28,15 @@ export type CardDeposit = {
   /** The money coming in, for a payment nothing else records (a deposit taken on the shop's card reader): written with
    *  the credit, once, under its own name. */
   income?: { id: string; data: Record<string, any> } | null;
+  /** A second payment for a deposit already paid another way (decided here, with the booking as it is now): its credit
+   *  and income are kept, since the money came in, the booking keeps its record of the first payment, and it's flagged. */
+  keepFirst?: boolean;
+  /** The whole payment, when it may also carry a balance collected with the deposit (lib/balance-with-deposit). The split
+   *  is decided here, in the same step, from the booking as it is now, so two recorders can't count the balance twice:
+   *  the balance part clears what the client owes and is booked as a fee payment (under `balance.id`), and everything
+   *  else is the deposit's credit. */
+  received?: number;
+  balance?: { id: string; method: string };
 };
 
 /** The credit document for a deposit paid by card (for a route that writes the booking in the same step). */
@@ -41,34 +50,66 @@ export function cardDepositCredit(tenantId: string, appointmentId: string, ap: a
 }
 
 export type DepositRecorded =
-  | { ok: true; already: boolean; status: string; released: boolean; creditId: string }
+  | { ok: true; already: boolean; status: string; released: boolean; creditId: string; twice?: boolean; cents?: number; balanceCents?: number }
   | { ok: false; error: string };
 
 /** Records a deposit charged to a saved card: the visit is marked paid and the credit added, once. A booking released
  *  before the payment went through stays released and is flagged, since its time may be taken. */
 export async function recordCardDeposit(db: any, tenantId: string, appointmentId: string, d: CardDeposit): Promise<DepositRecorded> {
-  const cents = c0(d.cents);
+  const split = d.received !== undefined && d.received !== null;
+  const fixed = c0(d.cents);
   const pi = String(d.paymentIntentId || '').trim();
-  if (!pi || cents <= 0) return { ok: false, error: 'There’s no card payment to record.' };
+  if (!pi || (split ? c0(d.received) : fixed) <= 0) return { ok: false, error: 'There’s no card payment to record.' };
   const T = `tenants/${tenantId}`;
   const aRef = db.doc(`${T}/appointments/${appointmentId}`);
   const cRef = db.doc(`${T}/depositCredits/${depositCreditId(pi)}`);
   const iRef = d.income?.id ? db.doc(`${T}/transactions/${d.income.id}`) : null;
   return db.runTransaction(async (tx: any): Promise<DepositRecorded> => {
     const as = await tx.get(aRef);
+    if (!as?.exists) return { ok: false, error: 'That booking wasn’t found.' };
+    const ap: any = as.data() || {};
+    // The split of a payment that may carry a balance, from the booking as it is now.
+    const received = split ? c0(d.received) : 0;
+    const owed = c0(ap.depositAmountCents);
+    const balDue = split && d.balance && ap.clientId && !ap.balanceCollectedAt ? c0(ap.balanceCollectCents) : 0;
+    const depPart = split ? (owed > 0 ? Math.min(owed, received) : received) : fixed;
+    const balCents = balDue > 0 && received - depPart >= balDue ? balDue : 0;
+    const cents = split ? received - balCents : fixed;
+    const clRef = balCents > 0 ? db.doc(`${T}/clients/${ap.clientId}`) : null;
+    const bRef = balCents > 0 && d.balance?.id ? db.doc(`${T}/transactions/${d.balance.id}`) : null;
+    const cl = clRef ? await tx.get(clRef) : null;
+    const bs = bRef ? await tx.get(bRef) : null;
     const cs = await tx.get(cRef);
     const is = iRef ? await tx.get(iRef) : null;
-    if (!as?.exists) return { ok: false, error: 'That booking wasn’t found.' };
     // A card payment recorded for another booking is never moved onto this one.
     if (cs?.exists && String((cs.data() || {}).sourceAppointmentId || '') !== appointmentId) return { ok: false, error: 'That card payment is already recorded for another booking.' };
-    const ap: any = as.data() || {};
     const released = ap.status === 'cancelled';
     const waiting = ap.status === 'pending_payment' || ap.status === 'deposit_pending';
     const next = released ? 'cancelled' : d.status || (waiting ? 'confirmed' : String(ap.status || 'confirmed'));
     // Recorded already (a retry, a second tap): nothing more is added.
-    if (cs?.exists) return { ok: true, already: true, status: String(ap.status || next), released, creditId: cRef.id };
+    if (cs?.exists) return { ok: true, already: true, status: String(ap.status || next), released, creditId: cRef.id, twice: String(ap.depositSecondPaymentIntentId || '') === pi, cents: c0((cs.data() || {}).amountCents) };
     const now = new Date().toISOString();
-    tx.set(aRef, {
+    // The balance part: what the client owes comes down, and it's in the books as the fee payment it is, once.
+    const balanceWrites = () => {
+      if (!(balCents > 0) || !clRef || !bRef || bs?.exists) return {};
+      const c: any = cl?.data?.() || {};
+      const left = Math.max(0, Math.round(((Number(c.outstandingBalance) || 0) * 100) - balCents)) / 100;
+      tx.set(clRef, { outstandingBalance: left, ...(left <= 0 ? { unpaidFees: [] } : {}), balancePaidAt: now, balanceVersion: now }, { merge: true });
+      tx.set(bRef, { id: bRef.id, tenantId, date: now, description: 'Balance paid with a booking deposit', clientOrVendor: c.name || ap.clientName || null, clientId: ap.clientId,
+        type: 'income', context: 'Business', category: 'Fee Recovery', amount: balCents / 100, paymentMethod: d.balance?.method || 'Card', hasReceipt: false, appointmentId,
+        ...(d.chargeId ? { stripeChargeId: d.chargeId } : {}) });
+      return { balanceCollectedAt: now, balanceCollectedCents: balCents };
+    };
+    const income = () => { if (iRef && !is?.exists) tx.set(iRef, { ...(d.income?.data || {}), amount: cents / 100, id: iRef.id, tenantId, date: now }); };
+    if (d.keepFirst && ap.depositStatus === 'paid' && String(ap.depositStripePaymentIntentId || '') !== pi) {
+      const bal = balanceWrites();
+      tx.set(aRef, { needsAttention: 'deposit_paid_twice', needsAttentionAt: now, depositSecondPaymentIntentId: pi, ...bal }, { merge: true });
+      tx.set(cRef, cardDepositCredit(tenantId, appointmentId, ap, { ...d, cents, paymentIntentId: pi }, now).data);
+      income();
+      return { ok: true, already: false, status: String(ap.status || next), released, creditId: cRef.id, twice: true, cents, balanceCents: balCents };
+    }
+    const bal = balanceWrites();
+    tx.set(aRef, { ...bal,
       status: next, depositStatus: 'paid', depositPaidAt: now, depositAmountCents: cents, depositPaidVia: d.via,
       depositStripePaymentIntentId: pi, paymentDueAt: null, depositDeskHold: null, depositChargeLock: null,
       ...(ap.needsAttention === 'deposit_unpaid' && !released ? { needsAttention: null } : {}),
@@ -77,8 +118,8 @@ export async function recordCardDeposit(db: any, tenantId: string, appointmentId
     }, { merge: true });
     if (ap.checkInToken) tx.set(db.doc(`appointmentCheckIns/${ap.checkInToken}`), { status: next, depositStatus: 'paid' }, { merge: true });
     tx.set(cRef, cardDepositCredit(tenantId, appointmentId, ap, { ...d, cents, paymentIntentId: pi }, now).data);
-    if (iRef && !is?.exists) tx.set(iRef, { ...(d.income?.data || {}), id: iRef.id, tenantId, date: now });
-    return { ok: true, already: false, status: next, released, creditId: cRef.id };
+    income();
+    return { ok: true, already: false, status: next, released, creditId: cRef.id, cents, balanceCents: balCents };
   });
 }
 

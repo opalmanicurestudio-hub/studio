@@ -25,7 +25,7 @@ M._load = function (request: string, ...rest: any[]) {
 const T = 'tenants/t1';
 const get = async (path: string) => (await db.doc(path).get()).data() || null;
 const all = async (path: string) => (await db.collection(path).get()).docs.map((d: any) => ({ ...d.data(), id: d.id }));
-const req = (body: any) => ({ json: async () => ({ tenantId: 't1', orderId: 'o1', ...body }), headers: { get: () => null }, nextUrl: { origin: 'https://studio.test' } }) as any;
+const req = (body: any, orderId = 'o1') => ({ json: async () => ({ tenantId: 't1', orderId, ...body }), headers: { get: () => null }, nextUrl: { origin: 'https://studio.test' } }) as any;
 const kai = { uid: 'k1', name: 'Kai Park', role: 'front_desk', isManager: false };
 const fresh = async (o: any = {}) => {
   db = makeDb(); sent.length = 0; actor = kai;
@@ -41,7 +41,7 @@ const fresh = async (o: any = {}) => {
 (async () => {
   const { POST } = await import('../../src/app/api/retail/customer-contact/route');
   const { mayEditContact, cleanContact, maskEmail, contactDiff } = await import('../../src/lib/contact-change');
-  const run = (body: any) => POST(req(body)) as any;
+  const run = (body: any, orderId = 'o1') => POST(req(body, orderId)) as any;
 
   // ── Who may ──
   const t = { roles: { shift_lead: { name: 'Shift lead', base: 'front_desk', caps: [] }, stylist_plus: { name: 'Senior stylist', base: 'staff', caps: [] } } };
@@ -90,6 +90,32 @@ const fresh = async (o: any = {}) => {
   actor = { uid: 'm1', name: 'Ana Ruiz', role: 'manager', isManager: true };
   r = await run({ email: 'someone@else.com' });
   check('…a manager can', r.body.ok && (await get(`${T}/retailOrders/o1`)).customerEmail === 'someone@else.com');
+  await fresh({ holdForReview: true });
+  r = await run({ phone: '(206) 555-0199' });
+  check('…nor its mobile (the new number would get the order’s link)', r.status === 403 && (await get(`${T}/retailOrders/o1`)).customerPhone === '(503) 555-0148' && !sent.length);
+
+  await fresh();
+  await db.doc(`${T}/retailOrders/o1`).set({ holdForReview: true }, { merge: true });
+  r = await run({ email: 'someone@else.com' }, 'o2');
+  check('…not even from a follow-up of a held order (the change would reach it)', r.status === 403 && (await get(`${T}/retailOrders/o1`)).customerEmail === 'priya.shah@example.com' && (await get(`${T}/retailOrders/o2`)).customerEmail === 'priya.shah@example.com', r.body);
+
+  // ── The whole family ──
+  await fresh();
+  await db.doc(`${T}/retailOrders/o3`).set({ orderNumber: 1206, stage: 'paid', parentOrderId: 'o2', customerName: 'Priya Shah', customerEmail: 'priya.shah@example.com', customerPhone: '5035550148' });
+  await db.doc(`${T}/retailSupport/s3`).set({ orderId: 'o3', customerEmail: 'priya.shah@example.com', customerPhone: '503-555-0148', status: 'open' });
+  r = await run({ email: 'priya@shahstudio.com', phone: '(206) 555-0199' });
+  check('a backorder of a backorder takes the new details too', r.body.ok && (await get(`${T}/retailOrders/o3`)).customerEmail === 'priya@shahstudio.com' && (await get(`${T}/retailOrders/o3`)).customerPhone === '(206) 555-0199', await get(`${T}/retailOrders/o3`));
+  check('…and the case on it replies to the new email and mobile', (await get(`${T}/retailSupport/s3`)).customerEmail === 'priya@shahstudio.com' && (await get(`${T}/retailSupport/s3`)).customerPhone === '(206) 555-0199');
+  await fresh();
+  r = await run({ email: 'priya@shahstudio.com' }, 'o2');
+  check('changed from a follow-up, the order it came from changes too', r.body.ok && (await get(`${T}/retailOrders/o1`)).customerEmail === 'priya@shahstudio.com', r.body);
+
+  // ── Only through here ──
+  const rules = fs.readFileSync('firestore.rules', 'utf8');
+  check('a browser can’t change an order’s name, email, mobile or texts setting (only this route can)', /'customerEmail', 'customerPhone', 'customerName', 'textsOff', 'clientId'/.test(rules));
+  check('…nor where a case or a problem report replies to', /match \/tenants\/\{tenantId\}\/retailSupport\/\{caseId\} \{[\s\S]{0,300}?caseContactKeys\(\)/.test(rules) && /match \/tenants\/\{tenantId\}\/retailClaims\/\{claimId\} \{[\s\S]{0,300}?caseContactKeys\(\)/.test(rules)
+    && /'retailSupport', 'retailClaims',/.test(rules));
+
   await fresh();
   r = await run({ email: 'not-an-email' });
   check('an email that isn’t one is refused in plain words', r.status === 400 && /doesn’t look right/.test(r.body.error));
