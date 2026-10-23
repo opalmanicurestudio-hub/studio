@@ -161,7 +161,7 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   const add = src('src/components/inventory/AddProductDialog.tsx');
   check('adding a product keeps its SKU and its barcodes (the SKU used to be dropped)', /sku: String\(data\.sku\)\.trim\(\)/.test(add) && /\.\.\.\(barcode \? \{ barcode \} : \{\}\)/.test(add) && /<ProductCodesField \/>/.test(add));
   check('the product forms refuse a code another product already has', [add, src('src/components/inventory/EditProductDialog.tsx')].every((s) => /codeOwners\(/.test(s) && /That code belongs to another product/.test(s)));
-  const pack = src('src/components/orders/PackMode.tsx');
+  const pack = src('src/components/orders/workspace/PackPane.tsx');
   check('the packing screen names what was scanned from the answer, and offers to add a new code to an item', /after\(r, r\.name \|\| 'Item', r\.lineId \|\| ''/.test(pack) && /learnCode\(fs, tenantId, lineProductId\(l\), learn\)/.test(pack) && /Which item has the code/.test(pack));
   check('receiving, scan routing and waves read the same codes', /productMatch\(/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /productMatch\(/.test(src('src/components/inventory/ReceiveStockDialog.tsx'))
     && /unitCodes\(i\)/.test(src('src/lib/scan-route.ts')) && /unitCodes\(i\)/.test(src('src/app/(app)/retail-orders/waves/page.tsx')));

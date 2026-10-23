@@ -35,12 +35,8 @@ const GROUPS: { title: string; items: Item[] }[] = [
     ['/retail-orders/alerts', 'Alerts', 'A big day, the cutoff, missed pickups: which ones buzz your phone'],
     ['/retail-orders/labels', 'Labels', 'Labels to buy or fix, refunds on the way, carrier adjustments'],
     ['/retail-orders/waves', 'Wave picking', 'Pick many orders in one walk'],
-    ['/retail-orders/bench', 'Pack bench', 'A station screen for packing all day'],
     ['/retail-orders/bins', 'Bins and totes', 'Where products live, shelf labels and tote tags'],
     ['/retail-orders/kpis', 'How it’s going', 'Speed, accuracy and who packed what'],
-  ] },
-  { title: 'More', items: [
-    ['/retail-orders/classic', 'Classic orders board', 'The previous orders screen, while you settle in'],
   ] },
 ];
 

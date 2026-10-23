@@ -85,7 +85,7 @@ const shared = (o: any) => Array.isArray(o?.shippedWithOrderIds) && o.shippedWit
 const orderNo = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
 const scannedOnRecord = (o: any) => !!o?.labelSeenMoving || SCANNED.includes(trailStatus(o));
 
-/** Put under Needs you (orders-view needsYou, OrderPanel): `why` says which card. The whole note is written, so nothing
+/** Put under Needs you (orders-view needsYou, the order workspace's cards): `why` says which card. The whole note is written, so nothing
  *  from an earlier one (a dismissal, say) carries over. */
 function listed(o: any, at: string, why: 'void_unfinished' | 'void_refused', extra: Record<string, unknown> = {}) {
   return { labelUnscanned: { at, boughtAt: o?.shipmentProtection?.decidedAt || null, why, on: null, error: null, startedAt: null, dismissedAt: null, dismissedBy: null, ...extra }, labelUnscannedOpen: true };

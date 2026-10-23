@@ -1118,7 +1118,7 @@ export default function RetailSettingsPage() {
               <div>
                 <Label className="text-[11px] font-black uppercase tracking-widest">Second scan at packing</Label>
                 <p className="text-[11px] font-bold text-muted-foreground">
-                  Every item is scanned into the box, never just tapped. Orders picked at the shelf first are scanned again at the bench; wave orders and the packing screen scan once, at the box.
+                  Every item is scanned into the box, never just tapped. An order picked at the shelf first is scanned again as it’s packed; wave orders, and orders scanned straight into the box, are scanned once.
                 </p>
               </div>
               <Switch aria-label="Second scan at packing"

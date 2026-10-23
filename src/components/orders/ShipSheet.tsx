@@ -51,7 +51,11 @@ function useDoc(fs: Firestore, path: string): any | null {
   return d;
 }
 
-export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, onDone, onToast, together = [] }: { fs: Firestore; tenantId: string; order: any; inventory: any[]; rs: any; actor: Actor; onClose: () => void; onDone: (msg: string) => void; onToast?: (msg: string) => void; together?: any[] }) {
+export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, onDone, onToast, together = [], inline = false, hideAddress = false }: { fs: Firestore; tenantId: string; order: any; inventory: any[]; rs: any; actor: Actor; onClose: () => void; onDone: (msg: string) => void; onToast?: (msg: string) => void; together?: any[];
+  /** In the order workspace's Ship tab, rather than a sheet over the order. */
+  inline?: boolean;
+  /** The address is already beside it (the customer column on a wide screen). */
+  hideAddress?: boolean }) {
   // SHIPPED TOGETHER (lib/ship-together): the customer's other orders going in the same box. The label is bought on this
   // order; the others get the same tracking, and the shipping they paid is refunded automatically.
   const group = [order, ...together];
@@ -336,9 +340,8 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
     </div>
   </>);
 
-  return (
-    <Sheet title={title} sub={sheetSub} onClose={onClose}>
-      {!step && !replaced && <div className="mt-2"><AddressCard order={order} tenantId={tenantId} onToast={onToast} /></div>}
+  const content = (<>
+      {!step && !replaced && !hideAddress && <div className="mt-2">{inline ? <AddressCard order={order} compact /> : <AddressCard order={order} tenantId={tenantId} onToast={onToast} />}</div>}
       {asked && (
         <div className="mt-2 rounded-2xl p-4 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>
           <b className="font-semibold">{firstName(asked.customerName)} asked to change the address{many ? ` on #${String(asked.orderNumber ?? '').padStart(4, '0')}` : ''}</b> to {oneLine(asked.addressRequest?.to)}. Answer that on the order first, so the label goes to the right place.
@@ -483,5 +486,11 @@ export function ShipSheet({ fs, tenantId, order, inventory, rs, actor, onClose, 
           <Btn kind="plain" className="mt-1 w-full" style={muted} onClick={() => setManual(true)}>I already have tracking</Btn>
         </div>)}
       {err && <p role="alert" className="m-0 mt-3 text-[15px]" style={{ color: C.warn }}>{err}</p>}
-    </Sheet>);
+  </>);
+  if (inline) return (
+    <div>
+      {(step || replaced || many) && <div className="mb-1"><p className="m-0 text-[22px] font-light leading-snug">{title}</p>{sheetSub ? <p className="m-0 mt-1 text-[15px]" style={muted}>{sheetSub}</p> : null}</div>}
+      {content}
+    </div>);
+  return <Sheet title={title} sub={sheetSub} onClose={onClose}>{content}</Sheet>;
 }

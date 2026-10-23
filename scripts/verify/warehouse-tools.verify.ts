@@ -32,6 +32,8 @@ const shipped = [{ id: 'x', trackingNumber: '9400111899223344556677' }, { id: 'y
 ok(labelMatchesOrder('420787049400111899223344556677', shipped[0]), 'a USPS label barcode (420 + ZIP prefix) matches its tracking number');
 ok(orderForLabel('1Z999AA10123456791', shipped)?.id === 'y' && !orderForLabel('9400111899000000000000', shipped), 'second-box labels match; other labels do not');
 ok(looksLikeTracking('9400111899223344556677') && looksLikeTracking('1Z999AA10123456784') && !looksLikeTracking('TOTE-03') && !looksLikeTracking('012345678905'), 'tracking numbers told apart from product barcodes');
+ok(!looksLikeTracking('clarityflow://product/p1') && !looksLikeTracking('clarityflow://product/rose-cuticle-oil-30ml') && !looksLikeTracking('clarityflow://order/abc123def456ghi789') && !looksLikeTracking('SKU-ROSE-OIL-30ML-2026')
+  && looksLikeTracking('GM2951173225174494') && looksLikeTracking('420972019400111899223344556677'), 'a product’s QR code or a long SKU is never taken for a label; DHL and USPS label codes still are');
 ok(withOrderRef({ signature_confirmation: 'STANDARD' }, {}, { orderNumber: 42 })?.reference_1 === 'Order #0042' && withOrderRef(undefined, { labelOrderRef: false }, { orderNumber: 42 }) === null, 'order number goes on the label unless turned off');
 ok(!slipAfterLabel({}) && slipAfterLabel({ labelPackingSlip: true }), 'slip after label is off until turned on');
 

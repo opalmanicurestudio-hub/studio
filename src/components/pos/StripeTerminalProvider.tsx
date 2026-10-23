@@ -53,6 +53,9 @@ type CollectParams = {
   amountCents:  number;
   description?: string;
   saveCard?:    boolean;
+  /** A booking's deposit taken on the reader: the payment carries the booking, so only it can be recorded with it. */
+  appointmentId?: string;
+  kind?:        'deposit';
 };
 
 // ─── Context ──────────────────────────────────────────────────────────────────

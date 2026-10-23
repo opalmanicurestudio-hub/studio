@@ -1,16 +1,20 @@
 'use client';
 // src/components/orders/shell.tsx — WHAT EVERY ONLINE-SHOP SCREEN SHARES: the phone tab bar for the shop's four places
-// (Orders, Problems, Shoppers, Setup) and the check for a computer-width screen.
+// (Orders, Problems, Shoppers, Setup) and the checks for a computer-width screen and a wide one.
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Btn, C } from './ui';
 
-export function useWide() {
+function useMin(px: number) {
   const [w, setW] = React.useState(false);
-  React.useEffect(() => { const m = window.matchMedia('(min-width: 1024px)'); const f = () => setW(m.matches); f(); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, []);
+  React.useEffect(() => { const m = window.matchMedia(`(min-width: ${px}px)`); const f = () => setW(m.matches); f(); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, [px]);
   return w;
 }
+/** A computer-width screen: the order sits beside the list. */
+export function useWide() { return useMin(1024); }
+/** Wide enough for the customer to sit beside the order too. */
+export function useWidest() { return useMin(1280); }
 
 export function PhoneShopBar({ onPackNext, problems }: { onPackNext?: () => void; problems: number }) {
   const path = usePathname() || '';

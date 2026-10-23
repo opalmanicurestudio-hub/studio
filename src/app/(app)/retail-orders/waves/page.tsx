@@ -657,7 +657,7 @@ export default function WavesPage() {
                   Totes — pack in this order
                 </p>
                 <Button asChild size="sm" className="h-9 shrink-0 rounded-xl text-[10px] font-black uppercase tracking-widest print:hidden">
-                  <Link href="/retail-orders/bench">Open the bench →</Link>
+                  <Link href="/retail-orders">Pack them →</Link>
                 </Button>
               </div>
               {packQueue(active, ordersById).map((w) => (

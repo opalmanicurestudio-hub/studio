@@ -95,11 +95,11 @@ const fresh = async (x: any = {}, rs: any = {}) => {
 
   // ── The screens ──
   const src = (p: string) => fs.readFileSync(p, 'utf8');
-  const pack = src('src/components/orders/PackMode.tsx');
+  const pack = src('src/components/orders/workspace/PackPane.tsx');
   check('the packing screen sends a small JPEG made on the device to the server, box by box, and can take one off',
     /downscaleImageToDataUrl\(file, \{ maxDim: policy\.maxDimension \}\)/.test(pack) && /\/api\/retail\/pack-photo/.test(pack) && /action: 'remove'/.test(pack) && !/uploadImage\(/.test(pack) && /capture="environment"/.test(pack) && /or choose one/.test(pack));
   const bench = src('src/app/(app)/retail-orders/bench/page.tsx');
-  check('…and so does the bench', /downscaleImageToDataUrl\(/.test(bench) && /\/api\/retail\/pack-photo/.test(bench) && !/uploadImage\(/.test(bench));
+  check('…and the old bench address opens the orders screen, where packing (and its photos) happens now', /redirect\('\/retail-orders'\)/.test(bench) && !/uploadImage\(/.test(bench));
   check('the evidence pages show each photo’s box and what it shows', /packPhotosOf\(order\)/.test(src('src/app/(app)/retail-orders/evidence/[orderId]/page.tsx')) && /packPhotosOf\(order\)/.test(src('src/app/print/evidence/[tenantId]/[orderId]/page.tsx')));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');

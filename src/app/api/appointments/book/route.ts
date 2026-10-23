@@ -1326,6 +1326,8 @@ export async function POST(req: NextRequest) {
       status: r.plan?.status || 'confirmed',
       bookingMode: r.plan?.mode || 'instant',
       depositCents: r.plan?.depositCents || 0,
+      // A balance the client owes that's collected together with the deposit (the unpaid-fee rule).
+      balanceCollectCents: Number((r as any).balanceCollectCents) || 0,
       chargeTiming: r.plan?.chargeTiming || 'never',
       requiresCardOnFile: !!r.plan?.requiresCardOnFile,
       clientNotice: r.plan?.clientNotice || '',

@@ -80,14 +80,17 @@ export function Sheet({ title, sub, onClose, closeLabel = 'Cancel', children, wi
 
 /** A row in a grouped list: whole row tappable, at least 64px tall. */
 export function ListRow({ onClick, lead, title, detail, trail, active }: { onClick?: () => void; lead?: React.ReactNode; title: React.ReactNode; detail?: React.ReactNode; trail?: React.ReactNode; active?: boolean }) {
-  return (
-    <button type="button" onClick={onClick} className="cf-press flex min-h-[64px] w-full items-center gap-3 pl-4 text-left" style={{ background: active ? C.soft : 'transparent', color: C.ink }}>
-      {lead}
-      <span className="flex min-w-0 flex-1 items-center gap-3 self-stretch border-b py-2.5 pr-4" style={{ borderColor: C.line }}>
-        <span className="min-w-0 flex-1"><span className="block truncate text-[17px] font-semibold tracking-[-0.01em]">{title}</span>{detail ? <span className="block truncate text-[14px]" style={muted}>{detail}</span> : null}</span>
-        {trail}
-      </span>
-    </button>);
+  const inner = (<>
+    {lead}
+    <span className="flex min-w-0 flex-1 items-center gap-3 self-stretch border-b py-2.5 pr-4" style={{ borderColor: C.line }}>
+      <span className="min-w-0 flex-1"><span className="block truncate text-[17px] font-semibold tracking-[-0.01em]">{title}</span>{detail ? <span className="block truncate text-[14px]" style={muted}>{detail}</span> : null}</span>
+      {trail}
+    </span>
+  </>);
+  const look = { background: active ? C.soft : 'transparent', color: C.ink };
+  // A row that does nothing itself isn't a button (and a button in its trail stays a button of its own).
+  if (!onClick) return <div className="flex min-h-[64px] w-full items-center gap-3 pl-4 text-left" style={look}>{inner}</div>;
+  return <button type="button" onClick={onClick} className="cf-press flex min-h-[64px] w-full items-center gap-3 pl-4 text-left" style={look}>{inner}</button>;
 }
 
 export function Initials({ name, photo }: { name: string; photo?: string }) {
@@ -105,8 +108,8 @@ export function Thumb({ src, size = 52 }: { src?: string; size?: number }) {
 export function UndoBar({ text, onUndo, onDone, bottom = 96 }: { text: string; onUndo?: () => void; onDone: () => void; bottom?: number }) {
   React.useEffect(() => { const t = setTimeout(onDone, 6000); return () => clearTimeout(t); }, [text, onDone]);
   return (
-    <div role="status" className="cf-anim-rise fixed inset-x-4 z-40 mx-auto flex h-12 max-w-md items-center justify-between rounded-2xl px-4 text-[15px] lg:inset-x-auto lg:right-8" style={{ bottom, background: '#16171a', color: '#fff' }}>
-      <span className="truncate">{text}</span>
+    <div role="status" className="cf-anim-rise fixed inset-x-4 z-40 mx-auto flex min-h-12 max-w-md items-center justify-between gap-2 rounded-2xl px-4 py-2 text-[15px] leading-snug lg:inset-x-auto lg:right-8" style={{ bottom, background: '#16171a', color: '#fff' }}>
+      <span className="line-clamp-2">{text}</span>
       {onUndo ? <button type="button" onClick={() => { onUndo(); onDone(); }} className="h-11 pl-4 font-semibold" style={{ color: C.mint }}>Undo</button> : null}
     </div>);
 }

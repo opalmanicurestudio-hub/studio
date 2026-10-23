@@ -7,6 +7,7 @@ import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
 import { delayNotified, isPromiseLate, returnRefundCents } from '@/lib/retail-orders';
 import { canReturnLine } from '@/lib/return-eligibility';
+import { windowOpen } from '@/lib/order-windows';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -419,14 +420,13 @@ export async function POST(req: NextRequest) {
         error: 'Please note that this shop does not accept returns. If there is an issue with your order, please use \u201cReport a problem\u201d and our team will review it with your order\u2019s packing record.',
       }, { status: 409 });
     }
+    // Counted from delivery (the carrier's scan), or from the ship date when the carrier never confirmed it
+    // (lib/order-windows), as the policy says.
     const windowDays = Math.max(0, Math.floor(Number(rsR.returnWindowDays) || 0));
-    if (windowDays > 0 && order.completedAt) {
-      const ageDays = (Date.now() - new Date(order.completedAt).getTime()) / 86400000;
-      if (Number.isFinite(ageDays) && ageDays > windowDays) {
-        return NextResponse.json({
-          error: `As outlined in our return policy, returns can be started within ${windowDays} days of receiving your order, and that window has now closed for this order. If there are exceptional circumstances, please send us a message below.`,
-        }, { status: 409 });
-      }
+    if (!windowOpen(order, windowDays)) {
+      return NextResponse.json({
+        error: `As outlined in our return policy, returns can be started within ${windowDays} days of receiving your order, and that window has now closed for this order. If there are exceptional circumstances, please send us a message below.`,
+      }, { status: 409 });
     }
 
     const lines: any[] = [];

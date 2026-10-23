@@ -31,7 +31,12 @@ export async function POST(req: NextRequest) {
       amountCents,
       description = 'Studio Services',
       saveCard = false,
+      appointmentId = '',
+      kind = '',
     } = await req.json();
+    // A deposit taken on the reader for a booking carries that booking, so only it can be recorded with this payment.
+    const forBooking = String(appointmentId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
+    const purpose = String(kind || '') === 'deposit' && forBooking ? 'deposit' : '';
     { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
 
     if (!tenantId || !amountCents || amountCents <= 0) {
@@ -73,7 +78,7 @@ export async function POST(req: NextRequest) {
           setup_future_usage: 'off_session',
         } : {}),
         description,
-        metadata: { tenantId, clientId: clientId || '', source: 'terminal' },
+        metadata: { tenantId, clientId: clientId || '', source: 'terminal', ...(purpose ? { appointmentId: forBooking, kind: purpose } : {}) },
       },
       { stripeAccount: stripeAccountId }
     );

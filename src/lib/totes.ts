@@ -43,8 +43,13 @@ export async function skipTotes(fs: Firestore, tenantId: string, orders: any[]):
 const digits = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
 
 export function looksLikeTracking(raw: unknown): boolean {
-  const d = digits(raw);
-  return d.length >= 18 || /^1Z[0-9A-Z]{16}$/.test(d);
+  const s = String(raw ?? '').trim();
+  // A product's or an order's own code (clarityflow://…) is never a label, however long it is.
+  if (s.includes('://')) return false;
+  const d = digits(s);
+  if (/^1Z[0-9A-Z]{16}$/.test(d)) return true;
+  // Long and mostly numbers (USPS, FedEx, DHL's GM… numbers); a long SKU of words isn't one.
+  return d.length >= 18 && d.replace(/[^0-9]/g, '').length >= 14;
 }
 
 export function labelMatchesOrder(scanned: unknown, order: any): boolean {

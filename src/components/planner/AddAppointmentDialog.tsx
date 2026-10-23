@@ -80,6 +80,21 @@ import { PhoneInput } from '../ui/phone-input';
 import { ImageUpload } from '../shared/ImageUpload';
 import { isCertified } from '@/lib/availability';
 import { certWarning } from '@/lib/certification';
+import { unpaidFeeRuleOf } from '@/lib/booking-policies';
+import { StripeTerminalProvider, useTerminalOptional } from '@/components/pos/StripeTerminalProvider';
+import { ReaderPanel } from '@/components/pos/ReaderPanel';
+import { DESK_CSS } from '@/components/pos/desk/kit';
+
+/** Hands the card reader's controls (inside its provider) to the booking screen that takes the deposit. */
+function ReaderBridge({ into }: { into: React.MutableRefObject<any> }) {
+  const t = useTerminalOptional();
+  useEffect(() => { into.current = t; });
+  useEffect(() => () => { into.current = null; }, [into]);
+  return null;
+}
+
+// How a deposit paid at the desk came in, for the books.
+const DESK_VIA: { id: 'cash' | 'terminal' | 'other'; label: string }[] = [{ id: 'terminal', label: 'Card machine' }, { id: 'cash', label: 'Cash' }, { id: 'other', label: 'Other' }];
 
 const safeDate = (val: any): Date => {
     let d: Date;
@@ -139,6 +154,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   const [checkInToken, setCheckInToken] = useState('');
   const [inspirationPhotoUrl, setInspirationPhotoUrl] = useState('');
   const [showAllSlots, setShowAllSlots] = useState(false);
+  // The deposit, taken on the shop's card reader (when it has one) or paid at the desk another way.
+  const readerRef = React.useRef<any>(null);
+  const [deskVia, setDeskVia] = useState<'cash' | 'terminal' | 'other'>('terminal');
+  const hasStripe = !!(selectedTenant as any)?.stripeAccountId;
+  const isManagerRole = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
 
   const methods = useForm({
     defaultValues: {
@@ -351,6 +371,13 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
     return { amount: cents / 100, type: selectedService.depositType, isGuardianForced, rebookForced };
   }, [selectedService, selectedClient, selectedTenant, appointmentToRebook]);
+  // A balance the client owes that the shop collects together with the deposit (its unpaid-fee rule).
+  const balanceWithDepositCents = depositDetails && unpaidFeeRuleOf(selectedTenant) === 'with_deposit'
+    ? Math.max(0, Math.round((Number((selectedClient as any)?.outstandingBalance) || 0) * 100)) : 0;
+  // No card saved: the deposit starts as a pay link rather than a card that isn't there.
+  useEffect(() => {
+    if (step === 'deposit' && methods.getValues('paymentMethod') === 'card_on_file' && !hasRealCard(selectedClient)) setValue('paymentMethod', 'none');
+  }, [step, selectedClient, methods, setValue]);
 
   const steps = useMemo(() => {
     const flow: Step[] = ['details', 'timing'];
@@ -400,6 +427,13 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     const idTok = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
     const auth = { 'Content-Type': 'application/json', ...(idTok ? { Authorization: `Bearer ${idTok}` } : {}) };
     const payLater = !!depositDetails && data.paymentMethod === 'none';
+    const viaReader = !!depositDetails && data.paymentMethod === 'reader';
+    // The reader has to be ready before anything is booked, so the card can be taken straight after.
+    if (viaReader && !['connected', 'busy'].includes(String(readerRef.current?.readerStatus || ''))) {
+      toast({ variant: 'destructive', title: 'Connect the card reader first', description: 'Find and connect it under the deposit, or choose another way to take the deposit. Nothing was booked yet.' });
+      setIsSubmitting(false);
+      return;
+    }
     let out: any = null;
     try {
       const res = await fetch('/api/appointments/book', {
@@ -431,9 +465,26 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     }
     setAssignedStaffId(out.staffId);
     setCheckInToken(out.checkInToken);
-    if (depositDetails && !payLater) {
+    if (depositDetails && viaReader) {
+      // The card on the reader now: the deposit (and a balance collected with it), named for this booking, then recorded
+      // by the server with its income line (api/appointments/desk-deposit, reader).
+      const depCents = Math.max(0, Math.round(Number(out.depositCents) || depositDetails.amount * 100));
+      const total = depCents + Math.max(0, Math.round(Number(out.balanceCollectCents) || 0));
+      const t = readerRef.current;
+      const paid = t ? await t.collectPayment({ tenantId, clientId: out.clientId || undefined, amountCents: total, description: `Deposit — ${selectedService?.name || 'appointment'}`, appointmentId: out.appointmentId, kind: 'deposit' }).catch((e: any) => ({ ok: false, error: e?.message })) : { ok: false, error: 'The card reader disconnected.' };
+      if (!paid?.ok || !paid.paymentIntentId) {
+        toast({ variant: 'destructive', title: 'Booked — deposit not taken', description: `${paid?.error || 'The card didn’t go through.'} Take it from the booking when you’re ready.` });
+      } else {
+        const d = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: auth, body: JSON.stringify({ tenantId, appointmentId: out.appointmentId, action: 'reader', paymentIntentId: paid.paymentIntentId }) })
+          .then((r) => r.json()).catch(() => ({}));
+        if (!d?.ok) toast({ variant: 'destructive', title: 'The card was charged', description: `${d?.error || 'The booking didn’t update.'} Open the booking: it won’t be charged twice.` });
+        else if (d.paidTwice) toast({ title: 'Deposit paid twice', description: 'The deposit was also paid another way. Both are on the booking; refund one from the booking.' });
+        else toast({ title: 'Deposit taken', description: `$${(total / 100).toFixed(2)} on the card reader${total > depCents ? `: the $${(depCents / 100).toFixed(2)} deposit and the balance they owed` : ''}.` });
+      }
+    } else if (depositDetails && !payLater) {
+      // Card on file is charged by the server; paid at the desk another way is recorded with its income line.
       const action = data.paymentMethod === 'card_on_file' ? 'charge' : 'settled';
-      const d = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: auth, body: JSON.stringify({ tenantId, appointmentId: out.appointmentId, action, ...(action === 'settled' ? { amountCents: Math.round(depositDetails.amount * 100) } : {}) }) })
+      const d = await fetch('/api/appointments/desk-deposit', { method: 'POST', headers: auth, body: JSON.stringify({ tenantId, appointmentId: out.appointmentId, action, ...(action === 'settled' ? { amountCents: Math.round(depositDetails.amount * 100), via: deskVia, withBalance: true } : {}) }) })
         .then((r) => r.json()).catch(() => ({}));
       if (!d?.ok) toast({ variant: 'destructive', title: 'Booked — deposit not taken', description: `${d?.error || 'The deposit step didn’t go through.'} Take it from the booking when you’re ready.` });
     } else if (payLater) {
@@ -812,15 +863,26 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                 </div>
                                                 <ShieldCheck className={cn("w-5 h-5", hasRealCard(selectedClient) ? "text-primary" : "text-slate-300")} />
                                             </label>
-                                            <label htmlFor="pay-terminal" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5 border-border">
+                                            {hasStripe && (
+                                            <label htmlFor="pay-reader" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5 border-border">
                                                 <div className="flex items-center gap-4">
-                                                    <RadioGroupItem value="terminal" id="pay-terminal" />
+                                                    <RadioGroupItem value="reader" id="pay-reader" />
                                                     <div className="space-y-0.5 text-left">
-                                                        <span className="text-sm font-semibold text-slate-900">New card at terminal</span>
-                                                        <p className="text-xs text-muted-foreground">Run a new card right now</p>
+                                                        <span className="text-sm font-semibold text-slate-900">Card reader</span>
+                                                        <p className="text-xs text-muted-foreground">Tap, insert or swipe a card on your reader now</p>
                                                     </div>
                                                 </div>
                                                 <Zap className="w-5 h-5 text-primary" />
+                                            </label>)}
+                                            <label htmlFor="pay-desk" className="flex items-center justify-between p-5 rounded-2xl border-2 cursor-pointer transition-all hover:bg-muted/5 border-border">
+                                                <div className="flex items-center gap-4">
+                                                    <RadioGroupItem value="desk" id="pay-desk" />
+                                                    <div className="space-y-0.5 text-left">
+                                                        <span className="text-sm font-semibold text-slate-900">Paid at the desk</span>
+                                                        <p className="text-xs text-muted-foreground">Cash, or a card machine that isn’t connected here</p>
+                                                    </div>
+                                                </div>
+                                                <Wallet className="w-5 h-5 text-primary" />
                                             </label>
                                             <label htmlFor="pay-pending" className="flex items-center justify-between p-5 rounded-2xl border-2 border-dashed cursor-pointer transition-all hover:bg-muted/5">
                                                 <div className="flex items-center gap-4">
@@ -835,6 +897,31 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         </RadioGroup>
                                     )}
                                 />
+                                {balanceWithDepositCents > 0 && watch('paymentMethod') !== 'none' && (
+                                    <p className="text-xs text-muted-foreground px-1">Their ${(balanceWithDepositCents / 100).toFixed(2)} balance is collected with the deposit: ${(depositDetails.amount + balanceWithDepositCents / 100).toFixed(2)} in all. The balance isn’t part of the deposit.</p>
+                                )}
+                                {watch('paymentMethod') === 'reader' && hasStripe && tenantId && (
+                                    <div className="desk rounded-2xl" style={{ background: 'transparent' }}>
+                                        <style>{DESK_CSS}</style>
+                                        <StripeTerminalProvider tenantId={tenantId}>
+                                            <ReaderBridge into={readerRef} />
+                                            <ReaderPanel compact tenantId={tenantId} manager={isManagerRole} />
+                                        </StripeTerminalProvider>
+                                        <p className="mt-2 text-xs text-muted-foreground px-1">When you book, the reader asks for the card. The deposit is recorded with the payment, so it can be refunded to the card.</p>
+                                    </div>
+                                )}
+                                {watch('paymentMethod') === 'desk' && (
+                                    <div className="space-y-2 px-1">
+                                        <p className="text-[11px] font-medium text-muted-foreground">How they paid</p>
+                                        <div role="group" aria-label="How they paid" className="flex flex-wrap gap-2">
+                                            {DESK_VIA.map((v) => (
+                                                <button key={v.id} type="button" aria-pressed={deskVia === v.id} onClick={() => setDeskVia(v.id)}
+                                                    className={cn('h-10 rounded-full px-4 text-sm font-semibold border transition-all', deskVia === v.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-900 border-border')}>{v.label}</button>
+                                            ))}
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">Take it before you book. It’s recorded as income and comes off their bill at the visit.</p>
+                                    </div>
+                                )}
                             </div>
                         </motion.div>
                     )}

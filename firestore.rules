@@ -658,6 +658,12 @@ service cloud.firestore {
         allow read, create: if isTeam(tenantId);
         allow update, delete: if false;
       }
+      // What the customer was sent, as it shows on their order page (lib/order-inbox): the team reads it beside the
+      // order; only the server writes it.
+      match /inbox/{cardId} {
+        allow read: if isTeam(tenantId);
+        allow write: if false;
+      }
     }
     // RENT LEDGER. Managers record rent payments and credits; online-shop sale credits for renters are written only by
     // the server (lib/renter-sales-server), so nobody can add one from a browser.

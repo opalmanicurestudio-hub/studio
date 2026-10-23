@@ -585,7 +585,7 @@ export default function RetailSupportPage() {
                   <Link href={`/retail-orders/evidence/${t.orderId}`}>Evidence</Link>
                 </Button>
                 <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-                  <Link href="/retail-orders/history">Open in history</Link>
+                  <Link href={`/retail-orders?order=${encodeURIComponent(t.orderId)}&tab=customer`}>Open the order</Link>
                 </Button>
                 {t.customerEmail && (
                   <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"

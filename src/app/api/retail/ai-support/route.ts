@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { windowOpen } from '@/lib/order-windows';
 
 // ─── /api/retail/ai-support ──────────────────────────────────────────────────
 // Tier-1 of the resolution hierarchy: an assistant that already KNOWS the
@@ -64,11 +65,13 @@ function buildOrderContext(order: any, rs: any, claims: any[], returns: any[]): 
   ).join('\n');
   return [
     `Order #${String(order.orderNumber ?? '').padStart(4, '0')} — ${order.method === 'ship' ? 'shipping order' : 'pickup order'}, currently: ${STAGE_WORDS[order.stage] || order.stage}.`,
-    `Placed: ${order.placedAt || 'unknown'}${order.completedAt ? ` · Completed: ${order.completedAt}` : ''}`,
+    `Placed: ${order.placedAt || 'unknown'}${order.completedAt ? ` · ${order.method === 'ship' ? 'Shipped' : 'Picked up'}: ${order.completedAt}` : ''}${order.deliveredAt ? ` · Delivered (carrier scan): ${order.deliveredAt}` : ''}`,
     order.trackingNumber ? `Tracking: ${order.trackingNumber}${order.carrier ? ` (${order.carrier})` : ''}` : 'No tracking number yet.',
     `Items:\n${lines || '- (none)'}`,
     `Total paid: ${money(order.totalCents)}${(order.storeCreditRequestedCents || 0) > 0 ? ` (includes ${money(order.storeCreditRequestedCents)} store credit)` : ''}${(order.refundedCents || 0) > 0 ? ` · Refunded so far: ${money(order.refundedCents)}` : ''}${(order.pendingRefundCents || 0) > 0 ? ` · Refund queued: ${money(order.pendingRefundCents)}` : ''}`,
-    `Shop policy: returns ${rs.returnsEnabled === false ? 'are OFF (problems still reportable)' : `within ${rs.returnWindowDays ?? 30} days of completion`}; delivery problems reportable within ${rs.deliveryIssueWindowDays ?? 14} days of completion.`,
+    // The same windows the routes enforce (lib/order-windows): days after delivery, from the ship date when the carrier
+    // never confirmed it; no number set means no limit.
+    `Shop policy: returns ${rs.returnsEnabled === false ? 'are OFF (problems still reportable)' : Number(rs.returnWindowDays) > 0 ? `within ${Math.floor(Number(rs.returnWindowDays))} days of delivery (${windowOpen(order, rs.returnWindowDays) ? 'still open for this order' : 'closed for this order'})` : 'with no time limit'}; delivery problems reportable ${Number(rs.deliveryIssueWindowDays) > 0 ? `within ${Math.floor(Number(rs.deliveryIssueWindowDays))} days of delivery (${windowOpen(order, rs.deliveryIssueWindowDays) ? 'still open for this order' : 'closed for this order'})` : 'with no time limit'}. Without a delivery scan, these count from the day it shipped.`,
     claims.length ? `Reports on this order:\n${claimLines}` : 'No reports opened on this order.',
     returns.length ? `Returns on this order:\n${returnLines}` : 'No returns on this order.',
   ].join('\n');

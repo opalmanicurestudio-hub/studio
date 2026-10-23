@@ -7,14 +7,16 @@
 //   1. Take next, or scan any item: the most urgent order is yours.
 //   2. Walk the shelf list (three orders wanting the same oil is one trip) and scan each item in.
 //   3. The last item finishes the order: shipping waits for a label, pickup goes on the shelf and the customer is told.
+//      With "Second scan at packing" on, an order picked at the shelf is scanned again, item by item, into the box first
+//      (lib/retail-fulfill recordPackScan); a wave order's one scan is already at the box.
 //   4. Ship it (label or tracking), or hand it over when they arrive.
 import * as React from 'react';
 import { collection, doc, getDoc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { ScanGate } from '@/components/retail/ScanGate';
 import { permissionsFor } from '@/lib/fulfilment-access';
-import { claimNextBatch, claimSpecificOrder, recordItemScan } from '@/lib/retail-fulfill';
+import { claimNextBatch, claimSpecificOrder, recordItemScan, recordPackScan } from '@/lib/retail-fulfill';
 import { finishPacking } from '@/lib/orders-flow';
-import { codesMatch, fulfilmentPolicy, parseProductQr, type RetailOrder } from '@/lib/retail-orders';
+import { codesMatch, fulfilmentPolicy, isPackComplete, parseProductQr, type RetailOrder } from '@/lib/retail-orders';
 import { dueLine, firstName, itemCount, methodLabel, orderNum, packQueue, packProgress } from '@/lib/orders-view';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { Btn, C, Empty, Initials, ListRow, UndoBar, feel, muted, Ic } from '@/components/orders/ui';
@@ -39,6 +41,8 @@ function ScanBanner({ b }: { b: Banner }) {
 
 type BoardOrder = RetailOrder & { id: string } & Record<string, any>;
 const ACTIVE = ['paid', 'picking', 'packed', 'ready', 'arrived'];
+/** Units still to be scanned into the box (the second scan). */
+const toCheck = (o: any) => (o?.lines || []).reduce((a: number, l: any) => (l.digital === true || ['refunded', 'backordered'].includes(l.status) ? a : a + Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyPacked || 0))), 0);
 
 function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
@@ -65,6 +69,8 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const [handId, setHandId] = React.useState<string | null>(null);
   const [showMissing, setShowMissing] = React.useState(false);
   const [banner, setBanner] = React.useState<Banner | null>(null);
+  // The order at the box for its second scan, when the shop asks for one.
+  const [checking, setChecking] = React.useState<string | null>(null);
   const show = (b: Omit<Banner, 'at'>) => { feel(b.kind !== 'warn'); setBanner({ ...b, at: Date.now() }); };
 
   React.useEffect(() => {
@@ -116,9 +122,21 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const labeled = React.useMemo(() => orders.filter((o) => o.stage === 'packed' && o.method === 'ship' && o.trackingNumber), [orders]);
 
   const say = (m: string, ok = true) => { feel(ok); setToast(m); };
-  const finish = async (o: BoardOrder) => {
+  const checkOrder = checking ? byId.get(checking) || null : null;
+  React.useEffect(() => { if (checking && (!checkOrder || checkOrder.stage !== 'picking')) setChecking(null); }, [checking, checkOrder]);
+  const needsCheck = (o: BoardOrder) => rs.requirePackScan === true && !o.waveId && !isPackComplete((o.lines || []) as any);
+  const doFinish = async (o: BoardOrder) => {
     const r = await finishPacking(fs, tenantId, o, orders, actor as any, rs);
     say(r.ok ? (o.method === 'ship' ? `${orderNum(o)} packed. It’s ready for a label.` : `${orderNum(o)} is on the shelf${(r as any).slot ? ` at ${(r as any).slot}` : ''}. ${firstName(o.customerName)} has been told.`) : r.message, r.ok);
+    return r.ok;
+  };
+  // Finishing an order picked at the shelf, with the second scan on, starts its scan into the box instead.
+  const finish = async (o: BoardOrder) => {
+    if (needsCheck(o)) {
+      setChecking(o.id); setBanner(null); feel(true);
+      return false;
+    }
+    return doFinish(o);
   };
   const takeNext = async () => {
     if (!fs || busy) return;
@@ -144,14 +162,14 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
         const held = toteBusy(orders, tote);
         if (!held) { show({ kind: 'warn', title: `Tote ${tote} is empty`, sub: 'No order is in it right now.' }); return; }
         const p = packProgress(held);
-        if (p.total > 0 && p.done >= p.total && perms.canPack) { await finish(held); show({ kind: 'ok', title: `Tote ${tote}: ${orderNum(held)} finished`, sub: held.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' }); return; }
+        if (p.total > 0 && p.done >= p.total && perms.canPack) { if (await finish(held)) show({ kind: 'ok', title: `Tote ${tote}: ${orderNum(held)} finished`, sub: held.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' }); return; }
         show({ kind: 'tote', tote, title: `Tote ${tote} is ${orderNum(held)}`, sub: `${Math.max(0, p.total - p.done)} more to pick.` });
         return;
       }
       const slip = orderFromSlipScan(raw, orders);
       if (slip) {
         const p = packProgress(slip);
-        if (slip.stage === 'picking' && p.total > 0 && p.done >= p.total && perms.canPack) { await finish(slip); show({ kind: 'ok', title: `${orderNum(slip)} finished`, sub: slip.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' }); return; }
+        if (slip.stage === 'picking' && p.total > 0 && p.done >= p.total && perms.canPack) { if (await finish(slip)) show({ kind: 'ok', title: `${orderNum(slip)} finished`, sub: slip.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' }); return; }
         if (slip.stage === 'packed' && slip.method === 'ship' && perms.canShip) { setShipId(slip.id); return; }
         show({ kind: toteOf(slip) ? 'tote' : 'ok', tote: toteOf(slip) || undefined, title: `${orderNum(slip)} ${firstName(slip.customerName)}`, sub: slip.stage === 'picking' ? `${Math.max(0, p.total - p.done)} more to pick.` : slip.stage === 'packed' ? 'Packed. Waiting for a label.' : 'Ready.' });
         return;
@@ -164,6 +182,17 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
         return;
       }
       if (looksLikeTracking(raw) && labeled.length) { show({ kind: 'warn', title: 'This label isn’t for any box waiting to ship', sub: 'Check the box and the label before it goes out.' }); return; }
+      if (checkOrder && checkOrder.stage === 'picking') {
+        const r = await recordPackScan(fs, tenantId, checkOrder.id, value, actor as any);
+        if (!r.ok) { show({ kind: 'warn', title: 'That isn’t going in this box', sub: r.message }); return; }
+        if (r.packComplete) {
+          setChecking(null);
+          if (await doFinish(checkOrder)) show({ kind: 'ok', title: `${orderNum(checkOrder)} finished`, sub: checkOrder.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' });
+          return;
+        }
+        show({ kind: 'ok', title: `${r.name || 'Item'} is in`, sub: `${Math.max(0, toCheck(checkOrder) - 1)} more for ${orderNum(checkOrder)}` });
+        return;
+      }
       for (const o of mine) {
         const r = await recordItemScan(fs, tenantId, o.id, value, actor as any);
         if (r.ok) {
@@ -196,7 +225,24 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
         <Btn kind="primary" onClick={() => void takeNext()} disabled={busy === 'take' || queue.length === 0 || mine.length >= perms.claimLimit}>{busy === 'take' ? 'Taking…' : 'Take next'}</Btn>
       </div>
 
-      {mine.length > 0 && (
+      {checkOrder && (
+        <section className="cf-anim-rise mt-5 rounded-2xl border-2 p-4" style={{ borderColor: C.ink }}>
+          <p className="m-0 text-[17px] font-semibold">{`Scan ${orderNum(checkOrder)} into the box`}</p>
+          <p className="m-0 mt-0.5 text-[14px]" style={muted}>{`For ${firstName(checkOrder.customerName)}${toteOf(checkOrder) ? ` · Tote ${toteOf(checkOrder)}` : ''} · ${toCheck(checkOrder)} to go. It was picked at the shelf, so each item is scanned again as it’s packed.`}</p>
+          {banner && <ScanBanner b={banner} />}
+          <div className="mt-3 overflow-hidden rounded-2xl"><ScanGate onScan={(v) => void onScan(v)} paused={busy === 'scan'} label="Scan each item into the box" cameraFirst={false} /></div>
+          <div className="mt-3">
+            {(checkOrder.lines || []).filter((l: any) => l.digital !== true && !['refunded', 'backordered'].includes(l.status) && (l.qtyOrdered || 0) - (l.qtyShorted || 0) > 0).map((l: any) => { const owed = (l.qtyOrdered || 0) - (l.qtyShorted || 0); const done = (l.qtyPacked || 0) >= owed; return (
+              <div key={l.lineId} className="flex min-h-[56px] items-center gap-3 border-b py-2.5" style={{ borderColor: C.line, opacity: done ? 0.5 : 1 }}>
+                <span key={done ? 'd' : 'n'} className={`${done ? 'cf-anim-pop ' : ''}grid h-7 w-7 shrink-0 place-items-center rounded-full border-2`} style={done ? { background: C.ok, borderColor: C.ok } : { borderColor: '#d2d3d7' }}>{done ? Ic.check : null}</span>
+                <span className="min-w-0 flex-1 truncate text-[16px] font-semibold">{l.name}{l.optionsLabel ? ` · ${l.optionsLabel}` : ''}</span>
+                <span className="shrink-0 text-[15px] font-semibold">{Math.min(l.qtyPacked || 0, owed)}/{owed}</span>
+              </div>); })}
+          </div>
+          <Btn kind="plain" className="mt-2 h-11" onClick={() => setChecking(null)}>Not now</Btn>
+        </section>)}
+
+      {mine.length > 0 && !checkOrder && (
         <section className="cf-anim-rise mt-5 rounded-2xl border-2 p-4" style={{ borderColor: C.ink }}>
           <p className="m-0 text-[17px] font-semibold">{left > 0 ? `${left} item${left === 1 ? '' : 's'} to grab` : 'All in'}</p>
           <p className="m-0 mt-0.5 text-[14px]" style={muted}>{mine.map((o) => `${orderNum(o)} ${firstName(o.customerName)}`).join(' · ')}</p>
@@ -231,7 +277,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
           </div>}
         </section>)}
 
-      {mine.length === 0 && (toFinish.length > 0 || labeled.some((o) => !o.labelCheckedAt)) && (
+      {mine.length === 0 && !checkOrder && (toFinish.length > 0 || labeled.some((o) => !o.labelCheckedAt)) && (
         <section className="mt-5 rounded-2xl border p-4" style={{ borderColor: C.line }}>
           <p className="m-0 text-[16px] font-semibold">At the bench</p>
           <p className="m-0 mt-0.5 text-[14px]" style={muted}>Scan a tote to finish its order, or scan a label on a box to check it’s the right one.</p>

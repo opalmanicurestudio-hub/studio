@@ -6,6 +6,7 @@ import { busyLineFor, customerDates, scheduleFrom } from '@/lib/ship-promise';
 import { dayKey, tenantTimeZone } from '@/lib/tenant-time';
 import { liveSlots } from '@/lib/label-boxes';
 import { effectiveUnitCents, swapLines } from '@/lib/retail-swap';
+import { windowOpen } from '@/lib/order-windows';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
 // GET ?tenantId=...&orderId=...
@@ -202,12 +203,8 @@ export async function GET(req: NextRequest) {
     const ageH = (Date.now() - new Date(order.paidAt).getTime()) / 3600000;
     return !Number.isFinite(ageH) || ageH <= wh;
   })();
-  const returnWindowOk = (() => {
-    const wd = Math.max(0, Number(rs.returnWindowDays) || 0);
-    if (wd <= 0 || !order.completedAt) return true;
-    const ageD = (Date.now() - new Date(order.completedAt).getTime()) / 86400000;
-    return !Number.isFinite(ageD) || ageD <= wd;
-  })();
+  // From delivery, or the ship date when the carrier never confirmed it (lib/order-windows), as the routes enforce it.
+  const returnWindowOk = windowOpen(order, rs.returnWindowDays);
   const help = {
     canCancel: ['placed', 'paid'].includes(order.stage) && polH.cancelAllowed !== false && cancelWindowOk,
     canReturn: ['shipped', 'handed_off', 'completed'].includes(order.stage) && rs.returnsEnabled !== false && returnWindowOk,

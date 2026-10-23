@@ -1,13 +1,15 @@
 'use client';
 // src/components/orders/OrdersApp.tsx — THE ORDERS SCREEN. One list with three tabs (To pack, Ready, Done), search, and
-// one line for the few things a person must decide. On a phone, the order opens full screen and the shop's four places
-// sit in a tab bar; on a computer, the order opens beside the list. A one-person shop leads with the next order.
+// one line for the few things a person must decide. Opening an order opens its workspace (components/orders/workspace):
+// packing, shipping or handing over, the customer and the conversation, and the whole record, in one place. On a phone
+// it fills the screen and the shop's four places sit in a tab bar; on a computer it sits beside the list, with the
+// customer beside it on a wide screen. A one-person shop leads with the next order.
 // Live from Firestore; the packing engine is lib/retail-fulfill, the screen's own rules are lib/orders-view.
 import * as React from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, updateDoc, where, type Firestore } from 'firebase/firestore';
-import { benchScanTarget, markLabelChecked } from '@/lib/totes';
+import { benchScanTarget, looksLikeTracking, markLabelChecked, parseTote } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -15,17 +17,17 @@ import { useInventory } from '@/context/InventoryContext';
 import { useFulfilmentPerms } from '@/hooks/use-fulfilment-perms';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { notifyCurbside, sweepStaleClaims, type Actor } from '@/lib/retail-fulfill';
-import { curbsideWaitMinutes } from '@/lib/retail-orders';
-import { startPacking } from '@/lib/orders-flow';
+import { curbsideWaitMinutes, lineMatchesScan } from '@/lib/retail-orders';
+import { scanInto, startPacking } from '@/lib/orders-flow';
 import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabel, money, needsYou, packQueue, soloShop, tabOf, type NeedItem, type OrdersTab } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Empty, IconBtn, Initials, LargeTitle, ListRow, Seg, Sheet, UndoBar, feel, muted, Ic } from './ui';
-import { OrderPanel } from './OrderPanel';
-import { PackMode } from './PackMode';
-import { MissingSheet } from './MissingSheet';
+import { OrderWorkspace, type Layout, type WorkTab } from './workspace/OrderWorkspace';
+import { countedAtBox } from './workspace/PackPane';
 import { ShipSheet } from './ShipSheet';
 import { HandoverSheet } from './HandoverSheet';
-import { PhoneShopBar, useWide } from './shell';
+import { PhoneShopBar, useWide, useWidest } from './shell';
+import { mayEditContact } from '@/lib/contact-change';
 import { SelectBar } from './SelectBar';
 import { ShipToday } from './ShipToday';
 import { bringingOut } from '@/lib/orders-flow';
@@ -67,6 +69,10 @@ export function OrdersApp() {
   const shopZone = tenantTimeZone(selectedTenant);
   const actor: Actor = React.useMemo(() => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Team' }), [user]);
   const wide = useWide();
+  const widest = useWidest();
+  // A phone (or a narrow window), a computer screen with the list beside the order, or a wide one with the customer too.
+  const layout: Layout = !wide ? 'phone' : widest ? 'three' : 'two';
+  const canEditContact = mayEditContact(selectedTenant, { role, isTenantOwner: !!user?.uid && (selectedTenant as any)?.userId === user.uid });
 
   const [orders, setOrders] = React.useState<any[]>([]);
   const [done, setDone] = React.useState<any[]>([]);
@@ -75,9 +81,9 @@ export function OrdersApp() {
   const [tab, setTab] = React.useState<OrdersTab>('pack');
   const [q, setQ] = React.useState(''); const [searching, setSearching] = React.useState(false);
   const [openId, setOpenId] = React.useState<string | null>(null);
-  const [packId, setPackId] = React.useState<string | null>(null);
-  const [missing, setMissing] = React.useState<any | null>(null);
-  const [shipId, setShipId] = React.useState<string | null>(null);
+  // Open an order on one of its tabs (packing it, buying its label); n tells a second ask from the first.
+  const [focus, setFocus] = React.useState<{ tab: WorkTab; n: number } | null>(null);
+  const openOn = (id: string, tab: WorkTab) => { setOpenId(id); setFocus((f) => ({ tab, n: (f?.n || 0) + 1 })); };
   const [shipGroup, setShipGroup] = React.useState<string[] | null>(null);   // orders shipped together (lib/ship-together)
   const [handId, setHandId] = React.useState<string | null>(null);
   const [needsOpen, setNeedsOpen] = React.useState(false);
@@ -259,11 +265,13 @@ export function OrdersApp() {
   const keepSeparate = async (g: any[]) => { try { await fetch('/api/retail/ship-together', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'decline', orderIds: g.map((o) => o.id) }) }); } catch { /* the card stays */ } };
   const outside = tab === 'ready' && !q ? orders.filter((o) => o.stage === 'arrived') : [];
 
-  // ?order=<id> opens that order; ?ship=today opens Ship today (the Labels screen's "Buy labels"); ?view=late, risk or
-  // carrier opens that Today list (an order alert's link, lib/order-alerts; see ViewParam). Closing the list takes
-  // ?view off the address, so the same alert opens it again from here.
+  // ?order=<id> opens that order (with &tab=pack, ship, customer or record, on that part of it); ?ship=today opens Ship
+  // today (the Labels screen's "Buy labels"); ?view=late, risk or carrier opens that Today list (an order alert's link,
+  // lib/order-alerts; see ViewParam). Closing the list takes ?view off the address, so the same alert opens it again.
   React.useEffect(() => {
-    const q = new URLSearchParams(window.location.search); const id = q.get('order'); if (id) setOpenId(id); if (q.get('ship') === 'today') setShipToday(true);
+    const q = new URLSearchParams(window.location.search); const id = q.get('order'); const t = q.get('tab');
+    if (id) { if (t === 'pack' || t === 'ship' || t === 'customer' || t === 'record') openOn(id, t); else setOpenId(id); }
+    if (q.get('ship') === 'today') setShipToday(true);
   }, []);
   const hadSheet = React.useRef(false);
   React.useEffect(() => {
@@ -282,15 +290,14 @@ export function OrdersApp() {
     return onSnapshot(doc(fs, `tenants/${tenantId}/retailOrders`, openId), (d) => setSingle(d.exists() ? { ...(d.data() as any), id: d.id } : null), () => setSingle(null));
   }, [fs, tenantId, openId, inLists]);
   const open = openId ? byId.get(openId) || (single?.id === openId ? single : null) : null;
-  const packing = packId ? byId.get(packId) || null : null;
-  React.useEffect(() => { if (packId && packing && !['paid', 'picking', 'packed'].includes(packing.stage)) setPackId(null); }, [packId, packing]);
   React.useEffect(() => { if (wide && !openId && list.length && tab !== 'done') setOpenId(list[0].id); }, [wide, list, openId, tab]);
 
+  // Packing happens inside the order (components/orders/workspace): claim it, then open it on its Pack tab.
   const beginPack = async (o: any) => {
     if (!perms.canPick) { setToast('Packing isn’t part of your role. Ask a manager to add it.'); return; }
     const r = await startPacking(fs, tenantId, o, actor);
     if (!r.ok) { feel(false); setToast(r.message); return; }
-    setPackId(o.id); setOpenId(o.id);
+    openOn(o.id, 'pack');
   };
   const packNext = () => { const o = queue[0]; if (!o) { setToast('Nothing is waiting to be packed.'); return; } void beginPack(o); };
   const canRefund = typeof can === 'function' ? can('checkout.refund') : false;
@@ -308,7 +315,7 @@ export function OrdersApp() {
     const o = it.order;
     if (s.kind === 'pack') { setDaySheet(null); void beginPack(o); return; }
     if (s.kind === 'open') { setDaySheet(null); setOpenId(o.id); return; }
-    if (s.kind === 'label') { setDaySheet(null); setShipId(o.id); return; }
+    if (s.kind === 'label') { setDaySheet(null); openOn(o.id, 'ship'); return; }
     setDayBusy(`${o.id}:${s.kind}`);
     try {
       if (s.kind === 'tell' && s.day) {
@@ -374,7 +381,7 @@ export function OrdersApp() {
           <Btn kind="primary" className="mt-3 w-full" onClick={() => void beginPack(nextUp)}>Start packing</Btn>
         </div>)}
       {selecting && <div className="flex items-center justify-between px-4 pb-1 pt-3"><span className="text-[13px] font-semibold" style={muted}>{picked.size ? `${picked.size} of ${list.length}` : 'Tap orders to pick them'}</span><button type="button" onClick={() => setPicked(picked.size === list.length ? new Set() : new Set(list.map((o) => o.id)))} className="h-11 text-[15px] font-semibold">{picked.size === list.length ? 'Clear' : `Select all ${list.length}`}</button></div>}
-      {!selecting && outside.length > 0 && <div className="px-4 pt-3"><p className="m-0 pb-2 text-[13px] font-semibold" style={muted}>Outside now</p><div className="grid gap-2.5 lg:grid-cols-2">{outside.map((o) => <Arrival key={o.id} o={o} now={now} onOut={async () => { const r = await bringingOut(fs, tenantId, o, actor); feel(r.ok); setToast(r.ok ? `${firstName(o.customerName)} knows you’re on the way.` : r.message); }} onHand={() => setHandId(o.id)} />)}</div></div>}
+      {!selecting && outside.length > 0 && <div className="px-4 pt-3"><p className="m-0 pb-2 text-[13px] font-semibold" style={muted}>Outside now</p><div className="grid gap-2.5">{outside.map((o) => <Arrival key={o.id} o={o} now={now} onOut={async () => { const r = await bringingOut(fs, tenantId, o, actor); feel(r.ok); setToast(r.ok ? `${firstName(o.customerName)} knows you’re on the way.` : r.message); }} onHand={() => setHandId(o.id)} />)}</div></div>}
       {!selecting && tab === 'ready' && !q && perms.canShip && togetherGroups.map((g) => (
         <div key={g[0].id} className="mx-4 mt-3 rounded-2xl p-4" style={{ border: `2px solid ${C.ink}` }}>
           <p className="m-0 text-[17px] font-semibold">{firstName(g[0].customerName)} has {g.length} orders going to the same address</p>
@@ -401,11 +408,14 @@ export function OrdersApp() {
         {tab !== 'done' && list.length > 0 && <button type="button" onClick={() => (selecting ? endSelect() : setSelecting(true))} className="h-11 px-2 text-[17px] font-semibold">{selecting ? 'Done' : 'Select'}</button>}
         <IconBtn label="Search orders" onClick={() => setSearching((s) => !s)}>{Ic.search}</IconBtn>
       </div>
-      <LargeTitle title="Orders" sub={`${counts.pack} to pack · ${counts.ready} ready`} right={wide ? <div className="flex items-center gap-2">
-        <label className="flex h-11 w-72 items-center gap-2 rounded-full border px-4" style={{ borderColor: C.line }}><span style={muted}>{Ic.search}</span><input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>
-        {tab !== 'done' && list.length > 0 && <Btn kind="soft" onClick={() => (selecting ? endSelect() : setSelecting(true))}>{selecting ? 'Done' : 'Select'}</Btn>}
-        {perms.canPick && !selecting && <Btn kind="primary" onClick={packNext}>Pack the next order</Btn>}
-      </div> : undefined} />
+      <LargeTitle title="Orders" sub={`${counts.pack} to pack · ${counts.ready} ready`} />
+      {wide && (<>
+        <label className="mt-3 flex h-11 items-center gap-2 rounded-full border px-4" style={{ borderColor: C.line }}><span style={muted}>{Ic.search}</span><input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>
+        <div className="mt-2.5 flex gap-2">
+          {perms.canPick && !selecting && <Btn kind="primary" className="h-11 min-w-0 flex-1" onClick={packNext}>Pack the next order</Btn>}
+          {tab !== 'done' && list.length > 0 && <Btn kind="soft" className="h-11" onClick={() => (selecting ? endSelect() : setSelecting(true))}>{selecting ? 'Done' : 'Select'}</Btn>}
+        </div>
+      </>)}
       {searching && !wide && <label className="mt-3 flex h-11 items-center gap-2 rounded-full px-4" style={{ background: C.soft }}><span style={muted}>{Ic.search}</span><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search orders" placeholder="Name, order number or item" className="min-w-0 flex-1 bg-transparent text-[15px] outline-none" /></label>}
       {busyNow && !q && <BusyBanner period={busyNow} schedule={schedule} today={day.today} tz={shopZone} tenantId={tenantId} canEnd={isManager} onToast={setToast} />}
       {catchUp && !q && <CatchUpNote period={catchUp} today={day.today} tz={shopZone} tenantId={tenantId} canEnd={isManager} onToast={setToast} />}
@@ -419,6 +429,41 @@ export function OrdersApp() {
       <div className="mt-3 lg:max-w-md"><Seg value={tab} onChange={(v) => { setTab(v); if (wide) setOpenId(null); }} options={[{ id: 'pack', label: `To pack ${counts.pack || ''}`.trim() }, { id: 'ready', label: `Ready ${counts.ready || ''}`.trim() }, { id: 'done', label: 'Done' }]} /></div>
     </div>);
 
+  // AN ITEM SCANNED ON THE BOARD (no order open for packing): it's counted into the order of yours that still needs it,
+  // or the most urgent waiting order that needs it becomes yours, and opens on its Pack tab. Either way the scan
+  // happened at the box. On someone else's order, it says whose.
+  const claiming = React.useRef(new Map<string, Promise<boolean>>());
+  const itemScan = async (raw: string) => {
+    const v = String(raw || '').trim();
+    if (v.length < 3) return;
+    const numOf = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
+    const wants = (o: any) => (o.lines || []).some((l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && (l.qtyScanned || 0) < (l.qtyOrdered || 0) && lineMatchesScan(l, v));
+    const count = async (o: any, claimed: boolean) => {
+      const r = await scanInto(fs, tenantId, o.id, v, actor);
+      feel(r.ok);
+      if (r.ok) countedAtBox(tenantId, o.id);
+      setToast(r.ok ? `${claimed ? `${numOf(o)} is yours. ` : `${numOf(o)}: `}${r.name || 'Item'} counted.` : `${claimed ? `${numOf(o)} is yours. ` : ''}${r.message}`);
+      openOn(o.id, 'pack');
+    };
+    const mineOpen = orders.find((o) => o.stage === 'picking' && o.claimedBy === actor.id && wants(o));
+    if (mineOpen) { await count(mineOpen, false); return; }
+    const waiting = perms.canPick ? queue.find((o: any) => o.stage === 'paid' && wants(o)) : null;
+    if (waiting) {
+      // Two items scanned back to back for the same order share one claim, and both count.
+      let claim = claiming.current.get(waiting.id);
+      if (!claim) {
+        claim = startPacking(fs, tenantId, waiting, actor).then((r) => { if (!r.ok) { feel(false); setToast(r.message); } return r.ok; });
+        claiming.current.set(waiting.id, claim);
+        void claim.finally(() => setTimeout(() => claiming.current.delete(waiting.id), 4000));
+      }
+      if (await claim) await count(waiting, true);
+      return;
+    }
+    const theirs = orders.find((o) => o.stage === 'picking' && o.claimedBy !== actor.id && wants(o));
+    if (theirs) { feel(false); setToast(`That’s for ${numOf(theirs)}, which ${theirs.claimedByName ? firstName(theirs.claimedByName) : 'someone else'} is packing.`); return; }
+    feel(false); setToast('No order waiting to be packed needs that item.');
+  };
+
   // A handheld scanner on the board: a tote tag or slip code opens that order; a shipping label is checked against its box.
   // The box in front of someone is the one whose slip (or tote) they scanned in the last two minutes: a label that isn't
   // that box's is the wrong box, and it says whose label it is instead of ticking it off. Orders shipped together share
@@ -428,7 +473,14 @@ export function OrdersApp() {
   const holderOf = (o: any) => { const h = o?.labelFromOrderId || o?.shippedWithOrderId; return h ? byId.get(String(h)) || o : o; };
   useWedgeScanner(async (v) => {
     const t = benchScanTarget(v, orders);
-    if (!t) return;
+    if (!t) {
+      // A tote tag, slip code or label that isn't for anything here isn't an item: say what it is.
+      const tote = parseTote(v);
+      if (tote) { feel(false); setToast(`Tote ${tote} is empty.`); return; }
+      if (/^clarityflow:\/\/order\//i.test(String(v).trim())) { feel(false); setToast('That slip isn’t for an order in progress.'); return; }
+      if (looksLikeTracking(v)) { feel(false); setToast('That label isn’t for any box waiting to ship.'); return; }
+      await itemScan(v); return;
+    }
     if (t.kind === 'foreignLabel') { feel(false); setToast('That label isn’t for any box waiting to ship.'); return; }
     const numOf = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
     if (t.kind === 'label') {
@@ -450,17 +502,18 @@ export function OrdersApp() {
   });
 
   const panel = open && (
-    <OrderPanel key={open.id} fs={fs} tenantId={tenantId} order={open} actor={actor} rs={rs} photoFor={photoFor} canRefund={canRefund} isManager={isManager} inline={wide}
-      startMessage={startMessage && startMessage.orderId === open.id ? startMessage.text : null}
-      onClose={() => { setOpenId(null); setStartMessage(null); }} onPack={() => void beginPack(open)} onShip={() => setShipId(open.id)} onHandover={() => setHandId(open.id)} onToast={setToast} />);
+    <OrderWorkspace key={open.id} fs={fs} tenantId={tenantId} order={open} all={orders} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor}
+      batch={batches.find((b) => b.id === open.batchId) || null} inventory={inventory || []} perms={perms} canRefund={canRefund} isManager={isManager} canEditContact={canEditContact}
+      shopZone={shopZone} layout={layout} requestTab={focus} startMessage={startMessage && startMessage.orderId === open.id ? startMessage.text : null}
+      onClose={() => { setOpenId(null); setStartMessage(null); }} onToast={setToast} />);
 
   return (
     <div className="cf-settings min-h-[100dvh]" style={{ background: C.paper, color: C.ink }}>
       <React.Suspense fallback={null}><ViewParam onView={(v) => { if (v === 'late' || v === 'risk' || v === 'carrier') setDaySheet(v); }} /></React.Suspense>
       {wide ? (
         <div className="flex h-[100dvh]">
-          <div className="flex min-w-0 flex-1 flex-col overflow-y-auto pb-8">{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
-          <div className="w-[440px] shrink-0 overflow-y-auto border-l" style={{ borderColor: C.line }}>{panel || <Empty title="Pick an order" sub="Its items, history and next step show here." />}</div>
+          <div className="flex w-[360px] shrink-0 flex-col overflow-y-auto border-r pb-8 xl:w-[340px] 2xl:w-[380px]" style={{ borderColor: C.line }}>{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
+          <div className="min-w-0 flex-1">{panel || <Empty title="Pick an order" sub="Pack it, ship it, talk to the customer and see its whole record here." />}</div>
         </div>
       ) : (
         <div className="pb-48">{header}<div key={tab} className="cf-stagger mt-1">{listBody}</div></div>
@@ -468,12 +521,7 @@ export function OrdersApp() {
       {!wide && !open && !selecting && <PhoneShopBar onPackNext={perms.canPick && tab === 'pack' && !nextUp && !(showToday && !q && day.ship.toGo > 0) ? packNext : undefined} problems={needs.filter((n) => n.kind !== 'outside').length} />}
       {!wide && panel}
 
-      {packing && <PackMode fs={fs} tenantId={tenantId} order={packing} all={orders} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor} batch={batches.find((b) => b.id === packing.batchId) || null}
-        onClose={() => setPackId(null)} onDetails={() => { setOpenId(packing.id); setPackId(null); }} onMissing={(l) => setMissing({ order: packing, line: l })}
-        onFinished={(m) => { setToast(m); setPackId(null); }} />}
-      {missing && <MissingSheet fs={fs} tenantId={tenantId} order={missing.order} line={missing.line} shelf={shelfFor.get(missing.line.productId)} inventory={inventory || []} actor={actor} autoBelow={Math.max(0, Number(rs.policies?.refundAutoBelowCents) || 0)} onClose={() => setMissing(null)} onDone={(m) => { setMissing(null); setToast(m); }} />}
       {shipGroup && byId.get(shipGroup[0]) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipGroup[0])} together={shipGroup.slice(1).map((id) => byId.get(id)).filter(Boolean)} inventory={inventory || []} rs={rs} actor={actor} onClose={() => setShipGroup(null)} onDone={(m) => { setShipGroup(null); setToast(m); }} />}
-      {shipId && byId.get(shipId) && <ShipSheet fs={fs} tenantId={tenantId} order={byId.get(shipId)} inventory={inventory || []} rs={rs} actor={actor} onToast={setToast} onClose={() => setShipId(null)} onDone={(m) => { setShipId(null); setToast(m); }} />}
       {handId && byId.get(handId) && <HandoverSheet fs={fs} tenantId={tenantId} order={byId.get(handId)} actor={actor} onClose={() => setHandId(null)} onDone={(m) => { setHandId(null); setToast(m); }} />}
       {selecting && <SelectBar fs={fs} tenantId={tenantId} picked={pickedOrders} actor={actor} rs={rs} perms={perms} onDone={endSelect} onToast={setToast} />}
       {shipToday && <ShipToday fs={fs} tenantId={tenantId} orders={orders} actor={actor} rs={rs} onClose={() => setShipToday(false)} onToast={setToast} />}

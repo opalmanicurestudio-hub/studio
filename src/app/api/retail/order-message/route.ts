@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
   const r: any = await sendNotification(db, {
     tenantId, channel: o.customerEmail ? 'email' : 'sms', to: String(o.customerEmail || o.customerPhone), subject, html,
     text: `${text} ${link}`, kind: 'shop_message', recipientType: 'client', recipientId: orderId, recipientName: o.customerName || null, orderId, nudgeLine, cardKey: text,
+    // The card on their order page is the message as written, signed with the sender's first name.
+    cardBody: text, cardBy: String(auth.actor.name || '').trim().split(/\s+/)[0] || null,
   } as any).catch(() => null);
   const now = new Date().toISOString();
   const ev = ref.collection('events').doc();

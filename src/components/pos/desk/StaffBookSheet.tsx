@@ -66,6 +66,8 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const [steps, setSteps] = React.useState<Step[]>([]);
   // ── payment & notes ──
   const [deposit, setDeposit] = React.useState<'link' | 'charge' | 'paid' | 'waive'>('link');
+  // How a deposit paid at the desk came in (cash, or a card machine that isn't connected here), for the books.
+  const [depVia, setDepVia] = React.useState<'terminal' | 'cash' | 'other'>('terminal');
   const [pkg, setPkg] = React.useState(''); const [promo, setPromo] = React.useState(''); const [place, setPlace] = React.useState('');
   const [notes, setNotes] = React.useState(''); const [privateNotes, setPrivateNotes] = React.useState('');
   const [reminder, setReminder] = React.useState('');   // '' = the business's usual reminder
@@ -241,7 +243,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
     if (hasDeposit && deposit !== 'link' && dueNow.length) {
       const action = deposit === 'charge' ? 'charge' : deposit === 'paid' ? 'settled' : 'waive';
       let okCount = 0; let lastErr = '';
-      for (const id of dueNow) { const d = await staffJson('/api/appointments/desk-deposit', { tenantId, appointmentId: id, action }); if (d?.ok) okCount++; else lastErr = d?.error || ''; }
+      for (const id of dueNow) { const d = await staffJson('/api/appointments/desk-deposit', { tenantId, appointmentId: id, action, ...(action === 'settled' ? { via: depVia } : {}) }); if (d?.ok) okCount++; else lastErr = d?.error || ''; }
       const what = deposit === 'charge' ? 'charged to their card' : deposit === 'paid' ? 'marked as paid' : 'waived';
       depositNote = okCount === dueNow.length ? `${dueNow.length > 1 ? `${dueNow.length} deposits` : 'Deposit'} ${what}.` : `Booked — but ${dueNow.length - okCount} deposit${dueNow.length - okCount === 1 ? '' : 's'} didn’t go through${lastErr ? `: ${lastErr}` : ''}. Take it from the booking.`;
     } else if (hasDeposit && deposit === 'link') depositNote = 'They’ve been sent a link to pay the deposit — the time is held for 24 hours.';
@@ -466,7 +468,8 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
                 {hasDeposit && <><p className="text-[13px]" style={{ color: 'var(--muted)' }}>This service takes a deposit.</p>
                   <Seg label="Deposit" value={deposit} onChange={(v) => setDeposit(v)} options={[
                     ...((mode === 'group' || mode === 'steps' || (mode === 'repeat' && (allNow || seriesPolicy === 'all_now'))) ? [] : [['link', 'Send a pay link'] as ['link', string]]),
-                    ['charge', 'Charge card on file'], ['paid', 'Paid at the desk'], ...(isManager ? [['waive', 'Waive'] as ['waive', string]] : [])]} /></>}
+                    ['charge', 'Charge card on file'], ['paid', 'Paid at the desk'], ...(isManager ? [['waive', 'Waive'] as ['waive', string]] : [])]} />
+                  {deposit === 'paid' && <Seg label="Paid at the desk by" value={depVia} onChange={(v) => setDepVia(v)} options={[['terminal', 'Card machine'], ['cash', 'Cash'], ['other', 'Other']]} />}</>}
                 {owes > 0 && owesRule === 'with_deposit' && deposit === 'waive' && <p className="text-[13px]" style={{ color: 'var(--muted)' }}>Waiving the deposit doesn’t waive their {money(owes)} balance — it stays on their account.</p>}
                 {packages.length > 0 && <select value={pkg} onChange={(e) => setPkg(e.target.value)} className={inp} style={inpS}>
                   <option value="">Don’t use a package</option>

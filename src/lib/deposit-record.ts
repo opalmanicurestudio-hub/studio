@@ -25,6 +25,9 @@ export type CardDeposit = {
   clientEmail?: string | null;
   /** More fields for the booking. */
   extra?: Record<string, any>;
+  /** The money coming in, for a payment nothing else records (a deposit taken on the shop's card reader): written with
+   *  the credit, once, under its own name. */
+  income?: { id: string; data: Record<string, any> } | null;
 };
 
 /** The credit document for a deposit paid by card (for a route that writes the booking in the same step). */
@@ -50,10 +53,14 @@ export async function recordCardDeposit(db: any, tenantId: string, appointmentId
   const T = `tenants/${tenantId}`;
   const aRef = db.doc(`${T}/appointments/${appointmentId}`);
   const cRef = db.doc(`${T}/depositCredits/${depositCreditId(pi)}`);
+  const iRef = d.income?.id ? db.doc(`${T}/transactions/${d.income.id}`) : null;
   return db.runTransaction(async (tx: any): Promise<DepositRecorded> => {
     const as = await tx.get(aRef);
     const cs = await tx.get(cRef);
+    const is = iRef ? await tx.get(iRef) : null;
     if (!as?.exists) return { ok: false, error: 'That booking wasn’t found.' };
+    // A card payment recorded for another booking is never moved onto this one.
+    if (cs?.exists && String((cs.data() || {}).sourceAppointmentId || '') !== appointmentId) return { ok: false, error: 'That card payment is already recorded for another booking.' };
     const ap: any = as.data() || {};
     const released = ap.status === 'cancelled';
     const waiting = ap.status === 'pending_payment' || ap.status === 'deposit_pending';
@@ -70,6 +77,7 @@ export async function recordCardDeposit(db: any, tenantId: string, appointmentId
     }, { merge: true });
     if (ap.checkInToken) tx.set(db.doc(`appointmentCheckIns/${ap.checkInToken}`), { status: next, depositStatus: 'paid' }, { merge: true });
     tx.set(cRef, cardDepositCredit(tenantId, appointmentId, ap, { ...d, cents, paymentIntentId: pi }, now).data);
+    if (iRef && !is?.exists) tx.set(iRef, { ...(d.income?.data || {}), id: iRef.id, tenantId, date: now });
     return { ok: true, already: false, status: next, released, creditId: cRef.id };
   });
 }

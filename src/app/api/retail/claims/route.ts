@@ -5,6 +5,7 @@ import { taxShareCents } from '@/lib/restocking';
 import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
 import { followUpItemsCents, isFollowUp, payingOrder } from '@/lib/order-family';
 import { autoRefund, refundWords } from '@/lib/auto-refund';
+import { startedAgo, windowOpen } from '@/lib/order-windows';
 
 // ─── /api/retail/claims/route.ts ──────────────────────────────────────────────
 // A claim is a customer's report that what arrived doesn't match what was
@@ -226,16 +227,14 @@ export async function POST(req: NextRequest) {
     const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
 
     // The shop's "report a problem within N days" promise, enforced where it
-    // counts. Counts from delivery; fails OPEN when the completion date is
-    // missing, because ambiguity reads in the customer's favor.
+    // counts. Counts from delivery (the carrier's scan), or from the ship date
+    // when the carrier never confirmed it (lib/order-windows); fails OPEN when
+    // there's no date at all, because ambiguity reads in the customer's favor.
     const issueDays = Math.max(0, Math.floor(Number(rs.deliveryIssueWindowDays) || 0));
-    if (issueDays > 0 && order.completedAt) {
-      const ageDays = (Date.now() - new Date(order.completedAt).getTime()) / 86400000;
-      if (Number.isFinite(ageDays) && ageDays > issueDays) {
-        return NextResponse.json({
-          error: `Problems can be reported within ${issueDays} days of delivery, and this order was completed ${Math.floor(ageDays)} days ago. If there are exceptional circumstances, please send us a message below.`,
-        }, { status: 409 });
-      }
+    if (!windowOpen(order, issueDays)) {
+      return NextResponse.json({
+        error: `Problems can be reported within ${issueDays} days of delivery, and this order was ${startedAgo(order)}. If there are exceptional circumstances, please send us a message below.`,
+      }, { status: 409 });
     }
 
     const autoMaxCents = Math.max(0, Math.floor(Number(rs.claimAutoResolveMaxCents) || 0));

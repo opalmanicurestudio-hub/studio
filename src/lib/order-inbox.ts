@@ -124,7 +124,8 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
   // 1. The full message, on the order page. Text and email versions of the same news fill one card.
   if (!THREAD_KINDS.has(kind)) {
     try {
-      const body = input.html ? cardText(input.html) : String(input.text || '');
+      // A message a person wrote keeps its own words on the card (the email around it is only the envelope).
+      const body = input.cardBody ? String(input.cardBody) : input.html ? cardText(input.html) : String(input.text || '');
       const bucket = Math.floor(now / NUDGE_WINDOW_MS);
       const card = db.doc(`tenants/${tenantId}/retailOrders/${orderId}/inbox/${newsKey}-${bucket}`);
       const prev = await card.get();
@@ -134,6 +135,7 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
           id: card.id, kind, at: new Date(now).toISOString(),
           title: lineFor(), body: body.slice(0, 4000),
           links: input.html ? linksIn(input.html, link) : [],
+          ...(input.cardBy ? { by: String(input.cardBy).slice(0, 40) } : {}),
         }, { merge: true });
       }
     } catch { /* the nudge still goes */ }
@@ -155,7 +157,8 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
   if (!first) { await logPosted(db, tenantId, input, orderId, 'Posted on the order page; the customer was already nudged'); return { ok: true, status: 'sent', error: 'posted to the order page' }; }
 
   const { smsConfigured } = await import('./sms');
-  const viaText = !!d10(order.customerPhone) && smsConfigured();
+  // A customer who asked for no texts about this order (lib/contact-change) is nudged by email.
+  const viaText = !!d10(order.customerPhone) && order.textsOff !== true && smsConfigured();
   const line = lineFor();
   if (viaText) {
     const text = KEEP_SMS.has(kind) && input.channel === 'sms' && input.text ? String(input.text) : `${shop}: ${line}${link ? ` ${link}` : ''}`;
