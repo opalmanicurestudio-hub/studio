@@ -28,7 +28,7 @@ export function useClientScreen(tenantId?: string | null) {
   const push = React.useCallback((ticket: any) => (screenId && tenantId ? call({ tenantId, action: 'push', screenId, ticket }) : Promise.resolve(null)), [screenId, tenantId]);
   // The whole answer (why it was refused, too: a sale already paid says how, and what it was rung up with).
   const requestFull = React.useCallback(async (kind: string, extra: any = {}): Promise<any> => { if (!screenId || !tenantId) return null; const r: any = await call({ tenantId, action: 'request', screenId, kind, ...extra });
-    if (r?.paymentClosed === 'paid') window.dispatchEvent(new Event('cf:screen-late-payment'));   // it had gone through before we moved on
+    if (r?.paymentClosed === 'paid') window.dispatchEvent(new CustomEvent('cf:screen-late-payment', { detail: r?.closedAnswer || null }));   // it had gone through before we moved on (the answer says for what)
     return r || null; }, [screenId, tenantId]);
   const request = React.useCallback(async (kind: string, extra: any = {}) => { const r: any = await requestFull(kind, extra); return r?.ok ? r.requestId : null; }, [requestFull]);
   const alive = React.useCallback(() => (screenId && tenantId ? call({ tenantId, action: 'alive', screenId }) : Promise.resolve(null)), [screenId, tenantId]);

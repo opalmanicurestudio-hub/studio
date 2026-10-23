@@ -196,17 +196,17 @@ const outcome = (id = 'pc1') => db.doc(`${T}/pendingCheckouts/${id}/outcome/fina
   const old = (paidMin: number) => db.doc(`${T}/pendingCheckouts/pcOld`).set({ id: 'pcOld', status: 'paid_waiting', clientId: 'c1', clientName: 'Maya Lopez', deskId: 'd1', expectedTotal: 45, preparedAt: ago(paidMin + 2), updatedAt: ago(paidMin), paidAt: ago(paidMin),
     paymentIntentId: 'pi_old', paidVia: 'card_reader', paidCents: 4500, readerPis: { pi_old: { state: 'captured', at: ago(paidMin + 1) } }, payload: { clientId: 'c1', items: oil, payment: { method: 'terminal' } } });
   await fresh(null); actor = desk; await old(60); paidPi('pi_old', 4500, { metadata: reader('pcOld') });
-  r = await prep({ deskId: 'd2', items: oil, expectedTotal: 45 });
-  check('paid an hour ago at another desk and never saved: it isn’t taken for this sale, and the desk is shown it', r.body.pendingId && r.body.pendingId !== 'pcOld' && !r.body.paid && r.body.otherPaid?.pendingId === 'pcOld' && r.body.otherPaid?.cents === 4500, r.body);
-  const cash = await complete(req({ tenantId: 't1', clientId: 'c1', items: oil, expectedTotal: 45, deskId: 'd2', pendingId: r.body.pendingId, payment: { method: 'cash', amountTendered: 45 } })) as any;
+  r = await prep({ deskId: 'd2', items: coat, expectedTotal: 12 });
+  check('a different purchase paid an hour ago at another desk and never saved: it isn’t taken for this sale, and the desk is shown it', r.body.pendingId && r.body.pendingId !== 'pcOld' && !r.body.paid && r.body.otherPaid?.pendingId === 'pcOld' && r.body.otherPaid?.cents === 4500 && r.body.otherPaid?.paidPayload?.items?.[0]?.id === 'p1', r.body);
+  const cash = await complete(req({ tenantId: 't1', clientId: 'c1', items: coat, expectedTotal: 12, deskId: 'd2', pendingId: r.body.pendingId, payment: { method: 'cash', amountTendered: 12 } })) as any;
   check('…this sale saves as cash; the paid one waits to be saved on its own', cash.status === 200 && (await ticket('pcOld')).status === 'paid_waiting', cash.body);
   r = await complete(req({ tenantId: 't1', action: 'record', pendingId: 'pcOld' })) as any;
   rc = await all(`${T}/receipts`);
   check('…and “Save that sale” saves it with its own payment', r.status === 200 && rc.length === 2 && rc.some((x: any) => x.stripePaymentIntentId === 'pi_old'), r.body);
-  check('…the desk shows it with a button to save it, leaving the cart alone', /has another sale, paid but not saved/.test(hub) && /Save that sale/.test(hub) && /saveOtherPaidSale/.test(engine) && /action: 'record', pendingId: op\.pendingId/.test(engine));
-  await fresh(null); actor = desk; await old(10); paidPi('pi_old', 4500, { metadata: reader('pcOld') });
+  check('…the desk shows it with a button to save it, taking out of the cart only what it had', /has another sale, paid but not saved/.test(hub) && /Save that sale/.test(hub) && /saveOtherPaidSale/.test(engine) && /action: 'record', pendingId: op\.pendingId/.test(engine) && /cartWithout\(op\.paidPayload/.test(engine));
+  await fresh(null); actor = desk; await old(60); paidPi('pi_old', 4500, { metadata: reader('pcOld') });
   r = await prep({ deskId: 'd2', items: oil, expectedTotal: 45 });
-  check('the same cart paid ten minutes ago on another screen (the desk moved devices): it’s this sale, and the desk is told it’s paid', r.body.pendingId === 'pcOld' && r.body.paid?.id === 'pi_old', r.body);
+  check('the same purchase paid on another screen and not saved (the desk moved devices): it’s this sale, and the desk is told it’s paid', r.body.pendingId === 'pcOld' && r.body.paid?.id === 'pi_old', r.body);
 
   console.log('5. A save and a discard of the same sale');
   await fresh(readerPaid); paidPi('pi_p', 4500, { metadata: reader() }); actor = boss;

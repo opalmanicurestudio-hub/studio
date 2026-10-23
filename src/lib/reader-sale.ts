@@ -42,7 +42,9 @@ const UNREACHABLE = 'We couldn’t reach card payments to check it. Nothing new 
 
 export function readerStripe(): any | null {
   if (!process.env.STRIPE_SECRET_KEY) return null;
-  return new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
+  // Never waits long on Stripe: a slow call gives up after 20 seconds (asked once more), so a manager's discard or save
+  // always ends well inside the time it holds its sale. Every call here is safe to repeat.
+  return new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any, timeout: 20000, maxNetworkRetries: 1 });
 }
 export const accountOf = (t: any) => t?.stripeAccountId || t?.stripeConnectAccountId || null;
 const ticketRef = (db: any, tenantId: string, pendingId: string) => db.doc(`tenants/${tenantId}/pendingCheckouts/${safeId(pendingId)}`);
@@ -267,8 +269,10 @@ export async function markSalePaid(db: any, tenantId: string, pendingId: string,
         tx.set(ref, { ...more, ...(reader ? { readerPis: { [id]: { state: done ? 'recorded' : 'captured', capturedAt: pc.readerPis?.[id]?.capturedAt || at } } } : {}), updatedAt: at }, { merge: true });
       return done ? 'recorded' : 'waiting';
     }
-    // One of this sale's own split shares: it's recorded with the split (on its receipt once finished), never extra.
-    if ((Array.isArray(pc.tenders) ? pc.tenders : []).some((x: any) => x && x.stripePaymentIntentId === id)) return status === 'completed' ? 'recorded' : 'waiting';
+    // One of this sale's own split shares: it's recorded with the split (on its receipt once finished), never extra — unless
+    // it landed while the split was being saved and its receipt doesn't have it: then it's extra, kept apart below.
+    const lateShare = status === 'completed' && Array.isArray(pc.receiptPaymentIntentIds) && !pc.receiptPaymentIntentIds.includes(id);
+    if (!lateShare && (Array.isArray(pc.tenders) ? pc.tenders : []).some((x: any) => x && x.stripePaymentIntentId === id)) return status === 'completed' ? 'recorded' : 'waiting';
     if (payable(pc) || revivable(pc)) {
       fresh = true; revived = revivable(pc);
       tx.set(ref, { status: 'paid_waiting', paymentIntentId: id, paidAt: at, paidVia: via, paidCents: c, updatedAt: at, ...extra, ...(reader ? { readerPis: { [id]: { state: 'captured', capturedAt: at } } } : {}),
@@ -279,7 +283,7 @@ export async function markSalePaid(db: any, tenantId: string, pendingId: string,
     fresh = true;
     // Why it's extra, so a manager refunds the right one: the sale was saved without a card payment (it may be the one
     // that paid for it), or it was discarded before this payment went through.
-    const hint = status === 'completed' && !pc.paymentIntentId && !liveShares(pc).length ? 'saved_without_card' : status === 'discarded' || status === 'discarding' ? 'discarded' : null;
+    const hint = lateShare ? 'late_share' : status === 'completed' && !pc.paymentIntentId && !liveShares(pc).length ? 'saved_without_card' : status === 'discarded' || status === 'discarding' ? 'discarded' : null;
     tx.set(ref, { readerExtra: { [id]: { cents: c, at, state: 'open', via, ...(hint ? { hint } : {}) } }, readerExtraOpen: true, updatedAt: at, ...(reader ? { readerPis: { [id]: { state: 'paid_twice', capturedAt: at } } } : {}) }, { merge: true });
     return 'paid_twice';
   });
@@ -308,17 +312,28 @@ export async function keepApartPayment(db: any, tenantId: string, pendingId: str
 }
 
 /** One share of a split bill, on its ticket — in one step, so two shares taken at once (the client screen and the desk)
- *  are both kept. `closed`: the sale was finished or discarded; `paid`: it was paid in full another way — a card share
- *  is then extra money, and the caller keeps it apart for a manager. */
-export async function addShareToTicket(db: any, tenantId: string, pendingId: string, tn: any): Promise<{ result: 'added' | 'already' | 'closed' | 'paid' | 'no_ticket'; tenders: any[] }> {
+ *  are both kept. `closed`: the sale was finished or discarded; `paid`: it was paid in full another way; `overpays`: it
+ *  would pay more than the bill — a card share is then extra money, and the caller keeps it apart for a manager.
+ *  `removed`: that card share was taken off the split (and refunded) at the desk, so it never comes back as paid. */
+export async function addShareToTicket(db: any, tenantId: string, pendingId: string, tn: any): Promise<{ result: 'added' | 'already' | 'closed' | 'paid' | 'overpays' | 'removed' | 'no_ticket'; tenders: any[]; left?: number }> {
   const ref = ticketRef(db, tenantId, pendingId);
   return db.runTransaction(async (tx: any) => {
     const pc: any = ((await tx.get(ref)).data() as any) || null;
     if (!pc) return { result: 'no_ticket' as const, tenders: [] };
     const tenders: any[] = Array.isArray(pc.tenders) ? pc.tenders : [];
-    if (tn.stripePaymentIntentId && tenders.some((x: any) => x && x.stripePaymentIntentId === tn.stripePaymentIntentId)) return { result: 'already' as const, tenders };
+    const piId = tn.stripePaymentIntentId ? String(tn.stripePaymentIntentId) : '';
+    if (piId && (Array.isArray(pc.removedTenders) ? pc.removedTenders : []).some((x: any) => x && x.stripePaymentIntentId === piId)) return { result: 'removed' as const, tenders };
+    if (piId && tenders.some((x: any) => x && x.stripePaymentIntentId === piId)) {
+      // On the split already — but a finished sale's receipt may not have it (it landed while the split was being saved).
+      const offReceipt = pc.status === 'completed' && Array.isArray(pc.receiptPaymentIntentIds) && !pc.receiptPaymentIntentIds.includes(piId);
+      return { result: offReceipt ? 'closed' as const : 'already' as const, tenders };
+    }
     if (['completed', 'discarded', 'discarding'].includes(String(pc.status || ''))) return { result: 'closed' as const, tenders };
     if (ticketPayment(pc)) return { result: 'paid' as const, tenders };
+    // Never more than the bill: what's left to pay, as the ticket was last saved (its total).
+    const billCents = Math.round((Number(pc.expectedTotal) || 0) * 100);
+    const paidCents = Math.round(tenders.filter((x: any) => x && !x.refundedAt).reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0) * 100);
+    if (billCents > 0 && paidCents + Math.round((Number(tn.amount) || 0) * 100) > billCents + 1) return { result: 'overpays' as const, tenders, left: Math.max(0, billCents - paidCents) / 100 };
     const next = [...tenders, tn];
     const live = next.filter((x: any) => x && !x.refundedAt);
     tx.set(ref, { tenders: next, status: 'partial', paidSoFar: Math.round(live.reduce((s: number, x: any) => s + (Number(x.amount) || 0) + (Number(x.tip) || 0), 0) * 100) / 100, updatedAt: nowIso() }, { merge: true });
@@ -335,19 +350,43 @@ export async function promoteKeptApart(db: any, stripe: any, acct: string, tenan
   for (const [id] of open) {
     const c = await checkDeskPayment(stripe, acct, id, tenantId, pendingId);
     if (!c.ok && c.status === 'refunded') { await ref.set({ readerExtra: { [id]: { state: 'refunded', refundedOutside: true, decidedAt: nowIso() } }, updatedAt: nowIso() }, { merge: true }).catch(() => {}); continue; }
-    if (!c.ok) continue;
+    // One share of a split never pays for the whole sale.
+    if (!c.ok || c.share) continue;
     const used = await onAnyReceipt(db, tenantId, c.id).catch(() => 'unknown'); if (used) continue;
+    const tip = screenTipOf(c.pi);
     const done = await db.runTransaction(async (tx: any) => {
       const cur: any = ((await tx.get(ref)).data() as any) || {};
       if (!payable(cur) || cur.readerExtra?.[id]?.state !== 'open') return false;
       const at = nowIso(); const left = Object.entries<any>(cur.readerExtra || {}).some(([k, e]) => k !== id && e?.state === 'open');
       tx.set(ref, { status: 'paid_waiting', paymentIntentId: c.id, paidVia: c.via, paidCents: c.cents, paidAt: at, readerExtra: { [id]: { state: 'promoted', decidedAt: at } }, readerExtraOpen: left, updatedAt: at,
+        paidTip: tip.tip > 0 ? tip.tip : null, paidTipAllocations: tip.tip > 0 ? tip.allocations : null,
         note: 'Its first payment was refunded, so the second payment kept apart for it now pays for the sale.', ...(c.via === 'card_reader' ? { readerPis: { [id]: { state: 'captured' } } } : {}) }, { merge: true });
       return true;
     });
     if (done) return ticketPayment(((await ref.get()).data() as any) || null);
   }
   return null;
+}
+
+/** The tip a client chose on the client screen, carried in the payment itself (client-screen route, pay_tip). */
+export function screenTipOf(pi: any): { tip: number; allocations: Record<string, number> | null } {
+  const m: any = pi?.metadata || {};
+  const tip = Math.max(0, Math.round(Number(m.tipCents) || 0)) / 100;
+  let allocations: Record<string, number> | null = null;
+  try { const a = m.tipAllocations ? JSON.parse(String(m.tipAllocations)) : null; if (a && typeof a === 'object') allocations = Object.fromEntries(Object.entries(a).map(([k, v]) => [String(k), Math.round((Number(v) || 0) * 100) / 100])); } catch { allocations = null; }
+  return { tip, allocations };
+}
+
+/** A payment kept apart as extra that's on a recorded sale's receipt after all (the desk saved that sale with it): it's
+ *  off the list, so it's never refunded or kept (counted as income) a second time. */
+export async function clearExtraOnReceipt(db: any, tenantId: string, pendingId: string, piId: string): Promise<void> {
+  const ref = ticketRef(db, tenantId, pendingId);
+  await db.runTransaction(async (tx: any) => {
+    const cur: any = ((await tx.get(ref)).data() as any) || null;
+    if (!cur || cur.readerExtra?.[piId]?.state !== 'open') return;
+    const left = Object.entries<any>(cur.readerExtra || {}).some(([k, e]) => k !== piId && e?.state === 'open');
+    tx.set(ref, { readerExtra: { [piId]: { state: 'on_receipt', decidedAt: nowIso() } }, readerExtraOpen: left, updatedAt: nowIso() }, { merge: true });
+  });
 }
 
 /** Before another payment is taken for a ticket (a saved card, a typed card, the client screen): is it still open for

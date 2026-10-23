@@ -255,6 +255,16 @@ export async function POST(req: NextRequest) {
       }
     }
     const closed = await closeOpenPayment(db, s, kind === 'idle' ? 'the desk cancelled it' : 'the desk moved on');
+    // What the desk hears about the payment just closed: paid (with the payment), so the desk never takes it again.
+    const closedResp = closed === 'paid' && s.request ? closedAnswer(s.request, closed) : null;
+    // The payment just closed went through, and it paid for this very sale: it isn't asked for again.
+    if (kind === 'pay' && closed === 'paid' && t.stripeAccountId && process.env.STRIPE_SECRET_KEY) {
+      const again = await ticketBlocks(db, tenantId, payTicket, { share: payShare, stripe: readerStripe(), acct: t.stripeAccountId });
+      if (again) {
+        await ref.update({ phase: 'ticket', request: null, response: closedResp, updatedAt: now() });
+        return NextResponse.json({ ok: false, code: again.code, paymentClosed: closed, error: again.error, ...(again.paidWith ? { paidWith: again.paidWith, paidPayload: again.paidPayload } : {}) }, { status: again.status });
+      }
+    }
     const q: any = { id: rid(), kind, at: now(), requestedBy: auth.actor.name || 'Staff' };
     if (kind === 'tip') { q.providers = Array.isArray(b.providers) ? b.providers.slice(0, 8).map((p: any) => ({ id: String(p.id), name: String(p.name || 'Team member').slice(0, 40) })) : []; q.base = Math.max(0, num(b.base)); q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.tipOn = settings.tipOn; }
     if (kind === 'approve') { q.amount = num(b.amount); q.cardLabel = String(b.cardLabel || '').slice(0, 40) || 'your card on file'; q.clientId = b.clientId || null; q.clientName = b.clientName || null;
@@ -287,8 +297,8 @@ export async function POST(req: NextRequest) {
     }
     if (kind === 'change') { q.due = num(b.due); q.tendered = num(b.tendered); q.change = num(b.change); q.offerKeep = (t?.clientScreen?.offerKeepChange !== false); }
     if (kind === 'thanks') { const rs = rebookSettingsOf(t); q.rebookCtx = rs.on && b.rebook?.clientId && b.rebook?.serviceId ? { clientId: String(b.rebook.clientId), serviceId: String(b.rebook.serviceId), staffId: b.rebook.staffId ? String(b.rebook.staffId) : null, addOnIds: Array.isArray(b.rebook.addOnIds) ? b.rebook.addOnIds.slice(0, 6).map(String) : [], appointmentId: b.rebook.appointmentId ? String(b.rebook.appointmentId) : null } : null; q.rebookFirst = b.rebookFirst === true; q.returnAfter = Math.max(5, Math.min(120, Number(t?.clientScreen?.returnAfter) || 20)); q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
-    await ref.update({ phase: kind === 'idle' ? 'idle' : kind, request: kind === 'idle' ? null : q, response: null, brand, ...(kind === 'idle' || kind === 'thanks' ? { ticket: null } : {}), updatedAt: now() });   // replace, never merge
-    return NextResponse.json({ ok: true, requestId: q.id, paymentClosed: closed });
+    await ref.update({ phase: kind === 'idle' ? 'idle' : kind, request: kind === 'idle' ? null : q, response: closedResp, brand, ...(kind === 'idle' || kind === 'thanks' ? { ticket: null } : {}), updatedAt: now() });   // replace, never merge
+    return NextResponse.json({ ok: true, requestId: q.id, paymentClosed: closed, ...(closedResp ? { closedAnswer: closedResp } : {}) });
   }
   if (action === 'unpair') {
     await ref.set({ tenantId: null, name: null, phase: 'unpaired', request: null, response: null, ticket: null }, { merge: true });

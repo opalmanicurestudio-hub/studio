@@ -63,9 +63,22 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
     }
     return customs.map((c, i) => ({ key: `c${i}`, label: `Payment ${i + 1}`, amount: r2(Number(c) || 0), personId: null }));
   }, [mode, ways, owed, lines, people, payerId, picked, customs, sub]);
-  // A share taken earlier (before checkout was opened again) matches its row by name.
-  const shareTaken = (k: string) => tenders.find((t) => t.shareKey === k) || tenders.find((t) => !t.shareKey && t.label && t.label === shares.find((x) => x.key === k)?.label);
-  const unmatched = tenders.filter((t) => !t.shareKey && !shares.some((x) => x.label === t.label));
+  // Each row shows the one payment taken for it (one taken before checkout was opened again matches its row by name). Any
+  // other payment — taken earlier, or twice for the same share — is listed on its own, so nothing paid is ever hidden.
+  const matched = React.useMemo(() => {
+    const m = new Map<string, any>(); const used = new Set<string>();
+    for (const sh of shares) { const t = tenders.find((x) => x.shareKey === sh.key && !used.has(x.id)); if (t) { m.set(sh.key, t); used.add(t.id); } }
+    for (const sh of shares) { if (m.has(sh.key)) continue; const t = tenders.find((x) => !x.shareKey && x.label && x.label === sh.label && !used.has(x.id)); if (t) { m.set(sh.key, t); used.add(t.id); } }
+    return { m, used };
+  }, [shares, tenders]);
+  const shareTaken = (k: string) => matched.m.get(k);
+  const unmatched = tenders.filter((t) => !matched.used.has(t.id));
+  // The shares as the server has them now (a share paid on the client screen just as it was cancelled is on the split).
+  const refreshShares = async () => { await prepare(); const now = (takenShares?.() || []).filter((x: any) => x && x.id && !x.refundedAt);
+    setTenders((cur) => now.map((x: any) => ({ ...x, shareKey: cur.find((y) => y.id === x.id)?.shareKey || null }))); };
+  React.useEffect(() => { const late = (e: any) => { if (!e?.detail?.share) return; void refreshShares();
+      setMsg(`${e.detail.shareLabel || 'A share'} was paid on ${screen?.name || 'the client screen'} just as it was cancelled, so it’s on the split. Don’t take it again.`); };
+    window.addEventListener('cf:screen-late-payment', late); return () => window.removeEventListener('cf:screen-late-payment', late); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const record = async (share: Share, body: any): Promise<boolean> => {
     if (!pendingId) { setMsg('Still getting the ticket ready — try again in a moment.'); return false; }
     setBusy(share.key); setMsg(null);
@@ -73,20 +86,21 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
     setBusy(null);
     if (!r?.ok) {
       // A card share already charged: kept to record again (the server keeps it apart if the sale was paid or finished meanwhile).
-      if (body.stripePaymentIntentId && !['ticket_paid', 'sale_done'].includes(String(r?.code || ''))) { setUnrecorded({ share, body }); setMsg(`${r?.error ? `${r.error} ` : ''}The card was charged, but this share didn’t record yet. Record it again; the card won’t be charged again.`); }
+      if (body.stripePaymentIntentId && !['ticket_paid', 'sale_done', 'overpays', 'share_removed'].includes(String(r?.code || ''))) { setUnrecorded({ share, body }); setMsg(`${r?.error ? `${r.error} ` : ''}The card was charged, but this share didn’t record yet. Record it again; the card won’t be charged again.`); }
       else setMsg(r?.error || 'That didn’t record.');
+      if (r?.code === 'overpays' || r?.code === 'share_removed') void refreshShares();
       return false;
     }
     if (unrecorded && unrecorded.body?.stripePaymentIntentId === body.stripePaymentIntentId) setUnrecorded(null);
     const newId = r.tender?.id || (r.tenders || []).find((x: any) => body.stripePaymentIntentId && x.stripePaymentIntentId === body.stripePaymentIntentId)?.id;   // already recorded by the server (a share paid on the iPad)
-    setTenders((r.tenders || []).map((t: any) => ({ ...t, shareKey: t.id === newId ? share.key : tenders.find((x) => x.id === t.id)?.shareKey || t.shareKey || null })));
+    setTenders((r.tenders || []).filter((t: any) => t && !t.refundedAt).map((t: any) => ({ ...t, shareKey: t.id === newId ? share.key : tenders.find((x) => x.id === t.id)?.shareKey || t.shareKey || null })));
     setPayFor(null); setCashGiven('');
     return true;
   };
   const remove = async (t: any) => {
     setBusy(t.id); const r: any = await post('/api/checkout/complete', { tenantId, action: 'tender_remove', pendingId, tenderId: t.id }); setBusy(null);
     if (!r?.ok) { setMsg(r?.error || 'Couldn’t remove it.'); return; }
-    setTenders((r.tenders || []).map((x: any) => ({ ...x, shareKey: tenders.find((y) => y.id === x.id)?.shareKey || null }))); setMsg(r.refunded ? 'Removed — the card was refunded.' : 'Removed.');
+    setTenders((r.tenders || []).filter((x: any) => x && !x.refundedAt).map((x: any) => ({ ...x, shareKey: tenders.find((y) => y.id === x.id)?.shareKey || null }))); setMsg(r.refunded ? 'Removed — the card was refunded.' : 'Removed.');
   };
   const chargeSaved = async (share: Share, personId: string) => {
     if (!pendingId) { setMsg('Still getting the ticket ready — try again in a moment.'); return; }
@@ -129,7 +143,7 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
         <button type="button" onClick={() => setCustoms((cs) => [...cs, ''])} className="text-[13px] underline underline-offset-4">+ Another payment</button></div>}
       {Math.abs(sharesTotal - owed) > 0.009 && !tenders.length && mode !== 'even' && mode !== 'person' && <p className="text-[13px]" style={{ color: 'var(--warn)' }}>These shares add up to {money(sharesTotal)} — the bill is {money(owed)}.</p>}
       {!!unmatched.length && <div className="space-y-1.5 rounded-2xl p-3" style={box}>
-        <p className="text-[13px] font-semibold">Paid before</p>
+        <p className="text-[13px] font-semibold">Also paid on this bill</p>
         {unmatched.map((t) => <div key={t.id} className="flex items-center justify-between gap-2 text-[13px]"><span>{t.label || 'Payment'} · {money(Number(t.amount) + Number(t.tip || 0))} · {t.method === 'cash' ? 'cash' : t.method === 'card' ? 'card' : 'other'}</span>
           <button type="button" disabled={!!busy} onClick={() => remove(t)} className="underline underline-offset-4" style={{ color: 'var(--muted)' }}>{busy === t.id ? '…' : 'Remove'}</button></div>)}
       </div>}
@@ -138,7 +152,7 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
           <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">{s.label}</p><p className="text-[15px] tabular-nums">{money(s.amount)}</p></div>
           {t ? <div className="flex items-center justify-between text-[13px]"><span className="inline-flex items-center gap-1" style={{ color: 'var(--ok)' }}><Icon name="check" size={14} />Paid</span><span> · {t.method === 'cash' ? `cash${t.cashGiven > t.amount ? ` (change ${money(t.cashGiven - t.amount)})` : ''}` : t.method === 'card' ? (t.via === 'client_screen' ? `on ${screen?.name || 'the client screen'}` : 'card') : 'other'}{Number(t.tip) > 0 ? ` · +${money(t.tip)} tip` : ''}</span>
             <button type="button" disabled={!!busy} onClick={() => remove(t)} className="underline underline-offset-4" style={{ color: 'var(--muted)' }}>{busy === t.id ? '…' : 'Remove'}</button></div>
-          : waiting?.key === s.key ? <div className="flex items-center justify-between text-[13px]"><span>Paying on {screen?.name}…</span><button type="button" onClick={() => { setWaiting(null); screen?.ask('idle'); }} className="underline underline-offset-4">Cancel</button></div>
+          : waiting?.key === s.key ? <div className="flex items-center justify-between text-[13px]"><span>Paying on {screen?.name}…</span><button type="button" onClick={() => { setWaiting(null); void (screen?.askFull ? screen.askFull('idle') : screen?.ask('idle')); }} className="min-h-[44px] underline underline-offset-4">Cancel</button></div>
           : payFor === s.key ? <div className="space-y-2">
               <div className="flex gap-2"><input value={cashGiven} onChange={(e) => setCashGiven(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" placeholder="Cash given ($)" aria-label="Cash given" className="h-11 min-w-0 flex-1 rounded-xl px-3 text-[16px]" style={soft} />
                 <button type="button" disabled={!!busy || !(Number(cashGiven) >= s.amount - 0.005)} onClick={() => record(s, { method: 'cash', amount: s.amount, cashGiven: Number(cashGiven) })} className="h-11 rounded-full px-4 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Take cash</button></div>

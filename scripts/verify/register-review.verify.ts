@@ -157,8 +157,8 @@ const stock = async (id: string) => (await get(`${T}/inventory/${id}`)).totalSto
   paidPi('pi_web2', 3000, { metadata: { type: 'retail_order', retailOrderId: 'o10' } });
   r = await pay({ action: 'tender', method: 'card', amount: 30, stripePaymentIntentId: 'pi_web2' });
   check('…and an online order’s payment can’t be added as a share', r.status === 409 && (await ticket()).tenders.length === 1);
-  paidPi('pi_sh', 3000, { metadata: { kind: 'pos_cof', pendingId: 'pc1', split: '1' } });
-  r = await pay({ action: 'tender', method: 'card', amount: 30, stripePaymentIntentId: 'pi_sh', via: 'saved_card' });
+  paidPi('pi_sh', 1500, { metadata: { kind: 'pos_cof', pendingId: 'pc1', split: '1' } });
+  r = await pay({ action: 'tender', method: 'card', amount: 15, stripePaymentIntentId: 'pi_sh', via: 'saved_card' });
   check('…while this sale’s own share is', r.status === 200 && (await ticket()).tenders.length === 2);
   r = await pay({ payment: { method: 'card', stripePaymentIntentId: 'pi_sh' }, items: oil });
   check('a share’s payment can’t pay for the whole sale', r.status === 409);

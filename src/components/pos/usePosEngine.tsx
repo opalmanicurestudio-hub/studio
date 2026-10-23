@@ -1277,6 +1277,21 @@ export function usePosEngine() {
     finally { setIsSubmitting(false); }
   };
 
+  // The cart without what a paid sale had (its visits, its fees, and its items in the numbers it had): what's left is new.
+  const cartWithout = (paid: any) => {
+    const paidVisits = new Set<string>((paid?.appointmentIds || []).map(String));
+    const paidQty = new Map<string, number>(); for (const it of paid?.items || []) { const k = `${it.type}:${it.id}`; paidQty.set(k, (paidQty.get(k) || 0) + Math.max(1, Number(it.quantity) || 1)); }
+    const paidFees = new Set<string>((paid?.feeIds || []).map(String));
+    const visitsLeft = readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id) && !paidVisits.has(String(a.appointment?.id))).map((a: any) => a.id);
+    const itemsLeft: any[] = []; const taken: string[] = [];
+    for (const it of retailItems as any[]) { const k = `${it.type}:${it.id}`; const had = paidQty.get(k) || 0; const q = Math.max(0, (Number(it.quantity) || 1) - had);
+      if (had) { paidQty.set(k, Math.max(0, had - (Number(it.quantity) || 1))); taken.push(it.name || 'An item'); }
+      if (q > 0) itemsLeft.push({ ...it, quantity: q }); }
+    const feesLeft = Array.from(appliedAdjustments).filter((id: any) => !paidFees.has(String(id)));
+    const visitsTaken = readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id) && paidVisits.has(String(a.appointment?.id))).length;
+    return { visitsLeft, itemsLeft, feesLeft, taken, visitsTaken, feesTaken: appliedAdjustments.size - feesLeft.length };
+  };
+
   // "Save the paid sale": the sale already paid is saved exactly as it was rung up and paid (no charge — its payment is
   // checked again on the server). Anything in the cart that wasn't on it stays, as a new sale to charge as usual.
   const savePaidSale = async (): Promise<boolean> => {
@@ -1291,15 +1306,7 @@ export function usePosEngine() {
       if (!res.ok || !out?.ok) { toast({ variant: 'destructive', duration: 20000, title: 'The paid sale didn’t save', description: `${out?.error || 'Check the internet connection.'} Nothing was charged.` }); return false; }
       // What the paid sale had comes out of the cart; what's left was added after it was paid.
       const paid: any = tp.paidPayload || {};
-      const paidVisits = new Set<string>((paid.appointmentIds || []).map(String));
-      const paidQty = new Map<string, number>(); for (const it of paid.items || []) { const k = `${it.type}:${it.id}`; paidQty.set(k, (paidQty.get(k) || 0) + Math.max(1, Number(it.quantity) || 1)); }
-      const paidFees = new Set<string>((paid.feeIds || []).map(String));
-      const visitsLeft = readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id) && !paidVisits.has(String(a.appointment?.id))).map((a: any) => a.id);
-      const itemsLeft: any[] = []; const taken: string[] = [];
-      for (const it of retailItems as any[]) { const k = `${it.type}:${it.id}`; const had = paidQty.get(k) || 0; const q = Math.max(0, (Number(it.quantity) || 1) - had);
-        if (had) { paidQty.set(k, Math.max(0, had - (Number(it.quantity) || 1))); taken.push(it.name || 'An item'); }
-        if (q > 0) itemsLeft.push({ ...it, quantity: q }); }
-      const feesLeft = Array.from(appliedAdjustments).filter((id: any) => !paidFees.has(String(id)));
+      const { visitsLeft, itemsLeft, feesLeft, taken } = cartWithout(paid);
       const payload = { clientId: checkoutClientId, appointmentIds: paid.appointmentIds || [], payment: { method: methodOfVia(tp.via), amountTendered: tp.cents ? tp.cents / 100 : safeNumber(out.total) }, expectedTotal: safeNumber(out.total) };
       if (!visitsLeft.length && !itemsLeft.length && !feesLeft.length) { finishSale(out, payload); return true; }
       // Something was added after it was paid: that stays, as a new sale on its own ticket. Gift cards, credit, discounts
@@ -1325,7 +1332,12 @@ export function usePosEngine() {
       if (!res.ok || !out?.ok) { toast({ variant: 'destructive', duration: 20000, title: 'That paid sale didn’t save', description: `${out?.error || 'Check the internet connection.'} Nothing was charged.` }); return false; }
       setOtherPaid(null);
       const who = String(op.clientName || '').split(' ')[0];
-      toast({ duration: 15000, title: out.already ? 'That paid sale was already saved' : `Saved ${who ? `${who}’s` : 'the'} other paid sale${out.total != null ? ` — ${dollars(Math.round(safeNumber(out.total) * 100))}` : ''}`, description: 'The sale being rung up is still here to finish.' });
+      // Anything that sale had comes out of the cart (it's paid for); the rest is still here to finish.
+      const left = cartWithout(op.paidPayload || {});
+      const tookAny = left.taken.length > 0 || left.visitsTaken > 0 || left.feesTaken > 0;
+      if (tookAny) { setSelectedAppointmentIds(new Set(left.visitsLeft)); setRetailItems(left.itemsLeft); setAppliedAdjustments(new Set(left.feesLeft)); }
+      toast({ duration: 15000, title: out.already ? 'That paid sale was already saved' : `Saved ${who ? `${who}’s` : 'the'} other paid sale${out.total != null ? ` — ${dollars(Math.round(safeNumber(out.total) * 100))}` : ''}`,
+        description: tookAny ? `What that sale had${left.taken.length ? ` (${[...new Set(left.taken)].join(', ')})` : ''} is out of the cart, because it’s paid for. Anything else is still here to finish.` : 'The sale being rung up is still here to finish.' });
       for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
       return true;
     } finally { sendingRef.current = false; setIsSubmitting(false); }

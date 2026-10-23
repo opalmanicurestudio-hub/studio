@@ -1035,9 +1035,13 @@ export const CheckoutHub = ({
   useEffect(() => { if (!payReq) return; if (paymentTab !== 'card' || cardMode !== 'select') { setPayReq(null); if (paymentTab !== 'cash') cs.ask('idle'); } }, [paymentTab, cardMode]); // eslint-disable-line react-hooks/exhaustive-deps
   // What the iPad reports back: they walked away (cancelled), or a payment went through after the desk moved on.
   useEffect(() => { const r = cs.response; if (!r || r.kind !== 'pay') return;
-    if (r.abandoned && payReq && r.requestId === payReq.id) { setPayReq(null); toast({ title: 'They didn’t finish paying', description: 'The payment on the iPad was cancelled — nothing was charged.' }); }
-    if (r.late) toast({ variant: 'destructive', title: 'A payment went through on the iPad', description: 'It’s in Needs attention → Sales not recorded — record it there.' }); }, [cs.response?.requestId, cs.response?.abandoned, cs.response?.late]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { const late = () => toast({ variant: 'destructive', title: 'A payment went through on the iPad before you switched', description: 'It’s in Needs attention → Sales not recorded — record it there.' });
+    if (r.abandoned && payReq && r.requestId === payReq.id) { setPayReq(null); toast({ title: 'They didn’t finish paying', description: 'The payment on the iPad was cancelled — nothing was charged.' }); } }, [cs.response?.requestId, cs.response?.abandoned]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A payment that went through on the iPad just as it was cancelled or replaced: it's on its sale (a split share is on
+  // the split, which Split the bill shows), so it's never taken again. This sale paid that way shows as paid here.
+  const prepareRef = useRef(prepareNow); prepareRef.current = prepareNow;
+  useEffect(() => { const late = (e: any) => { const d = e?.detail || null; if (d?.share) return;
+      if (prepareRef.current) void prepareRef.current();
+      toast({ variant: 'destructive', duration: 20000, title: 'A payment went through on the iPad', description: 'It went through just as it was cancelled, so don’t charge again. If this sale now shows as paid, save the paid sale; if it was another client’s, it waits in Needs attention, under Sales not recorded.' }); };
     window.addEventListener('cf:screen-late-payment', late); return () => window.removeEventListener('cf:screen-late-payment', late); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Membership terms: sent to the iPad to sign as soon as a membership is on the ticket.
   const [signReq, setSignReq] = useState<{ id: string | null; ref: string; status: 'waiting' | 'signed' | 'paper' } | null>(null);

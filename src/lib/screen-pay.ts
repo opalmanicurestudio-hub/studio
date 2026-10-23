@@ -7,7 +7,7 @@
 //  - One share of a split bill: added to the split as it's paid; one that lands on a sale already finished, discarded or
 //    paid in full is kept apart the same way, never lost and never counted twice.
 import crypto from 'crypto';
-import { addShareToTicket, keepApartPayment, markSalePaid, readerStripe, tellDeskReader } from '@/lib/reader-sale';
+import { accountOf, addShareToTicket, checkDeskPayment, keepApartPayment, markSalePaid, readerStripe, tellDeskReader } from '@/lib/reader-sale';
 
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const now = () => new Date().toISOString();
@@ -25,13 +25,22 @@ export async function paidOnScreen(db: any, tenantId: string, pendingId: string,
   return m;
 }
 
-/** One card share of a split bill, on its ticket (see above). Returns what happened: added, already there, or kept
- *  apart because the sale was finished or paid in full. */
-export async function recordCardShare(db: any, tenantId: string, pendingId: string, pi: any, s: { amount: number; tip?: number; label?: string | null; via: string; payerClientId?: string | null; by?: string }): Promise<'added' | 'already' | 'kept_apart' | 'no_ticket'> {
-  const tn = { id: crypto.randomBytes(6).toString('hex'), method: 'card', amount: Math.round(num(s.amount) * 100) / 100, tip: Math.round(num(s.tip) * 100) / 100, stripePaymentIntentId: String(pi.id),
+/** One card share of a split bill, on its ticket (see above), once Stripe confirms it went through for this sale and
+ *  none of it was refunded (a notice delivered again can be out of date). Returns what happened: added, already there,
+ *  kept apart (the sale was finished, paid in full, or it would pay more than the bill), or not added (refunded, taken
+ *  off the split at the desk, or not this sale's). Stripe unreachable: throws, so it's asked again later. */
+export async function recordCardShare(db: any, tenantId: string, pendingId: string, pi: any, s: { amount: number; tip?: number; label?: string | null; via: string; payerClientId?: string | null; by?: string }): Promise<'added' | 'already' | 'kept_apart' | 'refunded' | 'removed' | 'not_this_sale' | 'no_ticket'> {
+  const tenant: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+  const acct = accountOf(tenant); const stripe = readerStripe();
+  if (!acct || !stripe) throw new Error('Card payments aren’t set up, so the share can’t be checked.');
+  const c = await checkDeskPayment(stripe, acct, String(pi.id), tenantId, pendingId);
+  if (!c.ok && c.status === 'unknown') throw new Error(c.error);
+  if (!c.ok) return c.status === 'refunded' ? 'refunded' : 'not_this_sale';
+  const tn = { id: crypto.randomBytes(6).toString('hex'), method: 'card', amount: Math.round(num(s.amount) * 100) / 100, tip: Math.round(num(s.tip) * 100) / 100, stripePaymentIntentId: c.id,
     via: String(s.via || 'card').slice(0, 30), payerName: s.label || null, label: s.label || null, payerClientId: s.payerClientId || null, at: now(), by: s.by || 'Card payment' };
   const r = await addShareToTicket(db, tenantId, pendingId, tn);
-  if (r.result === 'closed' || r.result === 'paid') { await keepApartPayment(db, tenantId, pendingId, String(pi.id)).catch(() => null); return 'kept_apart'; }
+  if (r.result === 'closed' || r.result === 'paid' || r.result === 'overpays') { await keepApartPayment(db, tenantId, pendingId, c.id).catch(() => null); return 'kept_apart'; }
+  if (r.result === 'removed') return 'removed';
   return r.result === 'added' ? 'added' : r.result === 'already' ? 'already' : 'no_ticket';
 }
 
@@ -46,10 +55,12 @@ export async function closeOpenPayment(db: any, s: any, why: string): Promise<'n
   if (!t.stripeAccountId || !stripe) return 'none';
   try { await stripe.paymentIntents.cancel(q.paymentIntentId, { cancellation_reason: 'abandoned' } as any, { stripeAccount: t.stripeAccountId } as any); return 'cancelled'; }
   catch {
-    const pi: any = await stripe.paymentIntents.retrieve(q.paymentIntentId, { stripeAccount: t.stripeAccountId } as any).catch(() => null);
-    if (pi?.status === 'succeeded') {
-      if (q.splitPendingId) await recordCardShare(db, s.tenantId, String(q.splitPendingId), pi, { amount: num(q.amount) - num(q.tip), tip: num(q.tip), label: q.shareLabel || null, via: 'client_screen', payerClientId: q.clientId || null, by: 'Client screen' }).catch(() => null);
-      else if (q.pendingId) await paidOnScreen(db, s.tenantId, String(q.pendingId), pi, q, { note: `Paid on the client screen after ${why}` }).catch(() => {});
+    // It couldn't be called off: it went through (and nothing of it was refunded since), so it goes on its sale.
+    const ticket = String(q.splitPendingId || q.pendingId || '');
+    const c = ticket ? await checkDeskPayment(stripe, t.stripeAccountId, String(q.paymentIntentId), s.tenantId, ticket) : null;
+    if (c?.ok) {
+      if (q.splitPendingId) await recordCardShare(db, s.tenantId, String(q.splitPendingId), c.pi, { amount: num(q.amount) - num(q.tip), tip: num(q.tip), label: q.shareLabel || null, via: 'client_screen', payerClientId: q.clientId || null, by: 'Client screen' }).catch(() => null);
+      else if (q.pendingId) await paidOnScreen(db, s.tenantId, String(q.pendingId), c.pi, q, { note: `Paid on the client screen after ${why}` }).catch(() => {});
       return 'paid';
     }
     return 'none';
@@ -60,7 +71,7 @@ export async function closeOpenPayment(db: any, s: any, why: string): Promise<'n
  *  with it) or not. */
 export function closedAnswer(q: any, result: 'none' | 'cancelled' | 'paid') {
   return { requestId: q.id, kind: 'pay', paid: result === 'paid', abandoned: result !== 'paid', late: result === 'paid',
-    ...(result === 'paid' ? { paymentIntentId: q.paymentIntentId || null, amount: num(q.amount), tip: num(q.tip), tipAllocations: q.tipAllocations || null, ...(q.splitPendingId ? { share: true } : {}) } : {}), at: now() };
+    ...(result === 'paid' ? { paymentIntentId: q.paymentIntentId || null, amount: num(q.amount), tip: num(q.tip), tipAllocations: q.tipAllocations || null, ...(q.splitPendingId ? { share: true, shareLabel: q.shareLabel || null } : {}) } : {}), at: now() };
 }
 
 /** Before a manager records or discards a sale: any client-screen payment still open for it is closed first (one that
