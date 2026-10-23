@@ -379,6 +379,20 @@ service cloud.firestore {
     match /tenants/{tenantId}/counters/{counterId} {
       allow read, write: if false;
     }
+    // THE SERVER'S OWN RECORDS OF MONEY ON THE WAY: a card charge or refund claimed before it's sent, so a second tap,
+    // a retry or a second device finds it under way or done (fee payments, card attempts, renewals, station times,
+    // tuition card updates, collection runs, online checkouts, refund notices, card problems to look at). Only the
+    // server reads or writes them; the screens see what they need through the server.
+    match /tenants/{tenantId}/feeCharges/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/feePayments/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/cardAttempts/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/membershipRenewals/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/stationSlots/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/tuitionCardUpdates/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/collectionAttempts/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/checkoutKeys/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/refundNotices/{id} { allow read, write: if false; }
+    match /tenants/{tenantId}/chargeFlags/{id} { allow read, write: if false; }
     // A renter's own Making it right settings: read and saved through the server only (/api/cases).
     match /tenants/{tenantId}/renterSettings/{staffId} {
       allow read, write: if false;
@@ -750,7 +764,9 @@ service cloud.firestore {
           'maintenancePlans',
           'locations',
           'messageLog', 'smsInbox', 'smsThreads', 'voiceCalls', 'clientNotes', 'voiceInbox',
-          'clientVerifications', 'clientDevices', 'healthViewLog'
+          'clientVerifications', 'clientDevices', 'healthViewLog',
+          'feeCharges', 'feePayments', 'cardAttempts', 'membershipRenewals', 'stationSlots', 'tuitionCardUpdates',
+          'collectionAttempts', 'checkoutKeys', 'refundNotices', 'chargeFlags'
         ]);
     }
     match /tenants/{tenantId}/jobListings/{listingId} {
