@@ -5,6 +5,8 @@ import {
   describeService, goodsRefundPolicy, retailDisputeEvidence,
   serviceDetailLine, serviceRefundPolicy,
 } from '@/lib/retail-dispute-evidence';
+import { requireRole } from '@/lib/route-guard';
+import { getAdminStorage } from '@/lib/firebase-admin';
 
 // ─── /api/stripe/submit-dispute-evidence/route.ts ─────────────────────────────
 // Assembles and submits evidence to Stripe for a dispute.
@@ -40,6 +42,14 @@ import {
 //   shipping_address           → the address the CUSTOMER entered at checkout
 //   uncategorized_text         → scan verification, weight check, carrier's own
 //                                report, and every customer notification
+//
+// WHO MAY SUBMIT: a manager or the owner, signed in. Submitting is final —
+// Stripe takes no more evidence after it — so it's never open to anyone else.
+// The dispute and the Stripe account come from the business's own records (the
+// dispute's record and the business), never from what the screen sends. The
+// files attached are only ones the business itself stored: its own storage, in
+// its own folder (or an image kept inline). They're read straight from storage;
+// no address the screen sends is ever fetched.
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -58,13 +68,48 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
-// Download a URL and return it as a Buffer (for Stripe file uploads)
-async function urlToBuffer(url: string): Promise<Buffer | null> {
+// The business's own stored file behind a link: a file in our storage bucket, in this business's folder
+// (tenants/{tenantId}/…), or an image kept inline. Anything else — another site, another bucket, another business's
+// folder — is never read. Returns where it is, or null.
+const MAX_FILE_BYTES = 5_000_000;
+const ourBuckets = () => [process.env.FIREBASE_STORAGE_BUCKET, process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET]
+  .map((b) => String(b || '').trim().replace(/^gs:\/\//, '').replace(/\/+$/, '')).filter(Boolean);
+function ownStoredFile(link: unknown, tenantId: string): { inline: Buffer } | { bucket: string; path: string } | null {
+  const s = String(link || '').trim();
+  if (!s || !tenantId) return null;
+  const inline = s.match(/^data:(image\/(?:png|jpeg|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/);
+  if (inline) { const buf = Buffer.from(inline[2], 'base64'); return buf.length && buf.length <= MAX_FILE_BYTES ? { inline: buf } : null; }
+  let bucket = '', path = '';
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const arrayBuf = await res.arrayBuffer();
-    return Buffer.from(arrayBuf);
+    if (s.startsWith('/api/files/view?')) {
+      const q = new URL(s, 'https://app.invalid').searchParams;
+      if (q.get('t') !== tenantId) return null;
+      bucket = ourBuckets()[0] || ''; path = String(q.get('p') || '');
+    } else {
+      const u = new URL(s);
+      if (u.protocol !== 'https:') return null;
+      if (u.hostname === 'firebasestorage.googleapis.com') {
+        const m = u.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/); if (!m) return null;
+        bucket = decodeURIComponent(m[1]); path = decodeURIComponent(m[2]);
+      } else if (u.hostname === 'storage.googleapis.com') {
+        const m = u.pathname.match(/^\/([^/]+)\/(.+)$/); if (!m) return null;
+        bucket = decodeURIComponent(m[1]); path = decodeURIComponent(m[2]);
+      } else return null;
+    }
+  } catch { return null; }
+  if (!bucket || !ourBuckets().includes(bucket)) return null;
+  if (!path.startsWith(`tenants/${tenantId}/`) || path.includes('..') || path.includes('\\')) return null;
+  return { bucket, path };
+}
+
+// Read one of the business's own stored files (for Stripe file uploads). Null when it isn't theirs or can't be read.
+async function storedFileBuffer(link: unknown, tenantId: string): Promise<Buffer | null> {
+  const where = ownStoredFile(link, tenantId);
+  if (!where) return null;
+  if ('inline' in where) return where.inline;
+  try {
+    const [buf] = await (getAdminStorage() as any).bucket(where.bucket).file(where.path).download();
+    return buf && buf.length && buf.length <= MAX_FILE_BYTES ? Buffer.from(buf) : null;
   } catch {
     return null;
   }
@@ -98,31 +143,57 @@ export async function POST(req: NextRequest) {
   const {
     tenantId,
     disputeId,
-    stripeDisputeId,
-    stripeConnectedAccountId,
+    stripeDisputeId: askedDisputeId,
     evidenceText,
     consentFormUrls,
     signatureUrls,
     receiptUrl,
     extraNotes,
     additionalFiles,  // [{ url: string, purpose: string }]
-  } = await req.json();
+  } = await req.json().catch(() => ({} as any));
 
-  if (!tenantId || !stripeDisputeId || !stripeConnectedAccountId) {
+  if (!tenantId || !disputeId || !/^[A-Za-z0-9_-]{1,120}$/.test(String(disputeId))) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
+  const g = await requireRole(req, String(tenantId), 'manager'); if (g.deny) return g.deny;
 
   const db     = getAdminDb();
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
     apiVersion: '2025-04-30.basil' as any,
   });
 
+  // ── The dispute and the account, from the business's own records ─────────
+  const tenantDoc  = await db.collection('tenants').doc(String(tenantId)).get();
+  const tenant     = tenantDoc.data() || {};
+  const disputeRef = db.collection(`tenants/${tenantId}/disputes`).doc(String(disputeId));
+  const disputeDoc = await disputeRef.get();
+  if (!disputeDoc.exists) return NextResponse.json({ ok: false, error: 'We couldn’t find that dispute.' }, { status: 404 });
+  const dispute    = disputeDoc.data() || {};
+  const stripeDisputeId = String(dispute.stripeDisputeId || '');
+  const stripeConnectedAccountId = String(tenant.stripeAccountId || '');
+  if (!stripeDisputeId || (askedDisputeId && String(askedDisputeId) !== stripeDisputeId)) {
+    return NextResponse.json({ ok: false, error: 'That dispute doesn’t match this business’s records.' }, { status: 400 });
+  }
+  if (!stripeConnectedAccountId) {
+    return NextResponse.json({ ok: false, error: 'This business has no payment account connected.' }, { status: 400 });
+  }
+  if (dispute.stripeConnectedAccountId && String(dispute.stripeConnectedAccountId) !== stripeConnectedAccountId) {
+    return NextResponse.json({ ok: false, error: 'This dispute belongs to a payment account the business no longer uses. Respond to it in Stripe.' }, { status: 409 });
+  }
+  // Once: evidence already sent is done; a submission under way is left to finish.
+  if (dispute.evidenceSubmitted === true) return NextResponse.json({ ok: true, already: true });
+  const nowIso = new Date().toISOString();
+  const claim: any = await db.runTransaction(async (tx: any) => {
+    const d: any = (await tx.get(disputeRef)).data() || {};
+    if (d.evidenceSubmitted === true) return { already: true };
+    if (d.evidenceSubmittingAt && Date.now() - (Date.parse(String(d.evidenceSubmittingAt)) || 0) < 2 * 60000) return { busy: true };
+    tx.set(disputeRef, { evidenceSubmittingAt: nowIso, evidenceSubmittingBy: g.actor?.name || null }, { merge: true });
+    return { ok: true };
+  });
+  if (claim.already) return NextResponse.json({ ok: true, already: true });
+  if (claim.busy) return NextResponse.json({ ok: false, error: 'This evidence is being sent already. Give it a moment.' }, { status: 409 });
+
   try {
-    // ── Fetch tenant and dispute context from Firestore ──────────────────────
-    const tenantDoc  = await db.collection('tenants').doc(tenantId).get();
-    const tenant     = tenantDoc.data() || {};
-    const disputeDoc = await db.collection(`tenants/${tenantId}/disputes`).doc(disputeId).get();
-    const dispute    = disputeDoc.data() || {};
 
     // Fetch client if linked
     let client: any = null;
@@ -221,12 +292,19 @@ export async function POST(req: NextRequest) {
     };
 
     // ── Upload files to Stripe ────────────────────────────────────────────────
+    // Only the business's own stored files (storedFileBuffer). The signatures and receipt are the ones on the
+    // dispute's record when it has them.
+    const listOf = (v: any) => (Array.isArray(v) ? v.map((x: any) => String(x || '')).filter(Boolean).slice(0, 10) : []);
     // 1. Consent forms / signatures — uploaded as customer_signature
-    const allSignatureUrls = [...(consentFormUrls || []), ...(signatureUrls || [])];
+    const allSignatureUrls = [
+      ...listOf(Array.isArray(dispute.consentFormUrls) ? dispute.consentFormUrls : consentFormUrls),
+      ...listOf(Array.isArray(dispute.signatureUrls) ? dispute.signatureUrls : signatureUrls),
+    ];
+    const receiptLink = String(dispute.receiptUrl || receiptUrl || '');
 
     if (allSignatureUrls.length > 0) {
       // Upload the first signature as customer_signature (Stripe accepts one)
-      const buf = await urlToBuffer(allSignatureUrls[0]);
+      const buf = await storedFileBuffer(allSignatureUrls[0], String(tenantId));
       if (buf) {
         const fileId = await uploadFileToStripe(
           stripe, buf, 'consent-signature.png', 'dispute_evidence', stripeConnectedAccountId
@@ -243,8 +321,8 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Receipt — uploaded as receipt
-    if (receiptUrl) {
-      const buf = await urlToBuffer(receiptUrl);
+    if (receiptLink) {
+      const buf = await storedFileBuffer(receiptLink, String(tenantId));
       if (buf) {
         const fileId = await uploadFileToStripe(
           stripe, buf, 'receipt.png', 'dispute_evidence', stripeConnectedAccountId
@@ -260,11 +338,14 @@ export async function POST(req: NextRequest) {
     const additionalFileIds: { purpose: string; fileId: string }[] = [];
 
     if (additionalFiles && Array.isArray(additionalFiles)) {
-      for (const af of additionalFiles) {
-        const buf = await urlToBuffer(af.url);
+      for (const af of additionalFiles.slice(0, 5)) {
+        const buf = await storedFileBuffer(af?.url, String(tenantId));
         if (!buf) continue;
-        const ext      = af.url.split('.').pop()?.split('?')[0] || 'jpg';
-        const filename = `evidence-${af.purpose}.${ext}`;
+        const where = ownStoredFile(af.url, String(tenantId));
+        const ext      = (where && 'path' in where ? where.path.split('.').pop() : '')?.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'jpg';
+        const purpose  = String(af.purpose || 'uncategorized_file').replace(/[^a-z_]/g, '').slice(0, 40) || 'uncategorized_file';
+        af.purpose = purpose;
+        const filename = `evidence-${purpose}.${ext}`;
         const fileId   = await uploadFileToStripe(
           stripe, buf, filename, 'dispute_evidence', stripeConnectedAccountId
         );
@@ -296,12 +377,14 @@ export async function POST(req: NextRequest) {
     );
 
     // ── Update dispute record in Firestore ────────────────────────────────────
-    await db.collection(`tenants/${tenantId}/disputes`).doc(disputeId).set({
+    await disputeRef.set({
       evidenceSubmitted:    true,
       evidenceSubmittedAt:  new Date().toISOString(),
+      evidenceSubmittedBy:  g.actor?.name || null,
+      evidenceSubmittingAt: null,
       status:               'under_review',
-      evidenceSummary:      evidenceText,
-      extraNotes,
+      evidenceSummary:      evidenceText ?? null,
+      extraNotes:           extraNotes ?? null,
     }, { merge: true });
 
     console.log(`[dispute-evidence] Evidence submitted for dispute ${stripeDisputeId}`);
@@ -309,6 +392,8 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     console.error('[dispute-evidence] Error:', err);
-    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
+    // Free to try again. Stripe itself takes a dispute's evidence only once, so a second try can't send it twice.
+    await disputeRef.set({ evidenceSubmittingAt: null }, { merge: true }).catch(() => {});
+    return NextResponse.json({ ok: false, error: err?.raw?.message || 'The evidence couldn’t be sent. Please try again.' }, { status: 500 });
   }
 }

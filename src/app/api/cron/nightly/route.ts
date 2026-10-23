@@ -15,6 +15,7 @@
 
 import { automationOn, noteAutomation } from '@/lib/automation-switches';
 import { recordCronRun } from '@/lib/cron-heartbeat';
+import { refuseCron } from '@/lib/cron-auth';
 import { linkOrigin } from '@/lib/app-origin';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -119,11 +120,8 @@ function sameLeaseWindow(a: any, b: any): boolean {
 const AUTOCOLLECT_FIXED_FROM = '2026-10-03';   // first due date the one autopay collected auto-collect leases
 
 export async function GET(req: NextRequest) {
-  // ── Auth: only Vercel Cron (or someone holding the secret) may run this ──
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  // ── Auth: only Vercel Cron (or someone holding the secret) may run this. No secret set: nobody may. ──
+  const refused = refuseCron(req); if (refused) return refused;
   void recordCronRun('nightly');   // HQ → System: "did it run?"
   // v70 — Plaid being unconfigured no longer aborts the whole run: bank
   // sync is skipped, but bill scheduling below still runs for everyone.

@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { recordCronRun } from '@/lib/cron-heartbeat';
+import { refuseCron } from '@/lib/cron-auth';
 import { retailNightlyForShop } from '@/lib/retail-nightly';
 
 export const maxDuration = 300;
@@ -20,10 +21,8 @@ export const dynamic = 'force-dynamic';
 const BUDGET_MS = 240_000;   // stop starting new shops after four minutes, well inside the five allowed
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  // Only the scheduler, holding the secret. No secret set: nobody.
+  const refused = refuseCron(req); if (refused) return refused;
   void recordCronRun('retail-nightly');
   const started = Date.now();
   const db = getAdminDb();

@@ -15,15 +15,21 @@
  * CheckoutHub's existing card flows and needs the enrollment write to
  * follow.
  *
- * Auth: none beyond normal app session — this is called from inside the
- * authenticated POS UI, not a public-facing route. If this route is ever
- * exposed to a context without that guarantee, add a staff-auth check
- * (see lib/voice/staff-auth.ts's verifyStaff for the existing pattern).
+ * Who may call: the business's own team (signed in) or our own server
+ * (api/checkout/complete sends the internal header). Anyone else is turned
+ * away before anything is granted: by default this route trusts that the
+ * sale was already paid ('already_charged'), so an open door here handed out
+ * free packages and memberships, and with 'card_on_file' it charges the
+ * client's saved card.
+ *
+ * A double tap: the grant itself is written by lib/memberships/enroll-membership,
+ * and its one caller (checkout) records each sale once before it calls here.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { enrollMembership, enrollPackage } from '@/lib/memberships/enroll-membership';
+import { staffOrServer } from '@/lib/route-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,6 +49,9 @@ export async function POST(req: NextRequest) {
 
   if (!tenantId || !clientId || !offeringId || (offeringType !== 'membership' && offeringType !== 'package')) {
     return NextResponse.json({ ok: false, error: 'missing_params' }, { status: 400 });
+  }
+  if (!(await staffOrServer(req, String(tenantId)).catch(() => false))) {
+    return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });
   }
 
   try {

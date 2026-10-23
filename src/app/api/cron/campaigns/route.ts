@@ -14,6 +14,7 @@
 // hour — the recipient record makes that resume-safe.
 
 import { recordCronRun } from '@/lib/cron-heartbeat';
+import { refuseCron } from '@/lib/cron-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendCampaignBatch, runAutomation } from '@/lib/campaign-engine';
@@ -23,8 +24,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get('authorization');
-  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  // Only the scheduler, holding the secret. No secret set: nobody.
+  const refused = refuseCron(req); if (refused) return refused;
   void recordCronRun('campaigns');   // HQ → System: "did it run?"
   const db = getAdminDb();
   const started = Date.now();

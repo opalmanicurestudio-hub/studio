@@ -25,6 +25,7 @@
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { releaseUnpaidHolds } from '@/lib/release-unpaid';
 import { recordCronRun } from '@/lib/cron-heartbeat';
+import { refuseCron } from '@/lib/cron-auth';
 import { linkOrigin } from '@/lib/app-origin';
 import { feedbackPath, aftercarePath } from '@/lib/visit-feedback';
 import { settingsOf, aftercareFor } from '@/lib/making-it-right';
@@ -50,11 +51,8 @@ const pad = (n: number) => String(n).padStart(2, '0');
 import { askOn, needsConfirm, confirmLine, confirmLink, nudgeDue, nudgeText } from '@/lib/confirm-ask';
 import { automationOn } from '@/lib/automation-switches';
 export async function GET(req: NextRequest) {
-  // Same guard style as the nightly cron: Vercel Cron sends the secret.
-  const auth = req.headers.get('authorization');
-  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  // Same guard as the nightly cron: Vercel Cron sends the secret. No secret set: nobody.
+  const refused = refuseCron(req); if (refused) return refused;
   void recordCronRun('reminders');   // HQ → System: "did it run?"
   const db = getAdminDb();
   const results: Record<string, any> = {};

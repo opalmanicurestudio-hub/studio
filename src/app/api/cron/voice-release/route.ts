@@ -4,11 +4,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { recordCronRun } from '@/lib/cron-heartbeat';
+import { refuseCron } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  // Only the scheduler, holding the secret. No secret set: nobody.
+  const refused = refuseCron(req); if (refused) return refused;
   const voiceSecret = process.env.VOICE_AGENT_SECRET; if (!voiceSecret) return NextResponse.json({ ok: true, skipped: 'phone assistant not configured' });
   void recordCronRun('voice-release');
   const db = getAdminDb(); let released = 0; const ran: string[] = [];

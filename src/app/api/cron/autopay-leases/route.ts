@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { recordCronRun } from '@/lib/cron-heartbeat';
+import { refuseCron } from '@/lib/cron-auth';
 import { linkOrigin } from '@/lib/app-origin';
 import Stripe from 'stripe';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
@@ -123,10 +124,9 @@ function isDueToday(lease: any, todayIso: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Only the scheduler, holding the secret exactly. No secret set: nobody (a missing secret used to let
+  // "Bearer undefined" through).
+  const refused = refuseCron(req); if (refused) return refused;
   void recordCronRun('autopay-leases');   // HQ → System: "did it run?"
 
   const { db } = getAdmin();

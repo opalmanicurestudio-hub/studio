@@ -16,6 +16,7 @@ import { chargeDueInstallments } from '@/lib/academy-admissions';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { recordCronRun } from '@/lib/cron-heartbeat';
+import { refuseCron } from '@/lib/cron-auth';
 import { signals, ownersLastSignIn } from '@/lib/hq-signals';
 import { setupScore } from '@/lib/hq-health';
 import { linkOrigin } from '@/lib/app-origin';
@@ -49,8 +50,8 @@ async function email(to: string, subject: string, text: string, replyTo?: string
 }
 
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get('authorization');
-  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  // Only the scheduler, holding the secret. No secret set: nobody.
+  const refused = refuseCron(req); if (refused) return refused;
   void recordCronRun('hq');
   const db = getAdminDb();
   const now = Date.now();

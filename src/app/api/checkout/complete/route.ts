@@ -1227,7 +1227,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (tuitionPayments.length) await receiptRef.set({ reversal: { tuitionPayments } }, { merge: true }).catch(() => {});
   const origin = req.nextUrl.origin; const authz = req.headers.get('authorization') || '';
   for (const o of toEnroll) {
-    try { const r = await fetch(`${origin}/api/memberships/enroll`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId, offeringType: o.offeringType, offeringId: o.offeringId, paymentMethod: 'already_charged', existingPaymentIntentId: pay.stripePaymentIntentId || null, source: 'pos_checkout', skipLedger: true }) }).then((x) => x.json()).catch(() => ({ ok: false }));
+    try { const r = await fetch(`${origin}/api/memberships/enroll`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(authz ? { Authorization: authz } : {}), ...(await import('@/lib/message-policy')).internalHeaders(origin) }, body: JSON.stringify({ tenantId, clientId, offeringType: o.offeringType, offeringId: o.offeringId, paymentMethod: 'already_charged', existingPaymentIntentId: pay.stripePaymentIntentId || null, source: 'pos_checkout', skipLedger: true }) }).then((x) => x.json()).catch(() => ({ ok: false }));
       if (!r?.ok) warnings.push(`${o.offeringType === 'membership' ? 'The membership' : 'The package'} was sold but not activated — please check the client’s profile.`); } catch { warnings.push('An enrolment didn’t go through — please check the client’s profile.'); }
   }
   for (const it of items.filter((x) => x.type === 'deposit' && x.depositForAppointmentId)) {

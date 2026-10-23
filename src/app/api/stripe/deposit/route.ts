@@ -44,9 +44,16 @@ function getStripe() {
 // BookingSheet — no redirect away from the booking page.
 //
 //   • metadata.type = 'deposit'      ← the connect-webhook branches on this
-//   • metadata.bookingRequestId      ← so the webhook can convert THAT request
+//   • metadata.appointmentId         ← so the webhook confirms THAT booking
 //   • redirect_on_completion: 'never' + onComplete callback client-side means
 //     the guest never leaves the page, even on completion.
+//
+// Only for a booking that already exists and is holding its time (appointment
+// mode). The old way — a booking request with the deposit figure sent by the
+// browser — is refused: anyone could make a request, pay whatever they liked,
+// and be booked as if that were the deposit, with no check the time was free.
+// Nothing in the app uses it any more (the booking page and the booking engine
+// both send appointmentId).
 //
 // This route only COLLECTS. It posts nothing to the ledger — that happens in
 // the connect-webhook once checkout.session.completed fires.
@@ -57,14 +64,18 @@ export async function POST(req: NextRequest) {
     let balCents = 0;
     let {
       tenantId,
-      bookingRequestId,
-      depositAmount,        // dollars (legacy mode only — ignored in appointment mode)
       clientName,
       clientEmail,
       serviceName,
       renterProviderId,     // present when this is an independent provider's booking
     } = body;
+    let depositAmount = 0;  // dollars — always read from the booking, never from the browser
     const appointmentId: string | null = body.appointmentId ? String(body.appointmentId) : null;
+
+    // The old booking-request way (no appointment): refused, see above.
+    if (!appointmentId) {
+      return NextResponse.json({ error: 'This booking page is out of date. Please refresh it and pick your time again.' }, { status: 410 });
+    }
 
     const db = getAdminDb();
     /* APPOINTMENT MODE (5a) — the booking already exists (created by
@@ -72,7 +83,7 @@ export async function POST(req: NextRequest) {
      * read from THAT appointment on the server: the amount (never trusted from
      * the browser — a client could otherwise pay $1), who it's for, whose
      * account collects it. The webhook then confirms this same appointment. */
-    if (appointmentId) {
+    {
       const aSnap = await db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).get();
       const ap = aSnap.exists ? (aSnap.data() as any) : null;
       if (!ap) return NextResponse.json({ error: 'We couldn’t find that booking.' }, { status: 404 });
@@ -87,8 +98,6 @@ export async function POST(req: NextRequest) {
       clientName = ap.clientName || cl.name || clientName; clientEmail = ap.clientEmail || cl.email || clientEmail;
       serviceName = ap.serviceName || ap.renterServiceName || (ap.serviceId ? ((((await db.doc(`tenants/${tenantId}/services/${ap.serviceId}`).get()).data() as any) || {}).name) : null) || serviceName;
       renterProviderId = ap.isRenterBooking && ap.renterProviderId ? ap.renterProviderId : undefined;
-    } else if (!bookingRequestId) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
     if (!tenantId || !clientEmail || !depositAmount) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -163,7 +172,7 @@ export async function POST(req: NextRequest) {
         },
         metadata: {
           tenantId,
-          ...(appointmentId ? { appointmentId } : { bookingRequestId }),
+          appointmentId,
           type:        'deposit',
           // Tagged so the webhook and any later reconciliation can tell a
           // renter's deposit from the studio's at a glance.

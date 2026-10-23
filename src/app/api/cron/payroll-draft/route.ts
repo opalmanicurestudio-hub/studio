@@ -15,16 +15,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { refuseCron } from '@/lib/cron-auth';
 import { buildPayrollDraft, runPayrollGates, CADENCE_DAYS, lastPeriod } from '@/lib/payroll-draft';
 import { logAuditAdmin } from '@/lib/audit';
 
 export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-  }
+  // Only the scheduler, holding the secret. No secret set: nobody.
+  const refused = refuseCron(req); if (refused) return refused;
 
   const db = getAdminDb();
   const tenantsSnap = await db.collection('tenants').where('payroll.autoDraft', '==', true).get();

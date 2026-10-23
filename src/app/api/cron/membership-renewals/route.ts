@@ -4,14 +4,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { recordCronRun } from '@/lib/cron-heartbeat';
+import { refuseCron } from '@/lib/cron-auth';
 import { runRenewals } from '@/lib/memberships/renewals';
 import { cardReminderSweep } from '@/lib/card-save';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  // Only the scheduler, holding the secret. No secret set: nobody (this charges members' cards).
+  const refused = refuseCron(req); if (refused) return refused;
   void recordCronRun('membership-renewals');
   const db = getAdminDb(); let charged = 0, waiting = 0, lapsed = 0, reminders = 0, tenants = 0;
   for (const d of (await db.collection('tenants').get()).docs) {
