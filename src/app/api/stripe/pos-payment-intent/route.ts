@@ -55,7 +55,9 @@ export async function POST(req: NextRequest) {
 
     const stripe = getStripe();
     const forTicket = safeId(pendingId);
-    if (forTicket) {
+    // A desk sale's payment always names its ticket; a screen opened before that change is reloaded first.
+    if (!forTicket) return NextResponse.json({ code: 'reload', error: 'This screen needs reloading before it can take card payments. Reload the page; nothing was charged.' }, { status: 409 });
+    {
       const block = await ticketBlocks(db, String(tenantId), forTicket, { stripe, acct: stripeAccountId });
       if (block) return NextResponse.json({ code: block.code, error: block.error, ...(block.paidWith ? { paidWith: block.paidWith, paidPayload: block.paidPayload } : {}) }, { status: block.status });
     }

@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/route-guard';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { accountOf, markReaderSalePaid, readerStripe, releaseReaderPayment } from '@/lib/reader-sale';
+import { accountOf, markReaderSalePaid, noteReaderState, readerStripe, releaseReaderPayment } from '@/lib/reader-sale';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +27,8 @@ export async function POST(req: NextRequest) {
     const meta: any = r.pi?.metadata || {};
     const ticket = meta.kind === 'sale' && meta.pendingId ? String(meta.pendingId) : '';
     if (r.ok) {
-      if (ticket) await db.doc(`tenants/${tenantId}/pendingCheckouts/${ticket}`).set({ readerPis: { [paymentIntentId]: { state: 'released', settledAt: new Date().toISOString(), releasedBy: g.actor?.name || null } }, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      // Called off on its ticket, and the ticket no longer counts as having a reader payment going (unless another is).
+      if (ticket) await noteReaderState(db, tenantId, ticket, paymentIntentId, 'released', { releasedBy: g.actor?.name || null }).catch(() => {});
       return NextResponse.json({ ok: true, released: true });
     }
     if (r.charged) {

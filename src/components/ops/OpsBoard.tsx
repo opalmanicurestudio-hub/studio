@@ -303,7 +303,7 @@ function UnpaidFees({ tenantId, role, tenant }: { tenantId: string; role: string
 function SalesNotRecorded({ tenantId, role }: { tenantId: string; role: string }) {
   const mgr = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const { firestore } = useFirebase() as any;
-  const q = useMemoFirebase(() => (mgr && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/pendingCheckouts`), where('status', 'in', ['prepared', 'failed', 'paid_waiting', 'partial'])) : null), [mgr, firestore, tenantId]);
+  const q = useMemoFirebase(() => (mgr && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/pendingCheckouts`), where('status', 'in', ['prepared', 'failed', 'paid_waiting', 'partial', 'discarding'])) : null), [mgr, firestore, tenantId]);
   const { data } = useCollection<any>(q);
   // Sales paid twice (lib/reader-sale): on the card reader, the client screen or a card after the sale was already paid.
   // The extra payment is refunded to the card, or kept.
@@ -318,7 +318,8 @@ function SalesNotRecorded({ tenantId, role }: { tenantId: string; role: string }
     const r = await staffPost('/api/checkout/complete', { tenantId, action: 'reader_extra', pendingId: x.p.id, paymentIntentId: x.id, decision, reason: why[k] || '' }); setBusy(null);
     setMsg((m) => ({ ...m, [k]: r?.ok ? (r.state === 'refunded' ? `Refunded $${(x.cents / 100).toFixed(2)} to the card.` : r.state === 'kept' ? 'Kept.' : 'Already done.') : r?.error || 'That didn’t go through.' }));
   };
-  const list = (data || []).filter((p: any) => p.status === 'failed' || (p.status === 'partial' && now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000) || (p.status === 'paid_waiting' && now - Date.parse(p.paidAt || p.updatedAt) > 2 * 60000) || (now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000 && now - Date.parse(p.preparedAt) < 24 * 3600000))
+  // A discard that stopped partway (its connection dropped) shows after a few minutes, to finish or record.
+  const list = (data || []).filter((p: any) => p.status === 'discarding' ? now - (Date.parse(p.discardingAt || p.updatedAt) || 0) > 3 * 60000 : p.status === 'failed' || (p.status === 'partial' && now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000) || (p.status === 'paid_waiting' && now - Date.parse(p.paidAt || p.updatedAt) > 2 * 60000) || (now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000 && now - Date.parse(p.preparedAt) < 24 * 3600000))
     .sort((x: any, y: any) => Number(y.status === 'failed') - Number(x.status === 'failed') || Date.parse(y.preparedAt) - Date.parse(x.preparedAt));
   if (!list.length && !extras.length) return null;
   const act = async (p: any, action: 'record' | 'discard', paidAs?: 'cash' | 'other') => {
@@ -327,7 +328,7 @@ function SalesNotRecorded({ tenantId, role }: { tenantId: string; role: string }
     setMsg((m) => ({ ...m, [p.id]: r?.ok ? (r.recorded ? 'Already recorded: the sale was saved, so nothing was refunded or added twice.' : action === 'record' ? (r.already ? 'Already recorded — nothing added twice.' : `Recorded — $${Number(r.total || p.expectedTotal).toFixed(2)}.`) : `Discarded.${r.refundedCards ? ` ${r.refundedCards} card payment${r.refundedCards === 1 ? '' : 's'} refunded.` : ''}${r.cashToReturn ? ` Hand back $${Number(r.cashToReturn).toFixed(2)} in cash.` : ''}${r.warning ? ` ${r.warning}` : ''}`) : r?.error || 'That didn’t go through.' }));
   };
   // Nothing was paid on it at the desk: the manager says how it was paid (a card sale is only recorded with its card payment).
-  const unpaidAtDesk = (p: any) => p.status !== 'partial' && !p.paymentIntentId && !(p.tenders || []).length;
+  const unpaidAtDesk = (p: any) => (p.status === 'discarding' ? p.discardFrom : p.status) !== 'partial' && !p.paymentIntentId && !(p.tenders || []).length;
   return (
     <section className="space-y-2 rounded-3xl border border-red-200 bg-card p-4">
       {!!list.length && <><p className="font-semibold">Sales not recorded</p>
@@ -347,7 +348,7 @@ function SalesNotRecorded({ tenantId, role }: { tenantId: string; role: string }
       </div>; })}
       {list.map((p: any) => <div key={p.id} className="space-y-1.5 rounded-2xl border p-3 text-sm">
         <p><b>{p.clientName || 'A client'}</b> · ${Number(p.expectedTotal || 0).toFixed(2)} · {new Date(p.preparedAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}{p.preparedBy ? ` · ${String(p.preparedBy).split(' ')[0]}` : ''}</p>
-        <p className="text-xs text-muted-foreground">{p.status === 'partial' ? `Split bill — $${Number(p.paidSoFar || 0).toFixed(2)} of $${Number(p.expectedTotal || 0).toFixed(2)} paid (${(p.tenders || []).length} payment${(p.tenders || []).length === 1 ? '' : 's'}). Record it if the rest was paid another way, or discard it — card shares are refunded.` : p.status === 'paid_waiting' ? `Paid${p.paidCents ? ` $${(Number(p.paidCents) / 100).toFixed(2)}` : ''} ${viaWords(p.paidVia)} (ref ${String(p.paymentIntentId || '').slice(-8)}) — the desk didn’t finish the sale.` : p.status === 'failed' ? `Paid${p.paymentIntentId ? ` by card (ref ${String(p.paymentIntentId).slice(-8)})` : ''} — the save failed${p.lastError ? `: ${String(p.lastError).slice(0, 80)}` : ''}.` : 'Started at checkout but never finished. Was it paid?'}</p>
+        <p className="text-xs text-muted-foreground">{p.status === 'discarding' ? `A discard${p.discardingBy ? ` by ${String(p.discardingBy).split(' ')[0]}` : ''} didn’t finish. Discard it again to finish it (nothing is refunded twice), or record the sale.` : p.status === 'partial' ? `Split bill — $${Number(p.paidSoFar || 0).toFixed(2)} of $${Number(p.expectedTotal || 0).toFixed(2)} paid (${(p.tenders || []).length} payment${(p.tenders || []).length === 1 ? '' : 's'}). Record it if the rest was paid another way, or discard it — card shares are refunded.` : p.status === 'paid_waiting' ? `Paid${p.paidCents ? ` $${(Number(p.paidCents) / 100).toFixed(2)}` : ''} ${viaWords(p.paidVia)} (ref ${String(p.paymentIntentId || '').slice(-8)}) — the desk didn’t finish the sale.` : p.status === 'failed' ? `Paid${p.paymentIntentId ? ` by card (ref ${String(p.paymentIntentId).slice(-8)})` : ''} — the save failed${p.lastError ? `: ${String(p.lastError).slice(0, 80)}` : ''}.` : 'Started at checkout but never finished. Was it paid?'}</p>
         {!/^(Recorded|Discarded|Already)/.test(msg[p.id] || '') && <div className="flex flex-wrap items-center gap-2">
           {unpaidAtDesk(p) ? <>
             <button type="button" disabled={!!busy} onClick={() => act(p, 'record', 'cash')} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${p.id}:record:cash` ? 'Recording…' : 'Paid in cash — record it'}</button>

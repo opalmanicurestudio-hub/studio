@@ -35,6 +35,9 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
   const [busy, setBusy] = React.useState<string | null>(null); const [msg, setMsg] = React.useState<string | null>(null);
   const [payFor, setPayFor] = React.useState<string | null>(null); const [cashGiven, setCashGiven] = React.useState('');
   const [waiting, setWaiting] = React.useState<{ key: string; id: string } | null>(null);
+  // A card share that was charged but whose record here didn't arrive: recorded again with the same payment (the card is
+  // never charged again for it).
+  const [unrecorded, setUnrecorded] = React.useState<{ share: Share; body: any } | null>(null);
   React.useEffect(() => { prepare().then((id) => { setPendingId(id);
     const taken = (takenShares?.() || []).filter((x: any) => x && x.id);
     if (!taken.length) return;
@@ -63,14 +66,22 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
   // A share taken earlier (before checkout was opened again) matches its row by name.
   const shareTaken = (k: string) => tenders.find((t) => t.shareKey === k) || tenders.find((t) => !t.shareKey && t.label && t.label === shares.find((x) => x.key === k)?.label);
   const unmatched = tenders.filter((t) => !t.shareKey && !shares.some((x) => x.label === t.label));
-  const record = async (share: Share, body: any) => {
-    if (!pendingId) { setMsg('Still getting the ticket ready — try again in a moment.'); return; }
+  const record = async (share: Share, body: any): Promise<boolean> => {
+    if (!pendingId) { setMsg('Still getting the ticket ready — try again in a moment.'); return false; }
     setBusy(share.key); setMsg(null);
     const r: any = await post('/api/checkout/complete', { tenantId, action: 'tender', pendingId, label: share.label, payerName: share.label, payerClientId: share.personId, ...body });
-    setBusy(null); if (!r?.ok) { setMsg(r?.error || 'That didn’t record.'); return; }
+    setBusy(null);
+    if (!r?.ok) {
+      // A card share already charged: kept to record again (the server keeps it apart if the sale was paid or finished meanwhile).
+      if (body.stripePaymentIntentId && !['ticket_paid', 'sale_done'].includes(String(r?.code || ''))) { setUnrecorded({ share, body }); setMsg(`${r?.error ? `${r.error} ` : ''}The card was charged, but this share didn’t record yet. Record it again; the card won’t be charged again.`); }
+      else setMsg(r?.error || 'That didn’t record.');
+      return false;
+    }
+    if (unrecorded && unrecorded.body?.stripePaymentIntentId === body.stripePaymentIntentId) setUnrecorded(null);
     const newId = r.tender?.id || (r.tenders || []).find((x: any) => body.stripePaymentIntentId && x.stripePaymentIntentId === body.stripePaymentIntentId)?.id;   // already recorded by the server (a share paid on the iPad)
     setTenders((r.tenders || []).map((t: any) => ({ ...t, shareKey: t.id === newId ? share.key : tenders.find((x) => x.id === t.id)?.shareKey || t.shareKey || null })));
     setPayFor(null); setCashGiven('');
+    return true;
   };
   const remove = async (t: any) => {
     setBusy(t.id); const r: any = await post('/api/checkout/complete', { tenantId, action: 'tender_remove', pendingId, tenderId: t.id }); setBusy(null);
@@ -81,8 +92,10 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
     if (!pendingId) { setMsg('Still getting the ticket ready — try again in a moment.'); return; }
     setBusy(share.key); setMsg(null);
     // The share names its ticket, so it's only ever taken (and refunded) for this sale, never for one already paid.
-    const c: any = await post('/api/stripe/charge-card', { tenantId, clientId: personId, amountCents: Math.round(share.amount * 100), description: `Share of a split bill — ${share.label}`, category: 'Service Revenue', noLedger: true, pendingId, share: true });
-    setBusy(null); if (!c?.ok) { setMsg(c?.reason || c?.error || 'The card was declined.'); return; }
+    const c: any = await post('/api/stripe/charge-card', { tenantId, clientId: personId, amountCents: Math.round(share.amount * 100), description: `Share of a split bill — ${share.label}`, category: 'Service Revenue', noLedger: true, pendingId, share: true, shareLabel: share.label });
+    setBusy(null); if (!c?.ok) { setMsg(c?.code === 'reload' ? 'This screen needs reloading before it can take card payments. Reload the page; nothing was charged.' : c?.reason || c?.error || 'The card was declined.'); return; }
+    // The sale was paid in full or finished on another screen meanwhile: this charge is extra, kept apart for a manager.
+    if (c.sale === 'kept_apart') { setMsg(`This sale was already paid or finished, so that ${money(share.amount)} card payment is kept apart for a manager to refund in Needs attention. Don’t charge again.`); return; }
     await record(share, { method: 'card', amount: share.amount, stripePaymentIntentId: c.paymentIntentId, via: 'saved_card' });
   };
   const onScreen = async (share: Share) => {
@@ -95,7 +108,8 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
   // The client screen confirms the share (and the server has already recorded it) → pick it up here.
   React.useEffect(() => { const r = screen?.response; if (!r || !waiting || r.requestId !== waiting.id || r.kind !== 'pay') return;
     const share = shares.find((s) => s.key === waiting.key); setWaiting(null);
-    if (r.paid && share) record(share, { method: 'card', amount: r2(Number(r.amount) - Number(r.tip || 0)), tip: Number(r.tip || 0), stripePaymentIntentId: r.paymentIntentId, via: 'client_screen' });
+    if (r.paid && share && r.paymentIntentId) record(share, { method: 'card', amount: r2(Number(r.amount) - Number(r.tip || 0)), tip: Number(r.tip || 0), stripePaymentIntentId: r.paymentIntentId, via: 'client_screen' });
+    else if (r.paid) setMsg('The payment on the client screen finished. Close and open Split the bill to see it before taking another payment.');
     else if (r.abandoned) setMsg(`${share?.label || 'They'} didn’t finish paying — nothing was charged.`); }, [screen?.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
   const box = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties; const soft = { background: 'var(--soft)' } as React.CSSProperties;
   const chip = (on: boolean) => (on ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : soft) as React.CSSProperties;
@@ -139,6 +153,7 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, tak
         </div>; })}</div>
       <div className="flex items-center justify-between rounded-2xl p-3 text-[15px]" style={soft}><span>{left > 0 ? 'Left to pay' : 'All paid'}{tipsOnShares > 0 ? ` · tips ${money(tipsOnShares)}` : ''}</span><b className="tabular-nums">{money(left)}</b></div>
       {msg && <p className="text-[13px] font-semibold" role="status">{msg}</p>}
+      {unrecorded && <button type="button" disabled={!!busy} onClick={() => void record(unrecorded.share, unrecorded.body)} className="h-11 w-full rounded-full text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--soft)' }}>{busy === unrecorded.share.key ? 'Recording…' : `Record ${unrecorded.share.label} again`}</button>}
       <button type="button" disabled={left > 0.009 || !!busy || !tenders.length} onClick={() => onFinish(r2(paid + tipsOnShares))} className="h-12 w-full rounded-full text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Finish sale</button>
     </div>
   );

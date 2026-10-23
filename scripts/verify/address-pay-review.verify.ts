@@ -354,6 +354,24 @@ const paySession = (sid: string, pi: string) => { sessions[sid] = { ...sessions[
   o = await order();
   check('…the order cancelled: the payment is refunded and the running total no longer counts it (nor any cost to the shop)', stripeCalls.refunds.some((x) => x.payment_intent === 'pi_c') && o.addressCost?.customerCents === 0 && o.addressCost?.shopCents === 0 && o.addressCost?.refundedCents === 320, { cost: o.addressCost, body: r.body });
 
+  console.log('The third review');
+  await fresh({}, { addressCostPayer: 'customer' });
+  const p3 = await payFor(FAR, 'pi_r'); await ss({ action: 'address_paid', sessionId: p3.sid });
+  refundFails = 1;
+  await ss({ action: 'cancel', reason: 'changed_mind' });
+  o = await order();
+  const failedFirst = o.addressPaid?.[p3.sid]?.state === 'refund_failed' && o.addressCost?.customerCents === 320;
+  await sweepAddressPays(db, 't1', await get(T));
+  o = await order();
+  check('a refund that only goes through on a later try still comes off the running total', failedFirst && !!o.addressPaid?.[p3.sid]?.refundedAt && o.addressCost?.customerCents === 0 && o.addressCost?.refundedCents === 320, { cost: o.addressCost, e: o.addressPaid?.[p3.sid] });
+  await fresh({}, { addressCostPayer: 'customer' });
+  const p4 = await payFor(FAR, 'pi_s'); await ss({ action: 'address_paid', sessionId: p4.sid });
+  await db.doc(`${T}/retailOrders/o1`).set({ stage: 'cancelled' }, { merge: true });
+  o = await order(); await db.doc(`${T}/retailOrders/o1`).update({ [`addressPaid.${p4.sid}`]: { ...o.addressPaid[p4.sid], state: 'refunding', refundTriedAt: new Date(Date.now() - 11 * 60000).toISOString() }, addressPaidRetry: true });
+  await sweepAddressPays(db, 't1', await get(T));
+  o = await order();
+  check('…and so does one whose first try stopped part way (finished by the five-minute check)', !!o.addressPaid?.[p4.sid]?.refundedAt && o.addressCost?.customerCents === 0, { cost: o.addressCost, e: o.addressPaid?.[p4.sid] });
+
   const tq0 = Date.now();
   const slow = await addressCostFor(db, 't1', await get(T), await order(), SLOW, { apiKey: 'shippo_test', timeoutMs: 60 });
   check('a carrier that doesn’t answer: the quote gives up in seconds (the shop decides, or covers it)', !slow.ok && Date.now() - tq0 < 2000);

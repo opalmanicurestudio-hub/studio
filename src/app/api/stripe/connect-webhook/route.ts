@@ -627,9 +627,15 @@ export async function POST(req: NextRequest) {
             const { deskPaymentOf, markSalePaid, tellDeskReader } = await import('@/lib/reader-sale');
             const meta: any = (charge.metadata as any)?.tenantId ? charge.metadata : ((await stripe2.paymentIntents.retrieve(piId, {}, { stripeAccount: connAcct as string }).catch(() => null)) as any)?.metadata || {};
             const desk = deskPaymentOf({ metadata: meta }, tenant.id);
-            if (desk && !desk.share && desk.via !== 'card_reader') {
-              const cents = Math.round(Number(charge.amount_captured || charge.amount) || 0);
-              const m = await markSalePaid(db, tenant.id, desk.pendingId, { id: piId, amount: charge.amount, amount_received: cents }, desk.via);
+            const cents = Math.round(Number(charge.amount_captured || charge.amount) || 0);
+            const tipCents = Math.max(0, Math.round(Number(meta.tipCents) || 0));
+            const tipSplit = (() => { try { const x = meta.tipAllocations ? JSON.parse(String(meta.tipAllocations)) : null; return x && typeof x === 'object' ? x : null; } catch { return null; } })();
+            if (desk && desk.share) {
+              // One share of a split bill: on its split as it's paid (or kept apart if the sale was finished meanwhile).
+              const { recordCardShare } = await import('@/lib/screen-pay');
+              await recordCardShare(db, tenant.id, desk.pendingId, { id: piId }, { amount: (cents - tipCents) / 100, tip: tipCents / 100, label: meta.shareLabel || null, via: desk.via === 'card_on_file' ? 'saved_card' : desk.via, payerClientId: meta.clientId || null, by: 'Card payment' });
+            } else if (desk && desk.via !== 'card_reader') {
+              const m = await markSalePaid(db, tenant.id, desk.pendingId, { id: piId, amount: charge.amount, amount_received: cents }, desk.via, tipCents > 0 ? { paidTip: tipCents / 100, paidTipAllocations: tipSplit } : {});
               if (m.fresh && (m.result === 'paid_twice' || m.revived)) {
                 const pc: any = ((await db.doc(`tenants/${tenant.id}/pendingCheckouts/${desk.pendingId}`).get()).data() as any) || {};
                 await tellDeskReader(db, tenant.id, m.result === 'paid_twice' ? 'paid_twice' : 'unrecorded', pc, cents, desk.pendingId, desk.via).catch(() => {});

@@ -1155,12 +1155,16 @@ export function usePosEngine() {
   const setTicketPaid = useCallback((v: any) => { ticketPaidRef.current = v; setTicketPaidState(v); }, []);
   const lastTicketRef = useRef<any>(null);   // the last answer about the ticket (a split's shares already taken)
   const leftToldRef = useRef<string | null>(null);
+  // A different sale of this client's, paid but never saved (api/checkout/complete 'prepare' → otherPaid): shown to the
+  // desk to save on its own. It never takes the place of the sale being rung up.
+  const [otherPaid, setOtherPaid] = useState<any>(null);
   // Every save of the ticket uses the sale as it is right now (never the one from when the client was chosen).
   const buildRef = useRef(buildCheckoutPayload); buildRef.current = buildCheckoutPayload;
   const noteTicket = (r: any, quietLeft = false) => {
     if (!r?.pendingId) return;
     pendingIdRef.current = r.pendingId; lastTicketRef.current = r;
     setTicketPaid(r.paid ? { pendingId: r.pendingId, ...r.paid, paidPayload: r.paidPayload || null } : null);
+    setOtherPaid(r.otherPaid?.pendingId && r.otherPaid.pendingId !== r.pendingId ? r.otherPaid : null);
     const left = r.left;
     if (left?.pendingId && !quietLeft && leftToldRef.current !== left.pendingId) {
       leftToldRef.current = left.pendingId;
@@ -1193,7 +1197,7 @@ export function usePosEngine() {
     } catch { return pendingIdRef.current; }
   }, [tenantId, checkoutClientId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Another client: the last one's "already paid" note goes with them (the next save says if this one's is paid).
-  useEffect(() => { if (ticketPaidRef.current) setTicketPaid(null); }, [checkoutClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (ticketPaidRef.current) setTicketPaid(null); setOtherPaid(null); }, [checkoutClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The sale is saved: the finished screen shows it, and the next sale starts fresh (the client screen goes back to your logo).
   const finishSale = (out: any, payload: any) => {
@@ -1231,9 +1235,16 @@ export function usePosEngine() {
       }
       if (out?.code === 'ticket_split') { if (out.pendingId) pendingIdRef.current = out.pendingId; setSplitActive(true); toast({ variant: 'destructive', duration: 15000, title: 'Part of this bill is already paid', description: out.error }); return false; }
       if (out?.code === 'payment_refunded') { setTicketPaid(null); toast({ variant: 'destructive', duration: 20000, title: 'That card payment was refunded', description: out.error }); return false; }
+      // A manager is discarding it, or it was saved already (this payment is kept apart for a manager): nothing was
+      // recorded, and charging again would take the money twice.
+      if (out?.code === 'sale_discarding' || out?.code === 'sale_done') {
+        pendingIdRef.current = null; lastTicketRef.current = null; lastCheckoutRef.current = null; setTicketPaid(null);
+        toast({ variant: 'destructive', duration: 30000, title: out.code === 'sale_done' ? 'This sale was already saved' : 'A manager is discarding this sale', description: out.error });
+        return false;
+      }
       // Refused for good (the payment isn't this sale's): saving again wouldn't help, so the desk is told what to do.
-      if (['payment_other_sale', 'payment_other_client', 'payment_invalid', 'payment_share', 'reader_open', 'reader_unknown'].includes(String(out?.code || ''))) {
-        toast({ variant: 'destructive', duration: 30000, title: out.code === 'reader_open' || out.code === 'reader_unknown' ? 'Check the card reader payment first' : 'That card payment can’t save this sale', description: out.error });
+      if (['payment_other_sale', 'payment_other_client', 'payment_invalid', 'payment_share', 'payment_used', 'card_unpaid', 'reader_open', 'reader_unknown'].includes(String(out?.code || ''))) {
+        toast({ variant: 'destructive', duration: 30000, title: out.code === 'reader_open' || out.code === 'reader_unknown' ? 'Check the card reader payment first' : out.code === 'card_unpaid' ? 'The card payment wasn’t found' : 'That card payment can’t save this sale', description: out.error });
         return false;
       }
       if (!res.ok || !out?.ok) throw new Error(out?.error || 'save failed');
@@ -1298,6 +1309,24 @@ export function usePosEngine() {
       setTipAmount(0); setRedeemedOffer(null); setLoyaltyReward(null); setAppliedDiscountCodes([]); setStoreCreditApplied(0); setGiftApplied([]); giftHoldRef.current = `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; setStaffDiscount(null); setSplitActive(false);
       toast({ duration: 20000, title: out.already ? 'That paid sale was already saved' : `Saved the paid sale${out.total != null ? ` — ${dollars(Math.round(safeNumber(out.total) * 100))}` : ''}`,
         description: `${taken.length ? `${[...new Set(taken)].join(', ')} ${taken.length === 1 ? 'was' : 'were'} paid for in it, so ${taken.length === 1 ? 'it’s' : 'they’re'} out of the cart. ` : ''}What was added after it was paid is still here: charge it as a new sale. Add any gift card, credit, discount or tip for it again.` });
+      return true;
+    } finally { sendingRef.current = false; setIsSubmitting(false); }
+  };
+
+  // "Save that sale": the client's other sale, paid but never saved, is saved on its own exactly as it was paid (its
+  // payment is checked again on the server). The sale being rung up is left as it is.
+  const saveOtherPaidSale = async (): Promise<boolean> => {
+    const op = otherPaid; if (!op?.pendingId || !tenantId || sendingRef.current) return false;
+    sendingRef.current = true; setIsSubmitting(true);
+    try {
+      const auth = await staffAuthHeader();
+      const res = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ tenantId, action: 'record', pendingId: op.pendingId, deskId: deskIdRef.current || null }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || !out?.ok) { toast({ variant: 'destructive', duration: 20000, title: 'That paid sale didn’t save', description: `${out?.error || 'Check the internet connection.'} Nothing was charged.` }); return false; }
+      setOtherPaid(null);
+      const who = String(op.clientName || '').split(' ')[0];
+      toast({ duration: 15000, title: out.already ? 'That paid sale was already saved' : `Saved ${who ? `${who}’s` : 'the'} other paid sale${out.total != null ? ` — ${dollars(Math.round(safeNumber(out.total) * 100))}` : ''}`, description: 'The sale being rung up is still here to finish.' });
+      for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
       return true;
     } finally { sendingRef.current = false; setIsSubmitting(false); }
   };
@@ -1611,7 +1640,7 @@ export function usePosEngine() {
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
     onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
-    ticketPaid, setTicketPaid, getTicketPaid: () => ticketPaidRef.current, getTicket: () => lastTicketRef.current, savePaidSale,
+    ticketPaid, setTicketPaid, getTicketPaid: () => ticketPaidRef.current, getTicket: () => lastTicketRef.current, savePaidSale, otherPaid, saveOtherPaidSale,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue, discountBreakdown,
     skipMomentReward, setSkipMomentReward, skipMemberDiscount, setSkipMemberDiscount,

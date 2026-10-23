@@ -30,7 +30,8 @@ import { computeCheckout } from '@/lib/checkout-calc';
 import { addOnIdsOf, overCeiling, workOf } from '@/lib/prep-checkout';
 import { computeServiceCost } from '@/lib/service-cost';
 import { isCreditExpired } from '@/lib/deposit-policy';
-import { accountOf, checkDeskPayment, clearRefundedPayment, keepApartPayment, liveShares, markSalePaid, paidPayloadOf, readerStripe, safeId, settleTicketReader, ticketPayment, viaWords } from '@/lib/reader-sale';
+import { accountOf, addShareToTicket, checkDeskPayment, clearRefundedPayment, DISCARD_HOLD_MS, keepApartPayment, liveShares, markSalePaid, onAnyReceipt, outcomeRef, paidPayloadOf, promoteKeptApart, readerStripe, safeId, settleTicketReader, ticketPayment, viaWords } from '@/lib/reader-sale';
+import { closeScreenPaymentsFor } from '@/lib/screen-pay';
 import { methodOfVia } from '@/lib/pay-via';
 
 export const dynamic = 'force-dynamic';
@@ -49,27 +50,44 @@ const CARD_METHODS = ['card', 'terminal', 'card_on_file'];
 const OPEN = ['prepared', 'paid_waiting', 'failed', 'partial'];
 // A ticket the desk is in the middle of: paid, part paid in a split, or with a card reader payment still going.
 const busy = (p: any) => !!p && (!!ticketPayment(p) || liveShares(p).length > 0 || (p.status === 'prepared' && p.readerOpen === true));
-const usable = (p: any) => !!p && !['completed', 'discarded'].includes(String(p.status || ''));
+const usable = (p: any) => !!p && !['completed', 'discarded', 'discarding'].includes(String(p.status || ''));
 const ticketTime = (p: any) => Date.parse(p?.paidAt || p?.updatedAt || p?.preparedAt || '') || 0;
 const isAlreadyExists = (e: any) => e?.code === 6 || e?.code === 'already-exists' || /ALREADY_EXISTS|already exists/i.test(String(e?.message || ''));
 
-/** This client's open ticket that matters more than the one the desk has: one already paid — on any screen, in the last
- *  two hours (the desk lost track of it, or another screen took the payment) — else this desk's own with a card reader
- *  payment still going or part of a split paid (the page was reloaded). Another desk's unpaid ticket is never handed
- *  over: that desk is still working on it. */
-async function clientTicket(coll: any, clientId: string, deskId: string, exceptId: string): Promise<any | null> {
-  if (!clientId) return null;
+// What a sale was rung up with, compared without prices: the same visits, the same items in the same numbers, the same
+// fees. An empty cart is never "the same".
+function cartKey(p: any): string {
+  const visits = (Array.isArray(p?.appointmentIds) ? p.appointmentIds : []).map(String).sort();
+  const items = new Map<string, number>(); for (const it of Array.isArray(p?.items) ? p.items : []) { const k = `${String(it?.type || 'product')}:${String(it?.id || '')}`; items.set(k, (items.get(k) || 0) + Math.max(1, Math.round(Number(it?.quantity) || 1))); }
+  const fees = (Array.isArray(p?.feeIds) ? p.feeIds : []).map(String).sort();
+  if (!visits.length && !items.size && !fees.length) return '';
+  return JSON.stringify([visits, [...items.entries()].sort(), fees]);
+}
+
+/** This client's open tickets that matter more than the one the desk has:
+ *  - `same`: this very sale, already paid — rung up with the same cart in the last half hour (on any screen: the page
+ *    reloaded, or the desk moved to another device), or paid at this desk in the last fifteen minutes (then anything
+ *    added since is new) — else this desk's own ticket with a card reader payment still going or part of a split paid
+ *    (the page reloaded). Another desk's unpaid ticket is never handed over: that desk is still working on it.
+ *  - `other`: a different sale of theirs, paid in the last two hours but never saved. It's shown to the desk to save on
+ *    its own; it never takes the place of the sale being rung up, and nothing is taken out of the cart for it. */
+async function clientTickets(coll: any, clientId: string, deskId: string, exceptId: string, cart: any): Promise<{ same: any | null; other: any | null }> {
+  if (!clientId) return { same: null, other: null };
   // Only this client's open tickets are read (never the whole history); if that ever fails, nothing is picked up.
   const open = await coll.where('clientId', '==', clientId).where('status', 'in', OPEN).get()
     .catch(() => coll.where('clientId', '==', clientId).get()).catch(() => ({ docs: [] as any[] }));
-  const now = Date.now();
+  const now = Date.now(); const key = cartKey(cart);
   const rows = open.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => p.id !== exceptId && usable(p));
   const paid = rows.filter((p: any) => ticketPayment(p) && now - ticketTime(p) < 2 * 3600000).sort((x: any, y: any) => ticketTime(y) - ticketTime(x));
-  if (paid[0]) return paid[0];
-  const mine = rows.filter((p: any) => !!deskId && p.deskId === deskId && busy(p) && now - (Date.parse(p.updatedAt || p.preparedAt || '') || 0) < 12 * 3600000)
+  const isSame = (p: any) => (!!deskId && p.deskId === deskId && now - ticketTime(p) < 15 * 60000) || (!!key && cartKey(p.payload) === key && now - ticketTime(p) < 30 * 60000);
+  const same = paid.find(isSame) || null;
+  const other = paid.find((p: any) => !isSame(p)) || null;
+  if (same) return { same, other };
+  const mine = rows.filter((p: any) => !!deskId && p.deskId === deskId && busy(p) && !ticketPayment(p) && now - (Date.parse(p.updatedAt || p.preparedAt || '') || 0) < 12 * 3600000)
     .sort((x: any, y: any) => (Date.parse(y.updatedAt || y.preparedAt || '') || 0) - (Date.parse(x.updatedAt || x.preparedAt || '') || 0));
-  return mine[0] || null;
+  return { same: mine[0] || null, other };
 }
+const otherPaidOf = (p: any) => { const tp = ticketPayment(p); return p && tp ? { pendingId: p.id, clientName: p.clientName || null, cents: tp.cents, via: tp.via, paidAt: p.paidAt || null, items: paidPayloadOf(p).items, visits: paidPayloadOf(p).appointmentIds.length } : null; };
 
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
@@ -94,10 +112,10 @@ export async function POST(req: NextRequest) {
     const givenId = safeId(b.pendingId);
     const given: any = givenId ? (((await coll.doc(givenId).get()).data() as any) || null) : null;
     const theirs = (p: any) => !p?.clientId || !clientId || p.clientId === clientId;
-    // The desk's own ticket goes on being this sale's unless another of this client's matters more (one already paid).
+    // The desk's own ticket goes on being this sale's unless another of this client's matters more (this sale, paid).
     const keep = usable(given) && theirs(given) && busy(given);
-    const found = clientId && !keep ? await clientTicket(coll, clientId, deskId, givenId) : null;
-    const adoptId = found ? found.id : '';
+    const found = clientId ? await clientTickets(coll, clientId, deskId, givenId, b) : { same: null, other: null };
+    const adoptId = !keep && found.same ? found.same.id : '';
     const out = await db.runTransaction(async (tx: any) => {
       const gRef = givenId ? coll.doc(givenId) : null; const aRef = adoptId ? coll.doc(adoptId) : null;
       const g: any = gRef ? (((await tx.get(gRef)).data() as any) || null) : null;
@@ -114,14 +132,16 @@ export async function POST(req: NextRequest) {
         // payment for it that lands after this brings it back as paid: lib/reader-sale.)
         else if (!busy(g) && String(g.status || 'prepared') === 'prepared' && !g.paymentIntentId) tx.set(gRef, { status: 'discarded', discardedAt: at, discardedBy: 'System', discardReason: 'The desk moved on to another sale before anything was paid.', updatedAt: at }, { merge: true });
       }
+      // A different sale of theirs that's paid but not saved: the desk is shown it, to save on its own.
+      const otherPaid = found.other && found.other.id !== ref.id ? otherPaidOf(found.other) : null;
       const paid = ticketPayment(prev);
       if (paid) { tx.set(ref, { updatedAt: at, seenBy: auth.actor.name || null }, { merge: true });
-        return { pendingId: ref.id, paid, paidPayload: paidPayloadOf(prev), expectedTotal: Number(prev.expectedTotal) || 0, left }; }
+        return { pendingId: ref.id, paid, paidPayload: paidPayloadOf(prev), expectedTotal: Number(prev.expectedTotal) || 0, left, ...(otherPaid ? { otherPaid } : {}) }; }
       const shares = liveShares(prev);
       const fields = { id: ref.id, status: shares.length ? 'partial' : 'prepared', payload, clientId, clientName: cl.name || null, expectedTotal: Number(b.expectedTotal) || 0,
         preparedAt: prev.preparedAt || at, updatedAt: at, preparedBy: auth.actor.name || null, deskId: prev.deskId || deskId || null };
       if (isNew) tx.set(ref, fields); else tx.update(ref, fields);
-      return { pendingId: ref.id, ...(shares.length ? { tenders: shares, paidSoFar: shares.reduce((s2: number, x: any) => s2 + num(x.amount) + num(x.tip), 0) } : {}), left };
+      return { pendingId: ref.id, ...(shares.length ? { tenders: shares, paidSoFar: shares.reduce((s2: number, x: any) => s2 + num(x.amount) + num(x.tip), 0) } : {}), left, ...(otherPaid ? { otherPaid } : {}) };
     });
     return NextResponse.json({ ok: true, ...out });
   }
@@ -133,7 +153,7 @@ export async function POST(req: NextRequest) {
     const ref = db.doc(`${T}/pendingCheckouts/${safeId(b.pendingId)}`); const pc: any = (await ref.get()).data();
     if (!pc) return NextResponse.json({ ok: false, error: 'Start the split again — the ticket wasn’t found.' }, { status: 404 });
     if (pc.status === 'completed') return NextResponse.json({ ok: false, error: 'This sale is already finished.' }, { status: 409 });
-    if (pc.status === 'discarded') return NextResponse.json({ ok: false, error: 'This sale was discarded. Ring it up again.' }, { status: 409 });
+    if (pc.status === 'discarded' || pc.status === 'discarding') return NextResponse.json({ ok: false, error: 'This sale was discarded. Ring it up again.' }, { status: 409 });
     // A sale already paid in full can't take split shares on top: a card share already charged is kept apart for a manager.
     const paidAll = ticketPayment(pc);
     if (paidAll && action === 'tender') {
@@ -153,8 +173,14 @@ export async function POST(req: NextRequest) {
         else if (!c.ok) return NextResponse.json({ ok: false, error: 'That card payment wasn’t taken at the desk for this sale, so it isn’t refunded from here. A manager can refund it from Money.' }, { status: 409 });
         else { refunded = await refundPaymentIntent(acct, c.id); if (!refunded) return NextResponse.json({ ok: false, error: 'The card refund didn’t go through — try again, or refund it from Money.' }, { status: 502 }); }
       }
-      const left = tenders.filter((x) => x.id !== tn.id);
-      await ref.set({ tenders: left, status: left.length ? 'partial' : 'prepared', updatedAt: new Date().toISOString(), removedTenders: FieldValue.arrayUnion({ ...tn, removedAt: new Date().toISOString(), removedBy: auth.actor.name, refunded }) }, { merge: true });
+      // Taken off in one step, so a share being added at the same moment isn't lost.
+      const left: any[] = await db.runTransaction(async (tx: any) => {
+        const cur: any = ((await tx.get(ref)).data() as any) || {}; const now0 = new Date().toISOString();
+        const rest = (Array.isArray(cur.tenders) ? cur.tenders : []).filter((x: any) => x && x.id !== tn.id);
+        tx.set(ref, { tenders: rest, status: rest.some((x: any) => !x.refundedAt) ? 'partial' : 'prepared', paidSoFar: Math.round(rest.filter((x: any) => !x.refundedAt).reduce((s2: number, x: any) => s2 + num(x.amount) + num(x.tip), 0) * 100) / 100,
+          updatedAt: now0, removedTenders: FieldValue.arrayUnion({ ...tn, removedAt: now0, removedBy: auth.actor.name, refunded }) }, { merge: true });
+        return rest;
+      });
       return NextResponse.json({ ok: true, tenders: left, paid: left.reduce((s, x) => s + num(x.amount) + num(x.tip), 0), refunded });
     }
     const m = String(b.method || ''); if (!['cash', 'card', 'other'].includes(m)) return NextResponse.json({ ok: false, error: 'Choose how this share was paid.' }, { status: 400 });
@@ -166,16 +192,26 @@ export async function POST(req: NextRequest) {
     if (m === 'card') {
       const piId = String(b.stripePaymentIntentId || ''); if (!piId) return NextResponse.json({ ok: false, error: 'That card payment has no reference.' }, { status: 400 });
       if (tenders.some((x) => x.stripePaymentIntentId === piId)) return NextResponse.json({ ok: true, tenders, paid: tenders.reduce((s, x) => s + num(x.amount) + num(x.tip), 0), already: true });
-      const dup = await db.collection(`${T}/receipts`).where('stripePaymentIntentId', '==', piId).get(); if (!dup.empty) return NextResponse.json({ ok: false, error: 'That card payment is already on another sale.' }, { status: 409 });
+      // Already on a receipt (as a sale's payment or one share of a split): never a share here as well.
+      const dup = await onAnyReceipt(db, tenantId, piId).catch(() => 'unknown');
+      if (dup === 'unknown') return NextResponse.json({ ok: false, error: 'We couldn’t check that card payment just now. Try again in a moment; the card won’t be charged again.' }, { status: 503 });
+      if (dup) return NextResponse.json({ ok: false, error: 'That card payment is already on another sale.' }, { status: 409 });
       if (!acct || !stripe) return NextResponse.json({ ok: false, error: 'Card payments aren’t set up for this business.' }, { status: 400 });
       const c = await checkDeskPayment(stripe, acct, piId, tenantId, ref.id);
       if (!c.ok) return NextResponse.json({ ok: false, error: c.status === 'unknown' ? 'We couldn’t reach card payments to check that share. Try again in a moment; the card won’t be charged again.' : c.error }, { status: c.status === 'unknown' ? 503 : 409 });
       if (Math.abs(c.cents - Math.round((amount + tipPart) * 100)) > 1) return NextResponse.json({ ok: false, error: 'That card payment is for a different amount.' }, { status: 409 });
       tn.stripePaymentIntentId = c.id; tn.via = String(b.via || c.via || 'card').slice(0, 30);
     }
-    const next = [...tenders, tn];
-    await ref.set({ tenders: next, status: 'partial', paidSoFar: next.reduce((s, x) => s + num(x.amount) + num(x.tip), 0), updatedAt: new Date().toISOString() }, { merge: true });
-    return NextResponse.json({ ok: true, tender: tn, tenders: next, paid: next.reduce((s, x) => s + num(x.amount) + num(x.tip), 0) });
+    // Added in one step (two shares taken at once are both kept); a sale finished or paid in full meanwhile takes no
+    // share — a card share is kept apart for a manager instead.
+    const added = await addShareToTicket(db, tenantId, ref.id, tn);
+    if (added.result === 'closed' || added.result === 'paid') {
+      const extra = m === 'card' ? await keepApartPayment(db, tenantId, ref.id, String(tn.stripePaymentIntentId)) : null;
+      return NextResponse.json({ ok: false, code: added.result === 'paid' ? 'ticket_paid' : 'sale_done', extra, error: `This sale was ${added.result === 'paid' ? 'already paid' : 'already finished'}.${extra ? ` The $${(extra.cents / 100).toFixed(2)} card share is kept apart for a manager to refund.` : ''}` }, { status: 409 });
+    }
+    if (added.result === 'no_ticket') return NextResponse.json({ ok: false, error: 'Start the split again — the ticket wasn’t found.' }, { status: 404 });
+    const next = added.tenders;
+    return NextResponse.json({ ok: true, ...(added.result === 'already' ? { already: true } : { tender: tn }), tenders: next, paid: next.filter((x: any) => !x.refundedAt).reduce((s, x) => s + num(x.amount) + num(x.tip), 0) });
   }
   // ── Managers: a sale paid twice on the card reader (lib/reader-sale) — refund the extra payment to the card, or keep it ──
   if (action === 'reader_extra') {
@@ -188,9 +224,16 @@ export async function POST(req: NextRequest) {
     if (decision === 'keep' && !reason) return NextResponse.json({ ok: false, error: 'Say why it’s being kept.' }, { status: 400 });
     // The payment a recorded sale was paid with is never refunded from here (that's a refund of the sale itself).
     if (decision === 'refund' && piId === String(pc.paymentIntentId || '')) return NextResponse.json({ ok: false, error: 'That payment pays for this sale, so it isn’t refunded from here.' }, { status: 409 });
-    if (decision === 'refund' && !(await db.collection(`${T}/receipts`).where('stripePaymentIntentId', '==', piId).limit(1).get()).empty) {
-      await ref.set({ readerExtra: { [piId]: { state: 'on_receipt', decidedAt: new Date().toISOString() } }, readerExtraOpen: Object.entries<any>(pc.readerExtra || {}).some(([id, e]) => id !== piId && e?.state === 'open') }, { merge: true });
-      return NextResponse.json({ ok: false, error: 'That payment is on a recorded sale’s receipt, so it isn’t extra. Refund it from that sale if it needs refunding.' }, { status: 409 });
+    // On a recorded sale's receipt (as its payment or one share of a split), or one of this sale's own split shares: it
+    // isn't extra, so it's never refunded from here (that would refund a sale that's paid for).
+    if (decision === 'refund') {
+      const own = (Array.isArray(pc.tenders) ? pc.tenders : []).some((x: any) => x && x.stripePaymentIntentId === piId);
+      const rc = own ? 'own' : await onAnyReceipt(db, tenantId, piId).catch(() => 'unknown');
+      if (rc === 'unknown') return NextResponse.json({ ok: false, error: 'We couldn’t check that payment just now. Nothing was refunded. Try again in a moment.' }, { status: 503 });
+      if (rc) {
+        await ref.set({ readerExtra: { [piId]: { state: 'on_receipt', decidedAt: new Date().toISOString() } }, readerExtraOpen: Object.entries<any>(pc.readerExtra || {}).some(([id, e]) => id !== piId && e?.state === 'open') }, { merge: true });
+        return NextResponse.json({ ok: false, error: 'That payment is on a recorded sale’s receipt, so it isn’t extra. Refund it from that sale if it needs refunding.' }, { status: 409 });
+      }
     }
     const left = Object.entries<any>(pc.readerExtra || {}).some(([id, e]) => id !== piId && e?.state === 'open');
     let outside = false;
@@ -208,6 +251,13 @@ export async function POST(req: NextRequest) {
       else if (!(await refundPaymentIntent(acct, c.id))) return NextResponse.json({ ok: false, error: 'The card refund didn’t go through. Try again; it won’t be refunded twice.' }, { status: 502 });
     }
     await ref.set({ readerExtra: { [piId]: { state: decision === 'refund' ? 'refunded' : 'kept', decidedAt: new Date().toISOString(), decidedBy: auth.actor.name || null, ...(reason ? { reason } : {}), ...(outside ? { refundedOutside: true } : {}) } }, readerExtraOpen: left, updatedAt: new Date().toISOString() }, { merge: true });
+    // Kept: the money is the business's, so it's in the books (once), with why it was kept.
+    if (decision === 'keep') {
+      const tx0 = db.doc(`${T}/transactions/kept_${safeId(piId)}`);
+      await tx0.create(clean({ id: tx0.id, date: new Date().toISOString(), description: `Extra card payment kept — ${reason}`, clientOrVendor: pc.clientName || 'Client', clientId: pc.clientId || null, payerClientId: pc.clientId || null,
+        type: 'income', context: 'Business', category: 'Other Income', taxBucket: 'revenue', amount: Math.round(num(extra.cents)) / 100, paymentMethod: ({ card_reader: 'Card reader', client_screen: 'Client screen', card_on_file: 'Card on file' } as Record<string, string>)[String(extra.via || '')] || 'Card',
+        hasReceipt: false, stripePaymentIntentId: piId, pendingId: ref.id, keptBy: auth.actor.name || null, tenantId })).catch(() => {});
+    }
     await logAuditAdmin(db, tenantId, { action: decision === 'refund' ? 'checkout.extra_refunded' : 'checkout.extra_kept', targetType: 'client', targetId: pc.clientId || '', summary: `${pc.clientName || 'A client'} paid twice: the extra $${(num(extra.cents) / 100).toFixed(2)} ${viaWords(extra.via)} was ${decision === 'refund' ? (outside ? 'already refunded in Stripe' : 'refunded to the card') : `kept — ${reason}`}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
     return NextResponse.json({ ok: true, state: decision === 'refund' ? 'refunded' : 'kept' });
   }
@@ -229,13 +279,55 @@ export async function POST(req: NextRequest) {
       const rc = byId.exists ? byId : byTicket && !byTicket.empty ? byTicket.docs[0] : byPayment && !byPayment.empty ? byPayment.docs[0] : null;
       if (rc) { await ref.set({ status: 'completed', receiptId: rc.id, completedAt: (rc.data() as any)?.date || new Date().toISOString(), updatedAt: new Date().toISOString() }, { merge: true });
         return NextResponse.json({ ok: true, already: true, recorded: true, receiptId: rc.id, total: (rc.data() as any)?.total ?? null }); } }
-    { const s = await settleTicketReader(db, tenantId, ref.id, action);
+    const oRef = outcomeRef(db, tenantId, ref.id);
+    if (pc.status === 'discarding') {
+      if (Date.now() - (Date.parse(pc.discardingAt || '') || 0) < DISCARD_HOLD_MS) return NextResponse.json({ ok: false, error: 'A manager is discarding this sale right now. Check it again in a minute.' }, { status: 409 });
+      // A discard that stopped partway (its connection dropped): taken back, so the sale can be recorded or discarded again.
+      if (action === 'record') { await db.runTransaction(async (tx: any) => {
+        const cur: any = ((await tx.get(ref)).data() as any) || {}; const o: any = await tx.get(oRef); const od: any = o.exists ? (o.data() || {}) : null;
+        if (cur.status !== 'discarding' || Date.now() - (Date.parse(cur.discardingAt || '') || 0) < DISCARD_HOLD_MS) return;
+        if (od?.kind === 'discarding') tx.delete(oRef);
+        tx.set(ref, { status: cur.discardFrom || 'prepared', discardingAt: null, discardingBy: null, discardFrom: null, updatedAt: new Date().toISOString() }, { merge: true });
+      }); pc = (await ref.get()).data() || pc; }
+    }
+    const paidAs = ['cash', 'other'].includes(String(b.paidAs || '')) ? String(b.paidAs) : '';
+    const reason = String(b.reason || '').trim().slice(0, 200);
+    if (action === 'discard' && !reason) return NextResponse.json({ ok: false, error: 'Say why it’s being discarded.' }, { status: 400 });
+    // A payment still open for it on the client screen is closed first (one that went through goes on the sale), then
+    // its card reader payments are settled: recording captures an approved hold, unless the manager says it was paid
+    // another way (then the hold is released, never taken on top); discarding releases it.
+    const wasPaid = !!ticketPayment(pc);
+    await closeScreenPaymentsFor(db, tenantId, ref.id).catch(() => 0);
+    { const s = await settleTicketReader(db, tenantId, ref.id, action, { release: action === 'record' && !!paidAs });
       if (!s.ok) return NextResponse.json({ ok: false, code: 'reader_open', error: s.error }, { status: s.status === 'unknown' ? 503 : 409 });
       pc = (await ref.get()).data() || pc; }
     if (!isMgr && !ticketPayment(pc)) return NextResponse.json({ ok: false, error: 'Only a manager can do that.' }, { status: 403 });
     const t0: any = ((await db.doc(T).get()).data() as any) || {}; const acct = accountOf(t0); const stripe = readerStripe();
     if (action === 'discard') {
-      const reason = String(b.reason || '').trim().slice(0, 200); if (!reason) return NextResponse.json({ ok: false, error: 'Say why it’s being discarded.' }, { status: 400 });
+      // Claimed first, in one step with the ticket's outcome (lib/reader-sale): a save of this sale that hasn't finished
+      // records nothing once the discard has begun, and one that already finished stops the discard — so money is never
+      // given back for a sale that's recorded. Let go again if a refund doesn't go through.
+      const claim: any = await db.runTransaction(async (tx: any) => {
+        const cur: any = ((await tx.get(ref)).data() as any) || null; const o: any = await tx.get(oRef); const od: any = o.exists ? (o.data() || {}) : null;
+        const at0 = new Date().toISOString();
+        if (!cur) return { status: 404, error: 'That sale wasn’t found.' };
+        if (cur.status === 'completed' || od?.kind === 'saved') return { already: true, receiptId: cur.receiptId || od?.receiptId || null };
+        if (cur.status === 'discarded' || od?.kind === 'discarded') return { status: 409, error: 'This sale was already discarded.' };
+        if (od?.kind === 'discarding' && Date.now() - (Date.parse(od.at || '') || 0) < DISCARD_HOLD_MS) return { status: 409, error: 'A manager is discarding this sale right now. Check it again in a minute.' };
+        const from = cur.status === 'discarding' ? String(cur.discardFrom || 'prepared') : String(cur.status || 'prepared'); const token = rid();
+        tx.set(oRef, { kind: 'discarding', at: at0, by: auth.actor.name || null, token });
+        tx.set(ref, { status: 'discarding', discardingAt: at0, discardingBy: auth.actor.name || null, discardFrom: from, updatedAt: at0 }, { merge: true });
+        return { ok: true, from, token, pc: cur };
+      });
+      if (claim.already) { if (claim.receiptId) await ref.set({ status: 'completed', receiptId: claim.receiptId, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+        return NextResponse.json({ ok: true, already: true, recorded: true, receiptId: claim.receiptId }); }
+      if (!claim.ok) return NextResponse.json({ ok: false, error: claim.error }, { status: claim.status || 409 });
+      pc = { ...claim.pc, status: claim.from };
+      const unclaim = async () => { await db.runTransaction(async (tx: any) => {
+        const cur: any = ((await tx.get(ref)).data() as any) || {}; const o: any = await tx.get(oRef);
+        if (o.exists && (o.data() || {}).token === claim.token) tx.delete(oRef);
+        if (cur.status === 'discarding') tx.set(ref, { status: claim.from, discardingAt: null, discardingBy: null, discardFrom: null, updatedAt: new Date().toISOString() }, { merge: true });
+      }).catch(() => {}); };
       // A partly paid split: refund each card share taken for this sale, and say how much cash to hand back. A card
       // payment that wasn't taken at the desk for this sale is never refunded from here.
       const shares: any[] = Array.isArray(pc.tenders) ? pc.tenders : []; let refundedCards = 0; const failed: string[] = []; const notOurs: string[] = [];
@@ -248,24 +340,27 @@ export async function POST(req: NextRequest) {
         if (!c.ok) { notOurs.push(`$${(num(x.amount) + num(x.tip)).toFixed(2)}`); x.notRefunded = 'not_this_sale'; continue; }
         if (await refundPaymentIntent(acct, c.id)) { x.refundedAt = new Date().toISOString(); refundedCards++; } else failed.push(`$${(num(x.amount) + num(x.tip)).toFixed(2)}`);
       }
-      if (failed.length) { await ref.set({ tenders: shares }, { merge: true }); return NextResponse.json({ ok: false, error: `The refund for ${failed.join(', ')} didn’t go through — try again (cards already refunded won’t be refunded twice).` }, { status: 502 }); }
+      if (failed.length) { await ref.set({ tenders: shares }, { merge: true }); await unclaim(); return NextResponse.json({ ok: false, error: `The refund for ${failed.join(', ')} didn’t go through — try again (cards already refunded won’t be refunded twice).` }, { status: 502 }); }
       const cashToReturn = Math.round(shares.filter((y) => y.method === 'cash').reduce((a, y) => a + num(y.amount) + num(y.tip), 0) * 100) / 100;
       // A sale paid by card (on the card reader, the client screen, a saved or typed card) and never recorded:
       // discarding it refunds that card — only when the payment was taken at the desk for this sale.
       let paymentRefunded = false; let paymentKept = false;
       if (pc.paymentIntentId && ['paid_waiting', 'failed'].includes(String(pc.status)) && !pc.paymentRefundedAt) {
-        if (!acct || !stripe) return NextResponse.json({ ok: false, error: 'Card payments aren’t set up, so its card payment can’t be refunded from here.' }, { status: 400 });
+        if (!acct || !stripe) { await unclaim(); return NextResponse.json({ ok: false, error: 'Card payments aren’t set up, so its card payment can’t be refunded from here.' }, { status: 400 }); }
         const c = await checkDeskPayment(stripe, acct, String(pc.paymentIntentId), tenantId, ref.id);
-        if (!c.ok && c.status === 'unknown') return NextResponse.json({ ok: false, error: 'We couldn’t reach card payments to check its card payment. Nothing was refunded or discarded. Try again in a moment.' }, { status: 503 });
+        if (!c.ok && c.status === 'unknown') { await unclaim(); return NextResponse.json({ ok: false, error: 'We couldn’t reach card payments to check its card payment. Nothing was refunded or discarded. Try again in a moment.' }, { status: 503 }); }
         if (!c.ok && c.status === 'refunded') paymentRefunded = true;   // already given back (in Stripe itself)
         else if (!c.ok) paymentKept = true;
-        else { if (!(await refundPaymentIntent(acct, c.id))) return NextResponse.json({ ok: false, error: 'The card refund didn’t go through. Try again; a card already refunded isn’t refunded twice.' }, { status: 502 });
+        else { if (!(await refundPaymentIntent(acct, c.id))) { await unclaim(); return NextResponse.json({ ok: false, error: 'The card refund didn’t go through. Try again; a card already refunded isn’t refunded twice.' }, { status: 502 }); }
           paymentRefunded = true; refundedCards++; }
       }
       const at = new Date().toISOString();
-      await ref.set({ status: 'discarded', discardedAt: at, discardedBy: auth.actor.name, discardReason: reason, ...(shares.length ? { tenders: shares, cashToReturn } : {}),
+      const fin = db.batch();
+      fin.set(oRef, { kind: 'discarded', at, by: auth.actor.name || null, token: claim.token, reason });
+      fin.set(ref, { status: 'discarded', discardedAt: at, discardedBy: auth.actor.name, discardReason: reason, discardingAt: null, discardFrom: null, ...(shares.length ? { tenders: shares, cashToReturn } : {}),
         ...(paymentRefunded ? { paymentRefundedAt: at, ...(pc.readerPis?.[String(pc.paymentIntentId)] ? { readerPis: { [String(pc.paymentIntentId)]: { state: 'refunded', settledAt: at } } } : {}) } : {}),
         ...(paymentKept ? { paymentNotRefunded: 'not_this_sale' } : {}) }, { merge: true });
+      await fin.commit();
       await logAuditAdmin(db, tenantId, { action: 'checkout.discarded', targetType: 'client', targetId: pc.clientId || '', summary: `Unrecorded sale for ${pc.clientName || 'a client'} ($${Number(pc.expectedTotal || 0).toFixed(2)}) discarded — ${reason}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
       const kept = [...(paymentKept ? [`$${(num(pc.paidCents) / 100).toFixed(2)}`] : []), ...notOurs];
       return NextResponse.json({ ok: true, discarded: true, refundedCards, cashToReturn,
@@ -278,13 +373,15 @@ export async function POST(req: NextRequest) {
     // Nothing paid on it at the desk: a manager says how it was paid (cash, or another way). A card sale is only ever
     // recorded with the card payment that paid for it.
     const unpaid = !pc.paymentIntentId && !liveShares(pc).length;
-    const paidAs = ['cash', 'other'].includes(String(b.paidAs || '')) ? String(b.paidAs) : '';
     const rungAs = String(pc.payload?.payment?.method || '');
     if (unpaid && !paidAs && (!rungAs || CARD_METHODS.includes(rungAs))) return NextResponse.json({ ok: false, code: 'say_how', error: 'Say how it was paid: in cash or another way. A card sale is recorded with its card payment.' }, { status: 400 });
     const replay = { ...(pc.payload || {}), clientId: pc.payload?.clientId || pc.clientId || '', tenantId, pendingId: ref.id, expectedTotal: Math.round((num(pc.expectedTotal) + paidTip) * 100) / 100, ...(paidTip > 0 ? { tip: Math.round((num(pc.payload?.tip) + paidTip) * 100) / 100, ...(tipParts && Object.keys(tipParts).length ? { tipAllocations: tipParts } : {}) } : {}),
       payment: { ...(pc.payload?.payment || {}), stripePaymentIntentId: null, ...(unpaid && paidAs ? { method: paidAs, amountTendered: num(pc.expectedTotal) } : {}), ...(liveShares(pc).length ? { method: 'split' } : {}),
         ...(pc.paymentIntentId ? { stripePaymentIntentId: pc.paymentIntentId, method: methodOfVia(pc.paidVia) } : {}) }, recordedLater: true };
     const r = await runCheckout(db, tenantId, replay, auth, req);
+    // Said to be paid another way, but a card payment for it went through (found as it was settled): it's recorded with
+    // that payment, and the manager is told.
+    if (r.body?.ok && paidAs && !wasPaid && pc.paymentIntentId) r.body.warnings = [...(r.body.warnings || []), `A ${pc.paidCents ? `$${(num(pc.paidCents) / 100).toFixed(2)} ` : ''}card payment went through for this sale, so it’s recorded with that payment, not as ${paidAs === 'cash' ? 'cash' : 'paid another way'}. If they paid ${paidAs === 'cash' ? 'cash' : 'another way'} too, give that back.`];
     return NextResponse.json(r.body, { status: r.status });
   }
   const r = await runCheckout(db, tenantId, b, auth, req);
@@ -300,17 +397,39 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   let ticket0: any = pendingRef ? ((await pendingRef.get()).data() || null) : null;
   const incomingPi = String(b.payment?.stripePaymentIntentId || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 80);
   const methodIn = String(b.payment?.method || 'card');
-  // Never record the same sale twice — by its ticket, or by its card payment.
-  if (incomingPi) { const dup = await db.collection(`${T0}/receipts`).where('stripePaymentIntentId', '==', incomingPi).get();
-    if (!dup.empty) {
-      // Saved before (the answer was lost): the ticket is marked finished too, so it doesn't come back as unrecorded.
-      if (pendingRef && ticket0 && ticket0.status !== 'completed' && (!ticket0.paymentIntentId || ticket0.paymentIntentId === incomingPi)) await pendingRef.set({ status: 'completed', receiptId: dup.docs[0].id, completedAt: new Date().toISOString(), paymentIntentId: incomingPi }, { merge: true }).catch(() => {});
-      return json({ ok: true, already: true, receiptId: dup.docs[0].id, total: (dup.docs[0].data() as any).total ?? null, warnings: [] }); } }
+  // Never record the same sale twice — by its ticket, or by its card payment (as a sale's payment or one share of a split).
+  if (incomingPi) {
+    const dup: any = await onAnyReceipt(db, tenantId, incomingPi).catch(() => 'unknown');
+    if (dup === 'unknown') return json({ ok: false, code: 'payment_unknown', error: 'We couldn’t check the card payment just now, so the sale isn’t saved yet. Nothing was charged again. Tap Save again in a moment.' }, 503);
+    if (dup) {
+      const d: any = dup.data() || {};
+      // This sale's own receipt (saved before, and the answer was lost): the ticket is marked finished too, so it doesn't
+      // come back as unrecorded. Only ever with its own receipt: one with this payment on another sale's receipt is
+      // never this sale's, so the ticket is left as it is (its sale isn't lost).
+      const mine = !pendingRef || dup.id === `tk_${pendingRef.id}` || d.pendingId === pendingRef.id || (!d.pendingId && !!ticket0 && String(ticket0.paymentIntentId || '') === incomingPi);
+      if (!mine) return json({ ok: false, code: 'payment_used', error: 'That card payment is already on another sale’s receipt, so it can’t pay for this one. Nothing was recorded.' }, 409);
+      if (pendingRef && ticket0 && ticket0.status !== 'completed') await pendingRef.set({ status: 'completed', receiptId: dup.id, completedAt: d.date || new Date().toISOString(), ...(d.stripePaymentIntentId === incomingPi ? { paymentIntentId: incomingPi } : {}) }, { merge: true }).catch(() => {});
+      return json({ ok: true, already: true, receiptId: dup.id, total: d.total ?? null, warnings: [] });
+    }
+  }
+  // Being discarded by a manager: never saved now (the discard gives its money back).
+  if (ticket0?.status === 'discarding') return json({ ok: false, code: 'sale_discarding', pendingId: pendingRef.id, error: 'A manager is discarding this sale, so it wasn’t saved. Nothing was recorded. Check Needs attention.' }, 409);
   if (ticket0?.status === 'completed') {
-    // Saved before (the answer was lost): nothing is recorded twice. A card payment it was never paid with, and that's
-    // on no receipt, is another sale's (charged on a screen still holding this finished ticket): that sale is recorded
-    // on its own, so the payment is never left without one.
+    // Saved before (the answer was lost): nothing is recorded twice.
     if (!incomingPi || incomingPi === String(ticket0.paymentIntentId || '')) return json({ ok: true, already: true, receiptId: ticket0.receiptId || null, checkoutSessionId: ticket0.checkoutSessionId || null, total: ticket0.total ?? null, warnings: [] });
+    // A card payment taken for this finished sale again (on a screen still holding it) and on no receipt: it's extra,
+    // kept apart for a manager to refund — never recorded as a sale of its own, which would record what the sale was
+    // rung up with twice. A payment from before payments named their sale is that screen's next sale, recorded on its own.
+    const tv: any = ((await db.doc(T0).get()).data() as any) || {}; const vAcct = accountOf(tv); const vStripe = readerStripe();
+    if (vAcct && vStripe) {
+      const c = await checkDeskPayment(vStripe, vAcct, incomingPi, tenantId, pendingRef.id, { legacy: methodIn !== 'split' });
+      if (!c.ok && c.status === 'unknown') return json({ ok: false, code: 'payment_unknown', error: 'We couldn’t reach card payments to check the payment, so the sale isn’t saved yet. Nothing was charged again. Tap Save again in a moment.' }, 503);
+      if (c.ok && !c.legacy) {
+        const extra = await keepApartPayment(db, tenantId, pendingRef.id, c.id).catch(() => null);
+        return json({ ok: false, code: 'sale_done', pendingId: pendingRef.id, receiptId: ticket0.receiptId || null, extra,
+          error: `This sale was already saved, so the $${(c.cents / 100).toFixed(2)} card payment taken for it again wasn’t used. ${extra ? 'It’s kept apart for a manager to refund in Needs attention.' : 'A manager can refund it from Money.'}` }, 409);
+      }
+    }
     pendingRef = null; ticket0 = null;
   }
   // A discarded ticket isn't used again, nor one that's another client's (the desk switched clients before it was saved
@@ -347,7 +466,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // two hours) is saved first, never paid for again — and this desk's own split or card reader payment is finished first.
   // (A manager recording a ticket from Needs attention chooses which one themselves.)
   if (!incomingPi && methodIn !== 'split' && !ticketPaid && clientIdIn && b.recordedLater !== true) {
-    const found = await clientTicket(coll, clientIdIn, deskId, pendingRef ? pendingRef.id : '');
+    // Only this very sale (the same cart, or this desk's paid ticket from the last few minutes): another sale of theirs
+    // that's paid but not saved is shown to the desk to save on its own, and never stops this one.
+    const found = (await clientTickets(coll, clientIdIn, deskId, pendingRef ? pendingRef.id : '', b)).same;
     const fp = found ? ticketPayment(found) : null;
     if (fp) return json({ ok: false, code: 'ticket_paid', pendingId: found.id, paidWith: fp, paidPayload: paidPayloadOf(found),
       error: `${found.clientName || 'This client'}’s sale is already paid${fp.cents ? `: $${(fp.cents / 100).toFixed(2)}` : ''} ${viaWords(fp.via)}. Save it as it was paid first. Nothing was recorded.` }, 409);
@@ -361,11 +482,19 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (incomingPi) {
     const tv: any = ((await db.doc(T0).get()).data() as any) || {}; const vAcct = accountOf(tv); const vStripe = readerStripe();
     if (!vAcct || !vStripe) return json({ ok: false, code: 'payment_invalid', error: 'Card payments aren’t set up for this business, so a card payment can’t be saved with this sale.' }, 400);
-    const c = await checkDeskPayment(vStripe, vAcct, incomingPi, tenantId, askedId);
+    // A payment from before payments named their sale pays for a whole sale only (never a share of a split).
+    const c = await checkDeskPayment(vStripe, vAcct, incomingPi, tenantId, askedId, { legacy: methodIn !== 'split', ticketsOwn: !!ticket0 && String(ticket0.paymentIntentId || '') === incomingPi });
     if (!c.ok) {
       if (c.status === 'unknown') return json({ ok: false, code: 'payment_unknown', error: 'We couldn’t reach card payments to check the payment, so the sale isn’t saved yet. Nothing was charged again. Tap Save again in a moment.' }, 503);
       if (c.status === 'refunded') {
-        if (pendingRef && ticket0?.paymentIntentId === incomingPi) await clearRefundedPayment(db, tenantId, pendingRef.id, incomingPi).catch(() => {});
+        if (pendingRef && (!ticket0?.paymentIntentId || ticket0.paymentIntentId === incomingPi)) {
+          if (ticket0?.paymentIntentId === incomingPi) await clearRefundedPayment(db, tenantId, pendingRef.id, incomingPi).catch(() => {});
+          // Another payment for this sale was kept apart: it pays for the sale now, so the client isn't charged a third time.
+          const promoted = await promoteKeptApart(db, vStripe, vAcct, tenantId, pendingRef.id).catch(() => null);
+          if (promoted) { const pc2: any = ((await pendingRef.get()).data() as any) || {};
+            return json({ ok: false, code: 'ticket_paid', pendingId: pendingRef.id, paidWith: promoted, paidPayload: paidPayloadOf(pc2),
+              error: `That card payment was refunded, but the $${(promoted.cents / 100).toFixed(2)} ${viaWords(promoted.via)} kept apart for this sale pays for it now. Save the sale with that payment. Nothing was charged.` }, 409); }
+        }
         return json({ ok: false, code: 'payment_refunded', error: 'That card payment was refunded, so it can’t pay for this sale. Take the payment again.' }, 409);
       }
       if (c.status === 'other_ticket') {
@@ -389,7 +518,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     try {
       if (verified && !ticketPaid) await markSalePaid(db, tenantId, pendingRef.id, verified.pi, verified.via);
       await db.runTransaction(async (tx: any) => { const cur: any = ((await tx.get(pendingRef)).data() as any) || null;
-        if (!cur || ['completed', 'discarded'].includes(String(cur.status || ''))) return;
+        if (!cur || ['completed', 'discarded', 'discarding'].includes(String(cur.status || ''))) return;
         tx.set(pendingRef, { status: 'failed', lastError: why.slice(0, 300), failedAt: new Date().toISOString() }, { merge: true }); });
     } catch (e) { console.error('[checkout] ticket not marked failed', e); }
   };
@@ -559,6 +688,20 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   { let over = giftUse.reduce((s2, g) => s2 + g.cents, 0) - Math.round(num((calc as any).giftCard) * 100); for (let i = giftUse.length - 1; i >= 0 && over > 0; i--) { const cut = Math.min(over, giftUse[i].cents); giftUse[i].cents -= cut; over -= cut; } }
   const recoveryReason = String(b.recovery?.reason || 'Service Recovery Adjustment').slice(0, 200);
   const cardSurcharge = Math.max(0, num(pay.cardSurcharge));
+  // ── Deposit credit (newest available, not expired) ──
+  let depositCredit: any = null;
+  try {
+    let cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientId', '==', clientId).get();
+    if (cs.empty && client.email) cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
+    const found = cs.docs.map((d: any) => ({ ref: d.ref, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt)).sort((x: any, y: any) => Date.parse(y.createdAt || 0) - Date.parse(x.createdAt || 0));
+    depositCredit = found[0] || null;
+  } catch (e) { console.warn('[checkout] deposit credit lookup', e); }
+  const depositCreditDollars = depositCredit ? num(depositCredit.amountDollars ?? num(depositCredit.amountCents) / 100) : 0;
+
+  // A card sale is only ever saved with the card payment that paid for it (checked above): one with no card payment is
+  // refused before anything is used up, so a sale is never recorded as paid by card when nothing was charged.
+  if (CARD_METHODS.includes(method) && !verified && Math.round((calc.total - Math.min(depositCreditDollars, calc.total)) * 100) > 0)
+    return json({ ok: false, code: 'card_unpaid', error: 'This sale’s card payment wasn’t found, so it isn’t saved. Take the payment again, or choose how they paid. Nothing was recorded.' }, 409);
   // ── Approvals (checked HERE — the browser can't skip them). Managers checking out approve by being signed in. ──
   const actorIsManager = isApprover(auth.actor.role);
   const approvedWaivers: Record<string, { by: string; reason: string | null }> = {};
@@ -597,16 +740,6 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     if (o.over) { await failPending('Over the price the client agreed.'); return json({ ok: false, error: `${v.appointment.clientName || 'This visit'} agreed to up to $${(o.ceiling || 0).toFixed(2)} — this is $${o.by.toFixed(2)} more. Take off what wasn’t done, or record that they agreed to the higher price in person.` }, 409); }
   }
   const expected = num(b.expectedTotal); const mismatch = Number.isFinite(expected) && b.expectedTotal !== undefined && Math.abs(expected - calc.total) > 0.01;
-
-  // ── Deposit credit (newest available, not expired) ──
-  let depositCredit: any = null;
-  try {
-    let cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientId', '==', clientId).get();
-    if (cs.empty && client.email) cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
-    const found = cs.docs.map((d: any) => ({ ref: d.ref, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt)).sort((x: any, y: any) => Date.parse(y.createdAt || 0) - Date.parse(x.createdAt || 0));
-    depositCredit = found[0] || null;
-  } catch (e) { console.warn('[checkout] deposit credit lookup', e); }
-  const depositCreditDollars = depositCredit ? num(depositCredit.amountDollars ?? num(depositCredit.amountCents) / 100) : 0;
 
   // ── Write it all, together ──
   const batch = db.batch();
@@ -821,7 +954,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   const chargedCents = ticketPaid && ticketPaid.cents > 0 ? ticketPaid.cents : verified ? verified.cents : 0;   // whichever way the card was taken
   const paidDiffers = chargedCents > 0 && Math.abs(chargedCents - cardDueCents) > 1 ? { paidCents: chargedCents, dueCents: cardDueCents } : null;
   const reviewNotes = [mismatch ? `The screen showed $${expected.toFixed(2)}; recorded $${calc.total.toFixed(2)}.` : '', paidDiffers ? `The card was charged $${(paidDiffers.paidCents / 100).toFixed(2)}; the sale comes to $${(paidDiffers.dueCents / 100).toFixed(2)}.` : ''].filter(Boolean);
-  batch.create(receiptRef, clean({ id: receiptRef.id, pendingId: pendingRef ? pendingRef.id : null, detail, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
+  // Every card payment on it — the sale's own, or each card share of a split — so a payment is never used for a second
+  // sale, kept apart as extra, or refunded as extra once it's on this receipt (lib/reader-sale onAnyReceipt).
+  const paymentIntentIds = [...new Set([pay.stripePaymentIntentId, ...(split || []).map((x: any) => x?.stripePaymentIntentId)].filter(Boolean).map(String))];
+  batch.create(receiptRef, clean({ id: receiptRef.id, pendingId: pendingRef ? pendingRef.id : null, ...(paymentIntentIds.length ? { paymentIntentIds } : {}), detail, tillId: b.tillId ? String(b.tillId) : null, viewKey, checkoutSessionId, clientId, clientName: client.name || 'Guest', tenantId, date: now, paymentMethod: method, amountTendered: tendered, change: Math.max(0, tendered - calc.total),
     paidBy: client.name || 'Guest', people: Object.values(people).map((p: any) => p.name).filter(Boolean),
     // Everything a void needs to undo this sale exactly.
     ...(split ? { payments: split.map((x) => ({ method: x.method, amount: num(x.amount), tip: num(x.tip), payerName: x.payerName || null, label: x.label || null, stripePaymentIntentId: x.stripePaymentIntentId || null, via: x.via || null })) } : {}),
@@ -869,15 +1005,22 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   for (const g of giftUse) { const r: any = await spendGiftCard(db, tenantId, { id: g.id, cents: g.cents, holdId: g.holdId, by: auth.actor.name || 'Front desk', transactionRef: checkoutSessionId, appointmentId: apptIds[0] || null, clientId: visits[0] ? whoHad(visits[0]).id : clientId, locationId: saleLocation });
     if (!r.ok) { await putBack(); await loyaltyUndo(); await failPending(r.error); return json({ ok: false, error: r.error }, 409); } g.done = true; }
   // The ticket is finished in the same all-or-nothing save as the sale, so it can never show as unrecorded once saved.
-  if (pendingRef) batch.set(pendingRef, { status: 'completed', completedAt: now, receiptId: receiptRef.id, checkoutSessionId, total: calc.total, ...(pay.stripePaymentIntentId ? { paymentIntentId: String(pay.stripePaymentIntentId) } : {}) }, { merge: true });
+  if (pendingRef) {
+    batch.set(pendingRef, { status: 'completed', completedAt: now, receiptId: receiptRef.id, checkoutSessionId, total: calc.total, ...(pay.stripePaymentIntentId ? { paymentIntentId: String(pay.stripePaymentIntentId) } : {}) }, { merge: true });
+    // Made only once, here or by a discard (lib/reader-sale outcomeRef): a discard under way stops this save.
+    batch.create(outcomeRef(db, tenantId, pendingRef.id), { kind: 'saved', receiptId: receiptRef.id, at: now, by: auth.actor.name || null });
+  }
   try { await batch.commit(); if (giftUse.length) { const { notifyGiftUse } = await import('@/lib/gift-cards'); for (const g of giftUse) void notifyGiftUse(db, tenantId, g.id, g.cents, req.nextUrl.origin).catch(() => {}); } }
   catch (e: any) {
     await putBack(); await loyaltyUndo();
     // Another save of this same sale got there first (the receipt is made from the ticket): it's recorded once, by that
     // one. What this save took off gift cards and points is put back, and the ticket is left as the other save left it.
     if (pendingRef && isAlreadyExists(e)) {
-      const won: any = ((await receiptRef.get()).data() as any) || {};
-      return json({ ok: true, already: true, receiptId: receiptRef.id, total: won.total ?? null, warnings: [] });
+      const wonSnap = await receiptRef.get().catch(() => null);
+      if (wonSnap?.exists) { const won: any = wonSnap.data() || {}; return json({ ok: true, already: true, receiptId: receiptRef.id, total: won.total ?? null, warnings: [] }); }
+      // A manager began discarding it first: nothing is recorded (the discard gives its money back).
+      const o: any = await outcomeRef(db, tenantId, pendingRef.id).get().catch(() => null); const od: any = o?.exists ? (o.data() || {}) : null;
+      if (od && od.kind !== 'saved') return json({ ok: false, code: 'sale_discarding', pendingId: pendingRef.id, error: 'A manager is discarding this sale, so it wasn’t saved. Nothing was recorded. Check Needs attention.' }, 409);
     }
     console.error('[checkout] save failed', e); await failPending(String(e?.message || e)); return json({ ok: false, error: 'Checkout didn’t save — nothing was recorded. Please try again.' }, 500);
   }

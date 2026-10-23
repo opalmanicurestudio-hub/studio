@@ -3,6 +3,8 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 import { markSalePaid, safeId, tellDeskReader, ticketBlocks } from '@/lib/reader-sale';
+import { recordCardShare } from '@/lib/screen-pay';
+import crypto from 'crypto';
 
 // ─── Lazy inits ───────────────────────────────────────────────────────────────
 function getAdmin() {
@@ -122,6 +124,7 @@ export async function POST(req: NextRequest) {
     idempotencyKey: askedKey = null, // the caller's own key for this attempt (e.g. one desk deposit charge)
     pendingId = null,               // a desk sale: its started ticket, named on the payment (lib/reader-sale)
     share = false,                  // …and this is one share of its split bill, not the whole sale
+    shareLabel = null,              // the share's name ("Share 1 of 2", "Maya")
   } = parsed;
   const forTicket = safeId(pendingId);
   // The caller's key when it gives one (letters, digits, - and _ only).
@@ -295,13 +298,19 @@ export async function POST(req: NextRequest) {
     if (mode === 'pos') {
       // A desk sale names its ticket: never charged when the sale is already paid, finished, discarded, part paid in a
       // split (unless this is a share), or has a card reader payment still going (lib/reader-sale).
+      // A desk screen opened before sale payments named their ticket can't charge one (it would have no ticket to be
+      // recorded on): it's reloaded first. Nothing is charged.
+      if (!forTicket && noLedger === true && /^(Studio Services — POS Checkout|Share of a split bill)/.test(String(description || '')))
+        return NextResponse.json({ ok: false, code: 'reload', reason: 'This screen needs reloading before it can take card payments. Reload the page; nothing was charged.', error: 'This screen needs reloading before it can take card payments. Reload the page; nothing was charged.' }, { status: 409 });
       if (forTicket) {
         const block = await ticketBlocks(db, String(tenantId), forTicket, { share: share === true, stripe, acct: stripeAccountId });
         if (block) return NextResponse.json({ ok: false, code: block.code, reason: block.error, error: block.error, ...(block.paidWith ? { paidWith: block.paidWith, paidPayload: block.paidPayload } : {}) }, { status: block.status });
       }
       // Use a time-based idempotency key so retries within the same second
-      // are safe but a second tap generates a new intent.
-      const idempotencyKey = callerKey || `pos_${forTicket || clientId}_${amountCents}_${Math.floor(Date.now() / 10000)}`;
+      // are safe but a second tap generates a new intent. Who pays and what for are part of it: two people paying
+      // equal shares of one bill are two charges, not one asked twice.
+      const what = crypto.createHash('sha1').update(String(description || '')).digest('hex').slice(0, 12);
+      const idempotencyKey = callerKey || `pos_${forTicket || 'none'}_${clientId}_${what}_${amountCents}_${Math.floor(Date.now() / 10000)}`;
 
       let intent: Stripe.PaymentIntent;
       try {
@@ -331,7 +340,7 @@ export async function POST(req: NextRequest) {
               // match that the ledger write below never satisfied either —
               // so the processing fee silently never attached.
               checkoutSessionId: checkoutSessionId || '',
-              ...(forTicket ? { pendingId: forTicket, ...(share === true ? { split: '1' } : {}) } : {}),
+              ...(forTicket ? { pendingId: forTicket, ...(share === true ? { split: '1', shareLabel: String(shareLabel || '').slice(0, 60) } : {}) } : {}),
             },
           },
           {
@@ -374,6 +383,13 @@ export async function POST(req: NextRequest) {
       // happen (a manager records it from Needs attention), and never paid again. Paid another way meanwhile: this
       // payment is kept apart for a manager, and the desk is told not to save the sale with it.
       let sale: string | null = null;
+      // One share of a split: on its split at once, so it's never lost if the desk's own record of it doesn't arrive
+      // (and the desk's record of it changes nothing). A sale finished or paid in full meanwhile keeps it apart.
+      if (forTicket && share === true) {
+        try {
+          sale = await recordCardShare(db, String(tenantId), forTicket, intent, { amount: amountCents / 100, tip: 0, label: shareLabel ? String(shareLabel).slice(0, 60) : null, via: 'saved_card', payerClientId: String(clientId), by: 'Saved card' }); }
+        catch (e) { console.error('[charge-card] share not recorded on its ticket (the desk records it)', e); }
+      }
       if (forTicket && share !== true) {
         try {
           const m = await markSalePaid(db, String(tenantId), forTicket, intent, 'card_on_file');

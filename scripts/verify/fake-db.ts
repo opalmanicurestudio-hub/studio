@@ -60,7 +60,7 @@ export function makeDb() {
           if (op.kind === 'update' && !exists.has(p)) throw Object.assign(new Error(`5 NOT_FOUND: ${p}`), { code: 5 });
           if (op.kind === 'delete') exists.delete(p); else exists.add(p); }
         for (const op of ops) { if (op.kind === 'set') await op.r.set(op.v, op.o); else if (op.kind === 'update') await op.r.update(op.v); else if (op.kind === 'create') await op.r.create(op.v); else await op.r.delete(); } } }; },
-    runTransaction: async (fn: any) => fn({ get: (r: any) => (r.get ? r.get() : r), set: (r: any, v: Doc, o?: any) => r.set(v, o), update: (r: any, v: Doc) => r.update(v), delete: (r: any) => r.delete() }),
+    runTransaction: async (fn: any) => fn({ get: (r: any) => (r.get ? r.get() : r), set: (r: any, v: Doc, o?: any) => r.set(v, o), update: (r: any, v: Doc) => r.update(v), create: (r: any, v: Doc) => r.create(v), delete: (r: any) => r.delete() }),
     _store: store };
   return db;
 }

@@ -401,6 +401,8 @@ export const CheckoutHub = ({
   getTicketPaid,
   getTicket,
   savePaidSale,
+  otherPaid = null,
+  saveOtherPaidSale,
   moments,
   momentReward,
   momentDiscountValue,
@@ -996,12 +998,16 @@ export const CheckoutHub = ({
     // The sale is saved as its started ticket first, as it is now, so the payment is never without one.
     const pendingId = (prepareNow ? await prepareNow({ paymentMethod: 'card', amountTendered: amount, cardSurcharge }) : null) || getPendingId?.() || null;
     if (getTicketPaid?.()) { paidAlready(); return; }
+    // Never asked for without its ticket: the payment would have no sale to be recorded on.
+    if (!pendingId) { toast({ variant: 'destructive', title: 'The sale couldn’t be saved first', description: 'Check the internet connection and try again. Nothing was charged.' }); return; }
     const r: any = await (cs.askFull || cs.ask)('pay', { amount, clientId: selectedClient?.id || null, pendingId, askTip, tipBase, providers: tipPeople.length > 1 && (selectedTenant as any)?.tipSharing?.mode !== 'pool' ? tipPeople.map((p) => ({ id: p.id, name: p.name })) : [] });
     const id = typeof r === 'string' ? r : r?.ok ? r.requestId : null;
     if (id) { setPayReq({ id, amount }); return; }
     // The server wouldn't start it: the sale is already paid (on another screen), being split, or a card reader payment is still going.
     if (r?.code === 'ticket_paid' && r.paidWith) { setTicketPaid?.({ pendingId, ...r.paidWith, paidPayload: r.paidPayload || null }); paidAlready(); return; }
     if (r?.code === 'ticket_split') { setSplitActive?.(true); toast({ variant: 'destructive', title: 'Part of this bill is already paid', description: r.error || 'Finish it in Split the bill.' }); return; }
+    if (r?.code === 'sale_done' || r?.code === 'sale_discarded' || r?.code === 'no_ticket') { if (prepareNow) await prepareNow(); toast({ variant: 'destructive', title: r.code === 'sale_done' ? 'That sale was already saved' : 'Start the sale again', description: `${r.error || ''} Check the cart, then ask for the payment again.`.trim() }); return; }
+    if (r?.code === 'reader_open' || r?.code === 'reader_unknown') { toast({ variant: 'destructive', title: 'Check the card reader payment first', description: r.error }); return; }
     toast({ variant: 'destructive', title: 'The client screen couldn’t start the payment', description: r?.error || 'Check Stripe is connected, or take the card another way.' }); };
   const startPayOnIpad = () => { if (payBlockedNow()) return; tipAskedFor.current = ticketKey; sendPayToScreen(); };
   // Whether the sale on the screen still comes to what the paid ticket was charged (if not, something was added or
@@ -1010,6 +1016,8 @@ export const CheckoutHub = ({
   const ticketDueCents = ticketPaid ? Math.round((finalTotal + surchargeAny + safeNumber(ticketPaid.tip)) * 100) : 0;
   useEffect(() => { const r = cs.response; if (!r || !payReq || r.requestId !== payReq.id || r.kind !== 'pay' || !r.paid) return;
     const amt = payReq.amount; setPayReq(null);
+    // A sale is only ever saved with the payment that paid for it: without its reference, the ticket is checked again.
+    if (!r.paymentIntentId) { if (prepareNow) void prepareNow(); toast({ variant: 'destructive', duration: 20000, title: 'Check this sale before charging again', description: 'The client screen says it was paid. If the sale shows as paid, save the paid sale; nothing more should be charged.' }); return; }
     if (r.saved) toast({ title: 'Card saved for next time' });
     onCheckout({ paymentMethod: 'card', amountTendered: safeNumber(r.amount) || amt, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: r.paymentIntentId, cardSurcharge, tipOverride: Math.round((safeNumber(tipAmount) + safeNumber(r.tip)) * 100) / 100,
       // who the tip goes to: the client's choice on the screen, else the split chosen here (even / by what each did)
@@ -1326,6 +1334,17 @@ export const CheckoutHub = ({
                 <p className="text-[13.5px]">{tp.cents ? dollars(tp.cents) : 'It'} was paid {viaWords(tp.via)}{when ? ` at ${when}` : ''}{what ? ` for ${what}` : ''}, but the sale wasn’t saved. Save it as it was paid, and don’t take another payment for it.{same ? '' : ' Anything added since stays here as a new sale.'}</p>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => void savePaidSale?.()} disabled={isSubmitting || !savePaidSale} className="h-10 rounded-full px-4 text-[13.5px] font-semibold disabled:opacity-60" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{isSubmitting ? 'Saving…' : 'Save the paid sale'}</button>
+                </div>
+              </div>; })()}
+            {otherPaid && otherPaid.pendingId !== ticketPaid?.pendingId && (() => { const op = otherPaid; const who = String(op.clientName || '').split(' ')[0] || 'This client';
+              const rung = (Array.isArray(op.items) ? op.items : []).map((x: any) => `${x.name || 'Item'}${Number(x.quantity) > 1 ? ` ×${x.quantity}` : ''}`);
+              const what = [...(op.visits ? [`${op.visits} visit${op.visits === 1 ? '' : 's'}`] : []), ...rung].join(', ');
+              const when = op.paidAt ? new Date(op.paidAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
+              return <div role="status" className="space-y-2.5 rounded-2xl px-4 py-3" style={{ background: 'color-mix(in srgb, var(--warn) 10%, var(--card))' }}>
+                <p className="text-[15px] font-semibold">{who} has another sale, paid but not saved</p>
+                <p className="text-[13.5px]">{op.cents ? dollars(op.cents) : 'It'} was paid {viaWords(op.via)}{when ? ` at ${when}` : ''}{what ? ` for ${what}` : ''}. Save that sale on its own; this one stays here to finish.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void saveOtherPaidSale?.()} disabled={isSubmitting || !saveOtherPaidSale} className="h-10 rounded-full px-4 text-[13.5px] font-semibold disabled:opacity-60" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{isSubmitting ? 'Saving…' : 'Save that sale'}</button>
                 </div>
               </div>; })()}
             {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && <p className="text-[13px]" style={muted}>Card fee {(cardSurchargeRate * 100).toFixed(1)}% · +{coMoney(cardSurcharge)}</p>}

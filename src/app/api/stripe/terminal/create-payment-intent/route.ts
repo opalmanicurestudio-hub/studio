@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       const ticket: any = (await db.doc(`tenants/${tenantId}/pendingCheckouts/${forTicket}`).get()).data();
       if (!ticket) return NextResponse.json({ error: 'The sale wasn’t found. Start it again. Nothing was charged.', code: 'no_ticket' }, { status: 404 });
       if (ticket.status === 'completed') return NextResponse.json({ error: 'This sale is already finished.', code: 'sale_done' }, { status: 409 });
-      if (ticket.status === 'discarded') return NextResponse.json({ error: 'This sale was discarded. Ring it up again. Nothing was charged.', code: 'sale_discarded' }, { status: 409 });
+      if (ticket.status === 'discarded' || ticket.status === 'discarding') return NextResponse.json({ error: 'This sale was discarded. Ring it up again. Nothing was charged.', code: 'sale_discarded' }, { status: 409 });
       // Already paid another way (the client screen, a saved or typed card): never charged again on the reader.
       const paid = ticketPayment(ticket);
       if (paid && paid.via !== 'card_reader') return NextResponse.json({ code: 'ticket_paid', paidWith: paid, paidPayload: paidPayloadOf(ticket),
@@ -93,6 +93,9 @@ export async function POST(req: NextRequest) {
       if (liveShares(ticket).length) return NextResponse.json({ code: 'ticket_split', error: 'Part of this bill was already paid in a split. Finish it in Split the bill. Nothing was charged.' }, { status: 409 });
       const earlier = await earlierReaderPayment(db, stripe, stripeAccountId, String(tenantId), forTicket, String(previousPaymentIntentId || '') || null, charge);
       if (earlier.unknown) return NextResponse.json({ code: 'reader_unknown', paymentIntentId: earlier.unknown.id, error: 'We couldn’t check the last card payment for this sale, so nothing new was charged. Check the internet connection and try again.' }, { status: 503 });
+      // Its payment was refunded, but another payment for it was kept apart: that one pays for the sale now.
+      if (earlier.promoted) { const pc2: any = ((await db.doc(`tenants/${tenantId}/pendingCheckouts/${forTicket}`).get()).data() as any) || {};
+        return NextResponse.json({ code: 'ticket_paid', paidWith: earlier.promoted, paidPayload: paidPayloadOf(pc2), error: `This sale is paid: its first payment was refunded, and the $${(earlier.promoted.cents / 100).toFixed(2)} ${viaWords(earlier.promoted.via)} kept apart for it now pays for it. Save the sale with that payment. Nothing was charged.` }, { status: 409 }); }
       if (earlier.use) return NextResponse.json({ code: 'sale_paid', paymentIntentId: earlier.use.id, amountCents: earlier.use.cents, error: 'This sale’s card payment already went through.' }, { status: 409 });
       if (earlier.processing) return NextResponse.json({ code: 'reader_processing', paymentIntentId: earlier.processing.id, error: 'The last card payment for this sale is still being processed. Check it again in a moment before charging.' }, { status: 409 });
       if (earlier.differs) return NextResponse.json({ code: 'sale_paid_other_amount', paymentIntentId: earlier.differs.id, amountCents: earlier.differs.cents,

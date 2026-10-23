@@ -259,8 +259,8 @@ const readerPaid = { status: 'paid_waiting', paymentIntentId: 'pi_p', paidVia: '
   m = await markSalePaid(db, 't1', 'pc1', { id: 'pi_cs2', amount: 5000, amount_received: 5000 }, 'client_screen');
   t = await ticket();
   check('…a second one is kept apart, never replacing the first', m.result === 'paid_twice' && t.paymentIntentId === 'pi_cs1' && t.readerExtra?.pi_cs2?.via === 'client_screen');
-  const screenSrc = readFileSync('src/app/api/client-screen/route.ts', 'utf8');
-  check('the client screen marks its payments through the same check (never overwriting a paid ticket)', !/status: 'paid_waiting'/.test(screenSrc) && /paidOnScreen\(/.test(screenSrc) && /ticketPayment\(pc\)\) await keepApartPayment/.test(screenSrc));
+  const screenSrc = readFileSync('src/app/api/client-screen/route.ts', 'utf8'); const payLib = readFileSync('src/lib/screen-pay.ts', 'utf8');
+  check('the client screen marks its payments through the same check (never overwriting a paid ticket)', !/status: 'paid_waiting'/.test(screenSrc + payLib) && /paidOnScreen\(/.test(screenSrc) && /markSalePaid\(db, tenantId, pendingId, pi, 'client_screen'/.test(payLib));
 
   console.log('The desk screen');
   const hub = readFileSync('src/components/pos/CheckoutHub.tsx', 'utf8');

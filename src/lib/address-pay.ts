@@ -201,7 +201,9 @@ export async function refundAddressPayment(db: any, tenantId: string, orderId: s
     const e = cur.addressPaid?.[key];
     if (!e) return { none: true };
     if (e.refundedAt) return { already: true, cents: Math.round(Number(e.cents) || 0) };
-    tx.update(ref, { [`addressPaid.${key}`]: { ...e, state: 'refunding', refundWhy: why, refundTriedAt: now }, addressPaidRetry: true });
+    // What it was before the first try is kept, so a refund that goes through on a later try still comes off the
+    // running total of what customers paid for moves.
+    tx.update(ref, { [`addressPaid.${key}`]: { ...e, state: 'refunding', wasState: e.wasState || (['refunding', 'refund_failed'].includes(String(e.state)) ? null : e.state) || null, refundWhy: why, refundTriedAt: now }, addressPaidRetry: true });
     return { e, cur };
   });
   if (claim.none) return { ok: false, cents: 0, error: 'That payment isn’t on this order.' };
@@ -223,7 +225,9 @@ export async function refundAddressPayment(db: any, tenantId: string, orderId: s
     // A payment that counted toward what the customer paid for the moves no longer does once it's refunded, so the
     // policy screen's running total never includes money given back; a cancelled order ships nowhere, so it costs the
     // shop nothing either.
-    const counted = r.ok && e.state === 'applied' && cur.addressCost && typeof cur.addressCost === 'object';
+    // (Applied: it says so, or — a try that stopped before it could say — it's the payment the moves' cost names.)
+    const counted = r.ok && !!cur.addressCost && typeof cur.addressCost === 'object' && ((e.wasState || e.state) === 'applied'
+      || (!!e.pi && String(cur.addressCost.paymentIntentId || '') === String(e.pi) && String(cur.addressCost.sessionId || '') === String(sessionId)));
     const costFix = counted || (r.ok && String(cur.stage || '') === 'cancelled' && cur.addressCost) ? { addressCost: { ...cur.addressCost,
       ...(counted ? { customerCents: Math.max(0, Math.round(Number(cur.addressCost.customerCents) || 0) - cents), refundedCents: Math.max(0, Math.round(Number(cur.addressCost.refundedCents) || 0)) + cents } : {}),
       ...(String(cur.stage || '') === 'cancelled' ? { shopCents: 0 } : counted ? { shopCents: Math.max(0, Math.round(Number(cur.addressCost.extraCents) || 0) - Math.max(0, Math.round(Number(cur.addressCost.customerCents) || 0) - cents)) } : {}) } } : {};

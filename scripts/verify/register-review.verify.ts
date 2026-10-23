@@ -62,7 +62,7 @@ function StripeMock(this: any) {
         return clone(pis[id]); },
       capture: async (id: string) => { if (down) throw offline(); calls.capture.push(id); const pi = pis[id]; if (pi.status !== 'requires_capture') throw new Error(`This PaymentIntent could not be captured because it has a status of ${pi.status}.`); pi.status = 'succeeded'; pi.amount_received = pi.amount; pi.latest_charge = charge(pi); return clone(pi); },
       cancel: async (id: string) => { if (down) throw offline(); calls.cancel.push(id); const pi = pis[id]; if (['succeeded', 'canceled'].includes(pi.status)) throw new Error(`You cannot cancel this PaymentIntent because it has a status of ${pi.status}.`); pi.status = 'canceled'; return clone(pi); },
-      update: async (id: string, p: any) => { Object.assign(pis[id], p); return clone(pis[id]); },
+      update: async (id: string, p: any) => { const { metadata, ...rest } = p || {}; Object.assign(pis[id], rest); if (metadata) pis[id].metadata = { ...(pis[id].metadata || {}), ...metadata }; return clone(pis[id]); },   // Stripe merges metadata keys
     },
     balanceTransactions: { retrieve: async (id: string) => ({ id, fee: 160, net: 4340, amount: 4500, fee_details: [] }) },
     customers: { create: async () => ({ id: 'cus_1' }) },
@@ -200,7 +200,8 @@ const stock = async (id: string) => (await get(`${T}/inventory/${id}`)).totalSto
   paidPi('pi_cof3', 1200, { metadata: { kind: 'pos_cof', pendingId: 'pc1' } });
   r = await pay({ items: coat, expectedTotal: 12, payment: { method: 'card_on_file', stripePaymentIntentId: 'pi_cof3' } });
   rc = await all(`${T}/receipts`);
-  check('a payment charged on a ticket another screen had finished is recorded as its own sale (never “already recorded”)', r.status === 200 && !r.body.already && rc.some((x: any) => x.stripePaymentIntentId === 'pi_cof3'), { body: r.body });
+  t = await ticket();
+  check('a payment charged again on a ticket another screen had finished: kept apart for a manager (never “already recorded”, never a second sale)', r.status === 409 && r.body.code === 'sale_done' && r.body.extra?.id === 'pi_cof3' && !rc.some((x: any) => x.stripePaymentIntentId === 'pi_cof3') && t.readerExtra?.pi_cof3?.state === 'open', { body: r.body, rc: rc.length });
 
   console.log('5. Saved and typed cards ask first');
   await fresh(readerPaid); paidPi('pi_p', 4500, { metadata: reader() });
