@@ -34,7 +34,7 @@ const PAPER_CSS = `
   #print-area .capitalize { text-transform: capitalize !important; }
   #print-area .font-mono { font-family: inherit !important; font-weight: 400 !important; }
   #print-area .font-bold, #print-area .font-semibold, #print-area .font-medium { font-weight: 500 !important; }
-  #print-area .font-black, #print-area .font-extrabold, #print-area h2, #print-area h4 { font-weight: 600 !important; }
+  #print-area .font-black, #print-area .font-extrabold, #print-area h2[class], #print-area h4[class] { font-weight: 600 !important; }
   #print-area .text-muted-foreground { color: #6d7075 !important; }
   #print-area .text-sm, #print-area .text-base { font-size: 12.5px !important; }
   #print-area .text-xs { font-size: 11px !important; }
@@ -214,7 +214,7 @@ const ClientReportPage = () => {
                     <Card className={cn('rp-summary bg-primary/5 border-primary/20', !aiSummary && 'print:hidden')}>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2 text-primary">
-                                <Sparkles className="h-5 w-5" /> AI-Powered Summary
+                                <Sparkles className="h-5 w-5" /> Summary
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -255,7 +255,7 @@ const ClientReportPage = () => {
                                 </>
                             ) : (
                                 <div className="text-center p-4">
-                                    <p className="text-sm text-muted-foreground mb-4">Generate an AI summary and talking points for this client.</p>
+                                    <p className="text-sm text-muted-foreground mb-4">Get a summary and talking points for this client.</p>
                                     <Button onClick={handleGenerateReport}>
                                         <Sparkles className="w-4 h-4 mr-2" />
                                         Generate Report

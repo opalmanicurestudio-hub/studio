@@ -36,8 +36,8 @@ export function ScanSheet({ open, onClose, tenantId, tenant, appts, services, st
     const r: ScanRoute = routeScan(raw, { kits: kits || [], bundles: bundles || [], machines, resources: resources || [], inventory });
     const push = (label: string, ok: boolean) => setRecent((xs) => [{ label, at: Date.now(), ok }, ...xs].slice(0, 6));
     const hand = (m: Mode) => { setMode(m); seq.current += 1; setIncoming({ code: raw, n: seq.current }); setNote(null); };
-    if (r.target === 'machine') { machineAt.current = Date.now(); hand({ kind: 'steriliser' }); push(`${r.label} — steriliser`, true); return; }
-    if (r.target === 'kit') { if (Date.now() - machineAt.current < LOAD_WINDOW_MS) { hand({ kind: 'steriliser' }); push(`${r.label} → steriliser load`, true); return; }
+    if (r.target === 'machine') { machineAt.current = Date.now(); hand({ kind: 'steriliser' }); push(`${r.label} — sterilizer`, true); return; }
+    if (r.target === 'kit') { if (Date.now() - machineAt.current < LOAD_WINDOW_MS) { hand({ kind: 'steriliser' }); push(`${r.label} → sterilizer load`, true); return; }
       hand({ kind: 'kit', id: r.id! }); push(r.label, true); return; }
     if (r.target === 'bundle') { const b: any = (bundles || []).find((x: any) => x.id === r.id); hand({ kind: 'bundle', linenId: b?.linenId }); push(r.label, true); return; }
     if (r.target === 'station') { setMode({ kind: 'station', id: r.id! }); setNote(null); scanFeedback(true); push(`${r.label} — station`, true); return; }
@@ -60,7 +60,7 @@ export function ScanSheet({ open, onClose, tenantId, tenant, appts, services, st
       <div className="flex h-full w-full flex-col overflow-hidden bg-[#F6F3EE] sm:max-w-[520px] sm:rounded-l-[28px] sm:shadow-2xl">
         <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-[max(16px,env(safe-area-inset-top))]">
           <div><p className="text-[22px] font-[800] tracking-[-0.01em]">Scan</p>
-            <p className="text-[12px] text-muted-foreground">Kits · bundles · sterilisers · stations{Date.now() - machineAt.current < LOAD_WINDOW_MS ? ' · loading a steriliser' : ''}</p></div>
+            <p className="text-[12px] text-muted-foreground">Kits · bundles · sterilizers · stations{Date.now() - machineAt.current < LOAD_WINDOW_MS ? ' · loading a sterilizer' : ''}</p></div>
           <button type="button" onClick={onClose} className="h-11 rounded-full bg-foreground px-5 text-[15px] font-[700] text-background">Done</button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-[max(20px,env(safe-area-inset-bottom))]">
@@ -75,7 +75,7 @@ export function ScanSheet({ open, onClose, tenantId, tenant, appts, services, st
           {mode?.kind === 'bundle' && <Linens tenantId={tenantId} services={services} appts={appts} inventory={inventory} manager={manager} staff={staff} incoming={incoming} focusLinenId={mode.linenId} hideScan />}
           {mode?.kind === 'steriliser' && <Sterilisation tenantId={tenantId} tenant={tenant} kits={(kits || []) as any} manager={manager} incoming={incoming} hideScan />}
           {mode?.kind === 'station' && <Stations firestore={firestore} tenantId={tenantId} resources={resources || []} appts={appts} services={services} staff={staff} protocols={protocols || []} onlyRow={(r) => r.id === mode.id} />}
-          {!mode && !note && <p className="rounded-2xl border border-dashed bg-card/60 p-4 text-[14px] text-muted-foreground">Scan a kit, a linen bundle, a steriliser’s label or a station’s label. A USB or Bluetooth scanner works too — no need to tap anything first.</p>}
+          {!mode && !note && <p className="rounded-2xl border border-dashed bg-card/60 p-4 text-[14px] text-muted-foreground">Scan a kit, a linen bundle, a sterilizer’s label or a station’s label. A USB or Bluetooth scanner works too — no need to tap anything first.</p>}
           {recent.length > 0 && <div className="space-y-1"><p className="text-[12px] font-[700] text-muted-foreground">Just scanned</p>
             {recent.map((x, i) => <p key={i} className="flex items-center gap-2 text-[13px]"><span aria-hidden className="h-2 w-2 rounded-full" style={{ background: x.ok ? '#1F6B3A' : '#B42318' }} /><span className="min-w-0 flex-1 truncate">{x.label}</span><span className="tabular-nums text-muted-foreground">{hm(x.at)}</span></p>)}</div>}
         </div>

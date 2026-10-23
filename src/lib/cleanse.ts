@@ -26,7 +26,7 @@ export function cleanseState(kit: any, now = Date.now()): { started: boolean; do
 /** Can this kit go into a steriliser (or be marked ready) now? Gives the reason when it can't. */
 export function readyForNextStep(kit: any, now = Date.now()): { ok: boolean; reason?: string } {
   if (kit?.status === 'dirty') return { ok: false, reason: 'It hasn’t been cleansed yet — start its cleanse first.' };
-  if (kit?.status !== 'cleaning') return { ok: false, reason: 'It isn’t waiting to be sterilised.' };
+  if (kit?.status !== 'cleaning') return { ok: false, reason: 'It isn’t waiting to be sterilized.' };
   const s = cleanseState(kit, now);
   if (!s.started && !kit?.cleansedAt) return { ok: false, reason: 'Its cleanse hasn’t been started — start it first.' };
   if (!s.done) return { ok: false, reason: `Still in its cleanse — ${Math.floor(s.secondsLeft / 60)}:${String(s.secondsLeft % 60).padStart(2, '0')} to go.` };

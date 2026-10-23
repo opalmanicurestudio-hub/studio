@@ -4,7 +4,7 @@
  * VoiceCallLog — v1
  *
  * The review surface for AI receptionist calls: every call recorded by the
- * platform, with inline audio playback, the AI summary, caller sentiment,
+ * platform, with inline audio playback, the call summary, caller sentiment,
  * and the full transcript on expand. This is the "listen to a few weeks of
  * calls, then decide what to graduate" loop, in-app instead of in Retell's
  * dashboard — and for complaints, it's where the business hears exactly

@@ -17,7 +17,7 @@ export const PHASE_LABEL: Record<PhaseKind, string> = { setup: 'Set-up', active:
 export const PHASE_HINT: Record<PhaseKind, string> = { setup: 'Before the client arrives — preparing the station', active: 'Hands-on time with the client',
   processing: 'Waiting time (e.g. colour developing) — the provider can be free', turnover: 'After the client leaves — cleaning and resetting' };
 export const REQ_LABEL: Record<RequirementKind, string> = { equipment: 'Equipment', kit: 'Tools / kit', tool: 'Single tool', disposable: 'Disposable', linen: 'Linens', amenity: 'Amenity', role: 'Extra person' };
-export const CARE_LABEL: Record<ToolCare, string> = { wipe: 'Wipe down', soak: 'Soak', sterilise: 'Sterilise' };
+export const CARE_LABEL: Record<ToolCare, string> = { wipe: 'Wipe down', soak: 'Soak', sterilise: 'Sterilize' };
 export const MODE_LABEL: Record<RequirementMode, string> = { required: 'Required', optional: 'Optional', substitutable: 'Can be swapped', approval: 'Needs approval' };
 const rid = () => Math.random().toString(36).slice(2, 9);
 const clampMin = (n: any) => Math.max(0, Math.min(24 * 60, Math.round(Number(n) || 0)));

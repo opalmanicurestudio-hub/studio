@@ -11,7 +11,7 @@ import type { SetVisit, SetItem } from '@/lib/setaside';
 
 export interface Running { id: string; kind: 'cleanse' | 'cycle' | 'wash' | 'dry' | 'contact'; title: string; sub: string; startMs: number; minutes: number }
 const LOOK: Record<Running['kind'], { color: string; label: string }> = {
-  cleanse: { color: '#2E6F6A', label: 'Cleanse' }, cycle: { color: '#7A5C3A', label: 'Steriliser' }, wash: { color: '#164A86', label: 'Wash' }, dry: { color: '#C47F00', label: 'Dryer' }, contact: { color: '#6B21A8', label: 'Contact' } };
+  cleanse: { color: '#2E6F6A', label: 'Cleanse' }, cycle: { color: '#7A5C3A', label: 'Sterilizer' }, wash: { color: '#164A86', label: 'Wash' }, dry: { color: '#C47F00', label: 'Dryer' }, contact: { color: '#6B21A8', label: 'Contact' } };
 const hm = (v: number) => new Date(v).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M$/i, '');
 const mmss = (s: number) => { const a = Math.max(0, Math.round(s)); return `${Math.floor(a / 60)}:${String(a % 60).padStart(2, '0')}`; };
 

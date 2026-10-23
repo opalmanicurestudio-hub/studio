@@ -107,7 +107,7 @@ export function ReceiptPreviewDialog({ transaction, tenantId, open, onOpenChange
       <hr>
       <div class="row muted"><span>Subtotal</span><span>$${receipt.subtotal?.toFixed(2) || '0.00'}</span></div>
       ${(receipt.discount || 0) > 0 ? `<div class="row muted"><span>Discount</span><span>-$${receipt.discount.toFixed(2)}</span></div>` : ''}
-      <div class="row muted"><span>Tax (7%)</span><span>$${receipt.tax?.toFixed(2) || '0.00'}</span></div>
+      <div class="row muted"><span>Tax</span><span>$${receipt.tax?.toFixed(2) || '0.00'}</span></div>
       ${(receipt.tip || 0) > 0 ? `<div class="row muted"><span>Gratuity</span><span>$${receipt.tip.toFixed(2)}</span></div>` : ''}
       <div class="row total"><span>Total</span><span>$${receipt.total?.toFixed(2) || '0.00'}</span></div>
       <hr>
@@ -186,7 +186,7 @@ export function ReceiptPreviewDialog({ transaction, tenantId, open, onOpenChange
                   </div>
                 )}
                 <div className="flex justify-between text-[12px] text-muted-foreground">
-                  <span>Tax (7%)</span><span>${receipt.tax?.toFixed(2)}</span>
+                  <span>Tax</span><span>${receipt.tax?.toFixed(2)}</span>
                 </div>
                 {(receipt.tip || 0) > 0 && (
                   <div className="flex justify-between text-[12px] text-muted-foreground">

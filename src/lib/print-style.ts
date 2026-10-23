@@ -74,7 +74,12 @@ export const printLine = (label: string, amount: number | string, kind: '' | 'su
   `<div class="line ${kind}"><span>${label}</span><span class="${tone}">${typeof amount === 'number' ? printMoney(amount) : amount}</span></div>`;
 
 /** Waits for the font and any pictures, then opens the print dialog. */
-export const AUTO_PRINT = `<script>(function(){var w=[document.fonts&&document.fonts.ready?document.fonts.ready:0].concat([].slice.call(document.images).map(function(i){return i.complete?0:new Promise(function(r){i.onload=i.onerror=r;})}));Promise.all(w).then(function(){setTimeout(function(){window.print()},250)});})()</script>`;
+export const AUTO_PRINT = `<script>(function(){var done=false;function go(){if(done)return;done=true;setTimeout(function(){window.print()},250)}
+var sheets=[].slice.call(document.querySelectorAll('link[rel="stylesheet"]')).map(function(l){return l.sheet?0:new Promise(function(r){l.onload=l.onerror=r;})});
+Promise.all(sheets).then(function(){var f=document.fonts;var w=[f&&f.ready?f.ready:0];
+if(f&&f.load)w.push(Promise.all(['300','400','500','600'].map(function(x){return f.load(x+' 16px "Plus Jakarta Sans"').catch(function(){})})));
+[].slice.call(document.images).forEach(function(i){if(!i.complete)w.push(new Promise(function(r){i.onload=i.onerror=r;}))});
+return Promise.all(w)}).then(go,go);setTimeout(go,5000);})()</script>`;
 
 /** A whole printable document as an HTML string: the heading, the body, a quiet footer. */
 export function printPage(o: {

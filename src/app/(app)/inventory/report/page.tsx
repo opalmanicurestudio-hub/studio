@@ -29,7 +29,7 @@ const PAPER_CSS = `
   #print-area .text-muted-foreground { color: #6d7075 !important; }
 
   #print-area > header { padding-bottom: 14px; border-bottom: 1px solid #ececee; }
-  #print-area > header h1 { margin: 0; font-size: 26px !important; font-weight: 300 !important; letter-spacing: -0.02em !important; line-height: 1.15; }
+  #print-area > header h1[class] { margin: 0; font-size: 26px !important; font-weight: 300 !important; letter-spacing: -0.02em !important; line-height: 1.15; }
   #print-area > header p { margin-top: 4px !important; color: #6d7075 !important; }
 
   #print-area .rp-card { border: 0 !important; border-radius: 0 !important; break-inside: auto; }

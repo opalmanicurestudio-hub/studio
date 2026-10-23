@@ -991,7 +991,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   </div>
                   <div className="space-y-2">
                     <p className="text-xs font-semibold tracking-tight">What it needs</p>
-                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — kits, single tools, disposables, linens, amenities, an extra person. Kits and linens are picked from your own lists, so each visit gets one set aside. A single tool says how it’s cleaned after each client (wipe, soak or sterilise), and that shows on the turnover. A disposable linked to a stock item comes off stock when the visit is paid.</p>
+                    <p className="text-[11px] text-muted-foreground">Beyond the rooms and equipment above — kits, single tools, disposables, linens, amenities, an extra person. Kits and linens are picked from your own lists, so each visit gets one set aside. A single tool says how it’s cleaned after each client (wipe, soak or sterilize), and that shows on the turnover. A disposable linked to a stock item comes off stock when the visit is paid.</p>
                     {bpReqs.map((r, i) => (
                       <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-xl border p-2">
                         <select value={r.kind} onChange={(e) => setReq(i, { kind: e.target.value as RequirementKind })} className="h-10 rounded-xl border bg-background px-2 text-sm" aria-label="Kind">{(Object.keys(REQ_LABEL) as RequirementKind[]).map((k) => <option key={k} value={k}>{REQ_LABEL[k]}</option>)}</select>

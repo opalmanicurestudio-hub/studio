@@ -72,7 +72,7 @@ export function useHousekeeping(tenantId: string | null | undefined, appts: any[
   }, [resources, protocols, kits, kitTypes, linens, appts, services, staff, now, requests, claims, plan]);
   const running = React.useMemo((): Running[] => { const ms = (v: any) => Date.parse(String(v || '')) || 0; const out: Running[] = [];
     for (const k of (kits || []) as any[]) if (k.status === 'cleaning' && k.cleanse?.startedAt && !k.cleansedAt) out.push({ id: `c:${k.id}`, kind: 'cleanse', title: `${k.name} ${k.code}`, sub: `${k.cleanse.method === 'wipe' ? 'Wipe' : 'Soak'} · ${k.cleanse.name}`, startMs: ms(k.cleanse.startedAt), minutes: Number(k.cleanse.minutes) || 0 });
-    for (const c of (cycles || []) as any[]) out.push({ id: `y:${c.id}`, kind: 'cycle', title: c.device || 'Steriliser', sub: [Array.isArray(c.kits) ? `${c.kits.length} kit${c.kits.length === 1 ? '' : 's'}` : null, c.number ? `cycle ${c.number}` : null].filter(Boolean).join(' · ') || 'Running', startMs: ms(c.startedAt), minutes: Number(c.minutes) || 0 });
+    for (const c of (cycles || []) as any[]) out.push({ id: `y:${c.id}`, kind: 'cycle', title: c.device || 'Sterilizer', sub: [Array.isArray(c.kits) ? `${c.kits.length} kit${c.kits.length === 1 ? '' : 's'}` : null, c.number ? `cycle ${c.number}` : null].filter(Boolean).join(' · ') || 'Running', startMs: ms(c.startedAt), minutes: Number(c.minutes) || 0 });
     for (const l of (linens || []) as any[]) { if (Number(l.washing) > 0 && l.washStartedAt && Number(l.washMinutes) > 0) out.push({ id: `w:${l.id}`, kind: 'wash', title: `${l.name} × ${l.washing}`, sub: 'In the washer', startMs: ms(l.washStartedAt), minutes: Number(l.washMinutes) });
       if (Number(l.drying) > 0 && l.dryStartedAt && Number(l.dryMinutes) > 0) out.push({ id: `d:${l.id}`, kind: 'dry', title: `${l.name} × ${l.drying}`, sub: 'In the dryer', startMs: ms(l.dryStartedAt), minutes: Number(l.dryMinutes) }); }
     for (const t of (contacts || []) as any[]) if (!t.kitId && ms(t.startedAt) > Date.now() - 6 * 3600000) out.push({ id: `t:${t.id}`, kind: 'contact', title: t.what || 'Surface', sub: t.name || 'Disinfectant', startMs: ms(t.startedAt), minutes: Number(t.minutes) || 0 });
@@ -279,8 +279,8 @@ export function Housekeeping({ tenantId, tenant, appts, services, staff, manager
   const closing = (() => { const k = (kits || []) as any[]; const l = (linens || []) as any[]; const lines: { label: string; n: number }[] = [
       { label: 'Kits still marked in use', n: k.filter((x) => x.status === 'in_use').length },
       { label: 'Kits waiting for their cleanse', n: k.filter((x) => x.status === 'dirty').length },
-      { label: 'Kits cleansing or waiting for the steriliser / check', n: k.filter((x) => x.status === 'cleaning').length },
-      { label: 'Steriliser cycles without a result', n: running.filter((r) => r.kind === 'cycle').length },
+      { label: 'Kits cleansing or waiting for the sterilizer / check', n: k.filter((x) => x.status === 'cleaning').length },
+      { label: 'Sterilizer cycles without a result', n: running.filter((r) => r.kind === 'cycle').length },
       { label: 'Contact timers still open', n: running.filter((r) => r.kind === 'contact').length },
       { label: 'Loads in the washer or dryer', n: l.filter((x) => Number(x.washing) > 0).length + l.filter((x) => Number(x.drying) > 0).length },
       { label: 'Linens to fold and put away', n: l.reduce((a, x) => a + (Number(x.folding) || 0), 0) },

@@ -449,7 +449,7 @@ function LabelPageContent() {
         }
       `}</style>
        <div className={cn('label-print-area', printMode === 'single' ? 'thermal-print' : 'sheet-print')}>
-           <div className="hidden">
+           <div className="hidden print:block">
              <PrintPreview products={allProducts} selectedProductIds={selectedProducts} labelContent={labelContent} printMode={printMode} />
            </div>
        </div>
