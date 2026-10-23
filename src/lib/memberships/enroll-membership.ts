@@ -34,12 +34,34 @@
  *      this field to know who's due.
  *   3. A client already on an active membership can't double-enroll —
  *      returns already_enrolled rather than silently overwriting.
+ *   4. One income line per sale. A card charged here is recorded by the
+ *      charge itself (api/stripe/charge-card writes its Membership Sales /
+ *      Package Sales line, named after the payment), so nothing here writes a
+ *      second one. Only a sale paid elsewhere ('already_charged') without
+ *      skipLedger gets its line here, named after the sale.
+ *   5. No answer from the card processor is not a decline: nothing is
+ *      enrolled, and the caller is told the payment couldn't be confirmed (the
+ *      charge's key stays the same, so asking again finds that same charge).
+ *      A package is added once per payment, however often it's asked.
  */
 
 import { internalHeaders } from '@/lib/message-policy';
 import type { Firestore } from 'firebase-admin/firestore';
-import { nanoid } from 'nanoid';
 import { hasUsableCard as hasUsableCardCheck } from '@/lib/payments/has-usable-card';
+
+const safeId = (s: any, n = 80) => String(s || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, n);
+const UNCONFIRMED = "I wasn't able to confirm that payment went through, so I haven't set that up yet — the team will check it and follow up with you.";
+
+/** Charge the card on file through the one card-charge route: ok (with the payment), declined, or no answer. */
+async function chargeOnFile(appUrl: string, body: Record<string, any>): Promise<{ ok: true; paymentIntentId: string } | { ok: false; unknown: boolean }> {
+  try {
+    const url = `${appUrl}/api/stripe/charge-card`;
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...internalHeaders(String(url)) }, body: JSON.stringify(body) });
+    const d: any = await res.json().catch(() => null);
+    if (res.status < 500 && d?.ok && d.paymentIntentId) return { ok: true, paymentIntentId: String(d.paymentIntentId) };
+    return { ok: false, unknown: res.status >= 500 || !d || d.unknown === true };
+  } catch { return { ok: false, unknown: true }; }
+}
 
 export type EnrollMembershipInput = {
   tenantId: string;
@@ -96,6 +118,7 @@ export async function enrollMembership(
   const price = Number(membership.price) || 0;
 
   let stripePaymentIntentId = input.existingPaymentIntentId;
+  let chargedHere = false;   // charged here → the charge itself is the sale's line in the books
 
   if (input.paymentMethod === 'card_on_file') {
     // v21 — consolidated into the shared has-usable-card helper.
@@ -105,33 +128,26 @@ export async function enrollMembership(
     }
     if (price > 0) {
       const appUrl = input.appUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
-      try {
-        const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${appUrl}/api/stripe/charge-card`)) },
-          body: JSON.stringify({
-            tenantId,
-            clientId,
-            amountCents: Math.round(price * 100),
-            description: `Membership — ${membership.name}`,
-            category: 'Membership Sales',
-            reason: `${input.source} membership enrollment`,
-            mode: 'auto',
-            // Same reasoning as sell-package.ts: 'deposit' kind's failure
-            // semantics are correct here — a declined enrollment attempt
-            // should never park as an arrears debt, since nothing was
-            // owed, someone just tried to buy something and it declined.
-            kind: 'deposit',
-          }),
-        });
-        const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
-        if (!chargeData.ok) {
-          return { ok: false, error: 'charge_declined', spoken: "That charge didn't go through — want to try a different card, or have the team follow up?" };
-        }
-        stripePaymentIntentId = chargeData.paymentIntentId;
-      } catch {
-        return { ok: false, error: 'charge_failed', spoken: "I ran into an issue processing that — let me have the team follow up instead." };
+      const charge = await chargeOnFile(appUrl, {
+        tenantId,
+        clientId,
+        amountCents: Math.round(price * 100),
+        description: `Membership — ${membership.name}`,
+        category: 'Membership Sales',
+        reason: `${input.source} membership enrollment`,
+        mode: 'auto',
+        // Same reasoning as sell-package.ts: 'deposit' kind's failure
+        // semantics are correct here — a declined enrollment attempt
+        // should never park as an arrears debt, since nothing was
+        // owed, someone just tried to buy something and it declined.
+        kind: 'deposit',
+      });
+      if (!charge.ok && charge.unknown) return { ok: false, error: 'charge_unconfirmed', spoken: UNCONFIRMED };
+      if (!charge.ok) {
+        return { ok: false, error: 'charge_declined', spoken: "That charge didn't go through — want to try a different card, or have the team follow up?" };
       }
+      stripePaymentIntentId = charge.paymentIntentId;
+      chargedHere = true;
     }
   }
   // 'already_charged': trust the caller already collected payment
@@ -161,8 +177,9 @@ export async function enrollMembership(
     },
     { merge: true },
   );
-  if (price > 0 && !input.skipLedger) {
-    const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
+  if (price > 0 && !input.skipLedger && !chargedHere) {
+    // Paid elsewhere: the sale's line, named after its payment (or the client, plan and day), so a retry rewrites it.
+    const txnRef = db.doc(`tenants/${tenantId}/transactions/membership_${safeId(stripePaymentIntentId || `${clientId}_${membershipId}_${now.slice(0, 10)}`)}`);
     batch.set(txnRef, {
       id: txnRef.id,
       tenantId,
@@ -175,7 +192,7 @@ export async function enrollMembership(
       category: 'Membership Sales',
       amount: price,
       paymentMethod: input.paymentMethod === 'card_on_file' ? 'Card on File (Stripe)' : 'Card (Stripe)',
-      stripePaymentIntentId,
+      stripePaymentIntentId: stripePaymentIntentId || null,
       hasReceipt: true,
     });
   }
@@ -235,6 +252,7 @@ export async function enrollPackage(
   const price = Number(pkg.price) || 0;
 
   let stripePaymentIntentId = input.existingPaymentIntentId;
+  let chargedHere = false;   // charged here → the charge itself is the sale's line in the books
 
   if (input.paymentMethod === 'card_on_file') {
     // v21 — consolidated into the shared has-usable-card helper.
@@ -244,51 +262,46 @@ export async function enrollPackage(
     }
     if (price > 0) {
       const appUrl = input.appUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
-      try {
-        const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${appUrl}/api/stripe/charge-card`)) },
-          body: JSON.stringify({
-            tenantId,
-            clientId,
-            amountCents: Math.round(price * 100),
-            description: `Package — ${pkg.name}`,
-            category: 'Package Sales',
-            reason: `${input.source} package enrollment`,
-            mode: 'auto',
-            kind: 'deposit',
-          }),
-        });
-        const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
-        if (!chargeData.ok) {
-          return { ok: false, error: 'charge_declined', spoken: "That charge didn't go through — want to try a different card, or have the team follow up?" };
-        }
-        stripePaymentIntentId = chargeData.paymentIntentId;
-      } catch {
-        return { ok: false, error: 'charge_failed', spoken: "I ran into an issue processing that — let me have the team follow up instead." };
+      const charge = await chargeOnFile(appUrl, {
+        tenantId,
+        clientId,
+        amountCents: Math.round(price * 100),
+        description: `Package — ${pkg.name}`,
+        category: 'Package Sales',
+        reason: `${input.source} package enrollment`,
+        mode: 'auto',
+        kind: 'deposit',
+      });
+      if (!charge.ok && charge.unknown) return { ok: false, error: 'charge_unconfirmed', spoken: UNCONFIRMED };
+      if (!charge.ok) {
+        return { ok: false, error: 'charge_declined', spoken: "That charge didn't go through — want to try a different card, or have the team follow up?" };
       }
+      stripePaymentIntentId = charge.paymentIntentId;
+      chargedHere = true;
     }
   }
 
   const now = new Date().toISOString();
   const sessionsRemaining = Number(pkg.sessions) || 1;
-  const batch = db.batch();
-  const existingPackages: any[] = client.activePackages || [];
-  batch.set(
-    db.doc(`tenants/${tenantId}/clients/${clientId}`),
-    {
+  // Added once per payment: the package carries the payment that bought it, and a second ask with the same payment
+  // (a retry, a replayed charge) finds it there and adds nothing.
+  const cRef = db.doc(`tenants/${tenantId}/clients/${clientId}`);
+  const lineRef = price > 0 && !input.skipLedger && !chargedHere
+    ? db.doc(`tenants/${tenantId}/transactions/package_${safeId(stripePaymentIntentId || `${clientId}_${packageId}_${now.slice(0, 10)}`)}`) : null;
+  await db.runTransaction(async (tx) => {
+    const cur: any = (await tx.get(cRef)).data() || {};
+    const existingPackages: any[] = Array.isArray(cur.activePackages) ? cur.activePackages : [];
+    if (stripePaymentIntentId && existingPackages.some((p: any) => p?.stripePaymentIntentId === stripePaymentIntentId)) return;
+    tx.set(cRef, {
       activePackages: [
         ...existingPackages,
-        { packageId, sessionsRemaining, purchasedAt: now, source: input.source },
+        { packageId, sessionsRemaining, purchasedAt: now, source: input.source, ...(stripePaymentIntentId ? { stripePaymentIntentId } : {}) },
       ],
-      lifetimeValue: (Number(client.lifetimeValue) || 0) + price,
-    },
-    { merge: true },
-  );
-  if (price > 0 && !input.skipLedger) {
-    const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
-    batch.set(txnRef, {
-      id: txnRef.id,
+      lifetimeValue: (Number(cur.lifetimeValue) || 0) + price,
+    }, { merge: true });
+    // Paid elsewhere: the sale's line, named after its payment (or the client, package and day).
+    if (lineRef) tx.set(lineRef, {
+      id: lineRef.id,
       tenantId,
       date: now,
       description: `Package: ${pkg.name}`,
@@ -299,11 +312,10 @@ export async function enrollPackage(
       category: 'Package Sales',
       amount: price,
       paymentMethod: input.paymentMethod === 'card_on_file' ? 'Card on File (Stripe)' : 'Card (Stripe)',
-      stripePaymentIntentId,
+      stripePaymentIntentId: stripePaymentIntentId || null,
       hasReceipt: true,
     });
-  }
-  await batch.commit();
+  });
 
   return {
     ok: true,

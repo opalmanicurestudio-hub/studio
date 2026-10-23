@@ -86,6 +86,16 @@ const ev = (type: string, object: any) => ({ id: `evt_${Math.random().toString(3
   check('…a refund the app sent isn’t recorded again as one made in Stripe', !txns().some((t: any) => t.madeOutsideApp));
   check('…the claim is marked sent', !!(await get(`${T}/refundNotices/refund_re_1`))?.sentAt);
 
+  console.log('a cancellation fee paid by link');
+  await fresh();
+  await db.doc(`${T}/clients/c1`).set({ outstandingBalance: 15, unpaidFees: [{ feeId: 'cancel-a1', feeAmount: 15, appointmentId: 'a1', reason: 'Late-cancellation fee' }, { feeId: 'other', feeAmount: 10, appointmentId: 'a9', reason: 'No-show fee' }] }, { merge: true });
+  await db.doc(`${T}/clients/c1`).set({ outstandingBalance: 25 }, { merge: true });
+  const feeLink = ev('checkout.session.completed', { id: 'cs_fee1', payment_status: 'paid', amount_total: 1500, metadata: { type: 'completion', purpose: 'fee', clientId: 'c1', appointmentId: 'a1', clientName: 'Maya Lopez', serviceName: 'Gel fill' } });
+  await Promise.all([send(feeLink), send(feeLink)]);
+  await send(feeLink);
+  const cf = await get(`${T}/clients/c1`);
+  check('the fee comes off her list of fees owed (so it isn’t collected again) and her balance, once', cf.outstandingBalance === 10 && (cf.unpaidFees || []).length === 1 && cf.unpaidFees[0].feeId === 'other' && txns().filter((t: any) => t.id === 'feepaid_cs_fee1').length === 1, cf);
+
   console.log('a dispute');
   await fresh();
   await db.doc(`${T}/transactions/sale1`).set({ id: 'sale1', type: 'income', category: 'Services', taxBucket: 'revenue', amount: 45, stripeChargeId: 'ch_1', clientId: 'c1', clientOrVendor: 'Maya Lopez', appointmentId: 'a1' });

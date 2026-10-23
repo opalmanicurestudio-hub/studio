@@ -562,6 +562,9 @@ export async function POST(req: NextRequest) {
           const cr = await internalPost(internalOrigin(tDoc, req.nextUrl.origin), '/api/stripe/charge-card', { tenantId, clientId: a.clientId, amountCents: Math.round(feeIfMovedNow * 100),
             description: 'Late-reschedule fee', category: 'Reschedule Fees', appointmentId: apptId, reason: 'Client rescheduled inside the window', mode: 'auto', kind: 'deposit' }, { retries: 0 });
           if (cr.ok && cr.data?.ok && cr.data?.paymentIntentId) feeIntent = cr.data.paymentIntentId;
+          // No answer: the fee may have gone through, so the move waits. Asking again finds the same charge (one key).
+          else if (cr.data?.unknown === true || !!cr.transportError || [0, 502, 503, 504].includes(Number(cr.status)))
+            return NextResponse.json({ ok: false, code: 'fee_unconfirmed', error: 'We couldn’t confirm the rescheduling fee with your card just now, so your appointment hasn’t been moved yet. Please try again in a couple of minutes. You won’t be charged twice.' }, { status: 502 });
         }
         if (!feeIntent && unpaidFeeRuleOf(tDoc) === 'keep_booking') return NextResponse.json({ ok: false, code: 'fee_unpaid', error: hasCard
           ? "We weren't able to process the card on file, so your appointment hasn't been moved. You're welcome to update your card and try again, or keep your current time."

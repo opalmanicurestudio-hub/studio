@@ -4,27 +4,41 @@
 // browser, which meant the collection had to be open to anyone — every business's guest names and client ids could be
 // listed by anybody. The collection is now team-only; the kiosk asks here.
 //
-// GET  ?tenantId=…&phone=…   -> { ok, perkRemaining: { [itemId]: n } } for the guest who typed that mobile number
-//                               (club allowance left this billing cycle — counts only, no order rows, no ids)
+// GET  ?tenantId=…&phone=…&pass=…  -> { ok, perkRemaining: { [itemId]: n } } for the guest who typed that mobile number
+//                               (club allowance left this billing cycle — counts only, no order rows, no ids). Only with
+//                               the guest pass for that number, or the front desk signed in on the screen; otherwise
+//                               the answer is the same as for a number nobody has, so it never says who is a client.
 // GET  ?tenantId=…           -> { ok, requests: [...] } today's orders for an on-screen board: item, quantity, status,
 //                               station, time and the guest's first name. No client ids, phones or prices.
 // POST { tenantId, itemId, quantity, clientName, phone?, boothId?, reservationId?, stationName?, guestDescription?,
-//        notes?, settle, stripePaymentIntentId? }
+//        notes?, settle, orderKey?, stationOrderId?, stationToken?, guestPass?, stripePaymentIntentId? }
 //   settle: 'perk' | 'renter_comp' | 'station' | 'card_on_file' | 'balance' | 'desk'
 //   -> creates the order. Everything that matters is decided HERE, not by the browser: the item and its price come from
 //      the business's menu, a club perk is checked against the allowance, a host comp against the renter's allowance,
-//      a station charge against the charge the server already recorded, and an order is only ever marked paid when the
-//      Stripe payment it names really succeeded for this business and this client and hasn't been used before.
+//      a station charge against the charge the server already made for this order (stationOrderId, from
+//      /api/booths/kiosk), and an order is only ever marked paid when the Stripe payment it names really succeeded for
+//      this business and this client and hasn't been used before.
+// POST { action: 'send-code', tenantId, phone }                 -> a 6-digit code texted to that number, when the
+//                                                                  business has it (a client's, or a day guest's today)
+// POST { action: 'check-code', tenantId, phone, codeId, code }  -> { pass }: the guest pass for that number (four hours)
 //
 // No sign-in is needed (it's a guest-facing kiosk); calls are rate-limited per device address and per business.
-// There is no kiosk device token in the app — a kiosk is identified by its business (and booth, when opened from a
-// station link, which must belong to that business).
+// Ordering to pay when it arrives needs nothing more. Anything that uses someone's account needs proof
+// (lib/station-token):
+//   • adding it to a client's visit ('balance') or using their club allowance ('perk'): the guest pass from the code
+//     texted to their phone — or, for a client at the shop right now (a visit today they've checked in for), the
+//     station's signed link or the front desk signed in on this screen;
+//   • the host's complimentary allowance ('renter_comp'): the station's signed link, or the front desk signed in here.
+// The screen names each order (orderKey) and keeps the name when it asks again, so a double tap or a retry makes one
+// order, and adds to a balance once.
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
+import { createHash } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
 import { tenantTimeZone, todayIn, dayKey } from '@/lib/tenant-time';
+import { checkGuestPass, checkKioskCode, deskSignedIn, startKioskCode, stationLinkOk } from '@/lib/station-token';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,6 +105,56 @@ async function boothRenter(db: FirebaseFirestore.Firestore, tenantId: string, bo
   return { renterId: String(lease.renterId), compAllowance: Math.max(0, Math.round(num(rt.amenityCompAllowance))) };
 }
 
+/** At the shop right now: a visit today (the business's own day) they've arrived for, are in, or are checking out of. */
+const HERE_NOW = ['checked_in', 'waiting', 'arrived', 'servicing', 'in_service', 'in_progress', 'ready_for_checkout'];
+async function hereNow(db: FirebaseFirestore.Firestore, tenantId: string, clientId: string, tz: string): Promise<boolean> {
+  const today = todayIn(tz);
+  const snap = await db.collection(`tenants/${tenantId}/appointments`).where('clientId', '==', clientId).get();
+  return snap.docs.some((d) => {
+    const a: any = d.data() || {};
+    const t = a.startTime?.toDate ? a.startTime.toDate().getTime() : Date.parse(String(a.startTime || ''));
+    return Number.isFinite(t) && dayKey(new Date(t), tz) === today && (HERE_NOW.includes(String(a.status || '')) || String(a.checkInStatus || '') === 'arrived');
+  });
+}
+
+/** 'send-code' / 'check-code': a code by text to a number the business already has, and the guest pass it gives. The
+ *  answer to 'send-code' is the same whether or not the business has the number (nothing is sent when it doesn't). */
+async function codeAction(req: NextRequest, tenantId: string, body: any) {
+  const sending = body?.action === 'send-code';
+  const limited = await limitPublic(req, sending ? 'concierge_code' : 'concierge_code_check', tenantId, sending ? { perHour: 30, perDay: 300 } : { perHour: 60, perDay: 1000 });
+  if (limited) return limited;
+  const ph = digits(body?.phone).slice(-10);
+  if (ph.length !== 10) return bad('Enter your mobile number.');
+  try {
+    const db = getAdminDb();
+    if (!sending) {
+      const r = await checkKioskCode(db, tenantId, { codeId: String(body?.codeId || ''), code: String(body?.code || ''), phone: ph });
+      if (!r.ok) return bad(r.error);
+      return NextResponse.json({ ok: true, pass: r.pass, until: r.until }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    const tSnap = await db.doc(`tenants/${tenantId}`).get();
+    if (!tSnap.exists) return bad('Not found.', 404);
+    // Only ever to a number the business has: a client's, or a day guest's checked in today. Never one typed in, and
+    // never one reported as the wrong number ("Not you?").
+    const client = await findClientByPhone(db, tenantId, ph);
+    let to = '', name: string | null = null, recipientId: string | null = null, recipientType: 'client' | 'contact' = 'contact';
+    if (client?.phone && !client.phoneReportedWrongAt) { to = String(client.phone); name = client.name || null; recipientId = String(client.id); recipientType = 'client'; }
+    else if (!client) {
+      const today = todayIn(tenantTimeZone(tSnap.data()));
+      const snap = await db.collection(`tenants/${tenantId}/boothReservations`).where('startDate', '<=', today).get();
+      const stay: any = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .find((r: any) => r.status === 'checked_in' && r.endDate >= today && digits(r.phone).slice(-10) === ph);
+      if (stay) { to = String(stay.phone); name = stay.name || null; recipientId = String(stay.id); }
+    }
+    const r = await startKioskCode(db, tenantId, { phone: ph, to: to || null, name, recipientId, recipientType });
+    if (!r.ok) return bad(r.error);
+    return NextResponse.json({ ok: true, codeId: r.codeId, sentTo: r.sentTo }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (e: any) {
+    console.error('[concierge/requests code]', e?.message);
+    return bad('That didn’t go through — please ask the team.', 500);
+  }
+}
+
 export async function GET(req: NextRequest) {
   const tenantId = String(req.nextUrl.searchParams.get('tenantId') || '').slice(0, 120);
   const phone = String(req.nextUrl.searchParams.get('phone') || '');
@@ -103,7 +167,10 @@ export async function GET(req: NextRequest) {
     if (!tSnap.exists) return bad('Not found.', 404);
 
     if (phone) {
-      const client = await findClientByPhone(db, tenantId, phone);
+      // A phone number alone tells nothing: the counts (and whether it's a client at all) only for the code's pass for
+      // that number, or with the front desk signed in here. Without either, the number isn't even looked up.
+      const proven = checkGuestPass(tenantId, digits(phone).slice(-10), req.nextUrl.searchParams.get('pass')) || await deskSignedIn(req, tenantId);
+      const client = proven ? await findClientByPhone(db, tenantId, phone) : null;
       const perkRemaining = client ? await perkRemainingFor(db, tenantId, client) : {};
       return NextResponse.json({ ok: true, perkRemaining }, { headers: { 'Cache-Control': 'no-store' } });
     }
@@ -139,6 +206,7 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return bad('Bad request.'); }
   const tenantId = String(body?.tenantId || '').slice(0, 120);
   if (!ID_RE.test(tenantId)) return bad('Which business?');
+  if (body?.action === 'send-code' || body?.action === 'check-code') return codeAction(req, tenantId, body);
   const limited = await limitPublic(req, 'concierge_order', tenantId, { perHour: 60, perDay: 3000 });
   if (limited) return limited;
 
@@ -152,6 +220,8 @@ export async function POST(req: NextRequest) {
   if (boothId && !ID_RE.test(boothId)) return bad('Unknown station.');
   const reservationId = body?.reservationId ? String(body.reservationId) : '';
   if (reservationId && !ID_RE.test(reservationId)) return bad('Unknown stay.');
+  // The order's name from the screen, kept when it asks again: one order, however often it's sent.
+  const orderKey = String(body?.orderKey || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
 
   try {
     const db = getAdminDb();
@@ -169,18 +239,33 @@ export async function POST(req: NextRequest) {
     const orderTotal = Math.round(unitPrice * quantity * 100) / 100;
     const itemName = clean(item.name, 80) || 'Item';
 
-    // The guest, when they identified themselves with their mobile number.
-    const phone = body?.phone ? String(body.phone) : '';
-    const client = phone ? await findClientByPhone(db, tenantId, phone) : null;
-    if (phone && !client) return bad('We couldn’t find that profile.', 404);
-    if (item.isMembersOnly && !client?.activeMembershipId) return bad('That item is for members.', 403);
-
     // The station, when the kiosk was opened from a booth link — it must be one of this business's booths.
     let boothName = '';
     if (boothId) {
       const bSnap = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get();
       if (!bSnap.exists) return bad('Unknown station.', 404);
       boothName = clean((bSnap.data() as any)?.name, 60);
+    }
+
+    // The guest, when they identified themselves with their mobile number. The number is looked up only for someone who
+    // proved it's theirs (the code we text gives a pass for it) or with the front desk signed in on this screen — or,
+    // from the station's signed link, only to see whether they're at the shop right now. Anyone else gets the same
+    // answers whether or not the number belongs to a client.
+    const phone = body?.phone ? String(body.phone) : '';
+    const passOk = !!phone && checkGuestPass(tenantId, digits(phone).slice(-10), body?.guestPass);
+    const desk = await deskSignedIn(req, tenantId);
+    const vouched = passOk || desk;
+    const link = boothId ? await stationLinkOk(db, tenantId, boothId, body?.stationToken) : { ok: false, renterId: '' };
+    const found = phone && (vouched || link.ok) ? await findClientByPhone(db, tenantId, phone) : null;
+    if (phone && vouched && !found) return bad('We couldn’t find that profile.', 404);
+    // At the shop right now (a visit today they've checked in for), on the station's link or the front desk's screen.
+    const here = !!found && !passOk ? await hereNow(db, tenantId, String(found.id), tenantTimeZone(tenant)) : false;
+    const client = vouched || here ? found : null;
+    // Using their account (a balance, a club perk): the code's pass, or being here now.
+    const accountOk = !!client && (passOk || here);
+    const needsCode = (error: string) => NextResponse.json({ ok: false, needsCode: true, error }, { status: 403 });
+    if (item.isMembersOnly && !client?.activeMembershipId) {
+      return phone && !client ? needsCode('To order this, enter the code we text to your phone.') : bad('That item is for members.', 403);
     }
     const stationName = clean(body?.stationName, 60) || boothName || 'Lounge / Waiting Area';
     const clientName = clean(client?.name || body?.clientName, 60) || 'Guest';
@@ -190,40 +275,37 @@ export async function POST(req: NextRequest) {
     let isRedemption = false, compedByRenter = false, chargedToStation = false, paidAtKiosk = false;
     let stripePaymentIntentId: string | null = null;
     let renterId: string | null = null;
-    let stationTxnRef: FirebaseFirestore.DocumentReference | null = null;
+    let compAllowance = 0;
+    let stationOrderId = '';
 
     // A day guest checked in at the station pays for it themselves; otherwise the booth's resident renter is the payer.
     if (boothId && !reservationId) { const br = await boothRenter(db, tenantId, boothId); renterId = br?.renterId || null; }
 
-    if (settledBy === 'perk') {
-      if (!client) return bad('Sign in with your mobile number to use a club perk.', 403);
-      const left = (await perkRemainingFor(db, tenantId, client))[itemId] || 0;
-      if (left < quantity) return bad('Your club allowance for this item is used up this cycle.', 409);
-      isRedemption = true;
+    if (settledBy === 'perk' || settledBy === 'balance') {
+      // Someone's own account: proof it's them first. Without it, ordering to pay when it arrives still works.
+      if (!phone) {
+        if (settledBy === 'perk') return bad('Sign in with your mobile number to use a club perk.', 403);
+        settledBy = 'desk';   // only a client the business can invoice later carries a balance
+      } else if (!accountOk) {
+        return needsCode(settledBy === 'perk'
+          ? 'To use your club allowance, enter the code we text to your phone.'
+          : 'To add this to your visit, enter the code we text to your phone — or pay when it arrives.');
+      }
+      if (settledBy === 'perk') isRedemption = true;
     } else if (settledBy === 'renter_comp') {
       const br = boothId ? await boothRenter(db, tenantId, boothId) : null;
       if (!br || br.compAllowance <= 0) return bad('No complimentary allowance at this station.', 409);
-      const tz = tenantTimeZone(tenant); const today = todayIn(tz);
-      const bs = await db.collection(`tenants/${tenantId}/refreshmentRequests`).where('boothId', '==', boothId).get();
-      const usedToday = bs.docs.map((d) => d.data() as any)
-        .filter((r) => r.compedByRenter === true && r.status !== 'cancelled' && Number.isFinite(Date.parse(String(r.requestedAt || ''))) && dayKey(new Date(String(r.requestedAt)), tz) === today).length;
-      if (usedToday >= br.compAllowance) return bad('Today’s complimentary allowance at this station is used.', 409);
-      compedByRenter = true;
+      if (!link.ok && !desk) {
+        return NextResponse.json({ ok: false, linkNeedsUpdate: true, error: 'To use this station’s complimentary allowance, please ask the front desk for the station’s current link.' }, { status: 403 });
+      }
+      compAllowance = br.compAllowance; renterId = br.renterId; compedByRenter = true;
     } else if (settledBy === 'station') {
-      // The station charge itself is made by /api/booths/kiosk, which records the income. Find that record: same payer,
-      // same order, same amount, in the last ten minutes, and not already attached to another order.
-      const sourceId = reservationId || renterId;
-      if (!sourceId) return bad('No station charge found — please pay the host.', 402);
-      const ts = await db.collection(`tenants/${tenantId}/transactions`).where('sourceId', '==', sourceId).get();
-      const want = `Concierge: ${String(item.name || '')} (x${quantity})`;
-      const match = ts.docs.find((d) => {
-        const t: any = d.data();
-        const at = Date.parse(String(t.createdAt || t.date || ''));
-        return t.type === 'income' && !t.conciergeRequestId && Math.abs(num(t.amount) - orderTotal) < 0.005
-          && String(t.description || '').startsWith(want) && Number.isFinite(at) && Date.now() - at < 10 * 60000;
-      });
-      if (!match) return bad('No station charge found — please pay the host.', 402);
-      stationTxnRef = match.ref; chargedToStation = true;
+      // The station charge itself is made by /api/booths/kiosk, under the order id it gave the screen. It's checked
+      // below, in the same step that writes the order: charged, for this item, quantity and amount, at this station, and
+      // not already on another order.
+      stationOrderId = String(body?.stationOrderId || '');
+      if (!/^sc_[a-f0-9]{24}$/.test(stationOrderId)) return bad('No station charge found — please pay the host.', 402);
+      chargedToStation = true;
     } else if (settledBy === 'card_on_file') {
       // Paid only if Stripe says so: this business's account, this client, at least this amount, succeeded, unused.
       const piId = String(body?.stripePaymentIntentId || '');
@@ -237,75 +319,133 @@ export async function POST(req: NextRequest) {
       const ok = pi && pi.status === 'succeeded' && pi.metadata?.tenantId === tenantId && pi.metadata?.clientId === client.id
         && num(pi.amount_received) >= Math.round(orderTotal * 100);
       if (!ok) return bad('That card payment couldn’t be confirmed.', 402);
+      // Orders from before payments were named after themselves are found by looking (newer ones are checked below).
       const used = await db.collection(`tenants/${tenantId}/refreshmentRequests`).where('stripePaymentIntentId', '==', piId).limit(1).get();
-      if (!used.empty) return bad('That payment is already on another order.', 409);
+      if (!used.empty && (!orderKey || used.docs[0].id !== `kq_${createHash('sha256').update(`${tenantId}|${orderKey}`).digest('hex').slice(0, 24)}`)) return bad('That payment is already on another order.', 409);
       stripePaymentIntentId = piId; paidAtKiosk = true;
-    } else if (settledBy === 'balance') {
-      if (!client) settledBy = 'desk';   // only a client the business can invoice later carries a balance
     }
 
     const priceAtRequest = (isRedemption || compedByRenter || chargedToStation || paidAtKiosk || settledBy === 'balance') ? 0 : unitPrice;
     const outSettled: 'card_on_file' | 'balance' | 'desk' | null =
       (isRedemption || compedByRenter || chargedToStation || orderTotal <= 0) ? null : (settledBy as any);
 
-    const requestId = nanoid();
+    // ── Written once, in one step ─────────────────────────────────────────────
+    // The order is named after the screen's order name, so asking again finds it made. Whatever it uses is checked in
+    // the same step: the station charge, the card payment (named after it, so it can't go on two orders), the club
+    // allowance and the host's allowance (one order at a time per client, and per renter). A balance goes up only in
+    // the step that writes the order, and its fee is named after the order.
+    const requestId = orderKey ? `kq_${createHash('sha256').update(`${tenantId}|${orderKey}`).digest('hex').slice(0, 24)}` : nanoid();
     const nowIso = new Date().toISOString();
-    const batch = db.batch();
-    batch.set(db.doc(`tenants/${tenantId}/refreshmentRequests/${requestId}`), {
-      id: requestId, tenantId,
-      clientId: client?.id || 'guest-walkin',
-      clientName,
-      itemId, itemName, quantity,
-      status: 'pending',
-      requestedAt: nowIso,
-      stationName,
-      boothId: boothId || null,
-      renterId: renterId || null,
-      chargedToStation, compedByRenter,
-      isRedemption,
-      settledBy: outSettled,
-      paidAtKiosk,
-      stripePaymentIntentId,
-      guestDescription: clean(body?.guestDescription, 200),
-      notes: clean(body?.notes, 300),
-      priceAtRequest,
-      isGuestKiosk: true,
-    });
-    if (stationTxnRef) batch.update(stationTxnRef, { conciergeRequestId: requestId });
+    const tz = tenantTimeZone(tenant);
+    const reqRef = db.doc(`tenants/${tenantId}/refreshmentRequests/${requestId}`);
+    const chargeRef = stationOrderId ? db.doc(`tenants/${tenantId}/private/kiosk/stationCharges/${stationOrderId}`) : null;
+    const chargeLineRef = stationOrderId ? db.doc(`tenants/${tenantId}/transactions/concierge_${stationOrderId}`) : null;
+    const cardUseRef = stripePaymentIntentId ? db.doc(`tenants/${tenantId}/private/kiosk/cardPayments/${stripePaymentIntentId}`) : null;
+    const saleRef = stripePaymentIntentId ? db.doc(`tenants/${tenantId}/transactions/lounge_${stripePaymentIntentId}`) : null;
+    const clientRef = client && (isRedemption || outSettled === 'balance') ? db.doc(`tenants/${tenantId}/clients/${client.id}`) : null;
+    const renterRef = compedByRenter && renterId ? db.doc(`tenants/${tenantId}/renters/${renterId}`) : null;
+    const auditRef = db.doc(`tenants/${tenantId}/auditLogs/lounge_${requestId}`);
+    // The card charge may have put its own line in the books already: then that line is the income, not a second one.
+    const cardRecorded = stripePaymentIntentId
+      ? !(await db.collection(`tenants/${tenantId}/transactions`).where('stripePaymentIntentId', '==', stripePaymentIntentId).limit(1).get()).empty
+      : false;
 
-    // Income is booked only for a confirmed card payment.
-    if (paidAtKiosk && client) {
-      const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-      batch.set(txnRef, {
-        id: txnRef.id, date: nowIso, description: `Lounge Sale: ${itemName} (x${quantity})`,
-        clientOrVendor: clientName, clientId: client.id, type: 'income', context: 'Business',
-        category: 'Hospitality Revenue', amount: orderTotal, paymentMethod: 'Card on File (Stripe)',
-        stripePaymentIntentId, hasReceipt: true, tenantId, conciergeRequestId: requestId,
+    const out: any = await db.runTransaction(async (tx: any) => {
+      const existing = await tx.get(reqRef);
+      const charge: any = chargeRef ? ((await tx.get(chargeRef)).data() || null) : null;
+      const chargeLine = chargeLineRef ? await tx.get(chargeLineRef) : null;
+      const cardUse = cardUseRef ? await tx.get(cardUseRef) : null;
+      if (clientRef) await tx.get(clientRef);
+      if (renterRef) await tx.get(renterRef);
+      if (existing.exists) return { already: existing.data() };
+      if (chargeRef) {
+        const fits = charge && charge.status === 'charged' && charge.itemId === itemId && Number(charge.quantity) === quantity
+          && Number(charge.amountCents) === Math.round(orderTotal * 100) && (!charge.requestId || charge.requestId === requestId)
+          && (charge.payerKind === 'stay' ? (!reservationId || charge.payerId === reservationId) : charge.boothId === (boothId || null));
+        if (!fits) return { error: 'No station charge found — please pay the host.', status: 402 };
+      }
+      if (cardUse?.exists) return { error: 'That payment is already on another order.', status: 409 };
+      if (isRedemption) {
+        const left = (await perkRemainingFor(db, tenantId, client))[itemId] || 0;
+        if (left < quantity) return { error: 'Your club allowance for this item is used up this cycle.', status: 409 };
+      }
+      if (compedByRenter) {
+        const today = todayIn(tz);
+        const bs = await db.collection(`tenants/${tenantId}/refreshmentRequests`).where('boothId', '==', boothId).get();
+        const usedToday = bs.docs.map((d) => d.data() as any)
+          .filter((r) => r.compedByRenter === true && r.status !== 'cancelled' && Number.isFinite(Date.parse(String(r.requestedAt || ''))) && dayKey(new Date(String(r.requestedAt)), tz) === today).length;
+        if (usedToday >= compAllowance) return { error: 'Today’s complimentary allowance at this station is used.', status: 409 };
+      }
+
+      tx.set(reqRef, {
+        id: requestId, tenantId,
+        clientId: client?.id || 'guest-walkin',
+        clientName,
+        itemId, itemName, quantity,
+        status: 'pending',
+        requestedAt: nowIso,
+        stationName,
+        boothId: boothId || null,
+        renterId: renterId || null,
+        chargedToStation, compedByRenter,
+        isRedemption,
+        settledBy: outSettled,
+        paidAtKiosk,
+        stripePaymentIntentId,
+        stationOrderId: stationOrderId || null,
+        guestDescription: clean(body?.guestDescription, 200),
+        notes: clean(body?.notes, 300),
+        priceAtRequest,
+        isGuestKiosk: true,
       });
-    }
-    // Owed, not collected: the desk settles it at checkout.
-    if (outSettled === 'balance' && client) {
-      batch.update(db.doc(`tenants/${tenantId}/clients/${client.id}`), {
-        outstandingBalance: FieldValue.increment(orderTotal),
-        unpaidFees: FieldValue.arrayUnion({ feeId: nanoid(), appointmentId: null, appointmentDate: nowIso, feeAmount: orderTotal, reason: `Lounge order — ${itemName} (x${quantity})` }),
+      if (chargeRef) {
+        tx.set(chargeRef, { requestId }, { merge: true });
+        if (chargeLine?.exists) tx.update(chargeLineRef, { conciergeRequestId: requestId });
+      }
+      if (cardUseRef) tx.set(cardUseRef, { id: stripePaymentIntentId, requestId, at: nowIso });
+      // Income is booked only for a confirmed card payment, and once.
+      if (saleRef && client && !cardRecorded) {
+        tx.set(saleRef, {
+          id: saleRef.id, date: nowIso, description: `Lounge Sale: ${itemName} (x${quantity})`,
+          clientOrVendor: clientName, clientId: client.id, type: 'income', context: 'Business',
+          category: 'Hospitality Revenue', amount: orderTotal, paymentMethod: 'Card on File (Stripe)',
+          stripePaymentIntentId, hasReceipt: true, tenantId, conciergeRequestId: requestId,
+        });
+      }
+      // Owed, not collected: the desk settles it at checkout.
+      if (clientRef && outSettled === 'balance') {
+        tx.update(clientRef, {
+          outstandingBalance: FieldValue.increment(orderTotal),
+          unpaidFees: FieldValue.arrayUnion({ feeId: `lounge_${requestId}`, appointmentId: null, appointmentDate: nowIso, feeAmount: orderTotal, reason: `Lounge order — ${itemName} (x${quantity})` }),
+        });
+      } else if (clientRef) {
+        tx.set(clientRef, { loungePerkUsedAt: nowIso }, { merge: true });
+      }
+      if (renterRef) tx.set(renterRef, { amenityCompUsedAt: nowIso }, { merge: true });
+      tx.set(auditRef, {
+        id: auditRef.id, action: 'sale.lounge', targetType: 'refreshmentRequest', targetId: requestId,
+        summary: `Concierge order: ${itemName} (x${quantity}) for ${clientName} @ ${stationName}${
+          chargedToStation ? ' — charged to station card'
+          : compedByRenter ? ' — comped (host allowance)'
+          : isRedemption ? ' — club perk (membership allowance)'
+          : outSettled === 'card_on_file' ? ` — $${orderTotal.toFixed(2)} charged to card on file`
+          : outSettled === 'balance' ? ` — $${orderTotal.toFixed(2)} added to client balance (uncollected)`
+          : outSettled === 'desk' ? ` — $${orderTotal.toFixed(2)} to collect at the station`
+          : ''}`,
+        amount: orderTotal,
+        actor: { type: 'system', id: 'concierge-kiosk', name: 'Concierge Kiosk', via: 'concierge-kiosk' },
+        at: nowIso,
       });
-    }
-    const auditRef = db.collection(`tenants/${tenantId}/auditLogs`).doc();
-    batch.set(auditRef, {
-      action: 'sale.lounge', targetType: 'refreshmentRequest', targetId: requestId,
-      summary: `Concierge order: ${itemName} (x${quantity}) for ${clientName} @ ${stationName}${
-        chargedToStation ? ' — charged to station card'
-        : compedByRenter ? ' — comped (host allowance)'
-        : isRedemption ? ' — club perk (membership allowance)'
-        : outSettled === 'card_on_file' ? ` — $${orderTotal.toFixed(2)} charged to card on file`
-        : outSettled === 'balance' ? ` — $${orderTotal.toFixed(2)} added to client balance (uncollected)`
-        : outSettled === 'desk' ? ` — $${orderTotal.toFixed(2)} to collect at the station`
-        : ''}`,
-      amount: orderTotal,
-      actor: { type: 'system', id: 'concierge-kiosk', name: 'Concierge Kiosk', via: 'concierge-kiosk' },
-      at: nowIso,
+      return { ok: true };
     });
-    await batch.commit();
+    if (out?.error) return bad(out.error, out.status || 400);
+    if (out?.already) {
+      const r: any = out.already;
+      return NextResponse.json({
+        ok: true, already: true, requestId, settledBy: r.settledBy ?? null, isRedemption: r.isRedemption === true, compedByRenter: r.compedByRenter === true,
+        chargedToStation: r.chargedToStation === true, paidAtKiosk: r.paidAtKiosk === true, orderTotal,
+      });
+    }
 
     return NextResponse.json({
       ok: true, requestId, settledBy: outSettled, isRedemption, compedByRenter, chargedToStation, paidAtKiosk, orderTotal,

@@ -10,7 +10,7 @@
 // which is a separate follow-up).
 
 import { staffAuthHeader } from '@/lib/staff-fetch';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -52,6 +52,9 @@ export function QuickBookDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alternatives, setAlternatives] = useState<Booth[]>([]);
+  // This booking attempt's name, sent with every try: asking again after no answer (or a second tap) is the same
+  // booking and the same charge, never a second. A new attempt starts once an answer comes back or the details change.
+  const attempt = useRef<{ sig: string; key: string } | null>(null);
 
   const booth = booths.find((b) => b.id === boothId);
   const startAt = `${date}T${startTime}:00`;
@@ -77,13 +80,18 @@ export function QuickBookDialog({
       return;
     }
     setSubmitting(true);
+    const sig = JSON.stringify([boothId, renterId, startAt, endAt, rateType]);
+    if (!attempt.current || attempt.current.sig !== sig) attempt.current = { sig, key: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}` };
     try {
       const res = await fetch('/api/stripe/book-station', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-        body: JSON.stringify({ tenantId, locationId, boothId, renterId, startAt, endAt, rateType, mode: 'pos' }),
+        body: JSON.stringify({ tenantId, locationId, boothId, renterId, startAt, endAt, rateType, mode: 'pos', attemptKey: attempt.current.key }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ ok: false, reason: 'No answer from the server — try again.' }));
+      // Booked, refused, or the slot taken: the next booking is a new attempt. No answer, or still going through: the
+      // same attempt is asked again.
+      if (!(res.status >= 500 || data.code === 'in_progress')) attempt.current = null;
 
       if (!data.ok) {
         if (data.code === 'slot_conflict') {

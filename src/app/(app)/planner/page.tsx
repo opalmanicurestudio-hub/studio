@@ -1009,11 +1009,17 @@ function PlannerPageContent() {
     const post = async (path: string, body: any) => { try { const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, ...body }) }); return await r.json(); } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } };
     const who: 'client' | 'no_show' | 'studio' = data.cancellationAudit?.actorType === 'studio' ? 'studio' : data.reason === 'no-show' || data.cancellationAudit?.actorType === 'no_show' ? 'no_show' : 'client';
     // The card is really charged (it used to be recorded as paid without charging anything); a decline goes on their balance.
+    // The charge writes the fee's one line in the books itself (named after the payment), under the category staff pay
+    // and reports count: no-show → No-Show Revenue, late cancellation → Cancellation Fee. Nothing here writes a second.
+    // No answer from the card processor is not a decline: nothing is saved, and asking again is the same charge.
     let intentId: string | null = null;
     if (data.chargeFee && data.feeAmount > 0 && data.paymentMethod === 'card_on_file') {
-      const r: any = await post('/api/stripe/charge-card', { clientId: selectedAppointment.clientId, amountCents: Math.round(Number(data.feeAmount) * 100),
-        description: `${who === 'no_show' ? 'Missed-appointment' : 'Late-cancellation'} fee`, category: who === 'no_show' ? 'No-Show Fees' : 'Cancellation Fees', appointmentId: selectedAppointment.id, reason: data.reason, mode: 'auto', kind: 'deposit' });
-      if (r?.ok && r.paymentIntentId) intentId = r.paymentIntentId;
+      let r: any = null; let status = 0;
+      try { const res = await fetch('/api/stripe/charge-card', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, clientId: selectedAppointment.clientId, amountCents: Math.round(Number(data.feeAmount) * 100),
+        description: `${who === 'no_show' ? 'Missed-appointment' : 'Late-cancellation'} fee`, category: who === 'no_show' ? 'No-Show Revenue' : 'Cancellation Fee', appointmentId: selectedAppointment.id, reason: data.reason, mode: 'auto', kind: 'deposit' }) });
+        status = res.status; r = await res.json().catch(() => null); } catch { r = null; }
+      if (status < 500 && r?.ok && r.paymentIntentId) intentId = r.paymentIntentId;
+      else if (!r || status >= 500 || r.unknown) { toast({ variant: 'destructive', title: 'The charge wasn’t confirmed', description: 'Stripe didn’t answer, so the charge may or may not have gone through. Nothing was saved. Try again in a couple of minutes: it won’t charge twice.' }); return; }
       else { data = { ...data, paymentMethod: 'add_to_balance' }; toast({ variant: 'destructive', title: 'The card didn’t go through', description: `$${Number(data.feeAmount).toFixed(2)} was added to what they owe instead.` }); }
     }
     // We cancelled: the deposit is refunded or kept as credit, as chosen.
@@ -1065,11 +1071,10 @@ function PlannerPageContent() {
         }
     });
 
+    // A fee charged to the card above is in the books already (the charge wrote its line); one not charged is owed.
     if (data.chargeFee && data.feeAmount > 0) {
-        if (data.paymentMethod === 'card_on_file') {
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ ...(intentId ? { paymentIntentId: intentId } : {}), date: now, description: `Cancellation Fee: ${selectedAppointment.clientName}`, clientOrVendor: selectedAppointment.clientName || 'Client', clientId: selectedAppointment.clientId, type: 'income', context: 'Business', category: 'Cancellation Fee', amount: data.feeAmount, paymentMethod: 'Card on File', hasReceipt: false, appointmentId: selectedAppointment.id, staffId: selectedAppointment.staffId }));
-        } else if (data.paymentMethod === 'add_to_balance') {
-            batch.update(clientRef, { unpaidFees: arrayUnion(sanitizeForFirestore({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId })), outstandingBalance: increment(data.feeAmount) });
+        if (data.paymentMethod === 'add_to_balance') {
+            batch.update(clientRef,{ unpaidFees: arrayUnion(sanitizeForFirestore({ feeId: nanoid(), appointmentId: selectedAppointment.id, appointmentDate: safeDate(selectedAppointment.startTime).toISOString(), feeAmount: data.feeAmount, reason: `Late Cancellation: ${data.reason.replace('_', ' ')}`, staffId: selectedAppointment.staffId })), outstandingBalance: increment(data.feeAmount) });
         }
     }
 

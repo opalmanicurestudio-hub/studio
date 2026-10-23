@@ -117,6 +117,13 @@ export async function POST(req: NextRequest) {
     });
 
     if (!result.ok) {
+      // A charge the card processor never answered may have gone through: the team gets a note to check their payments
+      // before charging again (nothing was enrolled; asking again with the same card is the same charge).
+      if (result.error === 'charge_unconfirmed') {
+        const inboxId = `membership_interest_${String(clientId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}_${String(membershipId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}_unconfirmed`;
+        await db.doc(`tenants/${tenantId}/voiceInbox/${inboxId}`).set({ id: inboxId, tenantId, createdAt: now, intent: 'membership_interest', clientId, membershipId, status: 'open', source: 'ai_receptionist',
+          paymentUnconfirmed: true, details: 'A card charge for this membership was tried and not confirmed. Check their payments before charging again.' }, { merge: true });
+      }
       // Enrollment engine already returns a safe, honest spoken line for
       // every failure case (no card, declined, already enrolled, etc.) —
       // relay it directly rather than re-deciding what to say.

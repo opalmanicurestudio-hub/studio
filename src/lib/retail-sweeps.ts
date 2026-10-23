@@ -570,6 +570,9 @@ export async function sweepUnpaidAccepted(
                 }
                 continue;
               }
+              // No answer: it may have gone through, so it isn't counted as a try. The next sweep asks again under the
+              // same key and gets the same charge back.
+              if (rd.unknown === true || !!rr.transportError || [0, 502, 503, 504].includes(Number(rr.status))) continue;
               await d.ref.set({ depositAttempts: attempts + 1, depositFailedAt: new Date(now).toISOString() }, { merge: true });
             } catch { /* the deadline sweep still protects the slot */ }
           }

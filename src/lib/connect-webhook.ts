@@ -434,14 +434,25 @@ export async function handleConnectWebhook(req: NextRequest) {
             const cents = Number(session.amount_total) || 0; const nowIso = new Date().toISOString();
             const { FieldValue } = await import('firebase-admin/firestore');
             // Once: the fee's income line is named after this payment, and the balance comes down in the same step.
+            // The fee itself comes off their list of fees owed too (lib/fee-pay), so automatic collection can't charge it
+            // again. If collection is charging it at this very moment, that payment finds the fee gone and is refunded.
             const feeRef = db.doc(`tenants/${tenant.id}/transactions/feepaid_${String(session.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120)}`);
+            const clientRef = db.doc(`tenants/${tenant.id}/clients/${clientId}`);
             const fresh = cents > 0 ? await db.runTransaction(async (tx: any) => {
               const [fs1, prior] = await Promise.all([tx.get(feeRef), tx.get(db.collection(`tenants/${tenant.id}/transactions`).where('checkoutSessionId', '==', String(session.id)).limit(1))]);
+              const cs = await tx.get(clientRef);
               if (fs1.exists || (prior && !prior.empty)) return false;
+              const c: any = cs.exists ? cs.data() || {} : {};
+              const owed: any[] = Array.isArray(c.unpaidFees) ? c.unpaidFees : [];
+              // This booking's fee: named after it (cancel-<booking>), or listed against it.
+              const paidFee = appointmentId ? owed.find((f: any) => String(f?.feeId || '') === `cancel-${appointmentId}`) || owed.find((f: any) => String(f?.appointmentId || '') === String(appointmentId)) : null;
               tx.set(feeRef, { id: feeRef.id, date: nowIso, description: `Cancellation fee — ${session.metadata?.serviceName || 'Appointment'}`, clientOrVendor: session.metadata?.clientName || 'Guest', clientId,
                 type: 'income', context: 'Business', category: 'Cancellation Fees', taxBucket: 'revenue', amount: cents / 100, paymentMethod: 'Online Checkout', hasReceipt: false,
                 appointmentId: appointmentId || null, checkoutSessionId: session.id, stripeChargeId: chargeId, tenantId: tenant.id });
-              tx.set(db.doc(`tenants/${tenant.id}/clients/${clientId}`), { outstandingBalance: FieldValue.increment(-(cents / 100)), feePaidViaLinkAt: nowIso }, { merge: true });
+              if (paidFee) {
+                const left = Math.max(0, Math.round((Number(c.outstandingBalance) || 0) * 100) - cents);
+                tx.set(clientRef, { unpaidFees: owed.filter((f: any) => f !== paidFee), outstandingBalance: left / 100, feePaidViaLinkAt: nowIso }, { merge: true });
+              } else tx.set(clientRef, { outstandingBalance: FieldValue.increment(-(cents / 100)), feePaidViaLinkAt: nowIso }, { merge: true });
               return true;
             }) : false;
             if (completionToken) await db.doc(`tenants/${tenant.id}/bookingCompletions/${completionToken}`).set({ status: 'fee_paid', feePaidAt: nowIso }, { merge: true });

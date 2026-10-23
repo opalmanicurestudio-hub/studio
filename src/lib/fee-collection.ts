@@ -8,8 +8,13 @@
 // A successful charge is recorded exactly like a manual one (the transactions ledger), comes off their balance,
 // and the client is told (the "fee charged" message — it can't be switched off: a charge nobody was told about is
 // how chargebacks start). Every try is logged in `collectionAttempts`, paid or not, with the reason.
-// Never charges twice: each fee is locked while it's charged, and Stripe gets one key per fee per try.
+// Never charges twice: each fee is claimed while it's charged, through the same lock every other way of paying a fee
+// uses (lib/fee-pay), and Stripe gets the same key for the same fee, amount and card, whoever charges it. A fee with a
+// pay link still open is left for the link. A run cut off after charging leaves its claim behind: the next run (or the
+// desk) finds that payment at Stripe and records it, rather than charging the fee again. When Stripe doesn't answer,
+// the fee stays claimed and nothing is counted as a failed try.
 import { automationOn, noteAutomation } from '@/lib/automation-switches';
+import { anyStaleClaim, chargeClaimedFees, claimFees, linkOpen, resolveStaleFees } from '@/lib/fee-pay';
 
 export const RETRY_AFTER_DAYS = [3, 7];          // after the 1st try, then after the 2nd → 3 tries in all
 const DAY = 86400000;
@@ -36,58 +41,49 @@ export function nextTryAt(fee: any, firstAfterHours: number, now = Date.now()): 
 }
 
 export async function collectFees(db: any, stripe: any, tenantId: string, tenant: any, now = Date.now()) {
-  const out = { tried: 0, paid: 0, failed: 0, stopped: 0, skippedNoCard: 0 };
+  const out = { tried: 0, paid: 0, failed: 0, stopped: 0, skippedNoCard: 0, unconfirmed: 0 };
   if (!automationOn(tenant, 'fee-collection') || !tenant?.stripeAccountId) return out;
   const firstAfterHours = Number(tenant?.automations?.feeCollectionAfterHours ?? 24);
   const T = `tenants/${tenantId}`;
   const owing = await db.collection(`${T}/clients`).where('outstandingBalance', '>', 0).limit(300).get();
   for (const cDoc of owing.docs) {
-    const client: any = cDoc.data() || {}; const card = client.cardOnFile;
-    const due = (Array.isArray(client.unpaidFees) ? client.unpaidFees : []).filter((f: any) => { const at = nextTryAt(f, firstAfterHours, now); return at !== null && at <= now && !f.collectingAt; });
+    let client: any = cDoc.data() || {};
+    // A payment a run (or the desk) was cut off from: found at Stripe and recorded first, never charged again.
+    if (anyStaleClaim(client, now)) { await resolveStaleFees(db, stripe, tenantId, tenant, cDoc.id, now).catch(() => null); client = (await cDoc.ref.get()).data() || {}; }
+    const card = client.cardOnFile;
+    const due = (Array.isArray(client.unpaidFees) ? client.unpaidFees : []).filter((f: any) => { const at = nextTryAt(f, firstAfterHours, now); return at !== null && at <= now && !f.collectingAt && !linkOpen(f, now); });
     if (!due.length) continue;
     if (!card?.customerId || !card?.paymentMethodId) { out.skippedNoCard++; continue; }
     for (const fee0 of due) {
-      // Lock this fee (so two runs can never charge it twice).
-      const locked = await db.runTransaction(async (tx: any) => {
-        const c: any = (await tx.get(cDoc.ref)).data() || {}; const list = Array.isArray(c.unpaidFees) ? c.unpaidFees : [];
-        const i = list.findIndex((f: any) => f.feeId === fee0.feeId); if (i < 0 || list[i].collectingAt || list[i].collectGaveUp) return null;
-        const next = [...list]; next[i] = { ...list[i], collectingAt: new Date(now).toISOString() }; tx.update(cDoc.ref, { unpaidFees: next }); return next[i];
-      });
-      if (!locked) continue;
-      const attempt = Number(locked.collectAttempts || 0) + 1; const cents = Math.round(Number(locked.feeAmount) * 100);
-      const reason = String(locked.reason || 'Fee').replace(/\s*[—–-]\s*(auto-charge failed|card declined|no card on file|payments not connected).*$/i, '').slice(0, 120);
-      out.tried++; let intent: any = null; let err: any = null;
-      try {
-        intent = await stripe.paymentIntents.create({ amount: cents, currency: 'usd', customer: card.customerId, payment_method: card.paymentMethodId, off_session: true, confirm: true,
-          description: `${reason} — collected automatically`, ...(client.email ? { receipt_email: client.email } : {}),
-          metadata: { tenantId, clientId: cDoc.id, feeId: locked.feeId, appointmentId: locked.appointmentId || '', kind: 'arrears_fee', source: 'fee_collection', attempt: String(attempt) } },
-          { stripeAccount: tenant.stripeAccountId, idempotencyKey: `collect_${tenantId}_${locked.feeId}_${attempt}` });
-      } catch (e: any) { err = e; }
+      // Claimed (so no other run, and no other way of paying, can take this fee at the same moment).
+      const cl = await claimFees(db, tenantId, { clientId: cDoc.id, feeIds: [String(fee0.feeId)], source: 'collection', by: 'Automatic collection', skipLinked: true, now });
+      if (!cl.ok) continue;
+      const fee = cl.claim.fees[0]; if (!fee) continue;
+      const attempt = fee.collectAttempts + 1; const cents = fee.cents; const reason = fee.reason;
       const nowIso = new Date(now).toISOString();
-      if (intent && intent.status === 'succeeded') {
-        try { const { recordCharge } = await import('@/lib/charge-records'); await recordCharge(db, tenantId, { kind: 'fees_card_on_file', clientId: cDoc.id, cents, reason: `Collected automatically — ${reason}`, appointmentId: locked.appointmentId || null, paymentIntentId: intent.id, needs: ['booking_policies', 'card_on_file'] }); } catch { /* fine */ }
-        await db.runTransaction(async (tx: any) => {
-          const c: any = (await tx.get(cDoc.ref)).data() || {}; const list = (Array.isArray(c.unpaidFees) ? c.unpaidFees : []).filter((f: any) => f.feeId !== locked.feeId);
-          tx.update(cDoc.ref, { unpaidFees: list, outstandingBalance: Math.max(0, Math.round((Number(c.outstandingBalance || 0) - Number(locked.feeAmount)) * 100) / 100) });
-          tx.set(db.doc(`${T}/transactions/collect_${locked.feeId}`), { id: `collect_${locked.feeId}`, date: nowIso, description: `${reason} — collected automatically`, clientOrVendor: client.name || 'Client', clientId: cDoc.id,
-            type: 'income', context: 'Business', category: 'Fees', taxBucket: 'revenue', amount: Number(locked.feeAmount), paymentMethod: 'Card on file (Stripe) — automatic',
-            appointmentId: locked.appointmentId || null, stripePaymentIntentId: intent.id, stripeChargeId: typeof intent.latest_charge === 'string' ? intent.latest_charge : null, hasReceipt: true, tenantId }, { merge: true });
-          tx.set(db.collection(`${T}/collectionAttempts`).doc(), { clientId: cDoc.id, clientName: client.name || null, feeId: locked.feeId, amount: Number(locked.feeAmount), reason, attempt, status: 'paid', at: nowIso, paymentIntentId: intent.id });
-        });
-        out.paid++; await noteAutomation(db, tenantId, 'fee-collection');
-        await tellClient(db, tenantId, tenant, cDoc.id, client, Number(locked.feeAmount), reason).catch(() => null);
+      out.tried++;
+      let stop = false; let why = '';
+      const r = await chargeClaimedFees(db, stripe, tenantId, tenant, cl.claim, { description: `${reason} — collected automatically`, receiptEmail: client.email || null, by: 'Automatic collection', how: 'collection',
+        metadata: { feeId: fee.feeId, appointmentId: fee.appointmentId || '', kind: 'arrears_fee', source: 'fee_collection', attempt: String(attempt) },
+        // Stripe said no: this try counts, and the next one is scheduled (or collection stops and you're told).
+        declinedPatch: (_f: any, err: any) => { const f = friendly(err); stop = f.stop || attempt >= 1 + RETRY_AFTER_DAYS.length; why = f.text;
+          return { collectAttempts: attempt, lastCollectError: f.text, lastCollectAt: nowIso, ...(stop ? { collectGaveUp: true, nextCollectAt: null } : { nextCollectAt: new Date(now + RETRY_AFTER_DAYS[attempt - 1] * DAY).toISOString() }) }; } });
+      // Each try is logged once, under its own name (the fee and the try).
+      const logTry = (x: any) => db.doc(`${T}/collectionAttempts/${String(fee.feeId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100)}_${attempt}`).set({ clientId: cDoc.id, clientName: client.name || null, feeId: fee.feeId, amount: cents / 100, reason, attempt, at: nowIso, ...x }, { merge: true });
+      if (r.ok) {
+        if (!r.settled.already && r.settled.paidCents > 0) {
+          try { const { recordCharge } = await import('@/lib/charge-records'); await recordCharge(db, tenantId, { kind: 'fees_card_on_file', clientId: cDoc.id, cents, reason: `Collected automatically — ${reason}`, appointmentId: fee.appointmentId || null, paymentIntentId: r.intent.id, needs: ['booking_policies', 'card_on_file'] }); } catch { /* fine */ }
+          await logTry({ status: 'paid', paymentIntentId: r.intent.id });
+          out.paid++; await noteAutomation(db, tenantId, 'fee-collection');
+          await tellClient(db, tenantId, tenant, cDoc.id, client, cents / 100, reason).catch(() => null);
+        }
+      } else if ('unknown' in r) {
+        // No answer from Stripe: the fee stays claimed, and the next run finds out what happened before anything else.
+        out.unconfirmed++;
       } else {
-        const f = friendly(err || { code: intent?.status });
-        const stop = f.stop || attempt >= 1 + RETRY_AFTER_DAYS.length;
-        await db.runTransaction(async (tx: any) => {
-          const c: any = (await tx.get(cDoc.ref)).data() || {}; const list = Array.isArray(c.unpaidFees) ? c.unpaidFees : [];
-          const next = list.map((x: any) => (x.feeId !== locked.feeId ? x : (({ collectingAt, ...rest }: any) => ({ ...rest, collectAttempts: attempt, lastCollectError: f.text, lastCollectAt: nowIso,
-            ...(stop ? { collectGaveUp: true, nextCollectAt: null } : { nextCollectAt: new Date(now + RETRY_AFTER_DAYS[attempt - 1] * DAY).toISOString() }) }))(x)));
-          tx.update(cDoc.ref, { unpaidFees: next });
-          tx.set(db.collection(`${T}/collectionAttempts`).doc(), { clientId: cDoc.id, clientName: client.name || null, feeId: locked.feeId, amount: Number(locked.feeAmount), reason, attempt, status: 'failed', why: f.text, stopped: stop, at: nowIso });
-          if (stop) tx.set(db.collection(`${T}/chargeFlags`).doc(), { tenantId, clientId: cDoc.id, appointmentId: locked.appointmentId || null, amountDollars: Number(locked.feeAmount), description: reason, reason,
-            failReason: `Automatic collection stopped after ${attempt} ${attempt === 1 ? 'try' : 'tries'}: ${f.text}`, code: 'collection_stopped', status: 'needs_attention', createdAt: nowIso });
-        });
+        await logTry({ status: 'failed', why, stopped: stop });
+        if (stop) await db.doc(`${T}/chargeFlags/collect_stop_${String(fee.feeId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100)}`).set({ tenantId, clientId: cDoc.id, appointmentId: fee.appointmentId || null, amountDollars: cents / 100, description: reason, reason,
+          failReason: `Automatic collection stopped after ${attempt} ${attempt === 1 ? 'try' : 'tries'}: ${why}`, code: 'collection_stopped', status: 'needs_attention', createdAt: nowIso });
         out.failed++; if (stop) out.stopped++;
       }
     }

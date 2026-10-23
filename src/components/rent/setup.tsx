@@ -1001,6 +1001,7 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
   const services: any[] = data?.myServices || [];
   const [offers, setOffers] = useState<any[]>([]);
   const [newOffer, setNewOffer] = useState<{ open: boolean; type: 'percentage' | 'fixed'; value: string; code: string; until: string; onePer: boolean }>({ open: false, type: 'percentage', value: '15', code: '', until: '', onePer: true });
+  const textTry = React.useRef('');
   const load = useCallback(async () => {
     const [d, o] = await Promise.all([api({ action: 'rc-list', tenantId, token }), api({ action: 'offers-list', tenantId, token })]);
     if (d?.ok) setSt(d); if (o?.ok) setOffers(o.offers || []);
@@ -1034,13 +1035,19 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
   const send = async () => {
     if (!draft?.id || !quote) return;
     setBusy(true); setErr(''); setMsg('');
+    // This Send's name, sent with every call: a second tap, or asking again after no answer, is the same purchase and
+    // never a second charge.
+    if (!textTry.current) textTry.current = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
     let first = true; let last: any = null;
     for (let i = 0; i < 20; i++) {
-      last = await api({ action: 'rc-send', tenantId, token, campaignId: draft.id, confirmChargeCents: first ? quote.chargeCents : 0 });
+      last = await api({ action: 'rc-send', tenantId, token, campaignId: draft.id, confirmChargeCents: first ? quote.chargeCents : 0, attemptKey: textTry.current });
       first = false;
       if (!last?.ok || last.done || !(last.batch?.sent || last.batch?.failed)) break;
       setMsg(`${last.totals?.sent || 0} sent…`);
     }
+    // Paid (or nothing to pay), refused, or the price changed: the next Send is a new purchase. No answer, or still
+    // going through: the same one is asked again.
+    if (last?.ok || !(last?.status >= 500 || last?.status === 0 || last?.code === 'in_progress' || last?.code === 'no_answer')) textTry.current = '';
     setBusy(false);
     if (!last?.ok) { setErr(last?.error || 'Sending stopped.'); if (last?.quote) setQuote(last.quote); return; }
     setMsg(last.done ? `Sent to ${last.totals?.sent || 0}.${quote.chargeCents ? ` $${(quote.chargeCents / 100).toFixed(2)} charged to your card.` : ''} Bookings in the next 14 days show here.` : `${last.totals?.sent || 0} sent — open it again to finish.`);

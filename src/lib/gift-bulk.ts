@@ -5,10 +5,16 @@
 //   invoiced (the contact has a private page to pay) → paid → issued (or cancelled before it's paid).
 //   Cards are made only once it's paid — online (the payment webhook, or the page confirming), or marked paid by a
 //   manager when a check or bank transfer comes in. Each person gets their own card, sent on the day chosen. The money is
-//   recorded once, as Gift Card Sales (held — it counts as a sale when each card is used).
+//   recorded once, as Gift Card Sales (held — it counts as a sale when each card is used), in the same step that marks
+//   the order paid, on a line named after the order.
+//   Paying online, every tap gets the same payment page while it's open, so two tabs can't make two payments. A second
+//   payment that arrives anyway (an older page, or a card payment after a manager marked it paid by check) is never
+//   dropped: it's written on the order under its own page, refunded to the card automatically, and the managers are
+//   told; if the refund doesn't go through, it waits on the order for a manager, with a note saying so.
 import { createHmac } from 'crypto';
 import Stripe from 'stripe';
-import { issueGiftCard, deliverGiftCard } from '@/lib/gift-cards';
+import { issueGiftCard, deliverGiftCard, alertManagers } from '@/lib/gift-cards';
+import { refundAmount } from '@/lib/stripe-refund';
 
 const T = (t: string) => `tenants/${t}`;
 const now = () => new Date().toISOString();
@@ -17,6 +23,9 @@ const money = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFrac
 const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const MAX_ROWS = 500;
+const safe = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
+const piOf = (s: any): string | null => (typeof s?.payment_intent === 'string' ? s.payment_intent : s?.payment_intent?.id || null);
+const CLAIM_MS = 2 * 60000;
 
 export function bulkKey(tenantId: string, id: string) {
   const secret = process.env.GIFT_LINK_SECRET || process.env.REFUND_LINK_SECRET || process.env.FIREBASE_ADMIN_PRIVATE_KEY || 'gift';
@@ -27,22 +36,35 @@ export const bulkPath = (tenantId: string, id: string) => `/gift/${encodeURIComp
 import { checkRow, totals, type BulkRow } from '@/lib/gift-bulk-list';
 export { checkRow, parseList, totals, MAX_ROWS, type BulkRow } from '@/lib/gift-bulk-list';
 
-/** Create or update a company order (managers). Only before it's paid. */
+/** Create or update a company order (managers). Only before it's paid — checked in the same step that saves it, so an
+ *  edit made while the company is paying can't undo the payment or the cards it made: once the payment is in, the edit
+ *  is refused. The payment's own fields are never written here. A new total closes the page made for the old one. */
 export async function saveBulk(db: any, tenantId: string, b: any, by: string) {
   const ref = b.id ? db.doc(`${T(tenantId)}/giftBulk/${String(b.id).slice(0, 60)}`) : db.collection(`${T(tenantId)}/giftBulk`).doc();
-  const cur: any = b.id ? (await ref.get()).data() : null; if (b.id && !cur) return { ok: false as const, error: 'That order wasn’t found.' };
-  if (cur && ['paid', 'issued', 'cancelled'].includes(cur.status)) return { ok: false as const, error: 'It’s already paid — it can’t be changed now.' };
   const company = String(b.company || '').trim().slice(0, 80); if (!company) return { ok: false as const, error: 'Add the company name.' };
   const contactEmail = String(b.contactEmail || '').trim().toLowerCase().slice(0, 120); const contactName = String(b.contactName || '').trim().slice(0, 80);
   const defaultCents = Math.max(100, Math.min(500000, Math.round(Number(b.defaultAmount) * 100) || 5000));
   const rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, MAX_ROWS).map((r: any) => checkRow({ name: r.name, contact: r.email || r.phone || r.contact || r.raw, amount: r.cents ? r.cents / 100 : r.amount }, defaultCents));
   let sendAt: string | null = null; if (b.sendAt) { const at = Date.parse(String(b.sendAt)); if (!Number.isFinite(at) || at > Date.now() + 366 * 864e5) return { ok: false as const, error: 'Choose a send date within the next year.' }; if (at > Date.now() + 5 * 60000) sendAt = new Date(at).toISOString(); }
   const tt = totals(rows);
-  const doc = { id: ref.id, company, contactName: contactName || null, contactEmail: EMAIL.test(contactEmail) ? contactEmail : null, design: typeof b.design === 'string' && /^[a-z0-9-]{2,30}$/.test(b.design) ? b.design : 'frost',
-    line: String(b.line || '').trim().slice(0, 30) || null, message: String(b.message || '').trim().slice(0, 400) || null, sendAt, defaultCents, rows, ...tt,
-    status: cur?.status === 'invoiced' ? 'invoiced' : 'draft', updatedAt: now(), updatedBy: by, ...(cur ? {} : { createdAt: now(), createdBy: by }) };
-  await ref.set(doc, { merge: true });
-  return { ok: true as const, order: { ...cur, ...doc }, path: bulkPath(tenantId, ref.id) };
+  const fields = { id: ref.id, company, contactName: contactName || null, contactEmail: EMAIL.test(contactEmail) ? contactEmail : null, design: typeof b.design === 'string' && /^[a-z0-9-]{2,30}$/.test(b.design) ? b.design : 'frost',
+    line: String(b.line || '').trim().slice(0, 30) || null, message: String(b.message || '').trim().slice(0, 400) || null, sendAt, defaultCents, rows, ...tt, updatedAt: now(), updatedBy: by };
+  const out: any = await db.runTransaction(async (tx: any) => {
+    const cur: any = b.id ? ((await tx.get(ref)).data() || null) : null;
+    if (b.id && !cur) return { error: 'That order wasn’t found.' };
+    if (cur && ['paid', 'issued', 'cancelled'].includes(cur.status)) return { error: 'It’s already paid — it can’t be changed now.' };
+    const doc = { ...fields, status: cur?.status === 'invoiced' ? 'invoiced' : 'draft', ...(cur ? {} : { createdAt: now(), createdBy: by }) };
+    tx.set(ref, doc, { merge: true });
+    return { cur, doc };
+  });
+  if (out.error) return { ok: false as const, error: out.error as string };
+  // A new total: the page made for the old one closes, so the old amount can't be paid as well.
+  const page = out.cur?.payPage;
+  if (page?.sessionId && Number(page.cents) !== Number(out.doc.totalCents)) {
+    const t: any = (await db.doc(T(tenantId)).get()).data() || {};
+    if (t.stripeAccountId) await stripe().checkout.sessions.expire(String(page.sessionId), {}, { stripeAccount: t.stripeAccountId }).catch(() => null);
+  }
+  return { ok: true as const, order: { ...(out.cur || {}), ...out.doc }, path: bulkPath(tenantId, ref.id) };
 }
 
 /** Email the contact their private page to pay (and see the list). */
@@ -73,38 +95,96 @@ export async function bulkView(db: any, tenantId: string, id: string) {
     rows: (o.rows || []).filter((r: any) => !r.problem).map((r: any) => ({ name: r.name, to: r.email ? r.email.replace(/^(.).*(@.*)$/, '$1•••$2') : r.phone ? `•••${String(r.phone).slice(-4)}` : '', cents: r.cents, sent: !!r.cardId })) };
 }
 
-/** Pay online: a payment page on the business's account for the whole order (made fresh each time — they expire). */
+/** Pay online: one payment page on the business's account for the whole order. Every tap gets the same page while it
+ *  can still be paid (two taps or two tabs can't make two payments); a new one is made only once it has expired, or
+ *  when the total has changed (the old one is closed first). Pages are named after the order, its total and how many
+ *  have been made, so two taps at the same moment get the same new page. */
 export async function payBulk(db: any, tenantId: string, id: string, origin: string) {
-  const o: any = (await db.doc(`${T(tenantId)}/giftBulk/${id}`).get()).data(); if (!o || o.status !== 'invoiced') return { ok: false as const, error: o?.status === 'paid' || o?.status === 'issued' ? 'It’s already paid — thank you!' : 'This order isn’t ready to pay.' };
+  const ref = db.doc(`${T(tenantId)}/giftBulk/${id}`);
+  const o: any = (await ref.get()).data(); if (!o || o.status !== 'invoiced') return { ok: false as const, error: o?.status === 'paid' || o?.status === 'issued' ? 'It’s already paid — thank you!' : 'This order isn’t ready to pay.' };
   const t: any = (await db.doc(T(tenantId)).get()).data() || {}; if (!t.stripeAccountId) return { ok: false as const, error: 'Card payments aren’t set up here.' };
+  const acct = t.stripeAccountId; const s = stripe();
+  const page = o.payPage?.sessionId ? o.payPage : null;
+  if (page) {
+    // Stripe not knowing the page at all (another account, say) means it's gone; no answer means ask again.
+    let cur: any = null; let gone = false;
+    try { cur = await s.checkout.sessions.retrieve(String(page.sessionId), {}, { stripeAccount: acct }); } catch (e: any) { gone = String(e?.type || '') === 'StripeInvalidRequestError'; }
+    if (!cur && !gone) return { ok: false as const, error: 'The payment page couldn’t be opened just now. Please try again in a moment.' };
+    if (cur?.status === 'open' && Number(page.cents) === Number(o.totalCents) && cur.url) return { ok: true as const, url: cur.url as string };
+    // Paid on that page, but the confirmation hasn't reached the order yet: it's recorded now, never paid again.
+    if (cur?.status === 'complete' && cur.payment_status === 'paid') {
+      await markBulkPaid(db, tenantId, id, { via: 'card', sessionId: cur.id, amountCents: cur.amount_total, paymentIntentId: piOf(cur), by: 'Online' });
+      return { ok: false as const, error: 'It’s already paid — thank you!' };
+    }
+    if (cur?.status === 'complete') {
+      // Finished, but the money hasn't arrived: a bank payment still clearing waits; one that failed makes way for a new page.
+      const piId = piOf(cur); let st: 'clearing' | 'failed' | 'unknown' = 'failed';
+      if (piId) { try { const x: any = await s.paymentIntents.retrieve(String(piId), {}, { stripeAccount: acct }); st = ['requires_payment_method', 'canceled'].includes(String(x?.status || '')) ? 'failed' : 'clearing'; } catch { st = 'unknown'; } }
+      if (st === 'clearing') return { ok: false as const, error: 'Your payment is still going through. Please check back in a few minutes.' };
+      if (st === 'unknown') return { ok: false as const, error: 'The payment page couldn’t be checked just now. Please try again in a moment.' };
+    }
+    // The total changed since that page was made: it closes, so the old amount can't be paid as well.
+    if (cur?.status === 'open') await s.checkout.sessions.expire(String(cur.id), {}, { stripeAccount: acct }).catch(() => null);
+  }
+  const n = (Number(o.payPages) || 0) + 1;
   const { linkOrigin } = await import('@/lib/app-origin'); const back = `${linkOrigin(t, origin)}${bulkPath(tenantId, id)}`;
-  const session = await stripe().checkout.sessions.create({ mode: 'payment', customer_email: o.contactEmail || undefined,
+  const session = await s.checkout.sessions.create({ mode: 'payment', customer_email: o.contactEmail || undefined,
     line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: o.totalCents, product_data: { name: `${o.count} gift cards — ${t.name || 'Gift cards'}`, description: `For ${o.company}` } } }],
     payment_intent_data: { metadata: { tenantId, type: 'gift_bulk', giftBulkId: id }, description: `Company gift cards ${money(o.totalCents)}` },
-    metadata: { tenantId, type: 'gift_bulk', giftBulkId: id }, success_url: `${back}&paid={CHECKOUT_SESSION_ID}`, cancel_url: back } as any, { stripeAccount: t.stripeAccountId });
+    metadata: { tenantId, type: 'gift_bulk', giftBulkId: id }, success_url: `${back}&paid={CHECKOUT_SESSION_ID}`, cancel_url: back } as any,
+    { stripeAccount: acct, idempotencyKey: `gift-bulk-pay-${safe(id)}-${Math.round(Number(o.totalCents) || 0)}-${n}` });
+  await ref.set({ payPage: { sessionId: session.id, cents: o.totalCents, at: now() }, payPages: n }, { merge: true });
   return { ok: true as const, url: session.url };
 }
 
-/** Back from paying: check it went through, then make the cards. */
+/** Back from paying: check it went through, then make the cards. A second payment for an order already paid is
+ *  refunded (markBulkPaid), and the page is told so. */
 export async function confirmBulk(db: any, tenantId: string, id: string, sessionId: string) {
   const o: any = (await db.doc(`${T(tenantId)}/giftBulk/${id}`).get()).data(); if (!o) return { ok: false as const };
-  if (o.status === 'paid' || o.status === 'issued') return { ok: true as const, paid: true };
-  const t: any = (await db.doc(T(tenantId)).get()).data() || {}; if (!t.stripeAccountId || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return { ok: true as const, paid: false };
+  if ((o.status === 'paid' || o.status === 'issued') && o.checkoutSessionId === sessionId) return { ok: true as const, paid: true };
+  const t: any = (await db.doc(T(tenantId)).get()).data() || {}; if (!t.stripeAccountId || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return { ok: true as const, paid: o.status === 'paid' || o.status === 'issued' };
   const s: any = await stripe().checkout.sessions.retrieve(sessionId, {}, { stripeAccount: t.stripeAccountId });
-  if (s.payment_status !== 'paid' || s.metadata?.giftBulkId !== id) return { ok: true as const, paid: false };
-  await markBulkPaid(db, tenantId, id, { via: 'card', sessionId: s.id, amountCents: s.amount_total, by: 'Online' });
+  if (s.payment_status !== 'paid' || s.metadata?.giftBulkId !== id) return { ok: true as const, paid: o.status === 'paid' || o.status === 'issued' };
+  const r: any = await markBulkPaid(db, tenantId, id, { via: 'card', sessionId: s.id, amountCents: s.amount_total, paymentIntentId: piOf(s), by: 'Online' });
+  if (r?.twice) return { ok: true as const, paid: true, twice: true, refunded: !!r.refunded, message: r.error as string };
   return { ok: true as const, paid: true };
 }
 
-/** Paid → make every card, record the money once, send them (or schedule them). Runs once. */
-export async function markBulkPaid(db: any, tenantId: string, id: string, p: { via: 'card' | 'check' | 'transfer' | 'cash'; sessionId?: string | null; amountCents?: number | null; by: string }) {
+type PaidBy = { via: 'card' | 'check' | 'transfer' | 'cash'; sessionId?: string | null; amountCents?: number | null; paymentIntentId?: string | null; by: string };
+
+/** Paid → make every card, record the money once, send them (or schedule them). Runs once: the order is marked paid
+ *  and its line in the books (named after the order) is written in the same step. The same online payment again is
+ *  nothing new; a different one is a second payment, and goes back (refundSecondPayment). */
+export async function markBulkPaid(db: any, tenantId: string, id: string, p: PaidBy) {
   const ref = db.doc(`${T(tenantId)}/giftBulk/${id}`);
-  const o: any = await db.runTransaction(async (tx: any) => { const x = (await tx.get(ref)).data(); if (!x || !['draft', 'invoiced'].includes(x.status)) return null; tx.update(ref, { status: 'paid', paidAt: now(), paidVia: p.via, checkoutSessionId: p.sessionId || null }); return x; });
-  if (!o) return { ok: false as const, error: 'It’s already paid, or it was cancelled.' };
-  const t: any = (await db.doc(T(tenantId)).get()).data() || {}; const paid = Number(p.amountCents) > 0 ? Number(p.amountCents) : o.totalCents;
-  const txRef = db.collection(`${T(tenantId)}/transactions`).doc();
-  await txRef.set({ id: txRef.id, date: now(), description: `Gift cards for ${o.company}: ${o.count} cards`, clientOrVendor: o.company, type: 'income', context: 'Business', category: 'Gift Card Sales', taxBucket: 'transfer',
-    amount: paid / 100, paymentMethod: p.via === 'card' ? 'Online Checkout' : p.via === 'check' ? 'Check' : p.via === 'transfer' ? 'Bank Transfer' : 'Cash', hasReceipt: true, checkoutSessionId: p.sessionId || null, giftBulkId: id, tenantId });
+  const txRef = db.doc(`${T(tenantId)}/transactions/giftbulk_${safe(id)}`);
+  const at = now();
+  const claim: any = await db.runTransaction(async (tx: any) => {
+    const x: any = (await tx.get(ref)).data(); const line = await tx.get(txRef);
+    if (!x) return { none: true };
+    if (['draft', 'invoiced'].includes(x.status) && !line.exists) {
+      const paid = Number(p.amountCents) > 0 ? Number(p.amountCents) : x.totalCents;
+      tx.update(ref, { status: 'paid', paidAt: at, paidVia: p.via, checkoutSessionId: p.sessionId || null, paidCents: paid, ...(p.paymentIntentId ? { paymentIntentId: p.paymentIntentId } : {}) });
+      tx.set(txRef, { id: txRef.id, date: at, description: `Gift cards for ${x.company}: ${x.count} cards`, clientOrVendor: x.company, type: 'income', context: 'Business', category: 'Gift Card Sales', taxBucket: 'transfer',
+        amount: paid / 100, paymentMethod: p.via === 'card' ? 'Online Checkout' : p.via === 'check' ? 'Check' : p.via === 'transfer' ? 'Bank Transfer' : 'Cash', hasReceipt: true, checkoutSessionId: p.sessionId || null,
+        ...(p.paymentIntentId ? { stripePaymentIntentId: p.paymentIntentId } : {}), giftBulkId: id, tenantId });
+      return { o: x };
+    }
+    // Paid already, or cancelled: the same online payment again is nothing new; any other online payment is a second one.
+    if (p.sessionId && x.checkoutSessionId === p.sessionId) return { same: true };
+    if (p.via === 'card' && p.sessionId) return { twice: true, o: x };
+    return { done: true };
+  });
+  if (claim.twice) return refundSecondPayment(db, tenantId, id, claim.o, p);
+  if (!claim.o) return { ok: false as const, error: 'It’s already paid, or it was cancelled.' };
+  const o = claim.o;
+  // Paid online for a different amount than the order now comes to (it was changed while they were paying): the cards
+  // are made for the list as it is, and the managers are told, so the difference can be settled.
+  const paidCents = Number(p.amountCents) > 0 ? Number(p.amountCents) : Number(o.totalCents);
+  if (p.via === 'card' && paidCents !== Number(o.totalCents)) {
+    await alertManagers(db, tenantId, `${o.company} paid ${money(paidCents)} online for their gift card order, which now comes to ${money(Number(o.totalCents) || 0)} because it was changed while they were paying. The cards were made for the list as it is now, so please settle the difference with them.`, '/gift-cards?company=1', null).catch(() => {});
+  }
+  const t: any = (await db.doc(T(tenantId)).get()).data() || {};
   const rows: BulkRow[] = [...(o.rows || [])]; let made = 0, failed = 0;
   for (let i = 0; i < rows.length; i++) { const r = rows[i]; if (r.problem || r.cardId) continue;
     const c: any = await issueGiftCard(db, tenantId, { amountCents: r.cents, by: p.by, source: 'desk', purchaser: { id: null, name: o.company }, purchaserEmail: o.contactEmail,
@@ -114,6 +194,42 @@ export async function markBulkPaid(db: any, tenantId: string, id: string, p: { v
     if (!c.card.sendAt) await deliverGiftCard(db, tenantId, t, c.card).catch(() => null); }
   await ref.set({ status: failed ? 'paid' : 'issued', rows, made, failed: failed || null, issuedAt: now() }, { merge: true });
   return { ok: true as const, made, failed };
+}
+
+/** A second payment on an order already paid (or cancelled): written on the order under its own page first (so two
+ *  notices at the same moment refund it once), refunded to the card under one key for that payment, and the managers
+ *  are told. If the refund doesn't go through, it stays on the order for a manager, and their note says so. */
+async function refundSecondPayment(db: any, tenantId: string, id: string, o: any, p: PaidBy) {
+  const ref = db.doc(`${T(tenantId)}/giftBulk/${id}`);
+  const t: any = (await db.doc(T(tenantId)).get()).data() || {}; const acct = t.stripeAccountId || null;
+  const key = safe(p.sessionId);
+  let pi = p.paymentIntentId || null; let cents = Math.round(Number(p.amountCents) || 0);
+  if ((!pi || !cents) && acct) {
+    const s: any = await stripe().checkout.sessions.retrieve(String(p.sessionId), {}, { stripeAccount: acct }).catch(() => null);
+    pi = pi || piOf(s); cents = cents || Math.round(Number(s?.amount_total) || 0);
+  }
+  const why = o.status === 'cancelled' ? 'cancelled' : 'paid_twice';
+  const words = why === 'cancelled' ? 'was cancelled' : 'was already paid';
+  const at = now();
+  const claim: any = await db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(ref)).data() || {}; const e = cur.extraPayments?.[key] || null;
+    if (e?.state === 'refunded') return { done: true };
+    if (e?.state === 'refunding' && Date.now() - (Date.parse(String(e.claimAt || '')) || 0) < CLAIM_MS) return { busy: true };
+    tx.set(ref, { extraPayments: { [key]: { sessionId: String(p.sessionId), paymentIntentId: pi, cents, why, state: 'refunding', claimAt: at, firstAt: e?.firstAt || at } } }, { merge: true });
+    return { go: true };
+  });
+  if (claim.done) return { ok: false as const, twice: true, refunded: true, cents, error: `This order ${words}, so this payment of ${money(cents)} was refunded to the card.` };
+  if (claim.busy) return { ok: false as const, twice: true, refunded: false, cents, error: `This order ${words}, so this payment of ${money(cents)} is being refunded to the card.` };
+  const r: any = pi && cents > 0 ? await refundAmount(acct, pi, cents, `gift-bulk-twice-${safe(pi)}-${cents}`, { tenantId, giftBulkId: id, why }) : { ok: false, error: 'No card payment was found to refund.' };
+  // Refunded in Stripe by hand already: the money went back.
+  const ok = !!r.ok || r.code === 'charge_already_refunded';
+  await ref.set({ extraPayments: { [key]: ok ? { state: 'refunded', refundedAt: now(), refundId: r.id || null } : { state: 'refund_failed', error: String(r.error || 'The refund didn’t go through.').slice(0, 200), failedAt: now() } } }, { merge: true });
+  const how = o.paidVia && o.paidVia !== 'card' && why === 'paid_twice' ? ` (marked paid by ${o.paidVia === 'transfer' ? 'bank transfer' : o.paidVia})` : '';
+  await alertManagers(db, tenantId, ok
+    ? `${o.company} paid ${money(cents)} for their gift card order, which ${words}${how}. That payment was refunded to their card automatically.`
+    : `${o.company} paid ${money(cents)} for their gift card order, which ${words}${how}. The automatic refund didn’t go through, so please refund it in Stripe.`, '/gift-cards?company=1', null).catch(() => {});
+  return { ok: false as const, twice: true, refunded: ok, cents,
+    error: ok ? `This order ${words}, so this payment of ${money(cents)} was refunded to the card.` : `This order ${words}. ${t.name || 'The business'} will refund this payment of ${money(cents)}.` };
 }
 
 /** A company asks from the shop page — the managers get it as a request to set up. */
@@ -129,7 +245,19 @@ export async function requestBulk(db: any, tenantId: string, b: any) {
 }
 
 export async function cancelBulk(db: any, tenantId: string, id: string, by: string) {
-  const ref = db.doc(`${T(tenantId)}/giftBulk/${id}`); const o: any = (await ref.get()).data(); if (!o) return { ok: false as const, error: 'That order wasn’t found.' };
-  if (['paid', 'issued'].includes(o.status)) return { ok: false as const, error: 'It’s already paid — cancel the cards one by one from the list if you need to.' };
-  await ref.set({ status: 'cancelled', cancelledAt: now(), cancelledBy: by }, { merge: true }); return { ok: true as const };
+  const ref = db.doc(`${T(tenantId)}/giftBulk/${id}`);
+  // In one step, so a payment arriving at the same moment either pays it first (and it can't be cancelled) or finds it
+  // cancelled (and is refunded).
+  const r: any = await db.runTransaction(async (tx: any) => {
+    const o: any = (await tx.get(ref)).data(); if (!o) return { error: 'That order wasn’t found.' };
+    if (['paid', 'issued'].includes(o.status)) return { error: 'It’s already paid — cancel the cards one by one from the list if you need to.' };
+    tx.set(ref, { status: 'cancelled', cancelledAt: now(), cancelledBy: by }, { merge: true }); return { o };
+  });
+  if (r.error) return { ok: false as const, error: r.error as string };
+  // Its payment page closes, so it can't be paid now.
+  if (r.o.payPage?.sessionId) {
+    const t: any = (await db.doc(T(tenantId)).get()).data() || {};
+    if (t.stripeAccountId) await stripe().checkout.sessions.expire(String(r.o.payPage.sessionId), {}, { stripeAccount: t.stripeAccountId }).catch(() => null);
+  }
+  return { ok: true as const };
 }

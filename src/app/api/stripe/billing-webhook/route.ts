@@ -6,9 +6,9 @@
 // Set up in Stripe → Developers → Webhooks → Add endpoint:
 //   URL     https://<your live address>/api/stripe/billing-webhook
 //   Listen  "Your account" (not connected accounts)
-//   Events  checkout.session.completed, customer.subscription.created,
-//           customer.subscription.updated, customer.subscription.deleted,
-//           invoice.paid, invoice.payment_failed
+//   Events  checkout.session.completed, checkout.session.async_payment_succeeded,
+//           customer.subscription.created, customer.subscription.updated,
+//           customer.subscription.deleted, invoice.paid, invoice.payment_failed
 //   Then copy its signing secret into Vercel as STRIPE_BILLING_WEBHOOK_SECRET.
 //
 // What it does:
@@ -17,6 +17,9 @@
 //     canceled/unpaid → cancelled (the suspended page)
 //   • records every paid invoice in platformBilling (→ HQ Finance income)
 //   • a failed payment emails the owner (card fix link) and HQ
+//   • rent a renter paid online (its Stripe page is on this account) is recorded
+//     even if they never come back to the portal — once, by the same step as
+//     their return or a later tap on Pay (lib/rent-online-pay)
 
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
@@ -66,13 +69,28 @@ export async function POST(req: NextRequest) {
     await ref.set(patch, { merge: true });
   };
 
+  // Rent paid online (api/portal/renter): recorded once — safe to receive twice, or at the same moment as the renter's
+  // return to the portal. A page whose bank payment is still clearing ('unpaid') waits for Stripe's word that the money
+  // arrived (async_payment_succeeded), which comes here too.
+  const okId = (v: any) => /^[A-Za-z0-9_-]{1,128}$/.test(String(v || ''));
+  const rentPaid = async (s: Stripe.Checkout.Session) => {
+    const m: any = s.metadata || {};
+    if (m.kind !== 'rent_invoice' || !okId(m.tenantId) || !okId(m.invoiceId) || s.payment_status !== 'paid') return;
+    const { recordRentPayment } = await import('@/lib/rent-online-pay');
+    await recordRentPayment(db, stripe, String(m.tenantId), String(m.invoiceId), s);
+  };
+
   try {
     switch (event.type) {
       case 'checkout.session.completed': {
         const s = event.data.object as Stripe.Checkout.Session;
         if (s.mode === 'subscription' && s.subscription) await applySubscription(await stripe.subscriptions.retrieve(String(s.subscription)));
+        await rentPaid(s);
         break;
       }
+      case 'checkout.session.async_payment_succeeded':
+        await rentPaid(event.data.object as Stripe.Checkout.Session);
+        break;
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted':

@@ -433,6 +433,10 @@ export default function ClientDetailPage() {
     return { total: totalUsage, pending: pendingQty, db: redemptionsInCycle.length + deliveredQty };
   };
 
+  // One settlement attempt keeps its key and its amount until the card processor gives an answer, so tapping again
+  // after an answer went missing asks for that same charge, never a second one.
+  const settleAttempt = React.useRef<{ key: string; cents: number; clientId: string } | null>(null);
+
   const handleQuickSettle = async () => {
     if (!client || !firestore || !tenantId) return;
     const hasCard = !!hasRealCard(client);
@@ -440,8 +444,11 @@ export default function ClientDetailPage() {
         toast({ variant: 'destructive', title: "No Card on File", description: "Save a card for them first, then settle the balance." });
         return;
     }
-    const amount = safeNumber(client.outstandingBalance);
-    if (amount <= 0) return;
+    if (safeNumber(client.outstandingBalance) <= 0 && !settleAttempt.current) return;
+    const attempt = settleAttempt.current?.clientId === client.id ? settleAttempt.current
+      : { key: `settle_${client.id}_${nanoid(12)}`, cents: Math.round(safeNumber(client.outstandingBalance) * 100), clientId: client.id };
+    settleAttempt.current = attempt;
+    const amount = attempt.cents / 100;
 
     setIsSettleProcessing(true);
     try {
@@ -459,14 +466,21 @@ export default function ClientDetailPage() {
             body: JSON.stringify({
                 tenantId,
                 clientId: client.id,
-                amountCents: Math.round(amount * 100),
+                amountCents: attempt.cents,
                 description: 'Dossier Settlement — Outstanding Balance',
                 category: 'Fee Recovery',
                 taxBucket: 'adjustment',
+                idempotencyKey: attempt.key,
             }),
         });
         const out = await res.json().catch(() => null);
 
+        // No answer from the card processor: the attempt (its key and amount) is kept for the next tap.
+        if (res.status >= 500 || !out || out.unknown || out.code === 'in_progress') {
+            toast({ variant: 'destructive', title: "Charge Not Confirmed", description: out?.reason || 'The card processor didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' });
+            return;
+        }
+        settleAttempt.current = null;   // an answer ends the attempt: the next tap is a new one
         if (!out?.ok) {
             toast({ variant: 'destructive', title: "Charge Failed", description: out?.reason || 'Card was declined or could not be processed. Balance has not been cleared.' });
             return;
@@ -485,7 +499,8 @@ export default function ClientDetailPage() {
         setIsQuickSettleOpen(false);
     } catch (e: any) {
         console.error(e);
-        toast({ variant: 'destructive', title: "Process Failed", description: e.message || 'Could not reach the payment processor.' });
+        // The request may have reached the card processor: the attempt is kept, so trying again is the same charge.
+        toast({ variant: 'destructive', title: "Charge Not Confirmed", description: 'The connection dropped, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' });
     } finally {
         setIsSettleProcessing(false);
     }

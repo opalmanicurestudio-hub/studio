@@ -18,16 +18,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveAuthority, responseClock, authorityAtLeast, type DecisionAuthority } from '@/lib/appointment-authority';
+import { refuseCron } from '@/lib/cron-auth';
 
 const DEFAULT_ACTION = 'escalate';
 const DEFAULT_AUTO_ACCEPT_FLOOR: DecisionAuthority = 'limited';
-
-function authorised(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  const header = req.headers.get('authorization') || '';
-  return header.replace(/^Bearer\s+/i, '').trim() === secret;
-}
 
 async function sweepTenant(db: any, tenantId: string, nowIso: string) {
   const tenant = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
@@ -182,9 +176,8 @@ async function sweepTenant(db: any, tenantId: string, nowIso: string) {
 }
 
 async function run(req: NextRequest) {
-  if (!authorised(req)) {
-    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
-  }
+  // Only the scheduler, holding the secret exactly. No secret set: nobody (it used to let anyone run it then).
+  const refused = refuseCron(req); if (refused) return refused;
 
   const db = getAdminDb();
   const nowIso = new Date().toISOString();

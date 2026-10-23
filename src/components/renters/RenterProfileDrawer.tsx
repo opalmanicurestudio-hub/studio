@@ -109,8 +109,37 @@ export function RenterProfileDrawer({
   const [chargeCat, setChargeCat] = useState('');
   const [chargeNote, setChargeNote] = useState('');
   const [renterChargingId, setRenterChargingId] = useState<string | null>(null);
+  // This charge's name: the same charge asked again (after no answer) keeps it, so it can't go through twice.
+  const chargeTry = React.useRef('');
   const { toast: drawerToast } = useToast();
   const { selectedTenant: drawerTenant } = useTenant();
+  // The client concierge link for this renter's station carries a signature only the server can make: it's what lets
+  // an order from the link be charged to the station. A new link stops the old one charging.
+  const stationBoothId = (renter as any)?.amenitiesEnabled && lease?.boothId ? String(lease.boothId) : '';
+  const [stationLink, setStationLink] = useState<{ boothId: string; token: string } | null>(null);
+  const [stationLinkBusy, setStationLinkBusy] = useState(false);
+  const [stationLinkError, setStationLinkError] = useState('');
+  const loadStationLink = async (renew: boolean) => {
+    if (!stationBoothId || !tenantId) return;
+    setStationLinkBusy(true); setStationLinkError('');
+    try {
+      const res = await fetch('/api/booths/kiosk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'station-link', tenantId, boothId: stationBoothId, renew }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d?.ok && d.token) {
+        setStationLink({ boothId: stationBoothId, token: String(d.token) });
+        if (renew) drawerToast({ title: 'New link made', description: 'Share it with the renter. The old link no longer charges this station.' });
+      } else setStationLinkError(d?.error || 'The link couldn’t be made. Try again.');
+    } catch { setStationLinkError('The link couldn’t be made. Try again.'); }
+    finally { setStationLinkBusy(false); }
+  };
+  useEffect(() => {
+    setStationLink(null); setStationLinkError('');
+    if (stationBoothId) void loadStationLink(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stationBoothId, tenantId, renter?.id]);
   // Constrained to the studio's capped incidentals policy — no made-up charges.
   const chargePolicy = resolveBoothIncidentalPolicy(drawerTenant);
   const chargeCatObj = chargePolicy.find((c: any) => c.label === chargeCat) || null;
@@ -120,23 +149,22 @@ export function RenterProfileDrawer({
   const chargeRenterCard = async (rt: Renter) => {
     if (!(chargeCents >= 50) || !chargeCat || chargeOverCap || renterChargingId) return;
     setRenterChargingId(rt.id);
+    if (!chargeTry.current) chargeTry.current = Math.random().toString(36).slice(2, 10);
+    const key = `${chargeTry.current}-${rt.id}-${chargeCents}-${chargeCat}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100);
     try {
       // Hardened monthly-renter path: same capped policy as day/hourly renters,
       // enforced server-side (setup-card PUT validates category + cap).
       const res = await fetch('/api/booths/setup-card', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, renterId: rt.id, amountCents: chargeCents, category: chargeCat, note: chargeNote.trim() }),
+        body: JSON.stringify({ tenantId, renterId: rt.id, amountCents: chargeCents, category: chargeCat, note: chargeNote.trim(), key }),
       });
       const d = await res.json();
+      // Charged, or the card said no: the next charge is a new attempt.
+      if (d.ok || res.status === 402) chargeTry.current = '';
       if (d.ok) {
-        const label = chargeCat + (chargeNote.trim() ? ` — ${chargeNote.trim()}` : '');
+        // The server records the charge in the activity log, with who made it.
         setChargeAmt(''); setChargeCat(''); setChargeNote('');
         drawerToast({ title: 'Card charged', description: `$${(d.chargedCents / 100).toFixed(2)} — ${chargeCat} recorded in the ledger.` });
-        writeBoothAudit(firestore, tenantId, {
-          action: 'booth.renter_charged', targetType: 'renter', targetId: rt.id,
-          summary: `Card on file charged: ${rt.firstName || ''} ${rt.lastName || ''}`.trim() + ` — ${label}`,
-          amount: (d.chargedCents || chargeCents) / 100, actor: { type: 'user' },
-        });
       } else {
         drawerToast({ variant: 'destructive', title: 'Charge failed', description: d.error || 'Try again or collect another way.' });
       }
@@ -445,16 +473,25 @@ export function RenterProfileDrawer({
                   + Assign a space
                 </button>
               )}
-              {(renter as any).amenitiesEnabled && lease?.boothId && (() => {
-                const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/concierge/${tenantId}?booth=${lease.boothId}`;
+              {stationBoothId && (() => {
+                const token = stationLink?.boothId === stationBoothId ? stationLink.token : '';
+                const link = token ? `${typeof window !== 'undefined' ? window.location.origin : ''}/concierge/${tenantId}?booth=${encodeURIComponent(stationBoothId)}&k=${encodeURIComponent(token)}` : '';
                 return (
                   <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-4 space-y-2">
                     <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5"><Coffee className="h-3 w-3" /> Client concierge</p>
                     <p className="text-[10px] font-medium text-muted-foreground">Their clients scan or open this to order amenities to {booth?.name || 'their booth'}. {(renter as any).amenityPayer === 'client' ? 'Client pays for anything over the free allowance.' : 'Extras charge this renter’s card.'}</p>
                     <div className="flex items-center gap-2">
-                      <input readOnly value={link} className="flex-1 h-8 rounded-lg border-2 px-2 text-[10px] font-mono bg-card truncate" onFocus={(e) => e.currentTarget.select()} />
-                      <button onClick={() => { navigator.clipboard?.writeText(link).catch(() => {}); }} className="h-8 px-3 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest shrink-0">Copy</button>
+                      <input readOnly value={link || (stationLinkBusy ? 'Making the link…' : '')} className="flex-1 h-8 rounded-lg border-2 px-2 text-[10px] font-mono bg-card truncate" onFocus={(e) => e.currentTarget.select()} />
+                      <button onClick={() => { if (link) navigator.clipboard?.writeText(link).catch(() => {}); }} disabled={!link} className="h-8 px-3 rounded-lg bg-foreground text-background font-black uppercase text-[9px] tracking-widest shrink-0 disabled:opacity-40">Copy</button>
                     </div>
+                    {stationLinkError && <p className="text-[10px] font-bold text-red-600">{stationLinkError}</p>}
+                    <button
+                      onClick={() => { if (window.confirm('Make a new link for this station?\n\nThe current link will still open the menu, but orders from it can no longer be charged to the station. Share the new link with the renter.')) void loadStationLink(true); }}
+                      disabled={stationLinkBusy}
+                      className="text-[9px] font-black uppercase tracking-widest text-amber-700 underline underline-offset-2 disabled:opacity-40"
+                    >
+                      Make a new link
+                    </button>
                   </div>
                 );
               })()}

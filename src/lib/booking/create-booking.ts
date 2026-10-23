@@ -311,8 +311,13 @@ export async function createBooking(
   let depositCharged = false;
   let depositChargeIntentId: string | undefined;
   let depositChargeId: string | null = null;
+  // The deposit charge's key, kept when Stripe didn't answer (it may have gone through): the booking then sends no
+  // link to pay the deposit again, and the owners are told to check the payment first.
+  let depositUnconfirmed: string | null = null;
   if (effectiveMode === 'instant' && depositCents > 0 && hasUsableCard && clientId) {
-    try {
+    // One key for this booking's deposit: asked again, Stripe answers with the first charge rather than making another.
+    const depositKey = `dep_book_${aptId}`;
+    const askCharge = async () => {
       const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${appUrl}/api/stripe/charge-card`)) },
@@ -326,23 +331,30 @@ export async function createBooking(
           reason: 'Voice booking deposit — card on file',
           mode: 'auto',
           kind: 'deposit',
+          idempotencyKey: depositKey,
         }),
       });
-      const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
-      if (chargeData.ok) {
+      return { status: chargeRes.status, data: await chargeRes.json().catch(() => ({ ok: false, unknown: true })) as any };
+    };
+    const lost = (r: { status: number; data: any }) => r.data?.unknown === true || [0, 502, 503, 504].includes(Number(r.status));
+    try {
+      let r = await askCharge().catch(() => ({ status: 0, data: { ok: false, unknown: true } }));
+      // No answer: asked once more under the same key, which gives back the first charge's answer if Stripe had it.
+      if (lost(r)) r = await askCharge().catch(() => ({ status: 0, data: { ok: false, unknown: true } }));
+      if (r.data?.ok) {
         depositCharged = true;
-        depositChargeIntentId = chargeData.paymentIntentId;
-        depositChargeId = chargeData.chargeId || null;
-      }
+        depositChargeIntentId = r.data.paymentIntentId;
+        depositChargeId = r.data.chargeId || null;
+      } else if (lost(r)) depositUnconfirmed = depositKey;
     } catch {
-      /* falls through to completion-link path below, same as a declined card */
+      /* a declined card falls through to the completion-link path below, same as no card at all */
     }
   }
 
   // v10 — needsLink now reflects the charge outcome: a successfully
   // charged deposit no longer forces a link on its own. Forms and pending
   // documents still can, same as always.
-  const needsLink = (depositCents > 0 && !depositCharged) || formsNeedingSignature.length > 0 || pendingFileReqs.length > 0;
+  const needsLink = (depositCents > 0 && !depositCharged && !depositUnconfirmed) || formsNeedingSignature.length > 0 || pendingFileReqs.length > 0;
 
   // ── 5. The booking write (full parity, one batch) ──────────────────────
   const checkInToken = nanoid();
@@ -387,6 +399,7 @@ export async function createBooking(
     depositAmountCents: depositCents,
     depositStatus: depositCents === 0 ? 'none' : depositCharged ? 'paid' : 'pending',
     depositPaymentIntentId: depositChargeIntentId,
+    ...(depositUnconfirmed ? { depositChargeUnconfirmed: { key: depositUnconfirmed, at: nowISO, cents: depositCents } } : {}),
     depositChargedViaVoice: depositCharged || undefined,
     completionStatus: needsLink ? 'pending' : undefined,
     // Kept alongside the status so anything still querying the old field —
@@ -477,7 +490,7 @@ export async function createBooking(
         clientEmail: clientEmail.toLowerCase(),
         serviceId: service.id,
         serviceName: service.name || '',
-        depositAmountCents: depositCharged ? 0 : depositCents,
+        depositAmountCents: depositCharged || depositUnconfirmed ? 0 : depositCents,
         requiredConsentFormIds: formsNeedingSignature,
         skipCardStep: depositCharged || !!(clientDoc?.cardOnFile?.paymentMethodId || hasRealCard(clientDoc)),
         cardAlreadyOnFile: !!(clientDoc?.cardOnFile?.paymentMethodId || hasRealCard(clientDoc)),
@@ -508,6 +521,17 @@ export async function createBooking(
 
   batch.delete(lockRef);
   await batch.commit();
+  // The deposit charge got no answer from Stripe: the owners check the payment before the deposit is taken another way.
+  if (depositUnconfirmed) {
+    try {
+      const admins = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['admin', 'owner']).get();
+      for (const d of admins.docs) {
+        const n = db.doc(`tenants/${tenantId}/notifications/depunconfirmed_${aptId}_${d.id}`);
+        await n.set({ id: n.id, userId: d.id, type: 'deposit_unconfirmed', read: false, createdAt: nowISO, link: `/planner?visit=${aptId}`,
+          message: `Stripe didn’t answer when ${clientName || 'a client'}’s $${(depositCents / 100).toFixed(2)} deposit for ${service.name || 'their booking'} was charged to their card. Check the payment in Stripe before taking the deposit another way, so they aren’t charged twice.` });
+      }
+    } catch { /* the booking says so too (depositChargeUnconfirmed) */ }
+  }
 
   // ── 6. Instant mode: fire the link now; approval mode stages it ────────
   let linkSent = false;

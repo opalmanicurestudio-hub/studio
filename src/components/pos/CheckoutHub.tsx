@@ -788,7 +788,8 @@ export const CheckoutHub = ({
         await onCheckout({ paymentMethod: 'card_on_file', amountTendered: amountToCharge, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: data.paymentIntentId, cardSurcharge });
         setCardMode('select');
       } else {
-        toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
+        // No answer from Stripe: the message says to try again in a couple of minutes (the same charge comes back).
+        toast({ variant: 'destructive', title: data.unknown ? 'Payment not confirmed' : 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
         setCardMode('select');
       }
     } catch (err: any) {

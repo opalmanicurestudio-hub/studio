@@ -122,32 +122,81 @@ const line = (by: string, text: string) => ({ at: now(), by, text });
 const codeRef = (db: any, tenantId: string, id: string) => db.doc(`${T(tenantId)}/refundCodes/${id}`);
 async function codeOf(db: any, tenantId: string, id: string): Promise<string | null> { const s = await codeRef(db, tenantId, id).get(); return s.exists ? String((s.data() || {}).code || '') || null : null; }
 
-/** Write the refund to the books (when the money actually left) and close the refund on the case. */
-async function settle(db: any, tenantId: string, tenant: any, p: any, via: string, by: string) {
-  const T0 = T(tenantId); const at = now(); const cents = Math.round(p.amountCents);
-  let sale: any = null;
-  if (p.saleId) { const s = await db.doc(`${T0}/transactions/${p.saleId}`).get(); sale = s.exists ? { id: s.id, ...s.data() } : null; }
-  // Loyalty: a refund takes back the points that money earned (lib/loyalty-server).
-  if (sale?.checkoutSessionId) { try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: String(sale.checkoutSessionId), refundCents: cents, refundId: `p${p.id}`, by }); } catch { /* best effort */ } }
-  if (via !== 'Store credit') {
-    const rev = db.collection(`${T0}/transactions`).doc();
-    await rev.set({ id: rev.id, date: at, description: `Refund for: ${sale?.description || p.serviceName || 'visit'}`, clientOrVendor: p.clientName || null, clientId: p.clientId || null, type: 'reversal', context: sale?.context || null, category: 'Refunds', amount: cents / 100, paymentMethod: via, reversalOf: sale?.id || null, appointmentId: p.appointmentId || null, hasReceipt: false, notes: `${p.number ? `Making it right ${p.number} · ` : ''}${via}${p.app?.ref ? ` · ref ${p.app.ref}` : ''}`, payoutId: p.id, caseId: p.caseId || null, by, ...(p.ledger || {}) });
-    if (sale && !sale.refundedAt) await db.doc(`${T0}/transactions/${sale.id}`).set({ refundedAt: at, refundTransactionId: rev.id, refundPendingId: null }, { merge: true });
-  } else if (sale) {
-    await db.doc(`${T0}/transactions/${sale.id}`).set({ refundPendingId: null, refundedAsCreditAt: at }, { merge: true });
-  }
-  if (p.caseId) {
-    await db.doc(`${T0}/cases/${p.caseId}`).set({ fix: { refundedAt: at, refundedCents: cents, refundVia: via, todo: null }, updatedAt: at, timeline: FieldValue.arrayUnion(line(by, `Refund of ${money(cents)} given — ${via}`)) }, { merge: true });
-  }
+/** Loyalty: a refund takes back the points that money earned (lib/loyalty-server; named after this refund, so once). */
+async function pointsBack(db: any, tenantId: string, sale: any, cents: number, payoutId: string, by: string) {
+  if (sale?.checkoutSessionId) { try { const { reverseSale } = await import('@/lib/loyalty-server'); await reverseSale(db, tenantId, { saleId: String(sale.checkoutSessionId), refundCents: cents, refundId: `p${payoutId}`, by }); } catch { /* best effort */ } }
 }
 
-async function issueCredit(db: any, tenantId: string, p: any, by: string) {
-  if (!p.clientId) return { ok: false as const, error: 'This refund isn’t linked to a client account, so credit can’t be added.' };
-  const ref = db.doc(`${T(tenantId)}/clients/${p.clientId}`); if (!(await ref.get()).exists) return { ok: false as const, error: 'Client not found.' };
-  const { nanoid } = await import('nanoid'); const cents = Math.round(p.amountCents);
-  // Earned credit: money they already paid, now usable on anything. No new expense line — the sale stays, the credit is spent later.
-  await ref.update({ storeCredits: FieldValue.arrayUnion({ id: nanoid(), tenantId, clientId: p.clientId, appointmentId: p.appointmentId || null, amountCents: cents, amount: cents / 100, type: 'earned', source: 'refund_to_credit', reason: `Refund${p.number ? ` — ${p.number}` : ''}`, createdBy: by, expiresAt: null, createdAt: now(), usedAt: null, usedOnAppointmentId: null, status: 'available' }), totalStoreCredit: FieldValue.increment(cents / 100) });
-  return { ok: true as const };
+const DONE = ['handed', 'sent', 'credited', 'cancelled'];
+const idPart = (s: any) => String(s || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
+
+/** One step on a refund (handed over, sent, cancelled, cash out of the till…), in one transaction that reads the refund
+ *  as it is now: `run` gets it (and the transaction, for anything else it reads first and then writes) and returns why
+ *  the step can't happen, or nothing. Two taps, or the desk and the client at the same moment, do it once. */
+async function onePayoutStep(db: any, ref: any, run: (cur: any, tx: any) => Promise<string | null | void> | string | null | void): Promise<{ ok: true; cur: any } | { ok: false; error: string }> {
+  return db.runTransaction(async (tx: any) => {
+    const s = await tx.get(ref); const cur: any = s.exists ? { ...(s.data() || {}), id: s.id } : null;
+    if (!cur) return { ok: false as const, error: 'Refund not found.' };
+    const why = await run(cur, tx); if (why) return { ok: false as const, error: why };
+    return { ok: true as const, cur };
+  });
+}
+
+/** Write the refund to the books (when the money actually left: cash handed over, or sent by an app) and close the
+ *  refund on the case — once. The books line is named after this refund and written in one step that first checks it
+ *  isn't there yet, together with the sale and the case. A refund taken as store credit is recorded by creditRefund. */
+async function settle(db: any, tenantId: string, tenant: any, p: any, via: string, by: string) {
+  const T0 = T(tenantId); const cents = Math.round(p.amountCents);
+  const lineRef = db.doc(`${T0}/transactions/payout_refund_${idPart(p.id)}`);
+  const saleRef = p.saleId ? db.doc(`${T0}/transactions/${p.saleId}`) : null;
+  const caseRef = p.caseId ? db.doc(`${T0}/cases/${p.caseId}`) : null;
+  const r: any = await db.runTransaction(async (tx: any) => {
+    const ls = await tx.get(lineRef); const ss = saleRef ? await tx.get(saleRef) : null; const ks = caseRef ? await tx.get(caseRef) : null;
+    const sale: any = ss?.exists ? { id: ss.id, ...(ss.data() || {}) } : null;
+    if (ls.exists) return { sale, already: true };
+    const at = now();
+    tx.set(lineRef, { id: lineRef.id, date: at, description: `Refund for: ${sale?.description || p.serviceName || 'visit'}`, clientOrVendor: p.clientName || null, clientId: p.clientId || null, type: 'reversal', context: sale?.context || null, category: 'Refunds', amount: cents / 100, paymentMethod: via, reversalOf: sale?.id || null, appointmentId: p.appointmentId || null, hasReceipt: false, notes: `${p.number ? `Making it right ${p.number} · ` : ''}${via}${p.app?.ref ? ` · ref ${p.app.ref}` : ''}`, payoutId: p.id, caseId: p.caseId || null, by, ...(p.ledger || {}) });
+    if (sale && !sale.refundedAt) tx.set(saleRef, { refundedAt: at, refundTransactionId: lineRef.id, refundPendingId: null }, { merge: true });
+    if (ks?.exists) tx.set(caseRef, { fix: { refundedAt: at, refundedCents: cents, refundVia: via, todo: null }, updatedAt: at, timeline: FieldValue.arrayUnion(line(by, `Refund of ${money(cents)} given — ${via}`)) }, { merge: true });
+    return { sale };
+  });
+  if (!r.already) await pointsBack(db, tenantId, r.sale, cents, p.id, by);
+}
+
+/** The refund as store credit, once. In one step: the refund is read as it is now (not already given another way, its
+ *  cash not taken out of the till), the credit goes on the client's account named after this refund, and the refund,
+ *  its sale and its case are marked done. A second tap, or the client and the desk choosing at the same moment, find
+ *  it credited and add nothing. Earned credit: money they already paid, now usable on anything — no new expense line
+ *  (the sale stays; the credit is spent later). */
+async function creditRefund(db: any, tenantId: string, id: string, by: string): Promise<{ ok: false; error: string } | { ok: true; already?: boolean; p: any; sale: any }> {
+  const T0 = T(tenantId); const ref = db.doc(`${T0}/refundPayouts/${id}`);
+  return db.runTransaction(async (tx: any) => {
+    const ps = await tx.get(ref);
+    const p: any = ps.exists ? { ...(ps.data() || {}), id } : null;
+    if (!p) return { ok: false as const, error: 'Refund not found.' };
+    const cRef = p.clientId ? db.doc(`${T0}/clients/${p.clientId}`) : null;
+    const saleRef = p.saleId ? db.doc(`${T0}/transactions/${p.saleId}`) : null;
+    const caseRef = p.caseId ? db.doc(`${T0}/cases/${p.caseId}`) : null;
+    const cs = cRef ? await tx.get(cRef) : null; const ss = saleRef ? await tx.get(saleRef) : null; const ks = caseRef ? await tx.get(caseRef) : null;
+    if (p.status === 'credited') return { ok: true as const, already: true, p, sale: null };
+    if (['handed', 'sent', 'cancelled'].includes(p.status)) return { ok: false as const, error: 'This refund has already been completed.' };
+    if (p.prep?.tillAt) return { ok: false as const, error: 'The cash for this refund is already out of the till.' };
+    if (!p.clientId) return { ok: false as const, error: 'This refund isn’t linked to a client account, so credit can’t be added.' };
+    if (!cs?.exists) return { ok: false as const, error: 'Client not found.' };
+    const cents = Math.round(p.amountCents); const at = now(); const creditId = `refund_${id}`;
+    const has = (Array.isArray((cs.data() || {}).storeCredits) ? cs.data().storeCredits : []).some((x: any) => x?.id === creditId);
+    if (!has) tx.update(cRef, { storeCredits: FieldValue.arrayUnion({ id: creditId, tenantId, clientId: p.clientId, appointmentId: p.appointmentId || null, amountCents: cents, amount: cents / 100, type: 'earned', source: 'refund_to_credit', reason: `Refund${p.number ? ` — ${p.number}` : ''}`, createdBy: by, expiresAt: null, createdAt: at, usedAt: null, usedOnAppointmentId: null, status: 'available', payoutId: id }), totalStoreCredit: FieldValue.increment(cents / 100) });
+    tx.set(ref, { method: 'credit', status: 'credited', creditedAt: at, creditId, updatedAt: at, timeline: FieldValue.arrayUnion(line(by, `${money(cents)} added as store credit`)) }, { merge: true });
+    if (ss?.exists) tx.set(saleRef, { refundPendingId: null, refundedAsCreditAt: at }, { merge: true });
+    if (ks?.exists) tx.set(caseRef, { fix: { refundedAt: at, refundedCents: cents, refundVia: 'Store credit', todo: null }, updatedAt: at, timeline: FieldValue.arrayUnion(line(by, `Refund of ${money(cents)} given — Store credit`)) }, { merge: true });
+    return { ok: true as const, p, sale: ss?.exists ? { id: ss.id, ...(ss.data() || {}) } : null };
+  });
+}
+
+/** Any other choice of how the refund is given, written in one step only while the refund is still open — so a choice
+ *  made at the same moment as store credit can't reopen a refund that was just credited (and then be paid out too). */
+async function setChoice(db: any, ref: any, patch: any) {
+  return onePayoutStep(db, ref, (cur, tx) => { if (DONE.includes(cur.status)) return 'This refund has already been completed.'; tx.set(ref, patch, { merge: true }); });
 }
 
 /** Start a refund for a client who paid cash. Staff pick the way (mode 'staff') or text the client to choose ('client'). */
@@ -176,18 +225,34 @@ export async function createPayout(db: any, tenantId: string, tenant: any, actor
     missed: 0, createdAt: now(), createdBy: actor.name, ...(b.ledger && typeof b.ledger === 'object' ? { ledger: { ...(Array.isArray(b.ledger.payReversals) ? { payReversals: b.ledger.payReversals.slice(0, 10), staffId: String(b.ledger.staffId || '') || null } : {}), ...(b.ledger.tipReversal?.staffId ? { tipReversal: { staffId: String(b.ledger.tipReversal.staffId), amount: Number(b.ledger.tipReversal.amount) || 0 } } : {}) } } : {}), ...(b.reason && !c ? { note: String(b.reason).slice(0, 300) } : {}), updatedAt: now(), timeline: [line(actor.name, `Refund of ${money(amount)} set up`)] };
   p.noteText = noteDraft({ ...p, method: 'pickup' }, tenant);
   const allowed = methodsFor(tenant, p); if (!allowed.length) return { ok: false as const, error: 'Turn on a way to give cash refunds in Settings → Making it right.' };
-  const markSale = async () => { if (sale) await db.doc(`${T0}/transactions/${sale.id}`).set({ refundPendingId: ref.id }, { merge: true }); };
-  if (p.mode === 'client') {
-    await ref.set(p); await markSale();
+  const m = p.mode === 'client' ? null : (String(b.method || '') as Method);
+  if (m !== null && !allowed.includes(m)) return { ok: false as const, error: 'Choose how they’ll get it back.' };
+  if (m) { p.method = m; p.noteText = noteDraft(p, tenant); }
+  // Made in one step that takes the case and the sale for this refund (they point at it), after checking neither is
+  // taken by a refund still open or already given: two set-ups at the same moment make one refund, and the other is
+  // told one is set up. A cancelled refund lets go of both.
+  const made: any = await db.runTransaction(async (tx: any) => {
+    const caseRef = c ? db.doc(`${T0}/cases/${c.id}`) : null; const saleRef = sale ? db.doc(`${T0}/transactions/${sale.id}`) : null;
+    const ks = caseRef ? await tx.get(caseRef) : null; const ss = saleRef ? await tx.get(saleRef) : null;
+    const k: any = ks?.exists ? ks.data() || {} : {}; const s: any = ss?.exists ? ss.data() || {} : {};
+    const kp = k.payoutId ? await tx.get(db.doc(`${T0}/refundPayouts/${idPart(k.payoutId)}`)) : null;
+    const sp = s.refundPendingId ? await tx.get(db.doc(`${T0}/refundPayouts/${idPart(s.refundPendingId)}`)) : null;
+    const open = (x: any) => !!x?.exists && (x.data() || {}).status !== 'cancelled';
+    if (k.fix?.refundedAt) return { ok: false as const, error: 'This refund was already given.' };
+    if (open(kp)) return { ok: false as const, error: 'A refund is already set up for this case — see Refunds.' };
+    if (s.refundedAt || s.voided || s.refundedAsCreditAt) return { ok: false as const, error: 'This sale was already refunded.' };
+    if (open(sp)) return { ok: false as const, error: 'A refund is already set up for this sale — see Refunds to give.' };
+    tx.set(ref, p);
+    if (ss?.exists) tx.set(saleRef, { refundPendingId: ref.id }, { merge: true });
+    if (ks?.exists) tx.set(caseRef, { payoutId: ref.id, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, m ? `Cash refund: ${METHOD_LABEL[m]} (${money(amount)})` : `Cash refund: client chooses how (${money(amount)})`)) }, { merge: true });
+    return { ok: true as const };
+  });
+  if (!made.ok) return made;
+  if (!m) {
     const sent = await textClient(db, tenantId, tenant, p, `${hi(p)}we are refunding ${money(amount)} to you. Please choose how you would like to receive your refund here:`);
     await ref.set({ timeline: FieldValue.arrayUnion(line(actor.name, sent ? 'Texted the client to choose how' : 'Couldn’t text the client — share the link')) }, { merge: true });
-    if (c) await db.doc(`${T0}/cases/${c.id}`).set({ payoutId: ref.id, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `Cash refund: client chooses how (${money(amount)})`)) }, { merge: true });
     return { ok: true as const, id: ref.id, sent, link: payoutPath(tenantId, ref.id) };
   }
-  const m = String(b.method || '') as Method; if (!allowed.includes(m)) return { ok: false as const, error: 'Choose how they’ll get it back.' };
-  p.method = m; p.noteText = noteDraft(p, tenant);
-  await ref.set(p); await markSale();
-  if (c) await db.doc(`${T0}/cases/${c.id}`).set({ payoutId: ref.id, updatedAt: now(), timeline: FieldValue.arrayUnion(line(actor.name, `Cash refund: ${METHOD_LABEL[m]} (${money(amount)})`)) }, { merge: true });
   const r = await applyChoice(db, tenantId, tenant, { ...p }, { method: m, pickup: b.pickup, handle: b.handle, accountName: b.accountName }, actor.name, false);
   return r.ok ? { ...r, id: ref.id, link: payoutPath(tenantId, ref.id) } : r;
 }
@@ -197,24 +262,26 @@ async function applyChoice(db: any, tenantId: string, tenant: any, p: any, b: an
   const ref = db.doc(`${T(tenantId)}/refundPayouts/${p.id}`); const m = String(b.method || '') as Method;
   if (!methodsFor(tenant, p).includes(m)) return { ok: false as const, error: 'That way isn’t available.' };
   if (m === 'credit') {
-    const r = await issueCredit(db, tenantId, p, by); if (!r.ok) return r;
-    await ref.set({ method: 'credit', status: 'credited', creditedAt: now(), updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `${money(p.amountCents)} added as store credit`)) }, { merge: true });
-    await settle(db, tenantId, tenant, p, 'Store credit', by);
-    await textClient(db, tenantId, tenant, p, `${hi(p)}${money(p.amountCents)} has been added as credit to your account for your next visit.`, false);
-    if (byClient) await tellDesk(db, tenantId, tenant, 'refund_choice', `${p.clientFirst} has chosen to receive their ${money(p.amountCents)} refund as store credit. No further action is needed.`, p.id);
+    const r = await creditRefund(db, tenantId, p.id, by); if (!r.ok) return r;
+    if (r.already) return { ok: true as const, status: 'credited', already: true };
+    // Only the step that added the credit goes on to tell people.
+    const q = r.p; await pointsBack(db, tenantId, r.sale, Math.round(q.amountCents), q.id, by);
+    await textClient(db, tenantId, tenant, q, `${hi(q)}${money(q.amountCents)} has been added as credit to your account for your next visit.`, false);
+    if (byClient) await tellDesk(db, tenantId, tenant, 'refund_choice', `${q.clientFirst} has chosen to receive their ${money(q.amountCents)} refund as store credit. No further action is needed.`, q.id);
     return { ok: true as const, status: 'credited' };
   }
   if (isApp(m)) {
     const handle = String(b.handle || '').trim().slice(0, 80); const accountName = String(b.accountName || '').trim().slice(0, 80);
-    if (!handle) { await ref.set({ method: m, status: 'choose', updatedAt: now() }, { merge: true }); return { ok: true as const, status: 'needs_details' }; }
-    await ref.set({ method: m, status: 'to_send', app: { handle, accountName: accountName || null, confirmedAt: byClient ? now() : null }, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `${PAY_APPS[m].label}: ${handle}${accountName ? ` (${accountName})` : ''}${byClient ? ' — confirmed by the client' : ''}`)) }, { merge: true });
+    if (!handle) { const c = await setChoice(db, ref, { method: m, status: 'choose', updatedAt: now() }); if (!c.ok) return c; return { ok: true as const, status: 'needs_details' }; }
+    const c = await setChoice(db, ref, { method: m, status: 'to_send', app: { handle, accountName: accountName || null, confirmedAt: byClient ? now() : null }, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `${PAY_APPS[m].label}: ${handle}${accountName ? ` (${accountName})` : ''}${byClient ? ' — confirmed by the client' : ''}`)) });
+    if (!c.ok) return c;
     await tellDesk(db, tenantId, tenant, 'refund_choice', `Action needed: Please send ${p.clientFirst}’s ${money(p.amountCents)} refund by ${PAY_APPS[m].label}.`, p.id);
     if (!byClient) await textClient(db, tenantId, tenant, p, `${hi(p)}we will send your ${money(p.amountCents)} refund by ${PAY_APPS[m].label} to ${handle}. If these details are not correct, please let us know here:`);
     return { ok: true as const, status: 'to_send' };
   }
   // pickup
   const w = b.pickup; if (!w?.date || !w?.start) {
-    await ref.set({ method: 'pickup', status: 'pickup_time', updatedAt: now() }, { merge: true });
+    const c = await setChoice(db, ref, { method: 'pickup', status: 'pickup_time', updatedAt: now() }); if (!c.ok) return c;
     if (!byClient) await textClient(db, tenantId, tenant, p, `${hi(p)}your ${money(p.amountCents)} refund will be ready to pick up at the front desk. Please choose a pickup time here:`);
     return { ok: true as const, status: 'pickup_time' };
   }
@@ -226,7 +293,8 @@ async function bookPickup(db: any, tenantId: string, tenant: any, p: any, w: any
   if (!hit) return { ok: false as const, error: 'We are sorry, but that time is no longer available. Please choose another time.' };
   const tz = tenantTimeZone(tenant); const startAt = wallToUtc(hit.date, Number(hit.start.slice(0, 2)), Number(hit.start.slice(3, 5)), tz).toISOString(); const endAt = wallToUtc(hit.date, Number(hit.end.slice(0, 2)), Number(hit.end.slice(3, 5)), tz).toISOString();
   const code = (await codeOf(db, tenantId, p.id)) || String(randomInt(0, 10000)).padStart(4, '0'); await codeRef(db, tenantId, p.id).set({ code, at: now() }); const when = `${hit.dayLabel === 'Today' || hit.dayLabel === 'Tomorrow' ? hit.dayLabel.toLowerCase() : hit.dayLabel} ${windowLabel(hit)}`;
-  await db.doc(`${T(tenantId)}/refundPayouts/${p.id}`).set({ method: 'pickup', status: 'scheduled', pickup: { date: hit.date, start: hit.start, end: hit.end, startAt, endAt }, trip: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Pickup booked: ${when}`)) }, { merge: true });
+  const chosen = await setChoice(db, db.doc(`${T(tenantId)}/refundPayouts/${p.id}`), { method: 'pickup', status: 'scheduled', pickup: { date: hit.date, start: hit.start, end: hit.end, startAt, endAt }, trip: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Pickup booked: ${when}`)) });
+  if (!chosen.ok) return chosen;
   await textClient(db, tenantId, tenant, p, `${hi(p)}your ${money(p.amountCents)} refund will be ready at the front desk ${when}. Your pickup code is ${code}. You can view the details here:`);
   if (byClient) await tellDesk(db, tenantId, tenant, 'refund_choice', `${p.clientFirst} will pick up their ${money(p.amountCents)} refund ${when}.`, p.id);
   return { ok: true as const, status: 'scheduled', code };
@@ -266,7 +334,7 @@ export async function clientAct(db: any, tenantId: string, id: string, k: string
     }
     case 'change': {
       if (p.prep?.tillAt) return { ok: false as const, error: 'Your refund is already being prepared. To make a change, please reply to our text message.' };
-      await ref.set({ status: 'choose', method: null, pickup: null, trip: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(who, 'Wants to change how they get it')) }, { merge: true }); return { ok: true as const };
+      const c = await setChoice(db, ref, { status: 'choose', method: null, pickup: null, trip: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(who, 'Wants to change how they get it')) }); if (!c.ok) return c; return { ok: true as const };
     }
     case 'on_way': {
       if (!C.onTheWay || !['scheduled', 'on_way'].includes(p.status)) return { ok: false as const, error: 'Not available.' };
@@ -313,7 +381,8 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
     case 'choose': if (done) return { ok: false as const, error: 'Already finished.' }; if (p.prep?.tillAt) return { ok: false as const, error: 'Put the cash back in the till first.' };
       return applyChoice(db, tenantId, tenant, p, { method: b.method, handle: b.handle, accountName: b.accountName, pickup: b.pickup }, by, false);
     case 'note': await ref.set({ noteText: String(b.text || '').slice(0, 1200), updatedAt: now() }, { merge: true }); return { ok: true as const };
-    case 'printed': await push({ prep: { ...(p.prep || {}), printedAt: now() } }, 'Printed the envelope slip and note'); return { ok: true as const };
+    // Only the field it changes (merged into the rest), so it can't put back cash details another step just changed.
+    case 'printed': await push({ prep: { printedAt: now() } }, 'Printed the envelope slip and note'); return { ok: true as const };
     case 'resend': { const sent = await textClient(db, tenantId, tenant, p, p.status === 'scheduled' || p.status === 'on_way' ? `${hi(p)}this is a reminder that your ${money(p.amountCents)} refund is ready at the front desk ${windowLabel(p.pickup)}. Your pickup code is ${await codeOf(db, tenantId, p.id)}.` : `${hi(p)}here is the link for your ${money(p.amountCents)} refund:`);
       await push({}, sent ? 'Texted the client the link again' : 'Couldn’t text the client'); return { ok: true as const, sent, link: payoutPath(tenantId, p.id) }; }
     case 'till': {
@@ -321,27 +390,48 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
       if (p.prep?.tillAt) return { ok: false as const, error: 'The cash is already out of the till.' };
       const tills = (await db.collection(`${T0}/tillSessions`).where('status', '==', 'open').get()).docs; const till = tills[0];
       if (!till && b.fromSafe !== true) return { ok: false as const, error: 'No till is open. Open the till, or take it from the safe.', code: 'no_till' };
-      if (till) await till.ref.set({ expectedCash: FieldValue.increment(-p.amountCents / 100), totalCashRefunds: FieldValue.increment(p.amountCents / 100), refundPayouts: FieldValue.arrayUnion({ id: p.id, amount: p.amountCents / 100, at: now(), by }) }, { merge: true });
-      await push({ prep: { ...(p.prep || {}), tillAt: now(), tillSessionId: till ? till.id : null, fromSafe: !till, preparedBy: by, preparedById: actor.staffId || null } }, till ? `Took ${money(p.amountCents)} from the till` : `Took ${money(p.amountCents)} from the safe`);
-      return { ok: true as const };
+      // Out of the till in one step that first checks it isn't out already: two taps take it out once.
+      const out = await onePayoutStep(db, ref, (cur, tx) => {
+        if (cur.method !== 'pickup' || !['scheduled', 'on_way'].includes(cur.status)) return 'Book a pickup time first.';
+        if (cur.prep?.tillAt) return 'The cash is already out of the till.';
+        const amt = cur.amountCents / 100; const at = now();
+        if (till) tx.set(till.ref, { expectedCash: FieldValue.increment(-amt), totalCashRefunds: FieldValue.increment(amt), refundPayouts: FieldValue.arrayUnion({ id: cur.id, amount: amt, at, by }) }, { merge: true });
+        tx.set(ref, { prep: { ...(cur.prep || {}), tillAt: at, tillSessionId: till ? till.id : null, fromSafe: !till, preparedBy: by, preparedById: actor.staffId || null }, updatedAt: at,
+          timeline: FieldValue.arrayUnion(line(by, till ? `Took ${money(cur.amountCents)} from the till` : `Took ${money(cur.amountCents)} from the safe`)) }, { merge: true });
+      });
+      return out.ok ? { ok: true as const } : out;
     }
     case 'counted': {
       if (!p.prep?.tillAt) return { ok: false as const, error: 'Take the cash out first.' };
       const counter = String(b.countedBy || by).trim();
       if (C.twoPerson && counter && p.prep?.preparedBy && counter.toLowerCase() === String(p.prep.preparedBy).toLowerCase()) return { ok: false as const, error: 'A second person counts it — not the one who prepared it.' };
-      await push({ prep: { ...p.prep, countedBy: counter, countedAt: now(), sealedAt: now() } }, `Counted by ${counter} and sealed`); return { ok: true as const };
+      const out = await onePayoutStep(db, ref, (cur, tx) => {
+        if (!cur.prep?.tillAt) return 'Take the cash out first.';
+        tx.set(ref, { prep: { countedBy: counter, countedAt: now(), sealedAt: now() }, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Counted by ${counter} and sealed`)) }, { merge: true });
+      });
+      return out.ok ? { ok: true as const } : out;
     }
     case 'return_till': {
       if (!p.prep?.tillAt || done) return { ok: false as const, error: 'There’s no cash out for this refund.' };
-      if (p.prep.tillSessionId) await db.doc(`${T0}/tillSessions/${p.prep.tillSessionId}`).set({ expectedCash: FieldValue.increment(p.amountCents / 100), totalCashRefunds: FieldValue.increment(-p.amountCents / 100) }, { merge: true });
-      await push({ prep: { ...p.prep, tillAt: null, countedBy: null, countedAt: null, sealedAt: null, returnedAt: now() } }, `Put ${money(p.amountCents)} back ${p.prep.tillSessionId ? 'in the till' : 'in the safe'}`); return { ok: true as const };
+      // Back in the till in one step that first checks it's still out: two taps put it back once.
+      const out = await onePayoutStep(db, ref, (cur, tx) => {
+        if (!cur.prep?.tillAt || DONE.includes(cur.status)) return 'There’s no cash out for this refund.';
+        if (cur.prep.tillSessionId) tx.set(db.doc(`${T0}/tillSessions/${cur.prep.tillSessionId}`), { expectedCash: FieldValue.increment(cur.amountCents / 100), totalCashRefunds: FieldValue.increment(-cur.amountCents / 100) }, { merge: true });
+        tx.set(ref, { prep: { ...cur.prep, tillAt: null, countedBy: null, countedAt: null, sealedAt: null, returnedAt: now() }, updatedAt: now(),
+          timeline: FieldValue.arrayUnion(line(by, `Put ${money(cur.amountCents)} back ${cur.prep.tillSessionId ? 'in the till' : 'in the safe'}`)) }, { merge: true });
+      });
+      return out.ok ? { ok: true as const } : out;
     }
     case 'missed': return missedPickup(db, tenantId, tenant, p, by);
     case 'returned_later': {   // cash that came out of a drawer that had already closed, now back in today's
       if (!p.needsReturn || p.returnedLaterAt) return { ok: false as const, error: 'Nothing to put back.' };
       const till = (await db.collection(`${T0}/tillSessions`).where('status', '==', 'open').get()).docs[0];
-      if (till) await till.ref.set({ expectedCash: FieldValue.increment(p.amountCents / 100), cashAdjustments: FieldValue.arrayUnion({ amount: p.amountCents / 100, reason: `Refund envelope returned (${p.clientName})`, at: now(), by }) }, { merge: true });
-      await push({ needsReturn: false, returnedLaterAt: now() }, `Put ${money(p.amountCents)} back ${till ? 'in today’s till' : 'in the safe'}`); return { ok: true as const };
+      const out = await onePayoutStep(db, ref, (cur, tx) => {
+        if (!cur.needsReturn || cur.returnedLaterAt) return 'Nothing to put back.';
+        if (till) tx.set(till.ref, { expectedCash: FieldValue.increment(cur.amountCents / 100), cashAdjustments: FieldValue.arrayUnion({ amount: cur.amountCents / 100, reason: `Refund envelope returned (${cur.clientName})`, at: now(), by }) }, { merge: true });
+        tx.set(ref, { needsReturn: false, returnedLaterAt: now(), updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Put ${money(cur.amountCents)} back ${till ? 'in today’s till' : 'in the safe'}`)) }, { merge: true });
+      });
+      return out.ok ? { ok: true as const } : out;
     }
     case 'handover': {
       if (p.method !== 'pickup' || !['scheduled', 'on_way'].includes(p.status)) return { ok: false as const, error: 'This refund isn’t a pickup that’s ready.' };
@@ -353,9 +443,18 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
       let signatureUrl: string | null = null;
       if (typeof b.signature === 'string' && b.signature.startsWith('data:image/')) { const { uploadClaimPhotoFromDataUrl } = await import('@/lib/claim-photo-upload'); const u = await uploadClaimPhotoFromDataUrl(tenantId, `refund-${p.id}`, b.signature, 'cases'); signatureUrl = u.url; }
       if (!signatureUrl) return { ok: false as const, error: 'Ask them to sign first.' };
-      await push({ status: 'handed', handedAt: now(), handedBy: by, signatureUrl, trip: p.trip ? { ...p.trip, live: false } : null }, `Handed ${money(p.amountCents)} to ${p.clientFirst} — code matched, signed`);
-      await settle(db, tenantId, tenant, p, 'Cash', by);
-      await textClient(db, tenantId, tenant, p, `${hi(p)}thank you for coming in. This confirms that your ${money(p.amountCents)} refund was given to you today.`, false);
+      // Handed over in one step that first checks it still can be; then in the books once (named after this refund).
+      const out = await onePayoutStep(db, ref, (cur, tx) => {
+        if (cur.status === 'handed') return 'This refund has already been handed over.';
+        if (cur.method !== 'pickup' || !['scheduled', 'on_way'].includes(cur.status)) return 'This refund isn’t a pickup that’s ready.';
+        if (!cur.prep?.tillAt) return 'Take the cash out and count it first.';
+        if (C.twoPerson && !cur.prep?.countedBy) return 'A second person counts it before it’s handed over.';
+        tx.set(ref, { status: 'handed', handedAt: now(), handedBy: by, signatureUrl, trip: cur.trip ? { ...cur.trip, live: false } : null, updatedAt: now(),
+          timeline: FieldValue.arrayUnion(line(by, `Handed ${money(cur.amountCents)} to ${cur.clientFirst} — code matched, signed`)) }, { merge: true });
+      });
+      if (!out.ok) return out;
+      await settle(db, tenantId, tenant, out.cur, 'Cash', by);
+      await textClient(db, tenantId, tenant, out.cur, `${hi(out.cur)}thank you for coming in. This confirms that your ${money(out.cur.amountCents)} refund was given to you today.`, false);
       return { ok: true as const };
     }
     case 'sent': {
@@ -363,36 +462,62 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
       if (C.sendRole === 'manager' && !actor.isManager && !actor.isOwner) return { ok: false as const, error: 'A manager sends app refunds.' };
       let proofUrl: string | null = null;
       if (typeof b.proof === 'string' && b.proof.startsWith('data:image/')) { const { uploadClaimPhotoFromDataUrl } = await import('@/lib/claim-photo-upload'); const u = await uploadClaimPhotoFromDataUrl(tenantId, `refund-${p.id}`, b.proof, 'cases'); proofUrl = u.url; }
-      const refNo = String(b.ref || '').trim().slice(0, 60) || null; const label = PAY_APPS[p.method as PayApp].label;
-      await push({ status: 'sent', app: { ...(p.app || {}), sentAt: now(), sentBy: by, ref: refNo, proofUrl } }, `Sent ${money(p.amountCents)} by ${label}${refNo ? ` (ref ${refNo})` : ''}`);
-      await settle(db, tenantId, tenant, { ...p, app: { ...(p.app || {}), ref: refNo } }, label, by);
-      await textClient(db, tenantId, tenant, p, `${hi(p)}we have sent your ${money(p.amountCents)} refund by ${label} to ${p.app?.handle}. Thank you for your patience.`, false);
+      const refNo = String(b.ref || '').trim().slice(0, 60) || null; const label = (x: any) => PAY_APPS[x.method as PayApp].label;
+      // Marked sent in one step that first checks it's still waiting to be sent; then in the books once.
+      const out = await onePayoutStep(db, ref, (cur, tx) => {
+        if (cur.status === 'sent') return 'This refund has already been sent.';
+        if (!isApp(cur.method) || cur.status !== 'to_send') return 'Nothing to send.';
+        tx.set(ref, { status: 'sent', app: { ...(cur.app || {}), sentAt: now(), sentBy: by, ref: refNo, proofUrl }, updatedAt: now(),
+          timeline: FieldValue.arrayUnion(line(by, `Sent ${money(cur.amountCents)} by ${label(cur)}${refNo ? ` (ref ${refNo})` : ''}`)) }, { merge: true });
+      });
+      if (!out.ok) return out;
+      const q = out.cur;
+      await settle(db, tenantId, tenant, { ...q, app: { ...(q.app || {}), ref: refNo } }, label(q), by);
+      await textClient(db, tenantId, tenant, q, `${hi(q)}we have sent your ${money(q.amountCents)} refund by ${label(q)} to ${q.app?.handle}. Thank you for your patience.`, false);
       return { ok: true as const };
     }
     case 'cancel': {
       if (done) return { ok: false as const, error: 'Already finished.' }; if (p.prep?.tillAt) return { ok: false as const, error: 'Put the cash back in the till first.' };
-      await push({ status: 'cancelled', cancelledAt: now() }, `Cancelled${b.reason ? `: ${String(b.reason).slice(0, 200)}` : ''}`);
-      if (p.saleId) await db.doc(`${T0}/transactions/${p.saleId}`).set({ refundPendingId: null }, { merge: true });
-      if (p.caseId) await db.doc(`${T0}/cases/${p.caseId}`).set({ payoutId: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, 'Cash refund set-up cancelled')) }, { merge: true });
-      return { ok: true as const };
+      // Cancelled in one step that first checks it hasn't been given (a refund credited or handed over at the same
+      // moment stays given), and lets go of the sale and the case only where they still point at this refund.
+      const out = await onePayoutStep(db, ref, async (cur, tx) => {
+        const saleRef = cur.saleId ? db.doc(`${T0}/transactions/${cur.saleId}`) : null; const caseRef = cur.caseId ? db.doc(`${T0}/cases/${cur.caseId}`) : null;
+        const ss = saleRef ? await tx.get(saleRef) : null; const ks = caseRef ? await tx.get(caseRef) : null;
+        if (DONE.includes(cur.status)) return 'Already finished.';
+        if (cur.prep?.tillAt) return 'Put the cash back in the till first.';
+        tx.set(ref, { status: 'cancelled', cancelledAt: now(), updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Cancelled${b.reason ? `: ${String(b.reason).slice(0, 200)}` : ''}`)) }, { merge: true });
+        if (ss?.exists && (ss.data() || {}).refundPendingId === cur.id) tx.set(saleRef, { refundPendingId: null }, { merge: true });
+        if (ks?.exists) tx.set(caseRef, { ...((ks.data() || {}).payoutId === cur.id ? { payoutId: null } : {}), updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, 'Cash refund set-up cancelled')) }, { merge: true });
+      });
+      return out.ok ? { ok: true as const } : out;
     }
   }
   return { ok: false as const, error: 'Unknown request.' };
 }
 
-/** A pickup window passed with no pickup: cash back in the till, ask for a new time; past the limit, pickup is no longer offered. */
+/** A pickup window passed with no pickup: cash back in the till, ask for a new time; past the limit, pickup is no longer
+ *  offered. In one step that reads the refund as it is now, so the desk and the every-few-minutes job at the same moment
+ *  count it once (and put its cash back once), and a pickup moved to a new time meanwhile is left alone. */
 export async function missedPickup(db: any, tenantId: string, tenant: any, p: any, by: string) {
-  const T0 = T(tenantId); const ref = db.doc(`${T0}/refundPayouts/${p.id}`); const C = settingsOf(tenant).cashRefund; const missed = (Number(p.missed) || 0) + 1;
-  if (p.prep?.tillAt && p.prep.tillSessionId) {
-    const till: any = (await db.doc(`${T0}/tillSessions/${p.prep.tillSessionId}`).get()).data() || {};
-    if (till.status === 'open') await db.doc(`${T0}/tillSessions/${p.prep.tillSessionId}`).set({ expectedCash: FieldValue.increment(p.amountCents / 100), totalCashRefunds: FieldValue.increment(-p.amountCents / 100) }, { merge: true });
-    else await ref.set({ needsReturn: true }, { merge: true });   // the drawer was already closed — the desk puts it back next shift
-  }
-  const blocked = missed >= C.missedLimit;
-  await ref.set({ missed, status: blocked ? 'choose' : 'pickup_time', method: blocked ? null : 'pickup', pickupBlocked: blocked || !!p.pickupBlocked, pickup: null, trip: null,
-    prep: p.prep ? { ...p.prep, tillAt: null, countedBy: null, countedAt: null, sealedAt: null, returnedAt: p.prep.tillAt ? now() : (p.prep.returnedAt || null) } : null,
-    updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Missed pickup (${missed})${p.prep?.tillAt ? ' — cash back in the till' : ''}${blocked ? ' — pickup no longer offered' : ''}`)) }, { merge: true });
-  await textClient(db, tenantId, tenant, { ...p, id: p.id }, blocked ? `${hi(p)}we were not able to see you for your ${money(p.amountCents)} refund pickup. Please choose another way to receive it here:` : `${hi(p)}we were not able to see you for your ${money(p.amountCents)} refund pickup. Please choose a new time here:`);
+  const T0 = T(tenantId); const ref = db.doc(`${T0}/refundPayouts/${p.id}`); const C = settingsOf(tenant).cashRefund;
+  let missed = 0; let blocked = false;
+  const out = await onePayoutStep(db, ref, async (cur, tx) => {
+    const tillRef = cur.prep?.tillAt && cur.prep.tillSessionId ? db.doc(`${T0}/tillSessions/${cur.prep.tillSessionId}`) : null;
+    const ts = tillRef ? await tx.get(tillRef) : null;
+    if (cur.method !== 'pickup' || !['scheduled', 'on_way'].includes(cur.status)) return 'This pickup has already been dealt with.';
+    if (p.pickup?.startAt && cur.pickup?.startAt !== p.pickup.startAt) return 'The pickup time has just changed. Check it again.';
+    missed = (Number(cur.missed) || 0) + 1; blocked = missed >= C.missedLimit;
+    // Cash out for it goes back in its till; if that drawer has already closed, the desk puts it back next shift.
+    const back = !!tillRef && (ts?.data() || {}).status === 'open';
+    if (back) tx.set(tillRef, { expectedCash: FieldValue.increment(cur.amountCents / 100), totalCashRefunds: FieldValue.increment(-cur.amountCents / 100) }, { merge: true });
+    tx.set(ref, { missed, status: blocked ? 'choose' : 'pickup_time', method: blocked ? null : 'pickup', pickupBlocked: blocked || !!cur.pickupBlocked, pickup: null, trip: null,
+      ...(tillRef && !back ? { needsReturn: true, returnedLaterAt: null } : {}),
+      prep: cur.prep ? { ...cur.prep, tillAt: null, countedBy: null, countedAt: null, sealedAt: null, returnedAt: cur.prep.tillAt ? now() : (cur.prep.returnedAt || null) } : null,
+      updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Missed pickup (${missed})${cur.prep?.tillAt ? ' — cash back in the till' : ''}${blocked ? ' — pickup no longer offered' : ''}`)) }, { merge: true });
+  });
+  if (!out.ok) return out;
+  const q = out.cur;
+  await textClient(db, tenantId, tenant, q, blocked ? `${hi(q)}we were not able to see you for your ${money(q.amountCents)} refund pickup. Please choose another way to receive it here:` : `${hi(q)}we were not able to see you for your ${money(q.amountCents)} refund pickup. Please choose a new time here:`);
   return { ok: true as const, missed, blocked };
 }
 
@@ -400,7 +525,7 @@ export async function missedPickup(db: any, tenantId: string, tenant: any, p: an
 export async function missedPickupSweep(db: any, tenantId: string, tenant: any) {
   const qs = await db.collection(`${T(tenantId)}/refundPayouts`).where('status', 'in', ['scheduled', 'on_way']).get(); let n = 0;
   for (const d of qs.docs) { const p: any = { id: d.id, ...d.data() }; const end = p.pickup?.endAt ? Date.parse(p.pickup.endAt) : 0;
-    if (end && Date.now() > end + 60 * 60000) { await missedPickup(db, tenantId, tenant, p, 'System'); n++; } }
+    if (end && Date.now() > end + 60 * 60000) { const r: any = await missedPickup(db, tenantId, tenant, p, 'System'); if (r.ok) n++; } }
   return n;
 }
 

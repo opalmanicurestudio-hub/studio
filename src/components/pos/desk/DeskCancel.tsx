@@ -54,9 +54,15 @@ export function DeskCancel({ e, accent, onReschedule, onOfferSlot }: { e: any; a
     let intentId: string | null = null; let collected: CancelOutcome['collected'] = o.outcome.collected;
     let paymentMethod = data.paymentMethod as 'card_on_file' | 'add_to_balance' | 'waived';
     if (o.outcome.who !== 'studio' && o.due > 0 && collected === 'card') {
-      const r = await staffPost('/api/stripe/charge-card', { tenantId: e.tenantId, clientId: appt.clientId, amountCents: Math.round(o.due * 100),
+      const r: any = await staffPost('/api/stripe/charge-card', { tenantId: e.tenantId, clientId: appt.clientId, amountCents: Math.round(o.due * 100),
         description: `${o.outcome.who === 'no_show' ? 'Missed-appointment' : 'Late-cancellation'} fee`, category: o.outcome.who === 'no_show' ? 'No-Show Fees' : 'Cancellation Fees',
-        appointmentId: appt.id, reason: data.reason, mode: 'auto', kind: 'deposit' /* fails cleanly — we add it to the balance once, below */ });
+        appointmentId: appt.id, reason: data.reason, mode: 'auto', kind: 'deposit' }).catch(() => ({ unknown: true, status: 0 }));
+      // No answer from Stripe: the fee may have gone through, so it isn't added to what they owe as well, and the
+      // cancellation waits. Confirming again in a couple of minutes finds the same charge (one key per booking).
+      if (r.unknown === true || [0, 502, 503, 504].includes(Number(r.status))) {
+        setErr('Stripe didn’t answer, so the fee may or may not have gone through. Nothing was saved. Try again in a couple of minutes: it won’t charge twice.');
+        return;
+      }
       if (r.ok && r.paymentIntentId) { intentId = r.paymentIntentId; paymentMethod = 'card_on_file'; }
       else { collected = 'balance'; paymentMethod = 'add_to_balance'; setErr(`The card didn’t go through (${r.reason || r.error || 'declined'}) — ${money(o.due)} was added to what they owe.`); }
     }

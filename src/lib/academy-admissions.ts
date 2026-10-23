@@ -23,9 +23,20 @@
 //
 // Refunds on withdrawal follow the school's own policy (set per program to
 // match its state's refund rules); the calculation shows every step.
+//
+// Every payment is recorded once, however it arrives — the student's return
+// page and Stripe's notice often come at the same moment:
+//   - a Checkout payment is claimed first, on tuitionPayments/{checkout page}
+//     (a card update on tuitionCardUpdates/{checkout page}); only the request
+//     that claims it goes on, and a claim left by a try that stopped part way is
+//     finished by the next one;
+//   - its tuition entry is named after the page (an instalment charged here,
+//     after its payment), and its line in the books after the entry;
+//   - the plan moves on once per payment, in one step read fresh.
 
 import { createHash, randomBytes } from 'crypto';
 import Stripe from 'stripe';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { appendAudit } from '@/lib/academy-compliance';
 import { enrollInProgram } from '@/lib/academy-school';
@@ -36,6 +47,11 @@ export const DEFAULT_DOCS = ['Photo ID', 'High school diploma or GED', 'Proof of
 export const sha = (v: string) => createHash('sha256').update(v).digest('hex');
 const stripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
 export const money = (c: number) => `$${(Math.round(c) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const safeId = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 140);
+const piOf = (s: any): string | null => (typeof s?.payment_intent === 'string' ? s.payment_intent : s?.payment_intent?.id || null);
+// A claim older than this belongs to a try that stopped; the next one finishes it.
+const CLAIM_MS = 2 * 60000;
+const fresh = (at: any) => !!at && Date.now() - (Date.parse(String(at)) || 0) < CLAIM_MS;
 
 export interface Tuition { tuitionCents: number; registrationFeeCents: number; kitCents: number; downPaymentCents: number; installments: number; interval: 'month' | 'biweekly' }
 export interface RefundPolicy { cancelDays: number; registrationNonRefundable: boolean; kitNonRefundable: boolean; tiers: { upToPct: number; keepPct: number }[] }
@@ -116,15 +132,29 @@ export async function createTuitionPlan(opts: { tenantId: string; programId: str
   return id;
 }
 
-export async function ledger(tenantId: string, planId: string, studentId: string, type: 'charge' | 'payment' | 'refund' | 'adjustment', amountCents: number, desc: string, by: string, ref?: string | null, opts?: { inBooks?: boolean }) {
+export async function ledger(tenantId: string, planId: string, studentId: string, type: 'charge' | 'payment' | 'refund' | 'adjustment', amountCents: number, desc: string, by: string, ref?: string | null, opts?: { inBooks?: boolean; id?: string }) {
   const db = getAdminDb();
-  const r = db.collection(`tenants/${tenantId}/tuitionEntries`).doc();
-  await r.set({ id: r.id, planId, studentId, type, amountCents: Math.round(amountCents), desc, by, ref: ref || null, at: new Date().toISOString() });
+  // Named after what it records when the caller knows it (a payment's Checkout page, or the charge), so the same payment
+  // arriving twice is one entry: the second finds it there. Anything else gets an entry of its own.
+  const r = opts?.id ? db.doc(`tenants/${tenantId}/tuitionEntries/${safeId(opts.id)}`) : db.collection(`tenants/${tenantId}/tuitionEntries`).doc();
+  const entry = { id: r.id, planId, studentId, type, amountCents: Math.round(amountCents), desc, by, ref: ref || null, at: new Date().toISOString() };
+  const toBooks = (e: any) => ((type === 'payment' || type === 'refund') && !opts?.inBooks
+    ? tuitionToBooks(tenantId, r.id, { planId, type, amountCents: e.amountCents, desc: e.desc, by: e.by, ref: e.ref || null, at: e.at }).catch((x) => console.error('[tuition→books]', x)) : Promise.resolve(false));
+  if (opts?.id) {
+    try { await r.create(entry); }
+    catch (e) {
+      const had = await r.get(); if (!had.exists) throw e;
+      // Recorded already: only its line in the books is checked (a try that stopped before writing it).
+      await toBooks(had.data() || entry);
+      return { id: r.id, already: true };
+    }
+  } else await r.set(entry);
   await appendAudit(tenantId, { type: `tuition.${type}`, studentId, by, summary: `${type[0].toUpperCase()}${type.slice(1)} ${money(amountCents)} — ${desc}`, data: { planId, entryId: r.id, ref: ref || null } });
   // THE BUSINESS'S BOOKS: tuition money in (and back out) also lands in the general ledger as Tuition income / Tuition
   // Refunds — one line per tuition entry (its id), so it can't be counted twice. Desk payments and desk voids pass
   // inBooks: true — the checkout has already recorded those.
-  if ((type === 'payment' || type === 'refund') && !opts?.inBooks) await tuitionToBooks(tenantId, r.id, { planId, type, amountCents, desc, by, ref: ref || null, at: new Date().toISOString() }).catch((e) => console.error('[tuition→books]', e));
+  await toBooks(entry);
+  return { id: r.id, already: false };
 }
 /** One tuition entry → one line in the business's books (idempotent: the line's id is the entry's id). */
 export async function tuitionToBooks(tenantId: string, entryId: string, e: { planId: string; type: string; amountCents: number; desc: string; by: string; ref: string | null; at: string }) {
@@ -149,31 +179,81 @@ export async function planBalance(tenantId: string, planId: string) {
 
 const addInterval = (iso: string, interval: 'month' | 'biweekly') => { const d = new Date(iso); if (interval === 'biweekly') d.setDate(d.getDate() + 14); else d.setMonth(d.getMonth() + 1); return d.toISOString(); };
 
-/** After the down payment clears: record it, save the card, schedule instalments, enrol. */
+/** A Checkout payment, claimed once on a record named after its page. 'go' only for the request that claimed it (or
+ *  that finishes a claim a stopped try left behind). For a new claim, `decide` can say it was recorded already, name
+ *  what kind of payment it is, or mark the plan in the same step. */
+async function claimCheckout(db: any, payRef: any, planRef: any, rec: any, decide?: (plan: any) => { already?: boolean; kind?: string; planSet?: any } | null) {
+  const now = new Date().toISOString();
+  return db.runTransaction(async (tx: any) => {
+    const m = await tx.get(payRef); const ps = await tx.get(planRef);
+    if (!ps.exists) return { none: true };
+    const plan: any = ps.data() || {};
+    if (m.exists) {
+      const x: any = m.data() || {};
+      // Recorded already — or by the version before this one, which kept only this mark.
+      if (x.doneAt || !x.claimAt) return { already: true, plan };
+      if (fresh(x.claimAt)) return { busy: true, plan };
+      tx.set(payRef, { claimAt: now }, { merge: true });
+      return { go: true, plan, mark: x, resumed: true };
+    }
+    const d = decide ? decide(plan) : null;
+    if (d?.already) return { already: true, plan };
+    const mark = { ...rec, kind: d?.kind || rec.kind, claimAt: now, at: now };
+    tx.create(payRef, mark);
+    if (d?.planSet) tx.set(planRef, d.planSet, { merge: true });
+    return { go: true, plan, mark };
+  });
+}
+
+/** After the down payment clears: record it, save the card, schedule instalments, enrol — once (see the header). A
+ *  down payment paid a second time (two payment pages) is counted toward the balance, once, and doesn't enrol again. */
 export async function completeDownPayment(tenantId: string, session: any) {
   if (session?.metadata?.type !== 'academy_tuition' || session.payment_status !== 'paid') return null;
   const db = getAdminDb();
   const planId = String(session.metadata.planId);
   const ref = db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`);
-  const p = ((await ref.get()).data() as any) || null;
-  if (!p) return null;
-  if (p.downPaidAt) return { planId, already: true };
+  const payRef = db.doc(`tenants/${tenantId}/tuitionPayments/${safeId(session.id)}`);
+  const cents = Number(session.amount_total) || 0; const pi = piOf(session); const now = new Date().toISOString();
+  const claim: any = await claimCheckout(db, payRef, ref, { kind: 'down_payment', planId, sessionId: String(session.id), cents, paymentIntentId: pi }, (plan) => {
+    // Recorded before payments were claimed this way (only the plan says so): never recorded again.
+    if (plan.downPaidAt && !plan.downPaidSessionId) return { already: true };
+    if (plan.downPaidAt && plan.downPaidSessionId !== session.id) return { kind: 'down_payment_again' };
+    // The first: the plan says which page paid it, in the same step, so a second page paid at the same moment is
+    // known to be the second.
+    return { planSet: { downPaidAt: now, downPaidSessionId: String(session.id) } };
+  });
+  if (claim.none) return null;
+  if (claim.already || claim.busy) return { planId, already: true };
+  const p = claim.plan;
+  if (claim.mark?.kind === 'down_payment_again') {
+    await ledger(tenantId, planId, p.studentId, 'payment', cents, 'Down payment paid a second time (online) — counted toward the balance', 'student', pi || session.id, { id: `pay_${session.id}` });
+    await payRef.set({ doneAt: new Date().toISOString() }, { merge: true });
+    return { planId, already: false, second: true };
+  }
   const t = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   let paymentMethodId: string | null = null;
-  try { if (session.payment_intent) { const pi = await stripe().paymentIntents.retrieve(String(session.payment_intent), {}, { stripeAccount: t.stripeAccountId }); paymentMethodId = typeof pi.payment_method === 'string' ? pi.payment_method : pi.payment_method?.id || null; } } catch { /* keep going */ }
-  const now = new Date().toISOString();
-  await ledger(tenantId, planId, p.studentId, 'payment', Number(session.amount_total) || p.downPaymentCents, 'Down payment', 'student', session.payment_intent || session.id);
+  try { if (pi) { const x = await stripe().paymentIntents.retrieve(String(pi), {}, { stripeAccount: t.stripeAccountId }); paymentMethodId = typeof x.payment_method === 'string' ? x.payment_method : x.payment_method?.id || null; } } catch { /* keep going */ }
+  await ledger(tenantId, planId, p.studentId, 'payment', cents || p.downPaymentCents, 'Down payment', 'student', pi || session.id, { id: `pay_${session.id}` });
   const more = p.installmentsTotal > 0;
-  await ref.set({ downPaidAt: now, customerId: session.customer || null, paymentMethodId, autopay: more && !!paymentMethodId, status: more ? 'active' : 'paid', nextDueAt: more ? addInterval(now, p.interval) : null }, { merge: true });
+  const paidAt = claim.resumed ? (p.downPaidAt || now) : now;
+  await ref.set({ downPaidAt: paidAt, downPaidSessionId: String(session.id), customerId: session.customer || null, paymentMethodId, autopay: more && !!paymentMethodId, status: more ? 'active' : 'paid', nextDueAt: more ? addInterval(paidAt, p.interval) : null }, { merge: true });
   // Paying the down payment completes admission → enrolled in the program.
   const a = ((await db.doc(`tenants/${tenantId}/admissions/${p.admissionId}`).get()).data() as any) || {};
   await enrollInProgram({ tenantId, programId: p.programId, email: p.email, name: p.name, startDate: a.startDate || null, by: 'admissions' });
   await setStage(tenantId, p.admissionId, 'enrolled', 'system', 'Down payment received');
+  await payRef.set({ doneAt: new Date().toISOString() }, { merge: true });
   return { planId, already: false };
 }
 
-/** Charge one plan's next instalment now (autopay, or right after a card update). */
+const refusedByStripe = (e: any) => ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
+
+/** Charge one plan's next instalment now (autopay, or right after a card update) — once, however often it's asked:
+ *  the instalment is claimed on the plan first (the daily run and a card update at the same moment send one charge),
+ *  charged under one key for the instalment, try and card, and recorded once, named after its payment; the plan moves
+ *  on once for that payment. Stripe saying no marks it past due. No answer leaves the claim: the next try looks for
+ *  that payment at Stripe and records it, or sends the same charge again — never a second. */
 export async function chargePlan(tenantId: string, stripeAccountId: string, ref: any, p: any) {
+  const db = getAdminDb();
   const { balanceCents } = await planBalance(tenantId, ref.id);
   const base = Math.min(balanceCents, p.installmentsPaid + 1 >= p.installmentsTotal ? balanceCents : p.installmentCents);
   if (base <= 0) { await ref.set({ status: 'paid', nextDueAt: null, prepaidCents: 0 }, { merge: true }); return { ok: true, amount: 0 }; }
@@ -182,19 +262,70 @@ export async function chargePlan(tenantId: string, stripeAccountId: string, ref:
   if (amount <= 0) { const paid = p.installmentsPaid + 1;
     await ref.set({ installmentsPaid: paid, prepaidCents: prepaid - base, failures: 0, lastError: null, status: paid >= p.installmentsTotal ? 'paid' : 'active', nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt || new Date().toISOString(), p.interval) }, { merge: true });
     return { ok: true, amount: 0, coveredByPrepaid: true }; }
-  try {
-    const pi = await stripe().paymentIntents.create({ amount, currency: 'usd', customer: p.customerId, payment_method: p.paymentMethodId, off_session: true, confirm: true,
-      description: `Tuition instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal}`, metadata: { type: 'academy_tuition_installment', planId: ref.id } }, { stripeAccount: stripeAccountId, idempotencyKey: `tuition_${ref.id}_${p.installmentsPaid + 1}_${(p.failures || 0)}_${p.paymentMethodId}` });
-    if (pi.status !== 'succeeded') throw new Error(pi.status);
-    await ledger(tenantId, ref.id, p.studentId, 'payment', amount, `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} (autopay)`, 'autopay', pi.id);
-    const paid = p.installmentsPaid + 1;
-    await ref.set({ installmentsPaid: paid, prepaidCents: 0, failures: 0, lastError: null, lastAttemptAt: new Date().toISOString(), status: paid >= p.installmentsTotal ? 'paid' : 'active', nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt || new Date().toISOString(), p.interval) }, { merge: true });
-    return { ok: true, amount };
-  } catch (e: any) {
-    await ref.set({ status: 'past_due', failures: (p.failures || 0) + 1, lastAttemptAt: new Date().toISOString(), lastError: String(e?.message || e).slice(0, 200) }, { merge: true });
-    await appendAudit(tenantId, { type: 'tuition.failed', studentId: p.studentId, by: 'autopay', summary: `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} failed for ${p.name}: ${String(e?.message || e).slice(0, 120)}`, data: { planId: ref.id } });
-    return { ok: false, error: String(e?.message || e) };
+  const n = (Number(p.installmentsPaid) || 0) + 1; const now = new Date().toISOString();
+  // 1. The claim, for this instalment. A claim a stopped try left is the same charge again (its amount, card and key).
+  const claim: any = await db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(ref)).data() || {};
+    if ((Number(cur.installmentsPaid) || 0) >= n) return { moved: true };   // paid meanwhile
+    const c = cur.chargeClaim;
+    if (c && Number(c.n) === n) {
+      if (fresh(c.at)) return { busy: true };
+      tx.set(ref, { chargeClaim: { ...c, at: now } }, { merge: true });
+      return { c, retry: true };
+    }
+    const pm = String(p.paymentMethodId || '');
+    const c2 = { n, at: now, since: now, amount, pm, customer: String(p.customerId || ''), key: `tuition_${ref.id}_${n}_${(p.failures || 0)}_${pm}` };
+    tx.set(ref, { chargeClaim: c2 }, { merge: true });
+    return { c: c2 };
+  });
+  if (claim.moved) return { ok: true, amount: 0, already: true };
+  if (claim.busy) return { ok: false, error: 'This instalment is being charged already.', busy: true };
+  const c = claim.c;
+  // 2. The charge.
+  let pi: any = null;
+  if (claim.retry) {
+    // The last try got no answer: a payment Stripe has for it is the one (recorded, never sent again).
+    try {
+      const l: any = await stripe().paymentIntents.list({ customer: c.customer, limit: 20 }, { stripeAccount: stripeAccountId });
+      pi = (Array.isArray(l?.data) ? l.data : []).find((x: any) => x?.metadata?.planId === ref.id && x?.metadata?.type === 'academy_tuition_installment' && x?.status === 'succeeded'
+        && Number(x.amount) === Number(c.amount) && (Number(x.created) || 0) * 1000 >= (Date.parse(String(c.since || c.at)) || 0) - 60000) || null;
+    } catch { /* asked for below, under the same key */ }
   }
+  try {
+    if (!pi) pi = await stripe().paymentIntents.create({ amount: c.amount, currency: 'usd', customer: c.customer, payment_method: c.pm, off_session: true, confirm: true,
+      description: `Tuition instalment ${n} of ${p.installmentsTotal}`, metadata: { type: 'academy_tuition_installment', planId: ref.id } }, { stripeAccount: stripeAccountId, idempotencyKey: c.key });
+    if (pi.status !== 'succeeded') throw Object.assign(new Error(pi.status), { type: ['requires_payment_method', 'canceled', 'requires_action'].includes(String(pi.status)) ? 'StripeCardError' : 'StillGoing' });
+  } catch (e: any) {
+    if (!refusedByStripe(e)) {
+      // No answer (it may have gone through): not a failure, and not past due. The claim stays for the next try.
+      await ref.set({ lastAttemptAt: now }, { merge: true });
+      return { ok: false, error: 'Stripe didn’t answer, so the charge may or may not have gone through. It’s checked again on the next try: it won’t charge twice.', unknown: true };
+    }
+    const msg = String(e?.raw?.message || e?.message || e).slice(0, 200);
+    await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(ref)).data() || {};
+      if (cur.chargeClaim?.key !== c.key) return;
+      tx.set(ref, { chargeClaim: FieldValue.delete(), status: 'past_due', failures: (Number(cur.failures) || 0) + 1, lastAttemptAt: now, lastError: msg }, { merge: true });
+    });
+    await appendAudit(tenantId, { type: 'tuition.failed', studentId: p.studentId, by: 'autopay', summary: `Instalment ${n} of ${p.installmentsTotal} failed for ${p.name}: ${msg.slice(0, 120)}`, data: { planId: ref.id } });
+    return { ok: false, error: msg };
+  }
+  // 3. The record, once: named after the payment; the plan moves on once for it.
+  try {
+    await ledger(tenantId, ref.id, p.studentId, 'payment', c.amount, `Instalment ${n} of ${p.installmentsTotal} (autopay)`, 'autopay', pi.id, { id: `pay_${pi.id}` });
+    await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(ref)).data() || {};
+      if (cur.lastPaidPaymentIntentId === pi.id) return;
+      const paid = (Number(cur.installmentsPaid) || 0) + 1; const total = Number(cur.installmentsTotal ?? p.installmentsTotal) || 0;
+      tx.set(ref, { installmentsPaid: paid, prepaidCents: 0, failures: 0, lastError: null, lastAttemptAt: now, lastPaidPaymentIntentId: pi.id, chargeClaim: FieldValue.delete(),
+        status: paid >= total ? 'paid' : 'active', nextDueAt: paid >= total ? null : addInterval(cur.nextDueAt || p.nextDueAt || now, cur.interval || p.interval) }, { merge: true });
+    });
+  } catch (e: any) {
+    // Charged, but not written down yet: the claim stays, and the next try finds this payment and records it.
+    console.error('[tuition] charged but not recorded yet', e?.message);
+    return { ok: false, error: 'The instalment was charged but couldn’t be recorded yet. It’s recorded on the next try.', unknown: true };
+  }
+  return { ok: true, amount: c.amount };
 }
 
 /** Daily: charge instalments that are due, on the card saved at the down payment. */
@@ -208,7 +339,8 @@ export async function chargeDueInstallments() {
     for (const d of due?.docs || []) {
       const p = d.data() as any;
       if (!p.autopay || !p.nextDueAt || new Date(p.nextDueAt).getTime() > now || p.installmentsPaid >= p.installmentsTotal) continue;
-      if (p.lastAttemptAt && now - new Date(p.lastAttemptAt).getTime() < 3 * 86400000) continue;   // retry every 3 days
+      // Retry every 3 days — except a charge that got no answer, which is checked on the next run.
+      if (p.lastAttemptAt && now - new Date(p.lastAttemptAt).getTime() < 3 * 86400000 && !p.chargeClaim) continue;
       const r = await chargePlan(tDoc.id, t.stripeAccountId, d.ref, p);
       if (r.ok) charged++; else failed++;
     }
@@ -245,22 +377,30 @@ export async function studentPaySession(opts: { tenantId: string; stripeAccountI
   return session.url as string;
 }
 
-/** Record a student's own payment (return page or webhook — safe to run twice). */
+/** Record a student's own payment (return page or webhook, often at the same moment) — once (see the header). */
 export async function completeStudentPayment(tenantId: string, session: any) {
   if (session?.metadata?.type !== 'academy_tuition_payment' || session.payment_status !== 'paid') return null;
   const db = getAdminDb();
-  const marker = db.doc(`tenants/${tenantId}/tuitionPayments/${session.id}`);
-  if ((await marker.get()).exists) return { already: true };
-  await marker.set({ at: new Date().toISOString(), planId: session.metadata.planId });
-  const ref = db.doc(`tenants/${tenantId}/tuitionPlans/${session.metadata.planId}`);
-  const p = ((await ref.get()).data() as any) || null;
-  if (!p) return null;
-  const amount = Number(session.amount_total) || 0;
-  await ledger(tenantId, ref.id, p.studentId, 'payment', amount, session.metadata.what === 'balance' ? 'Paid remaining balance (online)' : `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} (paid online)`, 'student', session.payment_intent || session.id);
+  const planId = String(session.metadata.planId);
+  const payRef = db.doc(`tenants/${tenantId}/tuitionPayments/${safeId(session.id)}`);
+  const ref = db.doc(`tenants/${tenantId}/tuitionPlans/${planId}`);
+  const amount = Number(session.amount_total) || 0; const pi = piOf(session);
+  const claim: any = await claimCheckout(db, payRef, ref, { kind: 'student_payment', planId, sessionId: String(session.id), cents: amount, paymentIntentId: pi, what: session.metadata.what || null });
+  if (claim.none) return null;
+  if (claim.already || claim.busy) return { already: true };
+  const p = claim.plan;
+  await ledger(tenantId, ref.id, p.studentId, 'payment', amount, session.metadata.what === 'balance' ? 'Paid remaining balance (online)' : `Instalment ${p.installmentsPaid + 1} of ${p.installmentsTotal} (paid online)`, 'student', pi || session.id, { id: `pay_${session.id}` });
   const { balanceCents } = await planBalance(tenantId, ref.id);
-  if (balanceCents <= 0) await ref.set({ status: 'paid', nextDueAt: null, failures: 0, lastError: null }, { merge: true });
-  else if (session.metadata.what === 'next') { const paid = p.installmentsPaid + 1; await ref.set({ installmentsPaid: paid, status: 'active', failures: 0, lastError: null, nextDueAt: paid >= p.installmentsTotal ? null : addInterval(p.nextDueAt || new Date().toISOString(), p.interval) }, { merge: true }); }
-  else await ref.set({ status: p.status === 'past_due' ? 'active' : p.status, failures: 0, lastError: null }, { merge: true });
+  // The plan moves on once for this payment, read fresh in one step (another payment at the same moment isn't lost).
+  await db.runTransaction(async (tx: any) => {
+    const m: any = (await tx.get(payRef)).data() || {}; const cur: any = (await tx.get(ref)).data() || {};
+    if (m.planMovedAt) return;
+    const done = { planMovedAt: new Date().toISOString(), doneAt: new Date().toISOString() };
+    if (balanceCents <= 0) tx.set(ref, { status: 'paid', nextDueAt: null, failures: 0, lastError: null }, { merge: true });
+    else if (session.metadata.what === 'next') { const paid = (Number(cur.installmentsPaid) || 0) + 1; tx.set(ref, { installmentsPaid: paid, status: 'active', failures: 0, lastError: null, nextDueAt: paid >= (Number(cur.installmentsTotal) || 0) ? null : addInterval(cur.nextDueAt || new Date().toISOString(), cur.interval) }, { merge: true }); }
+    else tx.set(ref, { status: cur.status === 'past_due' ? 'active' : cur.status, failures: 0, lastError: null }, { merge: true });
+    tx.set(payRef, done, { merge: true });
+  });
   return { already: false };
 }
 
@@ -278,21 +418,30 @@ export async function cardUpdateSession(opts: { tenantId: string; stripeAccountI
   return session.url as string;
 }
 
-/** Save the new card; if a payment had failed, try it again straight away. */
+/** Save the new card; if a payment had failed, try it again straight away — once per card-update page (the return
+ *  page and Stripe's notice arrive together): the page is claimed first, and the retried charge is chargePlan's own. */
 export async function completeCardUpdate(tenantId: string, stripeAccountId: string, session: any) {
   if (session?.metadata?.type !== 'academy_card_update' || session.status !== 'complete') return null;
   const db = getAdminDb();
   const ref = db.doc(`tenants/${tenantId}/tuitionPlans/${session.metadata.planId}`);
-  const p = ((await ref.get()).data() as any) || null;
-  if (!p) return null;
+  if (!(await ref.get()).exists) return null;
   const si = await stripe().setupIntents.retrieve(String(session.setup_intent), {}, { stripeAccount: stripeAccountId });
   const pm = typeof si.payment_method === 'string' ? si.payment_method : si.payment_method?.id;
   if (!pm) return null;
-  if (p.paymentMethodId === pm) return { already: true, retried: null };
-  await ref.set({ paymentMethodId: pm, autopay: p.installmentsTotal > p.installmentsPaid, cardUpdatedAt: new Date().toISOString() }, { merge: true });
-  await appendAudit(tenantId, { type: 'tuition.card_updated', studentId: p.studentId, by: p.email, summary: `${p.name} updated their autopay card`, data: { planId: ref.id } });
+  const markRef = db.doc(`tenants/${tenantId}/tuitionCardUpdates/${safeId(session.id)}`);
+  const claim: any = await claimCheckout(db, markRef, ref, { kind: 'card_update', planId: String(session.metadata.planId), sessionId: String(session.id), paymentMethodId: pm });
+  if (claim.none) return null;
+  if (claim.already || claim.busy) return { already: true, retried: null };
+  const p = claim.plan;
+  // The card the plan already has: nothing to change (and, as before, nothing retried).
+  if (p.paymentMethodId === pm && !claim.resumed) { await markRef.set({ doneAt: new Date().toISOString() }, { merge: true }); return { already: true, retried: null }; }
+  if (p.paymentMethodId !== pm) {
+    await ref.set({ paymentMethodId: pm, autopay: p.installmentsTotal > p.installmentsPaid, cardUpdatedAt: new Date().toISOString() }, { merge: true });
+    await appendAudit(tenantId, { type: 'tuition.card_updated', studentId: p.studentId, by: p.email, summary: `${p.name} updated their autopay card`, data: { planId: ref.id } });
+  }
   let retried: any = null;
   if (p.status === 'past_due') retried = await chargePlan(tenantId, stripeAccountId, ref, { ...p, paymentMethodId: pm });
+  await markRef.set({ doneAt: new Date().toISOString() }, { merge: true });
   return { already: false, retried };
 }
 

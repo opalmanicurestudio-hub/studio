@@ -19,6 +19,7 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import SignatureCanvas from 'react-signature-canvas';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 
 interface Props {
   tenantId:    string;
@@ -55,6 +56,8 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
             try { window.history.replaceState({}, '', window.location.pathname); } catch {}
             return;
           }
+          // Not saved (an old link, or a setup that didn't finish): say why.
+          if (!cancelled && d?.error) setCardMsg(String(d.error));
         }
         const snap = await getDoc(doc(firestore, 'tenants', tenantId, 'renters', staffMember.id));
         if (cancelled) return;
@@ -69,8 +72,9 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
     if (cardBusy) return;
     setCardBusy(true); setCardMsg('');
     try {
+      // The renter's own sign-in is the proof that it's them replacing the card on file.
       const res = await fetch('/api/booths/setup-card', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, renterId: staffMember.id, returnUrl: window.location.href }),
       });
       const d = await res.json();

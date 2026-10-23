@@ -1,10 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import Stripe from 'stripe';
-import { nanoid } from 'nanoid';
 import { markSalePaid, safeId, tellDeskReader, ticketBlocks } from '@/lib/reader-sale';
 import { recordCardShare } from '@/lib/screen-pay';
 import crypto from 'crypto';
+
+// ── Stripe saying no vs no answer ─────────────────────────────────────────────
+// A card error, a bad request, or a permission / sign-in problem means nothing moved. Anything else (no connection,
+// Stripe's own error, the same charge still in progress under its key) may have gone through: it's never treated as a
+// decline — no fee is put on their balance — and the caller is told to ask again, which finds the same charge.
+const REFUSED = ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'];
+function noAnswer(e: any): boolean {
+  const code = String(e?.code || e?.raw?.code || '');
+  if (code === 'idempotency_key_in_use' || String(e?.type || '') === 'StripeIdempotencyError') return true;
+  return !REFUSED.includes(String(e?.type || ''));
+}
+const NO_ANSWER = 'Stripe didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.';
+// How long one charge at the desk keeps the same charge from starting again (a double tap, a second device).
+const ATTEMPT_MS = 2 * 60000;
+// A charge that went through answers the same tap again for this long (its answer may have been lost on the way to
+// the screen): the same payment, not a second one. After it, the same tap is a new charge (the same drink ordered again).
+const DONE_REPLAY_MS = 30000;
+const hash = (s: string, n = 16) => crypto.createHash('sha1').update(s).digest('hex').slice(0, n);
 
 // ─── Lazy inits ───────────────────────────────────────────────────────────────
 function getAdmin() {
@@ -68,8 +85,34 @@ function getStripe() {
 // Fix: accept an optional `kind` ('deposit' | 'arrears_fee'), defaulting to
 // 'arrears_fee' so every existing caller (no-show policy engine, etc.) is
 // completely unaffected. Only 'arrears_fee' triggers flagAndPark on
-// failure. 'deposit' just returns { ok: false, reason, code } and lets the
-// caller decide what to do (QuickBookForm falls back to a completion link).
+// failure. Any other kind ('deposit', a purchase, a membership 'renewal')
+// just returns { ok: false, reason, code } and lets the caller decide what
+// to do (QuickBookForm falls back to a completion link; a renewal stays
+// past due and is tried again the next day — never parked as a debt).
+//
+// ── Owed once ────────────────────────────────────────────────────────────────
+// A fee that couldn't be charged goes on their balance under its own name: the
+// `feeId` the caller gives, or one named after what it's for (the visit or the
+// client, the amount and the category). It's parked in one step that checks
+// it isn't there already, so a second declined try, a retry, or two calls at
+// once add it once. A charge Stripe didn't answer is never parked (it may have
+// gone through): the answer is a 502 with `unknown: true`, and asking again
+// with the same key finds the same charge.
+//
+// ── Keys ─────────────────────────────────────────────────────────────────────
+// Auto mode: the caller's `idempotencyKey` for this attempt, or one named after
+// the visit (or client), the amount and the category. The key goes on the
+// payment too (metadata.chargeKey), so `replay: true` — asked again long after
+// an answer went missing, when Stripe may have forgotten the key — looks the
+// payment up first and only charges when there is none.
+// Desk mode ('pos'): one attempt at a time for the same payment (who, what for,
+// how much, which card): a second tap meanwhile is told it's going through. An
+// attempt Stripe didn't answer keeps its key, and the next try reuses it, so it
+// is the same charge; a decline or a success ends the attempt. A screen that
+// sends its own `idempotencyKey` (and keeps it across retries) gets that key.
+//
+// `taxBucket` ('revenue' | 'adjustment') says how the books group the line,
+// for a caller whose category is an adjustment (a reschedule fee, a balance).
 //
 // ── Card processing fee passthrough ─────────────────────────────────────────
 // `amountCents` is the FULL amount actually charged (already inclusive of any
@@ -125,10 +168,14 @@ export async function POST(req: NextRequest) {
     pendingId = null,               // a desk sale: its started ticket, named on the payment (lib/reader-sale)
     share = false,                  // …and this is one share of its split bill, not the whole sale
     shareLabel = null,              // the share's name ("Share 1 of 2", "Maya")
+    feeId: askedFeeId = null,       // auto mode: the name a fee that can't be charged is owed under (see "Owed once")
+    replay = false,                 // auto mode: an attempt asked again long after its answer went missing (see "Keys")
+    taxBucket: askedBucket = null,  // 'revenue' (default) or 'adjustment'
   } = parsed;
   const forTicket = safeId(pendingId);
   // The caller's key when it gives one (letters, digits, - and _ only).
   const callerKey = typeof askedKey === 'string' ? askedKey.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200) : '';
+  const bucket = askedBucket === 'adjustment' ? 'adjustment' : 'revenue';
 
   // ONLY staff of this business, or ClarityFlow's own server, may charge a
   // client's saved card. (This route used to take any caller's word for it.)
@@ -180,7 +227,7 @@ export async function POST(req: NextRequest) {
       type:                  'income',
       context:               'Business',
       category,
-      taxBucket:             'revenue',
+      taxBucket:             bucket,
       amount:                baseDollars,
       paymentMethod:         'Card on file (Stripe)',
       appointmentId:         appointmentId || null,
@@ -217,29 +264,46 @@ export async function POST(req: NextRequest) {
     await batch.commit();
   };
 
+  // What the charge is for is part of the key: a deposit and a fee of the same amount for the same visit are two
+  // charges, not one answered twice.
+  const purpose = String(category || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+
   // ── Helper: park as arrears + write flag record (auto-mode failure path) ──
   // FIX: only called for kind === 'arrears_fee' now (see call sites below).
-  const flagAndPark = async (failReason: string, code?: string) => {
+  // Once (see "Owed once"): the fee and its flag are named after what the fee is for, and written in one step that
+  // checks neither is there yet.
+  const owedId = (typeof askedFeeId === 'string' ? askedFeeId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60) : '')
+    || `owed_${hash(`${appointmentId || clientId}|${amountCents}|${purpose}`)}`;
+  // Says whether the fee is on their balance now (parked here, or by an earlier try).
+  const flagAndPark = async (failReason: string, code?: string): Promise<boolean> => {
+    const cRef = db.doc(`tenants/${tenantId}/clients/${clientId}`);
+    const flagRef = db.doc(`tenants/${tenantId}/chargeFlags/${owedId}`);
     try {
-      const batch = db.batch();
-      batch.update(db.doc(`tenants/${tenantId}/clients/${clientId}`), {
-        outstandingBalance: FieldValue.increment(amountDollars),
-        unpaidFees: FieldValue.arrayUnion({
-          feeId:           nanoid(),
-          appointmentId,
-          appointmentDate: nowISO,
-          feeAmount:       amountDollars,
-          reason:          `${reason} — auto-charge failed (${code || failReason})`,
-        }),
+      return await db.runTransaction(async (tx: any) => {
+        const c = await tx.get(cRef); const flag = await tx.get(flagRef);
+        const owed: any[] = Array.isArray(c.data()?.unpaidFees) ? c.data().unpaidFees : [];
+        if (!c.exists) return false;
+        if (flag.exists || owed.some((f: any) => f?.feeId === owedId)) return true;
+        tx.update(cRef, {
+          outstandingBalance: FieldValue.increment(amountDollars),
+          unpaidFees: FieldValue.arrayUnion({
+            feeId:           owedId,
+            appointmentId,
+            appointmentDate: nowISO,
+            feeAmount:       amountDollars,
+            reason:          `${reason} — auto-charge failed (${code || failReason})`,
+          }),
+        });
+        tx.set(flagRef, {
+          tenantId, clientId, appointmentId, amountDollars, feeId: owedId,
+          description, category, reason, failReason, code: code || null,
+          status: 'needs_attention', createdAt: nowISO,
+        });
+        return true;
       });
-      batch.set(db.collection(`tenants/${tenantId}/chargeFlags`).doc(), {
-        tenantId, clientId, appointmentId, amountDollars,
-        description, category, reason, failReason, code: code || null,
-        status: 'needs_attention', createdAt: nowISO,
-      });
-      await batch.commit();
     } catch (e) {
       console.error('[charge-card] flagAndPark failed', e);
+      return false;
     }
   };
 
@@ -252,6 +316,8 @@ export async function POST(req: NextRequest) {
     return typeof lc === 'string' ? lc : lc.id || null;
   };
 
+  // Set the moment the card is about to be charged: anything that goes wrong after it may have charged it.
+  let asked = false;
   try {
     // ── Load client ──────────────────────────────────────────────────────────
     const clientSnap = await db.doc(`tenants/${tenantId}/clients/${clientId}`).get();
@@ -262,14 +328,14 @@ export async function POST(req: NextRequest) {
     const card       = clientData?.cardOnFile;
 
     if (!card?.customerId || !card?.paymentMethodId) {
-      if (mode === 'auto' && isArrearsKind) await flagAndPark('no_card_on_file');
+      const parked = mode === 'auto' && isArrearsKind ? await flagAndPark('no_card_on_file') : false;
       return NextResponse.json({
         ok: false,
         flagged:        mode === 'auto' && isArrearsKind,
         reason:         'No card on file',
         code:           'no_card_on_file',
         declineCode:    'no_card_on_file',
-        parkedAsBalance: mode === 'auto' && isArrearsKind,
+        parkedAsBalance: parked,
       });
     }
 
@@ -277,12 +343,12 @@ export async function POST(req: NextRequest) {
     const tenantSnap      = await db.doc(`tenants/${tenantId}`).get();
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
-      if (mode === 'auto' && isArrearsKind) await flagAndPark('no_connected_account');
+      const parked = mode === 'auto' && isArrearsKind ? await flagAndPark('no_connected_account') : false;
       return NextResponse.json({
         ok: false,
         flagged:         mode === 'auto' && isArrearsKind,
         reason:          'No connected payment account. Configure Stripe in Settings.',
-        parkedAsBalance: mode === 'auto' && isArrearsKind,
+        parkedAsBalance: parked,
       });
     }
 
@@ -306,13 +372,32 @@ export async function POST(req: NextRequest) {
         const block = await ticketBlocks(db, String(tenantId), forTicket, { share: share === true, stripe, acct: stripeAccountId });
         if (block) return NextResponse.json({ ok: false, code: block.code, reason: block.error, error: block.error, ...(block.paidWith ? { paidWith: block.paidWith, paidPayload: block.paidPayload } : {}) }, { status: block.status });
       }
-      // Use a time-based idempotency key so retries within the same second
-      // are safe but a second tap generates a new intent. Who pays and what for are part of it: two people paying
-      // equal shares of one bill are two charges, not one asked twice.
-      const what = crypto.createHash('sha1').update(String(description || '')).digest('hex').slice(0, 12);
-      const idempotencyKey = callerKey || `pos_${forTicket || 'none'}_${clientId}_${what}_${amountCents}_${Math.floor(Date.now() / 10000)}`;
+      // One attempt at a time for the same payment: who pays, what for, how much and on which card (two people paying
+      // equal shares of one bill are two charges, not one asked twice). The attempt is claimed in one step: a second tap
+      // or a second device meanwhile is told it's going through. An attempt Stripe didn't answer (or one cut off) keeps
+      // its key, so the next try is the same charge. A decline ends it (a new tap really tries the card again); a charge
+      // that went through answers the same tap with that payment for DONE_REPLAY_MS, then a new tap is a new charge.
+      const what = hash(String(description || ''), 12);
+      const attemptRef = db.doc(`tenants/${tenantId}/cardAttempts/${hash(callerKey ? `key|${callerKey}`
+        : ['pos', forTicket || 'none', clientId, what, amountCents, Math.round(surchargeDollars * 100), category, appointmentId || '', checkoutSessionId || '', share === true ? `share|${shareLabel || ''}` : '', card.paymentMethodId].join('|'), 32)}`);
+      const startedAt = Date.now();
+      const attempt: any = await db.runTransaction(async (tx: any) => {
+        const cur: any = (await tx.get(attemptRef)).data() || null;
+        const held = Date.parse(String(cur?.at || '')); const done = Date.parse(String(cur?.doneAt || ''));
+        const replay = !!cur?.key && (cur.done ? Number.isFinite(done) && startedAt - done < DONE_REPLAY_MS : true);
+        if (cur && !cur.done && !cur.unknown && Number.isFinite(held) && startedAt - held < ATTEMPT_MS) return { busy: true };
+        const key = callerKey || (replay ? String(cur.key) : `pos_${forTicket || 'none'}_${clientId}_${what}_${amountCents}_${startedAt}`);
+        tx.set(attemptRef, { key, at: new Date(startedAt).toISOString(), clientId, amountCents, ticket: forTicket || null, unknown: false, done: false, doneAt: null });
+        return { key };
+      });
+      if (attempt.busy) return NextResponse.json({ ok: false, code: 'in_progress', reason: 'This card payment is going through already. Give it a moment, then check the sale.', error: 'This card payment is going through already. Give it a moment, then check the sale.' }, { status: 409 });
+      const idempotencyKey: string = attempt.key;
+      const ended = () => attemptRef.delete().catch(() => {});
+      const charged = () => attemptRef.set({ done: true, doneAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      const unanswered = async () => { await attemptRef.set({ unknown: true }, { merge: true }).catch(() => {}); return NextResponse.json({ ok: false, unknown: true, code: 'unconfirmed', reason: NO_ANSWER, error: NO_ANSWER }, { status: 502 }); };
 
       let intent: Stripe.PaymentIntent;
+      asked = true;
       try {
         intent = await stripe.paymentIntents.create(
           {
@@ -351,6 +436,8 @@ export async function POST(req: NextRequest) {
       } catch (stripeErr: any) {
         const code = stripeErr?.code || stripeErr?.raw?.code || 'charge_failed';
         console.error('[charge-card] POS stripe error:', stripeErr?.message, code);
+        if (noAnswer(stripeErr)) return unanswered();
+        await ended();
         return NextResponse.json({
           ok:     false,
           reason: stripeErr?.message || 'Card charge failed',
@@ -361,6 +448,7 @@ export async function POST(req: NextRequest) {
       // Requires further authentication (3DS etc.) — unlikely for saved cards
       // but handle gracefully
       if (intent.status === 'requires_action') {
+        await ended();
         return NextResponse.json({
           ok:              false,
           requiresAction:  true,
@@ -369,7 +457,9 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      if (intent.status === 'processing') return unanswered();
       if (intent.status !== 'succeeded') {
+        await ended();
         return NextResponse.json({
           ok:     false,
           reason: `Charge did not complete (status: ${intent.status})`,
@@ -401,6 +491,7 @@ export async function POST(req: NextRequest) {
         } catch (e) { console.error('[charge-card] ticket not marked (the checkout marks it)', e); }
       }
 
+      await charged();
       return NextResponse.json({ ok: true, paymentIntentId: intent.id, chargeId: resolveChargeId(intent), amount: amountDollars, ...(sale ? { sale } : {}) });
     }
 
@@ -408,13 +499,20 @@ export async function POST(req: NextRequest) {
     // AUTO MODE — client NOT present (policy engine: no-show, late-cancel;
     // OR a front-desk deposit charge per `kind: 'deposit'` — see header note)
     // ══════════════════════════════════════════════════════════════════════════
-    // What the charge is for is part of the key: a deposit and a fee of the same amount for the same visit are two
-    // charges, not one answered twice.
-    const purpose = String(category || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
     const idempotencyKey = callerKey || `fee_${appointmentId || clientId}_${amountCents}_${purpose}`;
+    const unanswered = () => NextResponse.json({ ok: false, unknown: true, flagged: false, parkedAsBalance: false, code: 'unconfirmed', reason: NO_ANSWER, error: NO_ANSWER }, { status: 502 });
 
-    let intent: Stripe.PaymentIntent;
-    try {
+    let intent: Stripe.PaymentIntent | null = null;
+    // Asked again long after its answer went missing: Stripe may have forgotten the key by then, so the payment made
+    // under it (it carries the key) is looked up first, and the card is only charged when there is none.
+    if (replay === true && callerKey) {
+      try {
+        const l: any = await stripe.paymentIntents.list({ customer: card.customerId, created: { gte: Math.floor(Date.now() / 1000) - 3 * 86400 }, limit: 100 }, { stripeAccount: stripeAccountId });
+        intent = (Array.isArray(l?.data) ? l.data : []).find((p: any) => String(p?.metadata?.chargeKey || '') === idempotencyKey) || null;
+      } catch { return unanswered(); }
+    }
+    asked = true;
+    if (!intent) try {
       intent = await stripe.paymentIntents.create(
         {
           amount:         amountCents,
@@ -432,11 +530,13 @@ export async function POST(req: NextRequest) {
             kind: 'auto_fee',
             surchargeCents: String(Math.round(surchargeDollars * 100)),
             checkoutSessionId: checkoutSessionId || '', // FIX: same linkage as pos mode
+            chargeKey: idempotencyKey,                  // so a charge whose answer went missing can be found again
           },
         },
         { stripeAccount: stripeAccountId, idempotencyKey }
       );
     } catch (stripeErr: any) {
+      if (noAnswer(stripeErr)) { console.error('[charge-card] no answer from Stripe', stripeErr?.type, stripeErr?.code); return unanswered(); }
       const code = stripeErr?.code || stripeErr?.raw?.code || 'charge_failed';
       /* THE DECLINE CODE IS THE USEFUL HALF. `code` is almost always the
        * generic 'card_declined'; decline_code is what distinguishes an
@@ -447,41 +547,47 @@ export async function POST(req: NextRequest) {
         || stripeErr?.raw?.decline_code
         || stripeErr?.payment_intent?.last_payment_error?.decline_code
         || null;
-      if (isArrearsKind) await flagAndPark('stripe_error', declineCode || code);
+      const parked = isArrearsKind ? await flagAndPark('stripe_error', declineCode || code) : false;
       return NextResponse.json({
         ok:              false,
         flagged:         isArrearsKind,
         reason:          stripeErr?.message || 'Charge failed',
         code,
         declineCode,
-        parkedAsBalance: isArrearsKind,
+        parkedAsBalance: parked,
       });
     }
+    if (!intent) return unanswered();
 
+    // Still being processed: not a decline (it may yet go through), so nothing is put on their balance.
+    if (intent.status === 'processing') return unanswered();
     if (intent.status !== 'succeeded') {
-      if (isArrearsKind) await flagAndPark('not_succeeded', intent.status);
+      const parked = isArrearsKind ? await flagAndPark('not_succeeded', intent.status) : false;
       return NextResponse.json({
         ok:              false,
         flagged:         isArrearsKind,
         reason:          `Charge ${intent.status}`,
         code:            intent.status,
         declineCode:     (intent as any)?.last_payment_error?.decline_code || null,
-        parkedAsBalance: isArrearsKind,
+        parkedAsBalance: parked,
       });
     }
 
+    // The one line in the books for this charge (named after the payment, so a retry finds it). Callers record their
+    // own side of it (the membership, the package, the cancellation) — never a second income line for it.
     await writeLedger(`card_charge__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
 
     return NextResponse.json({ ok: true, paymentIntentId: intent.id, chargeId: resolveChargeId(intent), amount: amountDollars });
 
   } catch (err: any) {
     console.error('[stripe/charge-card]', err);
-    if (mode === 'auto' && isArrearsKind) await flagAndPark('unexpected_error', err?.code);
+    // Never put a fee on their balance from here: the card may have been charged before whatever went wrong.
+    if (asked) return NextResponse.json({ ok: false, unknown: true, flagged: false, parkedAsBalance: false, code: 'unconfirmed', reason: NO_ANSWER, error: NO_ANSWER }, { status: 502 });
     return NextResponse.json({
       ok:              false,
-      flagged:         mode === 'auto' && isArrearsKind,
-      reason:          err.message,
-      parkedAsBalance: mode === 'auto' && isArrearsKind,
-    }, { status: 200 });
+      flagged:         false,
+      reason:          'Something went wrong before the card was charged. Nothing was charged.',
+      parkedAsBalance: false,
+    }, { status: 500 });
   }
 }

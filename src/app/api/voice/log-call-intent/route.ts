@@ -92,6 +92,19 @@ import { publicVisitCopy } from '@/lib/public-visit-copy';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// A fee charged to the saved card from a call (api/stripe/charge-card): paid (the charge itself is its one line in the
+// books — nothing here writes a second), declined (Stripe said no), or no answer (it may have gone through: never
+// treated as a decline — nothing is canceled or moved on it, and the team is asked to check before charging again).
+async function chargeFee(body: Record<string, any>): Promise<{ ok: true; paymentIntentId: string } | { ok: false; unknown: boolean; parked: boolean }> {
+  const url = `${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`;
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...internalHeaders(String(url)) }, body: JSON.stringify(body) });
+    const d: any = await res.json().catch(() => null);
+    if (res.status < 500 && d?.ok && d.paymentIntentId) return { ok: true, paymentIntentId: String(d.paymentIntentId) };
+    return { ok: false, unknown: res.status >= 500 || !d || d.unknown === true, parked: d?.parkedAsBalance === true };
+  } catch { return { ok: false, unknown: true, parked: false }; }
+}
+
 const INTENTS = ['cancel', 'reschedule', 'late', 'event_quote', 'complaint', 'consultation', 'message'] as const;
 type Intent = (typeof INTENTS)[number];
 const APPOINTMENT_INTENTS: Intent[] = ['cancel', 'reschedule', 'late'];
@@ -142,6 +155,8 @@ export async function POST(req: NextRequest) {
     let autoCancelledFeeCharged = false;
     let autoCancelledFeeAmount: number | undefined;
     let autoCancelledFeePending = false;
+    // A fee charge the card processor never answered: shown on the team's inbox item, so they check before charging.
+    let feeUnconfirmed = false;
     if (APPOINTMENT_INTENTS.includes(intent)) {
       const aptId: string = body?.appointmentId;
       if (!aptId) {
@@ -271,38 +286,39 @@ export async function POST(req: NextRequest) {
         // shouldExecute (fee fully resolved) so the write below can
         // record which path actually happened.
         let shouldExecuteWithPendingFee = false;
+        // The declined fee is on their balance already (the card route parked it): it isn't added again below.
+        let feeParkedByCharge = false;
 
         if (safeToConsider && isFeeFree) {
           shouldExecute = true;
         } else if (safeToConsider && !isFeeFree && tenant.voiceAgent?.autoChargeFeeBearingActions === true) {
           feeAmount = Number(tenant.cancellationFee) || Number(svc?.price) || 0;
           if (feeAmount > 0 && hasUsableCard) {
-            try {
-              const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`)) },
-                body: JSON.stringify({
-                  tenantId,
-                  clientId: appointment.clientId,
-                  amountCents: Math.round(feeAmount * 100),
-                  description: `Cancellation fee — ${svc?.name || 'Service'}`,
-                  category: 'Cancellation Fee',
-                  appointmentId: appointment.id,
-                  reason: 'Voice-verified cancellation, tenant opted into auto-charge',
-                  mode: 'auto',
-                  kind: 'arrears_fee',
-                }),
-              });
-              const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
-              if (chargeData.ok) {
-                feeCharged = true;
-                stripePaymentIntentId = chargeData.paymentIntentId;
-                shouldExecute = true;
-              } else {
-                shouldExecuteWithPendingFee = true;
-              }
-            } catch {
+            // Declined: the card route puts the fee on their balance itself, once, under the name every cancellation
+            // path uses for this visit's fee (cancel-<visit>), so it's never added twice. No answer: nothing is
+            // canceled; the team gets the request (and is told to check the payment first).
+            const charged = await chargeFee({
+              tenantId,
+              clientId: appointment.clientId,
+              amountCents: Math.round(feeAmount * 100),
+              description: `Cancellation fee — ${svc?.name || 'Service'}`,
+              category: 'Cancellation Fee',
+              appointmentId: appointment.id,
+              // Also what their owed fee says when the card is declined (what they see on their balance).
+              reason: 'Late cancellation by phone',
+              mode: 'auto',
+              kind: 'arrears_fee',
+              feeId: `cancel-${appointment.id}`,
+            });
+            if (charged.ok) {
+              feeCharged = true;
+              stripePaymentIntentId = charged.paymentIntentId;
+              shouldExecute = true;
+            } else if (charged.unknown) {
+              feeUnconfirmed = true;
+            } else {
               shouldExecuteWithPendingFee = true;
+              feeParkedByCharge = charged.parked;
             }
           } else if (feeAmount > 0 && !hasUsableCard) {
             shouldExecuteWithPendingFee = true;
@@ -345,10 +361,12 @@ export async function POST(req: NextRequest) {
             cancelPatch.feeLinkSentAt = cancelNowISO;
           }
 
+          // Without empty fields (the database refuses them, and a fee charged a moment ago must never be left behind
+          // by a cancellation that didn't save).
           const cancelBatch = db.batch();
-          cancelBatch.set(db.doc(`tenants/${tenantId}/appointments/${appointment.id}`), cancelPatch, { merge: true });
+          cancelBatch.set(db.doc(`tenants/${tenantId}/appointments/${appointment.id}`), stripUndefined(cancelPatch), { merge: true });
           if (appointment.checkInToken) {
-            cancelBatch.set(db.doc(`appointmentCheckIns/${appointment.checkInToken}`), publicVisitCopy(cancelPatch), { merge: true });
+            cancelBatch.set(db.doc(`appointmentCheckIns/${appointment.checkInToken}`), stripUndefined(publicVisitCopy(cancelPatch)), { merge: true });
             // v15 — when the fee is pending (not charged), the
             // bookingCompletions doc is NOT voided the way a normal
             // cancellation would be — it gets repurposed to carry the
@@ -359,7 +377,7 @@ export async function POST(req: NextRequest) {
             if (shouldExecuteWithPendingFee) {
               cancelBatch.set(
                 db.doc(`tenants/${tenantId}/bookingCompletions/${appointment.checkInToken}`),
-                {
+                stripUndefined({
                   status: 'fee_owed',
                   // v15 — FIX: reuses depositAmountCents (the exact field
                   // /api/stripe/completion already reads to build an
@@ -373,7 +391,7 @@ export async function POST(req: NextRequest) {
                   clientName: clientDocForGate?.name || appointment.clientName,
                   clientEmail: clientDocForGate?.email,
                   serviceName: `${svc?.name || 'Service'} — Late Cancellation Fee`,
-                },
+                }),
                 { merge: true },
               );
             } else {
@@ -384,46 +402,21 @@ export async function POST(req: NextRequest) {
               );
             }
           }
-          if (feeCharged) {
-            const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
-            cancelBatch.set(txnRef, {
-              id: txnRef.id,
-              tenantId,
-              date: cancelNowISO,
-              description: `Cancellation fee — ${svc?.name || 'Service'}`,
-              clientOrVendor: clientDocForGate?.name || appointment.clientName || 'Client',
-              clientId: appointment.clientId,
-              type: 'income',
-              context: 'Business',
-              category: 'Cancellation Fee',
-              taxBucket: 'revenue',
-              amount: feeAmount,
-              paymentMethod: 'Card on File (Stripe)',
-              stripePaymentIntentId,
-              appointmentId: appointment.id,
-              hasReceipt: true,
+          // A charged fee is in the books already: the card charge wrote its one line (Cancellation Fee).
+          await cancelBatch.commit();
+          // Owed (no card on file): on their balance once, under this visit's fee name — the same name the card route
+          // and every other cancellation path use, so nothing adds it twice. Declined: the card route parked it already.
+          if (shouldExecuteWithPendingFee && appointment.clientId && !feeParkedByCharge) {
+            const cRef = db.doc(`tenants/${tenantId}/clients/${appointment.clientId}`); const feeId = `cancel-${appointment.id}`;
+            await db.runTransaction(async (tx) => {
+              const cur: any = (await tx.get(cRef)).data();
+              if (!cur || (Array.isArray(cur.unpaidFees) ? cur.unpaidFees : []).some((f: any) => f?.feeId === feeId)) return;
+              tx.update(cRef, {
+                outstandingBalance: FieldValue.increment(feeAmount),
+                unpaidFees: FieldValue.arrayUnion({ feeId, appointmentId: appointment.id, appointmentDate: cancelNowISO, feeAmount, reason: 'Late Cancellation Fee (voice, self-pay link sent)' }),
+              });
             });
           }
-          if (shouldExecuteWithPendingFee && appointment.clientId) {
-            cancelBatch.set(
-              db.doc(`tenants/${tenantId}/clients/${appointment.clientId}`),
-              {
-                outstandingBalance: (Number(clientDocForGate?.outstandingBalance) || 0) + feeAmount,
-                unpaidFees: [
-                  ...(clientDocForGate?.unpaidFees || []),
-                  {
-                    feeId: nanoid(),
-                    appointmentId: appointment.id,
-                    appointmentDate: cancelNowISO,
-                    feeAmount,
-                    reason: 'Late Cancellation Fee (voice, self-pay link sent)',
-                  },
-                ],
-              },
-              { merge: true },
-            );
-          }
-          await cancelBatch.commit();
           autoCancelled = true;
           autoCancelledFeeCharged = feeCharged;
           autoCancelledFeeAmount = (feeCharged || shouldExecuteWithPendingFee) ? feeAmount : undefined;
@@ -494,37 +487,10 @@ export async function POST(req: NextRequest) {
         const hasUsableCard = hasUsableCardCheck(clientDocForGate);
 
         let feeCharged = false;
-        let shouldExecute = false;
-
-        if (safeToConsider && isFeeFree) {
-          shouldExecute = true;
-        } else if (safeToConsider && !isFeeFree && tenant.voiceAgent?.autoChargeFeeBearingActions === true && hasUsableCard) {
-          try {
-            const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`)) },
-              body: JSON.stringify({
-                tenantId,
-                clientId: appointment.clientId,
-                amountCents: Math.round(rescheduleFeeAmount * 100),
-                description: `Reschedule fee — ${svc?.name || 'Service'}`,
-                category: 'Adjustment Fee',
-                appointmentId: appointment.id,
-                reason: 'Voice-verified reschedule, tenant opted into auto-charge',
-                mode: 'auto',
-                kind: 'arrears_fee',
-              }),
-            });
-            const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
-            if (chargeData.ok) {
-              feeCharged = true;
-              shouldExecute = true;
-            }
-            // charge failed — shouldExecute stays false, falls to staff review
-          } catch {
-            /* charge attempt failed — shouldExecute stays false */
-          }
-        }
+        // The fee is charged only once the new time is held for this move (below), and only a move that happens is
+        // charged: a fee for a move that didn't happen is never taken, nor put on their balance.
+        const withFee = safeToConsider && !isFeeFree && tenant.voiceAgent?.autoChargeFeeBearingActions === true && hasUsableCard;
+        const shouldExecute = (safeToConsider && isFeeFree) || withFee;
 
         if (shouldExecute) {
           // Re-verify the target slot server-side, excluding the appointment
@@ -561,6 +527,31 @@ export async function POST(req: NextRequest) {
               claimed = false;
             }
 
+            // The time is held: now the fee. Charged under a key named after this move (the visit, the new time, the
+            // amount and the card), so the voice platform asking again is the same charge. Declined or no answer: the
+            // time is let go and the team gets the request (told to check the payment first when there was no answer).
+            if (claimed && withFee) {
+              const charged = await chargeFee({
+                tenantId,
+                clientId: appointment.clientId,
+                amountCents: Math.round(rescheduleFeeAmount * 100),
+                description: `Reschedule fee — ${svc?.name || 'Service'}`,
+                category: 'Adjustment Fee',
+                taxBucket: 'adjustment',
+                appointmentId: appointment.id,
+                reason: 'Voice-verified reschedule, tenant opted into auto-charge',
+                mode: 'auto',
+                kind: 'deposit',
+                idempotencyKey: `resched_${String(appointment.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}_${t.getTime()}_${Math.round(rescheduleFeeAmount * 100)}_${String(clientDocForGate?.cardOnFile?.paymentMethodId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}`,
+              });
+              if (charged.ok) feeCharged = true;
+              else {
+                if (charged.unknown) feeUnconfirmed = true;
+                await lockRef.delete().catch(() => {});
+                claimed = false;
+              }
+            }
+
             if (claimed) {
               const oldStart = new Date(appointment.startTime);
               const oldEnd = new Date(appointment.endTime);
@@ -572,7 +563,7 @@ export async function POST(req: NextRequest) {
               const rescheduleNowISO = new Date().toISOString();
               const providerChanged = staffMember.id !== appointment.staffId;
 
-              const historyEntry = {
+              const historyEntry = stripUndefined({
                 from: appointment.startTime,
                 to: t.toISOString(),
                 fromStaffId: appointment.staffId,
@@ -582,7 +573,7 @@ export async function POST(req: NextRequest) {
                 source: 'voice_verified_auto',
                 feeCharged,
                 feeAmount: feeCharged ? rescheduleFeeAmount : undefined,
-              };
+              });
               const movePatch = {
                 startTime: t.toISOString(),
                 endTime: newEnd.toISOString(),
@@ -607,25 +598,7 @@ export async function POST(req: NextRequest) {
                   { merge: true },
                 );
               }
-              if (feeCharged) {
-                const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
-                moveBatch.set(txnRef, {
-                  id: txnRef.id,
-                  tenantId,
-                  date: rescheduleNowISO,
-                  description: `Reschedule fee — ${svc?.name || 'Service'}`,
-                  clientOrVendor: clientDocForGate?.name || appointment.clientName || 'Client',
-                  clientId: appointment.clientId,
-                  type: 'income',
-                  context: 'Business',
-                  category: 'Adjustment Fee',
-                  taxBucket: 'adjustment',
-                  amount: rescheduleFeeAmount,
-                  paymentMethod: 'Card on File (Stripe)',
-                  appointmentId: appointment.id,
-                  hasReceipt: true,
-                });
-              }
+              // A charged fee is in the books already: the card charge wrote its one line (Adjustment Fee).
               moveBatch.delete(lockRef);
               await moveBatch.commit();
               autoRescheduled = true;
@@ -788,6 +761,10 @@ export async function POST(req: NextRequest) {
         consultation,
         details: (body.details || '').trim() || undefined,
         callSummary: (body.callSummary || '').trim() || undefined,
+        // A fee charge the card processor never answered: it may have gone through, so the team checks their payments
+        // before charging it again (or cancelling / moving the visit with a fee).
+        paymentUnconfirmed: feeUnconfirmed || undefined,
+        paymentNote: feeUnconfirmed ? 'A fee charge to their card on file was tried and not confirmed. Check their payments before charging again.' : undefined,
         status: 'open',
         source: 'ai_receptionist',
         retellCallId: retellCallId || undefined, // links item → recording

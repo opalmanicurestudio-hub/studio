@@ -36,6 +36,15 @@
  *
  * Auth: voice tool secret, same as create-booking/log-call-intent — this
  * fires mid-call, not staff-triggered.
+ *
+ * Money, once: the charge itself is the sale's one line in the books
+ * (api/stripe/charge-card writes it under Package Sales, named after the
+ * payment) — nothing here writes a second. The charge's key is named after
+ * this call, the package, the amount and the card, so the voice platform
+ * asking again mid-call gets the same charge, and the package is added once
+ * per payment. No answer from the card processor is not a decline and not a
+ * sale: nothing is added, the caller is told it couldn't be confirmed, and the
+ * team gets the interest note marked to check the payment first.
  */
 
 import { internalHeaders } from '@/lib/message-policy';
@@ -126,9 +135,12 @@ export async function POST(req: NextRequest) {
     const price = Number(pkg.price) || 0;
 
     let sold = false;
+    let unconfirmed = false;
     let stripePaymentIntentId: string | undefined;
 
     if (canAutoSell && price > 0) {
+      const url = `${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`;
+      const safe = (s: any) => String(s || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60);
       try {
         // v1 — kind:'deposit' is a deliberate reuse, not a mismatch: its
         // FAILURE semantics are exactly what a package purchase needs — a
@@ -137,9 +149,9 @@ export async function POST(req: NextRequest) {
         // didn't go through), which is precisely how 'deposit' already
         // behaves on failure in this route. 'arrears_fee' would
         // incorrectly park a declined purchase attempt as a debt.
-        const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
+        const chargeRes = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...internalHeaders(String(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`)) },
+          headers: { 'Content-Type': 'application/json', ...internalHeaders(String(url)) },
           body: JSON.stringify({
             tenantId,
             clientId,
@@ -149,26 +161,31 @@ export async function POST(req: NextRequest) {
             reason: 'Voice-sold package, tenant opted into auto-sell',
             mode: 'auto',
             kind: 'deposit',
+            // This call's purchase: asked again on the same call, it's the same charge.
+            ...(retellCallId ? { idempotencyKey: `pkg_${safe(retellCallId)}_${safe(packageId)}_${Math.round(price * 100)}_${safe(client.cardOnFile?.paymentMethodId)}` } : {}),
           }),
         });
-        const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
-        if (chargeData.ok) {
+        const chargeData = await chargeRes.json().catch(() => null);
+        if (chargeRes.status < 500 && chargeData?.ok && chargeData.paymentIntentId) {
           sold = true;
-          stripePaymentIntentId = chargeData.paymentIntentId;
-        }
+          stripePaymentIntentId = String(chargeData.paymentIntentId);
+        } else if (chargeRes.status >= 500 || !chargeData || chargeData.unknown) unconfirmed = true;
       } catch {
-        /* charge failed — falls through to the logged-interest path below */
+        // The charge may or may not have reached the card: never treated as a decline.
+        unconfirmed = true;
       }
     }
 
     const now = new Date().toISOString();
 
     if (sold) {
-      const batch = db.batch();
-      const existingPackages: any[] = client.activePackages || [];
-      batch.set(
-        db.doc(`tenants/${tenantId}/clients/${clientId}`),
-        {
+      // The package, added once for this payment (the charge itself is the sale's line in the books).
+      const cRef = db.doc(`tenants/${tenantId}/clients/${clientId}`);
+      await db.runTransaction(async (tx) => {
+        const cur: any = (await tx.get(cRef)).data() || {};
+        const existingPackages: any[] = Array.isArray(cur.activePackages) ? cur.activePackages : [];
+        if (existingPackages.some((p: any) => p?.stripePaymentIntentId === stripePaymentIntentId)) return;
+        tx.set(cRef, {
           activePackages: [
             ...existingPackages,
             {
@@ -176,29 +193,12 @@ export async function POST(req: NextRequest) {
               sessionsRemaining: Number(pkg.sessions) || 1,
               purchasedAt: now,
               source: 'voice_verified_auto',
+              stripePaymentIntentId,
             },
           ],
-          lifetimeValue: (Number(client.lifetimeValue) || 0) + price,
-        },
-        { merge: true },
-      );
-      const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
-      batch.set(txnRef, {
-        id: txnRef.id,
-        tenantId,
-        date: now,
-        description: `Package: ${pkg.name}`,
-        clientOrVendor: client.name || callerName || 'Client',
-        clientId,
-        type: 'income',
-        context: 'Business',
-        category: 'Package Sales',
-        amount: price,
-        paymentMethod: 'Card on File (Stripe)',
-        stripePaymentIntentId,
-        hasReceipt: true,
+          lifetimeValue: (Number(cur.lifetimeValue) || 0) + price,
+        }, { merge: true });
       });
-      await batch.commit();
 
       return NextResponse.json({
         ok: true,
@@ -223,14 +223,18 @@ export async function POST(req: NextRequest) {
       packagePrice: price,
       status: 'open',
       source: 'ai_receptionist',
-      retellCallId: retellCallId || undefined,
+      ...(retellCallId ? { retellCallId } : {}),
+      // A charge was tried and the card processor didn't answer: check the client's payments before charging again.
+      ...(unconfirmed ? { paymentUnconfirmed: true, details: 'A card charge for this package was tried and not confirmed. Check their payments before charging again.' } : {}),
     });
 
     return NextResponse.json({
       ok: true,
       sold: false,
       logged: true,
-      spoken: `I've noted your interest in the ${pkg.name} package — the team will follow up to get you set up.`,
+      spoken: unconfirmed
+        ? `I wasn't able to confirm that payment went through, so I haven't set up the ${pkg.name} package yet — the team will check it and follow up with you.`
+        : `I've noted your interest in the ${pkg.name} package — the team will follow up to get you set up.`,
     });
   } catch (e) {
     console.error('[voice/sell-package]', e);

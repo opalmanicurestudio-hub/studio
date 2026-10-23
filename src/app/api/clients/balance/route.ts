@@ -3,14 +3,23 @@
 //   settled — paid at the desk (cash, card terminal, other): recorded as a payment, balance cleared
 //   link    — a pay link to their OWN email / phone on file (never shown on screen; at most hourly)
 //   waive   — managers only, with a reason: balance cleared, nothing recorded as paid
+// Settled and waived are each one step that reads the balance, records it and clears it, so two devices pressing at
+// once record it once (the record is named after the balance it settles; the second press is told it's done). Neither
+// happens while a card payment for any of it is going through (automatic collection, the desk's Charge card, an online
+// payment — lib/fee-pay): a payment Stripe never answered is looked up first, so cash is never recorded on top of a
+// card payment that went through.
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
+import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { linkOrigin } from '@/lib/app-origin';
+import { anyStaleClaim, paymentGoingThrough, resolveStaleFees } from '@/lib/fee-pay';
 
 export const dynamic = 'force-dynamic';
 const VIA: Record<string, string> = { cash: 'Cash', terminal: 'Card (terminal)', other: 'Other' };
+const BUSY = 'A card payment for this balance is going through right now. Check again in a couple of minutes before recording anything.';
 
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
@@ -27,22 +36,51 @@ export async function POST(req: NextRequest) {
   const actor = { type: 'user' as const, id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role };
   const first = String(c.name || 'the client').split(' ')[0];
 
+  // A card payment Stripe never answered (or a run cut off after charging): found at Stripe first, then decided.
+  const checkStale = async () => {
+    if (!anyStaleClaim(c)) return;
+    const tenant: any = ((await db.doc(T).get()).data() as any) || {};
+    if (!process.env.STRIPE_SECRET_KEY || !tenant.stripeAccountId) return;
+    const stripe: any = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
+    await resolveStaleFees(db, stripe, tenantId, tenant, clientId).catch(() => null);
+  };
+  // The balance, read and cleared in one step: the one press that finds it still owed records it.
+  const clearOnce = async (record: (tx: any, cur: any, cents: number) => any): Promise<{ busy?: boolean; already?: boolean; dollars?: number }> => db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(cRef)).data() || {}; const cents = Math.round((Number(cur.outstandingBalance) || 0) * 100);
+    if (cents <= 0) return { already: true };
+    if (paymentGoingThrough(cur)) return { busy: true };
+    const ok = await record(tx, cur, cents); if (ok === false) return { already: true };
+    return { dollars: cents / 100 };
+  });
+
   if (action === 'settled') {
     const via = VIA[b.via] ? b.via : 'other';
-    const txRef = db.collection(`${T}/transactions`).doc(); const batch = db.batch();
-    batch.set(txRef, { id: txRef.id, tenantId, date: nowIso, description: 'Balance paid at the desk', clientOrVendor: c.name || null, clientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: dollars, paymentMethod: VIA[via], hasReceipt: false, recordedBy: auth.actor.name });
-    batch.set(cRef, { outstandingBalance: 0, unpaidFees: [], balancePaidAt: nowIso, balanceVersion: nowIso }, { merge: true });
-    await batch.commit();
-    await logAuditAdmin(db, tenantId, { action: 'balance.paid', targetType: 'client', targetId: clientId, amount: dollars, summary: `${c.name || 'Client'} paid a $${dollars.toFixed(2)} balance at the desk (${VIA[via]})`, actor }).catch(() => {});
-    return NextResponse.json({ ok: true, paidDollars: dollars });
+    await checkStale();
+    const r = await clearOnce(async (tx, cur, cents) => {
+      // Named after the balance it settles (its fees, amount and version), so a second press finds it.
+      const ids = (Array.isArray(cur.unpaidFees) ? cur.unpaidFees : []).map((f: any) => String(f.feeId)).sort().join(',');
+      const name = crypto.createHash('sha1').update(`${ids}|${cents}|${cur.balanceVersion || ''}`).digest('hex').slice(0, 16);
+      const lineRef = db.doc(`${T}/transactions/deskpay_${clientId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}_${name}`);
+      if ((await tx.get(lineRef)).exists) return false;
+      tx.set(lineRef, { id: lineRef.id, tenantId, date: nowIso, description: 'Balance paid at the desk', clientOrVendor: cur.name || null, clientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: cents / 100, paymentMethod: VIA[via], hasReceipt: false, recordedBy: auth.actor.name });
+      tx.set(cRef, { outstandingBalance: 0, unpaidFees: [], balancePaidAt: nowIso, balanceVersion: nowIso }, { merge: true });
+      return true;
+    });
+    if (r.busy) return NextResponse.json({ ok: false, error: BUSY, code: 'in_progress' }, { status: 409 });
+    if (r.already) return NextResponse.json({ ok: true, already: true });
+    await logAuditAdmin(db, tenantId, { action: 'balance.paid', targetType: 'client', targetId: clientId, amount: r.dollars, summary: `${c.name || 'Client'} paid a $${(r.dollars || 0).toFixed(2)} balance at the desk (${VIA[via]})`, actor }).catch(() => {});
+    return NextResponse.json({ ok: true, paidDollars: r.dollars });
   }
   if (action === 'waive') {
     if (!['owner', 'admin', 'manager'].includes(String(auth.actor.role || '').toLowerCase())) return NextResponse.json({ ok: false, error: 'Only a manager can waive a balance.' }, { status: 403 });
     const reason = String(b.reason || '').trim().slice(0, 200);
     if (!reason) return NextResponse.json({ ok: false, error: 'Please add a reason for waiving the balance.' }, { status: 400 });
-    await cRef.set({ outstandingBalance: 0, unpaidFees: [], balanceWaivedAt: nowIso, balanceWaived: { amount: dollars, reason, by: auth.actor.name }, balanceVersion: nowIso }, { merge: true });
-    await logAuditAdmin(db, tenantId, { action: 'balance.waived', targetType: 'client', targetId: clientId, amount: dollars, summary: `$${dollars.toFixed(2)} balance waived for ${c.name || 'client'} — ${reason}`, actor }).catch(() => {});
-    return NextResponse.json({ ok: true, waivedDollars: dollars });
+    await checkStale();
+    const r = await clearOnce(async (tx, _cur, cents) => { tx.set(cRef, { outstandingBalance: 0, unpaidFees: [], balanceWaivedAt: nowIso, balanceWaived: { amount: cents / 100, reason, by: auth.actor.name }, balanceVersion: nowIso }, { merge: true }); return true; });
+    if (r.busy) return NextResponse.json({ ok: false, error: BUSY, code: 'in_progress' }, { status: 409 });
+    if (r.already) return NextResponse.json({ ok: true, already: true });
+    await logAuditAdmin(db, tenantId, { action: 'balance.waived', targetType: 'client', targetId: clientId, amount: r.dollars, summary: `$${(r.dollars || 0).toFixed(2)} balance waived for ${c.name || 'client'} — ${reason}`, actor }).catch(() => {});
+    return NextResponse.json({ ok: true, waivedDollars: r.dollars });
   }
   if (action === 'link') {
     const last = Date.parse(c.balanceLinkSentAt || '');

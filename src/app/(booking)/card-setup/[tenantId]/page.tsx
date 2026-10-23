@@ -2,12 +2,15 @@
 
 // src/app/(booking)/card-setup/[tenantId]/page.tsx
 //
-// PUBLIC confirmation screen for renter card setup. Renters open the
-// Stripe hosted card page from a link the owner texts/emails them; when
-// Stripe finishes it redirects HERE — never to the admin dashboard. This
-// page confirms the setup server-side (via /api/booths/setup-card GET,
-// which stores the card on the renter doc and notifies the owner) and
-// shows a clean, branded "you're all set" screen.
+// PUBLIC screen for renter card setup. The owner texts or emails the renter a
+// link to this page, signed for them by the server (?r=renter&k=signature, good
+// for 7 days). Opening it shows "Add my card", which starts Stripe's hosted
+// card page; when Stripe finishes it redirects HERE — never to the admin
+// dashboard. This page confirms the setup server-side (via
+// /api/booths/setup-card GET, which stores the card on the renter doc and
+// notifies the owner) and shows a clean, branded "you're all set" screen. A link
+// that has expired, or was sent before links were signed, says to ask the studio
+// for a new one.
 //
 // No auth, no app chrome, no admin data — the only thing this page can
 // display is the card brand + last 4 for a successfully completed Stripe
@@ -36,17 +39,62 @@ function useTenantId(props: CardSetupPageProps): string {
 
 export function CardSetupPage(props: CardSetupPageProps = {}) {
   const tenantId = useTenantId(props);
-  const [state, setState] = useState<'working' | 'done' | 'cancelled' | 'error'>('working');
+  const [state, setState] = useState<'working' | 'start' | 'done' | 'cancelled' | 'error'>('working');
   const [error, setError] = useState('');
   const [studioName, setStudioName] = useState('The studio');
   const [firstName, setFirstName] = useState('');
   const [card, setCard] = useState<{ brand: string; last4: string } | null>(null);
+  const [link, setLink] = useState<{ renterId: string; token: string } | null>(null);
+  const [starting, setStarting] = useState(false);
+
+  // From the owner's link: open Stripe's card page for this renter.
+  const startSetup = async () => {
+    if (!link || starting) return;
+    setStarting(true);
+    try {
+      const res = await fetch('/api/booths/setup-card', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, renterId: link.renterId, linkToken: link.token, returnUrl: `${window.location.origin}${window.location.pathname}` }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d?.ok && d.url) { window.location.href = d.url; return; }
+      setError(d?.error || 'We couldn’t open the card page. Please try again.');
+      setState('error');
+    } catch {
+      setError('Network hiccup — please try again.');
+      setState('error');
+    } finally { setStarting(false); }
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined' || !tenantId) return;
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('cfSetupSession');
     const renterId = params.get('cfRenterId');
+    const linkRenter = params.get('r');
+    const linkToken = params.get('k');
+    if ((!sessionId || !renterId) && linkRenter && linkToken) {
+      // The owner's link: check it's still good, then offer to add the card.
+      (async () => {
+        try {
+          const res = await fetch(`/api/booths/setup-card?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(linkRenter)}&link=${encodeURIComponent(linkToken)}`);
+          const d = await res.json().catch(() => ({}));
+          if (d?.studioName) setStudioName(d.studioName);
+          if (d?.ok) {
+            setFirstName(d.renterFirstName || '');
+            setLink({ renterId: linkRenter, token: linkToken });
+            setState('start');
+          } else {
+            setError(d?.error || 'This card link is out of date. Please ask the studio for a new one.');
+            setState('error');
+          }
+        } catch {
+          setError('Network hiccup — refresh this page to try again.');
+          setState('error');
+        }
+      })();
+      return;
+    }
     if (!sessionId || !renterId) {
       // No Stripe params — they cancelled out of the card page.
       setState('cancelled');
@@ -56,9 +104,9 @@ export function CardSetupPage(props: CardSetupPageProps = {}) {
       try {
         const res = await fetch(`/api/booths/setup-card?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renterId)}&session=${encodeURIComponent(sessionId)}`);
         const d = await res.json();
+        if (d.studioName) setStudioName(d.studioName);
         if (d.ok) {
           setCard({ brand: d.cardBrand || 'Card', last4: d.cardLast4 || '' });
-          setStudioName(d.studioName || 'The studio');
           setFirstName(d.renterFirstName || '');
           setState('done');
         } else {
@@ -81,7 +129,25 @@ export function CardSetupPage(props: CardSetupPageProps = {}) {
           {state === 'working' && (
             <>
               <div className="mx-auto h-10 w-10 rounded-full border-4 border-slate-200 border-t-slate-900 animate-spin" />
-              <p className="text-sm font-bold text-slate-600">Confirming your card…</p>
+              <p className="text-sm font-bold text-slate-600">One moment…</p>
+            </>
+          )}
+
+          {state === 'start' && (
+            <>
+              <div>
+                <h1 className="text-xl font-black tracking-tight text-slate-900">{firstName ? `Add your card, ${firstName}` : 'Add your card'}</h1>
+                <p className="text-sm font-bold text-slate-500 mt-1">{studioName} uses the card on file for rent autopay and any charges you’ve agreed to.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void startSetup()}
+                disabled={starting}
+                className="w-full h-12 rounded-2xl bg-slate-900 text-white text-sm font-black uppercase tracking-widest disabled:opacity-50"
+              >
+                {starting ? 'Opening…' : 'Add my card'}
+              </button>
+              <p className="text-[11px] font-bold text-slate-400">You’ll enter your card on Stripe’s secure page, then come back here.</p>
             </>
           )}
 
@@ -111,7 +177,7 @@ export function CardSetupPage(props: CardSetupPageProps = {}) {
             <>
               <h1 className="text-xl font-black tracking-tight text-slate-900">No card added</h1>
               <p className="text-sm font-bold text-slate-500">
-                Looks like the card page was closed before finishing. No problem — use the same link from {studioName} whenever you're ready.
+                Looks like the card page was closed before finishing. No problem — open the link from {studioName} again whenever you're ready, or ask them for a new one.
               </p>
             </>
           )}

@@ -158,6 +158,56 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
     );
 };
 
+// The 6-digit code texted to the guest's phone: proof it's them before anything goes on their account or card.
+const CodePadView = ({ value, sentTo, error, onDigit, onDelete, onConfirm, onResend, onBack, isVerifying }: any) => {
+    const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'delete'];
+    return (
+        <FloatingContainer className="max-w-md text-center space-y-8 py-12">
+            <div className="space-y-3 text-center">
+                <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                    <Lock className="w-10 h-10 text-primary" />
+                </div>
+                <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center">Confirm It’s You</h2>
+                <p className="text-sm md:text-base font-bold text-muted-foreground text-center">We texted a 6-digit code to {sentTo}. Enter it to continue.</p>
+            </div>
+
+            <div className="p-6 rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white/50 shadow-inner text-center">
+                <p className="text-3xl md:text-5xl font-black font-mono tracking-[0.4em] text-primary leading-none min-h-[1.2em]">{value.padEnd(6, '·')}</p>
+            </div>
+            {error && <p className="text-sm font-bold text-destructive text-center">{error}</p>}
+
+            <div className="grid grid-cols-3 gap-4 max-w-[320px] mx-auto">
+                {digits.map((d, i) => {
+                    if (d === '') return <div key={i} />;
+                    if (d === 'delete') {
+                        return (
+                            <motion.button key={i} whileTap={{ scale: 0.9 }} onClick={onDelete} aria-label="Delete a digit"
+                                className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive transition-all">
+                                <Delete className="w-6 h-6 md:w-8 md:h-8" strokeWidth={1.5} />
+                            </motion.button>
+                        );
+                    }
+                    return (
+                        <motion.button key={i} whileTap={{ scale: 0.95 }} onClick={() => onDigit(d)}
+                            className="h-16 w-16 md:h-20 md:w-20 rounded-2xl bg-white/40 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center">
+                            {d}
+                        </motion.button>
+                    );
+                })}
+            </div>
+
+            <div className="space-y-3 pt-2 text-center">
+                <Button size="lg" onClick={onConfirm} disabled={value.length < 6 || isVerifying}
+                    className="w-full h-16 md:h-20 rounded-[2.5rem] text-lg md:text-xl font-black uppercase shadow-3xl shadow-primary/30 mx-auto">
+                    {isVerifying ? <Loader className="animate-spin" /> : 'Confirm'}
+                </Button>
+                <Button variant="ghost" onClick={onResend} disabled={isVerifying} className="w-full text-[10px] md:text-xs font-black uppercase tracking-widest text-primary">Send a New Code</Button>
+                <Button variant="ghost" onClick={onBack} disabled={isVerifying} className="w-full text-slate-400 font-bold uppercase tracking-widest text-[10px] md:text-xs">Back</Button>
+            </div>
+        </FloatingContainer>
+    );
+};
+
 const FloatingMenuCard = ({
     item,
     onSelect,
@@ -271,12 +321,25 @@ function ConciergeKioskContent() {
     // menu to a specific booth so a renter (or their client sitting there) can
     // order to that station.
     const boothParam = searchParams.get('booth');
+    // The station link's signature (&k=…): proof the order comes from that station. A link made before signatures
+    // existed still opens the menu, but can't charge the station.
+    const stationToken = searchParams.get('k') || '';
 
     const { firestore } = useFirebase();
     const { toast } = useToast();
 
     const [entered, setEntered] = useState(false);
-    const [step, setStep] = useState<'onboarding' | 'identity' | 'phone_pad' | 'menu' | 'delivery_detail' | 'payment' | 'success'>('onboarding');
+    const [step, setStep] = useState<'onboarding' | 'identity' | 'phone_pad' | 'menu' | 'delivery_detail' | 'payment' | 'verify_code' | 'success'>('onboarding');
+    const [linkNeedsUpdate, setLinkNeedsUpdate] = useState(false);
+    // Proof it's the guest's phone, for anything on their account or card: the pass from a code texted to that number
+    // (good for this visit), and the code being asked for now.
+    const [guestPass, setGuestPass] = useState<{ phone: string; pass: string } | null>(null);
+    const [codeAsk, setCodeAsk] = useState<{ phone: string; codeId: string; sentTo: string; back: string } | null>(null);
+    const [codeValue, setCodeValue] = useState('');
+    const [codeError, setCodeError] = useState('');
+    // This order's name. Kept when the same order is sent again (after no answer, or after a code), so it's charged and
+    // made once; a new item starts a new one.
+    const orderKeyRef = useRef('');
     const [guestName, setGuestName] = useState('');
     const [phonePadValue, setPhonePadValue] = useState('');
     const [identifiedClient, setIdentifiedClient] = useState<Client | null>(null);
@@ -359,10 +422,12 @@ function ConciergeKioskContent() {
     const [serverPerks, setServerPerks] = useState<Record<string, number>>({});
     const [perkNonce, setPerkNonce] = useState(0);
     const identifiedPhone = String((identifiedClient as any)?.phone || '');
+    // The counts are told only to the front desk's screen or with the guest's pass from a texted code.
+    const perkPass = guestPass && guestPass.phone === identifiedPhone.replace(/\D/g, '').slice(-10) ? guestPass.pass : '';
     useEffect(() => {
         if (!tenantId || !identifiedClient?.id || !identifiedPhone) { setServerPerks({}); return; }
         let stop = false;
-        fetch(`/api/concierge/requests?tenantId=${encodeURIComponent(tenantId)}&phone=${encodeURIComponent(identifiedPhone)}`, { cache: 'no-store' })
+        fetch(`/api/concierge/requests?tenantId=${encodeURIComponent(tenantId)}&phone=${encodeURIComponent(identifiedPhone)}${perkPass ? `&pass=${encodeURIComponent(perkPass)}` : ''}`, { cache: 'no-store' })
             .then((r) => r.json())
             .then((d) => {
                 if (stop || !d?.ok) return;
@@ -371,7 +436,7 @@ function ConciergeKioskContent() {
             })
             .catch(() => { /* keep the last answer */ });
         return () => { stop = true; };
-    }, [tenantId, identifiedClient?.id, identifiedPhone, perkNonce]);
+    }, [tenantId, identifiedClient?.id, identifiedPhone, perkNonce, perkPass]);
 
     // itemId -> how many of that product the membership still covers this cycle.
     const perkRemainingByItem = useMemo(() => {
@@ -415,8 +480,9 @@ function ConciergeKioskContent() {
         if (!boothParam || !firestore || !tenantId) return;
         fetch('/api/booths/kiosk', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'active-stay', tenantId, boothId: boothParam }),
+            body: JSON.stringify({ action: 'active-stay', tenantId, boothId: boothParam, stationToken: stationToken || undefined }),
         }).then(r => r.json()).then(d => {
+            setLinkNeedsUpdate(!!(d.ok && d.linkNeedsUpdate));
             if (d.ok && d.found) {
                 setActiveStay({
                     payerType: d.payerType || 'renter',
@@ -429,7 +495,7 @@ function ConciergeKioskContent() {
                 });
             }
         }).catch(() => {});
-    }, [boothParam, firestore, tenantId]);
+    }, [boothParam, firestore, tenantId, stationToken]);
 
     const handleOnboardingComplete = () => {
         localStorage.setItem('clarity_concierge_onboarded', 'true');
@@ -487,7 +553,48 @@ function ConciergeKioskContent() {
         }
     };
 
+    // The guest's mobile number (10 digits), as they typed it or as their profile has it.
+    const myPhone = String((identifiedClient as any)?.phone || '').replace(/\D/g, '').slice(-10) || phonePadValue;
+
+    // Text a code to the number the business has for this guest, and ask for it. `back` is the screen to return to.
+    const askForCode = async (phone: string, back: string) => {
+        setCodeError(''); setCodeValue('');
+        const res = await fetch('/api/concierge/requests', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'send-code', tenantId, phone }),
+        }).catch(() => null);
+        const d: any = res ? await res.json().catch(() => ({})) : {};
+        if (!d?.ok || !d.codeId) {
+            toast({ variant: 'destructive', title: 'We couldn’t send a code', description: d?.error || 'You can pay when your order arrives, or ask the front desk.' });
+            return;
+        }
+        setCodeAsk({ phone, codeId: String(d.codeId), sentTo: String(d.sentTo || 'your phone'), back });
+        setStep('verify_code');
+    };
+
+    // The right code gives a pass for this visit; the order that asked for it then goes through.
+    const confirmCode = async () => {
+        if (!codeAsk || codeValue.length !== 6 || isSubmittingRef.current) return;
+        setIsVerifying(true); setCodeError('');
+        let pass = '';
+        try {
+            const res = await fetch('/api/concierge/requests', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'check-code', tenantId, phone: codeAsk.phone, codeId: codeAsk.codeId, code: codeValue }),
+            }).catch(() => null);
+            const d: any = res ? await res.json().catch(() => ({})) : {};
+            if (!d?.ok || !d.pass) { setCodeError(d?.error || 'That code doesn’t match. Please check it and try again.'); return; }
+            pass = String(d.pass);
+        } finally { setIsVerifying(false); }
+        const proof = { phone: codeAsk.phone, pass };
+        setGuestPass(proof);
+        setStep(codeAsk.back as any);
+        setCodeAsk(null); setCodeValue('');
+        if (pendingItem) await finalizeRequest(pendingItem.item, pendingItem.qty, proof);
+    };
+
     const handleRequest = async (item: InventoryItem, qty: number) => {
+        orderKeyRef.current = '';
         setPendingItem({ item, qty });
         // A fresh order must not inherit the last one's settlement wording, or a
         // free perk shows the previous order's dollar figure on the success card.
@@ -527,15 +634,22 @@ function ConciergeKioskContent() {
         finalizeRequest(pendingItem.item, pendingItem.qty);
     };
 
-    const finalizeRequest = async (item: InventoryItem, qty: number) => {
+    const finalizeRequest = async (item: InventoryItem, qty: number, proof?: { phone: string; pass: string }) => {
         if (isSubmittingRef.current || !firestore || !tenant) return;
         isSubmittingRef.current = true;
         setIsVerifying(true);
+        if (!orderKeyRef.current) orderKeyRef.current = `o${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+        const orderKey = orderKeyRef.current;
+        const passFor = (phone: string) => (proof && proof.phone === phone ? proof.pass : guestPass && guestPass.phone === phone ? guestPass.pass : undefined);
+        // The screen to come back to if a code is needed (when this runs right after a code, the one before it).
+        const here = step === 'verify_code' ? (codeAsk?.back || 'payment') : step;
         try {
             // v75/v90 — "charge to station": run the card first; only dispatch
-            // the order if the charge succeeds. The server writes the ledger
-            // entry, so the local txn is skipped for station charges.
+            // the order if the charge succeeds. The server prices the order from
+            // the menu, charges it once and writes the ledger entry, so the local
+            // txn is skipped for station charges.
             let chargedToStation = false;
+            let stationOrderId: string | undefined;
             const orderTotal = safeNumber(item.price) * qty;
             // A club perk is only a perk while the allowance covers the quantity.
             // This used to ask only "does the membership include this product?",
@@ -553,42 +667,44 @@ function ConciergeKioskContent() {
                 const chargeRes = await fetch('/api/booths/kiosk', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        action: 'charge', tenantId,
-                        renterId: activeStay.renterId,
-                        boothName: activeStay.boothName,
+                        action: 'charge', tenantId, payer: 'station',
+                        boothId: boothParam, stationToken: stationToken || undefined,
+                        itemId: item.id, quantity: qty,
                         amountCents: Math.round(orderTotal * 100),
-                        description: `Concierge: ${item.name} (x${qty})`,
+                        orderKey,
                     }),
-                });
-                const chargeData = await chargeRes.json();
-                if (!chargeData.ok) {
-                    toast({ variant: 'destructive', title: 'Card charge failed', description: chargeData.error || 'Please ask your host.' });
-                    isSubmittingRef.current = false;
-                    setIsVerifying(false);
+                }).catch(() => null);
+                const chargeData: any = chargeRes ? await chargeRes.json().catch(() => ({})) : {};
+                if (!chargeData?.ok) {
+                    // The card said no: trying again is a new order. No answer: the same order, so it can't charge twice.
+                    if (chargeRes?.status === 402) orderKeyRef.current = '';
+                    toast({ variant: 'destructive', title: 'Card charge failed', description: chargeData?.error || 'Please ask your host.' });
                     return;
                 }
-                chargedToStation = true;
+                chargedToStation = true; stationOrderId = chargeData.orderId;
             }
-            // (2) Day-guest station → charge the checked-in guest's own card (existing).
+            // (2) Day-guest station → charge the checked-in guest's own card, once they've confirmed the code we text them.
             else if (stationCharging && activeStay?.payerType === 'reservation' && activeStay?.cardOnFile && orderTotal > 0 && !isComped) {
                 const chargeRes = await fetch('/api/booths/kiosk', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        action: 'charge', tenantId,
+                        action: 'charge', tenantId, payer: 'stay',
                         reservationId: activeStay.reservationId,
-                        phone: `+1${phonePadValue}`,
+                        phone: `+1${phonePadValue}`, guestPass: passFor(phonePadValue),
+                        boothId: boothParam || undefined,
+                        itemId: item.id, quantity: qty,
                         amountCents: Math.round(orderTotal * 100),
-                        description: `Concierge: ${item.name} (x${qty})`,
+                        orderKey,
                     }),
-                });
-                const chargeData = await chargeRes.json();
-                if (!chargeData.ok) {
-                    toast({ variant: 'destructive', title: 'Card charge failed', description: chargeData.error || 'Please pay at the desk.' });
-                    isSubmittingRef.current = false;
-                    setIsVerifying(false);
+                }).catch(() => null);
+                const chargeData: any = chargeRes ? await chargeRes.json().catch(() => ({})) : {};
+                if (!chargeData?.ok) {
+                    if (chargeData?.needsCode && phonePadValue.length === 10) { isSubmittingRef.current = false; await askForCode(phonePadValue, here); return; }
+                    if (chargeRes?.status === 402) orderKeyRef.current = '';
+                    toast({ variant: 'destructive', title: 'Card charge failed', description: chargeData?.error || 'Please pay at the desk.' });
                     return;
                 }
-                chargedToStation = true;
+                chargedToStation = true; stationOrderId = chargeData.orderId;
             }
 
             const compedByRenter = withinRenterComp && orderTotal > 0 && !isComped;
@@ -632,9 +748,17 @@ function ConciergeKioskContent() {
                             appointmentId: null,
                             reason: 'Concierge kiosk order (card on file)',
                             mode: 'pos',
+                            // The same order sent again is the same charge, never a second one.
+                            idempotencyKey: `lounge-${orderKey}`,
                         }),
                     }).catch(() => null);
-                    const chargeData = chargeRes ? await chargeRes.json().catch(() => ({ ok: false })) : { ok: false };
+                    const chargeData = chargeRes ? await chargeRes.json().catch(() => ({ ok: false })) : { ok: false, unknown: true };
+                    // No answer: the card may have been charged, so it isn't added to their balance as well. The order
+                    // waits; sending it again in a moment is the same charge (it keeps its order key).
+                    if (chargeData?.unknown === true || !chargeRes || [502, 503, 504].includes(chargeRes.status)) {
+                        toast({ variant: 'destructive', title: 'We couldn’t confirm the payment', description: 'Nothing was ordered yet. Please try again in a moment. You won’t be charged twice.' });
+                        return;
+                    }
                     if (chargeData?.ok && chargeData?.paymentIntentId) {
                         stripePaymentIntentId = String(chargeData.paymentIntentId);
                     } else {
@@ -680,14 +804,21 @@ function ConciergeKioskContent() {
                     guestDescription,
                     notes: orderNotes,
                     settle,
+                    orderKey,
+                    stationOrderId,
+                    stationToken: stationToken || undefined,
+                    guestPass: passFor(myPhone),
                     stripePaymentIntentId: stripePaymentIntentId || undefined,
                 }),
             }).catch(() => null);
             const orderData: any = orderRes ? await orderRes.json().catch(() => ({})) : {};
             if (!orderRes || !orderRes.ok || !orderData?.ok) {
+                // Adding it to their visit, or a club perk, needs the code we text them first; then this same order goes on.
+                if (orderData?.needsCode && myPhone.length === 10) { isSubmittingRef.current = false; await askForCode(myPhone, here); return; }
                 toast({ variant: 'destructive', title: 'Request Failed', description: orderData?.error || 'Please ask the team.' });
                 return;
             }
+            orderKeyRef.current = '';
             setPerkNonce(n => n + 1);
             if (compedByRenter) setSessionCompUsed(n => n + 1);
             // Hold the perk locally too. The Firestore listener needs a moment to
@@ -864,6 +995,21 @@ function ConciergeKioskContent() {
                                 />
                             )}
 
+                            {step === 'verify_code' && codeAsk && (
+                                <CodePadView
+                                    key="verify_code"
+                                    value={codeValue}
+                                    sentTo={codeAsk.sentTo}
+                                    error={codeError}
+                                    onDigit={(d: string) => setCodeValue(v => (v.length < 6 ? v + d : v))}
+                                    onDelete={() => setCodeValue(v => v.slice(0, -1))}
+                                    onConfirm={confirmCode}
+                                    onResend={() => askForCode(codeAsk.phone, codeAsk.back)}
+                                    onBack={() => { const back = codeAsk.back; setCodeAsk(null); setCodeValue(''); setCodeError(''); setStep(back as any); }}
+                                    isVerifying={isVerifying}
+                                />
+                            )}
+
                             {step === 'menu' && (
                                 <motion.div
                                     key="menu"
@@ -967,6 +1113,15 @@ function ConciergeKioskContent() {
                                             />
                                         </div>
                                     </div>
+
+                                    {boothParam && linkNeedsUpdate && (
+                                        <div className="w-full rounded-[2rem] border-2 border-amber-200 bg-amber-50 p-4 flex items-center gap-4 text-left">
+                                            <Info className="w-6 h-6 text-amber-600 shrink-0" />
+                                            <span className="block text-[11px] md:text-xs font-medium text-amber-800 leading-snug">
+                                                This station’s link is out of date, so orders can’t be charged to the station from it. You can still order and pay when it arrives, or ask the front desk for the current link.
+                                            </span>
+                                        </div>
+                                    )}
 
                                     {activeStay?.payerType === 'reservation' && activeStay?.cardOnFile && pendingPrice > 0 && !pendingIsPerk && (
                                         <button

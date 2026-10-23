@@ -18,6 +18,7 @@ function StripeMock(this: any) {
 const M: any = Module as any; const load = M._load;
 const fake = (request: string, mock: any) => { const c = M._cache?.[request]; if (c) { c.exports = mock; c.loaded = true; } return mock; };
 let actor: any = { uid: 'u1', name: 'Kai Park', role: 'front_desk', caps: [] };
+let chargeLost = 0;
 M._load = function (request: string, ...rest: any[]) {
   if (request === 'stripe') return Object.assign(StripeMock, { default: StripeMock });
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };
@@ -31,7 +32,10 @@ M._load = function (request: string, ...rest: any[]) {
   // The client's own cancel charges the card through the payments route; the same appointment and amount is the same
   // charge (Stripe's key), as there.
   if (request === '@/lib/message-policy') { const real = load.call(this, request, ...rest); return { ...real, internalOrigin: () => 'https://studio.test',
-    internalPost: async (_o: string, path: string, body: any) => { if (path === '/api/stripe/charge-card') { const key = `fee_${body.appointmentId}_${body.amountCents}`; feeCharges.push(key); return { ok: true, data: { ok: true, paymentIntentId: `pi_fee_${key}` } }; } return { ok: true, data: {} }; } }; }
+    internalPost: async (_o: string, path: string, body: any) => { if (path === '/api/stripe/charge-card') { const key = `fee_${body.appointmentId}_${body.amountCents}`; feeCharges.push(key);
+      // Stripe took it but its answer was lost: the charge route says so (the same key gives the same charge back later).
+      if (chargeLost > 0) { chargeLost--; return { ok: false, status: 502, data: { ok: false, unknown: true, code: 'unconfirmed' } }; }
+      return { ok: true, data: { ok: true, paymentIntentId: `pi_fee_${key}` } }; } return { ok: true, data: {} }; } }; }
   return load.call(this, request, ...rest);
 };
 process.env.STRIPE_SECRET_KEY = 'sk_test_x';
@@ -44,7 +48,7 @@ const all = (prefix: string) => [...db._store.entries()].filter(([p]: any) => p.
 const req = (body: any) => ({ json: async () => body, headers: { get: () => null }, nextUrl: { origin: 'https://studio.test' } }) as any;
 const soon = () => new Date(Date.now() + 2 * 3600e3).toISOString();
 const fresh = async (o: { card?: boolean; deposit?: boolean } = {}) => {
-  db = strictTransactions(makeDb()); pis.clear(); piCalls.length = 0; feeCharges.length = 0;
+  db = strictTransactions(makeDb()); pis.clear(); piCalls.length = 0; feeCharges.length = 0; chargeLost = 0;
   await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', timezone: 'America/New_York', cancellationFee: 15 });
   await db.doc(`${T}/services/s1`).set({ name: 'Gel fill', price: 60 });
   await db.doc(`${T}/staff/st1`).set({ name: 'Rae Moss', role: 'owner' });
@@ -89,6 +93,13 @@ const fresh = async (o: { card?: boolean; deposit?: boolean } = {}) => {
   await fresh();
   await Promise.all([sc(), sc()]);
   check('no card: the fee goes on her balance once', (await get(`${T}/clients/c1`)).outstandingBalance === 15 && (await get(`${T}/clients/c1`)).unpaidFees.length === 1, await get(`${T}/clients/c1`));
+
+  console.log('the fee charge gets no answer');
+  await fresh({ card: true }); chargeLost = 1;
+  let lostR: any = await sc();
+  check('nothing is saved, nothing is added to what she owes, and she’s asked to try again', lostR.status === 502 && lostR.body.code === 'fee_unconfirmed' && (await get(`${T}/appointments/a1`)).status === 'confirmed' && !((await get(`${T}/clients/c1`)).unpaidFees || []).length && !(await get(`${T}/appointments/a1`)).cancelClaim, lostR.body);
+  lostR = await sc();
+  check('…asked again: cancelled, with the same charge (one key), nothing owed', (await get(`${T}/appointments/a1`)).status === 'cancelled' && new Set(feeCharges).size === 1 && (await get(`${T}/clients/c1`)).outstandingBalance === 0, { body: lostR.body, feeCharges });
 
   console.log('a late cancel with a deposit');
   await fresh({ deposit: true });

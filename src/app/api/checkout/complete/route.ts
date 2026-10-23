@@ -660,11 +660,16 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   }
   // Everyone on the ticket: the payer, and whoever had each visit (a friend, partner or parent may be paying).
   const people: Record<string, any> = { [clientId]: client };
-  for (const v of visits) { const cid = String(v.appointment.clientId || ''); if (cid && !people[cid]) { const d: any = (await db.doc(`${T}/clients/${cid}`).get()).data(); if (d) people[cid] = { id: cid, ...d }; } }
+  const readAt: Record<string, any> = { [clientId]: cSnap.updateTime || null };   // when each was read (owed fees are taken off as read)
+  for (const v of visits) { const cid = String(v.appointment.clientId || ''); if (cid && !people[cid]) { const s0 = await db.doc(`${T}/clients/${cid}`).get(); const d: any = s0.data(); if (d) { people[cid] = { id: cid, ...d }; readAt[cid] = s0.updateTime || null; } } }
   const whoHad = (v: any) => people[String(v.appointment.clientId || '')] || client;
   // Owed fees being paid — from whoever owes them (not just the payer).
   const wantFees: string[] = Array.isArray(b.feeIds) ? b.feeIds : [];
   const fees = Object.values(people).flatMap((p: any) => (p.unpaidFees || []).filter((f: any) => wantFees.includes(f.feeId)).map((f: any) => ({ ...f, __owner: p.id })));
+  // A fee a card payment is going through for right now (automatic collection, the desk's Charge card, a whole-balance
+  // payment: lib/fee-pay) isn't taken here as well. The sale waits for that payment's answer, so it's paid once.
+  const feeBusy = fees.find((f: any) => Number.isFinite(Date.parse(String(f.collectingAt || ''))));
+  if (feeBusy) { await failPending('A card payment for an owed fee was going through'); return json({ ok: false, code: 'fee_busy', ...(pendingRef ? { pendingId: pendingRef.id } : {}), error: `A card payment for ${String(feeBusy.reason || 'an owed fee').replace(/\s*[—–-]\s*auto-charge failed.*$/i, '')} is going through right now. Give it a couple of minutes, then finish the sale: it won’t be paid twice.` }, 409); }
   const codes: string[] = Array.isArray(b.discountCodes) ? b.discountCodes.map((c: any) => String(c).toUpperCase()).slice(0, 5) : [];
   const discounts = codes.map((c) => allDiscounts.find((d: any) => String(d.code || '').toUpperCase() === c && d.appliesTo !== 'shop')).filter(Boolean);   // shop-only codes don't work at the desk
   const redeemedOffer = b.redeemedOffer && b.redeemedOffer.id ? { type: String(b.redeemedOffer.type), id: String(b.redeemedOffer.id), itemId: b.redeemedOffer.itemId ? String(b.redeemedOffer.itemId) : undefined } : null;
@@ -934,7 +939,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const ids = new Set(fees.map((f: any) => f.feeId));
     for (const ownerId of new Set(fees.map((f: any) => f.__owner))) {
       const owner: any = people[ownerId]; const theirs = fees.filter((f: any) => f.__owner === ownerId).reduce((s: number, f: any) => s + num(f.feeAmount), 0);
-      batch.set(db.doc(`${T}/clients/${ownerId}`), { unpaidFees: (owner.unpaidFees || []).filter((f: any) => !ids.has(f.feeId)), outstandingBalance: FieldValue.increment(-theirs) }, { merge: true });
+      // Taken off the list as it was read: if the client's fees changed meanwhile (a payment for one went through, a fee
+      // was added), nothing is saved and the sale is finished again with the fees as they are now.
+      const ownerRef = db.doc(`${T}/clients/${ownerId}`); const feePatch = { unpaidFees: (owner.unpaidFees || []).filter((f: any) => !ids.has(f.feeId)), outstandingBalance: FieldValue.increment(-theirs) };
+      if (readAt[ownerId]) batch.update(ownerRef, feePatch, { lastUpdateTime: readAt[ownerId] }); else batch.set(ownerRef, feePatch, { merge: true });
     }
     if (method === 'cash') totalCashIncrease += settled;
     for (const f of fees) txn({ feeId: f.feeId, feeReason: f.reason || null, clientId: f.__owner, clientOrVendor: people[f.__owner]?.name || 'Client', description: `Debt Settlement: ${f.reason || 'fee'}`, type: 'income', context: 'Business', category: 'Fee Recovery', taxBucket: 'adjustment', amount: num(f.feeAmount), paymentMethod: method, hasReceipt: false });
@@ -1158,6 +1166,8 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     // A share was added to the split (or taken off) while it was being saved: nothing is recorded, so it's finished again
     // with the shares as they are now.
     if (pendingRef && split && isChangedMeanwhile(e)) return json({ ok: false, code: 'bill_changed', pendingId: pendingRef.id, error: 'A payment on this split changed while it was being saved, so nothing was recorded. Check the split, then finish again.' }, 409);
+    // The fees being paid changed meanwhile (one was paid another way, or added to): nothing is recorded.
+    if (fees.length && !depositsUsed.length && isChangedMeanwhile(e)) { await failPending('The client’s fees changed while the sale was being saved'); return json({ ok: false, code: 'fees_changed', ...(pendingRef ? { pendingId: pendingRef.id } : {}), error: 'The client’s owed fees changed while this sale was being saved, so nothing was recorded. Finish the sale again.' }, 409); }
     // The client's deposit was used or changed by another sale at the same moment: nothing is recorded, so the sale is
     // finished again with the deposit as it is now.
     if (depositsUsed.length && isChangedMeanwhile(e)) { await failPending('The deposit changed while the sale was being saved'); return json({ ok: false, code: 'deposit_changed', ...(pendingRef ? { pendingId: pendingRef.id } : {}), error: 'The client’s deposit changed while this sale was being saved, so nothing was recorded. Finish the sale again.' }, 409); }
