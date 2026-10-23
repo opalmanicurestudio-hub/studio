@@ -23,8 +23,9 @@ import {
 } from '@/lib/retail-fulfill';
 import { codesMatch, parseProductQr, slaFor, fulfilmentPolicy } from '@/lib/retail-orders';
 import { tenantTimeZone } from '@/lib/tenant-time';
-import { INSURED_PACK_RULES, insuredPackCheck, packPhotoPolicy, packPhotoRequired, packPhotoPath } from '@/lib/pack-photo';
-import { uploadImage } from '@/lib/upload-image';
+import { INSURED_PACK_RULES, insuredPackCheck, packPhotoPolicy, packPhotoRequired } from '@/lib/pack-photo';
+import { downscaleImageToDataUrl } from '@/lib/client-image';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { cn } from '@/lib/utils';
 import { benchScanTarget, markLabelChecked, toteOf } from '@/lib/totes';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
@@ -262,20 +263,17 @@ export default function PackBenchPage() {
 
   useWedgeScanner((v) => void onScan(v));
 
+  // Saved by the server with the order (api/retail/pack-photo), as on the packing screen: a phone's HEIC photo is made a
+  // small JPEG first, and the photo storage's own rules never stop it.
   const addPackPhoto = async (file: File | null | undefined) => {
     if (!file || !firestore || !active) return;
     setPhotoBusy(true);
     try {
-      const url = await uploadImage(
-        packPhotoPath(tenantId, active.id, photoUrls.length),
-        file,
-        photoPolicy.maxDimension
-      );
-      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders`, active.id), {
-        packPhotoUrls: [...photoUrls, url].slice(0, photoPolicy.maxPhotos),
-        packPhotoAt: new Date().toISOString(),
-        packPhotoBy: actor.name,
-      });
+      const dataUrl = await downscaleImageToDataUrl(file, { maxDim: photoPolicy.maxDimension });
+      const r = await fetch('/api/retail/pack-photo', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+        body: JSON.stringify({ tenantId, orderId: active.id, dataUrl, box: 1, kind: 'contents' }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || 'The photo didn’t save. Try again.');
     } catch (e: any) {
       toast({
         variant: 'destructive',

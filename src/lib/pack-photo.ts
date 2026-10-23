@@ -121,5 +121,52 @@ export function packPhotoEvidenceLine(order: any): string {
   const urls: string[] = Array.isArray(order?.packPhotoUrls) ? order.packPhotoUrls : [];
   if (urls.length === 0) return '';
   const at = String(order?.packPhotoAt || '');
-  return `The contents of this parcel were photographed at the packing bench before it was sealed${at ? ` on ${at.slice(0, 10)}` : ''}. ${urls.length} image${urls.length === 1 ? '' : 's'} on file, available on request.`;
+  const boxes = new Set((Array.isArray(order?.packPhotos) ? order.packPhotos : []).map((p: any) => Math.max(1, Math.floor(Number(p?.box) || 1)))).size;
+  return `The contents of this parcel were photographed at the packing bench before it was sealed${at ? ` on ${at.slice(0, 10)}` : ''}. ${urls.length} image${urls.length === 1 ? '' : 's'}${boxes > 1 ? ` of ${boxes} boxes` : ''} on file, available on request.`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * THE PHOTO RECORD. Each photo is kept with the order it was taken for, the box it shows (box 1, box 2, … as packing
+ * numbers them, which is also the order of the boxes' labels), what it shows, and who took it when. Saved by the server
+ * (api/retail/pack-photo), so it works whatever the photo storage's own rules say. The plain list of photo links
+ * (packPhotoUrls) is kept beside it for everything that reads photos that way (claims, evidence, the dispute pack).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const PACK_PHOTO_KINDS = ['contents', 'sealed', 'label', 'damage', 'other'] as const;
+export type PackPhotoKind = typeof PACK_PHOTO_KINDS[number];
+export const PACK_PHOTO_KIND_LABEL: Record<PackPhotoKind, string> = {
+  contents: 'Open, with what’s inside',
+  sealed: 'Sealed',
+  label: 'Label on the box',
+  damage: 'Damage',
+  other: 'Other',
+};
+
+export type PackPhoto = { url: string; box: number; kind: PackPhotoKind; at: string; by: string; byId?: string | null; note?: string | null };
+
+/** The order's photos, oldest first: as recorded, and any taken before photos were recorded box by box (box 1). */
+export function packPhotosOf(order: any): PackPhoto[] {
+  const recs: PackPhoto[] = (Array.isArray(order?.packPhotos) ? order.packPhotos : [])
+    .filter((p: any) => p && typeof p.url === 'string' && p.url)
+    .map((p: any) => ({ url: String(p.url), box: Math.max(1, Math.floor(Number(p.box) || 1)), kind: (PACK_PHOTO_KINDS as readonly string[]).includes(p.kind) ? p.kind : 'other',
+      at: String(p.at || ''), by: String(p.by || ''), byId: p.byId || null, note: p.note || null }));
+  const known = new Set(recs.map((p) => p.url));
+  const legacy: PackPhoto[] = (Array.isArray(order?.packPhotoUrls) ? order.packPhotoUrls : [])
+    .filter((u: any) => typeof u === 'string' && u && !known.has(u))
+    .map((url: string) => ({ url, box: 1, kind: 'contents' as const, at: String(order?.packPhotoAt || ''), by: String(order?.packPhotoBy || ''), byId: null, note: null }));
+  return [...legacy, ...recs];
+}
+
+/** How many photos an order may keep: the shop's limit for each box. */
+export function packPhotoLimit(order: any, policy: PackPhotoPolicy): number {
+  const boxes = Math.max(1, Array.isArray(order?.packBoxes) ? order.packBoxes.length : 1);
+  return Math.min(30, policy.maxPhotos * boxes);
+}
+
+/** Does each box have a photo of it open (what an insurer and a "missing item" claim ask for)? Boxes numbered 1…n. */
+export function boxesMissingPhoto(order: any, boxes: number): number[] {
+  const photos = packPhotosOf(order);
+  const out: number[] = [];
+  for (let b = 1; b <= Math.max(1, boxes); b++) if (!photos.some((p) => p.box === b && (p.kind === 'contents' || p.kind === 'other'))) out.push(b);
+  return out;
 }

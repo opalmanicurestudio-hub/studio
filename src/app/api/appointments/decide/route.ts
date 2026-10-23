@@ -261,7 +261,9 @@ export async function POST(req: NextRequest) {
           cd.declineCode = 'network';
         }
         if (chargeResult.ok) {
-          await aptRef.update({
+          // Recorded by the server, once per card payment: the visit is paid and the deposit's credit comes off the
+          // bill at checkout (lib/deposit-record).
+          const paidFields = {
             status: 'confirmed',
             depositStatus: 'paid',
             depositPaidAt: nowIso,
@@ -269,7 +271,14 @@ export async function POST(req: NextRequest) {
             depositPaymentIntentId: cd.paymentIntentId || null,
             depositFailureReason: null,
             depositFailureCode: null,
-          });
+          };
+          const { recordCardDepositSafely } = await import('@/lib/deposit-record');
+          if (cd.paymentIntentId) {
+            await recordCardDepositSafely(db, tenantId, appointmentId, {
+              cents: outcome.depositCents, paymentIntentId: String(cd.paymentIntentId), chargeId: cd.chargeId || null, via: 'card_on_file',
+              status: 'confirmed', clientEmail: apt.clientEmail || null, extra: paidFields,
+            }, paidFields);
+          } else await aptRef.update(paidFields);
           outcome.status = 'confirmed';
           await syncCheckIn({ status: 'confirmed', depositStatus: 'paid' });
         } else {

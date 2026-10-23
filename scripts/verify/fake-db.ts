@@ -37,7 +37,7 @@ export function makeDb() {
     create: async (v: Doc) => { if (store.has(path)) throw new Error(`already exists ${path}`); store.set(path, apply({}, v)); touch(path); },
     delete: async () => { store.delete(path); times.delete(path); },
     collection: (c: string) => col(`${path}/${c}`) });
-  const cmp = (op: string, a: any, b: any) => op === '==' ? a === b : op === '!=' ? a !== b && a !== undefined : op === '<=' ? a != null && a <= b : op === '<' ? a != null && a < b : op === '>=' ? a != null && a >= b : op === '>' ? a != null && a > b : op === 'in' ? (b as any[]).includes(a) : op === 'array-contains' ? Array.isArray(a) && a.includes(b) : false;
+  const cmp = (op: string, a: any, b: any) => op === '==' ? a === b : op === '!=' ? a !== b && a !== undefined : op === '<=' ? a != null && a <= b : op === '<' ? a != null && a < b : op === '>=' ? a != null && a >= b : op === '>' ? a != null && a > b : op === 'in' ? (b as any[]).includes(a) : op === 'array-contains' ? Array.isArray(a) && a.includes(b) : op === 'array-contains-any' ? Array.isArray(a) && (b as any[]).some((x) => a.includes(x)) : false;
   // orderBy('__name__') returns documents in id order, as Firestore does; startAfter takes a snapshot or an id, for
   // paging in that order. Any other orderBy is ignored (insertion order).
   const q = (c: string, f: [string, string, any][] = [], lim = 1e9, after = '', byId = false): any => ({

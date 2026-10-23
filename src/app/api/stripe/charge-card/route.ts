@@ -118,7 +118,10 @@ export async function POST(req: NextRequest) {
     kind         = 'arrears_fee',
     checkoutSessionId = null,       // FIX: optional, forwarded into Stripe metadata + ledger
     noLedger = false,               // a share of a split bill — the checkout records the sale itself (no lines here)
+    idempotencyKey: askedKey = null, // the caller's own key for this attempt (e.g. one desk deposit charge)
   } = parsed;
+  // The caller's key when it gives one (letters, digits, - and _ only).
+  const callerKey = typeof askedKey === 'string' ? askedKey.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200) : '';
 
   // ONLY staff of this business, or ClarityFlow's own server, may charge a
   // client's saved card. (This route used to take any caller's word for it.)
@@ -288,7 +291,7 @@ export async function POST(req: NextRequest) {
     if (mode === 'pos') {
       // Use a time-based idempotency key so retries within the same second
       // are safe but a second tap generates a new intent.
-      const idempotencyKey = `pos_${clientId}_${amountCents}_${Math.floor(Date.now() / 10000)}`;
+      const idempotencyKey = callerKey || `pos_${clientId}_${amountCents}_${Math.floor(Date.now() / 10000)}`;
 
       let intent: Stripe.PaymentIntent;
       try {
@@ -356,14 +359,17 @@ export async function POST(req: NextRequest) {
 
       if (noLedger !== true) await writeLedger(`pos_cof__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
 
-      return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
+      return NextResponse.json({ ok: true, paymentIntentId: intent.id, chargeId: resolveChargeId(intent), amount: amountDollars });
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // AUTO MODE — client NOT present (policy engine: no-show, late-cancel;
     // OR a front-desk deposit charge per `kind: 'deposit'` — see header note)
     // ══════════════════════════════════════════════════════════════════════════
-    const idempotencyKey = `fee_${appointmentId || clientId}_${amountCents}`;
+    // What the charge is for is part of the key: a deposit and a fee of the same amount for the same visit are two
+    // charges, not one answered twice.
+    const purpose = String(category || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+    const idempotencyKey = callerKey || `fee_${appointmentId || clientId}_${amountCents}_${purpose}`;
 
     let intent: Stripe.PaymentIntent;
     try {
@@ -424,7 +430,7 @@ export async function POST(req: NextRequest) {
 
     await writeLedger(`card_charge__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
 
-    return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
+    return NextResponse.json({ ok: true, paymentIntentId: intent.id, chargeId: resolveChargeId(intent), amount: amountDollars });
 
   } catch (err: any) {
     console.error('[stripe/charge-card]', err);

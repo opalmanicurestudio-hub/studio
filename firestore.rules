@@ -150,9 +150,10 @@ service cloud.firestore {
         .get('retailSettings', {})
         .get('staffCreditCapCents', 2500);
     }
-    // STORE CREDIT. The team adds it by hand (a goodwill credit, a deposit): managers any amount, anyone else up to the
-    // shop's limit. Credit for a return is issued only by the server (lib/return-credit), worked out from what was paid,
-    // so nothing from a browser can be marked as one.
+    // STORE CREDIT. The team adds it by hand (a goodwill credit): managers any amount, anyone else up to the shop's
+    // limit. Credit for a return is issued only by the server (lib/return-credit), worked out from what was paid, and so
+    // is a deposit's credit, added when the deposit is paid (lib/deposit-record, the payment webhooks), so nothing from a
+    // browser can be marked as either.
     match /tenants/{tenantId}/depositCredits/{creditId} {
       allow read: if isStaff(tenantId);
       allow create: if (isManager(tenantId) || (
@@ -160,7 +161,8 @@ service cloud.firestore {
           && request.resource.data.amountCents is int
           && request.resource.data.amountCents <= staffCreditCapCents(tenantId)
         ))
-        && !request.resource.data.keys().hasAny(['sourceRetailReturnId', 'returnForOrderId']);
+        && !request.resource.data.keys().hasAny(['sourceRetailReturnId', 'returnForOrderId',
+          'sourceAppointmentId', 'stripePaymentIntentId', 'stripeChargeId', 'checkoutSessionId']);
       allow update, delete: if isManager(tenantId);
     }
     match /tenants/{tenantId}/serviceSessions/{sessionId} {

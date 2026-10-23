@@ -1670,7 +1670,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {selfToken && order && (['placed', 'paid'].includes(order.stage) || lateCancel) && (
+        {selfToken && order && ((helpElig ? helpElig.canCancel === true : ['placed', 'paid'].includes(order.stage)) || lateCancel) && (
           <Button
             variant="outline"
             disabled={cancelBusy}

@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { computeIntegrityScore } from '@/lib/integrity-score';
+import { PACK_PHOTO_KIND_LABEL, packPhotosOf } from '@/lib/pack-photo';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { cn } from '@/lib/utils';
@@ -323,9 +324,13 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
             </div>
             {photos.length > 0 ? (
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {photos.map((u, i) => (
-                  <a key={i} href={u} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border-2">
-                    <img src={u} alt={`Packing photo ${i + 1} of ${photos.length}`} className="h-32 w-full object-cover" />
+                {packPhotosOf(order).map((p, i, all) => (
+                  <a key={p.url} href={p.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border-2">
+                    <img src={p.url} alt={`Packing photo ${i + 1} of ${all.length}: box ${p.box}, ${PACK_PHOTO_KIND_LABEL[p.kind]}`} className="h-32 w-full object-cover" />
+                    <span className="block px-2 py-1.5 text-[11px] font-bold leading-snug">
+                      Box {p.box} · {PACK_PHOTO_KIND_LABEL[p.kind]}
+                      {(p.by || p.at) && <span className="block font-medium text-muted-foreground">{[p.by, p.at ? new Date(p.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''].filter(Boolean).join(' · ')}</span>}
+                    </span>
                   </a>
                 ))}
               </div>

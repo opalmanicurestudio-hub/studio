@@ -359,6 +359,16 @@ async function handleCheckout(req: NextRequest) {
   // Nothing physical? Then no address, no postage, no pickup slot — and the
   // fulfilment floor never sees this order at all.
   const digitalOnly = isDigitalOnlyOrder(lines);
+  // Only the ways of getting it the shop offers right now (a cart that's all digital needs none).
+  if (!digitalOnly) {
+    const offered = method === 'counter' ? rsEarly.pickupEnabled !== false
+      : method === 'curbside' ? rsEarly.curbsideOffered !== false
+        : rsEarly.shippingOffered !== false && rsEarly.shippingEnabled !== false;
+    if (!offered) {
+      return NextResponse.json({ error: method === 'ship' ? 'This shop isn’t shipping orders right now. Choose another way to get your order.'
+        : `This shop isn’t offering ${method === 'curbside' ? 'curbside' : 'pickup'} right now. Choose another way to get your order.` }, { status: 400 });
+    }
+  }
   if (method === 'ship' && !digitalOnly && !shipAddressOk) {
     return NextResponse.json({ error: 'Complete shippingAddress is required for ship orders' }, { status: 400 });
   }

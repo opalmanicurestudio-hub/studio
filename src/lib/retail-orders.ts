@@ -676,6 +676,8 @@ export interface OrderLine {
   caseBarcode?: string;        // the CASE's own code (ITF-14/UPC on the carton)
   palletPack?: number;         // CASES per pallet (snapshot)
   palletBarcode?: string;      // the pallet label's own code (snapshot)
+  codes?: string[];            // the product's other unit codes at checkout: UPC / GTIN / EAN / extra barcodes (snapshot)
+  testOfProductId?: string;    // a test order's line: the real product it stands for (its codes scan; no stock moves)
   qtyPacked?: number;          // second-scan count at the box (pack verification)
   digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
   digitalUrl?: string;         // snapshot of the delivery link at purchase time
@@ -686,6 +688,16 @@ export interface OrderLine {
 }
 
 export type ShortResolution = 'refund' | 'backorder';
+
+/** The product's other unit codes (UPC, GTIN, EAN, extra barcodes), beyond its barcode and SKU, kept on the line so
+ *  any of them scans at the bench. */
+function extraCodes(item: any): { codes?: string[] } {
+  const have = new Set([String(item?.barcode ?? '').trim(), String(item?.sku ?? '').trim()]);
+  const list = [item?.upc, item?.gtin, item?.ean, ...(Array.isArray(item?.barcodes) ? item.barcodes : [])]
+    .map((c) => String(c ?? '').trim()).filter((c) => c && !have.has(c));
+  const codes = [...new Set(list)].slice(0, 10);
+  return codes.length ? { codes } : {};
+}
 
 /** Build a line from a live inventory item at checkout time. */
 export function buildOrderLine(
@@ -712,6 +724,7 @@ export function buildOrderLine(
     ...(item.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
     ...(Number(item.palletPack) > 1 ? { palletPack: Math.floor(Number(item.palletPack)) } : {}),
     ...(item.palletBarcode ? { palletBarcode: String(item.palletBarcode) } : {}),
+    ...extraCodes(item),
     ...(item.preorder === true ? {
       preorder: true,
       ...(item.preorderEtaAt ? { preorderEtaAt: String(item.preorderEtaAt) } : {}),
@@ -1257,7 +1270,7 @@ export function queuePriority(
  * ════════════════════════════════════════════════════════════════════════════ */
 
 export type ScanResult =
-  | { ok: true; lineId: string; qtyScanned: number; qtyOrdered: number; pickComplete: boolean; caseCounted?: number }
+  | { ok: true; lineId: string; name?: string; qtyScanned: number; qtyOrdered: number; pickComplete: boolean; caseCounted?: number }
   | { ok: false; code: 'unknown_sku' | 'over_scan' | 'line_closed'; message: string };
 
 /**
@@ -1296,21 +1309,29 @@ export function codesMatch(a: string, b: string): boolean {
   return false;
 }
 
-export function applyScan(lines: OrderLine[], scannedValue: string): {
+/** Does a scan match this line, as the line was sold: the product's label, its id, or any of its codes. */
+export function lineMatchesScan(l: OrderLine, raw: string): boolean {
+  const t = raw.trim();
+  const qr = parseProductQr(t);
+  if (qr !== null) return l.productId === qr || (!!l.testOfProductId && l.testOfProductId === qr) || l.productId === `test-${qr}`;
+  const pid = String(l.productId || '');
+  return pid === t || pid.toLowerCase() === t.toLowerCase() ||
+    codesMatch(l.barcode, t) || codesMatch(l.sku, t) ||
+    (!!l.caseBarcode && codesMatch(l.caseBarcode, t)) ||
+    (!!l.palletBarcode && codesMatch(l.palletBarcode, t)) ||
+    (Array.isArray(l.codes) && l.codes.some((c) => codesMatch(c, t)));
+}
+
+/** A scan already worked out against the product's current record (lib/scan-resolve): which line it's for, and the
+ *  product's current case and pallet codes, so a case code added after the order was placed still counts a case. */
+export type ScanHint = { lineId: string; identity?: { casePack?: number; caseBarcode?: string; palletPack?: number; palletBarcode?: string } };
+
+export function applyScan(lines: OrderLine[], scannedValue: string, hint?: ScanHint | null): {
   result: ScanResult;
   lines: OrderLine[];
 } {
   const raw = scannedValue.trim();
-  const productIdFromQr = parseProductQr(raw);
-
-  const matches = (l: OrderLine) =>
-    productIdFromQr !== null
-      ? l.productId === productIdFromQr
-      : l.productId === raw ||
-        l.productId.toLowerCase() === raw.toLowerCase() ||
-        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
-        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw)) ||
-        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw));
+  const matches = (l: OrderLine) => (hint?.lineId ? l.lineId === hint.lineId : lineMatchesScan(l, raw));
   // One product can be on two lines (different options). Fill the first line still waiting for units.
   const firstOpen = lines.findIndex((l) => matches(l) && !['shorted', 'refunded', 'backordered'].includes(l.status) && l.qtyScanned < l.qtyOrdered);
   const idx = firstOpen >= 0 ? firstOpen : lines.findIndex(matches);
@@ -1354,7 +1375,7 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
   // beep — the spec's rule: verify 20 cases, not 500 bottles. The last case
   // never overshoots: it counts exactly the units still owed.
   const remaining = line.qtyOrdered - line.qtyScanned;
-  const resolved = scanUnitsFor(line, raw, remaining);
+  const resolved = scanUnitsFor({ ...line, ...(hint?.identity || {}) }, raw, remaining);
   const isCaseScan = resolved.tier !== 'unit';
   const increment = resolved.units;
 
@@ -1369,6 +1390,7 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
     result: {
       ok: true,
       lineId: line.lineId,
+      name: line.name,
       qtyScanned: updatedLine.qtyScanned,
       qtyOrdered: line.qtyOrdered,
       pickComplete: isPickComplete(nextLines),
@@ -1516,20 +1538,12 @@ export function isPackComplete(lines: OrderLine[]): boolean {
   );
 }
 
-export function applyPackScan(lines: OrderLine[], scannedValue: string): {
+export function applyPackScan(lines: OrderLine[], scannedValue: string, hint?: ScanHint | null): {
   result: ScanResult;
   lines: OrderLine[];
 } {
   const raw = scannedValue.trim();
-  const productIdFromQr = parseProductQr(raw);
-  const matchesPack = (l: OrderLine) =>
-    productIdFromQr !== null
-      ? l.productId === productIdFromQr
-      : l.productId === raw ||
-        l.productId.toLowerCase() === raw.toLowerCase() ||
-        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
-        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw)) ||
-        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw));
+  const matchesPack = (l: OrderLine) => (hint?.lineId ? l.lineId === hint.lineId : lineMatchesScan(l, raw));
   const firstOpenPack = lines.findIndex((l) => matchesPack(l) && !['refunded', 'backordered'].includes(l.status) && (l.qtyPacked || 0) < l.qtyOrdered - l.qtyShorted);
   const idx = firstOpenPack >= 0 ? firstOpenPack : lines.findIndex(matchesPack);
   if (idx === -1) {
@@ -1544,7 +1558,7 @@ export function applyPackScan(lines: OrderLine[], scannedValue: string): {
     return { result: { ok: false, code: 'over_scan', message: `${line.name} already has all ${owed} pack-checked.` }, lines };
   }
   const remaining = owed - (line.qtyPacked || 0);
-  const resolved = scanUnitsFor(line, raw, remaining);
+  const resolved = scanUnitsFor({ ...line, ...(hint?.identity || {}) }, raw, remaining);
   const isCaseScan = resolved.tier !== 'unit';
   const increment = resolved.units;
   const updatedLine: OrderLine = { ...line, qtyPacked: (line.qtyPacked || 0) + increment };
@@ -1553,6 +1567,7 @@ export function applyPackScan(lines: OrderLine[], scannedValue: string): {
     result: {
       ok: true,
       lineId: line.lineId,
+      name: line.name,
       qtyScanned: updatedLine.qtyPacked as number,
       qtyOrdered: owed,
       pickComplete: isPackComplete(nextLines),

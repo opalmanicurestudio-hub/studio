@@ -138,7 +138,9 @@ export async function GET(req: NextRequest) {
       wholesaleTaxExempt: rs.wholesaleTaxExempt === true,
       flatShippingDollars: Number(rs.flatShippingDollars) || 0,
       freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
-      shippingOffered: rs.shippingOffered !== false,
+      // The ways of getting an order the shop offers (both shipping switches count, as checkout checks them).
+      pickupOffered: rs.pickupEnabled !== false,
+      shippingOffered: rs.shippingOffered !== false && rs.shippingEnabled !== false,
       curbsideOffered: rs.curbsideOffered !== false,
       curbsideMode: rs.curbsideMode || 'freeform',
       curbsideSpots: Array.isArray(rs.curbsideSpots) ? rs.curbsideSpots : [],

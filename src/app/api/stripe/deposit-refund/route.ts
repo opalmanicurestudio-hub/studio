@@ -72,17 +72,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Studio has no connected payment account' }, { status: 400 });
     }
 
-    // Issue the refund on the connected account (idempotent)
+    const amountDollars = typeof credit.amountDollars === 'number'
+      ? credit.amountDollars
+      : (credit.amountCents || 0) / 100;
+    const amountCents = Math.round(amountDollars * 100);
+    if (!(amountCents > 0)) {
+      return NextResponse.json({ error: 'Nothing to refund on this deposit' }, { status: 400 });
+    }
+
+    // Issue the refund on the connected account (idempotent). Only the deposit goes back: a desk charge can also have
+    // paid a balance the client owed, and that part isn't refundable.
     const stripe = getStripe();
     const refund = await stripe.refunds.create(
-      { payment_intent: paymentIntentId },
+      { payment_intent: paymentIntentId, amount: amountCents },
       { stripeAccount: stripeAccountId, idempotencyKey: `deposit_refund_${creditId}` }
     );
 
     const nowISO        = new Date().toISOString();
-    const amountDollars = typeof credit.amountDollars === 'number'
-      ? credit.amountDollars
-      : (credit.amountCents || 0) / 100;
 
     const batch = db.batch();
 

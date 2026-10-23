@@ -2307,8 +2307,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     if (!firestore || !tenantId || !appointment?.id || !client?.id || !service) return;
     // ── v15: DOUBLE-CHARGE GUARDS. The button hides when paid, but a stale
     // render, second device, or second tab could still fire this — so the
-    // handler itself refuses to charge twice.
-    if (appointment.depositStatus === 'paid' || appointment.depositTransactionId || appointment.depositStripePaymentIntentId) {
+    // handler itself refuses to charge twice (and the server checks again).
+    if (appointment.depositStatus === 'paid' || appointment.depositTransactionId) {
       toast({ title: 'Deposit already collected', description: 'This appointment\u2019s deposit is already paid — nothing was charged.' });
       return;
     }
@@ -2322,29 +2322,27 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       toast({ title: 'Deposit already collected', description: 'Found the earlier payment in the ledger — status fixed, nothing was charged.' });
       return;
     }
+    if (!(depositOwedCents > 0)) { toast({ variant: 'destructive', title: 'No deposit amount set' }); return; }
     setIsCollectingDeposit(true);
     try {
-      const staffIdForPricing = appointment.checkoutState?.serviceStaffOverrides?.[service?.id ?? ''] || appointment.staffId;
-      const staffForPricing = (staff || []).find((s: any) => s.id === staffIdForPricing);
-      const price = service?.serviceTiers?.find((t: any) => t.tierId === staffForPricing?.pricingTierId)?.price ?? service?.price ?? 0;
-      const depositCents = depositOwedCents > 0 ? depositOwedCents : (() => { try { return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true }); } catch { return 0; } })();
-      if (!depositCents || depositCents <= 0) { toast({ variant: 'destructive', title: 'No deposit amount set' }); return; }
-      const res = await fetch('/api/stripe/charge-card', {
+      // The server charges the saved card and records the deposit, once: the visit is marked paid and the deposit's
+      // credit is added there (api/appointments/desk-deposit, lib/deposit-record), never from this screen.
+      const res = await fetch('/api/appointments/desk-deposit', {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-        body: JSON.stringify({ tenantId, clientId: client.id, amountCents: depositCents, description: `Deposit — ${service.name}`, category: 'Retainers', appointmentId: appointment.id, reason: 'Deposit collection (card on file)', mode: 'pos' }),
+        body: JSON.stringify({ tenantId, appointmentId: appointment.id, action: 'charge' }),
       });
       const out = await res.json().catch(() => null);
       if (!out?.ok) {
-        if (out?.requiresAction) toast({ variant: 'destructive', title: 'Card needs verification', description: out.reason || 'Ask the client to verify their card.' });
-        else toast({ variant: 'destructive', title: 'Could not collect deposit', description: out?.reason || 'Card charge failed.' });
+        if (out?.code === 'authentication_required') toast({ variant: 'destructive', title: 'Card needs verification', description: 'Their bank wants them to approve this charge. Send them the pay link instead.' });
+        else toast({ variant: 'destructive', title: 'Could not collect deposit', description: out?.error || 'The card didn’t go through.' });
         return;
       }
-      const batch = writeBatch(firestore);
-      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { depositStatus: 'paid', depositPaidAt: new Date().toISOString(), depositPaymentMethod: 'Vault', depositAmountCents: depositCents, depositStripePaymentIntentId: out.paymentIntentId });
-      const creditRef = doc(collection(firestore, `tenants/${tenantId}/depositCredits`));
-      batch.set(creditRef, { id: creditRef.id, tenantId, clientId: client.id, clientEmail: String(client.email || '').toLowerCase().trim(), clientName: client.name || 'Client', amountCents: depositCents, status: 'available', sourceAppointmentId: appointment.id, createdAt: new Date().toISOString(), stripeChargeId: out.paymentIntentId });
-      await batch.commit();
-      toast({ title: 'Deposit collected', description: `$${(depositCents / 100).toFixed(2)} charged to card on file.` });
+      if (out.already) { toast({ title: 'Deposit already collected', description: 'This appointment’s deposit is already paid — nothing more was charged.' }); return; }
+      const charged = safeNumber(out.chargedCents) || safeNumber(out.depositCents) || depositOwedCents;
+      const deposit = safeNumber(out.depositCents) || depositOwedCents;
+      toast({ title: 'Deposit collected', description: charged > deposit
+        ? `$${(charged / 100).toFixed(2)} charged to the card on file: the $${(deposit / 100).toFixed(2)} deposit and the balance they owed.`
+        : `$${(deposit / 100).toFixed(2)} charged to the card on file.` });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not collect deposit', description: e?.message || 'Unknown error' });
     } finally { setIsCollectingDeposit(false); }

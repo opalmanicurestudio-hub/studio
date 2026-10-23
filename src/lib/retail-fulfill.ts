@@ -12,8 +12,8 @@ import { nanoid } from 'nanoid';
 import {
   BATCH_CLAIM_TIMEOUT_MIN, MAX_SHIP_ORDERS_PER_BATCH, STAGE_LABELS,
   applyPackScan, isPackComplete,
-  applyScan, buildEvent, canAdvance, codesMatch, depleteBatchesFIFO, fulfilledQty,
-  isClaimStale, isPickComplete, parseOrderQr, parseProductQr, queuePriority, shortLine,
+  applyScan, buildEvent, canAdvance, depleteBatchesFIFO, fulfilledQty,
+  isClaimStale, isPickComplete, parseOrderQr, queuePriority, shortLine,
   type FulfillmentBatch, type FulfilmentPolicy, type InventoryBatchRef, type OrderEventType,
   type RetailOrder, type ShortResolution,
 } from '@/lib/retail-orders';
@@ -21,6 +21,7 @@ import { buildEntry } from '@/lib/stock-ledger';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { labelDoubt, labelHolderId } from '@/lib/label-doubt';
 import { cancelWithFollowUps, followUpCancelCents, followUpLabel, heldUnits, isFollowUp, lineFor, taxBasisOf } from '@/lib/order-family';
+import { resolveOrderScan, scanMissMessage, type ScanResolution } from '@/lib/scan-resolve';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // Client-side fulfillment actions for the board. Every state change runs in a
@@ -206,67 +207,24 @@ export async function sweepStaleClaims(fs: Firestore, tenantId: string): Promise
  * PICKING — scan gate + shortline
  * ════════════════════════════════════════════════════════════════════════════ */
 
-export async function recordItemScan(
-  fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor
-): Promise<{ ok: boolean; message: string; pickComplete?: boolean }> {
-  // Snapshot-staleness self-heal: order lines carry the barcode/SKU AS OF
-  // checkout. If a barcode was added to the item AFTER the order was placed,
-  // the snapshot is blank and a legit scan reads as "not on this order." On a
-  // snapshot miss, check each line's CURRENT product doc; on a match,
-  // translate the scan into that product's QR form, which the in-transaction
-  // matcher accepts natively.
-  let effectiveValue = scannedValue;
+export type ScanAnswer = { ok: boolean; message: string; pickComplete?: boolean; packComplete?: boolean; lineId?: string; name?: string; miss?: ScanResolution['kind'] };
+
+/** Works a scan out against the products' current records when the order's own codes don't match (lib/scan-resolve):
+ *  a barcode added after the order was placed, another code the product carries, a test order, a duplicate label, a
+ *  parent product's code. Best-effort: the order's own codes are always checked in the transaction. */
+async function resolveFirst(fs: Firestore, tenantId: string, orderId: string, scannedValue: string, packCheck: boolean): Promise<ScanResolution | null> {
   try {
     const pre = await getDoc(doc(orderCol(fs, tenantId), orderId));
-    if (pre.exists()) {
-      const preOrder = pre.data() as RetailOrder;
-      const rawTyped = scannedValue.trim();
-      const snapshotHit = preOrder.lines.some((l) =>
-        parseProductQr(rawTyped) === l.productId ||
-        l.productId === rawTyped ||
-        l.productId.toLowerCase() === rawTyped.toLowerCase() ||
-        codesMatch(l.barcode, scannedValue) || codesMatch(l.sku, scannedValue)
-      );
-      if (!snapshotHit) {
-        const scannedPid = parseProductQr(scannedValue.trim());
-        if (scannedPid) {
-          // A product-label QR that isn't any line's productId usually means
-          // the label came from a DUPLICATE or RE-CREATED item doc (same real
-          // product, different id). Resolve through the scanned doc's own
-          // identity: match its SKU / barcode / exact name to an open line.
-          const scannedSnap = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, scannedPid));
-          if (scannedSnap.exists()) {
-            const sc = scannedSnap.data() as any;
-            const scName = String(sc.name || '').trim().toLowerCase();
-            for (const l of preOrder.lines) {
-              if (['shorted', 'refunded', 'backordered'].includes(l.status)) continue;
-              const sameSku = codesMatch(l.sku, String(sc.sku || ''));
-              const sameBarcode = codesMatch(l.barcode, String(sc.barcode || ''));
-              const sameName = scName !== '' && String(l.name || '').trim().toLowerCase() === scName;
-              if (sameSku || sameBarcode || sameName) {
-                effectiveValue = `clarityflow://product/${l.productId}`;
-                break;
-              }
-            }
-          }
-        } else {
-          for (const l of preOrder.lines) {
-            if (['shorted', 'refunded', 'backordered'].includes(l.status)) continue;
-            const itemSnap = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, l.productId));
-            if (!itemSnap.exists()) continue;
-            const item = itemSnap.data() as any;
-            if (codesMatch(String(item.barcode || ''), scannedValue) || codesMatch(String(item.sku || ''), scannedValue)) {
-              effectiveValue = `clarityflow://product/${l.productId}`;
-              break;
-            }
-          }
-        }
-      }
-    }
-  } catch {
-    // fallback resolution is best-effort; the snapshot matcher still runs
-  }
-  const resolvedValue = effectiveValue;
+    if (!pre.exists()) return null;
+    return await resolveOrderScan(fs, tenantId, ((pre.data() as RetailOrder).lines || []) as any, scannedValue, packCheck);
+  } catch { return null; }
+}
+
+export async function recordItemScan(
+  fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor
+): Promise<ScanAnswer> {
+  const found = await resolveFirst(fs, tenantId, orderId, scannedValue, false);
+  const hint = found?.kind === 'line' ? found.hint : null;
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -277,14 +235,16 @@ export async function recordItemScan(
         return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]}, so scanning is closed.` };
       }
 
-      const { result, lines } = applyScan(order.lines, resolvedValue);
+      const { result, lines } = applyScan(order.lines, scannedValue, hint);
       if (!result.ok) {
         txn.set(doc(collection(oRef, 'events')),
           evPayload('scan_mismatch', actor, {
             scannedValue: scannedValue.slice(0, 80), code: result.code,
             phase: order.waveId ? 'pack' : 'pick',
           }));
-        return { ok: false, message: result.message };
+        // Not on the order: say which product it is, or that no product has the code yet.
+        const message = result.code === 'unknown_sku' && found ? scanMissMessage(found, scannedValue, order.lines as any) : result.message;
+        return { ok: false, message, miss: result.code === 'unknown_sku' ? (found?.kind || 'unknown') : undefined };
       }
 
       txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
@@ -297,6 +257,7 @@ export async function recordItemScan(
       txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, {
         lineId: result.lineId, qtyScanned: result.qtyScanned, qtyOrdered: result.qtyOrdered,
         phase: order.waveId ? 'pack' : 'pick',
+        ...(hint ? { matchedBy: (found as any).via } : {}),
       }));
       if (result.pickComplete) {
         txn.set(doc(collection(oRef, 'events')), evPayload('pick_complete', actor));
@@ -305,6 +266,8 @@ export async function recordItemScan(
         ok: true,
         message: `${result.qtyScanned}/${result.qtyOrdered}`,
         pickComplete: result.pickComplete,
+        lineId: result.lineId,
+        name: result.name,
       };
     });
   } catch (e: any) {
@@ -504,20 +467,23 @@ export async function resolveShortLine(
  */
 export async function recordPackScan(
   fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor
-): Promise<{ ok: boolean; message: string; packComplete?: boolean }> {
+): Promise<ScanAnswer> {
+  const found = await resolveFirst(fs, tenantId, orderId, scannedValue, true);
+  const hint = found?.kind === 'line' ? found.hint : null;
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) throw new Error('Order not found.');
       const order = { ...(oSnap.data() as RetailOrder), id: orderId };
-      const { result, lines } = applyPackScan(order.lines, scannedValue);
+      const { result, lines } = applyPackScan(order.lines, scannedValue, hint);
       if (!result.ok) {
         txn.set(doc(collection(oRef, 'events')),
           evPayload('scan_mismatch', actor, {
             scannedValue: scannedValue.slice(0, 80), code: result.code, phase: 'pack_check',
           }));
-        return { ok: false, message: result.message };
+        const message = result.code === 'unknown_sku' && found ? scanMissMessage(found, scannedValue, order.lines as any) : result.message;
+        return { ok: false, message, miss: result.code === 'unknown_sku' ? (found?.kind || 'unknown') : undefined };
       }
       txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
       txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, {
@@ -527,7 +493,7 @@ export async function recordPackScan(
       if (result.pickComplete) {
         txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Pack check complete \u2014 every unit verified into the box' }));
       }
-      return { ok: true, message: `Pack check ${result.qtyScanned}/${result.qtyOrdered}`, packComplete: result.pickComplete };
+      return { ok: true, message: `Pack check ${result.qtyScanned}/${result.qtyOrdered}`, packComplete: result.pickComplete, lineId: result.lineId, name: result.name };
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not record the pack scan.' };

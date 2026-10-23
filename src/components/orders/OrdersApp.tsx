@@ -273,7 +273,15 @@ export function OrdersApp() {
     const u = new URL(window.location.href);
     if (u.searchParams.has('view')) { u.searchParams.delete('view'); router.replace(`${u.pathname}${u.search}`, { scroll: false }); }
   }, [daySheet, router]);
-  const open = openId ? byId.get(openId) || null : null;
+  // A link to an order that isn't in today's lists (an older one, from Problems, Labels or a message): opened by itself,
+  // and kept live while it's open.
+  const [single, setSingle] = React.useState<any | null>(null);
+  const inLists = !!openId && byId.has(openId);
+  React.useEffect(() => {
+    if (!openId || inLists) { setSingle(null); return; }
+    return onSnapshot(doc(fs, `tenants/${tenantId}/retailOrders`, openId), (d) => setSingle(d.exists() ? { ...(d.data() as any), id: d.id } : null), () => setSingle(null));
+  }, [fs, tenantId, openId, inLists]);
+  const open = openId ? byId.get(openId) || (single?.id === openId ? single : null) : null;
   const packing = packId ? byId.get(packId) || null : null;
   React.useEffect(() => { if (packId && packing && !['paid', 'picking', 'packed'].includes(packing.stage)) setPackId(null); }, [packId, packing]);
   React.useEffect(() => { if (wide && !openId && list.length && tab !== 'done') setOpenId(list[0].id); }, [wide, list, openId, tab]);

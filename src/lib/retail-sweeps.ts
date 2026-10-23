@@ -534,17 +534,25 @@ export async function sweepUnpaidAccepted(
                 description: 'Deposit (retry)', category: 'Deposits',
                 appointmentId: d.id, reason: apt.serviceName || 'Appointment deposit',
                 kind: 'deposit', mode: 'auto',
+                // Its own key: the first attempt's key would only replay that decline.
+                idempotencyKey: `dep_retry_${d.id}_${attempts + 1}`,
               });
               const rd = rr.data || {};
               if (rr.ok && rd.ok) {
-                await d.ref.set({
+                const paidFields = {
                   status: 'confirmed', depositStatus: 'paid',
                   depositPaidAt: new Date(now).toISOString(),
                   depositChargedOnFile: true,
                   depositPaymentIntentId: rd.paymentIntentId || null,
                   depositFailureReason: null, depositFailureCode: null, depositFailureGuidance: null,
                   paymentDueAt: null,
-                }, { merge: true });
+                };
+                // Recorded by the server, once per card payment: the deposit's credit comes off the bill at checkout.
+                const { recordCardDepositSafely } = await import('./deposit-record');
+                if (rd.paymentIntentId) {
+                  await recordCardDepositSafely(db, tenantId, d.id, { cents: Number(apt.depositAmountCents) || 0, paymentIntentId: String(rd.paymentIntentId), chargeId: rd.chargeId || null,
+                    via: 'card_on_file', status: 'confirmed', clientEmail: apt.clientEmail || null, extra: paidFields }, paidFields);
+                } else await d.ref.set(paidFields, { merge: true });
                 res.actioned += 1;
                 if (email) {
                   const msg = resolveMessage(tenant, 'deposit_charged', {

@@ -26,6 +26,7 @@ import { type InventoryItem, type Order } from '@/lib/data';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { codesMatch, parseProductQr } from '@/lib/retail-orders';
 import { scanUnitsFor, unitsPerPallet } from '@/lib/retail-orders';
+import { productMatch } from '@/lib/product-codes';
 import { Truck, Sparkles, CheckCircle2, AlertTriangle, Calendar as CalendarIcon, PackageOpen, ArrowRight, Package, Check, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -71,11 +72,8 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
         if (qrPid) return ri.productId === qrPid;
         if (ri.productId === raw || ri.productId.toLowerCase() === raw.toLowerCase()) return true;
         const inv = inventory.find((i) => i.id === ri.productId) as any;
-        return codesMatch(String(inv?.barcode || ''), raw) ||
-          codesMatch(String(inv?.sku || ''), raw) ||
-          codesMatch(String(inv?.caseBarcode || ''), raw) ||
-          codesMatch(String(inv?.palletBarcode || ''), raw) ||
-          codesMatch(ri.productName, raw);
+        // Any of the product's codes, its case's or pallet's (lib/product-codes), or its name.
+        return (!!inv && !!productMatch(inv, raw, ri.productId)) || codesMatch(ri.productName, raw);
       });
       if (idx === -1) {
         scanFeedback(false);

@@ -9,8 +9,8 @@ import * as React from 'react';
 import type { Firestore } from 'firebase/firestore';
 import { doc, updateDoc } from 'firebase/firestore';
 import { ScanGate } from '@/components/retail/ScanGate';
-import { INSURED_PACK_RULES, insuredPackCheck, packPhotoPolicy, packPhotoRequired, packPhotoPath } from '@/lib/pack-photo';
-import { uploadImage } from '@/lib/upload-image';
+import { INSURED_PACK_RULES, PACK_PHOTO_KIND_LABEL, boxesMissingPhoto, insuredPackCheck, packPhotoLimit, packPhotoPolicy, packPhotoRequired, packPhotosOf, type PackPhotoKind } from '@/lib/pack-photo';
+import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/orders-flow';
 import { dueLine, firstName, methodLabel, packProgress } from '@/lib/orders-view';
@@ -21,6 +21,8 @@ import { BottomBar, Btn, C, Thumb, UndoBar, feel, muted, Ic } from './ui';
 import { compareBins } from '@/lib/bins';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { MAX_PACK_BOXES, boxFrom, packBoxesOf, presetsOf, type PackBox } from '@/lib/ship-run';
+import { learnCode } from '@/lib/scan-resolve';
+import { lineProductId } from '@/lib/product-codes';
 
 export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfFor, batch, onClose, onDetails, onMissing, onFinished }: {
   fs: Firestore; tenantId: string; order: any; all: any[]; actor: Actor; rs: any; photoFor: Map<string, string>; shelfFor: Map<string, string>; batch: any | null;
@@ -31,26 +33,39 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const [busy, setBusy] = React.useState(false);
   const [camera, setCamera] = React.useState(false);
   const [typed, setTyped] = React.useState('');
-  const [photoBusy, setPhotoBusy] = React.useState(false);
+  // A code no product has yet: the packer can say which item it is, and it's added to that product.
+  const [learn, setLearn] = React.useState<string | null>(null);
+  const [learnBusy, setLearnBusy] = React.useState('');
+  const [photoBusy, setPhotoBusy] = React.useState<number | null>(null);
+  // What the next photo of each box shows (open with its contents first, then sealed).
+  const [photoKind, setPhotoKind] = React.useState<Record<number, PackPhotoKind>>({});
   const [done, setDone] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const canTap = rs?.requireScan !== true;
+  // Tapping an item in is allowed unless the shop wants every unit scanned: "scan every item" or "second scan at
+  // packing" (here, at the box, is where that scan happens).
+  const canTap = rs?.requireScan !== true && rs?.requirePackScan !== true;
   const prog = packProgress(order);
   const left = Math.max(0, prog.total - prog.done);
   const policy = React.useMemo(() => packPhotoPolicy(rs), [rs]);
-  const photos: string[] = Array.isArray(order.packPhotoUrls) ? order.packPhotoUrls : [];
+  // Photos box by box (lib/pack-photo): which box, what it shows, who took it.
+  const photos = packPhotosOf(order);
   // An insured box is packed to the insurer's rules and photographed open before it's sealed (lib/pack-photo), so a
   // damage claim holds up.
   const insured = insuredPackCheck(order, rs);
-  const needPhoto = (packPhotoRequired(order, policy) || insured) && photos.length === 0;
+  const photoNeeded = packPhotoRequired(order, policy) || insured;
   const { selectedTenant } = useTenant() as any;
   const due = dueLine(order, rs, Date.now(), tenantTimeZone(selectedTenant));
-  const lines = (order.lines || []).filter((l: any) => l.digital !== true).map((l: any, i: number) => ({ l, i })).sort((a: any, b: any) => compareBins(shelfFor.get(a.l.productId) || '', shelfFor.get(b.l.productId) || '') || a.i - b.i).map((x: any) => x.l);
+  const lines = (order.lines || []).filter((l: any) => l.digital !== true).map((l: any, i: number) => ({ l, i })).sort((a: any, b: any) => compareBins(shelfFor.get(lineProductId(a.l)) || '', shelfFor.get(lineProductId(b.l)) || '') || a.i - b.i).map((x: any) => x.l);
   // THE BOX. A ship order goes out in the box (or boxes) chosen here; until one is picked, the shop's first saved size.
   const presets = React.useMemo(() => presetsOf(rs), [rs]);
   const chosen = packBoxesOf(order);
   const boxes: PackBox[] = chosen.length ? chosen : presets.length ? [boxFrom(presets[0])] : [];
   const showBoxes = order.method === 'ship' && presets.length > 0;
+  // A photo of each box open, when one is needed: every box going out has its own.
+  const boxCount = Math.max(1, order.method === 'ship' ? boxes.length : 1);
+  const photoMissing = photoNeeded ? boxesMissingPhoto(order, boxCount) : [];
+  const needPhoto = photoMissing.length > 0;
+  const photoCap = packPhotoLimit({ ...order, packBoxes: Array.from({ length: boxCount }) }, policy);
   const saveBoxes = async (list: PackBox[]) => {
     try { await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, order.id), { packBoxes: list.slice(0, MAX_PACK_BOXES) }); setErr(''); }
     catch { setErr('The box didn’t save. Try again.'); }
@@ -68,19 +83,44 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   };
   const scan = async (value: string) => {
     const v = value.trim(); if (!v) return;
-    const before = (order.lines || []).map((l: any) => [l.lineId, l.qtyScanned]);
     const r = await scanInto(fs, tenantId, order.id, v, actor);
-    if (!r.ok) { feel(false); setErr(r.message); return; }
-    const hit = (order.lines || []).find((l: any) => before.some(([id, q]: any) => id === l.lineId && q < l.qtyOrdered && (l.barcode === v || l.sku === v || v.includes(l.productId)))) || null;
-    after(r, hit?.name || 'Item', hit?.lineId || '', 'scanned');
+    if (!r.ok) { feel(false); setErr(r.message); setLearn(r.miss === 'unknown' && !v.includes('://') ? v : null); return; }
+    setLearn(null);
+    after(r, r.name || 'Item', r.lineId || '', 'scanned');
   };
-  const addPhoto = async (file?: File | null) => {
-    if (!file) return; setPhotoBusy(true);
+  // The items a new code can be added to: still waiting, and a real product (a test item stands for one).
+  const teachable = lines.filter((l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && l.qtyScanned < l.qtyOrdered && !lineProductId(l).startsWith('test-'));
+  // "It's this one": the code is added to that item's product, then counted.
+  const teach = async (l: any) => {
+    if (!learn) return;
+    setLearnBusy(l.lineId);
+    const r = await learnCode(fs, tenantId, lineProductId(l), learn);
+    setLearnBusy('');
+    if (!r.ok) { feel(false); setErr(r.message); return; }
+    const code = learn; setLearn(null); setErr('');
+    await scan(code);
+  };
+  // The photo is made a small JPEG here (an iPhone's HEIC included) and saved by the server with the order and its box.
+  const addPhoto = async (box: number, file?: File | null) => {
+    if (!file) return; setPhotoBusy(box); setErr('');
     try {
-      const url = await uploadImage(packPhotoPath(tenantId, order.id, photos.length), file, policy.maxDimension);
-      await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, order.id), { packPhotoUrls: [...photos, url].slice(0, policy.maxPhotos), packPhotoAt: new Date().toISOString(), packPhotoBy: actor.name });
-    } catch (e: any) { setErr(e?.message || 'The photo didn’t upload. Try again.'); }
-    setPhotoBusy(false);
+      const dataUrl = await downscaleImageToDataUrl(file, { maxDim: policy.maxDimension });
+      const kind: PackPhotoKind = photoKind[box] || (photos.some((p) => p.box === box && p.kind === 'contents') ? 'sealed' : 'contents');
+      const r = await fetch('/api/retail/pack-photo', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+        body: JSON.stringify({ tenantId, orderId: order.id, dataUrl, box, kind }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || 'The photo didn’t save. Try again.');
+      feel(true);
+      setPhotoKind((k) => ({ ...k, [box]: kind === 'contents' ? 'sealed' : kind }));
+    } catch (e: any) { feel(false); setErr(e?.message || 'The photo didn’t save. Try again.'); }
+    setPhotoBusy(null);
+  };
+  const removePhoto = async (url: string) => {
+    setErr('');
+    const r = await fetch('/api/retail/pack-photo', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+      body: JSON.stringify({ tenantId, orderId: order.id, action: 'remove', url }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) setErr(d.error || 'That photo couldn’t be taken off. Try again.');
   };
   const finish = async () => {
     setBusy(true);
@@ -102,7 +142,7 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   };
   const putDown = async () => { await stopPacking(fs, tenantId, order, batch, actor); onClose(); };
 
-  const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? 'Add a photo of the box first' : order.method === 'ship' ? 'Done, packed for shipping' : `Done, it’s ready for ${firstName(order.customerName)}`;
+  const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? (boxCount > 1 ? `Add a photo of box ${photoMissing[0]} first` : 'Add a photo of the box first') : order.method === 'ship' ? 'Done, packed for shipping' : `Done, it’s ready for ${firstName(order.customerName)}`;
 
   useWedgeScanner((v) => void scan(v));
   return (
@@ -129,16 +169,28 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
         </div>
         {camera && <div className="mt-3 overflow-hidden rounded-2xl"><ScanGate onScan={(v) => void scan(v)} label="Point at the item’s barcode" /></div>}
         {err && <p role="alert" className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>{err}</p>}
+        {learn && teachable.length > 0 && (
+          <div className="mt-2.5 rounded-2xl px-4 py-3" style={{ background: C.soft }}>
+            <p className="m-0 text-[14px] font-semibold">Which item has the code {learn.slice(0, 40)}?</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {teachable.map((l: any) => (
+                <button key={l.lineId} type="button" onClick={() => void teach(l)} disabled={!!learnBusy} className="cf-press h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                  {learnBusy === l.lineId ? 'Adding…' : `Add to ${l.name}`}
+                </button>))}
+              <button type="button" onClick={() => setLearn(null)} className="h-10 px-2 text-[14px] font-semibold" style={muted}>Not now</button>
+            </div>
+            <p className="m-0 mt-2 text-[13px]" style={muted}>It’s added to that product, so it scans here, at the register and when stock comes in.</p>
+          </div>)}
 
         <div className="mt-2">
           {lines.map((l: any) => {
             const closed = ['shorted', 'refunded', 'backordered'].includes(l.status);
             const full = !closed && l.qtyScanned >= l.qtyOrdered;
-            const shelf = shelfFor.get(l.productId);
+            const shelf = shelfFor.get(lineProductId(l));
             return (
               <div key={l.lineId} className="flex min-h-[72px] items-center gap-3.5 border-b py-3" style={{ borderColor: C.line }}>
                 <button type="button" onClick={() => void tap(l)} disabled={!canTap || full || closed} aria-label={`${l.name}${full ? ', all in' : canTap ? ', tap when it’s in the box' : ''}`} className="flex min-w-0 flex-1 items-center gap-3.5 text-left">
-                  <Thumb src={photoFor.get(l.productId)} />
+                  <Thumb src={photoFor.get(lineProductId(l))} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[17px] font-semibold tracking-[-0.01em]" style={closed ? { color: C.muted, textDecoration: 'line-through' } : undefined}>{l.name}</span>
                     <span className="block truncate text-[14px]" style={muted}>{[l.swapForName ? `Swap for ${l.swapForName}` : '', order.swapOffer?.status === 'waiting' && order.swapOffer.lineId === l.lineId ? `Asked about ${order.swapOffer.sub?.name}` : '', l.swappedToName ? `Swapped for ${l.swappedToName}` : '', l.optionsLabel, shelf ? `Shelf ${shelf}` : '', closed ? (l.status === 'backordered' ? 'Sending later' : 'Refunded') : `${l.qtyScanned} of ${l.qtyOrdered}`].filter(Boolean).join(' · ')}</span>
@@ -180,13 +232,48 @@ export function PackMode({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
             </ul>
           </div>)}
         {(policy.enabled || insured || photos.length > 0) && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {photos.map((u) => <img key={u} src={u} alt="Box photo" className="h-16 w-16 rounded-xl object-cover" />)}
-            {photos.length < policy.maxPhotos && (
-              <label className="inline-flex h-12 cursor-pointer items-center rounded-full border px-5 text-[15px] font-semibold" style={{ borderColor: needPhoto ? C.warn : C.line, color: needPhoto ? C.warn : C.ink }}>
-                {photoBusy ? 'Uploading…' : photos.length ? 'Add another photo' : needPhoto ? 'Add a photo of the box (needed)' : 'Add a photo of the box'}
-                <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => void addPhoto(e.target.files?.[0])} />
-              </label>)}
+          <div className="mt-5">
+            <p className="m-0 text-[13px] font-semibold" style={muted}>{boxCount > 1 ? 'Photos of each box' : 'Photos of the box'}</p>
+            {Array.from({ length: boxCount }, (_, i) => i + 1).map((box) => {
+              const mine = photos.filter((p) => p.box === box || (box === boxCount && p.box > boxCount));
+              const missing = photoMissing.includes(box);
+              const kind: PackPhotoKind = photoKind[box] || (mine.some((p) => p.kind === 'contents') ? 'sealed' : 'contents');
+              return (
+                <div key={box} className="mt-2.5 rounded-2xl border px-3.5 py-3" style={{ borderColor: missing ? C.warn : C.line }}>
+                  {boxCount > 1 && <p className="m-0 text-[14px] font-semibold">Box {box}</p>}
+                  {mine.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-2">
+                      {mine.map((p) => (
+                        <figure key={p.url} className="relative m-0">
+                          <img src={p.url} alt={`Box ${box}: ${PACK_PHOTO_KIND_LABEL[p.kind]}`} className="h-16 w-16 rounded-xl object-cover" />
+                          <figcaption className="mt-0.5 w-16 truncate text-[11px]" style={muted}>{p.kind === 'contents' ? 'Open' : PACK_PHOTO_KIND_LABEL[p.kind]}</figcaption>
+                          <button type="button" aria-label={`Take this photo of box ${box} off the order`} onClick={() => void removePhoto(p.url)}
+                            className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full text-[13px] font-semibold" style={{ background: C.paper, border: `1px solid ${C.line}` }}>×</button>
+                        </figure>))}
+                    </div>)}
+                  {photos.length < photoCap && (
+                    <>
+                      <div role="group" aria-label={`What the next photo of box ${box} shows`} className="mt-2 flex flex-wrap gap-1.5">
+                        {(['contents', 'sealed', 'label', 'damage'] as PackPhotoKind[]).map((k) => (
+                          <button key={k} type="button" aria-pressed={kind === k} onClick={() => setPhotoKind((x) => ({ ...x, [box]: k }))}
+                            className="h-8 rounded-full px-3 text-[13px] font-semibold" style={kind === k ? { background: C.ink, color: C.paper } : { background: C.soft }}>
+                            {k === 'contents' ? 'Open' : PACK_PHOTO_KIND_LABEL[k]}
+                          </button>))}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <label className="inline-flex h-11 cursor-pointer items-center rounded-full border px-4 text-[15px] font-semibold" style={{ borderColor: missing ? C.warn : C.line, color: missing ? C.warn : C.ink }}>
+                          {photoBusy === box ? 'Saving…' : missing ? 'Take a photo (needed)' : 'Take a photo'}
+                          <input type="file" accept="image/*" capture="environment" className="sr-only" disabled={photoBusy !== null} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void addPhoto(box, f); }} />
+                        </label>
+                        <label className="cursor-pointer text-[14px] font-semibold" style={muted}>
+                          or choose one
+                          <input type="file" accept="image/*" className="sr-only" disabled={photoBusy !== null} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void addPhoto(box, f); }} />
+                        </label>
+                      </div>
+                    </>)}
+                </div>);
+            })}
+            <p className="m-0 mt-2 text-[13px]" style={muted}>Kept with the order{boxCount > 1 ? ' and each box’s label' : ''}, for a claim or a question about what was inside.</p>
           </div>)}
       </div>
 

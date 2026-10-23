@@ -103,6 +103,12 @@ export default function CheckoutPage() {
 
   // Checkout form
   const [method, setMethod] = useState<Method>('counter');
+  // Starts on a way the shop offers: pickup when it's on, otherwise curbside or shipping.
+  useEffect(() => {
+    if (!shop) return;
+    const on = (m: Method) => (m === 'counter' ? shop.pickupOffered !== false : m === 'curbside' ? !!shop.curbsideOffered : !!shop.shippingOffered);
+    if (!on(method)) { const first = (['counter', 'curbside', 'ship'] as Method[]).find(on); if (first) setMethod(first); }
+  }, [shop, method]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -628,7 +634,7 @@ export default function CheckoutPage() {
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How would you like it?</Label>
             <div className="grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
               {([
-                { id: 'counter' as Method, label: 'Pickup', icon: Store, show: true },
+                { id: 'counter' as Method, label: 'Pickup', icon: Store, show: shop.pickupOffered !== false },
                 { id: 'curbside' as Method, label: shop.curbsideMode === 'drive_thru' ? 'Drive-Thru' : 'Curbside', icon: Package, show: shop.curbsideOffered },
                 { id: 'ship' as Method, label: 'Ship', icon: Truck, show: shop.shippingOffered },
               ]).filter((m) => m.show).map((m) => (

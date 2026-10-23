@@ -1,12 +1,14 @@
 // src/app/api/retail/test-order/route.ts — A TEST ORDER. Puts a practice order on the Orders screen so the owner can
 // walk it through packing, the shelf and handing over before real customers arrive. It costs nothing, takes no stock
-// (its items point at no real product), sends nothing to anyone, and is labelled Test everywhere. Managers only.
+// (its items point at no real product), sends nothing to anyone, and is labelled Test everywhere. Each item remembers
+// the real product it stands for and carries that product's codes, so scanning the real thing (its barcode, SKU or the
+// shop's label) counts it, as it will on a real order. Managers only.
 // POST { tenantId }
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { makeQrToken } from '@/lib/retail-webhook';
-import { isStorefrontVisible } from '@/lib/retail-orders';
+import { buildOrderLine, isStorefrontVisible } from '@/lib/retail-orders';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,10 +25,16 @@ export async function POST(req: NextRequest) {
   const picks = live.length ? live : [{ id: 'sample', name: 'Sample item', msrp: 10 }];
   const ref = db.collection(`tenants/${tenantId}/retailOrders`).doc();
   const now = new Date().toISOString();
-  const lines = picks.map((i: any, n: number) => ({
-    lineId: `line-test${n}`, productId: `test-${i.id}`, sku: '', barcode: '', name: `${i.name} (test)`, optionsLabel: '',
-    unitPriceCents: Math.round((Number(i.msrp) || 0) * 100), qtyOrdered: 1, qtyScanned: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending',
-  }));
+  const lines = picks.map((i: any, n: number) => {
+    // The product's codes as a real order would carry them, on a line pointing at no real product, so no stock moves.
+    const real: any = i.id === 'sample' ? null : buildOrderLine(i, 1, `line-test${n}`);
+    const codes: any = real ? Object.fromEntries(['casePack', 'caseBarcode', 'palletPack', 'palletBarcode', 'codes'].filter((k) => real[k] != null).map((k) => [k, real[k]])) : {};
+    return {
+      lineId: `line-test${n}`, productId: `test-${i.id}`, ...(real ? { testOfProductId: String(i.id) } : {}),
+      sku: real?.sku || '', barcode: real?.barcode || '', ...codes, name: `${i.name} (test)`, optionsLabel: '',
+      unitPriceCents: Math.round((Number(i.msrp) || 0) * 100), qtyOrdered: 1, qtyScanned: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending',
+    };
+  });
   const subtotal = lines.reduce((a: number, l: any) => a + l.unitPriceCents, 0);
   await ref.set({
     id: ref.id, tenantId, isTest: true, orderNumber: 0, stage: 'paid', method: 'counter', priceTier: 'retail',

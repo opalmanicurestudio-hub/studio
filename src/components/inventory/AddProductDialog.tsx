@@ -21,6 +21,10 @@ import { z } from 'zod';
 import { Check, PlusCircle, DollarSign, Package, ShoppingCart, Calculator, Sparkles, Truck, ArrowRight, Building, FileText, Landmark, Pipette, CheckCircle, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
+import { ProductCodesField, clashText } from '@/components/inventory/ProductCodesField';
+import { codeOwners } from '@/lib/product-codes';
+import { useInventory } from '@/context/InventoryContext';
+import { useToast } from '@/hooks/use-toast';
 
 const schema = z.object({
   name: z.string().min(1, 'Required'),
@@ -43,6 +47,8 @@ const schema = z.object({
   wholesalePrice: z.coerce.number().optional(),
   supplier: z.string().optional(),
   sku: z.string().optional(),
+  barcode: z.string().max(64).optional(),
+  barcodes: z.array(z.string().max(64)).max(10).optional(),
   purchaseLink: z.string().optional(),
   reorderPoint: z.coerce.number().optional(),
   initialStock: z.coerce.number().min(1, 'Required'),
@@ -254,6 +260,7 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
           <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
             <CardHeader className="bg-muted/5 border-b p-5"><CardTitle className="text-sm font-black uppercase tracking-widest">Registry & Stock</CardTitle></CardHeader>
             <CardContent className="p-5 space-y-3">
+              <ProductCodesField />
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Starting Stock</Label><Input type="number" placeholder="Qty" {...register('initialStock')} className="h-11 rounded-xl border-2 font-black text-lg" />{errors.initialStock && <p className="text-[8px] font-black text-destructive">{errors.initialStock.message}</p>}</div>
                 <div className="space-y-1.5"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">SKU</Label><Input placeholder="Registry ID" {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
@@ -321,8 +328,15 @@ export const AddProductDialog: React.FC<{
   useEffect(() => { if (open) { methods.reset({ type: initialType, costingMethod: 'size', initialStock: 1, trackCustody: false }); setStep(1); } }, [open, initialType, methods]);
 
   const { trigger, handleSubmit } = methods;
+  const { inventory } = useInventory() as any;
+  const { toast } = useToast();
 
   const onSubmit = (data: FormData) => {
+    // A barcode belongs to one product: one already on another product isn't saved here.
+    const barcode = String(data.barcode || '').trim();
+    const barcodes = [...new Set((data.barcodes || []).map((c) => String(c).trim()).filter((c) => c && c !== barcode))];
+    const clashes = codeOwners((inventory || []) as any[], [barcode, ...barcodes].filter(Boolean));
+    if (clashes.length) { toast({ variant: 'destructive', title: 'That code belongs to another product', description: clashText(clashes) }); return; }
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
     // Same bridge as the edit dialog: a product typed once here arrives at
     // the storefront with its images and copy already in the shape the shop
@@ -337,6 +351,11 @@ export const AddProductDialog: React.FC<{
       totalStock: data.initialStock || 0,
       supplier: data.supplier || '',
       supplierUrl: data.purchaseLink,
+      // Its codes: what the register, packing and receiving scan (lib/product-codes).
+      ...(String(data.sku || '').trim() ? { sku: String(data.sku).trim() } : {}),
+      ...(barcode ? { barcode } : {}),
+      ...(barcodes.length ? { barcodes } : {}),
+      ...(Number(data.wholesalePrice) > 0 ? { wholesalePrice: Number(data.wholesalePrice) } : {}),
       costPerUnit,
       reorderPoint: data.reorderPoint,
       imageUrl: data.imageUrl,

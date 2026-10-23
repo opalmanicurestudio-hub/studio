@@ -2,12 +2,13 @@
 // Works out what was scanned — PRODUCTS FIRST (a 12–13 digit barcode looks like a check-in token, which is why product
 // scans used to fail at checkout), then appointment / walk-in tickets:
 //   • your printed product labels (clarityflow://product/<id>) or a shop product link
-//   • a barcode or SKU — tolerant of leading zeros and UPC-A vs EAN-13 (the retail matcher)
+//   • a barcode, SKU or any other code the product carries — tolerant of leading zeros and UPC-A vs EAN-13
 //   • a parent product whose sizes / shades hold the stock → "which one?"
 //   • a ticket: short code, check-in token or visit-link URL (found here if it's in today's list; otherwise the
 //     server lookup takes over)
 import { codesMatch, hasStockVariants, parseOrderQr } from '@/lib/retail-orders';
 import { parseScan } from '@/lib/scan-codes';
+import { unitCodes } from '@/lib/product-codes';
 
 export type ScanHit =
   | { kind: 'product'; item: any }
@@ -36,7 +37,8 @@ export function identifyPosScan(raw: string, ctx: { inventory: any[]; appointmen
   const link = /clarityflow:\/\/product\/([A-Za-z0-9_-]+)/i.exec(t) || /\/product\/([A-Za-z0-9_-]{6,})/.exec(t);
   if (link) { const item = inv.find((i) => i.id === link[1]); if (item) return asProduct(item); }
   // A barcode or SKU (tolerant), or a bare product id
-  const byCode = inv.find((i) => [i.barcode, i.sku, ...(Array.isArray(i.barcodes) ? i.barcodes : [])].some((c) => c && codesMatch(String(c), t))) || inv.find((i) => i.id === t);
+  // Any of the product's codes (lib/product-codes): the same ones packing and receiving scan.
+  const byCode = inv.find((i) => unitCodes(i).some((c) => codesMatch(c, t))) || inv.find((i) => i.id === t);
   if (byCode) return asProduct(byCode);
   // A ticket in today's list
   const parsed = parseScan(t); const value = parsed.kind === 'empty' ? t : parsed.value; const needle = value.toUpperCase();

@@ -805,9 +805,6 @@ export default function RetailFulfillmentBoard() {
               <Link href="/retail-orders/history" aria-label="Order history"><History className="h-4 w-4" aria-hidden="true" /></Link>
             </Button>
             <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
-              <Link href="/retail-orders/invoices" aria-label="Invoices and records"><FileText className="h-4 w-4" aria-hidden="true" /></Link>
-            </Button>
-            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
               <Link href="/retail-orders/exceptions" aria-label="Inventory exceptions — loss and recovery"><TriangleAlert className="h-4 w-4" aria-hidden="true" /></Link>
             </Button>
             <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">

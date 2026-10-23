@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { codesMatch, parseProductQr } from '@/lib/retail-orders';
+import { productMatch } from '@/lib/product-codes';
 import { cn } from '@/lib/utils';
 
 // ─── QuickReceiveDialog v2 ────────────────────────────────────────────────────
@@ -78,15 +79,14 @@ export function QuickReceiveDialog({
   const onScan = (value: string) => {
     const raw = value.trim();
     const pid = parseProductQr(raw);
+    // Any of the product's codes (lib/product-codes), as the register and packing scan them, or its name.
     const item = items.find((i: any) =>
       pid ? i.id === pid
-        : i.id === raw || String(i.id).toLowerCase() === raw.toLowerCase() ||
-          codesMatch(String(i.barcode || ''), raw) || codesMatch(String(i.sku || ''), raw) ||
-          codesMatch(String(i.name || ''), raw)
+        : !!productMatch(i, raw) || codesMatch(String(i.name || ''), raw)
     );
     if (!item) {
       scanFeedback(false);
-      toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: 'No inventory item matches \u2014 close the scanner and tap it from the list, or paste this code into the item\u2019s Barcode field.' });
+      toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: 'No product has this code yet. Close the scanner and tap the item in the list, then add the code to it (edit the product, Barcode) so it scans next time.' });
       return;
     }
     addItem(item, true);

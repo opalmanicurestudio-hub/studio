@@ -67,6 +67,9 @@ import { cn } from '@/lib/utils';
 import { syncPublicFields } from '@/lib/product-public';
 import { binOf, normalizeBin, overflowOf } from '@/lib/bins';
 import { printShelfLabels } from '@/lib/shelf-labels-client';
+import { ProductCodesField, clashText } from '@/components/inventory/ProductCodesField';
+import { codeOwners } from '@/lib/product-codes';
+import { useInventory } from '@/context/InventoryContext';
 import { format, parseISO } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
@@ -105,6 +108,8 @@ const editProductSchema = z.object({
 
   supplier: z.string().optional(),
   sku: z.string().optional(),
+  barcode: z.string().max(64).optional(),
+  barcodes: z.array(z.string().max(64)).max(10).optional(),
   purchaseLink: z.string().optional(),
   reorderPoint: z.coerce.number().optional(),
   primaryLocationId: z.string().optional(),
@@ -388,7 +393,7 @@ const Step2 = () => {
     );
 };
 
-const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAddLocationClick: () => void }) => {
+const Step3 = ({ locations, onAddLocationClick, productId }: { locations: Location[], onAddLocationClick: () => void, productId?: string }) => {
     const { register, control, watch, formState: { errors } } = useFormContext<ProductFormData>();
     const { toast } = useToast();
     const bin = String(watch('storageLocation') || '').trim();
@@ -439,6 +444,7 @@ const Step3 = ({ locations, onAddLocationClick }: { locations: Location[], onAdd
                     <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
                         <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest text-left">Logistics Control</CardTitle></CardHeader>
                         <CardContent className="p-6 space-y-5 text-left">
+                            <ProductCodesField exceptId={productId} />
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Asset SKU</Label><Input placeholder="Registry ID" {...register('sku')} className="h-11 rounded-xl border-2 font-mono font-black" /></div>
                                 <div className="space-y-1.5 text-left"><Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reorder Point</Label><Input type="number" {...register('reorderPoint')} className="h-11 rounded-xl border-2 font-black text-lg shadow-inner bg-card" /></div>
@@ -522,13 +528,23 @@ export const EditProductDialog: React.FC<{
             storageLocation: binOf(product),
             careNote: (product as any).careNote || '',
             overflowLocation: overflowOf(product),
+            barcode: String((product as any).barcode || ''),
+            barcodes: Array.isArray((product as any).barcodes) ? (product as any).barcodes.map(String) : [],
         });
         setStep(1);
     }
   }, [product, open, methods]);
 
   const { handleSubmit, trigger } = methods;
+  const { inventory } = useInventory() as any;
+  const { toast } = useToast();
   const onSubmit = (data: ProductFormData) => {
+    // A barcode belongs to one product: one already on another product isn't saved here.
+    const barcode = String(data.barcode || '').trim();
+    const barcodes = [...new Set((data.barcodes || []).map((c) => String(c).trim()).filter((c) => c && c !== barcode))];
+    const clashes = codeOwners((inventory || []) as any[], [barcode, ...barcodes].filter(Boolean), product.id);
+    if (clashes.length) { toast({ variant: 'destructive', title: 'That code belongs to another product', description: clashText(clashes) }); return; }
+    data = { ...data, barcode, barcodes };
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : product.costPerUnit;
     const updatedBatches = [...product.batches];
     // This form has no expiry field, so a batch's expiry is only ever changed when one was actually given.
@@ -563,7 +579,7 @@ export const EditProductDialog: React.FC<{
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {step === 1 && <Step1 categories={categories} onNewCategory={onNewCategory} />}
                 {step === 2 && <Step2 />}
-                {step === 3 && <Step3 locations={locations} onAddLocationClick={onAddLocationClick} />}
+                {step === 3 && <Step3 locations={locations} onAddLocationClick={onAddLocationClick} productId={product.id} />}
             </div>
         </ScrollArea>
         <DialogFooter className={cn("border-t bg-background flex-shrink-0 shadow-2xl", isMobile ? "p-4" : "p-6 sm:p-8 pt-4")}>

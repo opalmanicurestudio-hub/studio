@@ -1,4 +1,5 @@
 import { checkPrintKey } from '@/lib/print-key';
+import { PACK_PHOTO_KIND_LABEL, packPhotosOf } from '@/lib/pack-photo';
 /**
  * /print/evidence/[tenantId]/[orderId] — the order-integrity record as a
  * DOCUMENT.
@@ -220,9 +221,11 @@ export default async function PrintEvidencePage({
           <>
             <h2>Packing photos — taken at the bench before sealing</h2>
             <div className="photos">
-              {photos.slice(0, 9).map((u, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={i} src={u} alt={`Packing photo ${i + 1} for order ${num}`} />
+              {packPhotosOf(order).slice(0, 9).map((p, i) => (
+                <figure key={p.url} style={{ margin: 0 }}>
+                  <img src={p.url} alt={`Packing photo ${i + 1} for order ${num}`} />
+                  <figcaption style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>Box {p.box} · {PACK_PHOTO_KIND_LABEL[p.kind]}{p.by ? ` · ${p.by}` : ''}{p.at ? ` · ${String(p.at).slice(0, 16).replace('T', ' ')}` : ''}</figcaption>
+                </figure>
               ))}
             </div>
           </>

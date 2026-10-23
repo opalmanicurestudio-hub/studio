@@ -54,6 +54,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
 import { randomInt } from 'crypto';
 import { computeDepositCents, isPoorHistory } from '@/lib/deposit-policy';
+import { cardDepositCredit } from '@/lib/deposit-record';
 import {
   stripUndefined,
   localDateStr,
@@ -309,6 +310,7 @@ export async function createBooking(
   // goes through, they just secure the deposit via the link instead.
   let depositCharged = false;
   let depositChargeIntentId: string | undefined;
+  let depositChargeId: string | null = null;
   if (effectiveMode === 'instant' && depositCents > 0 && hasUsableCard && clientId) {
     try {
       const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
@@ -330,6 +332,7 @@ export async function createBooking(
       if (chargeData.ok) {
         depositCharged = true;
         depositChargeIntentId = chargeData.paymentIntentId;
+        depositChargeId = chargeData.chargeId || null;
       }
     } catch {
       /* falls through to completion-link path below, same as a declined card */
@@ -454,6 +457,12 @@ export async function createBooking(
 
   batch.set(db.doc(`tenants/${tenantId}/appointments/${aptId}`), aptDoc);
   batch.set(db.doc(`appointmentCheckIns/${checkInToken}`), aptDoc);
+  // The deposit charged to their card: its credit comes off the bill at checkout, once per card payment (lib/deposit-record).
+  if (depositCharged && depositChargeIntentId) {
+    const dc = cardDepositCredit(tenantId, aptId, { clientId, clientName, clientEmail, serviceName: service.name },
+      { cents: depositCents, paymentIntentId: depositChargeIntentId, chargeId: depositChargeId, via: 'instant_booking' }, nowISO);
+    batch.set(db.doc(`tenants/${tenantId}/depositCredits/${dc.id}`), dc.data);
+  }
 
   if (needsLink) {
     const expiryDays = Number(tenant?.completionLinkExpiryDays) || 7;

@@ -86,6 +86,7 @@ interface RetailSettings {
   claimAutoResolveMaxCents?: number;
   cartRecoveryEnabled?: boolean;
   requirePackScan?: boolean;
+  requireScan?: boolean;
   curbsideAlertPhone?: string;
   curbsideLat?: number;
   curbsideLng?: number;
@@ -200,6 +201,7 @@ export default function RetailSettingsPage() {
       blockUndeliverableAddresses: existing.blockUndeliverableAddresses === true,
       cartRecoveryEnabled: existing.cartRecoveryEnabled !== false,
       requirePackScan: existing.requirePackScan === true,
+      requireScan: existing.requireScan === true,
       curbsideAlertPhone: existing.curbsideAlertPhone ?? '',
       curbsideLat: existing.curbsideLat ?? undefined,
       curbsideLng: existing.curbsideLng ?? undefined,
@@ -292,6 +294,7 @@ export default function RetailSettingsPage() {
           blockUndeliverableAddresses: rs.blockUndeliverableAddresses === true,
           cartRecoveryEnabled: rs.cartRecoveryEnabled !== false,
           requirePackScan: rs.requirePackScan === true,
+          requireScan: rs.requireScan === true,
           curbsideAlertPhone: String(rs.curbsideAlertPhone || '').trim() || null,
           curbsideLat: Number.isFinite(Number(rs.curbsideLat)) ? Number(rs.curbsideLat) : null,
           curbsideLng: Number.isFinite(Number(rs.curbsideLng)) ? Number(rs.curbsideLng) : null,
@@ -1115,12 +1118,25 @@ export default function RetailSettingsPage() {
               <div>
                 <Label className="text-[11px] font-black uppercase tracking-widest">Second scan at packing</Label>
                 <p className="text-[11px] font-bold text-muted-foreground">
-                  Items scan once off the shelf and AGAIN into the box &mdash; two-touch verification. Wave orders skip it (their scan already happens at the bench).
+                  Every item is scanned into the box, never just tapped. Orders picked at the shelf first are scanned again at the bench; wave orders and the packing screen scan once, at the box.
                 </p>
               </div>
               <Switch aria-label="Second scan at packing"
                 checked={rs.requirePackScan === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, requirePackScan: v })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Scan every item</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Packers scan each item into the box instead of tapping it on the screen. Leave it off if some items have no barcode.
+                </p>
+              </div>
+              <Switch aria-label="Scan every item"
+                checked={rs.requireScan === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, requireScan: v })}
               />
             </div>
 

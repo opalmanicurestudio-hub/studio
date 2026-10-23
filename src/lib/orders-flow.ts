@@ -52,9 +52,11 @@ export async function markMissing(fs: Firestore, t: string, orderId: string, lin
 }
 
 /** Everything is in. Pickup and curbside orders go straight to the shelf with a spot, and the customer is told.
- *  Ship orders stay packed, ready for a label. */
+ *  Ship orders stay packed, ready for a label. Packing here is the scan at the box (with "second scan at packing" on,
+ *  every unit is scanned in, not tapped), so it isn't asked for a second time; an order picked at the shelf first is
+ *  checked again at the bench (lib/retail-fulfill markPacked). */
 export async function finishPacking(fs: Firestore, t: string, o: any, all: any[], actor: Actor, rs: any): Promise<Result & { slot?: string }> {
-  const p = await markPacked(fs, t, o.id, actor, { requirePackScan: rs?.requirePackScan === true });
+  const p = await markPacked(fs, t, o.id, actor, { requirePackScan: false });
   if (!p.ok) return p;
   if (o.method === 'ship') return { ok: true, message: 'Packed. Ready for a label.' };
   const r: any = await markReady(fs, t, o.id, actor);

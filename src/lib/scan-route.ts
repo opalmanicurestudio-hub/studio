@@ -4,6 +4,8 @@
 // After a machine label, kits scanned within a few minutes go into that steriliser load instead of their usual next step.
 import { findKit, type Kit } from '@/lib/kits';
 import { findBundle, type LinenBundle } from '@/lib/linens';
+import { unitCodes } from '@/lib/product-codes';
+import { codesMatch } from '@/lib/retail-orders';
 
 export type ScanTarget = 'kit' | 'bundle' | 'machine' | 'station' | 'product' | 'unknown';
 export interface ScanRoute { target: ScanTarget; code: string; id: string | null; label: string }
@@ -21,7 +23,7 @@ export function routeScan(raw: string, d: { kits?: Kit[]; bundles?: LinenBundle[
   const m = (d.machines || []).find((x) => machineCode(x) === t); if (m) return { target: 'machine', code, id: m, label: m };
   const k = findKit(d.kits || [], code); if (k) return { target: 'kit', code, id: k.id, label: `${k.name} ${k.code}` };
   const b = findBundle(d.bundles || [], code); if (b) return { target: 'bundle', code, id: b.id, label: `${b.name} ${b.code}` };
-  const p = (d.inventory || []).find((i: any) => [i.barcode, i.sku, i.upc, ...(Array.isArray(i.barcodes) ? i.barcodes : [])].filter(Boolean).some((x: any) => String(x).trim().toUpperCase() === code.toUpperCase()));
+  const p = (d.inventory || []).find((i: any) => unitCodes(i).some((x) => codesMatch(x, code)));
   if (p) return { target: 'product', code, id: p.id, label: String(p.name || 'Product') };
   return { target: 'unknown', code, id: null, label: /^K[A-Z0-9]{4}$/.test(t) ? 'No kit with that code' : /^L[A-Z0-9]{4}$/.test(t) ? 'No bundle with that code' : 'Not recognised' };
 }

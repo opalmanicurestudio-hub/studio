@@ -22,6 +22,7 @@ import {
 } from '@/lib/waves';
 import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
+import { unitCodes } from '@/lib/product-codes';
 
 // ─── Wave picking ─────────────────────────────────────────────────────────────
 // Phase one of two-phase fulfilment: pick the whole morning's orders in one
@@ -95,9 +96,7 @@ export default function WavesPage() {
   const codesFor = useMemo(() => {
     const map = new Map<string, string[]>();
     (inventory || []).forEach((i: any) => {
-      const codes = [i.barcode, i.sku, i.upc, i.gtin]
-        .map((c: any) => String(c || '').trim())
-        .filter(Boolean);
+      const codes = unitCodes(i);
       if (codes.length) map.set(i.id, codes);
     });
     return map;
@@ -678,7 +677,7 @@ export default function WavesPage() {
                     asChild variant="outline" size="sm"
                     className="h-9 shrink-0 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest print:hidden"
                   >
-                    <a href={`/print/packing-slip/${tenantId}/${w.orderId}`} target="_blank" rel="noreferrer">Slip</a>
+                    <a href={`/print/packing-slip/${tenantId}/${w.orderId}?t=${encodeURIComponent(String(ordersById.get(w.orderId)?.qrToken || (w as any).qrToken || ''))}`} target="_blank" rel="noreferrer">Slip</a>
                   </Button>
                 </div>
               ))}
