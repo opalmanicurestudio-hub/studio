@@ -1,6 +1,7 @@
 // Checks the desk can't sell units held for paid online orders without a manager's yes (api/checkout/complete,
 // lib/held-stock, lib/approvals): what's free sells as usual; selling into what's held is refused for the front desk,
-// goes through with a manager's approval (used once) or a manager at the desk, and is written down for the manager.
+// goes through with a manager's approval (used once, for the products and units it names) or a manager at the desk, and
+// is written down for the manager.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/held-stock.verify.ts
 import Module from 'module';
 import { makeDb, check, failures, FV, strictTransactions } from './fake-db';
@@ -62,7 +63,21 @@ const approval = (id: string, x: any = {}) => db.doc(`${T}/approvals/${id}`).set
   await approval('ap1', { kind: 'recovery' });
   r = await sell(2, { heldStock: { approvalToken: 'ap1' } });
   check('an approval for something else doesn’t count', r.status === 409 && r.body.code === 'held_stock');
-  await approval('ap2');
+  const { heldRef, heldCovered } = await import('../../src/lib/held-stock');
+  const two = [{ id: 'p1', name: 'Cuticle oil', want: 2, free: 1, held: 2 }];
+  await approval('ap0');
+  r = await sell(2, { heldStock: { approvalToken: 'ap0' } });
+  check('an approval that names nothing: refused', r.status === 409 && r.body.code === 'held_stock' && (await get(`${T}/approvals/ap0`)).used !== true, r.body);
+  await approval('ap5', { ref: heldRef([{ ...two[0], id: 'p9' }]) });
+  r = await sell(2, { heldStock: { approvalToken: 'ap5' } });
+  check('an approval for another product: refused', r.status === 409 && r.body.code === 'held_stock');
+  await approval('ap6', { ref: heldRef([{ ...two[0], want: 2 }]) });
+  await db.doc(`${T}/inventory/p1`).set({ totalStock: 4, stockReserved: 3 }, { merge: true });
+  r = await sell(3, { heldStock: { approvalToken: 'ap6' } });
+  check('an approval for two, used to sell three: refused', r.status === 409 && r.body.code === 'held_stock' && (await get(`${T}/approvals/ap6`)).used !== true, r.body);
+  await db.doc(`${T}/inventory/p1`).set({ totalStock: 3, stockReserved: 2 }, { merge: true });
+  check('…an approval covers what it names, or fewer', heldCovered(heldRef(two), two) && heldCovered(heldRef(two), [{ ...two[0], want: 1 }]) && !heldCovered(heldRef(two), [{ ...two[0], want: 3 }]) && !heldCovered(null, two) && !heldCovered('held:', two));
+  await approval('ap2', { ref: heldRef(two) });
   r = await sell(2, { heldStock: { approvalToken: 'ap2' } });
   check('with a manager’s approval: sold', r.status === 200 && (await all(`${T}/receipts`)).length === 1 && (await get(`${T}/inventory/p1`)).totalStock === 1, r.body);
   check('…the approval is used', (await get(`${T}/approvals/ap2`)).used === true);
@@ -70,7 +85,7 @@ const approval = (id: string, x: any = {}) => db.doc(`${T}/approvals/${id}`).set
   await db.doc(`${T}/inventory/p1`).set({ totalStock: 3, stockReserved: 2 }, { merge: true });
   r = await sell(2, { heldStock: { approvalToken: 'ap2' } });
   check('…once: the same approval again is refused', r.status === 409 && r.body.code === 'held_stock' && (await all(`${T}/receipts`)).length === 1);
-  await approval('ap3', { expiresAt: new Date(Date.now() - 1000).toISOString() });
+  await approval('ap3', { ref: heldRef(two), expiresAt: new Date(Date.now() - 1000).toISOString() });
   r = await sell(2, { heldStock: { approvalToken: 'ap3' } });
   check('an expired approval: refused', r.status === 409);
 

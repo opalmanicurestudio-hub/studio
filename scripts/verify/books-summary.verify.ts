@@ -35,7 +35,7 @@ ok(eq(s.sales, 0) && eq(s.net, 0) && eq(s.giftCardsSold, 50) && eq(s.heldForRent
 
 // An online order: sale, shipping charged, tax; postage bought and partly refunded; then a refund with its tax part.
 const online = [
-  L({ id: 'osale_A', type: 'income', category: 'Retail', taxBucket: 'revenue', amount: 40, retailOrderId: 'A' }),
+  L({ id: 'osale_A', type: 'income', category: 'Retail', taxBucket: 'revenue', amount: 40, retailOrderId: 'A', checkoutSessionId: 'cs_A' }),
   L({ id: 'oship_A', type: 'income', category: 'Shipping Charged', taxBucket: 'revenue', amount: 8, retailOrderId: 'A' }),
   L({ id: 'otax_A', type: 'income', category: 'Tax Collected', taxBucket: 'tax_collected', amount: 3.2, retailOrderId: 'A' }),
   L({ type: 'expense', category: 'Shipping', taxBucket: 'expense', amount: 6.5 }),

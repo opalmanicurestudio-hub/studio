@@ -72,7 +72,6 @@
  */
 
 import { hasRealCard } from '@/lib/card-on-file';
-import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
 import { hoursToDeadline } from '@/lib/change-rules';
 import { logAuditClient } from '@/lib/audit-client';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -80,13 +79,10 @@ import { useCallback } from 'react';
 import {
   doc,
   collection,
-  writeBatch,
   increment,
   arrayUnion,
   getDoc,
-  getDocs,
-  query,
-  where,
+  runTransaction,
   serverTimestamp,
 } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
@@ -107,9 +103,6 @@ import type { Appointment, Client } from '@/lib/data';
 import {
   resolveDepositPolicy,
   resolveDepositOutcome,
-  hoursUntilStart,
-  rolloverExpiryISO,
-  isCreditExpired,
 } from '@/lib/deposit-policy';
 
 interface CancellationConfirmPayload {
@@ -248,7 +241,13 @@ export function useCancellationConfirm(
       // ── Step 2: Write the cancellation to Firestore ──────────────────────────
       const eventId = nanoid();
       const now     = new Date().toISOString();
-      const batch   = writeBatch(firestore);
+      // Every write of the cancellation goes in one step, made only while the booking is still open (below): a second
+      // tap, or someone else cancelling it at the same moment, can't add the fee or the deposit twice.
+      const ops: ((tx: any) => void)[] = [];
+      const batch = {
+        set: (r: any, v: any, o?: any) => { ops.push((tx) => (o ? tx.set(r, v, o) : tx.set(r, v))); },
+        update: (r: any, v: any) => { ops.push((tx) => tx.update(r, v)); },
+      };
 
       // ── Which documents is this cancellation actually about? ─────────────
       // Derived from the id itself, never from a caller-supplied isWalkIn
@@ -318,7 +317,7 @@ export function useCancellationConfirm(
           // (which reads unpaidFees, not outstandingBalance) silently never
           // saw this debt at all.
           unpaidFees: arrayUnion({
-            feeId: nanoid(),
+            feeId: `cancel-${appointment.id}`,
             appointmentId: appointment.id,
             appointmentDate: now,
             feeAmount,
@@ -330,6 +329,20 @@ export function useCancellationConfirm(
       // Audit log
       const auditRef = doc(collection(firestore, `tenants/${tenantId}/auditLog`));
       batch.set(auditRef, clean({ id: auditRef.id, tenantId, ...auditLogEntry, createdAt: now }));
+
+      // The booking's deposit (client and no-show cancellations, not walk-ins): settled on the server once this is saved
+      // (api/appointments/deposit-outcome), and by the five-minute job from the event if that's cut off.
+      let depositPlan: { outcome: 'forfeit' | 'rollover' | 'refund_pending'; reason: string; by: string } | null = null;
+      if ((isClientCancel || isNoShowCancel) && !isWalkInCancel) {
+        if (isNoShowCancel && (!depositOutcome || depositOutcome === 'forfeit' || depositOutcome === 'applied')) depositPlan = { outcome: 'forfeit', reason: 'no_show', by: 'Front desk' };
+        else {
+          const policy = resolveDepositPolicy(selectedTenant);
+          const hrs = hoursToDeadline(selectedTenant, appointment);
+          const planned = depositOutcome === 'forfeit' || depositOutcome === 'applied' ? 'forfeit' : depositOutcome === 'rollover' || depositOutcome === 'store_credit' ? 'rollover' : depositOutcome === 'refund' ? 'refund' : null;
+          const resolved: any = planned ? { outcome: planned, reason: 'front_desk_plan' } : resolveDepositOutcome({ trigger: 'client_cancel', hoursUntilStart: hrs, policy });
+          depositPlan = { outcome: resolved.outcome === 'refund' ? 'refund_pending' : resolved.outcome === 'rollover' ? 'rollover' : 'forfeit', reason: String(resolved.reason || 'client_cancel'), by: 'Front desk' };
+        }
+      }
 
       // cancellationEvent → triggers onCancellationEvent Firebase Function
       // For studio cancellations, chargeFee is always false (client not charged)
@@ -367,6 +380,7 @@ export function useCancellationConfirm(
         reason,
         studioCancelled:       isStudioCancel,
         depositDisposition:    depositDisposition || 'none',
+        ...(depositPlan ? { depositPlan } : {}),
 
         status:       'pending',
         chargeStatus: alreadyChargedPaymentIntentId ? 'succeeded' : isStudioCancel ? 'waived' : (chargeFee && paymentMethod === 'card_on_file' ? 'pending' : paymentMethod === 'add_to_balance' ? 'balance' : 'waived'),
@@ -380,13 +394,22 @@ export function useCancellationConfirm(
       }));
 
       try {
-        await batch.commit();
+        await runTransaction(firestore, async (tx) => {
+          // Still open? (A walk-in with no booking yet is checked on its own row.)
+          const guardRef = appointmentExists ? appointmentRef : walkInId ? doc(firestore, `tenants/${tenantId}/walkIns`, walkInId) : null;
+          if (guardRef) {
+            const g: any = (await tx.get(guardRef)).data() || {};
+            if (g.status === 'cancelled') throw Object.assign(new Error('This booking has already been cancelled.'), { code: 'already' });
+            if (g.cancelClaim?.at && Date.now() - (Date.parse(String(g.cancelClaim.at)) || 0) < 120000) throw Object.assign(new Error('This booking is being cancelled right now. Give it a moment.'), { code: 'busy' });
+          }
+          for (const op of ops) op(tx);
+        });
       } catch (e: any) {
         // Previously uncaught, so a rejected batch left the cancel dialog
         // open with no explanation and the guest still on the board.
         toast({
-          variant:     'destructive',
-          title:       'Cancellation Failed',
+          variant:     e?.code === 'already' ? 'default' : 'destructive',
+          title:       e?.code === 'already' ? 'Already cancelled' : 'Cancellation Failed',
           description: e?.message || 'Nothing was changed. Please try again.',
         });
         return;
@@ -411,99 +434,15 @@ export function useCancellationConfirm(
       // walk-in forfeits whatever available deposit the client happens to
       // be holding for a completely different appointment.
       let depositNote: string | null = null;
-      if ((isClientCancel || isNoShowCancel) && !isWalkInCancel) {
+      if (depositPlan) {
         try {
-          const creditsCol = collection(firestore, `tenants/${tenantId}/depositCredits`);
-          let creditSnap = appointment.clientId
-            ? await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientId', '==', appointment.clientId)))
-            : null;
-          if ((!creditSnap || creditSnap.empty) && client.email) {
-            creditSnap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(client.email).toLowerCase().trim())));
-          }
-          if (creditSnap && !creditSnap.empty) {
-            // This booking's own deposit (lib/credit-pools), or one carried over to it from a cancelled booking; never
-            // store credit from a return (same collection), and never a deposit waiting for another booking.
-            const candidates = creditSnap.docs
-              .map(d => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
-              .filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
-            const credit: any = pickDeposit(candidates, [appointment.id], () => true)
-              || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
-
-            if (credit) {
-              // What's left on it (a deposit part used at the desk keeps only the rest).
-              const amount = creditLeftCents(credit) / 100;
-              const decisionNow = new Date().toISOString();
-
-              if (isNoShowCancel && (!depositOutcome || depositOutcome === 'forfeit' || depositOutcome === 'applied')) {
-                // No-shows forfeit (unless the business's policy — via the desk's plan — says otherwise).
-                const forfeitBatch = writeBatch(firestore);
-                forfeitBatch.set(credit.ref, {
-                  status: 'forfeited', forfeitedAt: decisionNow,
-                  forfeitedFromAppointmentId: appointment.id, lastDecisionReason: 'no_show',
-                }, { merge: true });
-                // The studio is keeping this money — real, recognized
-                // revenue, not just a status flip. Previously nothing
-                // logged this as income anywhere.
-                const noShowRevenueRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-                forfeitBatch.set(noShowRevenueRef, {
-                  id: noShowRevenueRef.id, tenantId, appointmentId: appointment.id,
-                  clientId: appointment.clientId || null, clientName: client.name || credit.clientName || 'Client',
-                  date: decisionNow, type: 'income', category: 'No-Show Revenue',
-                  amount, amountCents: Math.round(amount * 100),
-                  paymentMethod: 'Deposit', hasReceipt: false,
-                  description: 'Deposit forfeited — no-show',
-                });
-                await forfeitBatch.commit();
-                depositNote = `$${amount.toFixed(2)} deposit forfeited — no-show.`;
-              } else {
-                const policy = resolveDepositPolicy(selectedTenant);
-                // Counted from the ORIGINAL time; and when the desk passed its plan, do exactly that.
-                const hrs = hoursToDeadline(selectedTenant, appointment);
-                const planned = depositOutcome === 'forfeit' || depositOutcome === 'applied' ? 'forfeit' : depositOutcome === 'rollover' || depositOutcome === 'store_credit' ? 'rollover' : depositOutcome === 'refund' ? 'refund' : null;
-                const resolved: any = planned ? { outcome: planned, reason: 'front_desk_plan' } : resolveDepositOutcome({ trigger: 'client_cancel', hoursUntilStart: hrs, policy });
-
-                if (resolved.outcome === 'refund') {
-                  const decisionRef = doc(collection(firestore, `tenants/${tenantId}/depositDecisions`));
-                  const decisionBatch = writeBatch(firestore);
-                  decisionBatch.set(decisionRef, {
-                    id: decisionRef.id, tenantId, creditId: credit.id, appointmentId: appointment.id,
-                    clientId: appointment.clientId || null, clientName: client.name || credit.clientName || 'Client',
-                    trigger: 'client_cancel', outcome: 'refund_pending', reason: resolved.reason,
-                    amountDollars: amount, hoursUntilStart: hrs, decidedAt: decisionNow,
-                  });
-                  await decisionBatch.commit();
-                  depositNote = `$${amount.toFixed(2)} deposit ready to refund — pending staff confirmation.`;
-                } else if (resolved.outcome === 'rollover') {
-                  const rolloverBatch = writeBatch(firestore);
-                  rolloverBatch.set(credit.ref, {
-                    status: 'available', rolledOver: true, rolledOverAt: decisionNow,
-                    rolledOverFromAppointmentId: appointment.id, expiresAt: rolloverExpiryISO(policy),
-                    lastDecisionReason: resolved.reason,
-                  }, { merge: true });
-                  await rolloverBatch.commit();
-                  depositNote = `$${amount.toFixed(2)} deposit rolled over — ${resolved.reason}.`;
-                } else {
-                  const forfeitBatch = writeBatch(firestore);
-                  forfeitBatch.set(credit.ref, {
-                    status: 'forfeited', forfeitedAt: decisionNow,
-                    forfeitedFromAppointmentId: appointment.id, lastDecisionReason: resolved.reason,
-                  }, { merge: true });
-                  // Same revenue-recognition fix as the no-show branch above.
-                  const lateCancelRevenueRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-                  forfeitBatch.set(lateCancelRevenueRef, {
-                    id: lateCancelRevenueRef.id, tenantId, appointmentId: appointment.id,
-                    clientId: appointment.clientId || null, clientName: client.name || credit.clientName || 'Client',
-                    date: decisionNow, type: 'income', category: 'Cancellation Revenue',
-                    amount, amountCents: Math.round(amount * 100),
-                    paymentMethod: 'Deposit', hasReceipt: false,
-                    description: `Deposit forfeited — ${resolved.reason}`,
-                  });
-                  await forfeitBatch.commit();
-                  depositNote = `$${amount.toFixed(2)} deposit forfeited — ${resolved.reason}.`;
-                }
-              }
-            }
-          }
+          const res = await fetch('/api/appointments/deposit-outcome', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+            body: JSON.stringify({ tenantId, appointmentId: appointmentDocId, outcome: depositPlan.outcome, reason: depositPlan.reason }) });
+          const d: any = await res.json().catch(() => ({}));
+          const amt = Number(d?.amount) || 0;
+          if (d?.outcome === 'forfeit') depositNote = `$${amt.toFixed(2)} deposit kept${isNoShowCancel ? ' — no-show' : ''}.`;
+          else if (d?.outcome === 'rollover') depositNote = `$${amt.toFixed(2)} deposit rolled over to their next visit.`;
+          else if (d?.outcome === 'refund_pending') depositNote = `$${amt.toFixed(2)} deposit ready to refund — pending staff confirmation.`;
         } catch (e) {
           console.warn('[client/no-show cancel deposit resolution]', e);
         }

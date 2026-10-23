@@ -59,25 +59,32 @@ export async function shareOrderTip(db: any, tenantId: string, orderId: string):
     clientOrVendor: o.customerName || 'Guest', clientId: o.clientId || null, retailOrderId: orderId, channel: 'online',
     paymentMethod: 'Online Checkout', tenantId,
   };
-  const shares = evenShares(tip, staffIds.length);
-  const lines = staffIds.length
-    ? staffIds.map((sid, i) => ({ id: tipLineId(orderId, sid), data: { ...base, id: tipLineId(orderId, sid), staffId: sid, amount: shares[i] / 100,
-        description: `Tip — Order ${num}${staffIds.length > 1 ? ` (shared between ${staffIds.length})` : ''}` } }))
-    : [{ id: tipLineId(orderId, 'unassigned'), data: { ...base, id: tipLineId(orderId, 'unassigned'), staffId: null, amount: tip / 100, description: `Tip — Order ${num} (no one on the team to credit)` } }];
+  const linesFor = (tipNow: number) => {
+    const shares = evenShares(tipNow, staffIds.length);
+    return staffIds.length
+      ? staffIds.map((sid, i) => ({ id: tipLineId(orderId, sid), data: { ...base, id: tipLineId(orderId, sid), staffId: sid, amount: shares[i] / 100,
+          description: `Tip — Order ${num}${staffIds.length > 1 ? ` (shared between ${staffIds.length})` : ''}` } }))
+      : [{ id: tipLineId(orderId, 'unassigned'), data: { ...base, id: tipLineId(orderId, 'unassigned'), staffId: null, amount: tipNow / 100, description: `Tip — Order ${num} (no one on the team to credit)` } }];
+  };
 
   const now = new Date().toISOString();
-  const done = await db.runTransaction(async (tx: any) => {
+  // Worked out again from the order as it is inside the step: a refund that gave some of the tip back a moment ago
+  // (or cancelled the order) is seen, and only what's left is shared.
+  const done = await db.runTransaction(async (tx: any): Promise<'done' | 'already' | 'no_tip' | 'not_yet'> => {
     const cur: any = (await tx.get(oRef)).data() || {};
-    if (cur.tipSharedAt) return false;
-    for (const l of lines) tx.set(db.doc(`${T}/transactions/${l.id}`), l.data);
+    if (cur.tipSharedAt) return 'already';
+    const tipNow = Math.max(0, c0(cur.tipCents) - c0(cur.refundedTipCents));
+    if (!tipNow || cur.isTest) return 'no_tip';
+    if (!OUT.includes(String(cur.stage || ''))) return 'not_yet';
+    for (const l of linesFor(tipNow)) tx.set(db.doc(`${T}/transactions/${l.id}`), l.data);
     tx.update(oRef, { tipSharedAt: now, tipSharedWith: staffIds, ...(staffIds.length ? {} : { tipUnassigned: true }) });
     const ev = oRef.collection('events').doc(`tip-shared`);
     tx.set(ev, { id: ev.id, type: 'note', at: now, actorId: 'system', actorName: 'Tips',
       meta: { kind: 'tip_shared', text: staffIds.length
-        ? `The ${`$${(tip / 100).toFixed(2)}`} tip went to ${staffIds.map((s) => names[s].split(' ')[0]).join(' and ')}, who ${staffIds.length > 1 ? 'packed and sent it' : 'fulfilled it'}. The shop’s tip policy shares it from there.`
-        : `The ${`$${(tip / 100).toFixed(2)}`} tip couldn’t be matched to anyone on the team, so it’s in the books without a name. Give it out by hand in Money.` } });
-    return true;
+        ? `The ${`$${(tipNow / 100).toFixed(2)}`} tip went to ${staffIds.map((s) => names[s].split(' ')[0]).join(' and ')}, who ${staffIds.length > 1 ? 'packed and sent it' : 'fulfilled it'}. The shop’s tip policy shares it from there.`
+        : `The ${`$${(tipNow / 100).toFixed(2)}`} tip couldn’t be matched to anyone on the team, so it’s in the books without a name. Give it out by hand in Money.` } });
+    return 'done';
   });
-  if (!done) return 'already';
+  if (done !== 'done') return done;
   return staffIds.length ? 'shared' : 'unassigned';
 }

@@ -17,5 +17,14 @@ export async function confirmRetailPayment(db: any, tenantId: string, tenant: an
     await handleRetailOrderPaid(db, stripe, tenantId, acct, session, chargeId); return 'paid';
   }
   if (session?.status === 'expired') { await handleRetailCheckoutExpired(db, tenantId, session); return 'expired'; }
+  // A payment that takes days to clear (a bank debit) and then failed: the order is closed, as Stripe's own notice would.
+  if (session?.status === 'complete' && session?.payment_status === 'unpaid') {
+    const piId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id;
+    if (piId) {
+      try { const pi: any = await stripe.paymentIntents.retrieve(piId, {}, { stripeAccount: acct });
+        if (['canceled', 'requires_payment_method'].includes(String(pi?.status || ''))) { await handleRetailCheckoutExpired(db, tenantId, session, 'payment_failed'); return 'expired'; } }
+      catch { /* asked again next time */ }
+    }
+  }
   return 'waiting';
 }

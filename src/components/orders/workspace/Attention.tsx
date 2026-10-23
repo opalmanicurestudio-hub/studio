@@ -1,9 +1,10 @@
 'use client';
 // src/components/orders/workspace/Attention.tsx — WHAT THIS ORDER NEEDS FROM SOMEONE, AT THE TOP OF THE ORDER. Each card
 // says what's wrong in plain words and has its fix on it: the ship-by date (and a new one), a hold for review (release
-// it or ask for ID), waiting on stock (release it), a refund to send (or one already sent from the dashboard), an
-// address change to answer, and label trouble (unused, voided, refused refunds, carrier adjustments). Nothing here
-// opens another page.
+// it or ask for ID), waiting on stock (release it), a refund to send (or one already sent from the dashboard), a refund
+// made in Stripe outside the app (already recorded: the card says so, so nobody sends or records it again), an address
+// change to answer, and label trouble (unused, voided, refused refunds, carrier adjustments). Nothing here opens
+// another page.
 import * as React from 'react';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { releaseHeld } from '@/lib/orders-flow';
@@ -90,6 +91,11 @@ export function Attention({ fs, tenantId, order, actor, rs, shopZone, canRefund,
     feel(r.ok); if (r.ok) { setConfirmRefund(false); onToast(r.message || 'Recorded as refunded.'); } else setErr(r.message);
   });
 
+  // REFUNDED IN STRIPE, OUTSIDE THE APP (lib/outside-refund): already in the books and on the order, in place of a
+  // refund the order was waiting to send, up to its amount. Shown until someone has seen it.
+  const outsideAll: any[] = Array.isArray(order.outsideRefunds) ? order.outsideRefunds : [];
+  const outsideNew = outsideAll.slice(Math.max(0, Number(order.outsideRefundsSeen) || 0));
+
   // AN ADDRESS CHANGE TO ANSWER: one tap either way (api/retail/address). A held order's change is a manager's call.
   const req = order.method === 'ship' ? openRequest(order) : null;
   const labelled = !!(order.labelUrl || order.shippoTransactionId);
@@ -165,6 +171,17 @@ export function Attention({ fs, tenantId, order, actor, rs, shopZone, canRefund,
       <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>{money(pending)} to refund to {who}</p>
       <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{shortLines.length ? `${shortLines.map((l: any) => l.name).join(', ')} couldn’t be sent.` : order.stage === 'cancelled' ? 'The order was cancelled.' : 'A return or a problem they reported.'}</p>
       {canRefund || inAuto ? <Btn kind="primary" className="mt-3 h-11" onClick={() => setConfirmRefund(true)}>Review the refund</Btn> : <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>Waiting for someone allowed to send refunds.</p>}
+    </div>);
+
+  if (outsideNew.length) items.push(
+    <div key="outside" className={card} style={{ background: C.soft }}>
+      <p className="m-0 text-[15px] font-semibold">Refunded in Stripe</p>
+      {outsideNew.map((x: any) => (
+        <p key={String(x.id)} className="m-0 mt-1 text-[14px]" style={muted}>{money(Number(x.cents) || 0)} on {day(x.at)}, made outside the app.{Number(x.coveredPendingCents) > 0 ? ` It took the place of the ${money(Number(x.coveredPendingCents))} refund this order was waiting to send.` : ''}</p>))}
+      <p className="m-0 mt-1 text-[14px]" style={muted}>It’s in the books and on this order already, so there’s nothing to record or send for it.</p>
+      <Btn kind="soft" className="mt-3 h-11 w-full" style={{ background: C.paper }} disabled={!!busy} onClick={() => void run('outside', async () => {
+        await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, order.id), { outsideRefundsSeen: outsideAll.length });
+      })}>Got it</Btn>
     </div>);
 
   if (req) items.push(

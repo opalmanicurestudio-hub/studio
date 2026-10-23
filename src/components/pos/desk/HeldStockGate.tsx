@@ -1,24 +1,26 @@
 'use client';
 // src/components/pos/desk/HeldStockGate.tsx — BEFORE THE PAYMENT: units held for paid online orders (lib/held-stock).
-// When the sale would sell some of them, the desk sees which, and a manager's PIN lets it go ahead (an approval the
-// server checks again when the sale is saved). A manager signed in goes ahead and is named on the sale.
+// When the sale would sell some of them, the desk sees which, and a manager's PIN lets it go ahead (an approval for
+// those products and that many units, checked again by the server when the sale is saved: adding more asks again).
+// A manager signed in goes ahead and is named on the sale.
 import * as React from 'react';
 import { approveWithPin } from '@/lib/approve-client';
-import { heldLine, type HeldShort } from '@/lib/held-stock';
+import { heldLine, heldRef, type HeldShort } from '@/lib/held-stock';
 
 export function HeldStockGate({ tenantId, held, approval, onApproved, manager }: {
-  tenantId: string; held: HeldShort[]; approval: { token: string; by: string } | null; manager: boolean;
-  onApproved: (a: { token: string; by: string }) => void;
+  tenantId: string; held: HeldShort[]; approval: { token: string; by: string; ref?: string } | null; manager: boolean;
+  onApproved: (a: { token: string; by: string; ref: string }) => void;
 }) {
   const [pin, setPin] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   if (!held.length) return null;
   const approve = async () => {
     if (pin.length < 4) { setErr('Enter a manager’s four-digit PIN.'); return; }
     setBusy(true); setErr('');
-    const r = await approveWithPin(tenantId, pin, { kind: 'held_stock', reason: held.map((h) => `${h.name} ×${h.want}`).join(', ').slice(0, 180), requireReason: false });
+    const ref = heldRef(held);
+    const r = await approveWithPin(tenantId, pin, { kind: 'held_stock', ref, reason: held.map((h) => `${h.name} ×${h.want}`).join(', ').slice(0, 180), requireReason: false });
     setBusy(false); setPin('');
     if (!r.ok || !r.token || !r.approver) { setErr(r.error || 'That PIN wasn’t a manager’s.'); return; }
-    onApproved({ token: r.token, by: r.approver.name });
+    onApproved({ token: r.token, by: r.approver.name, ref });
   };
   return (
     <div role="status" className="space-y-2.5 rounded-2xl px-4 py-3" style={{ background: 'color-mix(in srgb, var(--warn) 10%, var(--card))' }}>

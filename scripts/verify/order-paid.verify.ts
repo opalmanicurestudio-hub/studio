@@ -45,7 +45,7 @@ const draft = (x: any = {}) => ({
   tipCents: 300, totalCents: 4000 - 500 + 280 + 710 + 300, storeCreditRequestedCents: 0, refundedCents: 0,
   customerName: 'Maya Lopez', customerEmail: 'maya@example.com', placedAt: '2026-10-23T15:00:00.000Z', stripeCheckoutSessionId: 'cs_1', ...x,
 });
-const session = (x: any = {}) => ({ id: 'cs_1', payment_intent: 'pi_1', amount_total: 4790, total_details: { amount_tax: 0 }, metadata: { retailOrderId: 'o1' }, ...x });
+const session = (x: any = {}) => ({ id: 'cs_1', payment_intent: 'pi_1', amount_total: 4790, payment_status: 'paid', total_details: { amount_tax: 0 }, metadata: { retailOrderId: 'o1' }, ...x });
 const fresh = async (o: any = {}) => {
   db = strictTransactions(makeDb()); sent.length = 0; sendFails = 0;
   await db.doc(T).set({ name: 'Opal', businessName: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
@@ -194,6 +194,21 @@ const fresh = async (o: any = {}) => {
   await handleRetailOrderPaid(db, null, 't1', 'acct_1', session(), 'ch_1');
   o = await get(`${T}/retailOrders/o1`);
   check('paid once, receipt once, the client matched or made once', o.stage === 'paid' && sent.filter((m: any) => m.kind === 'order_confirmation').length === 1 && (await db.collection(`${T}/clients`).get()).docs.length === 1, { stage: o.stage, sent: sent.length });
+
+  console.log('A payment that takes days to clear');
+  await fresh();
+  await handleRetailOrderPaid(db, null, 't1', 'acct_1', session({ payment_status: 'unpaid' }), null);
+  o = await get(`${T}/retailOrders/o1`);
+  check('the page finished but the bank hasn’t paid yet: the order waits, nothing in the books, no number, no stock held', o.stage === 'placed' && !o.orderNumber && (await lines()).length === 0 && (await get(`${T}/inventory/p1`))?.stockReserved === 1, { stage: o.stage });
+  await handleRetailOrderPaid(db, null, 't1', 'acct_1', session({ payment_status: 'paid' }), 'ch_1');
+  check('…the money arrives (Stripe’s later notice): paid then', (await get(`${T}/retailOrders/o1`)).stage === 'paid' && (await lines()).length === 3);
+  await fresh();
+  const { handleRetailCheckoutExpired } = await import('../../src/lib/retail-webhook');
+  await handleRetailCheckoutExpired(db, 't1', session({ payment_status: 'unpaid' }), 'payment_failed');
+  o = await get(`${T}/retailOrders/o1`);
+  check('…the bank payment fails: the order is closed, never paid', o.stage === 'cancelled' && (await lines()).length === 0);
+  await handleRetailOrderPaid(db, null, 't1', 'acct_1', session({ payment_status: 'paid' }), 'ch_1');
+  check('…and a late notice can’t bring it back', (await get(`${T}/retailOrders/o1`)).stage === 'cancelled');
 
   console.log(failures ? `\n${failures} failed` : '\nAll passed');
   process.exit(failures ? 1 : 0);

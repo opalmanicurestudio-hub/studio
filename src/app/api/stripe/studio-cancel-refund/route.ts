@@ -53,10 +53,16 @@
  *     additionalCreditReason?,  // optional — shown on the ledger line and store credit entry
  *   }
  *   disposition: 'refund' | 'store_credit'
+ *
+ * A refund goes through the one deposit refund (lib/deposit-refund): the deposit is claimed in one step while it's
+ * still there to use (a checkout using it at the same moment finds it gone), refunded under one key, and recorded
+ * once — the booking is marked only when it exists (a walk-in's id has no booking). A refund that was sent but not
+ * yet recorded (no answer from Stripe) is finished by asking again, never sent twice.
  */
 
 import { staffOrServer } from '@/lib/route-guard';
 import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
+import { refundDepositCredit } from '@/lib/deposit-refund';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -143,10 +149,11 @@ export async function POST(req: NextRequest) {
   const client = clientSnap.data() || {};
 
   // ── Look up the deposit credit — the single source of truth ──────────────
+  // Still there to use, or being refunded for this booking already (sent, not yet recorded: asking again finishes it).
   const creditsCol = db.collection(`tenants/${tenantId}/depositCredits`);
-  let creditSnap = await creditsCol.where('status', '==', 'available').where('clientId', '==', clientId).get();
+  let creditSnap = await creditsCol.where('status', 'in', ['available', 'refunding']).where('clientId', '==', clientId).get();
   if (creditSnap.empty && client.email) {
-    creditSnap = await creditsCol.where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
+    creditSnap = await creditsCol.where('status', 'in', ['available', 'refunding']).where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
   }
   if (creditSnap.empty) {
     return NextResponse.json({ ok: false, reason: 'No deposit on file for this client.' }, { status: 404 });
@@ -154,12 +161,15 @@ export async function POST(req: NextRequest) {
 
   // THIS appointment's deposit (lib/credit-pools), or one carried over to it from a cancelled booking. Never store
   // credit from a return or a goodwill gesture (same collection), and never a deposit waiting for another booking.
-  const candidates = creditSnap.docs
-    .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
-    .filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
-  const credit: any = pickDeposit(candidates, [appointmentId], () => true) || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
+  const all = creditSnap.docs.map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) })).filter((c: any) => isDepositCredit(c));
+  const inFlight: any = all.find((c: any) => c.status === 'refunding' && [c.refundingForAppointmentId, c.sourceAppointmentId].map((x: any) => String(x || '')).includes(String(appointmentId))) || null;
+  const candidates = all.filter((c: any) => c.status === 'available' && !isCreditExpired(c.expiresAt));
+  const credit: any = inFlight || pickDeposit(candidates, [appointmentId], () => true) || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
   if (!credit) {
     return NextResponse.json({ ok: false, reason: 'No deposit on file for this booking.' }, { status: 404 });
+  }
+  if (inFlight && disposition !== 'refund') {
+    return NextResponse.json({ ok: false, reason: 'This deposit is being refunded to their card. Refund it again to finish: it won’t refund twice.' }, { status: 409 });
   }
 
   // What's left on it: a deposit part used at the desk gives back only the rest.
@@ -185,87 +195,29 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // Claimed, refunded under one key for the deposit, and recorded once (lib/deposit-refund). The fee paid when the
+      // deposit was taken was an expense then: it's noted on the refund, never written again. Any fee Stripe gives
+      // back on the refund is booked by the payments handler (charge.refunded), once, by Stripe's own record of it.
       const stripe = getStripe();
-      const intent = await stripe.paymentIntents.retrieve(stripePaymentIntentId, { stripeAccount: tenant.stripeAccountId });
-      if (intent.status !== 'succeeded') {
-        return NextResponse.json({ ok: false, reason: `Payment intent status is ${intent.status} — cannot refund` });
-      }
-
-      const refund = await stripe.refunds.create(
-        {
-          payment_intent: stripePaymentIntentId,
-          amount: depositAmountCents,
-          reason: 'requested_by_customer',
-          metadata: {
-            tenantId, clientId, appointmentId,
-            staffId: staffId || 'system',
-            cancelReason: reason || 'studio_cancelled',
-            disposition: 'refund',
-          },
-        },
-        // One refund per deposit, however often this is asked (a double tap, a retry after a dropped answer).
-        { stripeAccount: tenant.stripeAccountId, idempotencyKey: `studio-cancel-${String(credit.id || credit.ref?.id || appointmentId)}-${depositAmountCents}` },
-      );
-
-      // ── Fee visibility ──────────────────────────────────────────────────
       const originalFeeCents = await getOriginalChargeFeeCents(stripe, tenant.stripeAccountId, stripePaymentIntentId);
-      let refundFeeCents = 0;
-      try {
-        const refundWithBalance: any = await stripe.refunds.retrieve(
-          refund.id,
-          { expand: ['balance_transaction'] },
-          { stripeAccount: tenant.stripeAccountId },
-        );
-        const bt = refundWithBalance?.balance_transaction;
-        // balance_transaction.fee on a refund is usually 0 — Stripe doesn't
-        // return the original fee in most configurations. Capture whatever
-        // it actually reports rather than assuming either way.
-        if (bt && typeof bt === 'object') refundFeeCents = Math.abs(bt.fee || 0);
-      } catch (e) {
-        console.warn('[studio-cancel-refund] could not retrieve refund balance transaction', e);
-      }
-      // NOTE: the incremental refund fee is intentionally NOT written here.
-      // The Connect webhook's charge.refunded handler is the single source of
-      // truth for refund-side fees — it reads the refund's balance transaction
-      // and books any returned fee with the correct sign (a credit/return, not
-      // an expense), deduped by stripeBalanceTxnId. refundFeeCents is still
-      // surfaced in the audit detail below for visibility.
-
-      // The records, once: the refund line is named after Stripe's refund, and the deposit is marked refunded in the same
-      // step, so a second request (the same refund, by its idempotency key) finds it done.
-      const txRef = db.doc(`tenants/${tenantId}/transactions/depositrefund_${refund.id}`);
-      const already = await db.runTransaction(async (tx: any) => {
-        const [fresh, line] = await Promise.all([tx.get(credit.ref), tx.get(txRef)]);
-        if (line.exists || fresh.data()?.status === 'refunded') return true;
-        tx.set(credit.ref, { status: 'refunded', refundedAt: now, refundedFromAppointmentId: appointmentId, stripeRefundId: refund.id }, { merge: true });
-        tx.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
-          depositRefunded: true, depositRefundedAt: now, depositRefundedAmountCents: depositAmountCents,
-          depositStripeRefundId: refund.id, depositDisposition: 'refunded',
-        });
-        // A refund in the books (lib/books-summary): it comes off sales, since the deposit was counted when it was paid.
-        tx.set(txRef, {
-          id: txRef.id, tenantId, appointmentId, clientId, clientName: who, clientOrVendor: who,
-          date: now, createdAt: now, description: `Deposit refund — ${what} — ${who}`,
-          type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund', refundKind: 'deposit', taxRefunded: 0,
-          amount: dollars, amountCents: depositAmountCents, paymentMethod: 'Card (Stripe refund)', hasReceipt: false,
-          stripePaymentIntentId, stripeRefundId: refund.id, status: 'succeeded',
-          reason: reason || 'studio_cancelled', disposition: 'refunded',
-          ...(credit.ledgerSourceId ? { refundOfLine: credit.ledgerSourceId } : {}),
-          // The fee paid when the deposit was taken was already an expense then; noted, not written again.
-          ...(originalFeeCents > 0 ? { notes: `The card fee on the original deposit ($${(originalFeeCents / 100).toFixed(2)}) was recorded when it was taken; it isn't written again.` } : {}),
-        });
-        const auditRef = db.doc(`tenants/${tenantId}/auditLog/depositrefund_${refund.id}`);
-        tx.set(auditRef, {
+      const r = await refundDepositCredit(db, tenantId, String(credit.id), stripe, {
+        by: staffId || null, appointmentId: String(appointmentId), reason: reason || 'studio_cancelled',
+        metadata: { clientId: String(clientId), staffId: String(staffId || 'system'), cancelReason: String(reason || 'studio_cancelled').slice(0, 400), disposition: 'refund' },
+        note: originalFeeCents > 0 ? `The card fee on the original deposit ($${(originalFeeCents / 100).toFixed(2)}) was recorded when it was taken; it isn't written again.` : null,
+      });
+      if (!r.ok) return NextResponse.json({ ok: false, reason: r.error }, { status: r.status });
+      if (!r.already) {
+        const auditRef = db.doc(`tenants/${tenantId}/auditLog/depositrefund_${r.refundId}`);
+        await auditRef.set({
           id: auditRef.id, tenantId, entityType: 'deposit_refund', entityId: appointmentId,
           actorId: staffId || 'system', timestamp: now,
-          summary: `Deposit refunded $${dollars.toFixed(2)} to ${client.name || 'client'} — studio cancelled`,
-          detail: { disposition: 'refunded', stripeRefundId: refund.id, reason: reason || null, originalFeeCents, refundFeeCents },
-        });
-        return false;
-      });
+          summary: `Deposit refunded $${r.amount.toFixed(2)} to ${client.name || 'client'} — studio cancelled`,
+          detail: { disposition: 'refunded', stripeRefundId: r.refundId, reason: reason || null, originalFeeCents },
+        }, { merge: true }).catch(() => {});
+      }
       return NextResponse.json({
-        ok: true, disposition: 'refunded', refundId: refund.id, amount: dollars,
-        originalFeeCents, refundFeeCents, ...(already ? { already: true } : {}),
+        ok: true, disposition: 'refunded', refundId: r.refundId, amount: r.amount,
+        originalFeeCents, ...(r.already ? { already: true } : {}),
       });
 
     } else {
@@ -308,8 +260,10 @@ export async function POST(req: NextRequest) {
       // All in one step that first checks the deposit is still there to convert, so a double tap or a retry can't add
       // the credit twice. Each line is named after the deposit it came from.
       const key = String(credit.id || credit.ref?.id || appointmentId);
+      const apRef = /^[A-Za-z0-9_-]{1,160}$/.test(String(appointmentId)) ? db.doc(`tenants/${tenantId}/appointments/${appointmentId}`) : null;
       const already = await db.runTransaction(async (tx: any) => {
         const fresh = await tx.get(credit.ref);
+        const ap = apRef ? await tx.get(apRef) : null;
         if (fresh.data()?.status !== 'available') return true;
         // Consume the SOURCE depositCredits record (so it can't also get auto-applied to a future booking) and add the
         // same amount to the client's store-credit wallet.
@@ -318,7 +272,8 @@ export async function POST(req: NextRequest) {
           storeCredits: FieldValue.arrayUnion(...storeCreditsToAdd),
           totalStoreCredit: FieldValue.increment(totalCreditDollars),
         });
-        tx.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
+        // The booking says so, when there is one (a walk-in's id has no booking to mark).
+        if (ap?.exists) tx.update(apRef, {
           depositConvertedToCredit: true, depositConvertedToCreditAt: now,
           depositConvertedAmountCents: depositAmountCents, depositDisposition: 'store_credit',
         });

@@ -1,4 +1,4 @@
-import { creditLeftCents, isDepositCredit } from '@/lib/credit-pools';
+import { refundDepositCredit } from '@/lib/deposit-refund';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
@@ -27,116 +27,23 @@ function getStripe() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Refunds an appointment deposit and reverses its ledger income.
+// Refunds an appointment deposit and records it as a return (lib/deposit-refund).
 //
 // Called only for the 'refund' outcome — rollover and forfeit never hit Stripe.
-// Guards:
-//   • Only a deposit still 'available' can be refunded. A consumed (already
-//     applied at checkout), refunded, or forfeited deposit is rejected — so this
-//     can never double-refund or refund money the studio already earned.
-//   • The Stripe refund uses an idempotency key, and the ledger reversal has a
-//     deterministic doc id, so a retried request is harmless.
+// Only a deposit still there to use can be refunded, claimed in one step first (a checkout using it at the same
+// moment, or a second tap, finds it gone), refunded under one key, and recorded once.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const { tenantId, creditId } = await req.json();
-    { const g = await requireRole(req, String(tenantId || ''), 'manager'); if (g.deny) return g.deny; }
+    const g = await requireRole(req, String(tenantId || ''), 'manager'); if (g.deny) return g.deny;
     if (!tenantId || !creditId) {
       return NextResponse.json({ error: 'Missing tenantId or creditId' }, { status: 400 });
     }
-
-    const db        = getAdminDb();
-    const creditRef = db.doc(`tenants/${tenantId}/depositCredits/${creditId}`);
-    const snap      = await creditRef.get();
-    if (!snap.exists) {
-      return NextResponse.json({ error: 'Deposit credit not found' }, { status: 404 });
-    }
-    const credit = snap.data() || {};
-
-    // Only an unused deposit can be refunded.
-    if (credit.status !== 'available') {
-      return NextResponse.json(
-        { error: `Deposit is '${credit.status}', not refundable`, status: credit.status },
-        { status: 409 }
-      );
-    }
-
-    const paymentIntentId = credit.stripePaymentIntentId;
-    if (!paymentIntentId) {
-      return NextResponse.json({ error: 'No payment on file to refund' }, { status: 400 });
-    }
-
-    // Connected account for this studio
-    const tenantSnap      = await db.doc(`tenants/${tenantId}`).get();
-    const stripeAccountId = tenantSnap.data()?.stripeAccountId;
-    if (!stripeAccountId) {
-      return NextResponse.json({ error: 'Studio has no connected payment account' }, { status: 400 });
-    }
-
-    // A booking's deposit only (store credit from a return lives in the same collection and isn't refunded to a card
-    // here), and only what's left on it: a deposit part used at the desk gives back the rest (lib/credit-pools).
-    if (!isDepositCredit(credit)) {
-      return NextResponse.json({ error: 'That isn’t a booking deposit.' }, { status: 409 });
-    }
-    const amountCents = creditLeftCents(credit);
-    const amountDollars = amountCents / 100;
-    if (!(amountCents > 0)) {
-      return NextResponse.json({ error: 'Nothing to refund on this deposit' }, { status: 400 });
-    }
-
-    // Issue the refund on the connected account (idempotent). Only the deposit goes back: a desk charge can also have
-    // paid a balance the client owed, and that part isn't refundable.
-    const stripe = getStripe();
-    const refund = await stripe.refunds.create(
-      { payment_intent: paymentIntentId, amount: amountCents },
-      { stripeAccount: stripeAccountId, idempotencyKey: `deposit_refund_${creditId}` }
-    );
-
-    const nowISO        = new Date().toISOString();
-
-    const batch = db.batch();
-
-    // 1) Close the credit so it can never be applied at checkout
-    batch.set(
-      creditRef,
-      { status: 'refunded', refundedAt: nowISO, stripeRefundId: refund.id },
-      { merge: true }
-    );
-
-    // 2) Reverse the deposit income in the ledger (deterministic id → idempotent).
-    //    Posted as an expense so it cleanly nets the original income to zero,
-    //    matching how the void flow records reversals.
-    const reversalId  = `deposit_refund__${String(creditId).replace(/[^A-Za-z0-9_-]/g, '')}`;
-    const reversalRef = db.doc(`tenants/${tenantId}/transactions/${reversalId}`);
-    batch.set(
-      reversalRef,
-      {
-        id:                    reversalId,
-        date:                  nowISO,
-        description:           `Deposit refund — ${credit.serviceName || 'Service'} — ${credit.clientName || 'Client'}`,
-        clientOrVendor:        credit.clientName || 'Client',
-        clientId:              credit.clientId || null,
-        type:                  'expense',
-        context:               'Business',
-        // One category for every refund, a return in the books (lib/books-summary); no sales tax was on a deposit.
-        category:              'Refunds',
-        taxBucket:             'refund',
-        refundKind:            'deposit',
-        taxRefunded:           0,
-        amount:                amountDollars,
-        paymentMethod:         'Card (Stripe)',
-        reversalOf:            credit.ledgerSourceId || null,
-        stripeRefundId:        refund.id,
-        stripePaymentIntentId: paymentIntentId,
-        hasReceipt:            false,
-        tenantId,
-      },
-      { merge: true }
-    );
-
-    await batch.commit();
-
-    return NextResponse.json({ ok: true, refundId: refund.id, amount: amountDollars });
+    // Claimed, refunded under one key for the deposit, and recorded once (lib/deposit-refund).
+    const r = await refundDepositCredit(getAdminDb(), String(tenantId), String(creditId), getStripe(), { by: (g.actor as any)?.name || null });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+    return NextResponse.json({ ok: true, refundId: r.refundId, amount: r.amount, ...(r.already ? { already: true } : {}) });
   } catch (err: any) {
     console.error('[stripe/deposit-refund]', err);
     return NextResponse.json({ error: err.message }, { status: 500 });

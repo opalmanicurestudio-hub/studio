@@ -32,9 +32,9 @@
  */
 
 import { requireRole } from '@/lib/route-guard';
-import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
 import { hasRealCard } from '@/lib/card-on-file';
 import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 import { spawnRecoveryTicket } from '@/lib/opal/recovery-engine';
 import { appendBehaviorEvent } from '@/lib/opal/behavior-ledger';
@@ -56,10 +56,6 @@ function getAdmin() {
   return { db: getFirestore(app), FieldValue };
 }
 
-function isCreditExpired(expiresAt: string | null | undefined): boolean {
-  if (!expiresAt) return false;
-  return new Date(expiresAt).getTime() <= Date.now();
-}
 
 export async function POST(req: NextRequest) {
   let body: any = {};
@@ -104,6 +100,10 @@ export async function POST(req: NextRequest) {
         .update({ resolved: true, resolvedAt: now });
     }
     return NextResponse.json({ ok: true, alreadyResolved: true });
+  }
+  // Someone else is saving a cancellation of this booking right now (the client's own link, or the desk).
+  if (appt.cancelClaim?.at && Date.now() - (Date.parse(String(appt.cancelClaim.at)) || 0) < 120000) {
+    return NextResponse.json({ ok: false, error: 'This booking is being cancelled right now. Give it a moment.' }, { status: 409 });
   }
 
   const batch = db.batch();
@@ -183,7 +183,8 @@ export async function POST(req: NextRequest) {
     confirmedAt: now,
   };
 
-  // Mark appointment cancelled
+  // Mark appointment cancelled — only if nothing changed it since it was read above: two confirmations at the same
+  // moment (a double tap, two people on the same alert) can't both go through, so the fee is charged once.
   batch.update(apptRef, {
     status:                 'cancelled',
     cancelledAt:            now,
@@ -193,7 +194,7 @@ export async function POST(req: NextRequest) {
     cancellationEventId:    eventId,
     cancellationFeeCharged: feeAmount,
     cancellationAudit,
-  });
+  }, { lastUpdateTime: apptSnap.updateTime });
 
   // Optimistic balance update if no card
   if (paymentMethod === 'add_to_balance' && feeAmount > 0) {
@@ -203,7 +204,7 @@ export async function POST(req: NextRequest) {
       // the balance went up but the Ledger's Bad Debt Aging widget (reads
       // unpaidFees) never saw it.
       unpaidFees: FieldValue.arrayUnion({
-        feeId: nanoid(),
+        feeId: `cancel-${appointmentId}`,
         appointmentId: appt.id,
         appointmentDate: now,
         feeAmount,
@@ -212,48 +213,8 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // ── Deposit forfeiture — depositCredits, not appointment fields ──────────
+  // ── The deposit: kept (lib/deposit-outcome), settled with the cancellation's event below, once. ──────────
   let depositForfeitedAmount = 0;
-  try {
-    const creditsCol = db.collection(`tenants/${tenantId}/depositCredits`);
-    let creditSnap = appt.clientId
-      ? await creditsCol.where('status', '==', 'available').where('clientId', '==', appt.clientId).get()
-      : { empty: true, docs: [] as any[] };
-    if (creditSnap.empty && client?.email) {
-      creditSnap = await creditsCol.where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
-    }
-    if (!creditSnap.empty) {
-      // This booking's own deposit (lib/credit-pools), or one carried over to it from a cancelled booking: never store
-      // credit from a return (same collection), and never a deposit waiting for another booking.
-      const candidates = creditSnap.docs
-        .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
-        .filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
-      const credit: any = pickDeposit(candidates, [String(appt.id || appointmentId)], () => true) || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
-      if (credit) {
-        // What's left on it is what's kept.
-        depositForfeitedAmount = creditLeftCents(credit) / 100;
-        batch.set(credit.ref, {
-          status: 'forfeited',
-          forfeitedAt: now,
-          forfeitedFromAppointmentId: appt.id,
-          lastDecisionReason: 'no_show',
-        }, { merge: true });
-
-        const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-        batch.set(txRef, {
-          id: txRef.id, tenantId, appointmentId: appt.id, clientId: appt.clientId,
-          clientName: client.name || appt.clientName || 'Client',
-          date: now, type: 'income', category: 'No-Show Revenue',
-          amount: depositForfeitedAmount, amountCents: Math.round(depositForfeitedAmount * 100),
-          paymentMethod: 'Deposit', hasReceipt: false,
-          description: 'Deposit forfeited — no-show',
-        });
-      }
-    }
-  } catch (e) {
-    console.error('[handle-no-show-action] deposit forfeiture lookup failed', e);
-    // Best-effort — don't block the cancellation on a deposit-lookup hiccup.
-  }
 
   // Audit log
   const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
@@ -266,7 +227,7 @@ export async function POST(req: NextRequest) {
     actorId:    staffId,
     actorName:  'Staff Confirmed No-Show',
     timestamp:  now,
-    summary:    `Staff confirmed no-show: ${client.name || appt.clientName} — $${feeAmount.toFixed(2)} fee${depositForfeitedAmount > 0 ? `, $${depositForfeitedAmount.toFixed(2)} deposit forfeited` : ''}`,
+    summary:    `Staff confirmed no-show: ${client.name || appt.clientName} — $${feeAmount.toFixed(2)} fee`,
   });
 
   // Create cancellationEvent → triggers onCancellationEvent (Stripe + email + SMS)
@@ -296,17 +257,29 @@ export async function POST(req: NextRequest) {
     smsStatus:             'pending',
     staffConfirmed:        true,
     confirmedBy:           staffId,
+    // The booking's deposit is kept (lib/deposit-outcome), settled with this event.
+    depositPlan:           { outcome: 'forfeit', reason: 'no_show', by: String(staffId) },
     createdAt:             now,
     processedAt:           null,
     stripeChargeId:        null,
     errorMessage:          null,
   });
 
-  await batch.commit();
+  try { await batch.commit(); }
+  catch (e: any) {
+    // The booking changed since it was read: another confirmation (or a cancellation) got there first.
+    if (Number(e?.code) === 9 || /FAILED_PRECONDITION|precondition/i.test(String(e?.message || ''))) return NextResponse.json({ ok: true, alreadyResolved: true });
+    throw e;
+  }
+  // The deposit, kept now (once; the event's own processing does it if this is cut off).
+  try { const { settleCancelledDeposit } = await import('@/lib/deposit-outcome');
+    const d: any = await settleCancelledDeposit(db, tenantId, { appointmentId, outcome: 'forfeit', reason: 'no_show', trigger: 'no_show', by: String(staffId), clientEmail: client.email || null });
+    if (d?.outcome === 'forfeit') depositForfeitedAmount = d.amount;
+  } catch (e) { console.error('[handle-no-show-action] deposit (the five-minute job finishes it)', e); }
   // Finish the cancellation now — charge the fee, record it, tell the client (lib/cancellation-events). It used to be
   // left to a background function that never ran. If this is interrupted, the 5-minute no-shows job sweeps it up.
   try {
-    const Stripe = (await import('stripe')).default; const { processCancellationEvent } = await import('@/lib/cancellation-events');
+    const { processCancellationEvent } = await import('@/lib/cancellation-events');
     await processCancellationEvent(db, new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }), tenantId, eventId);
   } catch (e: any) { console.error('[cancellation] finishing failed — the sweep will retry', e?.message); }
 

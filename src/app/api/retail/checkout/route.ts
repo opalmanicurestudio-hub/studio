@@ -12,6 +12,7 @@ import {
   stripeCustomText, validateAddress,
 } from '@/lib/address-validation';
 import Stripe from 'stripe';
+import { createHash } from 'crypto';
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { nanoid } from 'nanoid';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
@@ -83,6 +84,7 @@ function getAdminDb() {
 }
 
 interface CheckoutBody {
+  checkoutKey?: string;          // the checkout page's own id for this checkout, the same on every retry from it
   gift?: { isGift?: boolean; to?: string; message?: string }; // a gift: who it's for and the message (lib/gift-orders)
   applyStoreCredit?: boolean;
   promoCode?: string;            // a promo code from Discounts that works in the shop (lib/promo-codes)
@@ -204,6 +206,46 @@ async function handleCheckout(req: NextRequest) {
   if (cartEntries.length > 60) return NextResponse.json({ error: 'That cart is too large for one order.' }, { status: 400 });
 
   const db = getAdminDb();
+
+  // ── The checkout page's own id for this checkout (the same on every retry from that page) ─────────────────────
+  // An order paid in full here, with store credit or a gift card (no card payment to wait for), is paid once however
+  // often the request comes: a retry after a lost answer is shown the order that was paid, never a second one.
+  const ckey = /^[A-Za-z0-9_-]{16,64}$/.test(String(body.checkoutKey || '')) ? String(body.checkoutKey) : '';
+  const keyRef = ckey ? db.doc(`tenants/${tenantId}/private/checkoutKeys/keys/${createHash('sha256').update(`${tenantId}:${ckey}`).digest('hex').slice(0, 40)}`) : null;
+  const paidByKey = async (): Promise<any | null> => {
+    if (!keyRef) return null;
+    const k = await keyRef.get(); const kid = k.exists ? String((k.data() || {}).orderId || '') : '';
+    if (!kid) return null;
+    const o = await db.doc(`tenants/${tenantId}/retailOrders/${kid}`).get();
+    const od: any = o.exists ? o.data() || {} : null;
+    return od && od.stage !== 'placed' && od.paidAt ? { id: kid, ...od } : null;
+  };
+  const paidAnswer = (o: any) => {
+    const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+    return NextResponse.json({ url: `${origin}/shop/${tenantId}/order/${o.id}?paid=${o.paidVia === 'gift_card' ? 'gift' : 'credit'}`, orderId: o.id, orderNumber: o.orderNumber ?? null, isDraft: false, zeroCharge: true, already: true });
+  };
+  { const done = await paidByKey(); if (done) return paidAnswer(done); }
+  /** Claims the key for this order before it's paid in full here. 'busy' = the same checkout is being paid right now. */
+  const claimKey = async (orderId: string): Promise<'ok' | 'busy' | { paid: any }> => {
+    if (!keyRef) return 'ok';
+    const r = await db.runTransaction(async (tx: any) => {
+      const k = await tx.get(keyRef); const cur: any = k.exists ? k.data() || {} : null;
+      if (cur?.orderId && cur.orderId !== orderId) {
+        const o = await tx.get(db.doc(`tenants/${tenantId}/retailOrders/${String(cur.orderId)}`));
+        const od: any = o.exists ? o.data() || {} : null;
+        if (od && od.stage !== 'placed' && od.paidAt) return { paid: { id: String(cur.orderId), ...od } };
+        if (cur.state === 'paying' && Date.now() - (Date.parse(String(cur.at || '')) || 0) < 120000) return 'busy';
+      }
+      tx.set(keyRef, { orderId, state: 'paying', at: new Date().toISOString() });
+      return 'ok';
+    });
+    return r as any;
+  };
+  /** Lets the key go when this order wasn't paid in full here after all (the card path takes over). */
+  const releaseKey = async (orderId: string) => {
+    if (!keyRef) return;
+    await db.runTransaction(async (tx: any) => { const k = await tx.get(keyRef); if (k.exists && (k.data() || {}).orderId === orderId) tx.delete(keyRef); }).catch(() => {});
+  };
 
   // ── Tenant + connected account ────────────────────────────────────────────
   const tenantSnap = await db.collection('tenants').doc(tenantId).get();
@@ -692,7 +734,7 @@ async function handleCheckout(req: NextRequest) {
         price_data: {
           currency: 'usd',
           unit_amount: tipCents,
-          product_data: { name: 'Tip \u2764\ufe0f', ...(withTaxCodes ? { tax_code: 'txcd_00000000' } : {}) },
+          product_data: { name: 'Tip', ...(withTaxCodes ? { tax_code: 'txcd_00000000' } : {}) },
           ...(withTaxCodes ? { tax_behavior: 'exclusive' } : {}),
         },
       });
@@ -771,8 +813,12 @@ async function handleCheckout(req: NextRequest) {
       // the credit meanwhile, nothing is written and the card path below takes over. Only on flat/no-tax shops: with
       // Stripe Tax the true total isn't known until the payment page.
       if (!stripeTax && chargeable > 0 && available >= chargeable) {
+        const claim = await claimKey(orderId);
+        if (claim === 'busy') return NextResponse.json({ error: 'This order is being placed right now. Give it a moment, then check your email for the receipt.' }, { status: 409 });
+        if (typeof claim === 'object') return paidAnswer(claim.paid);
         const { payOrder } = await import('@/lib/order-paid');
         const r = await payOrder(db, tenantId, orderId, { via: 'store_credit', cents: chargeable });
+        if (!r.won) await releaseKey(orderId);
         if (r.won) {
           const { finishPaidOrder } = await import('@/lib/retail-webhook');
           try { await finishPaidOrder(db, tenantId, orderId, null); } catch (e: any) { console.error('[checkout] after a credit-paid order (it is paid):', e?.message); }
@@ -823,8 +869,15 @@ async function handleCheckout(req: NextRequest) {
           // The order becomes paid in one step (lib/order-paid), the gift card spent from its hold in the same step, and
           // the sale in the books. If the card can't pay all of it after all, nothing is written and the card path
           // below takes over.
+          const claim = await claimKey(orderId);
+          if (claim !== 'ok') {
+            await holdGiftCard(db, tenantId, { id: g.id, holdId: `retail_${orderId}`, cents: 0 }).catch(() => {});
+            if (claim === 'busy') return NextResponse.json({ error: 'This order is being placed right now. Give it a moment, then check your email for the receipt.' }, { status: 409 });
+            return paidAnswer(claim.paid);
+          }
           const { payOrder } = await import('@/lib/order-paid');
           const r = await payOrder(db, tenantId, orderId, { via: 'gift_card', gift: { id: g.id, code: g.code, cents: chargeable } });
+          if (!r.won) await releaseKey(orderId);
           if (r.won) {
             const { finishPaidOrder } = await import('@/lib/retail-webhook');
             try { await finishPaidOrder(db, tenantId, orderId, null); } catch (e: any) { console.error('[checkout] after a gift-paid order (it is paid):', e?.message); }
@@ -842,6 +895,27 @@ async function handleCheckout(req: NextRequest) {
           await orderRef.set({ giftCardId: g.id, giftCardCode: g.code, giftCardCents: h.cents }, { merge: true });
         } }
     } catch (e: any) { console.error('[checkout] gift card', e?.message); return NextResponse.json({ error: 'The gift card couldn’t be applied — try again, or remove it to pay by card.' }, { status: 400 }); }
+  }
+
+  // ── Stripe Tax, with a gift card or store credit paying part (lib/stripe-tax-calc) ─────────────────────────────
+  // They're ways of paying, not discounts: the tax is on the full price (the promo code off), worked out by Stripe Tax
+  // now and shown as its own line, so the discount below can't shrink it. If Stripe Tax can't be asked, the shop's flat
+  // rate is used and the order says so (as when Stripe Tax isn't set up).
+  let taxLineCents: number | null = null;
+  if (stripeTax && creditAppliedCents + giftHeldCents > 0) {
+    let calc: { id: string; cents: number } | null = null;
+    try {
+      const { fullPriceTax } = await import('@/lib/stripe-tax-calc');
+      calc = await fullPriceTax(stripe, stripeAccountId, {
+        lines: (lines as any[]).map((l) => ({ amountCents: l.unitPriceCents * l.qtyOrdered - (Number(l.promoCents) || 0), quantity: l.qtyOrdered, reference: String(l.id || l.lineId || l.productId), taxCode: l.digital === true ? 'txcd_10501000' : 'txcd_99999999' })),
+        shippingCents, address: body.shippingAddress || null,
+      });
+    } catch (e: any) { console.error(`[checkout] Stripe Tax couldn’t work out the tax for tenant ${tenantId} — using the flat rate:`, String(e?.raw?.message || e?.message || e).slice(0, 200)); }
+    taxLineCents = calc ? calc.cents : Math.round((subtotalCents - promoCents) * ((Number(rs.taxRatePercent) || 0) / 100));
+    await orderRef.set({
+      taxMode: calc ? 'stripe_calc' : 'flat_fallback', ...(calc ? { taxCalculationId: calc.id } : {}),
+      taxCents: taxLineCents, totalCents: subtotalCents - promoCents + taxLineCents + shippingCents + tipCents,
+    }, { merge: true });
   }
 
   // ONE Stripe discount for everything that comes off: the promo code, store credit and a gift card.
@@ -863,7 +937,9 @@ async function handleCheckout(req: NextRequest) {
     let session: any;
     try {
       session = await createCheckoutSession(stripe, 
-        { ...sessionParams(lineItems, stripeTax), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) },
+        taxLineCents != null
+          ? { ...sessionParams(buildLineItems(false, taxLineCents), false), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) }
+          : { ...sessionParams(lineItems, stripeTax), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) },
         { stripeAccount: stripeAccountId }
       );
     } catch (taxErr: any) {
@@ -874,7 +950,7 @@ async function handleCheckout(req: NextRequest) {
       // Fall back ONCE to the tenant's flat rate — loudly stamped on the
       // order as 'flat_fallback' so the gap is visible in the books instead
       // of silently swallowed — and only then let a second failure surface.
-      if (!stripeTax) throw taxErr;
+      if (!stripeTax || taxLineCents != null) throw taxErr;
       console.error(
         `[checkout] Stripe Tax session failed for tenant ${tenantId} — falling back to flat rate:`,
         String(taxErr?.raw?.message || taxErr?.message || taxErr)

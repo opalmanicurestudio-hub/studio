@@ -66,14 +66,24 @@ const ev = (type: string, object: any) => ({ id: `evt_${Math.random().toString(3
   check('…one credit and one income line', [...db._store.keys()].filter((k: string) => k.startsWith(`${T}/depositCredits/`)).length === 1 && txns().length === 1 && txns()[0].amount === 25, txns());
   check('…and one confirmation to her', sentLog().filter((n: any) => n.kind === 'booking_confirmation' && n.status === 'sent').length === 1, sentLog().map((n: any) => [n.kind, n.status]));
 
+  console.log('a deposit paid by bank debit');
+  await fresh();
+  await db.doc(`${T}/appointments/a1`).set({ clientId: 'c1', clientName: 'Maya Lopez', clientEmail: 'maya@example.com', serviceName: 'Gel fill', status: 'pending_payment', depositStatus: 'pending', depositAmountCents: 2500, startTime: '2026-11-02T15:00:00Z' });
+  const slow = { id: 'cs_8', payment_intent: 'pi_8', amount_total: 2500, metadata: { type: 'deposit', appointmentId: 'a1', tenantId: 't1' } };
+  await send(ev('checkout.session.completed', { ...slow, payment_status: 'unpaid' }));
+  check('the page finished but the bank hasn’t paid: the booking isn’t marked paid, nothing in the books', (await get(`${T}/appointments/a1`)).depositStatus === 'pending' && txns().length === 0);
+  await send(ev('checkout.session.async_payment_succeeded', { ...slow, payment_status: 'paid' }));
+  check('…the money arrives: recorded then, once', (await get(`${T}/appointments/a1`)).depositStatus === 'paid' && txns().length === 1);
+
   console.log('a refund');
   await fresh();
-  refundList = [{ id: 're_1', amount: 1000, status: 'succeeded', balance_transaction: 'txn_r1', created: nowS, metadata: {} }];
+  refundList = [{ id: 're_1', amount: 1000, status: 'succeeded', balance_transaction: 'txn_r1', created: nowS, metadata: { origin: 'app' } }];
   const refunded = ev('charge.refunded', { id: 'ch_1', payment_intent: 'pi_1', amount: 4500, amount_refunded: 1000, metadata: { clientId: 'c1', appointmentId: 'a1', type: 'appointment' }, billing_details: { email: 'maya@example.com' }, payment_method_details: { card: { last4: '4242' } }, refunds: { data: refundList } });
   await Promise.all([send(refunded), send(refunded)]);
   await send(refunded);
   check('the client is told once', sentLog().filter((n: any) => n.kind === 'refund_notice' && n.status === 'sent').length === 1, sentLog().map((n: any) => [n.kind, n.status]));
-  check('…and Stripe’s fee return is in the books once', txns().filter((t: any) => t.description?.startsWith('Stripe fee return')).length === 1 && Math.abs(txns()[0].amount - 0.3) < 1e-9, txns());
+  check('…and Stripe’s fee return is in the books once', txns().filter((t: any) => t.description?.startsWith('Stripe fee return')).length === 1 && Math.abs(txns().find((t: any) => t.description?.startsWith('Stripe fee return')).amount - 0.3) < 1e-9, txns());
+  check('…a refund the app sent isn’t recorded again as one made in Stripe', !txns().some((t: any) => t.madeOutsideApp));
   check('…the claim is marked sent', !!(await get(`${T}/refundNotices/refund_re_1`))?.sentAt);
 
   console.log('a dispute');

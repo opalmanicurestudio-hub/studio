@@ -1109,11 +1109,15 @@ const LedgerTab = () => {
     let refundTotal = data.amount + (data.refundTip ? (transactionToRefund.tipAmount || 0) : 0);
     // Card sales go back to the card first; the books only change once the card refund went through.
     let toCard: { card: boolean; cents?: number } = { card: false };
-    if (!isCash) {
+    // A booking's deposit is closed on the server whichever way it was paid (so it can't also come off the next bill).
+    const depositLine = ['retainers', 'deposits', 'deposit'].includes(String(transactionToRefund.category || '').trim().toLowerCase()) && String(transactionToRefund.type || 'income').toLowerCase() === 'income';
+    if (!isCash || depositLine) {
       try {
         const tk = await getAuth().currentUser?.getIdToken().catch(() => '');
         const r = await fetch('/api/money/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, transactionId: transactionToRefund.id, amountCents: Math.round(refundTotal * 100) }) }).then((x) => x.json());
         if (!r?.ok) { toast({ variant: 'destructive', title: 'Card refund didn’t go through', description: r?.error || 'Nothing was changed. Try again.' }); return; }
+        // A booking's deposit: refunded and recorded as a deposit on the server (its credit closed, the return in the books).
+        if (r.deposit) { toast({ title: r.already ? 'Already refunded' : 'Deposit refunded', description: `$${(Number(r.refundedCents) / 100).toFixed(2)} ${r.already ? 'went' : 'is going'} back to the card. The deposit is closed, so it won’t come off their next bill.` }); setTransactionToRefund(null); return; }
         if (r.card) { toCard = { card: true, cents: r.refundedCents }; if (r.shortCents > 0) refundTotal = Math.round(r.refundedCents) / 100; }
       } catch { toast({ variant: 'destructive', title: 'Card refund didn’t go through', description: 'Nothing was changed. Try again.' }); return; }
     }

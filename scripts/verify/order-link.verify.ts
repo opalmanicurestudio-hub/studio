@@ -56,6 +56,13 @@ const post = (body: any) => ({ json: async () => body, nextUrl: { origin: 'https
   r = await status(get({ pass: 'garbage.value' }));
   check('a made-up pass: the same', !r.body.order.shippingAddress.line1);
 
+  await db.doc(`${T}/retailOrders/o1/inbox/u1`).set({ kind: 'address_confirm', at: new Date().toISOString(), title: 'Please check the address for your order before it ships', body: 'Before we ship your order, please check that this is the right address:<br><br><strong>Dana Whitfield<br>88 Pine St, Portland, OR 97201</strong>' });
+  r = await status(get({}));
+  const u = r.body.order.updates?.[0];
+  check('the shop’s updates on the page hide the street, the postcode and her full name too', u && !/88 Pine St/.test(u.body) && !/97201/.test(u.body) && !/Whitfield/.test(u.body) && /Portland/.test(u.body), u?.body);
+  r = await status(get({ pass: makePass('t1', 'qr1') }));
+  check('…and show them with a pass', /88 Pine St/.test(r.body.order.updates?.[0]?.body || ''));
+
   console.log('with a pass');
   r = await status(get({ pass: makePass('t1', 'qr1') }));
   o = r.body.order;

@@ -152,9 +152,10 @@ export async function POST(req: NextRequest) {
     // No sale in the app took it: paid at the desk in cash, or on a card machine the app isn't connected to.
     const desk = !receiptId;
     const method = desk ? DESK_METHOD[String(b.via || '').toLowerCase()] || 'Paid at the desk' : '';
-    // Paid at the desk covers a balance collected with this deposit too (unless the desk says it wasn't taken).
+    // Paid at the desk covers a balance collected with this deposit too (unless the desk says it wasn't taken). Paid on a
+    // sale in the app, it doesn't: the sale carries the deposit only, and any fee it took is a line of its own there.
     const bal = balanceDueWith(ap);
-    const balPaid = bal > 0 && b.withBalance !== false ? await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: desk ? method : 'Paid at the desk', via: 'front desk', actorName: auth.actor.name }) : false;
+    const balPaid = desk && bal > 0 && b.withBalance !== false ? await settleCollectedBalance(db, tenantId, appointmentId, bal, { paymentMethod: method, via: 'front desk', actorName: auth.actor.name }) : false;
     // Cash goes in the drawer: the open till expects it (the deposit, and a balance paid with it), so it balances at close.
     const toTill = desk && method === 'Cash' ? async () => {
       const till = (await db.collection(`${T}/tillSessions`).where('status', '==', 'open').limit(1).get()).docs[0];
@@ -206,7 +207,10 @@ export async function POST(req: NextRequest) {
       const prev: any = cur.depositChargeLock || null;
       const held = Date.parse(String(prev?.at || ''));
       if (!prev?.unknown && Number.isFinite(held) && startedAt - held < CHARGE_LOCK_MS) return { state: 'busy' as const, key: '' };
-      const key = prev?.unknown && prev?.key ? String(prev.key) : `dep_${appointmentId}_${cents + bal}_${startedAt}`;
+      // An attempt that never cleared its hold (no answer, or the request was cut off after charging) may have gone
+      // through: the next attempt reuses its key, so the card processor answers with that charge instead of another.
+      // A decline clears the hold, so a new attempt after one is a real new try.
+      const key = prev?.key ? String(prev.key) : `dep_${appointmentId}_${cents + bal}_${startedAt}`;
       tx.set(aRef, { depositChargeLock: { at: new Date(startedAt).toISOString(), by: auth.actor.name || 'Front desk', key } }, { merge: true });
       return { state: 'ok' as const, key };
     });

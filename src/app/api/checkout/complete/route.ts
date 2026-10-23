@@ -21,7 +21,7 @@ import { refundPaymentIntent } from '@/lib/stripe-refund';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { monthKey } from '@/lib/team-discount';
 import { consumeApproval, isApprover } from '@/lib/approvals';
-import { heldLine, heldShortfall } from '@/lib/held-stock';
+import { heldCovered, heldLine, heldShortfall } from '@/lib/held-stock';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -776,7 +776,11 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       const { creditLeftCents, isDepositCredit, pickDeposit, spendable } = await import('@/lib/credit-pools');
       let cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientId', '==', clientId).get();
       if (cs.empty && client.email) cs = await db.collection(`${T}/depositCredits`).where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
-      const all = cs.docs.map((d: any) => ({ ref: d.ref, id: d.id, updateTime: d.updateTime, ...(d.data() as any) })).filter((c: any) => isDepositCredit(c) && spendable(c) && !isCreditExpired(c.expiresAt));
+      // The visits' own deposits too, whoever is paying (a parent paying for her daughter's visit uses the daughter's deposit).
+      const byId = new Map<string, any>(); for (const d of cs.docs) byId.set(d.id, d);
+      const own = await db.collection(`${T}/depositCredits`).where('sourceAppointmentId', 'in', apptIds.slice(0, 30)).get().catch(() => null);
+      for (const d of own?.docs || []) byId.set(d.id, d);
+      const all = [...byId.values()].map((d: any) => ({ ref: d.ref, id: d.id, updateTime: d.updateTime, ...(d.data() as any) })).filter((c: any) => isDepositCredit(c) && spendable(c) && !isCreditExpired(c.expiresAt));
       const mine = all.filter((c: any) => apptIds.includes(String(c.sourceAppointmentId || '')));
       let picked: any[] = mine;
       if (!picked.length) {
@@ -832,13 +836,14 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     } else if (over) recoveryApprovedBy = auth.actor.name;
   }
   // Units held for paid online orders (lib/held-stock): selling into them would leave one of those orders short, so a
-  // manager says yes — signed in, or their PIN at the desk (one approval, used here).
+  // manager says yes — signed in, or their PIN at the desk (one approval, used here, for the products and the number of
+  // units it names: a bigger sale, or another product, asks again).
   const heldShort = heldShortfall(items, inventory);
   let heldApprovedBy: string | null = null;
   if (heldShort.length) {
     if (actorIsManager) heldApprovedBy = auth.actor.name;
     else {
-      const ok = await consumeApproval(db, tenantId, b.heldStock?.approvalToken, { kind: 'held_stock' });
+      const ok = await consumeApproval(db, tenantId, b.heldStock?.approvalToken, { kind: 'held_stock', covers: (a: any) => heldCovered(a?.ref, heldShort) });
       if (!ok) { await failPending('Units held for online orders weren’t approved to sell.'); return json({ ok: false, code: 'held_stock', held: heldShort, error: `${heldShort.map(heldLine).join('; ')}. A manager needs to approve selling them.` }, 409); }
       heldApprovedBy = ok.approverName;
     }

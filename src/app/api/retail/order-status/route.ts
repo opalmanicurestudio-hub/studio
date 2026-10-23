@@ -414,6 +414,23 @@ export async function GET(req: NextRequest) {
     active,
   };
   // Without a pass: the town it ships to, never the street, their first name, and the email masked (lib/order-pass).
+  // The shop's updates on the page are read the same way: the street, the postcode, the full name, the email and the
+  // mobile in them come back hidden (an "is this the right address?" note quotes the address in full).
+  if (!passOk && Array.isArray(body.order?.updates) && body.order.updates.length) {
+    const addrs = [order.shippingAddress, order.addressRequest?.to, order.addressPay?.to, order.addressConfirm?.address].filter((a: any) => a && typeof a === 'object');
+    const hide: [string, string][] = [];
+    for (const a of addrs) {
+      for (const k of ['line1', 'line2', 'postalCode']) { const v = String(a[k] || '').trim(); if (v.length >= 3) hide.push([v, '•••']); }
+      const nm = String(a.name || '').trim(); if (nm.includes(' ')) hide.push([nm, nm.split(/\s+/)[0]]);
+    }
+    const full = String(order.customerName || '').trim(); if (full.includes(' ')) hide.push([full, full.split(/\s+/)[0]]);
+    const em = String(order.customerEmail || '').trim(); if (em) hide.push([em, maskEmail(em)]);
+    const ph = String(order.customerPhone || '').trim(); if (ph.replace(/\D/g, '').length >= 7) hide.push([ph, `•••${ph.replace(/\D/g, '').slice(-4)}`]);
+    hide.sort((x, y) => y[0].length - x[0].length);
+    const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const redact = (t: string) => hide.reduce((acc, [v, w]) => acc.replace(new RegExp(esc(v), 'gi'), w), String(t || ''));
+    body.order.updates = body.order.updates.map((u: any) => ({ ...u, title: redact(u.title), body: redact(u.body) }));
+  }
   if (!passOk && body.order) {
     const o2 = body.order;
     o2.customerEmail = o2.customerEmail ? maskEmail(String(o2.customerEmail)) : '';

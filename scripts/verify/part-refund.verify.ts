@@ -10,12 +10,13 @@ import { booksSummary } from '../../src/lib/books-summary';
 
 let db = makeDb();
 let actor: any = { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: ['checkout.refund'] };
-const stripeCalls: any[] = []; const stripeMade: any[] = []; let stripeFail = '';
+const stripeCalls: any[] = []; const stripeMade: any[] = []; let stripeFail = ''; let stripeDown = false;
 function StripeMock(this: any) {
   return { refunds: {
     create: async (params: any, opts: any) => {
       stripeCalls.push({ params, opts });
       if (stripeFail) throw Object.assign(new Error(stripeFail), { type: 'StripeInvalidRequestError', raw: { message: stripeFail } });
+      if (stripeDown) throw Object.assign(new Error('An error occurred with our connection to Stripe.'), { type: 'StripeConnectionError' });
       const r = { id: `re_${stripeMade.length + 1}`, amount: params.amount, metadata: params.metadata, status: 'succeeded', payment_intent: params.payment_intent };
       stripeMade.push(r); return r;
     },
@@ -62,7 +63,7 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1130, s
 
   const { POST } = await import('../../src/app/api/retail/refund/route');
   const fresh = async (x: any = {}) => {
-    db = makeDb(); strictTransactions(db); stripeCalls.length = 0; stripeMade.length = 0; stripeFail = '';
+    db = makeDb(); strictTransactions(db); stripeCalls.length = 0; stripeMade.length = 0; stripeFail = ''; stripeDown = false;
     actor = { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: ['checkout.refund'] };
     await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
     await db.doc(`${T}/retailOrders/o1`).set(order(x));
@@ -119,6 +120,47 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1130, s
   check('…and the same ask later: still one', r.body.already === true && stripeCalls.length === 1, r.body);
   r = await send({ kind: 'amount', cents: 500, note: 'another', id: 'ask-0002' });
   check('a new ask is a new refund', r.status === 200 && stripeCalls.length === 2, r.body);
+
+  console.log('no answer from Stripe, then the same refund again');
+  const lapse = async () => { const cur = await get(`${T}/retailOrders/o1`); await db.doc(`${T}/retailOrders/o1`).set({ refundInFlight: { ...cur.refundInFlight, at: new Date(Date.now() - 10 * 60000).toISOString() } }, { merge: true }); };
+  await fresh();
+  stripeDown = true;
+  r = await send({ kind: 'items', lines: [{ lineId: 'a', qty: 1 }], note: 'Cracked', id: 'ask-lost-01' });
+  check('no answer: the desk is told it may or may not have gone', r.status === 502 && /didn’t answer/.test(r.body.error), r.body);
+  stripeDown = false; await lapse();
+  r = await send({ kind: 'items', lines: [{ lineId: 'a', qty: 1 }], note: 'Cracked', id: 'ask-lost-01' });
+  o = await get(`${T}/retailOrders/o1`);
+  check('…tapped again once it has lapsed: one candle and its tax, not two', r.status === 200 && stripeMade.length === 1 && stripeMade[0].amount === 1296 && o.refundedCents === 1296 && o.pendingRefundCents === 0, { r: r.body, made: stripeMade.map((x) => x.amount), o: { refunded: o.refundedCents, pending: o.pendingRefundCents } });
+  check('…and the candle is marked refunded once', o.lines[0].qtyRefunded === 1 && o.partRefunds.length === 1, o.lines[0]);
+  await fresh();
+  stripeDown = true;
+  await send({ kind: 'items', lines: [{ lineId: 'a', qty: 1 }], note: 'Cracked', id: 'ask-lost-02' });
+  stripeDown = false; await lapse();
+  r = await send();
+  o = await get(`${T}/retailOrders/o1`);
+  check('…sent from the waiting refund instead: the same amount, and the candle is still marked', r.status === 200 && stripeMade.length === 1 && stripeMade[0].amount === 1296 && o.lines[0].qtyRefunded === 1 && o.pendingRefundCents === 0, { made: stripeMade.map((x) => x.amount), line: o.lines[0] });
+  await fresh();
+  stripeDown = true;
+  await send({ kind: 'items', lines: [{ lineId: 'a', qty: 1 }], note: 'Cracked', id: 'ask-lost-03' });
+  stripeDown = false; await lapse();
+  r = await send({ kind: 'shipping', note: 'Late', id: 'ask-lost-04' });
+  check('…a different part refund while that one waits: asked to send the waiting one first', r.status === 409 && stripeMade.length === 0, r.body);
+  await fresh();
+  stripeDown = true;
+  await send({ kind: 'items', lines: [{ lineId: 'a', qty: 1 }], note: 'Cracked', id: 'ask-lost-05' });
+  stripeDown = false; await lapse();
+  stripeMade.push({ id: 're_made', amount: 1296, metadata: { retailOrderId: 'o1', seq: '1' }, status: 'succeeded', payment_intent: 'pi_1' });
+  r = await send({ kind: 'items', lines: [{ lineId: 'a', qty: 1 }], note: 'Cracked', id: 'ask-lost-05' });
+  o = await get(`${T}/retailOrders/o1`);
+  check('…when the first try did go through: it is recorded, and nothing more is sent', r.status === 200 && stripeCalls.filter((c) => !c.list).length === 1 && o.refundedCents === 1296 && o.lines[0].qtyRefunded === 1, { calls: stripeCalls.length, o: { refunded: o.refundedCents, q: o.lines[0].qtyRefunded } });
+
+  console.log('the shipping refunded for going in one box with another order');
+  await fresh({ pendingRefundCents: 800, shipTogetherRefundCents: 800, shippedWithOrderId: 'o0' });
+  r = await send();
+  o = await get(`${T}/retailOrders/o1`);
+  ls = lines();
+  check('sent from the waiting refund (not the automatic call): still shipping, no tax with it', r.status === 200 && stripeCalls[0].params.amount === 800 && ls.length === 1 && !ls[0].taxRefunded && !o.refundedTaxCents, ls);
+  check('…and counted as shipping given back, so it can’t be refunded again as shipping', o.shippingRefundedCents === 800 && o.shipTogetherRefundedCents === 800 && !partRefundAsk(o, { kind: 'shipping', note: 'x' }).ok, o);
 
   console.log('a cancelled order’s tip');
   await fresh({ stage: 'cancelled', pendingRefundCents: 5620 });

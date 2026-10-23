@@ -84,7 +84,7 @@ function TabQuerySync({ onTab, onLease, onSettings }: { onTab: (t: 'spaces' | 'o
 import {
   doc,
   updateDoc,
-  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where, writeBatch, arrayUnion } from 'firebase/firestore';
+  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where, writeBatch, runTransaction, arrayUnion } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -2524,6 +2524,7 @@ export default function BoothsPage() {
   const incidentalPolicy: any[] = (Array.isArray((selectedTenant as any)?.incidentalCategories) && (selectedTenant as any).incidentalCategories.length)
     ? (selectedTenant as any).incidentalCategories : DEFAULT_INCIDENTALS;
   const [incidentalBusyId, setIncidentalBusyId] = useState<string | null>(null);
+  const incidentalTry = useRef('');
   // ── Incidentals charge-policy editor ───────────────────────────────────────
   // Owners set the ALLOWED charge types and a hard cap on each. The server
   // enforces these on every card charge (reserve route PATCH action:'incidental'),
@@ -2660,12 +2661,17 @@ export default function BoothsPage() {
     const cents = Math.round(parseFloat(incidentalAmt) * 100);
     if (!(cents >= 50) || !incidentalCat || incidentalBusyId) return;
     setIncidentalBusyId(r.id);
+    // This attempt's name: the same charge asked again (after no answer) keeps it, so it can't go through twice.
+    if (!incidentalTry.current) incidentalTry.current = Math.random().toString(36).slice(2, 10);
+    const key = `${incidentalTry.current}-${r.id}-${cents}-${incidentalCat}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100);
     try {
       const res = await fetch('/api/booths/reserve', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'incidental', tenantId, reservationId: r.id, amountCents: cents, category: incidentalCat, note: incidentalDesc.trim() }),
+        body: JSON.stringify({ action: 'incidental', tenantId, reservationId: r.id, amountCents: cents, category: incidentalCat, note: incidentalDesc.trim(), key }),
       });
       const data = await res.json();
+      // Charged, or the card said no: the next charge is a new attempt.
+      if (data.ok || res.status === 402) incidentalTry.current = '';
       if (data.ok) {
         toast({ title: 'Card charged', description: `$${(data.chargedCents / 100).toFixed(2)} — ${incidentalCat} recorded in the ledger.` });
         writeBoothAudit(firestore, tenantId, {
@@ -2684,28 +2690,35 @@ export default function BoothsPage() {
     try {
       // v73 — three fixes in one: (1) `source: 'booth_rent'` — WITHOUT it
       // this money was invisible to every booth ledger view and renter
-      // statement, which all filter on that field; (2) atomic batch so the
+      // statement, which all filter on that field; (2) one step, so the
       // ledger entry and the reservation flag can't drift; (3) audit entry.
-      const batch = writeBatch(firestore);
-      const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
-      batch.set(txnRef, {
-        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
-        source: 'booth_rent',
-        amount: (r.overageDueCents || 0) / 100, category: 'Booth Rent',
-        description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
-        clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Collected in person',
-        hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso,
-      });
-      batch.update(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
-        { overageStatus: 'collected', overageCollectedAt: nowIso });
+      // Once: only while the overage is still due (a second tap, or a card charge a moment ago, finds it done), and the
+      // line is named after the booking, the same as a card charge's.
+      const resRef = doc(firestore, 'tenants', tenantId, 'boothReservations', r.id);
+      const txnRef = doc(firestore, 'tenants', tenantId, 'transactions', `boothover_${String(r.id).replace(/[^A-Za-z0-9_-]/g, '')}`);
       const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
-      batch.set(aRef, { id: aRef.id, ...auditEntry({
-        action: 'booth.overage_collected', targetType: 'transaction', targetId: txnRef.id,
-        summary: `Overage collected in person: ${r.name || 'guest'} · ${r.boothName || 'space'} (+${r.overageMinutes || 0} min)`,
-        amount: (r.overageDueCents || 0) / 100, actor: { type: 'user' },
-      }) });
-      await batch.commit();
-      toast({ title: 'Overage collected', description: `$${((r.overageDueCents || 0) / 100).toFixed(2)} recorded in the ledger.` });
+      const cents = await runTransaction(firestore, async (tx) => {
+        const cur: any = (await tx.get(resRef)).data() || {};
+        const due = Math.round(Number(cur.overageDueCents) || 0);
+        if (cur.overageStatus !== 'due' || !(due > 0)) return 0;
+        tx.set(txnRef, {
+          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+          source: 'booth_rent',
+          amount: due / 100, category: 'Booth Rent',
+          description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
+          clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Collected in person',
+          hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso,
+        });
+        tx.update(resRef, { overageStatus: 'collected', overageCollectedAt: nowIso });
+        tx.set(aRef, { id: aRef.id, ...auditEntry({
+          action: 'booth.overage_collected', targetType: 'transaction', targetId: txnRef.id,
+          summary: `Overage collected in person: ${r.name || 'guest'} · ${r.boothName || 'space'} (+${r.overageMinutes || 0} min)`,
+          amount: due / 100, actor: { type: 'user' },
+        }) });
+        return due;
+      });
+      if (!cents) { toast({ title: 'Already recorded', description: 'This overage was already charged or collected.' }); return; }
+      toast({ title: 'Overage collected', description: `$${(cents / 100).toFixed(2)} recorded in the ledger.` });
     } catch {
       toast({ variant: 'destructive', title: 'Could not record', description: 'Nothing was saved — try again.' });
     }

@@ -1,7 +1,8 @@
 // src/lib/held-stock.ts — UNITS HELD FOR PAID ONLINE ORDERS, AT THE DESK (pure; the desk screen and the server both
 // use it). An online order that's paid holds its units (stockReserved) until it's packed. The desk can sell what's on
 // the shelf beyond those; selling into them would leave a paid order short, so it takes a manager: signed in, or their
-// PIN at the desk (an approval of kind 'held_stock', checked again by api/checkout/complete).
+// PIN at the desk (an approval of kind 'held_stock', checked again by api/checkout/complete). The approval names each
+// product and how many may be sold (heldRef), so it can't be spent on more units, or on something else.
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export type HeldShort = { id: string; name: string; want: number; free: number; held: number };
@@ -27,6 +28,22 @@ export function heldShortfall(items: any[], inventory: any[]): HeldShort[] {
     if (q > free) out.push({ id, name: String(p.name || 'An item'), want: q, free, held });
   }
   return out;
+}
+
+/** What a manager's yes covers, as the approval's ref: each product and how many of it may be sold. */
+export const heldRef = (short: HeldShort[]) =>
+  'held:' + [...(short || [])].sort((a, b) => String(a.id).localeCompare(String(b.id))).map((h) => `${encodeURIComponent(String(h.id))}*${Math.max(0, Math.round(n(h.want)))}`).join(',');
+
+/** Does an approval (its ref) cover this sale: every product it dips into named, and at least as many as now. */
+export function heldCovered(ref: any, short: HeldShort[]): boolean {
+  const s = String(ref || '');
+  if (!s.startsWith('held:')) return false;
+  const ok = new Map<string, number>();
+  for (const part of s.slice(5).split(',')) {
+    const i = part.lastIndexOf('*'); if (i <= 0) continue;
+    try { ok.set(decodeURIComponent(part.slice(0, i)), Math.round(n(part.slice(i + 1)))); } catch { /* not one of ours */ }
+  }
+  return (short || []).every((h) => (ok.get(String(h.id)) || 0) >= Math.round(n(h.want)));
 }
 
 /** "Hand cream: 1 of the 3 on the shelf isn't held" — for the desk and the refusal. */

@@ -137,6 +137,10 @@ export function effectOf(t: any, byId?: Map<string, any>, depth = 0): Effect {
   const raw = n(t?.amount);
   const category = String(t?.category || '') || 'Other';
   if (!raw) return { side: 'skip', amount: 0, tax: 0, category };
+  // A deposit kept for a no-show or a late cancellation (lib/deposit-outcome): it was counted as a sale when it was
+  // paid, and the line only names it (for the team's no-show share). Lines written before it said so are known by
+  // their wording: paid by "Deposit", "Deposit forfeited — …".
+  if (t?.alreadyCounted === true || (lc(t?.paymentMethod) === 'deposit' && /^deposit forfeited/i.test(String(t?.description || '')))) return { side: 'skip', amount: 0, tax: 0, category };
   // Older deposit refunds were written as type 'refund' with a negative amount, and deposits kept as store credit as
   // 'store_credit_issued': both give back a deposit that was counted as a sale when it was paid.
   if (type === 'refund') return { side: 'returns', amount: Math.abs(raw), tax: 0, category };
@@ -200,7 +204,8 @@ export function booksSummary(txns: any[], opts: SummaryOptions = {}): BooksSumma
     acc[e.side] += e.amount;
     if (e.side in catMaps) { const m = catMaps[e.side as keyof typeof catMaps]; m.set(e.category, (m.get(e.category) || 0) + e.amount); }
     if (e.side === 'sales') {
-      if (e.amount > 0) saleKeys.add(String(t?.checkoutSessionId || t?.retailOrderId || t?.appointmentId || t?.id || saleKeys.size));
+      // One sale per order or checkout: an online order's lines (its sale and its shipping) count once.
+      if (e.amount > 0) saleKeys.add(String(t?.retailOrderId ? `ro:${t.retailOrderId}` : t?.checkoutSessionId || t?.appointmentId || t?.id || saleKeys.size));
       if (SHIP_CHARGED.test(e.category)) shippingCharged += e.amount;
       if (lc(e.category) === 'card processing fee') feesPassedOn += e.amount;
     }

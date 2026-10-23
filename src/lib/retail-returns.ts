@@ -493,12 +493,16 @@ export async function markRefundExecuted(
       // The sales tax that went back with it (lib/refund-tax), so the books lower the tax owed by that much.
       // The tip inside it (lib/refund-tax: the tip goes back last) is kept out of returns; the tax part is on the rest.
       const tipPart = (order as any).parentOrderId ? 0 : refundTipPart(order as any, cents);
-      const taxPart = refundTaxPart(order as any, Math.max(0, cents - tipPart));
+      // Shipping refunded because the order went in one box with another (lib/ship-together) gives back no tax.
+      const togetherLeft = Math.max(0, (Number((order as any).shipTogetherRefundCents) || 0) - (Number((order as any).shipTogetherRefundedCents) || 0));
+      const togetherNow = Math.min(togetherLeft, Math.max(0, cents - tipPart));
+      const taxPart = refundTaxPart(order as any, Math.max(0, cents - tipPart - togetherNow));
       txn.update(oRef, {
         pendingRefundCents: 0,
         refundedCents: (order.refundedCents || 0) + cents,
         ...(taxPart ? { refundedTaxCents: (Number((order as any).refundedTaxCents) || 0) + taxPart } : {}),
         ...(tipPart ? { refundedTipCents: (Number((order as any).refundedTipCents) || 0) + tipPart } : {}),
+        ...(togetherNow ? { shipTogetherRefundedCents: (Number((order as any).shipTogetherRefundedCents) || 0) + togetherNow } : {}),
       });
       txn.set(doc(collection(oRef, 'events')), evPayload('refund_issued', actor, {
         amountCents: cents, scope: cents >= order.totalCents ? 'full' : 'partial',

@@ -469,9 +469,16 @@ export default function CheckoutPage() {
   };
   const editAddress = () => { ar.setReview(null); setTimeout(() => document.getElementById('ship-line1')?.focus(), 0); };
 
+  // One id for this checkout, kept for every retry from this page, so an order paid in full with store credit or a gift
+  // card is paid once even when an answer is lost and they tap Pay again (api/retail/checkout).
+  const checkoutKey = React.useRef('');
   const placeOrder = async (extra?: { token?: string; unitAnswer?: 'added' | 'none'; address?: typeof addr }) => {
     if (!canPlace || placing) return;
     setPlacing(true);
+    if (!checkoutKey.current) {
+      try { const b = new Uint8Array(18); crypto.getRandomValues(b); checkoutKey.current = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join(''); }
+      catch { checkoutKey.current = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 40); }
+    }
     try {
       const res = await fetch('/api/retail/checkout', {
         method: 'POST',
@@ -505,6 +512,7 @@ export default function CheckoutPage() {
           priceTier: wholesale ? 'wholesale' : 'retail',
           wholesaleCode: wholesale ? wholesaleCode : undefined,
           business: wholesale ? { name: businessName.trim(), poNumber: poNumber.trim() } : undefined,
+          checkoutKey: checkoutKey.current,
         }),
       });
       const raw = await res.text();

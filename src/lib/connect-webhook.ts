@@ -32,7 +32,7 @@ import { depositCreditId } from '@/lib/deposit-record';
 //                                   'completion_setup'   — completion link with
 //                                     NO deposit: vaults the card only.
 //   charge.succeeded            → write exact Stripe processing fee to ledger
-//   charge.refunded             → write fee credit back to ledger
+//   charge.refunded             → a refund made in the Stripe Dashboard into the books; fee credit back to ledger
 //   charge.dispute.created      → write dispute fee
 //   charge.dispute.closed        → reverse fee if won, note if lost
 //   payout.paid                 → record net payout for reconciliation
@@ -105,21 +105,23 @@ export async function handleConnectWebhook(req: NextRequest) {
   try {
     switch (event.type) {
 
-      // ── A payment Stripe confirmed after the page closed (a delayed method): only an address change's pays this way
-      //    (its pages take cards only, so it shouldn't happen; if it does, the change goes on or is refunded once). ──
-      case 'checkout.session.async_payment_succeeded': {
+      // ── A payment that takes days to clear (a bank debit) didn't go through: a shop order waiting on it is closed,
+      //    and the customer gets the usual note that their cart is still there. Nothing was recorded for it. ──
+      case 'checkout.session.async_payment_failed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        if (session.metadata?.type !== 'address_change' || !session.metadata?.retailOrderId) break;
+        if (session.metadata?.type !== 'retail_order') break;
         const tenant = await getTenant(connAcct); if (!tenant) break;
-        try { const { finishAddressPay } = await import('@/lib/address-pay');
-          await finishAddressPay(db, tenant.id, String(session.metadata.retailOrderId), session.id, { session, stripe: stripe2 }); }
-        catch (e: any) { console.error('[connect-webhook] address change payment (delayed) failed', e?.message); }
+        await handleRetailCheckoutExpired(db, tenant.id, session, 'payment_failed');
         break;
       }
 
       // ── checkout.session.completed: deposit / completion / card vaulting ──
+      // A page finished with a payment that takes days to clear says 'unpaid': nothing is recorded until Stripe says the
+      // money arrived (checkout.session.async_payment_succeeded), which runs this same code, each part once.
+      case 'checkout.session.async_payment_succeeded':
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
+        if (session.payment_status === 'unpaid') break;
         const tenant  = await getTenant(connAcct);
         // A gift card a renter sold online was paid to the RENTER's account, which no business is keyed by: find it
         // through the order (the order records which account it was paid to, so a stray event can't claim it).
@@ -546,7 +548,7 @@ export async function handleConnectWebhook(req: NextRequest) {
         break;
       }
 
-      // ── charge.refunded: tell the client, and book any fee Stripe gave back ─────────────────────────────────────
+      // ── charge.refunded: tell the client, record a refund made outside the app, and book any fee Stripe gave back ──
       // Every refund on the charge is looked at, each once (by its own id): newer notices don't carry the list of
       // refunds, so it's asked for. Shop order refunds are told on the order page and by the refund itself
       // (api/retail/refund), so the client isn't told twice.
@@ -572,6 +574,10 @@ export async function handleConnectWebhook(req: NextRequest) {
                 email: charge.billing_details?.email || charge.receipt_email || null, last4: (charge.payment_method_details as any)?.card?.last4 || null });
             } catch (e) { console.error('[connect-webhook] refund notice', e); }
           }
+          // Made outside the app (in the Stripe Dashboard): in the books too, once, and the owners are told
+          // (lib/outside-refund). The app's own refunds carry its mark and are recorded where they're sent. Asked again
+          // if it fails: everything in this notice is safe to receive twice.
+          { const { recordOutsideRefund } = await import('@/lib/outside-refund'); await recordOutsideRefund(db, tenant.id, charge, rf, meta, { piId: chPi, account: connAcct }); }
           const refundBalTxnId = typeof rf.balance_transaction === 'string' ? rf.balance_transaction : (rf.balance_transaction as any)?.id;
           if (!refundBalTxnId) continue;
           // Once: by its own id, and by the lines written before it had one.
@@ -621,7 +627,8 @@ export async function handleConnectWebhook(req: NextRequest) {
         });
         const known = await disputeDocRef.get();
         if (known.exists) {
-          if (feeCents > 0) await feeRef.create(feeLine((known.data() as any)?.clientId || null)).catch(() => { /* written already */ });
+          // Written already, or a real failure: a failure answers Stripe with an error, so it sends the notice again.
+          if (feeCents > 0) await feeRef.create(feeLine((known.data() as any)?.clientId || null)).catch((e: any) => { if (!/ALREADY_EXISTS|already exists/i.test(String(e?.message || ''))) throw e; });
           break;
         }
         const existingDisp = await db.collection(`tenants/${tenant.id}/disputes`)
@@ -742,44 +749,37 @@ export async function handleConnectWebhook(req: NextRequest) {
         const found = (await byId.get()).exists ? byId : ((await db.collection(`tenants/${tenant.id}/disputes`).where('stripeDisputeId', '==', dispute.id).limit(1).get()).docs[0]?.ref || null);
         const outcome = dispute.status === 'won' ? 'won' : dispute.status === 'lost' ? 'lost' : 'closed';
         const nowIso = new Date().toISOString();
-        // Claim the outcome: the first notice to get here writes it; any other finds it written.
+        const chargeId = typeof dispute.charge === 'string' ? dispute.charge : (dispute.charge as any)?.id;
+        // Won: the fee comes back (Stripe's own figure: the reversal's fee is negative). Lost: the disputed amount went back
+        // to the cardholder, a refund in the books (returns), not a processing fee.
+        const feeBack = outcome !== 'won' ? 0 : (Array.isArray((dispute as any).balance_transactions) ? (dispute as any).balance_transactions : [])
+          .reduce((sum: number, b: any) => sum + Math.max(0, -(Number(b?.fee) || 0)), 0);
+        const revRef = db.doc(`tenants/${tenant.id}/transactions/disputewon_${dKey}`);
+        const lossRef = db.doc(`tenants/${tenant.id}/transactions/disputelost_${dKey}`);
+        // The outcome and its line in the books in one step: the first notice to get here writes both; any other finds
+        // them written. A failure answers Stripe with an error, so it sends the notice again.
         const claimed = await db.runTransaction(async (tx: any) => {
           const ref = found || byId;
-          const snap = await tx.get(ref);
+          const [snap, rs, ls] = await Promise.all([tx.get(ref), tx.get(revRef), tx.get(lossRef)]);
           const cur: any = snap.exists ? snap.data() || {} : {};
           if (cur.outcomeAt) return null;
           tx.set(ref, { id: ref.id, stripeDisputeId: dispute.id, status: outcome === 'closed' ? 'charge_refunded' : outcome, outcome, outcomeAt: nowIso, closedAt: nowIso, tenantId: tenant.id }, { merge: true });
-          return { clientId: cur.clientId || null, wasOpen: snap.exists };
-        });
-        if (!claimed) break;
-        const { FieldValue } = await import('firebase-admin/firestore');
-        const chargeId = typeof dispute.charge === 'string' ? dispute.charge : (dispute.charge as any)?.id;
-
-        if (outcome === 'won') {
-          // The fee comes back: Stripe's own figure for this dispute (the reversal's fee is negative).
-          const feeBack = (Array.isArray((dispute as any).balance_transactions) ? (dispute as any).balance_transactions : [])
-            .reduce((sum: number, b: any) => sum + Math.max(0, -(Number(b?.fee) || 0)), 0);
-          if (feeBack > 0) {
-            const revRef = db.doc(`tenants/${tenant.id}/transactions/disputewon_${dKey}`);
-            await revRef.create({
-              id: revRef.id, date: nowIso, description: 'Dispute won — fee reversed', clientOrVendor: 'Stripe',
-              type: 'income', context: 'Business', category: 'Processing Fee', taxBucket: 'processing_fee', amount: feeBack / 100,
-              paymentMethod: 'Stripe', hasReceipt: false, stripeDisputeId: dispute.id, stripeChargeId: chargeId || null, stripeConnectedAccountId: connAcct, tenantId: tenant.id,
-            }).catch(() => { /* written already */ });
-          }
-          console.log(`[connect-webhook] Dispute won — fee reversed for ${dispute.id}`);
-        } else if (outcome === 'lost') {
-          const lossRef = db.doc(`tenants/${tenant.id}/transactions/disputelost_${dKey}`);
-          await lossRef.create({
+          if (outcome === 'won' && feeBack > 0 && !rs.exists) tx.set(revRef, {
+            id: revRef.id, date: nowIso, description: 'Dispute won — fee reversed', clientOrVendor: 'Stripe',
+            type: 'income', context: 'Business', category: 'Processing Fee', taxBucket: 'processing_fee', amount: feeBack / 100,
+            paymentMethod: 'Stripe', hasReceipt: false, stripeDisputeId: dispute.id, stripeChargeId: chargeId || null, stripeConnectedAccountId: connAcct, tenantId: tenant.id,
+          });
+          if (outcome === 'lost' && !ls.exists) tx.set(lossRef, {
             id: lossRef.id, date: nowIso, description: `Chargeback (dispute lost) — $${(dispute.amount / 100).toFixed(2)}`, clientOrVendor: 'Stripe',
             type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund', amount: dispute.amount / 100, taxRefunded: 0,
             paymentMethod: 'Stripe', hasReceipt: false, stripeDisputeId: dispute.id, stripeChargeId: chargeId || null, stripeConnectedAccountId: connAcct, chargeback: true,
             notes: `Dispute lost: ${dispute.reason}. The charge went back to the cardholder.`, tenantId: tenant.id,
-          }).catch(() => { /* written already */ });
-          console.log(`[connect-webhook] Dispute lost — chargeback $${(dispute.amount / 100).toFixed(2)} for ${dispute.id}`);
-        } else {
-          console.log(`[connect-webhook] Dispute closed (${dispute.status}) for ${dispute.id}`);
-        }
+          });
+          return { clientId: cur.clientId || null, wasOpen: snap.exists };
+        });
+        if (!claimed) break;
+        const { FieldValue } = await import('firebase-admin/firestore');
+        console.log(`[connect-webhook] Dispute ${outcome} for ${dispute.id}`);
 
         // The client's flag comes off when nothing else of theirs is open; the sidebar count comes down.
         if (claimed.clientId) {

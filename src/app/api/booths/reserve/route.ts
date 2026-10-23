@@ -25,7 +25,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from '@/lib/audit';
+import { requireCan } from '@/lib/route-guard';
 import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
 import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
@@ -1033,6 +1035,13 @@ async function stripeFeeFor(paymentIntentId: string | null): Promise<{ feeCents:
   } catch { return { feeCents: 0, chargeId: null }; }
 }
 
+// Ids named after what they record, so a second run of the same step finds it done.
+const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
+const CLAIM_MS = 2 * 60000;
+const freshClaim = (at: any) => !!at && Date.now() - (Date.parse(String(at)) || 0) < CLAIM_MS;
+// Stripe said no (nothing moved) — as against no answer at all (it may have gone through).
+const stripeRefused = (e: any) => ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
+
 // Robust fee resolver for OFF-SESSION charges. They settle in the same request,
 // so the balance-transaction fee may not be readable yet. Try the expanded
 // intent, then a re-fetch, then fall back to an ESTIMATE (US standard 2.9% +
@@ -1052,11 +1061,13 @@ async function resolveFeeCents(intent: any, grossCents: number): Promise<{ feeCe
 
 // Canonical Transaction shape (verified against the Ledger page):
 // amount in DOLLARS, required type 'income'.
+// Once per booking: the lines are named after it, and written only if they aren't there yet.
 async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string, reservationId: string, r: any, paymentIntentId: string | null) {
-  const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+  const txnRef = db.doc(`tenants/${tenantId}/transactions/boothrent_${safeKey(reservationId)}`);
+  if ((await txnRef.get()).exists) return;
   const nowIso = new Date().toISOString();
   const { feeCents, chargeId } = await stripeFeeFor(paymentIntentId);
-  await txnRef.set({
+  try { await txnRef.create({
     id:                    txnRef.id,
     type:                  'income',
     context:               'Business',
@@ -1081,12 +1092,12 @@ async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string,
     sourceId:              reservationId,
     tenantId,
     createdAt:             nowIso,
-  });
+  }); } catch { return; }   // written a moment ago by the other request
 
   // Paired expense: the processing fee Stripe deducts before payout.
   // Without this the P&L overstates revenue and the fee disappears.
   if (feeCents > 0) {
-    const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    const feeRef = db.doc(`tenants/${tenantId}/transactions/boothrentfee_${safeKey(reservationId)}`);
     await feeRef.set({
       id: feeRef.id,
       type: 'expense',
@@ -1138,8 +1149,16 @@ export async function GET(req: NextRequest) {
       const nowIso = new Date().toISOString();
       const piId = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent as any)?.id || null;
       const contactKey = String(pur.phone || '').replace(/\D/g, '') || String(pur.email || '').trim().toLowerCase();
-      const passRef = db.collection(`tenants/${tenantId}/boothPasses`).doc();
-      await passRef.set({
+      // Once, however often the page asks (a refresh, two tabs): the pass and its lines are named after the purchase,
+      // and written in one step with the purchase marked completed.
+      const passRef = db.doc(`tenants/${tenantId}/boothPasses/pass_${safeKey(passPurchaseId)}`);
+      const txnRef = db.doc(`tenants/${tenantId}/transactions/daypass_${safeKey(passPurchaseId)}`);
+      const feeRef = db.doc(`tenants/${tenantId}/transactions/daypassfee_${safeKey(passPurchaseId)}`);
+      const { feeCents, chargeId } = await stripeFeeFor(piId);
+      const wrote = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(purRef)).data() || {};
+      if (cur.status === 'completed') return false;
+      tx.set(passRef, {
         id: passRef.id, tenantId, contactKey,
         name: pur.name || 'Guest', phone: pur.phone || '', email: pur.email || '',
         packLabel: pur.packLabel, daysTotal: pur.days, daysUsed: 0,
@@ -1147,9 +1166,7 @@ export async function GET(req: NextRequest) {
         status: 'active', method: 'Card (Stripe)', purchasedAt: nowIso, createdAt: nowIso,
         stripePaymentIntentId: piId, purchaseId: passPurchaseId,
       });
-      const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-      const { feeCents, chargeId } = await stripeFeeFor(piId);
-      await txnRef.set({
+      tx.set(txnRef, {
         id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue', source: 'booth_rent',
         amount: (pur.amountCents || 0) / 100, category: 'Day Pass',
         description: `Day pass (${pur.days} days) — ${pur.name || 'guest'} (online)`,
@@ -1158,8 +1175,7 @@ export async function GET(req: NextRequest) {
         hasReceipt: false, sourceId: passRef.id, tenantId, createdAt: nowIso,
       });
       if (feeCents > 0) {
-        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-        await feeRef.set({
+        tx.set(feeRef, {
           id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
           amount: feeCents / 100, category: 'Processing Fee',
           description: `Stripe fee — day pass (${pur.name || 'guest'})`,
@@ -1168,8 +1184,11 @@ export async function GET(req: NextRequest) {
           sourceId: passRef.id, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
         });
       }
-      await purRef.set({ status: 'completed', completedAt: nowIso, passId: passRef.id, stripePaymentIntentId: piId }, { merge: true });
-      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      tx.set(purRef, { status: 'completed', completedAt: nowIso, passId: passRef.id, stripePaymentIntentId: piId }, { merge: true });
+      return true;
+      });
+      if (!wrote) return NextResponse.json({ ok: true, passPurchased: true, days: pur.days, label: pur.packLabel });
+      const nRef = db.doc(`tenants/${tenantId}/notifications/daypass_${safeKey(passPurchaseId)}`);
       await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `Day pass sold online: ${pur.name} purchased ${pur.packLabel} ($${((pur.amountCents || 0) / 100).toFixed(2)}).` });
       await logAuditAdmin(db, tenantId, {
@@ -1217,20 +1236,32 @@ export async function GET(req: NextRequest) {
     const conflicted = await findConflict(db, tenantId, r.boothId, { startDate: r.startDate, endDate: r.endDate, bookingType: r.bookingType, startTime: r.startTime, endTime: r.endTime }, reservationId)
       || !!(await leaseSlotConflict(db, tenantId, r.boothId, { startDate: r.startDate, endDate: r.endDate, bookingType: r.bookingType, startTime: r.startTime, endTime: r.endTime }));
     const nowIso = new Date().toISOString();
+    // Once, however often the page asks: the booking moves on from waiting in one step, and only that request goes on
+    // to record it (the other answers as the confirmed booking does).
+    const moved = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(resRef)).data() || {};
+      if (['confirmed', 'payment_received_conflict'].includes(String(cur.status || ''))) return false;
+      tx.set(resRef, conflicted ? { status: 'payment_received_conflict', confirmedAt: nowIso } : {
+        status: 'confirmed', confirmedAt: nowIso,
+        stripePaymentIntentId: (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null,
+        stripePaymentMethodId: savedPaymentMethodId,
+        cardOnFile: !!savedPaymentMethodId,
+      }, { merge: true });
+      return true;
+    });
+    if (!moved) {
+      const now: any = (await resRef.get()).data() || {};
+      return now.status === 'confirmed'
+        ? NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate })
+        : NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The studio will contact you to reschedule or refund.' });
+    }
     if (conflicted) {
-      await resRef.set({ status: 'payment_received_conflict', confirmedAt: nowIso }, { merge: true });
-      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      const nRef = db.doc(`tenants/${tenantId}/notifications/boothconflict_${safeKey(reservationId)}`);
       await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
         message: `Action needed: ${r.name} has paid for ${r.boothName} from ${r.startDate} to ${r.endDate}, but those dates are no longer available. Please refund or rebook this booking.` });
       return NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The studio will contact you to reschedule or refund.' });
     }
 
-    await resRef.set({
-      status: 'confirmed', confirmedAt: nowIso,
-      stripePaymentIntentId: (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null,
-      stripePaymentMethodId: savedPaymentMethodId,
-      cardOnFile: !!savedPaymentMethodId,
-    }, { merge: true });
     for (const cid of (r.appliedCreditIds || [])) {
       await db.doc(`tenants/${tenantId}/boothCredits/${cid}`).set(
         { status: 'consumed', consumedAt: nowIso, consumedByReservationId: reservationId }, { merge: true });
@@ -1242,7 +1273,7 @@ export async function GET(req: NextRequest) {
     await writeLedgerTxn(db, tenantId, reservationId, r, (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null);
     await persistDayUseSignature(db, tenantId, reservationId, r);
     const availability = await syncReservationAvailability(db, tenantId, reservationId, r, true);
-    const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+    const nRef = db.doc(`tenants/${tenantId}/notifications/boothpaid_${safeKey(reservationId)}`);
     await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/pos?tab=spaces',
       message: `Day rental booked and paid: ${r.name}, ${r.boothName}, ${r.startDate} to ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})`
         + (availability.granted > 0 ? ` · bookable ${availability.granted === 1 ? 'that day' : `${availability.granted} days`}` : '')
@@ -1269,75 +1300,88 @@ export async function GET(req: NextRequest) {
 // method. On success: ledger entry + overageStatus 'charged'. On card
 // failure (declined/expired): returns the error so the owner falls back
 // to in-person collection — the flag stays 'due'.
+// The business's own team only (signed in, allowed to take payments). Once, however often it's asked: the overage is
+// claimed in one step ('charging'), charged under one key for this booking, card and amount, and recorded once (its
+// lines are named after the booking). No answer from Stripe leaves it claimed: asking again in a couple of minutes
+// sends the same charge, never a second.
 export async function PUT(req: NextRequest) {
   try {
     const { tenantId, reservationId } = await req.json();
     if (!tenantId || !reservationId) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     }
+    const g = await requireCan(req, String(tenantId), 'checkout.take'); if (g.deny) return g.deny;
     const db = getAdminDb();
     const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
-    const snap = await resRef.get();
-    if (!snap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
-    const r = snap.data() as any;
-
-    if (r.overageStatus !== 'due' || !(r.overageDueCents > 0)) {
-      return NextResponse.json({ ok: false, error: 'No overage due on this reservation.' }, { status: 400 });
-    }
-    if (!r.stripeCustomerId || !r.stripePaymentMethodId) {
-      return NextResponse.json({ ok: false, error: 'No card on file for this booking — collect in person.' }, { status: 400 });
-    }
+    const nowIso = new Date().toISOString();
+    const claim: any = await db.runTransaction(async (tx: any) => {
+      const snap = await tx.get(resRef);
+      if (!snap.exists) return { status: 404, error: 'Reservation not found.' };
+      const r: any = snap.data() || {};
+      if (r.overageStatus === 'charged') return { already: true, cents: Number(r.overageChargedCents ?? r.overageDueCents) || 0 };
+      if (r.overageStatus === 'charging') {
+        if (freshClaim(r.overageClaimAt)) return { status: 409, error: 'This charge is going through already. Give it a moment.' };
+        return { r, cents: Number(r.overageClaimCents) || 0, pm: String(r.overageClaimPm || r.stripePaymentMethodId || '') };
+      }
+      if (r.overageStatus !== 'due' || !(r.overageDueCents > 0)) return { status: 400, error: 'No overage due on this reservation.' };
+      if (!r.stripeCustomerId || !r.stripePaymentMethodId) return { status: 400, error: 'No card on file for this booking — collect in person.' };
+      tx.set(resRef, { overageStatus: 'charging', overageClaimAt: nowIso, overageClaimCents: Math.round(r.overageDueCents), overageClaimPm: r.stripePaymentMethodId }, { merge: true });
+      return { r, cents: Math.round(r.overageDueCents), pm: String(r.stripePaymentMethodId) };
+    });
+    if (claim.error) return NextResponse.json({ ok: false, error: claim.error }, { status: claim.status });
+    if (claim.already) return NextResponse.json({ ok: true, chargedCents: claim.cents, already: true });
+    const r = claim.r; const cents = Number(claim.cents) || 0;
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
     let intent;
     try {
       intent = await stripe.paymentIntents.create({
-        amount: r.overageDueCents,
+        amount: cents,
         currency: 'usd',
         customer: r.stripeCustomerId,
-        payment_method: r.stripePaymentMethodId,
+        payment_method: claim.pm,
         off_session: true,
         confirm: true,
         expand: ['latest_charge.balance_transaction'],
         description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
         metadata: { tenantId, reservationId, kind: 'booth_overage' },
-      });
+      }, { idempotencyKey: `booth-overage-${safeKey(reservationId)}-${cents}-${safeKey(claim.pm)}` });
     } catch (err: any) {
       const msg = err?.raw?.message || err?.message || 'Card charge failed.';
-      return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect in person instead.` }, { status: 402 });
-    }
-
-    const nowIso = new Date().toISOString();
-    const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-    await txnRef.set({
-      id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
-      source: 'booth_rent',
-      amount: r.overageDueCents / 100, category: 'Booth Rent',
-      description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
-      clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
-      hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
-    });
-    // Paired Stripe processing-fee expense — resolved robustly so it's never dropped.
-    {
-      const { feeCents, chargeId, estimated } = await resolveFeeCents(intent, r.overageDueCents);
-      if (feeCents > 0) {
-        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-        await feeRef.set({
-          id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-          amount: feeCents / 100, category: 'Processing Fee', estimated,
-          description: `Stripe fee${estimated ? ' (est.)' : ''} — overage — ${r.boothName || 'Space'} (${r.name})`,
-          clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
-          hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
-          sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
-        });
+      if (stripeRefused(err)) {
+        await resRef.set({ overageStatus: 'due', overageClaimAt: null, overageClaimCents: null, overageClaimPm: null }, { merge: true });
+        return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect in person instead.` }, { status: 402 });
       }
+      return NextResponse.json({ ok: false, error: 'Stripe didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' }, { status: 502 });
     }
-    // v74 — removed: this block was an exact DUPLICATE of the fee write
-    // above, double-counting the Stripe fee expense on every overage charge.
 
-    await resRef.set({ overageStatus: 'charged', overageChargedAt: nowIso, overagePaymentIntentId: intent.id }, { merge: true });
+    const { feeCents, chargeId, estimated } = await resolveFeeCents(intent, cents).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
+    const txnRef = db.doc(`tenants/${tenantId}/transactions/boothover_${safeKey(reservationId)}`);
+    const feeRef = db.doc(`tenants/${tenantId}/transactions/boothoverfee_${safeKey(reservationId)}`);
+    await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(resRef)).data() || {};
+      if (cur.overageStatus === 'charged') return;
+      tx.set(txnRef, {
+        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+        source: 'booth_rent',
+        amount: cents / 100, category: 'Booth Rent',
+        description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
+        clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
+        hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
+      });
+      // Paired Stripe processing-fee expense.
+      if (feeCents > 0) tx.set(feeRef, {
+        id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+        amount: feeCents / 100, category: 'Processing Fee', estimated,
+        description: `Stripe fee${estimated ? ' (est.)' : ''} — overage — ${r.boothName || 'Space'} (${r.name})`,
+        clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+        hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
+        sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
+      });
+      tx.set(resRef, { overageStatus: 'charged', overageChargedAt: nowIso, overageChargedCents: cents, overagePaymentIntentId: intent.id, overageClaimAt: null, overageClaimPm: null }, { merge: true });
+    });
 
-    return NextResponse.json({ ok: true, chargedCents: r.overageDueCents });
+    return NextResponse.json({ ok: true, chargedCents: cents });
   } catch (err) {
     console.error('[booth-reserve] PUT failed', err);
     return NextResponse.json({ ok: false, error: 'Could not charge overage.' }, { status: 500 });
@@ -1363,6 +1407,10 @@ export async function PATCH(req: NextRequest) {
     if (!tenantId || !reservationId) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     }
+    // The business's own team only (signed in): charging the saved card takes someone allowed to take payments,
+    // moving a booking someone allowed to manage bookings, and a refund someone allowed to send refunds.
+    const g = await requireCan(req, String(tenantId), body.action === 'incidental' ? 'checkout.take' : body.action === 'reschedule' ? 'bookings.manage' : 'checkout.refund');
+    if (g.deny) return g.deny;
     const db = getAdminDb();
     const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
     const snap = await resRef.get();
@@ -1386,6 +1434,22 @@ export async function PATCH(req: NextRequest) {
       const v = validateIncidental(cats, String(body.category || body.description || ''), amountCents, String(body.note || ''));
       if (!v.ok) return NextResponse.json({ ok: false, error: v.error }, { status: v.status });
       const description = v.description;
+      // Once per attempt: the screen names each attempt (the same charge asked again keeps its name). Two taps, or a
+      // retry after a lost answer, charge once and record once: the attempt is claimed in one step, charged under one
+      // key, and its lines are named after it.
+      const nowIso = new Date().toISOString();
+      const key = safeKey(body.key) || safeKey(`k${amountCents}_${v.description}_${Math.floor(Date.now() / 600000)}`);
+      const pm = String(r.stripePaymentMethodId);
+      const attemptRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}/charges/inc_${key}`);
+      const claim: any = await db.runTransaction(async (tx: any) => {
+        const a: any = (await tx.get(attemptRef)).data() || null;
+        if (a?.status === 'charged') return { already: true, cents: Number(a.amountCents) || 0 };
+        if (a?.status === 'charging' && freshClaim(a.claimAt)) return { busy: true };
+        tx.set(attemptRef, { id: attemptRef.id, status: 'charging', claimAt: nowIso, amountCents, description, pm, by: g.actor?.name || null }, { merge: true });
+        return { ok: true };
+      });
+      if (claim.already) return NextResponse.json({ ok: true, chargedCents: claim.cents, already: true });
+      if (claim.busy) return NextResponse.json({ ok: false, error: 'This charge is going through already. Give it a moment.' }, { status: 409 });
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
       let intent;
       try {
@@ -1395,42 +1459,46 @@ export async function PATCH(req: NextRequest) {
           off_session: true, confirm: true,
           expand: ['latest_charge.balance_transaction'],
           description: `Incidental — ${r.boothName || 'Space'} — ${r.name}: ${description}`,
-          metadata: { tenantId, reservationId, kind: 'booth_incidental' },
-        });
+          metadata: { tenantId, reservationId, kind: 'booth_incidental', attempt: key },
+        }, { idempotencyKey: `booth-incidental-${safeKey(reservationId)}-${key}-${safeKey(pm)}` });
       } catch (err: any) {
         const msg = err?.raw?.message || err?.message || 'Card charge failed.';
-        return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect in person instead.` }, { status: 402 });
+        if (stripeRefused(err)) {
+          await attemptRef.set({ status: 'failed', failedAt: new Date().toISOString(), error: String(msg).slice(0, 200) }, { merge: true });
+          return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect in person instead.` }, { status: 402 });
+        }
+        return NextResponse.json({ ok: false, error: 'Stripe didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' }, { status: 502 });
       }
-      const nowIso = new Date().toISOString();
-      const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-      await txnRef.set({
+      const fee = await resolveFeeCents(intent, amountCents).catch(() => ({ feeCents: 0, chargeId: null, estimated: false }));
+      const txnRef = db.doc(`tenants/${tenantId}/transactions/boothinc_${safeKey(reservationId)}_${key}`);
+      const feeRef = db.doc(`tenants/${tenantId}/transactions/boothincfee_${safeKey(reservationId)}_${key}`);
+      const wrote = await db.runTransaction(async (tx: any) => {
+      const a: any = (await tx.get(attemptRef)).data() || {};
+      if (a.status === 'charged') return false;
+      tx.set(txnRef, {
         id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue', source: 'booth_rent',
         amount: amountCents / 100, category: 'Renter Incidental',
         description: `Incidental — ${r.boothName || 'Space'} — ${r.name}: ${description}`,
         clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
         hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
       });
-      try {
-        const { feeCents, chargeId, estimated } = await resolveFeeCents(intent, amountCents);
-        if (feeCents > 0) {
-          const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-          await feeRef.set({
-            id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-            amount: feeCents / 100, category: 'Processing Fee', estimated,
-            description: `Stripe fee${estimated ? ' (est.)' : ''} — incidental — ${r.boothName || 'Space'} (${r.name})`,
-            clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
-            hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
-            sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
-          });
-        }
-      } catch { /* fee accounting is best-effort */ }
-      const list = Array.isArray(r.incidentals) ? r.incidentals : [];
-      list.push({ amountCents, description, at: nowIso, paymentIntentId: intent.id });
-      await resRef.set({ incidentals: list, incidentalsTotalCents: (r.incidentalsTotalCents || 0) + amountCents }, { merge: true });
+      if (fee.feeCents > 0) tx.set(feeRef, {
+        id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+        amount: fee.feeCents / 100, category: 'Processing Fee', estimated: fee.estimated,
+        description: `Stripe fee${fee.estimated ? ' (est.)' : ''} — incidental — ${r.boothName || 'Space'} (${r.name})`,
+        clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+        hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: fee.chargeId,
+        sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
+      });
+      tx.set(resRef, { incidentals: FieldValue.arrayUnion({ amountCents, description, at: nowIso, paymentIntentId: intent.id }), incidentalsTotalCents: FieldValue.increment(amountCents) }, { merge: true });
+      tx.set(attemptRef, { status: 'charged', chargedAt: nowIso, paymentIntentId: intent.id }, { merge: true });
+      return true;
+      });
+      if (!wrote) return NextResponse.json({ ok: true, chargedCents: amountCents, already: true });
       await logAuditAdmin(db, tenantId, {
         action: 'booth.incidental_charged', targetType: 'boothReservation', targetId: reservationId,
         summary: `Incidental charged: ${r.name || 'guest'} · ${r.boothName || 'space'} — ${description} ($${(amountCents / 100).toFixed(2)})`,
-        amount: amountCents / 100, actor: { type: 'system', name: 'booth-incidental' },
+        amount: amountCents / 100, actor: { type: 'user', id: g.actor?.uid || undefined, name: g.actor?.name || undefined, role: g.actor?.role || undefined },
       });
       return NextResponse.json({ ok: true, chargedCents: amountCents });
     }
@@ -1533,55 +1601,74 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ ok: true, startDate, endDate, startTime, endTime });
     }
 
-    if (r.status === 'refunded') {
-      // Idempotent: repeat calls succeed without double-refunding.
-      return NextResponse.json({ ok: true, refundedCents: r.refundedCents || 0, alreadyRefunded: true });
-    }
+    // Once, however often it's asked: the refund is claimed in one step (two taps send one refund), sent under one key
+    // for this booking and amount (a refund Stripe already has for it is recorded, not sent again), and recorded once,
+    // named after the booking. No answer from Stripe leaves it claimed: asking again in a couple of minutes finishes it.
+    const nowIso = new Date().toISOString();
     const REFUNDABLE = ['confirmed', 'checked_in', 'completed', 'cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'];
-    if (!REFUNDABLE.includes(r.status)) {
-      return NextResponse.json({ ok: false, error: `A ${String(r.status).replace(/_/g, ' ')} reservation can't be refunded.` }, { status: 400 });
-    }
-    if (!r.stripePaymentIntentId) {
-      return NextResponse.json({ ok: false, error: 'No Stripe payment on this reservation — record the refund manually in the ledger.' }, { status: 400 });
-    }
-    const paidCents = Number(r.amountCents) || 0;
-    const requested = Number(body.amountCents) || paidCents;
-    const refundCents = Math.min(Math.max(0, Math.round(requested)), paidCents);
-    if (refundCents <= 0) return NextResponse.json({ ok: false, error: 'Nothing to refund.' }, { status: 400 });
+    const claim: any = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(resRef)).data() || {};
+      if (cur.status === 'refunded') return { already: true, cents: Number(cur.refundedCents) || 0 };
+      if (cur.refundClaimAt && freshClaim(cur.refundClaimAt)) return { status: 409, error: 'This refund is going through already. Give it a moment.' };
+      if (!REFUNDABLE.includes(cur.status)) return { status: 400, error: `A ${String(cur.status).replace(/_/g, ' ')} reservation can't be refunded.` };
+      if (!cur.stripePaymentIntentId) return { status: 400, error: 'No Stripe payment on this reservation — record the refund manually in the ledger.' };
+      const paidCents = Number(cur.amountCents) || 0;
+      // An earlier try that got no answer is finished at its own amount, so it's the same refund.
+      const want = cur.refundClaimAt && Number(cur.refundClaimCents) > 0 ? Number(cur.refundClaimCents) : Math.min(Math.max(0, Math.round(Number(body.amountCents) || paidCents)), paidCents);
+      if (!(want > 0)) return { status: 400, error: 'Nothing to refund.' };
+      tx.set(resRef, { refundClaimAt: nowIso, refundClaimCents: want }, { merge: true });
+      return { cents: want, paidCents, pi: String(cur.stripePaymentIntentId) };
+    });
+    if (claim.already) return NextResponse.json({ ok: true, refundedCents: claim.cents, alreadyRefunded: true });
+    if (claim.error) return NextResponse.json({ ok: false, error: claim.error }, { status: claim.status });
+    const refundCents = Number(claim.cents) || 0; const paidCents = Number(claim.paidCents) || 0;
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    let refund;
+    let refund: any = null;
     try {
+      const l: any = await stripe.refunds.list({ payment_intent: claim.pi, limit: 100 });
+      refund = (Array.isArray(l?.data) ? l.data : []).find((x: any) => x?.metadata?.reservationId === String(reservationId) && x?.metadata?.kind === 'booth_refund' && !['failed', 'canceled'].includes(String(x.status || ''))) || null;
+    } catch { /* asked for below, under the booking's own key */ }
+    if (!refund) try {
       refund = await stripe.refunds.create({
-        payment_intent: r.stripePaymentIntentId,
+        payment_intent: claim.pi,
         amount: refundCents,
-        metadata: { tenantId, reservationId, kind: 'booth_refund' },
-      });
+        metadata: { tenantId, reservationId, kind: 'booth_refund', origin: 'app' },
+      }, { idempotencyKey: `booth-refund-${safeKey(reservationId)}-${refundCents}` });
     } catch (err: any) {
       const msg = err?.raw?.message || err?.message || 'Refund failed.';
-      return NextResponse.json({ ok: false, error: `Stripe refund failed: ${msg}` }, { status: 402 });
+      if (stripeRefused(err)) {
+        await resRef.set({ refundClaimAt: null, refundClaimCents: null }, { merge: true });
+        return NextResponse.json({ ok: false, error: `Stripe refund failed: ${msg}` }, { status: 402 });
+      }
+      return NextResponse.json({ ok: false, error: 'Stripe didn’t answer, so the refund may or may not have gone through. Try again in a couple of minutes: it won’t refund twice.' }, { status: 502 });
     }
 
-    const nowIso = new Date().toISOString();
-    const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-    await txnRef.set({
-      id: txnRef.id, type: 'reversal', context: 'Business', taxBucket: 'refund',
-      source: 'booth_rent',
-      amount: refundCents / 100, category: 'Refunds',
-      description: `Refund — ${r.boothName || 'Space'} — ${r.name || 'guest'}${reason ? ` (${String(reason).slice(0, 120)})` : ''}`,
-      clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card (Stripe refund)',
-      hasReceipt: false, stripePaymentIntentId: r.stripePaymentIntentId, stripeRefundId: refund.id,
-      sourceId: reservationId, tenantId, createdAt: nowIso,
+    const txnRef = db.doc(`tenants/${tenantId}/transactions/boothrefund_${safeKey(reservationId)}`);
+    const wrote = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(resRef)).data() || {};
+      if (cur.status === 'refunded') return false;
+      tx.set(txnRef, {
+        id: txnRef.id, type: 'reversal', context: 'Business', taxBucket: 'refund',
+        source: 'booth_rent',
+        amount: refundCents / 100, category: 'Refunds',
+        description: `Refund — ${r.boothName || 'Space'} — ${r.name || 'guest'}${reason ? ` (${String(reason).slice(0, 120)})` : ''}`,
+        clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card (Stripe refund)',
+        hasReceipt: false, stripePaymentIntentId: claim.pi, stripeRefundId: refund.id,
+        sourceId: reservationId, tenantId, createdAt: nowIso,
+      });
+      tx.set(resRef, {
+        status: 'refunded', refundedAt: nowIso,
+        refundedCents: refundCents, stripeRefundId: refund.id,
+        refundReason: reason ? String(reason).slice(0, 300) : null,
+        refundClaimAt: null, refundClaimCents: null,
+      }, { merge: true });
+      return true;
     });
-    await resRef.set({
-      status: 'refunded', refundedAt: nowIso,
-      refundedCents: refundCents, stripeRefundId: refund.id,
-      refundReason: reason ? String(reason).slice(0, 300) : null,
-    }, { merge: true });
+    if (!wrote) return NextResponse.json({ ok: true, refundedCents: refundCents, alreadyRefunded: true });
 
-    const actor = (body?.actor && body.actor.type === 'user')
-      ? { type: 'user' as const, id: body.actor.id || undefined, name: body.actor.name || undefined, role: body.actor.role || undefined }
-      : { type: 'user' as const };
+    // Who sent it: the signed-in person, never a name the request carries.
+    const actor = { type: 'user' as const, id: g.actor?.uid || undefined, name: g.actor?.name || undefined, role: g.actor?.role || undefined };
     await logAuditAdmin(db, tenantId, {
       action: 'booth.refunded', targetType: 'boothReservation', targetId: reservationId,
       summary: `Refunded ${refundCents === paidCents ? 'in full' : `$${(refundCents / 100).toFixed(2)} of $${(paidCents / 100).toFixed(2)}`}: ${r.name || 'guest'} · ${r.boothName || 'space'}${reason ? ` — ${String(reason).slice(0, 80)}` : ''} · Stripe ${refund.id}`,

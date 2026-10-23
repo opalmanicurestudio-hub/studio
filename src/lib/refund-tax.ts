@@ -37,15 +37,22 @@ export function splitTax(taxCents: number, parts: number[]): number[] {
   return parts.map((p, i) => { if (i === parts.length - 1) return Math.max(0, t - given); const x = Math.round((t * c0(p)) / total); given += x; return x; });
 }
 
+/** What has gone back on an order so far, every way: to the card, and onto the gift card or as store credit (by a
+ *  refund, or when a cancelled order gave back what it was paid with that way: nonCardRestored, lib/non-card-back). */
+export function backSoFarCents(o: { refundedCents?: number; refundedOtherCents?: number; nonCardRestored?: { giftCents?: number; creditCents?: number } | null } | null | undefined): number {
+  const nonCard = c0(o?.nonCardRestored?.giftCents) + c0(o?.nonCardRestored?.creditCents);
+  return c0(o?.refundedCents) + Math.max(c0(o?.refundedOtherCents), nonCard);
+}
+
 /** The tip inside a refund. A refund gives back the items, the shipping and the tax first, and the tip only once those
  *  have all gone back (a cancelled order, a refund of everything). The tip isn't the shop's sale, so the books take it
  *  out of the refund: off the team's tips if it had been shared with them (lib/order-tips), or nowhere if it hadn't
  *  been booked yet. `backBeforeCents` is what earlier refunds gave back in all (card and gift card or store credit). */
-export function refundTipPart(o: { tipCents?: number; totalCents?: number; refundedTipCents?: number; refundedCents?: number; refundedOtherCents?: number } | null | undefined, cents: number, opts: { backBeforeCents?: number } = {}): number {
+export function refundTipPart(o: { tipCents?: number; totalCents?: number; refundedTipCents?: number; refundedCents?: number; refundedOtherCents?: number; nonCardRestored?: { giftCents?: number; creditCents?: number } | null } | null | undefined, cents: number, opts: { backBeforeCents?: number } = {}): number {
   const tip = c0(o?.tipCents); if (!tip || c0(cents) <= 0) return 0;
   const tipBack = Math.min(tip, c0(o?.refundedTipCents));
   const nonTipTotal = Math.max(0, c0(o?.totalCents) - tip);
-  const backBefore = c0(opts.backBeforeCents ?? (c0(o?.refundedCents) + c0(o?.refundedOtherCents)));
+  const backBefore = c0(opts.backBeforeCents ?? backSoFarCents(o));
   const nonTipLeft = Math.max(0, nonTipTotal - Math.max(0, backBefore - tipBack));
   return Math.min(tip - tipBack, Math.max(0, c0(cents) - nonTipLeft));
 }

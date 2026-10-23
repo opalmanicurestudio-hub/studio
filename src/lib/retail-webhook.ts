@@ -13,6 +13,7 @@
  * fulfilment flow. Payment confirmation is never blocked on stock.
  */
 
+import StripeLib from 'stripe';
 import { buildEvent, onlineSellable } from './retail-orders';
 import { assessRisk, riskPolicy, type RiskResult } from './retail-risk';
 
@@ -38,6 +39,10 @@ export async function handleRetailOrderPaid(
     console.warn('[connect-webhook] retail_order session missing retailOrderId');
     return;
   }
+  // Only money that has arrived pays an order. A page finished with a payment that takes days to clear (a bank
+  // debit) says 'unpaid': the order waits, and Stripe's later notice (checkout.session.async_payment_succeeded) or the
+  // five-minute check pays it then; a payment that fails closes it (handleRetailPaymentFailed).
+  if (!['paid', 'no_payment_required'].includes(String(session?.payment_status || ''))) return;
 
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
   const orderSnap = await orderRef.get();
@@ -142,6 +147,20 @@ export async function finishPaidOrder(db: any, tenantId: string, orderId: string
   }
   // Loyalty (lib/loyalty): the order's products earn, once.
   try { const tSnap = await db.doc(`tenants/${tenantId}`).get(); const { earnForShopOrder } = await import('@/lib/loyalty-server'); await earnForShopOrder(db, tenantId, tSnap.data() || {}, orderId, order); } catch (e) { ok = false; console.error('[retail-webhook] loyalty', e); }
+  // Its tax worked out with Stripe Tax at checkout (a gift card or store credit paid part, lib/stripe-tax-calc): recorded
+  // with Stripe Tax now it's paid, once (the order is the record's reference), so the shop's Stripe Tax report counts it.
+  if (order.taxMode === 'stripe_calc' && order.taxCalculationId && !order.taxTransactionId) {
+    try {
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      const acct = t.stripeAccountId || t.stripeConnectAccountId;
+      if (acct && process.env.STRIPE_SECRET_KEY) {
+        const stripe: any = new StripeLib(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-04-30.basil' as any });
+        const { recordFullPriceTax } = await import('@/lib/stripe-tax-calc');
+        const r: any = await recordFullPriceTax(stripe, acct, String(order.taxCalculationId), orderId);
+        await orderRef.set({ taxTransactionId: r.id || 'recorded', taxRecordedAt: new Date().toISOString() }, { merge: true });
+      } else ok = false;
+    } catch (e: any) { ok = false; console.error('[retail-webhook] Stripe Tax record', String(e?.raw?.message || e?.message || e).slice(0, 200)); }
+  }
   // A promo code on the order: one more use, counted once (lib/promo-codes-server).
   if (order?.promo?.discountId) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch (e) { ok = false; console.error('[retail-webhook] promo use', e); } }
   // The receipt the customer expects within seconds of paying, claimed on the order first so it goes once. A send that
@@ -307,7 +326,8 @@ export async function sendOrderConfirmation(
 export async function handleRetailCheckoutExpired(
   db: any,
   tenantId: string,
-  session: any
+  session: any,
+  reason: 'checkout_expired' | 'payment_failed' = 'checkout_expired'
 ): Promise<void> {
   const orderId = session.metadata?.retailOrderId;
   if (!orderId) return;
@@ -317,15 +337,17 @@ export async function handleRetailCheckoutExpired(
   if (!snap.exists || snap.data().stage !== 'placed') return;
 
   const now = new Date().toISOString();
-  const batch = db.batch();
-  batch.set(orderRef, { stage: 'cancelled', cancelledAt: now }, { merge: true });
-  const evRef = orderRef.collection('events').doc();
-  batch.set(evRef, {
-    id: evRef.id,
-    ...buildEvent('cancelled', 'system', 'Stripe', { reason: 'checkout_expired' }),
+  // Closed only while it's still unpaid, in one step: a payment that lands at the same moment (lib/order-paid) wins.
+  const closed = await db.runTransaction(async (tx: any) => {
+    const cur = await tx.get(orderRef);
+    if (!cur.exists || (cur.data() || {}).stage !== 'placed') return false;
+    tx.set(orderRef, { stage: 'cancelled', cancelledAt: now }, { merge: true });
+    const evRef = orderRef.collection('events').doc();
+    tx.set(evRef, { id: evRef.id, ...buildEvent('cancelled', 'system', 'Stripe', { reason }) });
+    return true;
   });
-  await batch.commit();
-  console.log(`[connect-webhook] Retail order ${orderId} expired unpaid — auto-cancelled`);
+  if (!closed) return;
+  console.log(`[connect-webhook] Retail order ${orderId} ${reason === 'payment_failed' ? 'payment failed' : 'expired unpaid'} — auto-cancelled`);
 
   // Recovery email — AFTER the commit, never inside it (transactions retry;
   // an email inside the body would apologise three times). Double-send is

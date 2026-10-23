@@ -17,7 +17,7 @@ import { addOnIdsOf } from '@/lib/prep-checkout';
 import { rateFor, payForService } from '@/lib/commission';
 import { openVisit } from '@/lib/visit-client';
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
-import { heldShortfall, type HeldShort } from '@/lib/held-stock';
+import { heldCovered, heldShortfall, type HeldShort } from '@/lib/held-stock';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
 import { ToastAction } from '@/components/ui/toast';
@@ -558,10 +558,12 @@ export function usePosEngine() {
 
   // A staff discount (% or $, with a reason; a manager approves over the staff limit) — never a price change.
   // Units held for paid online orders (lib/held-stock): selling into them takes a manager's PIN, asked for before the
-  // payment (CheckoutHub) and checked again when the sale is saved.
-  const [heldApproval, setHeldApprovalState] = useState<{ token: string; by: string } | null>(null);
-  const heldApprovalRef = useRef<{ token: string; by: string } | null>(null);
-  const setHeldApproval = useCallback((v: { token: string; by: string } | null) => { heldApprovalRef.current = v; setHeldApprovalState(v); }, []);
+  // payment (CheckoutHub) and checked again when the sale is saved. The approval covers the products and units it
+  // names: more of them, or another held product, asks again.
+  const [heldApproval, setHeldApprovalState] = useState<{ token: string; by: string; ref?: string } | null>(null);
+  const heldApprovalRef = useRef<{ token: string; by: string; ref?: string } | null>(null);
+  const setHeldApproval = useCallback((v: { token: string; by: string; ref?: string } | null) => { heldApprovalRef.current = v; setHeldApprovalState(v); }, []);
+  const heldShort = useMemo(() => heldShortfall(retailItems, inventory || []) as HeldShort[], [retailItems, inventory]);
   const [staffDiscount, setStaffDiscount] = useState<{ kind: 'pct' | 'amt'; value: number; reason: string; approvalToken?: string | null; approvedBy?: string | null } | null>(null);
   const staffDiscountValue = useMemo(() => !staffDiscount ? 0 : Math.round(Math.min(subtotalCalc, staffDiscount.kind === 'pct' ? subtotalCalc * (safeNumber(staffDiscount.value) / 100) : safeNumber(staffDiscount.value)) * 100) / 100, [staffDiscount, subtotalCalc]);
   const codeDiscountRaw = useMemo(() => safeNumber(appliedDiscountCodes.reduce((acc, code) => { const d = (discounts || []).find((dis: any) => dis.code.toUpperCase() === code.toUpperCase()); if (!d) return acc; return acc + (d.type === 'percentage' ? subtotalCalc * (d.value / 100) : d.value); }, 0)), [appliedDiscountCodes, discounts, subtotalCalc]);
@@ -1666,7 +1668,7 @@ export function usePosEngine() {
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
     onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
-    heldShort: heldShortfall(retailItems, inventory || []) as HeldShort[], heldApproval, setHeldApproval,
+    heldShort, heldApproval: heldApproval && heldCovered(heldApproval.ref, heldShort) ? heldApproval : null, setHeldApproval,
     ticketPaid, setTicketPaid, getTicketPaid: () => ticketPaidRef.current, getTicket: () => lastTicketRef.current, savePaidSale, otherPaid, saveOtherPaidSale,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue, discountBreakdown,

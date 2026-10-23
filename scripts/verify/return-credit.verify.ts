@@ -95,8 +95,10 @@ const fresh = async (x: any = {}) => {
   const ev = (await all(`${T}/retailOrders/o1/events`)).find((e: any) => e.type === 'return_resolved');
   check('…the return is settled, and the order and its history say so',
     r1.status === 'resolved' && r1.creditNetCents === 1512 && r1.resolvedBy === 'Kai Park' && o1.returnSummary?.creditCents === 1512 && ev?.meta?.creditCents === 1512, { r1, o1: o1.returnSummary, ev });
+  const booked = (await all(`${T}/transactions`)).filter((x: any) => x.category === 'Refunds');
+  check('…and in the books it’s a return of $15.12, with the $1.12 of tax that was on it', booked.length === 1 && booked[0].amount === 15.12 && Math.abs(booked[0].taxRefunded - 1.12) < 0.006 && booked[0].paymentMethod === 'Store credit' && o1.refundedTaxCents === Math.round(booked[0].taxRefunded * 100), booked);
   r = await send('r1');
-  check('…tapped again: nothing more is issued', r.status === 200 && r.body.already === true && (await all(`${T}/depositCredits`)).length === 1, r.body);
+  check('…tapped again: nothing more is issued', r.status === 200 && r.body.already === true && (await all(`${T}/depositCredits`)).length === 1 && (await all(`${T}/transactions`)).filter((x: any) => x.category === 'Refunds').length === 1, r.body);
 
   // ── Never more than is left of what was paid ──
   await fresh();

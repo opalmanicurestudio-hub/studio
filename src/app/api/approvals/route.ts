@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
   const me = { id: auth.actor.uid, name: auth.actor.name };
   const kind = String(b.kind || 'pos_override').slice(0, 40); const amount = b.amount === undefined || b.amount === null ? null : Math.max(0, Number(b.amount) || 0);
-  const refId = b.ref ? String(b.ref).slice(0, 120) : null; const reason = String(b.reason || '').trim().slice(0, 300) || null;
+  const refId = b.ref ? String(b.ref).slice(0, kind === 'held_stock' ? 1200 : 120) : null; const reason = String(b.reason || '').trim().slice(0, 300) || null;
 
   if (action === 'verify') {
     // Guard against guessing: 5 wrong PINs in 10 minutes → locked for 10 minutes.

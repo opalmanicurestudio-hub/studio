@@ -631,7 +631,8 @@ service cloud.firestore {
               'storeCreditRequestedCents', 'creditShortfallCents', 'nonCardRestoredAt', 'nonCardRestored', 'isTest', 'policySnapshot',
               'refundedOtherCents', 'parentOrderId', 'addressCost', 'addressPay', 'addressRequest', 'addressPaid', 'addressPaidOpen', 'addressPaidRetry', 'addressPayLog',
               'booksAt', 'afterPaidAt', 'receiptSentAt', 'receiptSending', 'receiptSkipped', 'giftUseNotifiedAt',
-              'tipSharedAt', 'tipSharedWith', 'tipUnassigned', 'partRefunds', 'shippingRefundedCents'];
+              'tipSharedAt', 'tipSharedWith', 'tipUnassigned', 'partRefunds', 'shippingRefundedCents',
+              'taxMode', 'taxCalculationId', 'taxTransactionId', 'tenders', 'shipTogetherRefundCents', 'outsideRefunds'];
     }
     // What a new order from the browser may never carry: those follow-ups have no payment of their own, so nothing about
     // a payment, a gift card or store credit, or a refund already made can be set on one. Only checkout on the server

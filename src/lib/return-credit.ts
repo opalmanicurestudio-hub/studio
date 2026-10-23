@@ -11,6 +11,7 @@ import { followUpsOf, isFollowUp, payingOrder, sameCustomer } from './order-fami
 import { nonCardPaid, withNonCardRecord } from './non-card-back';
 import { ensureNonCardRecord } from './non-card-record';
 import { cardPaidCents } from './retail-money';
+import { refundTaxPart } from './refund-tax';
 
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
@@ -129,12 +130,24 @@ export async function resolveCreditReturn(db: any, t: string, returnId: string, 
     }
 
     const now = new Date().toISOString();
+    // In the books: the items came back (a return, with the sales tax paid on them), paid back as store credit. The
+    // credit itself is money the shop owes until it's spent, and when it's spent that order is a sale of its own.
+    const taxPart = cents > 0 ? refundTaxPart(payerT, cents) : 0;
     if (cents > 0) {
       tx.set(cRef, {
         id: cRef.id, tenantId: t, clientId: to.clientId, clientEmail: to.email, clientName: to.name,
         kind: 'store_credit', amountCents: cents, status: 'available', sourceRetailReturnId: returnId, returnForOrderId: payerId, sourceKind: 'return',
         createdAt: now, issuedBy: actor.name,
       });
+      const bRef = db.doc(`${T}/transactions/returncredit_${String(returnId).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120)}`);
+      tx.set(bRef, {
+        id: bRef.id, date: now, description: `Return to store credit — Order #${ret.orderNumber ?? order.orderNumber ?? ''}`,
+        clientOrVendor: to.name, clientId: to.clientId, type: 'expense', context: 'Business', category: 'Refunds', taxBucket: 'refund',
+        amount: cents / 100, taxRefunded: taxPart / 100, paymentMethod: 'Store credit', hasReceipt: true,
+        retailOrderId: orderId, retailReturnId: returnId, ...(payerId !== orderId ? { paidOnOrderId: payerId } : {}), channel: 'online', tenantId: t,
+      });
+      // The tax given back is counted on the order paid on, so a later refund never gives it back again.
+      if (taxPart && payerId !== orderId) tx.update(col.doc(payerId), { refundedTaxCents: c0(payer.refundedTaxCents) + taxPart });
     }
     tx.set(tallyRef(db, t, payerId), { cents: soFar + cents, at: now, returns: { [returnId]: cents } }, { merge: true });
     // The shop paid for the label: it's a real shipping cost of the return.
@@ -151,7 +164,8 @@ export async function resolveCreditReturn(db: any, t: string, returnId: string, 
       status: 'resolved', resolvedBy: actor.name, resolvedAt: now,
     });
     const units = (ret.lines || []).reduce((a: number, l: any) => a + (l.disposition ? c0(l.qty) : 0), 0);
-    tx.set(oRef, { returnSummary: { returnId, resolution: 'store_credit', resolvedAt: now, unitsReturned: units, refundCents: 0, creditCents: cents, labelDeductCents: labelDeduct, restockingFeeCents: 0 } }, { merge: true });
+    tx.set(oRef, { returnSummary: { returnId, resolution: 'store_credit', resolvedAt: now, unitsReturned: units, refundCents: 0, creditCents: cents, labelDeductCents: labelDeduct, restockingFeeCents: 0 },
+      ...(taxPart && payerId === orderId ? { refundedTaxCents: c0(payer.refundedTaxCents) + taxPart } : {}) }, { merge: true });
     const ev = oRef.collection('events').doc();
     tx.set(ev, { id: ev.id, ...buildEvent('return_resolved', actor.uid, actor.name, { returnId, resolution: 'store_credit', creditCents: cents, ...(capped > 0 ? { cappedCents: capped } : {}) }) });
 

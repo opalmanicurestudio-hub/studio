@@ -25,8 +25,9 @@ export async function issueApproval(db: any, tenantId: string, a: { kind: string
   return ref.id;
 }
 
-/** Use an approval once: it must be for this kind (and this visit / at least this amount), unused and in date. */
-export async function consumeApproval(db: any, tenantId: string, id: any, need: { kind: string; amount?: number; ref?: string }): Promise<{ approverId: string; approverName: string; reason: string | null } | null> {
+/** Use an approval once: it must be for this kind (and this visit / at least this amount, or whatever `covers` asks of
+ *  it, e.g. the units held for online orders it names), unused and in date. */
+export async function consumeApproval(db: any, tenantId: string, id: any, need: { kind: string; amount?: number; ref?: string; covers?: (a: any) => boolean }): Promise<{ approverId: string; approverName: string; reason: string | null } | null> {
   if (!id || typeof id !== 'string') return null;
   const ref = db.doc(`tenants/${tenantId}/approvals/${id}`);
   return db.runTransaction(async (tx: any) => {
@@ -34,6 +35,7 @@ export async function consumeApproval(db: any, tenantId: string, id: any, need: 
     if (!a || a.status !== 'approved' || a.used || a.kind !== need.kind || Date.parse(a.expiresAt) < Date.now()) return null;
     if (need.ref && a.ref && a.ref !== need.ref) return null;
     if (need.amount !== undefined && a.amount !== null && a.amount !== undefined && Number(a.amount) + 0.005 < Number(need.amount)) return null;
+    if (need.covers && !need.covers(a)) return null;
     tx.set(ref, { used: true, usedAt: new Date().toISOString() }, { merge: true });
     return { approverId: a.approverId, approverName: a.approverName, reason: a.reason || null };
   });

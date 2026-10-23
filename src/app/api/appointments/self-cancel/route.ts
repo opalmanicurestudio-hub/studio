@@ -55,7 +55,7 @@ import { laterSeriesVisits, seriesMoveDepositOn, markDepositMoved, cancelLaterVi
 import { staffOrServer } from '@/lib/route-guard';
 import { hasRealCard } from '@/lib/card-on-file';
 import { creditLeftCents, isDepositCredit, pickDeposit } from '@/lib/credit-pools';
-import { resolveDepositPolicy, rolloverExpiryISO } from '@/lib/deposit-policy';
+import { resolveDepositPolicy } from '@/lib/deposit-policy';
 import { planCancellation, cancellationOutcomeLines } from '@/lib/policy-copy';
 import { unpaidFeeRuleOf, unpaidFeeLine } from '@/lib/booking-policies';
 import { sendCancellationNotice } from '@/lib/cancel-notice';
@@ -63,6 +63,7 @@ import { internalPost, internalOrigin } from '@/lib/message-policy';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { hoursToDeadline } from '@/lib/change-rules';
 import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
 function getAdmin() {
@@ -322,6 +323,19 @@ export async function POST(req: NextRequest) {
   // Studio bookings: charge the card NOW (no retries — never twice). A decline
   // falls back to what they owe, once; the background function is told it's done.
   let chargedIntentId: string | null = null;
+  // Claimed on the booking before anything is charged or owed: a second request at the same moment (a double tap, a
+  // retry while the first is still going) is told it's being saved, so the fee is charged or owed once.
+  const claimId = nanoid();
+  const claim = await db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(apptRef)).data() || {};
+    if (cur.status === 'cancelled') return 'already';
+    if (cur.cancelClaim?.at && Date.now() - (Date.parse(String(cur.cancelClaim.at)) || 0) < 120000) return 'busy';
+    tx.update(apptRef, { cancelClaim: { id: claimId, at: new Date().toISOString(), by: keyOk ? 'client' : 'staff' } });
+    return 'ok';
+  });
+  if (claim === 'already') return NextResponse.json({ ok: true, alreadyCancelled: true });
+  if (claim === 'busy') return NextResponse.json({ ok: false, error: 'Your cancellation is already being saved. Give it a moment, then refresh the page.', code: 'busy' }, { status: 409 });
+  const releaseClaim = () => db.runTransaction(async (tx: any) => { const cur: any = (await tx.get(apptRef)).data() || {}; if (cur.cancelClaim?.id === claimId) tx.update(apptRef, { cancelClaim: FieldValue.delete() }); }).catch(() => {});
   if (pv && chargeFee && hasCard) {
     const cr = await internalPost(internalOrigin(tenant, req.nextUrl.origin), '/api/stripe/charge-card', {
       tenantId, clientId: appt.clientId, amountCents: Math.round(feeAmount * 100), description: 'Late-cancellation fee', category: 'Cancellation Fees',
@@ -331,6 +345,7 @@ export async function POST(req: NextRequest) {
   }
   // The business's rule for a fee that can't be charged: "don't make the change" → stop here, nothing written.
   if (pv && chargeFee && !chargedIntentId && !isReschedule && unpaidFeeRuleOf(tenant) === 'keep_booking') {
+    await releaseClaim();
     return NextResponse.json({ ok: false, code: 'fee_unpaid', error: hasCard
       ? `We were unable to process the card on file, so your appointment remains booked. You are welcome to update your card and try again, or keep your appointment.`
       : `As outlined in our cancellation policy, a $${feeAmount.toFixed(2)} fee applies to cancelling at this time and must be paid by card. As we do not have a card on file for you, your appointment remains booked.` }, { status: 402 });
@@ -370,6 +385,7 @@ export async function POST(req: NextRequest) {
   batch.update(apptRef, {
     status: 'cancelled',
     cancelledAt: now,
+    cancelClaim: FieldValue.delete(),
     ...(undoUntil ? { undoUntil, statusBeforeCancel: appt.status } : {}),
     ...(isReschedule ? { rescheduledToId, cancellationReason: 'rescheduled', paidByPackageId: null, paidByPackageName: null, paidByMembershipId: null, paidByMembershipName: null } : {}),
     cancellationAudit,
@@ -419,7 +435,7 @@ export async function POST(req: NextRequest) {
       // original appointment's start time — aging should measure how long
       // this debt has existed, not how old the booking was.
       unpaidFees: FieldValue.arrayUnion({
-        feeId: nanoid(),
+        feeId: `cancel-${appointmentId}`,
         appointmentId,
         appointmentDate: now,
         feeAmount,
@@ -461,6 +477,17 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // The booking's deposit, as the plan has it (lib/deposit-outcome): settled with the event, so a cancellation cut off
+  // before its deposit was settled is settled by the five-minute job. A reschedule carries the deposit to the new visit.
+  // A repeat series: an on-time cancel of the visit holding the deposit keeps it as credit for the next visit.
+  const moveSeriesDeposit = !isReschedule && !isLate && !!appt.seriesId && appt.depositStatus === 'paid' && seriesMoveDepositOn(tenant);
+  const { outcomeOf } = await import('@/lib/deposit-outcome');
+  const depositPlan = isReschedule ? null : {
+    outcome: outcomeOf(moveSeriesDeposit ? 'rollover' : pv ? ((pv.plan.outcome.deposit?.outcome as any) || null) : null, isLate),
+    reason: moveSeriesDeposit ? 'series_move' : isLate ? 'client_cancel_late' : 'client_cancel_advance_notice',
+    creditId: pv?.credit?.id || null, by: client?.name || appt.clientName || 'Client', ...(pv?.dp ? { policy: JSON.parse(JSON.stringify(pv.dp)) } : {}),
+  };
+
   // cancellationEvent → triggers onCancellationEvent for Stripe + email + SMS.
   // NOTE: stripeCustomerId / stripePaymentMethodId here use the RESOLVED
   // variables above (cardOnFile-first), NOT inline top-level reads — this is
@@ -498,6 +525,7 @@ export async function POST(req: NextRequest) {
     emailStatus: 'pending',
     smsStatus: 'pending',
     selfService: true,
+    ...(depositPlan ? { depositPlan } : {}),
     createdAt: now,
     processedAt: null,
     stripeChargeId: null,
@@ -520,7 +548,7 @@ export async function POST(req: NextRequest) {
   // Finish the cancellation now — charge the fee, record it, tell the client (lib/cancellation-events). It used to be
   // left to a background function that never ran. If this is interrupted, the 5-minute no-shows job sweeps it up.
   try {
-    const Stripe = (await import('stripe')).default; const { processCancellationEvent } = await import('@/lib/cancellation-events');
+    const { processCancellationEvent } = await import('@/lib/cancellation-events');
     await processCancellationEvent(db, new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }), tenantId, eventId);
   } catch (e: any) { console.error('[cancellation] finishing failed — the sweep will retry', e?.message); }
 
@@ -550,15 +578,13 @@ export async function POST(req: NextRequest) {
     } catch (e) { console.error('[self-cancel] renter voice', e); }
   }
 
-  // A repeat series: an on-time cancel of the visit holding the deposit keeps it as credit for the next visit.
-  const moveSeriesDeposit = !isReschedule && !isLate && !!appt.seriesId && appt.depositStatus === 'paid' && seriesMoveDepositOn(tenant);
-  // ── Deposit disposition — best-effort, non-blocking. The appointment is ──
-  // already cancelled by this point; a deposit-credit lookup hiccup should
-  // never prevent a client from completing a cancellation they're entitled to.
+  // ── The deposit, settled now (lib/deposit-outcome; once — the event's own processing may have done it already, and
+  // the five-minute job finishes it if this is cut off). Never in the way of the cancellation itself. ──
   try {
-    // A reschedule moved the deposit with the visit; there is nothing to refund.
-    if (!isReschedule) await resolveDepositForClientCancel({ db, FieldValue, tenantId, appt, appointmentId, client, isLate, now,
-      ...(pv ? { outcome: (moveSeriesDeposit ? 'rollover' : (pv.plan.outcome.deposit?.outcome as any)) || null, creditId: pv.credit?.id || null, depositPolicy: pv.dp } : moveSeriesDeposit ? { outcome: 'rollover' } : {}) });
+    if (depositPlan) {
+      const { settleCancelledDeposit } = await import('@/lib/deposit-outcome');
+      await settleCancelledDeposit(db, tenantId, { appointmentId, outcome: depositPlan.outcome, reason: depositPlan.reason, trigger: 'client_cancel', by: depositPlan.by, creditId: depositPlan.creditId, clientEmail: client?.email || null, policy: pv?.dp || undefined });
+    }
   } catch (e) {
     console.error('[self-cancel deposit resolution]', e);
   }
@@ -578,130 +604,3 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, feeCharged: chargeFee, feeAmount, isLate, packageNote, lines, undoUntil,...(appt.seriesId ? { depositMovedTo, laterCancelled } : {}) });
 }
 
-// ── Deposit resolution — mirrors useCancellationConfirm v3's client-cancel ────
-// logic exactly, so the public self-service path and the staff-dialog
-// client-cancel path behave identically. Operates on depositCredits, NOT the
-// appointment.depositAmountCents fields (see the architectural-gap note in
-// useCancellationConfirm.ts about these two not yet being unified).
-async function resolveDepositForClientCancel(opts: {
-  db: any;
-  FieldValue: any;
-  tenantId: string;
-  appt: any;
-  appointmentId: string;
-  client: any;
-  isLate: boolean;
-  now: string;
-  /** The plan's decision (planCancellation) — when given, do exactly this. */
-  outcome?: 'forfeit' | 'applied' | 'rollover' | 'store_credit' | 'refund' | null;
-  creditId?: string | null;
-  depositPolicy?: any;
-}) {
-  const { db, tenantId, appt, appointmentId, client, isLate, now } = opts;
-
-  const creditsCol = db.collection(`tenants/${tenantId}/depositCredits`);
-  let snap = appt.clientId
-    ? await creditsCol.where('status', '==', 'available').where('clientId', '==', appt.clientId).get()
-    : { empty: true, docs: [] as any[] };
-  if (snap.empty && client?.email) {
-    snap = await creditsCol.where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
-  }
-  if (snap.empty) return; // no deposit credit on file for this client — nothing to resolve
-
-  // This booking's own deposit (lib/credit-pools), or one carried over to it from a cancelled booking: never store
-  // credit from a return (same collection), and never a deposit waiting for another booking.
-  const candidates = snap.docs
-    .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
-    .filter((c: any) => !isCreditExpired(c.expiresAt) && isDepositCredit(c));
-  const credit: any = (opts.creditId && candidates.find((c: any) => c.ref?.id === opts.creditId))
-    || pickDeposit(candidates, [appointmentId], () => true) || pickDeposit(candidates.filter((c: any) => c.rolledOver === true), [], () => false);
-  if (!credit) return;
-
-  // What's left on it (a deposit part used at the desk keeps only the rest).
-  const amount = creditLeftCents(credit) / 100;
-  const oc = opts.outcome || (isLate ? 'forfeit' : 'refund');
-
-  // Becomes credit for their next visit (the deposit policy's early-cancel default).
-  if (oc === 'rollover' || oc === 'store_credit') {
-    await credit.ref.set({ status: 'available', rolledOver: true, rolledOverAt: now, rolledOverFromAppointmentId: appointmentId,
-      expiresAt: rolloverExpiryISO(opts.depositPolicy || resolveDepositPolicy({})) }, { merge: true });
-    const decisionRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc();
-    await decisionRef.set({ id: decisionRef.id, tenantId, creditId: credit.ref.id, appointmentId, clientId: appt.clientId || null,
-      trigger: 'client_cancel', outcome: 'rollover', reason: 'policy', amountDollars: amount, decidedAt: now });
-    await db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).set({ depositDisposition: 'rolled_over', depositDispositionAt: now }, { merge: true });
-    return;
-  }
-
-  // Rule 2 maps directly onto deposit policy: outside the window the client
-  // gave fair notice, so refund/rollover; inside the window, forfeit — the
-  // studio already lost that slot, same logic as a no-show.
-  if (oc === 'forfeit' || oc === 'applied') {
-    await credit.ref.set({
-      status: 'forfeited',
-      forfeitedAt: now,
-      forfeitedFromAppointmentId: appointmentId,
-      lastDecisionReason: 'client_cancel_late',
-    }, { merge: true });
-
-    // Stamp the disposition on the appointment too, so the resolution wrap in
-    // AppointmentDetailsSheet can show "deposit forfeited" rather than only
-    // surfacing it via the ledger receipt line.
-    await db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).set({
-      depositForfeited: true,
-      depositForfeitedAt: now,
-      depositForfeitedReason: 'client_cancel_late',
-    }, { merge: true });
-
-    const decisionRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc();
-    await decisionRef.set({
-      id: decisionRef.id, tenantId, creditId: credit.id, appointmentId,
-      clientId: appt.clientId || null, clientName: client?.name || credit.clientName || 'Client',
-      trigger: 'client_cancel', outcome: 'forfeit', reason: 'client_cancel_late',
-      amountDollars: amount, decidedAt: now,
-    });
-
-    // The studio is keeping this money — that's real, recognized revenue,
-    // not just a status change on the credit record. Previously nothing
-    // logged this as income anywhere, so forfeited deposits were invisible
-    // to every financial report.
-    const revenueRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-    await revenueRef.set({
-      id: revenueRef.id, tenantId, appointmentId,
-      clientId: appt.clientId || null, clientName: client?.name || credit.clientName || 'Client',
-      date: now, type: 'income', category: 'Cancellation Revenue',
-      amount, amountCents: Math.round(amount * 100),
-      paymentMethod: 'Deposit', hasReceipt: false,
-      description: 'Deposit forfeited — late self-service cancellation',
-      notes: 'Client cancelled inside the studio\'s cancellation window; deposit retained per policy.',
-    });
-    return;
-  }
-
-  // Outside the window — refund requires staff confirmation, never
-  // auto-executed from a public route. Record as pending + notify staff.
-  const decisionRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc();
-  await decisionRef.set({
-    id: decisionRef.id, tenantId, creditId: credit.id, appointmentId,
-    clientId: appt.clientId || null, clientName: client?.name || credit.clientName || 'Client',
-    trigger: 'client_cancel', outcome: 'refund_pending', reason: 'client_cancel_advance_notice',
-    amountDollars: amount, decidedAt: now,
-  });
-
-  const adminsSnap = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['admin', 'owner']).get();
-  const notifBatch = db.batch();
-  adminsSnap.docs.forEach((d: any) => {
-    const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-    notifBatch.set(notifRef, {
-      id: notifRef.id,
-      userId: d.id,
-      type: 'deposit_refund_pending',
-      appointmentId,
-      resolved: false,
-      message: `Action needed: ${client?.name || credit.clientName || 'A client'} cancelled with advance notice. Their $${amount.toFixed(2)} deposit is ready to be refunded.`,
-      link: `/clients/${appt.clientId || ''}`,
-      createdAt: now,
-      read: false,
-    });
-  });
-  await notifBatch.commit();
-}
