@@ -1,6 +1,7 @@
 'use client';
 // src/components/orders/PoliciesScreen.tsx — EVERY SHOP POLICY ON ONE SCREEN. The shipping schedule (on its own screen),
-// cancelling, addresses (carrier checks and how long customers can change theirs, lib/address-flow), returns,
+// cancelling, addresses (carrier checks, how long customers can change theirs, lib/address-flow, and who pays when a new
+// address costs more to ship, with the running total of what the shop covered, lib/address-cost), returns,
 // restocking fees by condition, problem reports, protection (insurance, signatures and the packing checklist for
 // insured orders), claims (the reminder before a deadline and when a quiet parcel is flagged, lib/lost-recovered),
 // refunds and the wording customers see. Each change saves on its own
@@ -10,7 +11,7 @@ import { rolesFor } from '@/lib/permissions';
 import { uncollectedPolicy } from '@/lib/retail-uncollected-policy';
 import * as React from 'react';
 import Link from 'next/link';
-import { deleteField, doc, updateDoc, type Firestore } from 'firebase/firestore';
+import { collection, count, deleteField, doc, getAggregateFromServer, getDocs, limit, query, sum, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { FEE_BANDS, type FeeBand } from '@/lib/restocking';
@@ -66,6 +67,29 @@ export function PoliciesScreen() {
   const pol = (rs.policies || {}) as any;
   const canEdit = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const [toast, setToast] = React.useState('');
+  // What the shop has covered for address changes so far, and what customers paid (lib/address-cost), from the orders.
+  // Each order keeps one running figure for all its moves (a move back brings the shop's share down), so the sums are
+  // exact. Added up by the database itself, so every order counts however many there are.
+  const [covered, setCovered] = React.useState<{ shop: number; shopOrders: number; paid: number; paidOrders: number; since: string | null } | null>(null);
+  React.useEffect(() => {
+    if (!fs || !tenantId) return;
+    let live = true;
+    (async () => {
+      const col = collection(fs, 'tenants', tenantId, 'retailOrders');
+      const shopQ = query(col, where('addressCost.shopCents', '>', 0)); const paidQ = query(col, where('addressCost.customerCents', '>', 0));
+      try {
+        const [a, b] = await Promise.all([getAggregateFromServer(shopQ, { cents: sum('addressCost.shopCents'), n: count() }), getAggregateFromServer(paidQ, { cents: sum('addressCost.customerCents'), n: count() })]);
+        if (live) setCovered({ shop: Number(a.data().cents) || 0, shopOrders: Number(a.data().n) || 0, paid: Number(b.data().cents) || 0, paidOrders: Number(b.data().n) || 0, since: null });
+      } catch {
+        try {
+          const [a, b] = await Promise.all([getDocs(query(shopQ, limit(1000))), getDocs(query(paidQ, limit(1000)))]);
+          const add = (snap: any, key: string) => snap.docs.reduce((t: number, d: any) => t + Math.max(0, Number(d.data()?.addressCost?.[key]) || 0), 0);
+          if (live) setCovered({ shop: add(a, 'shopCents'), shopOrders: a.size, paid: add(b, 'customerCents'), paidOrders: b.size, since: null });
+        } catch { if (live) setCovered(null); }
+      }
+    })();
+    return () => { live = false; };
+  }, [fs, tenantId]);
   // Opening Policies counts as reviewing them for the shop's setup steps.
   React.useEffect(() => { if (canEdit && fs && tenantId && !rs.policiesReviewedAt) void updateDoc(doc(fs, 'tenants', tenantId), { 'retailSettings.policiesReviewedAt': new Date().toISOString() }).catch(() => {}); }, [canEdit, fs, tenantId, rs.policiesReviewedAt]);
   const [wording, setWording] = React.useState<string>(rs.returnPolicyText || '');
@@ -92,7 +116,10 @@ export function PoliciesScreen() {
   const limits = (pol.refundLimits || {}) as Record<string, number>;
   const payer = rs.returnLabelPayer === 'shop' || rs.returnLabelPayer === 'customer' ? rs.returnLabelPayer : 'fault';
   const returnsOn = rs.returnsEnabled !== false;
+  const addrOnline = pol.addressChangeUntil !== 'off';
   const addrUntil: 'packing' | 'label' | 'never' = pol.addressChangeUntil === 'packing' || pol.addressChangeUntil === 'never' ? pol.addressChangeUntil : 'label';
+  const costPayer: 'shop' | 'shop_up_to' | 'customer' = pol.addressCostPayer === 'customer' || pol.addressCostPayer === 'shop_up_to' ? pol.addressCostPayer : 'shop';
+  const costLimit = pol.addressCostLimitCents == null ? 200 : Math.max(0, Math.round(Number(pol.addressCostLimitCents) || 0));
   const sched = scheduleFrom(rs);
   const scheduleLine = `${sched.processingDays === 0 ? 'Same day' : `${sched.processingDays} business day${sched.processingDays === 1 ? '' : 's'}`} · ${clockLabel(sched.cutoff)} cutoff · ${showsDates(sched) ? 'customers see dates' : 'dates not shown to customers yet'}`;
 
@@ -131,11 +158,23 @@ export function PoliciesScreen() {
         <Group title="Addresses" foot="The old address stays in the order’s record. Once an order ships, it’s between the customer and the carrier: their tracking page shows what the carrier can do.">
           <Row label="Check addresses with the carrier" note="At checkout and whenever an address changes. Shippo may charge a small fee for each check."><Toggle label="Check addresses with the carrier" on={rs.addressValidationEnabled === true} disabled={!canEdit} onChange={(v) => void save('retailSettings.addressValidationEnabled', v, 'Address checks')} /></Row>
           {rs.addressValidationEnabled === true && <Row label="Refuse addresses the carrier can’t find" note="Off lets customers use them anyway, for new buildings and rural routes. You’ll see a warning when you ship."><Toggle label="Refuse addresses the carrier can’t find" on={rs.blockUndeliverableAddresses === true} disabled={!canEdit} onChange={(v) => void save('retailSettings.blockUndeliverableAddresses', v, 'Address checks')} /></Row>}
+          <Row label="Customers can change the address online" note={addrOnline ? 'From their order page, before it ships.' : 'They send you a message instead, and you change it.'}><Toggle label="Customers can change the address online" on={addrOnline} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.addressChangeUntil', v ? 'label' : 'off', 'Address changes')} /></Row>
+          {addrOnline && (
           <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
             <p className="m-0 text-[17px]">Customer changes go straight through</p>
             <div className="mt-2.5"><Seg value={addrUntil} onChange={(v) => void save('retailSettings.policies.addressChangeUntil', v, 'Address changes')} options={[{ id: 'packing', label: 'Until packing' }, { id: 'label', label: 'Until the label' }, { id: 'never', label: 'Never' }]} /></div>
             <p className="m-0 mt-2 text-[13px]" style={muted}>{addrUntil === 'label' ? 'Until the label is bought, a change is checked and goes onto the order. After that it comes to you as a request, ready to approve in one tap.' : addrUntil === 'packing' ? 'Until packing starts, a change is checked and goes onto the order. After that it comes to you as a request, ready to approve in one tap.' : 'Every change comes to you as a request, ready to approve in one tap.'}</p>
-          </div>
+          </div>)}
+          {addrOnline && (
+          <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
+            <p className="m-0 text-[17px]">When a new address costs more to ship</p>
+            <div className="mt-2.5"><Seg value={costPayer} onChange={(v) => void save('retailSettings.policies.addressCostPayer', v, 'Address costs')} options={[{ id: 'shop', label: 'We pay' }, { id: 'shop_up_to', label: 'Up to a limit' }, { id: 'customer', label: 'They pay' }]} /></div>
+            <p className="m-0 mt-2 text-[13px]" style={muted}>{costPayer === 'shop' ? 'The new address is priced for the same service, and you cover any difference.' : costPayer === 'shop_up_to' ? `You cover up to ${whole(costLimit)}. Anything over it, the customer pays on their order page before the change goes through.` : 'The customer pays any difference on their order page before the change goes through.'} A cheaper address changes nothing, and a change that comes to you as a request is yours to approve.</p>
+          </div>)}
+          {addrOnline && costPayer === 'shop_up_to' && <Row label="We cover up to" note="For each change."><NumberField label="Covered up to" prefix="$" value={dollars(costLimit)} disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.addressCostLimitCents', Math.min(5000, Math.round(n * 100)), 'Address costs')} /></Row>}
+          <Row label="Covered for address changes" note={covered ? (covered.shopOrders || covered.paidOrders ? `${covered.shopOrders} order${covered.shopOrders === 1 ? '' : 's'}${covered.since ? ` since ${new Date(covered.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}.${covered.paidOrders ? ` Customers paid another ${whole(covered.paid)} (${covered.paidOrders} order${covered.paidOrders === 1 ? '' : 's'}).` : ''}` : 'Nothing yet.') : 'Adds up as changes happen.'}>
+            <span className="shrink-0 text-[17px] tabular-nums">{covered ? whole(covered.shop) : '—'}</span>
+          </Row>
           <Row label="Held orders wait for a manager" note="An address change on an order held for review needs a manager’s OK." last><Toggle label="Held orders wait for a manager" on={pol.addressHeldNeedsManager !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.addressHeldNeedsManager', v, 'Address changes')} /></Row>
         </Group>
 

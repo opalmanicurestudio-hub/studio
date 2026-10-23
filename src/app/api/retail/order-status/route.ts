@@ -325,11 +325,19 @@ export async function GET(req: NextRequest) {
           addressRequest: r ? { status: r.status === 'approving' ? 'waiting' : String(r.status || ''), to: r.to || null, at: r.at || null, reply: r.reply || null, answeredAt: r.answeredAt || null } : null,
           addressChange: changeMode(order, rs).mode,
           addressChangeUntil: changePolicy(rs).until,
+          // The shop takes address changes by message only (lib/address-flow): the page says so instead of a button.
+          addressChangeOff: changeMode(order, rs).why === 'off',
+          // A new address they're paying the shipping difference for (lib/address-pay), and how it went.
+          addressPay: order.addressPay ? (() => { const ap = order.addressPay; const live = ap.status === 'awaiting_payment' && Date.now() - (Date.parse(String(ap.at || '')) || 0) < 30 * 60000;
+            return { status: String(ap.status || ''), cents: Number(ap.paidCents || ap.cents) || 0, shopCents: Number(ap.shopCents) || 0, to: ap.to || null, at: ap.at || null, url: live ? String(ap.url || '') : null, refundWhy: ap.refundWhy || null }; })() : null,
           addressVerdict: order.addressCheck?.verdict || null,
           addressUnitMissing: order.addressCheck?.unitMissing === true && !order.addressCheck?.unitAnswer,
         };
       })() : {}),
       customerEmail: order.customerEmail || '',
+      // Their own contact details, as the order page shows them (the mobile by its last 4), and whether they can change
+      // them here (not on an order held for review, which is never said).
+      contact: { phoneEnding: String(order.customerPhone || '').replace(/\D/g, '').slice(-4) || null, textsOff: order.textsOff === true, locked: order.holdForReview === true || order.stage === 'placed' },
       storeCreditRequestedCents: order.storeCreditRequestedCents || 0,
       shipPromiseAt: order.shipPromiseAt || null,
       // The ship-by and arrival dates they were shown (lib/ship-promise), as they stand now; null when they never were.

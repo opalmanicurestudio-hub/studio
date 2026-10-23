@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { staffAuthHeader } from '@/lib/staff-fetch';
+import { settleReader } from '@/lib/reader-settle';
 
 // Every reader call goes to a staff-only route, so each one carries the signed-in person's proof.
 async function post(url: string, body: any) {
@@ -29,7 +30,21 @@ export type PaymentStatus =
   | 'capturing'
   | 'succeeded'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'unconfirmed';   // the card may have been charged, but the answer didn't arrive: check before charging again
+
+/** What a reader payment came to. `unknown`: the card may have been charged but we couldn't confirm it (the connection
+ *  dropped); check again with confirmPayment, or call it off with releasePayment, before taking another payment.
+ *  `already`: an earlier payment for the same sale had gone through, so nothing new was charged. */
+export type CollectResult = { ok: boolean; paymentIntentId?: string; error?: string; deposit?: any; captured?: boolean; unknown?: boolean; already?: boolean; code?: string; amountCents?: number; charged?: boolean;
+  /** For a sale: how the server marked it on its ticket ('waiting' to be saved, 'recorded', or 'paid_twice': the ticket
+   *  was already paid, so this payment is kept apart for a manager and must not be used to save the sale). */
+  sale?: string;
+  /** The ticket was already paid another way: the payment it was paid with, and what the sale was rung up with then
+   *  (the desk saves the sale as it was paid). */
+  paidWith?: any;
+  paidPayload?: any;
+  refunded?: boolean };
 
 type TerminalContextValue = {
   isLoaded:          boolean;
@@ -44,8 +59,14 @@ type TerminalContextValue = {
   connectReader:     (reader: TerminalReader, quiet?: boolean) => Promise<boolean>;
   disconnectReader:  () => Promise<void>;
   /** `deposit`: for a booking's deposit, how the server recorded it when the payment was captured (lib/reader-deposit). */
-  collectPayment:    (params: CollectParams) => Promise<{ ok: boolean; paymentIntentId?: string; error?: string; deposit?: any; captured?: boolean }>;
+  collectPayment:    (params: CollectParams) => Promise<CollectResult>;
+  /** A new payment is about to start: the last one's status is cleared at once, so it can't show (or act) meanwhile. */
+  beginPayment:      () => void;
   cancelPayment:     () => Promise<void>;
+  /** Ask again about a payment we couldn't confirm: it's captured if the reader approved it, never twice. */
+  confirmPayment:    (p: { tenantId: string; paymentIntentId: string; clientId?: string; saveCard?: boolean }) => Promise<CollectResult>;
+  /** Call off a payment we couldn't confirm, so it can't complete later. `charged`: it had already gone through. */
+  releasePayment:    (p: { tenantId: string; paymentIntentId: string }) => Promise<CollectResult & { released?: boolean }>;
 };
 
 type CollectParams = {
@@ -56,8 +77,15 @@ type CollectParams = {
   saveCard?:    boolean;
   /** A booking's deposit taken on the reader: the payment carries the booking, so only it can be recorded with it. */
   appointmentId?: string;
-  kind?:        'deposit';
+  /** 'sale': a sale at the desk, carrying its started ticket (pendingId), so it's accounted for whatever happens. */
+  kind?:        'deposit' | 'sale';
+  pendingId?:   string;
+  /** The last reader payment for this sale: checked first, so a card is never charged twice. */
+  previousPaymentIntentId?: string;
 };
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const settleOnServer = (body: any, tries = 4) => settleReader((b) => post('/api/stripe/terminal/capture-payment-intent', b), body, tries);
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 const TerminalContext = createContext<TerminalContextValue | null>(null);
@@ -88,6 +116,7 @@ export function StripeTerminalProvider({
   const [paymentStatus,       setPaymentStatus]       = useState<PaymentStatus>('idle');
   const [paymentError,        setPaymentError]        = useState<string | null>(null);
   const activePaymentRef      = useRef<any>(null);
+  const customerIdRef         = useRef<string | null>(null);   // the card-saving customer, for asking again about a capture
   const rawReaders            = useRef<Map<string, any>>(new Map());   // the SDK needs its own reader objects back
   const [setupError,          setSetupError]          = useState<string | null>(null);
   const [isDiscovering,       setIsDiscovering]       = useState(false);
@@ -177,7 +206,7 @@ export function StripeTerminalProvider({
     (async () => { const found = await discoverReaders(); const r = found.find((x) => x.id === saved!.id); if (r) await connectReader(r, true); })().catch(() => {});
   }, [isLoaded, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const collectPayment = useCallback(async (params: CollectParams): Promise<{ ok: boolean; paymentIntentId?: string; error?: string; deposit?: any; captured?: boolean }> => {
+  const collectPayment = useCallback(async (params: CollectParams): Promise<CollectResult> => {
     if (!terminalRef.current || (readerStatus !== 'connected' && readerStatus !== 'busy')) {
       return { ok: false, error: 'No reader connected' };
     }
@@ -185,19 +214,38 @@ export function StripeTerminalProvider({
     setPaymentStatus('creating');
     setPaymentError(null);
     setReaderStatus('busy');
-    // The payment's id once it exists: it goes back with any failure after that, so a deposit whose answer was lost (the
-    // connection dropped as it was captured) can still be checked and recorded by it.
+    // The payment's id once it exists: it goes back with any failure after that, so a payment whose answer was lost
+    // (the connection dropped as it was captured) can still be checked and recorded by it.
     let piId: string | undefined;
+    const unconfirmed = (msg?: string): CollectResult => {
+      setPaymentStatus('unconfirmed');
+      setPaymentError(msg || 'We couldn’t confirm the payment. Don’t charge the card again yet.');
+      return { ok: false, unknown: true, paymentIntentId: piId, error: msg || 'We couldn’t confirm the payment.' };
+    };
+    const captureBody = () => ({ tenantId: params.tenantId, clientId: params.clientId, paymentIntentId: piId, customerId: customerIdRef.current, saveCard: params.saveCard });
+    const succeeded = (data: any): CollectResult => {
+      setPaymentStatus('succeeded');
+      activePaymentRef.current = null;
+      return { ok: true, paymentIntentId: piId, deposit: data?.deposit || null, captured: true, already: !!data?.already, amountCents: data?.amountCents, sale: data?.sale };
+    };
 
     try {
-      // 1. Create PaymentIntent on server
-      const piRes = await post('/api/stripe/terminal/create-payment-intent', params);
-      const piData = await piRes.json();
+      // 1. Create PaymentIntent on server (a sale checks first for an earlier payment of its own that went through)
+      let piRes: Response;
+      try { piRes = await post('/api/stripe/terminal/create-payment-intent', params); }
+      catch { setPaymentStatus('failed'); setPaymentError('Couldn’t reach payments. Check the internet connection. Nothing was charged.'); return { ok: false, error: 'Couldn’t reach payments. Nothing was charged.' }; }
+      const piData = await piRes.json().catch(() => ({}));
       piId = piData.paymentIntentId || undefined;
+      customerIdRef.current = piData.customerId || null;
+      if (piData.code === 'sale_paid' && piId) {
+        setPaymentStatus('succeeded');
+        return { ok: true, paymentIntentId: piId, captured: true, already: true, amountCents: piData.amountCents };
+      }
+      if ((piData.code === 'reader_processing' || piData.code === 'reader_unknown') && piId) return unconfirmed(piData.error);
       if (!piData.clientSecret) {
         setPaymentStatus('failed');
         setPaymentError(piData.error || 'Failed to create payment');
-        return { ok: false, error: piData.error };
+        return { ok: false, error: piData.error, code: piData.code, paymentIntentId: piData.code === 'sale_paid_other_amount' ? piId : undefined, amountCents: piData.amountCents, paidWith: piData.paidWith, paidPayload: piData.paidPayload };
       }
 
       // 2. Collect payment method on reader
@@ -216,35 +264,32 @@ export function StripeTerminalProvider({
       const processResult = await terminalRef.current.processPayment(collectResult.paymentIntent);
 
       if (processResult.error) {
+        // The reader may have approved the card even so (its answer can be lost too): the server says for sure, and
+        // captures it if it was approved.
+        const check = await settleOnServer(captureBody(), 2);
+        if (check.data?.ok) return succeeded(check.data);
+        if (!check.reached) return unconfirmed();
         setPaymentStatus('failed');
         setPaymentError(processResult.error.message);
         return { ok: false, error: processResult.error.message, paymentIntentId: piId, captured: false };
       }
 
-      // 4. Capture on server
+      // 4. Capture on server, asking again if the answer is lost
       setPaymentStatus('capturing');
-      const captureRes = await post('/api/stripe/terminal/capture-payment-intent', {
-        tenantId:        params.tenantId,
-        clientId:        params.clientId,
-        paymentIntentId: processResult.paymentIntent.id,
-        customerId:      piData.customerId,
-        saveCard:        params.saveCard,
-      });
-      const captureData = await captureRes.json().catch(() => null);
-
-      if (!captureData?.ok) {
-        setPaymentStatus('failed');
-        setPaymentError(captureData?.error || 'Capture failed');
-        // The answer may be lost after the money was captured: the payment's id goes back with the failure, so a deposit
-        // can still be checked and recorded by it.
-        return { ok: false, error: captureData?.error || 'We couldn’t confirm the payment.', paymentIntentId: processResult.paymentIntent.id, captured: false };
-      }
-
-      setPaymentStatus('succeeded');
-      activePaymentRef.current = null;
-      return { ok: true, paymentIntentId: processResult.paymentIntent.id, deposit: captureData.deposit || null, captured: true };
+      const done = await settleOnServer(captureBody(), 4);
+      if (done.data?.ok) return succeeded(done.data);
+      if (!done.reached) return unconfirmed();
+      setPaymentStatus('failed');
+      setPaymentError(done.data?.error || 'Capture failed');
+      return { ok: false, error: done.data?.error || 'We couldn’t confirm the payment.', paymentIntentId: piId, captured: false, charged: false };
 
     } catch (err: any) {
+      // Something failed on this device after the payment existed: the server says whether the card was charged.
+      if (piId) {
+        const check = await settleOnServer(captureBody(), 2);
+        if (check.data?.ok) return succeeded(check.data);
+        if (!check.reached) return unconfirmed();
+      }
       setPaymentStatus('failed');
       setPaymentError(err.message);
       return { ok: false, error: err.message, paymentIntentId: piId, captured: false };
@@ -252,6 +297,34 @@ export function StripeTerminalProvider({
       setReaderStatus((s) => (s === 'busy' ? 'connected' : s));
     }
   }, [readerStatus]);
+
+  const confirmPayment = useCallback(async (p: { tenantId: string; paymentIntentId: string; clientId?: string; saveCard?: boolean }): Promise<CollectResult> => {
+    setPaymentStatus('capturing'); setPaymentError(null);
+    const done = await settleOnServer({ tenantId: p.tenantId, clientId: p.clientId, paymentIntentId: p.paymentIntentId, customerId: customerIdRef.current, saveCard: p.saveCard }, 3);
+    if (done.data?.ok) { setPaymentStatus('succeeded'); activePaymentRef.current = null; return { ok: true, paymentIntentId: p.paymentIntentId, captured: true, deposit: done.data.deposit || null, already: !!done.data.already, amountCents: done.data.amountCents, sale: done.data.sale }; }
+    if (!done.reached) { setPaymentStatus('unconfirmed'); setPaymentError('We still couldn’t confirm it. Don’t charge the card again yet.'); return { ok: false, unknown: true, paymentIntentId: p.paymentIntentId, error: 'We still couldn’t confirm the payment.' }; }
+    setPaymentStatus('failed'); setPaymentError(done.data?.error || 'The card wasn’t charged.');
+    return { ok: false, paymentIntentId: p.paymentIntentId, error: done.data?.error || 'The card wasn’t charged.', charged: false, refunded: !!done.data?.refunded };
+  }, []);
+
+  const releasePayment = useCallback(async (p: { tenantId: string; paymentIntentId: string }): Promise<CollectResult & { released?: boolean }> => {
+    for (let i = 0; i < 3; i++) {
+      if (i) await wait(800 * i);
+      try {
+        const res = await post('/api/stripe/terminal/cancel-payment-intent', p);
+        const data = await res.json().catch(() => null);
+        if (!data || res.status >= 500) continue;
+        if (data.ok) { setPaymentStatus('cancelled'); setPaymentError(null); activePaymentRef.current = null; return { ok: true, released: true, paymentIntentId: p.paymentIntentId }; }
+        if (data.refunded) { setPaymentStatus('cancelled'); setPaymentError(null); activePaymentRef.current = null; return { ok: true, released: true, refunded: true, paymentIntentId: p.paymentIntentId, error: data.error }; }
+        if (data.charged) { setPaymentStatus('succeeded'); activePaymentRef.current = null; return { ok: false, charged: true, captured: true, paymentIntentId: p.paymentIntentId, amountCents: data.amountCents, sale: data.sale || undefined }; }
+        if (res.status === 202) return { ok: false, unknown: true, paymentIntentId: p.paymentIntentId, error: data.error || 'The card payment is still being processed.' };
+        return { ok: false, paymentIntentId: p.paymentIntentId, error: data.error || 'The payment couldn’t be cancelled.' };
+      } catch { /* ask again */ }
+    }
+    return { ok: false, unknown: true, paymentIntentId: p.paymentIntentId, error: 'Couldn’t reach payments to cancel it. Check the internet connection.' };
+  }, []);
+
+  const beginPayment = useCallback(() => { setPaymentStatus('creating'); setPaymentError(null); }, []);
 
   const cancelPayment = useCallback(async () => {
     if (!terminalRef.current) return;
@@ -276,7 +349,10 @@ export function StripeTerminalProvider({
       connectReader,
       disconnectReader,
       collectPayment,
+      beginPayment,
       cancelPayment,
+      confirmPayment,
+      releasePayment,
     }}>
       {children}
     </TerminalContext.Provider>

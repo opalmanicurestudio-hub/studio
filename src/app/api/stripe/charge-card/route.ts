@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
+import { markSalePaid, safeId, tellDeskReader, ticketBlocks } from '@/lib/reader-sale';
 
 // ─── Lazy inits ───────────────────────────────────────────────────────────────
 function getAdmin() {
@@ -119,7 +120,10 @@ export async function POST(req: NextRequest) {
     checkoutSessionId = null,       // FIX: optional, forwarded into Stripe metadata + ledger
     noLedger = false,               // a share of a split bill — the checkout records the sale itself (no lines here)
     idempotencyKey: askedKey = null, // the caller's own key for this attempt (e.g. one desk deposit charge)
+    pendingId = null,               // a desk sale: its started ticket, named on the payment (lib/reader-sale)
+    share = false,                  // …and this is one share of its split bill, not the whole sale
   } = parsed;
+  const forTicket = safeId(pendingId);
   // The caller's key when it gives one (letters, digits, - and _ only).
   const callerKey = typeof askedKey === 'string' ? askedKey.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200) : '';
 
@@ -289,9 +293,15 @@ export async function POST(req: NextRequest) {
     // an on-session intent and confirm server-side with the saved PM.
     // ══════════════════════════════════════════════════════════════════════════
     if (mode === 'pos') {
+      // A desk sale names its ticket: never charged when the sale is already paid, finished, discarded, part paid in a
+      // split (unless this is a share), or has a card reader payment still going (lib/reader-sale).
+      if (forTicket) {
+        const block = await ticketBlocks(db, String(tenantId), forTicket, { share: share === true, stripe, acct: stripeAccountId });
+        if (block) return NextResponse.json({ ok: false, code: block.code, reason: block.error, error: block.error, ...(block.paidWith ? { paidWith: block.paidWith, paidPayload: block.paidPayload } : {}) }, { status: block.status });
+      }
       // Use a time-based idempotency key so retries within the same second
       // are safe but a second tap generates a new intent.
-      const idempotencyKey = callerKey || `pos_${clientId}_${amountCents}_${Math.floor(Date.now() / 10000)}`;
+      const idempotencyKey = callerKey || `pos_${forTicket || clientId}_${amountCents}_${Math.floor(Date.now() / 10000)}`;
 
       let intent: Stripe.PaymentIntent;
       try {
@@ -321,6 +331,7 @@ export async function POST(req: NextRequest) {
               // match that the ledger write below never satisfied either —
               // so the processing fee silently never attached.
               checkoutSessionId: checkoutSessionId || '',
+              ...(forTicket ? { pendingId: forTicket, ...(share === true ? { split: '1' } : {}) } : {}),
             },
           },
           {
@@ -359,7 +370,22 @@ export async function POST(req: NextRequest) {
 
       if (noLedger !== true) await writeLedger(`pos_cof__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
 
-      return NextResponse.json({ ok: true, paymentIntentId: intent.id, chargeId: resolveChargeId(intent), amount: amountDollars });
+      // The whole sale paid with the saved card: on its ticket at once, so it's never lost if the desk's save doesn't
+      // happen (a manager records it from Needs attention), and never paid again. Paid another way meanwhile: this
+      // payment is kept apart for a manager, and the desk is told not to save the sale with it.
+      let sale: string | null = null;
+      if (forTicket && share !== true) {
+        try {
+          const m = await markSalePaid(db, String(tenantId), forTicket, intent, 'card_on_file');
+          sale = m.result;
+          if (m.fresh && m.result === 'paid_twice') {
+            const pc: any = ((await db.doc(`tenants/${tenantId}/pendingCheckouts/${forTicket}`).get()).data() as any) || {};
+            await tellDeskReader(db, String(tenantId), 'paid_twice', pc, Math.round(Number((intent as any).amount_received || intent.amount) || 0), forTicket, 'card_on_file').catch(() => {});
+          }
+        } catch (e) { console.error('[charge-card] ticket not marked (the checkout marks it)', e); }
+      }
+
+      return NextResponse.json({ ok: true, paymentIntentId: intent.id, chargeId: resolveChargeId(intent), amount: amountDollars, ...(sale ? { sale } : {}) });
     }
 
     // ══════════════════════════════════════════════════════════════════════════

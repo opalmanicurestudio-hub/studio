@@ -21,6 +21,7 @@
 // SMS: logged as 'skipped_no_provider' until an SMS provider is wired.
 // The call sites don't change when it is — only this file does.
 
+import { hideCodes } from './code-redact';
 import { logAuditAdmin } from './audit';
 
 // ── Appointment ACTION-TOKEN — the key inside every Cancel/Reschedule
@@ -341,10 +342,11 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       // shows gmial.com) and fix-and-resend. Masking stays in the audit
       // summary below, which is the broader-audience surface.
       to,
-      subject: input.subject || null,
-      preview: input.text ? String(input.text).slice(0, 140) : null,
+      // A one-time code is never kept readable in the log the team can open (lib/code-redact).
+      subject: input.subject ? hideCodes(kind, String(input.subject)) : null,
+      preview: input.text ? hideCodes(kind, String(input.text)).slice(0, 140) : null,
       // The whole message, for the conversation record (lib/conversation).
-      body: String(input.text || (input.html ? String(input.html).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/h\d>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim() : '')).slice(0, 6000) || null,
+      body: hideCodes(kind, String(input.text || (input.html ? String(input.html).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/h\d>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim() : ''))).slice(0, 6000) || null,
       sentBy: (input as any).sentBy || null,
       status: result.status,
       error: result.error || null,

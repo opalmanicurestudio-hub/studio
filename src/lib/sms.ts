@@ -25,6 +25,8 @@
 // SMS being down/unconfigured NEVER breaks a booking, login, or reminder —
 // callers fall back to the owner-inbox notification path.
 
+import { hideCodes } from './code-redact';
+
 const TWILIO_API = 'https://api.twilio.com/2010-04-01';
 
 export function smsConfigured(): boolean {
@@ -239,8 +241,8 @@ export async function sendTenantSms(
         kind: meta?.kind || 'text',
         to: result.via === 'email' ? (fallback?.email || '') : (e164 || String(to).slice(0, 30)),
         subject: null,
-        preview: body.slice(0, 140),
-        body: body.slice(0, 1600),   // the whole text, for the conversation record
+        preview: hideCodes(meta?.kind, body).slice(0, 140),
+        body: hideCodes(meta?.kind, body).slice(0, 1600),   // the whole text, for the conversation record (a one-time code hidden)
         sentBy: (meta as any)?.sentBy || null,
         renterId: (meta as any)?.renterId || null,
         status: result.ok ? 'sent' : 'failed',

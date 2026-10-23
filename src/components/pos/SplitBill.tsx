@@ -18,10 +18,12 @@ export interface SplitLine { key: string; label: string; amount: number; personI
 export interface SplitPerson { id: string; name: string; card: string | null }
 type Share = { key: string; label: string; amount: number; personId: string | null };
 
-export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, onFinish, onCancel, screen, askTip, tipBaseFor }: {
+export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, takenShares, onFinish, onCancel, screen, askTip, tipBaseFor }: {
   tenantId: string; owed: number; lines: SplitLine[]; people: SplitPerson[]; payerId: string | null;
   prepare: () => Promise<string | null>; onFinish: (paid: number) => void; onCancel: () => void;
-  screen?: { connected: boolean; name: string | null; ask: (kind: string, extra?: any) => Promise<string | null>; response: any } | null;
+  /** The shares already taken on the ticket (checkout was closed and opened again): shown as paid, never taken twice. */
+  takenShares?: () => any[];
+  screen?: { connected: boolean; name: string | null; ask: (kind: string, extra?: any) => Promise<string | null>; askFull?: (kind: string, extra?: any) => Promise<any>; response: any } | null;
   askTip?: boolean; tipBaseFor?: (shareAmount: number) => number;
 }) {
   const [pendingId, setPendingId] = React.useState<string | null>(null);
@@ -33,7 +35,13 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, onF
   const [busy, setBusy] = React.useState<string | null>(null); const [msg, setMsg] = React.useState<string | null>(null);
   const [payFor, setPayFor] = React.useState<string | null>(null); const [cashGiven, setCashGiven] = React.useState('');
   const [waiting, setWaiting] = React.useState<{ key: string; id: string } | null>(null);
-  React.useEffect(() => { prepare().then((id) => setPendingId(id)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { prepare().then((id) => { setPendingId(id);
+    const taken = (takenShares?.() || []).filter((x: any) => x && x.id);
+    if (!taken.length) return;
+    // The way it was split, from the shares' names ("Share 1 of 3"), so each paid share shows against its own row.
+    const even = taken.map((x: any) => /^Share \d+ of (\d+)$/.exec(String(x.label || ''))).find(Boolean);
+    if (even) { setMode('even'); setWays(Math.max(2, Math.min(12, Number(even[1]) || 2))); }
+    setTenders(taken.map((x: any) => ({ ...x, shareKey: null }))); }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const paid = r2(tenders.reduce((s, t) => s + Number(t.amount || 0), 0)); const tipsOnShares = r2(tenders.reduce((s, t) => s + Number(t.tip || 0), 0));
   const left = Math.max(0, r2(owed - paid));
   // The shares for the chosen way of splitting (each worked out on what's owed, so tax and discounts are shared fairly).
@@ -52,7 +60,9 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, onF
     }
     return customs.map((c, i) => ({ key: `c${i}`, label: `Payment ${i + 1}`, amount: r2(Number(c) || 0), personId: null }));
   }, [mode, ways, owed, lines, people, payerId, picked, customs, sub]);
-  const shareTaken = (k: string) => tenders.find((t) => t.shareKey === k);
+  // A share taken earlier (before checkout was opened again) matches its row by name.
+  const shareTaken = (k: string) => tenders.find((t) => t.shareKey === k) || tenders.find((t) => !t.shareKey && t.label && t.label === shares.find((x) => x.key === k)?.label);
+  const unmatched = tenders.filter((t) => !t.shareKey && !shares.some((x) => x.label === t.label));
   const record = async (share: Share, body: any) => {
     if (!pendingId) { setMsg('Still getting the ticket ready — try again in a moment.'); return; }
     setBusy(share.key); setMsg(null);
@@ -68,15 +78,19 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, onF
     setTenders((r.tenders || []).map((x: any) => ({ ...x, shareKey: tenders.find((y) => y.id === x.id)?.shareKey || null }))); setMsg(r.refunded ? 'Removed — the card was refunded.' : 'Removed.');
   };
   const chargeSaved = async (share: Share, personId: string) => {
+    if (!pendingId) { setMsg('Still getting the ticket ready — try again in a moment.'); return; }
     setBusy(share.key); setMsg(null);
-    const c: any = await post('/api/stripe/charge-card', { tenantId, clientId: personId, amountCents: Math.round(share.amount * 100), description: `Share of a split bill — ${share.label}`, category: 'Service Revenue', noLedger: true });
+    // The share names its ticket, so it's only ever taken (and refunded) for this sale, never for one already paid.
+    const c: any = await post('/api/stripe/charge-card', { tenantId, clientId: personId, amountCents: Math.round(share.amount * 100), description: `Share of a split bill — ${share.label}`, category: 'Service Revenue', noLedger: true, pendingId, share: true });
     setBusy(null); if (!c?.ok) { setMsg(c?.reason || c?.error || 'The card was declined.'); return; }
     await record(share, { method: 'card', amount: share.amount, stripePaymentIntentId: c.paymentIntentId, via: 'saved_card' });
   };
   const onScreen = async (share: Share) => {
     if (!screen?.connected || !pendingId) return;
-    const id = await screen.ask('pay', { amount: share.amount, clientId: share.personId || payerId, splitPendingId: pendingId, shareLabel: share.label, askTip: !!askTip, tipBase: tipBaseFor ? tipBaseFor(share.amount) : share.amount });
-    if (id) setWaiting({ key: share.key, id }); else setMsg('The client screen didn’t respond.');
+    const ask = { amount: share.amount, clientId: share.personId || payerId, splitPendingId: pendingId, shareLabel: share.label, askTip: !!askTip, tipBase: tipBaseFor ? tipBaseFor(share.amount) : share.amount };
+    const r: any = screen.askFull ? await screen.askFull('pay', ask) : await screen.ask('pay', ask);
+    const id = typeof r === 'string' ? r : r?.ok ? r.requestId : null;
+    if (id) setWaiting({ key: share.key, id }); else setMsg(r?.error || 'The client screen didn’t respond.');
   };
   // The client screen confirms the share (and the server has already recorded it) → pick it up here.
   React.useEffect(() => { const r = screen?.response; if (!r || !waiting || r.requestId !== waiting.id || r.kind !== 'pay') return;
@@ -100,6 +114,11 @@ export function SplitBill({ tenantId, owed, lines, people, payerId, prepare, onF
       {!tenders.length && mode === 'custom' && <div className="space-y-1.5">{customs.map((c, i) => <input key={i} value={c} onChange={(e) => setCustoms((cs) => cs.map((x, j) => (j === i ? e.target.value.replace(/[^\d.]/g, '') : x)))} inputMode="decimal" placeholder={`Payment ${i + 1} ($)`} aria-label={`Payment ${i + 1}`} className="h-11 w-full rounded-xl px-3 text-[16px]" style={box} />)}
         <button type="button" onClick={() => setCustoms((cs) => [...cs, ''])} className="text-[13px] underline underline-offset-4">+ Another payment</button></div>}
       {Math.abs(sharesTotal - owed) > 0.009 && !tenders.length && mode !== 'even' && mode !== 'person' && <p className="text-[13px]" style={{ color: 'var(--warn)' }}>These shares add up to {money(sharesTotal)} — the bill is {money(owed)}.</p>}
+      {!!unmatched.length && <div className="space-y-1.5 rounded-2xl p-3" style={box}>
+        <p className="text-[13px] font-semibold">Paid before</p>
+        {unmatched.map((t) => <div key={t.id} className="flex items-center justify-between gap-2 text-[13px]"><span>{t.label || 'Payment'} · {money(Number(t.amount) + Number(t.tip || 0))} · {t.method === 'cash' ? 'cash' : t.method === 'card' ? 'card' : 'other'}</span>
+          <button type="button" disabled={!!busy} onClick={() => remove(t)} className="underline underline-offset-4" style={{ color: 'var(--muted)' }}>{busy === t.id ? '…' : 'Remove'}</button></div>)}
+      </div>}
       <div className="space-y-2">{shares.filter((s) => s.amount > 0).map((s) => { const t = shareTaken(s.key);
         return <div key={s.key} className="space-y-2 rounded-2xl p-3" style={box}>
           <div className="flex items-center justify-between gap-2"><p className="text-[15px] font-semibold">{s.label}</p><p className="text-[15px] tabular-nums">{money(s.amount)}</p></div>

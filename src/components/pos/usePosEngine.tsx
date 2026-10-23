@@ -21,6 +21,7 @@ import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
 import { ToastAction } from '@/components/ui/toast';
 import { staffAuthHeader } from '@/lib/staff-fetch';
+import { viaWords, dollars, methodOfVia } from '@/lib/pay-via';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, getServicePrice } from '@/lib/data';
@@ -1124,8 +1125,14 @@ export function usePosEngine() {
   // Checkout is saved ON THE SERVER (/api/checkout/complete): prices, tax, fees, deposits, tips, stock, the till,
   // the receipt and memberships are all worked out and written there, together — never from this browser.
   const checkoutClientId = selectedClientId ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId ?? null;
+  // Which screen this is (one per browser tab, kept through a reload): another desk's unpaid sale is never handed to it.
+  const deskIdRef = useRef<string>('');
+  if (!deskIdRef.current && typeof window !== 'undefined') {
+    const made = `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    try { const k = 'cf.desk.tab'; const v = sessionStorage.getItem(k) || made; sessionStorage.setItem(k, v); deskIdRef.current = v; } catch { deskIdRef.current = made; }
+  }
   const buildCheckoutPayload = (paymentData?: any) => ({
-    tenantId, clientId: checkoutClientId, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
+    tenantId, clientId: checkoutClientId, deskId: deskIdRef.current || null, loyaltyRewardId: loyaltyReward?.rewardId || null, loyaltySurpriseId: loyaltyReward?.surpriseId || null, loyaltyPerk: loyaltyReward?.perk === true, locationId: (() => { try { return localStorage.getItem('cf.desk.location') || null; } catch { return null; } })(),
     appointmentIds: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).map(a => a.appointment.id),
     items: retailItems.map((it: any) => ({ id: it.id, type: it.type, quantity: it.quantity, price: it.price, name: it.name, ...(it.type === 'giftcard' ? { amountCents: Math.round(safeNumber(it.price) * 100), gift: it.gift || null } : {}), reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, renterId: it.renterId || null, planId: it.planId || null, tuitionApply: (it as any).tuitionApply || null })),
     feeIds: Array.from(appliedAdjustments), discountCodes: appliedDiscountCodes, redeemedOffer: redeemedOffer || null, waivedAppointmentIds: Array.from(waivedAppointmentFees.keys()), waivers: Object.fromEntries(waivedAppointmentFees),   // who approved each waiver, and why
@@ -1141,6 +1148,26 @@ export function usePosEngine() {
   // Before any card is charged, the ticket is saved on the server as "started" — so if the sale then fails to save,
   // it can be recorded later (Needs attention → Sales not recorded) and never twice.
   const pendingIdRef = useRef<string | null>(null);
+  // The ticket is already paid (this screen lost track of the payment, or the page was reloaded): the payment it was
+  // paid with, so the desk saves the sale with it instead of taking another (api/checkout/complete 'prepare').
+  const [ticketPaid, setTicketPaidState] = useState<any>(null);
+  const ticketPaidRef = useRef<any>(null);
+  const setTicketPaid = useCallback((v: any) => { ticketPaidRef.current = v; setTicketPaidState(v); }, []);
+  const lastTicketRef = useRef<any>(null);   // the last answer about the ticket (a split's shares already taken)
+  const leftToldRef = useRef<string | null>(null);
+  // Every save of the ticket uses the sale as it is right now (never the one from when the client was chosen).
+  const buildRef = useRef(buildCheckoutPayload); buildRef.current = buildCheckoutPayload;
+  const noteTicket = (r: any, quietLeft = false) => {
+    if (!r?.pendingId) return;
+    pendingIdRef.current = r.pendingId; lastTicketRef.current = r;
+    setTicketPaid(r.paid ? { pendingId: r.pendingId, ...r.paid, paidPayload: r.paidPayload || null } : null);
+    const left = r.left;
+    if (left?.pendingId && !quietLeft && leftToldRef.current !== left.pendingId) {
+      leftToldRef.current = left.pendingId;
+      toast({ variant: 'destructive', duration: 20000, title: `${left.clientName || 'The last client'}’s sale isn’t saved`,
+        description: `It was ${left.via === 'split' ? 'partly paid in a split' : `paid${left.cents ? ` ${dollars(left.cents)}` : ''} ${viaWords(left.via)}`}. Choose them again to finish it with that payment, or a manager can record it in Needs attention. Don’t charge them again.` });
+    }
+  };
   const [splitActive, setSplitActive] = useState(false);
   const recoveryApprovalRef = useRef<string | null>(null);
   const [lastSale, setLastSale] = useState<any>(null);   // the sale just finished — shown until New sale / Done   // set by the POS recovery-override prompt (manager approval)
@@ -1149,39 +1176,68 @@ export function usePosEngine() {
     if ((paymentTab !== 'card' && !splitActive) || !tenantId || !checkoutClientId || (!selectedAppointmentIds.size && !retailItems.length)) return;   // a split keeps its started ticket in step too
     const t = setTimeout(async () => {
       try { const auth = await staffAuthHeader();
-        const r = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ ...buildCheckoutPayload(), action: 'prepare', pendingId: pendingIdRef.current }) }).then((x) => x.json()).catch(() => ({}));
-        if (r?.pendingId) pendingIdRef.current = r.pendingId;
+        const r = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ ...buildRef.current(), action: 'prepare', pendingId: pendingIdRef.current }) }).then((x) => x.json()).catch(() => ({}));
+        noteTicket(r);
       } catch { /* best-effort: the sale itself still saves normally */ }
     }, 600);
     return () => clearTimeout(t);
   }, [paymentTab, splitActive, tenantId, checkoutClientId, selectedAppointmentIds, retailItems, appliedAdjustments, appliedDiscountCodes, tipAmount, totalCalc]); // eslint-disable-line react-hooks/exhaustive-deps
-  // SPLIT THE BILL — the started ticket is saved at once, so each share can be recorded against it as it's paid.
-  const prepareNow = useCallback(async (): Promise<string | null> => {
+  // The started ticket, saved at once with the sale as it is now — before a card is charged, and for a split (each share
+  // is recorded against it as it's paid). `paymentData`: how it's about to be paid (the card reader, with its card fee),
+  // so a manager recording it later records it the same way.
+  const prepareNow = useCallback(async (paymentData?: any): Promise<string | null> => {
     if (!tenantId || !checkoutClientId) return null;
     try { const auth = await staffAuthHeader();
-      const r = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ ...buildCheckoutPayload(), action: 'prepare', pendingId: pendingIdRef.current }) }).then((x) => x.json()).catch(() => null);
-      if (r?.pendingId) pendingIdRef.current = r.pendingId; return pendingIdRef.current;
+      const r = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ ...buildRef.current(paymentData), action: 'prepare', pendingId: pendingIdRef.current }) }).then((x) => x.json()).catch(() => null);
+      noteTicket(r); return pendingIdRef.current;
     } catch { return pendingIdRef.current; }
   }, [tenantId, checkoutClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Another client: the last one's "already paid" note goes with them (the next save says if this one's is paid).
+  useEffect(() => { if (ticketPaidRef.current) setTicketPaid(null); }, [checkoutClientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The sale is saved: the finished screen shows it, and the next sale starts fresh (the client screen goes back to your logo).
+  const finishSale = (out: any, payload: any) => {
+    toast({ title: out.already ? 'Already recorded' : 'Checkout successful', description: out.already ? 'This sale was already saved — nothing was added twice.' : undefined });
+    if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(payload.expectedTotal).toFixed(2)}) — it’s flagged on the receipt for review.` });
+    for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
+    pendingIdRef.current = null; lastCheckoutRef.current = null; lastTicketRef.current = null; setTicketPaid(null);
+    { const payer: any = (clients || []).find((c: any) => c.id === payload.clientId) || {}; const firstVisit = readyForCheckoutAppointments.find((a: any) => (payload.appointmentIds || []).includes(a.appointment.id));
+      const tendered = safeNumber(payload.payment?.amountTendered); const collected = safeNumber(out.collected ?? out.total);
+      setLastSale({ giftCards: Array.isArray(out.giftCards) ? out.giftCards : [], receiptId: out.receiptId || null, total: safeNumber(out.total), collected, depositUsed: safeNumber(out.depositUsed), method: payload.payment?.method === 'cash' ? 'cash' : payload.payment?.method === 'other' ? 'other' : 'card',
+        tendered, change: payload.payment?.method === 'cash' ? Math.max(0, Math.round((tendered - collected) * 100) / 100) : 0, clientId: payload.clientId || null, clientName: payer.name || null, email: payer.email || '', phone: payer.phone || '',
+        serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, staffId: firstVisit?.appointment?.staffId || null, addOnIds: firstVisit?.appointment?.addOnIds || [], appointmentId: firstVisit?.appointment?.id || null,
+        warnings: out.warnings || [], at: new Date().toISOString() , outcomes: Array.isArray(out.outcomes) ? out.outcomes : []}); }
+    setSkipGroupDiscount(false); setSkipMomentReward(false); setSkipMemberDiscount(false);   // removals were for that sale only
+    setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setLoyaltyReward(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setGiftApplied([]); giftHoldRef.current = `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null); setSplitActive(false);
+  };
+
+  // One save at a time from this screen (a second tap, or "Save again" while a save is still going, waits for it).
+  const sendingRef = useRef(false);
   const sendCheckout = async (payload: any, charged: boolean): Promise<boolean> => {
+    if (sendingRef.current) return false;
+    sendingRef.current = true;
     try {
       const auth = await staffAuthHeader();
       const res = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(payload) });
       const out = await res.json().catch(() => ({}));
+      // Already paid another way (on this ticket, or on another screen): nothing was recorded, and the desk saves that
+      // sale as it was paid.
+      if (out?.code === 'ticket_paid' && out.paidWith) {
+        const pid = out.pendingId || payload.pendingId || pendingIdRef.current;
+        if (out.pendingId) pendingIdRef.current = out.pendingId;
+        setTicketPaid({ pendingId: pid, ...out.paidWith, paidPayload: out.paidPayload || null });
+        toast({ variant: 'destructive', duration: 20000, title: 'This sale is already paid', description: out.error });
+        return false;
+      }
+      if (out?.code === 'ticket_split') { if (out.pendingId) pendingIdRef.current = out.pendingId; setSplitActive(true); toast({ variant: 'destructive', duration: 15000, title: 'Part of this bill is already paid', description: out.error }); return false; }
+      if (out?.code === 'payment_refunded') { setTicketPaid(null); toast({ variant: 'destructive', duration: 20000, title: 'That card payment was refunded', description: out.error }); return false; }
+      // Refused for good (the payment isn't this sale's): saving again wouldn't help, so the desk is told what to do.
+      if (['payment_other_sale', 'payment_other_client', 'payment_invalid', 'payment_share', 'reader_open', 'reader_unknown'].includes(String(out?.code || ''))) {
+        toast({ variant: 'destructive', duration: 30000, title: out.code === 'reader_open' || out.code === 'reader_unknown' ? 'Check the card reader payment first' : 'That card payment can’t save this sale', description: out.error });
+        return false;
+      }
       if (!res.ok || !out?.ok) throw new Error(out?.error || 'save failed');
-      toast({ title: out.already ? 'Already recorded' : 'Checkout successful', description: out.already ? 'This sale was already saved — nothing was added twice.' : undefined });
-      if (out.mismatch) toast({ title: 'Total recorded differently', description: `Recorded $${Number(out.total).toFixed(2)} (the screen showed $${safeNumber(payload.expectedTotal).toFixed(2)}) — it’s flagged on the receipt for review.` });
-      for (const w of (out.warnings || [])) toast({ variant: 'destructive', title: 'Needs a look', description: w });
-      pendingIdRef.current = null; lastCheckoutRef.current = null;
-      { const payer: any = (clients || []).find((c: any) => c.id === payload.clientId) || {}; const firstVisit = readyForCheckoutAppointments.find((a: any) => (payload.appointmentIds || []).includes(a.appointment.id));
-        const tendered = safeNumber(payload.payment?.amountTendered); const collected = safeNumber(out.collected ?? out.total);
-        setLastSale({ giftCards: Array.isArray(out.giftCards) ? out.giftCards : [], receiptId: out.receiptId || null, total: safeNumber(out.total), collected, depositUsed: safeNumber(out.depositUsed), method: payload.payment?.method === 'cash' ? 'cash' : payload.payment?.method === 'other' ? 'other' : 'card',
-          tendered, change: payload.payment?.method === 'cash' ? Math.max(0, Math.round((tendered - collected) * 100) / 100) : 0, clientId: payload.clientId || null, clientName: payer.name || null, email: payer.email || '', phone: payer.phone || '',
-          serviceId: firstVisit?.service?.id || firstVisit?.appointment?.serviceId || null, staffId: firstVisit?.appointment?.staffId || null, addOnIds: firstVisit?.appointment?.addOnIds || [], appointmentId: firstVisit?.appointment?.id || null,
-          warnings: out.warnings || [], at: new Date().toISOString() , outcomes: Array.isArray(out.outcomes) ? out.outcomes : []}); }
-      setSkipGroupDiscount(false); setSkipMomentReward(false); setSkipMemberDiscount(false);   // removals were for that sale only
-      setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setLoyaltyReward(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0); setGiftApplied([]); giftHoldRef.current = `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; setStaffDiscount(null); setSkipGroupDiscount(false); setSelectedClientId(null); setSplitActive(false);   // the next sale starts fresh (the client screen goes back to your logo)
+      finishSale(out, payload);
       return true;
     } catch (e: any) {
       console.error('[checkout] failed', e);
@@ -1189,16 +1245,61 @@ export function usePosEngine() {
         lastCheckoutRef.current = payload;
         toast({ variant: 'destructive', title: 'Paid — but the sale didn’t save', duration: 60000,
           description: `The card payment went through (ref ${String(payload.payment?.stripePaymentIntentId || '').slice(-8)}). Don’t charge again. Tap “Save again” — it won’t charge the card. If it still won’t save, it’s in Needs attention → Sales not recorded.`,
-          action: <ToastAction altText="Save the sale again without charging" onClick={() => { if (lastCheckoutRef.current) sendCheckout(lastCheckoutRef.current, true); }}>Save again</ToastAction> as any });
+          action: <ToastAction altText="Save the sale again without charging" onClick={() => { if (lastCheckoutRef.current) { setIsSubmitting(true); sendCheckout(lastCheckoutRef.current, true).finally(() => setIsSubmitting(false)); } }}>Save again</ToastAction> as any });
       } else toast({ variant: 'destructive', title: 'Checkout didn’t save', description: `${e?.message && e.message !== 'save failed' ? `${e.message} ` : ''}Nothing was recorded — please try again.` });
       return false;
-    }
+    } finally { sendingRef.current = false; }
   };
   const handleCheckout = async (paymentData: { tipOverride?: number, paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string, skipLedger?: boolean, stripePaymentIntentId?: string, cardSurcharge?: number }) => {
     if (!checkoutClientId || !tenantId) return;
     setIsSubmitting(true);
-    try { await sendCheckout({ ...buildCheckoutPayload(paymentData), pendingId: pendingIdRef.current }, !!paymentData.stripePaymentIntentId); }
+    try {
+      // Cash or another way: the sale is saved as its ticket first, so a sale of theirs already paid (on this screen or
+      // another) is found before it's paid again, and saving twice never records it twice.
+      if (!paymentData.stripePaymentIntentId && paymentData.paymentMethod !== 'split') {
+        await prepareNow(paymentData);
+        const tp = ticketPaidRef.current;
+        if (tp) { toast({ variant: 'destructive', duration: 20000, title: 'This sale is already paid', description: `${tp.cents ? dollars(tp.cents) : 'It'} was paid ${viaWords(tp.via)}. Save the paid sale instead of taking another payment.` }); return; }
+      }
+      await sendCheckout({ ...buildCheckoutPayload(paymentData), pendingId: pendingIdRef.current }, !!paymentData.stripePaymentIntentId);
+    }
     finally { setIsSubmitting(false); }
+  };
+
+  // "Save the paid sale": the sale already paid is saved exactly as it was rung up and paid (no charge — its payment is
+  // checked again on the server). Anything in the cart that wasn't on it stays, as a new sale to charge as usual.
+  const savePaidSale = async (): Promise<boolean> => {
+    const tp = ticketPaidRef.current; const pid = tp?.pendingId || pendingIdRef.current;
+    if (!tp || !pid || !tenantId || sendingRef.current) return false;
+    sendingRef.current = true; setIsSubmitting(true);
+    try {
+      const auth = await staffAuthHeader();
+      const res = await fetch('/api/checkout/complete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ tenantId, action: 'record', pendingId: pid, deskId: deskIdRef.current || null }) });
+      const out = await res.json().catch(() => ({}));
+      if (out?.code === 'payment_refunded') { setTicketPaid(null); toast({ variant: 'destructive', duration: 20000, title: 'That card payment was refunded', description: out.error }); return false; }
+      if (!res.ok || !out?.ok) { toast({ variant: 'destructive', duration: 20000, title: 'The paid sale didn’t save', description: `${out?.error || 'Check the internet connection.'} Nothing was charged.` }); return false; }
+      // What the paid sale had comes out of the cart; what's left was added after it was paid.
+      const paid: any = tp.paidPayload || {};
+      const paidVisits = new Set<string>((paid.appointmentIds || []).map(String));
+      const paidQty = new Map<string, number>(); for (const it of paid.items || []) { const k = `${it.type}:${it.id}`; paidQty.set(k, (paidQty.get(k) || 0) + Math.max(1, Number(it.quantity) || 1)); }
+      const paidFees = new Set<string>((paid.feeIds || []).map(String));
+      const visitsLeft = readyForCheckoutAppointments.filter((a: any) => selectedAppointmentIds.has(a.id) && !paidVisits.has(String(a.appointment?.id))).map((a: any) => a.id);
+      const itemsLeft: any[] = []; const taken: string[] = [];
+      for (const it of retailItems as any[]) { const k = `${it.type}:${it.id}`; const had = paidQty.get(k) || 0; const q = Math.max(0, (Number(it.quantity) || 1) - had);
+        if (had) { paidQty.set(k, Math.max(0, had - (Number(it.quantity) || 1))); taken.push(it.name || 'An item'); }
+        if (q > 0) itemsLeft.push({ ...it, quantity: q }); }
+      const feesLeft = Array.from(appliedAdjustments).filter((id: any) => !paidFees.has(String(id)));
+      const payload = { clientId: checkoutClientId, appointmentIds: paid.appointmentIds || [], payment: { method: methodOfVia(tp.via), amountTendered: tp.cents ? tp.cents / 100 : safeNumber(out.total) }, expectedTotal: safeNumber(out.total) };
+      if (!visitsLeft.length && !itemsLeft.length && !feesLeft.length) { finishSale(out, payload); return true; }
+      // Something was added after it was paid: that stays, as a new sale on its own ticket. Gift cards, credit, discounts
+      // and the tip went with the paid sale; add any for the new one.
+      pendingIdRef.current = null; lastTicketRef.current = null; lastCheckoutRef.current = null; setTicketPaid(null);
+      setSelectedAppointmentIds(new Set(visitsLeft)); setRetailItems(itemsLeft); setAppliedAdjustments(new Set(feesLeft));
+      setTipAmount(0); setRedeemedOffer(null); setLoyaltyReward(null); setAppliedDiscountCodes([]); setStoreCreditApplied(0); setGiftApplied([]); giftHoldRef.current = `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; setStaffDiscount(null); setSplitActive(false);
+      toast({ duration: 20000, title: out.already ? 'That paid sale was already saved' : `Saved the paid sale${out.total != null ? ` — ${dollars(Math.round(safeNumber(out.total) * 100))}` : ''}`,
+        description: `${taken.length ? `${[...new Set(taken)].join(', ')} ${taken.length === 1 ? 'was' : 'were'} paid for in it, so ${taken.length === 1 ? 'it’s' : 'they’re'} out of the cart. ` : ''}What was added after it was paid is still here: charge it as a new sale. Add any gift card, credit, discount or tip for it again.` });
+      return true;
+    } finally { sendingRef.current = false; setIsSubmitting(false); }
   };
 
   const handleCancelAction = (id: string, isWalkIn: boolean) => {
@@ -1510,6 +1611,7 @@ export function usePosEngine() {
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
     onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
+    ticketPaid, setTicketPaid, getTicketPaid: () => ticketPaidRef.current, getTicket: () => lastTicketRef.current, savePaidSale,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue, discountBreakdown,
     skipMomentReward, setSkipMomentReward, skipMemberDiscount, setSkipMemberDiscount,

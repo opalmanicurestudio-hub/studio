@@ -51,7 +51,15 @@ export function makeDb() {
       return { empty: !docs.length, size: docs.length, docs }; } });
   const col = (c: string): any => ({ ...q(c), doc: (id?: string) => ref(`${c}/${id || `id${++n}`}`), add: async (v: Doc) => { const r = ref(`${c}/id${++n}`); await r.set(v); return r; } });
   const db: any = { doc: ref, collection: col, getAll: async (...refs: any[]) => Promise.all(refs.map((r) => r.get())),
-    batch: () => { const ops: (() => Promise<void>)[] = []; return { set: (r: any, v: Doc, o?: any) => ops.push(() => r.set(v, o)), update: (r: any, v: Doc) => ops.push(() => r.update(v)), delete: (r: any) => ops.push(() => r.delete()), commit: async () => { for (const op of ops) await op(); } }; },
+    // All or nothing, as Firestore commits a batch: a create of a document that exists fails the whole batch.
+    batch: () => { const ops: { kind: string; r: any; v?: Doc; o?: any }[] = []; return { set: (r: any, v: Doc, o?: any) => ops.push({ kind: 'set', r, v, o }), update: (r: any, v: Doc) => ops.push({ kind: 'update', r, v }), create: (r: any, v: Doc) => ops.push({ kind: 'create', r, v }), delete: (r: any) => ops.push({ kind: 'delete', r }),
+      commit: async () => {
+        const exists = new Set<string>([...store.keys()]);
+        for (const op of ops) { const p = op.r.path;
+          if (op.kind === 'create' && exists.has(p)) throw Object.assign(new Error(`6 ALREADY_EXISTS: Document already exists: ${p}`), { code: 6 });
+          if (op.kind === 'update' && !exists.has(p)) throw Object.assign(new Error(`5 NOT_FOUND: ${p}`), { code: 5 });
+          if (op.kind === 'delete') exists.delete(p); else exists.add(p); }
+        for (const op of ops) { if (op.kind === 'set') await op.r.set(op.v, op.o); else if (op.kind === 'update') await op.r.update(op.v); else if (op.kind === 'create') await op.r.create(op.v); else await op.r.delete(); } } }; },
     runTransaction: async (fn: any) => fn({ get: (r: any) => (r.get ? r.get() : r), set: (r: any, v: Doc, o?: any) => r.set(v, o), update: (r: any, v: Doc) => r.update(v), delete: (r: any) => r.delete() }),
     _store: store };
   return db;

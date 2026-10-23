@@ -5,13 +5,13 @@
 //                 street, unit, city, state or ZIP). "Street" against "St", capitals and the ZIP+4 never ask anything.
 //                 An address that looks like it needs an apartment number asks for one, once.
 //   Changes       the customer's own change goes straight onto the order until the shop's point (the label by
-//                 default, or packing, or never). After that, or on an order held for review, it becomes a request
+//                 default, or packing, or never, or not online at all: they message the shop). After that, or on an order held for review, it becomes a request
 //                 that staff approve in one tap. Once it has shipped, it's between the customer and the carrier: the
 //                 order page points to the carrier's own options. (A carrier intercept can only be asked for by the
 //                 shop, costs a fee and isn't guaranteed, so it isn't offered as a request.)
 
 export type Address = { name?: string; line1?: string; line2?: string; city?: string; state?: string; postalCode?: string; country?: string };
-export type ChangeUntil = 'label' | 'packing' | 'never';
+export type ChangeUntil = 'label' | 'packing' | 'never' | 'off';
 export type ChangeMode = 'direct' | 'request' | 'carrier' | 'none';
 
 const STATES: Record<string, string> = {
@@ -129,7 +129,7 @@ export function cleanAddress(a: any): Address | null {
 
 export function changePolicy(rs: any): { until: ChangeUntil; heldNeedsManager: boolean } {
   const p = (rs && rs.policies) || {};
-  const until: ChangeUntil = p.addressChangeUntil === 'packing' || p.addressChangeUntil === 'never' ? p.addressChangeUntil : 'label';
+  const until: ChangeUntil = ['packing', 'never', 'off'].includes(p.addressChangeUntil) ? p.addressChangeUntil : 'label';
   return { until, heldNeedsManager: p.addressHeldNeedsManager !== false };
 }
 
@@ -144,12 +144,14 @@ const PRE_SHIP = ['placed', 'paid', 'picking', 'packed'];
  *   none      it can't be changed (not shipped by post, delivered, cancelled)
  * `why` is for staff and wording; a hold is never shown to the customer.
  */
-export function changeMode(o: any, rs: any): { mode: ChangeMode; why: 'ok' | 'label' | 'packing' | 'never' | 'held' | 'shipped' | 'closed' } {
+export function changeMode(o: any, rs: any): { mode: ChangeMode; why: 'ok' | 'label' | 'packing' | 'never' | 'held' | 'shipped' | 'closed' | 'off' } {
   if (!o || o.method !== 'ship') return { mode: 'none', why: 'closed' };
   const stage = String(o.stage || '');
   if (stage === 'shipped' && !o.deliveredAt) return { mode: 'carrier', why: 'shipped' };
   if (!PRE_SHIP.includes(stage)) return { mode: 'none', why: 'closed' };
   const pol = changePolicy(rs);
+  // The shop doesn't take address changes online: the customer messages them, and the team changes it.
+  if (pol.until === 'off') return { mode: 'none', why: 'off' };
   if (o.holdForReview === true && pol.heldNeedsManager) return { mode: 'request', why: 'held' };
   if (pol.until === 'never') return { mode: 'request', why: 'never' };
   if (hasLabel(o)) return { mode: 'request', why: 'label' };

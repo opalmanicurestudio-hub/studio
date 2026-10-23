@@ -21,6 +21,7 @@ import { CallbackQueue } from '@/components/ops/CallbackQueue';
 import { CallsPanel } from '@/components/ops/CallLog';
 import { ProviderShortlist, tickProviderAsks } from '@/components/ops/ProviderShortlist';
 import { resolvePolicy } from '@/lib/booking-policies';
+import { viaWords } from '@/lib/pay-via';
 
 const hm = (v: any) => { if (!v) return ''; const d = new Date(v); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); };
 const ago = (v: any) => { const t = Date.parse(v || ''); if (!Number.isFinite(t)) return ''; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
@@ -304,26 +305,54 @@ function SalesNotRecorded({ tenantId, role }: { tenantId: string; role: string }
   const { firestore } = useFirebase() as any;
   const q = useMemoFirebase(() => (mgr && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/pendingCheckouts`), where('status', 'in', ['prepared', 'failed', 'paid_waiting', 'partial'])) : null), [mgr, firestore, tenantId]);
   const { data } = useCollection<any>(q);
+  // Sales paid twice (lib/reader-sale): on the card reader, the client screen or a card after the sale was already paid.
+  // The extra payment is refunded to the card, or kept.
+  const xq = useMemoFirebase(() => (mgr && firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/pendingCheckouts`), where('readerExtraOpen', '==', true)) : null), [mgr, firestore, tenantId]);
+  const { data: extraDocs } = useCollection<any>(xq);
   const [busy, setBusy] = useState<string | null>(null); const [msg, setMsg] = useState<Record<string, string>>({}); const [why, setWhy] = useState<Record<string, string>>({});
   if (!mgr) return null;
   const now = Date.now();
+  const extras = (extraDocs || []).flatMap((p: any) => Object.entries<any>(p.readerExtra || {}).filter(([, e]) => e?.state === 'open').map(([id, e]) => ({ p, id, cents: Number(e.cents) || 0, at: e.at, via: e.via || 'card_reader', hint: e.hint || null })));
+  const decide = async (x: any, decision: 'refund' | 'keep') => {
+    const k = `${x.p.id}:${x.id}`; setBusy(`${k}:${decision}`);
+    const r = await staffPost('/api/checkout/complete', { tenantId, action: 'reader_extra', pendingId: x.p.id, paymentIntentId: x.id, decision, reason: why[k] || '' }); setBusy(null);
+    setMsg((m) => ({ ...m, [k]: r?.ok ? (r.state === 'refunded' ? `Refunded $${(x.cents / 100).toFixed(2)} to the card.` : r.state === 'kept' ? 'Kept.' : 'Already done.') : r?.error || 'That didn’t go through.' }));
+  };
   const list = (data || []).filter((p: any) => p.status === 'failed' || (p.status === 'partial' && now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000) || (p.status === 'paid_waiting' && now - Date.parse(p.paidAt || p.updatedAt) > 2 * 60000) || (now - Date.parse(p.updatedAt || p.preparedAt) > 10 * 60000 && now - Date.parse(p.preparedAt) < 24 * 3600000))
     .sort((x: any, y: any) => Number(y.status === 'failed') - Number(x.status === 'failed') || Date.parse(y.preparedAt) - Date.parse(x.preparedAt));
-  if (!list.length) return null;
-  const act = async (p: any, action: 'record' | 'discard') => {
-    setBusy(`${p.id}:${action}`);
-    const r = await staffPost('/api/checkout/complete', { tenantId, action, pendingId: p.id, reason: why[p.id] || '' }); setBusy(null);
-    setMsg((m) => ({ ...m, [p.id]: r?.ok ? (action === 'record' ? (r.already ? 'Already recorded — nothing added twice.' : `Recorded — $${Number(r.total || p.expectedTotal).toFixed(2)}.`) : `Discarded.${r.refundedCards ? ` ${r.refundedCards} card payment${r.refundedCards === 1 ? '' : 's'} refunded.` : ''}${r.cashToReturn ? ` Hand back $${Number(r.cashToReturn).toFixed(2)} in cash.` : ''}`) : r?.error || 'That didn’t go through.' }));
+  if (!list.length && !extras.length) return null;
+  const act = async (p: any, action: 'record' | 'discard', paidAs?: 'cash' | 'other') => {
+    setBusy(`${p.id}:${action}${paidAs ? `:${paidAs}` : ''}`);
+    const r = await staffPost('/api/checkout/complete', { tenantId, action, pendingId: p.id, reason: why[p.id] || '', ...(paidAs ? { paidAs } : {}) }); setBusy(null);
+    setMsg((m) => ({ ...m, [p.id]: r?.ok ? (r.recorded ? 'Already recorded: the sale was saved, so nothing was refunded or added twice.' : action === 'record' ? (r.already ? 'Already recorded — nothing added twice.' : `Recorded — $${Number(r.total || p.expectedTotal).toFixed(2)}.`) : `Discarded.${r.refundedCards ? ` ${r.refundedCards} card payment${r.refundedCards === 1 ? '' : 's'} refunded.` : ''}${r.cashToReturn ? ` Hand back $${Number(r.cashToReturn).toFixed(2)} in cash.` : ''}${r.warning ? ` ${r.warning}` : ''}`) : r?.error || 'That didn’t go through.' }));
   };
+  // Nothing was paid on it at the desk: the manager says how it was paid (a card sale is only recorded with its card payment).
+  const unpaidAtDesk = (p: any) => p.status !== 'partial' && !p.paymentIntentId && !(p.tenders || []).length;
   return (
     <section className="space-y-2 rounded-3xl border border-red-200 bg-card p-4">
-      <p className="font-semibold">Sales not recorded</p>
-      <p className="text-xs text-muted-foreground">Rung up at the desk but not saved. Recording one never charges the card.</p>
+      {!!list.length && <><p className="font-semibold">Sales not recorded</p>
+      <p className="text-xs text-muted-foreground">Rung up at the desk but not saved. Recording one never charges the card.</p></>}
+      {!!extras.length && <p className="font-semibold">Paid twice</p>}
+      {extras.map((x: any) => { const k = `${x.p.id}:${x.id}`; return <div key={k} className="space-y-1.5 rounded-2xl border p-3 text-sm">
+        <p><b>{x.p.clientName || 'A client'}</b> · ${(x.cents / 100).toFixed(2)} {viaWords(x.via)}{x.at ? ` · ${new Date(x.at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : ''}</p>
+        <p className="text-xs text-muted-foreground">{x.hint === 'saved_without_card' ? `The sale was saved without a card payment (ref ${String(x.id).slice(-8)}), so this may be the payment that paid for it. Keep it if they didn’t pay another way; refund it if they did.`
+          : x.hint === 'discarded' ? `The sale was discarded before this payment went through (ref ${String(x.id).slice(-8)}). Refund it to their card, or keep it if it was meant.`
+          : `The sale was already paid (ref ${String(x.id).slice(-8)}). Refund this payment to their card, or keep it if it was meant.`}</p>
+        {!/^(Refunded|Kept|Already)/.test(msg[k] || '') && <div className="flex flex-wrap items-center gap-2">
+          <button type="button" disabled={!!busy} onClick={() => decide(x, 'refund')} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${k}:refund` ? 'Refunding…' : `Refund $${(x.cents / 100).toFixed(2)}`}</button>
+          <input value={why[k] || ''} onChange={(e) => setWhy((w) => ({ ...w, [k]: e.target.value }))} placeholder="Or keep it — reason" aria-label="Reason for keeping the extra payment" className="h-8 flex-1 rounded-lg border px-2 text-xs" />
+          <button type="button" disabled={!!busy || !(why[k] || '').trim()} onClick={() => decide(x, 'keep')} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Keep it</button>
+        </div>}
+        {msg[k] && <p className="text-xs font-semibold">{msg[k]}</p>}
+      </div>; })}
       {list.map((p: any) => <div key={p.id} className="space-y-1.5 rounded-2xl border p-3 text-sm">
         <p><b>{p.clientName || 'A client'}</b> · ${Number(p.expectedTotal || 0).toFixed(2)} · {new Date(p.preparedAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}{p.preparedBy ? ` · ${String(p.preparedBy).split(' ')[0]}` : ''}</p>
-        <p className="text-xs text-muted-foreground">{p.status === 'partial' ? `Split bill — $${Number(p.paidSoFar || 0).toFixed(2)} of $${Number(p.expectedTotal || 0).toFixed(2)} paid (${(p.tenders || []).length} payment${(p.tenders || []).length === 1 ? '' : 's'}). Record it if the rest was paid another way, or discard it — card shares are refunded.` : p.status === 'paid_waiting' ? `Paid on the client screen (ref ${String(p.paymentIntentId || '').slice(-8)}) — the desk didn’t finish the sale.` : p.status === 'failed' ? `Paid${p.paymentIntentId ? ` by card (ref ${String(p.paymentIntentId).slice(-8)})` : ''} — the save failed${p.lastError ? `: ${String(p.lastError).slice(0, 80)}` : ''}.` : 'Started at checkout but never finished. Was it paid?'}</p>
+        <p className="text-xs text-muted-foreground">{p.status === 'partial' ? `Split bill — $${Number(p.paidSoFar || 0).toFixed(2)} of $${Number(p.expectedTotal || 0).toFixed(2)} paid (${(p.tenders || []).length} payment${(p.tenders || []).length === 1 ? '' : 's'}). Record it if the rest was paid another way, or discard it — card shares are refunded.` : p.status === 'paid_waiting' ? `Paid${p.paidCents ? ` $${(Number(p.paidCents) / 100).toFixed(2)}` : ''} ${viaWords(p.paidVia)} (ref ${String(p.paymentIntentId || '').slice(-8)}) — the desk didn’t finish the sale.` : p.status === 'failed' ? `Paid${p.paymentIntentId ? ` by card (ref ${String(p.paymentIntentId).slice(-8)})` : ''} — the save failed${p.lastError ? `: ${String(p.lastError).slice(0, 80)}` : ''}.` : 'Started at checkout but never finished. Was it paid?'}</p>
         {!/^(Recorded|Discarded|Already)/.test(msg[p.id] || '') && <div className="flex flex-wrap items-center gap-2">
-          <button type="button" disabled={!!busy} onClick={() => act(p, 'record')} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${p.id}:record` ? 'Recording…' : p.status === 'failed' || p.status === 'paid_waiting' ? 'Record the sale' : 'It was paid — record it'}</button>
+          {unpaidAtDesk(p) ? <>
+            <button type="button" disabled={!!busy} onClick={() => act(p, 'record', 'cash')} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${p.id}:record:cash` ? 'Recording…' : 'Paid in cash — record it'}</button>
+            <button type="button" disabled={!!busy} onClick={() => act(p, 'record', 'other')} className="rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-50">{busy === `${p.id}:record:other` ? 'Recording…' : 'Paid another way — record it'}</button>
+          </> : <button type="button" disabled={!!busy} onClick={() => act(p, 'record')} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{busy === `${p.id}:record` ? 'Recording…' : 'Record the sale'}</button>}
           <input value={why[p.id] || ''} onChange={(e) => setWhy((w) => ({ ...w, [p.id]: e.target.value }))} placeholder="Or discard — reason" className="h-8 flex-1 rounded-lg border px-2 text-xs" />
           <button type="button" disabled={!!busy || !(why[p.id] || '').trim()} onClick={() => act(p, 'discard')} className="rounded-full border px-3 py-1.5 text-xs disabled:opacity-50">Discard</button>
         </div>}

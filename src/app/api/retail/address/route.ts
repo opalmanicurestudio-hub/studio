@@ -18,6 +18,28 @@ export const dynamic = 'force-dynamic';
 const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const first = (n: unknown) => String(n || '').trim().split(/\s+/)[0] || 'the customer';
 const PRE_SHIP = ['placed', 'paid', 'picking', 'packed'];
+const sidKey = (sid: unknown) => String(sid || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 120);
+
+/** What the customer paid for this request's change, as the server recorded it (lib/address-pay) — never what the
+ *  request itself says: the payment on its own Stripe page, for this request, not yet refunded. */
+function paidFor(o: any, req: any): { cents: number; sessionId: string; pi: string | null } | null {
+  const sid = sidKey(req?.paid?.sessionId); if (!sid) return null;
+  const e = o?.addressPaid?.[sid]; const ap = o?.addressPay;
+  if (!e || e.refundedAt || e.state !== 'requested') return null;
+  if (!ap || sidKey(ap.sessionId) !== sid || ap.status !== 'requested') return null;
+  return { cents: Math.max(0, Math.round(Number(e.cents) || 0)), sessionId: String(ap.sessionId), pi: e.pi || null };
+}
+/** The order's address cost once this request is approved (lib/address-cost), or null when it can't be known. */
+function costApproved(o: any, req: any, paid: { cents: number; pi: string | null; sessionId: string } | null) {
+  const c = req?.cost; if (!c || !Number.isFinite(Number(c.toCents))) return null;
+  const prior = o?.addressCost && typeof o.addressCost === 'object' ? o.addressCost : null;
+  const orig = Number.isFinite(Number(prior?.origCents)) ? Math.round(Number(prior.origCents)) : Math.round(Number(c.origCents ?? c.fromCents) || 0);
+  const extra = Math.max(0, Math.round(Number(c.toCents) || 0) - orig);
+  if (!extra && !prior) return null;
+  const customerCents = Math.max(0, Math.round(Number(prior?.customerCents) || 0)) + (paid?.cents || 0);
+  return { origCents: orig, toCents: Math.round(Number(c.toCents) || 0), extraCents: extra, customerCents, shopCents: Math.max(0, extra - customerCents), service: String(c.service || ''), carrier: String(c.carrier || ''),
+    moves: (Number(prior?.moves) || 0) + 1, ...(paid ? { paymentIntentId: paid.pi, sessionId: paid.sessionId } : {}) };
+}
 
 async function tell(db: any, tenantId: string, orderId: string, o: any, kind: string, subject: string, body: string, origin: string) {
   if (!o.customerEmail && !o.customerPhone) return;
@@ -202,7 +224,11 @@ export async function POST(req: NextRequest) {
           ...(!sameLabel && hadLabel ? { ...LABEL_CLEARED, labelVoidedAt: now } : {}),
           shippingAddress: req0.to, addressCheck: req0.check || null,
           addressChanged: { at: now, from: cur.shippingAddress || null, by: 'staff', after: hadLabel ? 'label' : String(cur.stage || '') },
+          // What the moves have cost so far, approved: measured from the original address's price, with what the customer
+          // paid (before, and for this change), the shop covering the rest (the policy screen's running total).
+          ...(costApproved(cur, req0, paidFor(cur, req0)) ? { addressCost: { ...costApproved(cur, req0, paidFor(cur, req0)), approvedBy: actor.name || null, at: now } } : {}),
           addressRequest: { ...cur.addressRequest, status: 'done', answeredAt: now, answeredBy: actor.uid, answeredByName: actor.name, claimedBy: null, claimedAt: null },
+          ...(paidFor(cur, req0) ? { addressPay: { ...cur.addressPay, status: 'applied', appliedAt: now }, addressPaid: { ...(cur.addressPaid || {}), [sidKey(req0.paid.sessionId)]: { ...cur.addressPaid[sidKey(req0.paid.sessionId)], state: 'applied' } } } : {}),
           ...(['waiting', 'confirmed'].includes(String(cur.addressConfirm?.status || '')) ? { addressConfirm: { ...cur.addressConfirm, status: 'fixed', answeredAt: now } } : {}),
         }, { merge: true });
         const ev = ref.collection('events').doc();
@@ -217,6 +243,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'keep_old') {
+    if (!mayShip(actor)) return NextResponse.json({ ok: false, error: SHIP_DENIED }, { status: 403 });
     const reason = String(b.reason || '').trim().slice(0, 300);
     const out = await db.runTransaction(async (tx: any) => {
       const cur: any = (await tx.get(ref)).data() || {};
@@ -229,12 +256,23 @@ export async function POST(req: NextRequest) {
       tx.set(ref, { addressRequest: { ...cur.addressRequest, status: 'kept', reply: reason || null, answeredAt: now, answeredBy: actor.uid, answeredByName: actor.name } }, { merge: true });
       const ev = ref.collection('events').doc();
       tx.set(ev, { id: ev.id, type: 'note', at: now, actorId: actor.uid, actorName: actor.name, meta: { kind: 'address_change_kept', text: `Kept the original address${reason ? `: ${reason}` : ''}` } });
-      return { ok: true };
+      // What they paid for this change, as the server recorded it (never what the request says).
+      return { ok: true, paid: paidFor(cur, req0) };
     });
     if (!out.ok) return NextResponse.json(out, { status: 409 });
+    // They paid for the new address (lib/address-pay): it goes back to their card, once. A refund that doesn't go
+    // through is tried again by the five-minute check, and the team is told.
+    const paidCents = out.paid?.cents || 0;
+    let refunded = false;
+    if (out.paid && paidCents > 0) {
+      const { refundAddressPayment } = await import('@/lib/address-pay');
+      const r = await refundAddressPayment(db, tenantId, orderId, out.paid.sessionId, 'kept').catch(() => ({ ok: false }));
+      refunded = !!r.ok;
+    }
+    const back = paidCents > 0 ? (refunded ? `<br><br>The $${(paidCents / 100).toFixed(2)} you paid for shipping to the new address has been refunded to your card.` : `<br><br>The $${(paidCents / 100).toFixed(2)} you paid for shipping to the new address will be refunded.`) : '';
     await tell(db, tenantId, orderId, o, 'address_reply', 'About the address on your order',
-      `We weren’t able to change the address on your order${reason ? `: ${esc(reason)}` : '.'}<br><br>It will ship to:<br><strong>${esc(oneLine(o.shippingAddress))}</strong><br><br>If that’s a problem, send us a note on your order page.`, origin);
-    return NextResponse.json({ ok: true, message: `The original address stays. ${who} has been told.` });
+      `We weren’t able to change the address on your order${reason ? `: ${esc(reason)}` : '.'}<br><br>It will ship to:<br><strong>${esc(oneLine(o.shippingAddress))}</strong>${back}<br><br>If that’s a problem, send us a note on your order page.`, origin);
+    return NextResponse.json({ ok: true, message: `The original address stays. ${who} has been told.${paidCents > 0 ? (refunded ? ` The $${(paidCents / 100).toFixed(2)} they paid for the new address was refunded to their card.` : ` The $${(paidCents / 100).toFixed(2)} they paid for the new address couldn’t be refunded just now. It’s tried again every few minutes, and you’ll be told if it still can’t be.`) : ''}` });
   }
 
   return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });

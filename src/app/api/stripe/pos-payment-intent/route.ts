@@ -1,10 +1,13 @@
 // ─── /api/stripe/pos-payment-intent/route.ts ──────────────────────────────────
 // Creates a PaymentIntent for the embedded card form at POS checkout.
 // Optionally creates/reuses a Stripe customer so the card can be saved.
+// A desk sale names its started ticket on the payment, and is never started when the sale is already paid, finished,
+// discarded, part paid in a split, or has a card reader payment still going (lib/reader-sale).
 
 import { requireRole } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { safeId, ticketBlocks } from '@/lib/reader-sale';
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -35,6 +38,7 @@ export async function POST(req: NextRequest) {
       amountCents,
       description = 'Studio Services',
       saveCard = false,
+      pendingId = '',
     } = await req.json();
     { const g = await requireRole(req, String(tenantId || ''), 'staff'); if (g.deny) return g.deny; }
 
@@ -50,6 +54,11 @@ export async function POST(req: NextRequest) {
     }
 
     const stripe = getStripe();
+    const forTicket = safeId(pendingId);
+    if (forTicket) {
+      const block = await ticketBlocks(db, String(tenantId), forTicket, { stripe, acct: stripeAccountId });
+      if (block) return NextResponse.json({ code: block.code, error: block.error, ...(block.paidWith ? { paidWith: block.paidWith, paidPayload: block.paidPayload } : {}) }, { status: block.status });
+    }
     let customerId: string | undefined;
 
     if (saveCard && clientId) {
@@ -72,7 +81,7 @@ export async function POST(req: NextRequest) {
         ...(customerId ? { customer: customerId } : {}),
         ...(saveCard   ? { setup_future_usage: 'off_session' } : {}),
         description,
-        metadata: { tenantId, clientId: clientId || '', source: 'pos_embedded' },
+        metadata: { tenantId, clientId: clientId || '', source: 'pos_embedded', ...(forTicket ? { pendingId: forTicket } : {}) },
       },
       { stripeAccount: stripeAccountId }
     );

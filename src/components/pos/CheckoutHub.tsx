@@ -6,6 +6,7 @@ import { getAuth } from 'firebase/auth';
 import { visitTiming, overtimePrice } from '@/lib/timing';
 import { automationOn } from '@/lib/automation-switches';
 import { splitTip } from '@/lib/tip-split';
+import { viaWords, dollars } from '@/lib/pay-via';
 import { SplitBill } from '@/components/pos/SplitBill';
 import { saleProfileOf } from '@/lib/sale-profile';
 import { PosCatalog } from '@/components/pos/PosCatalog';
@@ -160,11 +161,14 @@ const CardOnFileConfirm = ({ client, amount, surcharge, onConfirm, onCancel, isP
 };
 
 // ─── TerminalPaymentUI ────────────────────────────────────────────────────────
-const TerminalPaymentUI = ({ amount, onCancel, onSuccess, onRetry }: {
+const TerminalPaymentUI = ({ amount, onCancel, onSuccess, onRetry, onCheck, onRelease, busy }: {
   amount: number;
   onCancel: () => void;
   onSuccess: () => void;
   onRetry?: () => void;
+  onCheck?: () => void;
+  onRelease?: () => void;
+  busy?: 'check' | 'release' | null;
 }) => {
   const terminal = useTerminalSafe();
   const status: string = terminal?.paymentStatus || 'idle';
@@ -178,6 +182,7 @@ const TerminalPaymentUI = ({ amount, onCancel, onSuccess, onRetry }: {
     succeeded:        ['Paid', 'Thank you'],
     failed:           ['That didn’t go through', error || 'Try again, or choose another way to pay'],
     cancelled:        ['Cancelled', 'Nothing was charged'],
+    unconfirmed:      ['We couldn’t confirm the payment', 'The card may have been charged. Don’t charge it again: check again, or cancel this payment first.'],
   };
   const [title, sub] = words[status] || [status, ''];
   const step = ({ idle: 0.1, creating: 0.2, waiting_for_card: 0.45, processing: 0.7, capturing: 0.9, succeeded: 1 } as Record<string, number>)[status] ?? 0;
@@ -185,11 +190,11 @@ const TerminalPaymentUI = ({ amount, onCancel, onSuccess, onRetry }: {
   const waiting = status === 'waiting_for_card';
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-      <div className="flex flex-col items-center gap-4 rounded-3xl px-5 py-8 text-center" style={{ background: status === 'succeeded' ? 'color-mix(in srgb, var(--ok) 10%, var(--card))' : status === 'failed' ? 'color-mix(in srgb, var(--warn) 9%, var(--card))' : 'var(--soft)' }}>
-        <span className="relative flex items-center justify-center" style={{ color: status === 'failed' ? 'var(--warn)' : 'var(--ok)' }}>
+      <div className="flex flex-col items-center gap-4 rounded-3xl px-5 py-8 text-center" style={{ background: status === 'succeeded' ? 'color-mix(in srgb, var(--ok) 10%, var(--card))' : status === 'failed' || status === 'unconfirmed' ? 'color-mix(in srgb, var(--warn) 9%, var(--card))' : 'var(--soft)' }}>
+        <span className="relative flex items-center justify-center" style={{ color: status === 'failed' || status === 'unconfirmed' ? 'var(--warn)' : 'var(--ok)' }}>
           {waiting && <span aria-hidden className="d-ping absolute inset-0 rounded-full" />}
           <Ring progress={step} size={88} stroke={4}>
-            <span style={{ color: status === 'failed' ? 'var(--warn)' : 'var(--ink)' }}><DIcon name={status === 'succeeded' ? 'check' : status === 'failed' ? 'alert' : 'card'} size={32} stroke={1.6} /></span>
+            <span style={{ color: status === 'failed' || status === 'unconfirmed' ? 'var(--warn)' : 'var(--ink)' }}><DIcon name={status === 'succeeded' ? 'check' : status === 'failed' || status === 'unconfirmed' ? 'alert' : 'card'} size={32} stroke={1.6} /></span>
           </Ring>
         </span>
         <div aria-live="polite"><p className="text-[20px] font-light tracking-tight">{title}</p><p className="mt-0.5 text-[13.5px]" style={{ color: 'var(--muted)' }}>{sub}</p></div>
@@ -199,13 +204,16 @@ const TerminalPaymentUI = ({ amount, onCancel, onSuccess, onRetry }: {
       {(status === 'failed' || status === 'cancelled') && <div className="flex gap-2">
         {onRetry && <button type="button" onClick={onRetry} className="h-11 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Try again</button>}
         <button type="button" onClick={onCancel} className="h-11 flex-1 rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Another way to pay</button></div>}
+      {status === 'unconfirmed' && <div className="flex gap-2">
+        {onCheck && <button type="button" onClick={onCheck} disabled={!!busy} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full text-[14px] font-semibold disabled:opacity-60" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{busy === 'check' ? <><Loader className="h-4 w-4 animate-spin" />Checking…</> : 'Check again'}</button>}
+        {onRelease && <button type="button" onClick={onRelease} disabled={!!busy} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full text-[14px] font-semibold disabled:opacity-60" style={{ background: 'var(--soft)' }}>{busy === 'release' ? <><Loader className="h-4 w-4 animate-spin" />Cancelling…</> : 'Cancel this payment'}</button>}</div>}
     </motion.div>
   );
 };
 
 // ─── EmbeddedCardForm ─────────────────────────────────────────────────────────
 // Uses Stripe.js to collect a new card, charge it, and optionally save to profile
-const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, onSuccess, onCancel }: {
+const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, onSuccess, onCancel, prepare, onRefused }: {
   tenantId:    string;
   clientId?:   string;
   clientEmail?: string;
@@ -213,6 +221,10 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
   saveCard:    boolean;
   onSuccess:   (paymentIntentId: string) => void;
   onCancel:    () => void;
+  /** Saves the sale as its started ticket first; null when it couldn't be (nothing is charged then). */
+  prepare?:    () => Promise<string | null>;
+  /** The server wouldn't start the payment (the sale is already paid, being split…): the checkout says why. True when handled. */
+  onRefused?:  (r: any, pendingId: string | null) => boolean;
 }) => {
   const { toast } = useToast();
   const mountRef     = useRef<HTMLDivElement>(null);
@@ -288,13 +300,17 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
     setCardError(null);
 
     try {
+      // 0. The sale is saved as its started ticket first, and the payment names it (never started for a sale already paid).
+      const pendingId = prepare ? await prepare() : null;
+      if (prepare && !pendingId) { setCardError('The sale couldn’t be started. Check the internet connection and try again. Nothing was charged.'); setIsCharging(false); return; }
       // 1. Create PaymentIntent on server
       const piRes = await fetch('/api/stripe/pos-payment-intent', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-        body:    JSON.stringify({ tenantId, clientId, amountCents: Math.round(amount * 100), saveCard, description: 'Front desk' }),
+        body:    JSON.stringify({ tenantId, clientId, amountCents: Math.round(amount * 100), saveCard, description: 'Front desk', ...(pendingId ? { pendingId } : {}) }),
       });
-      const piData = await piRes.json();
+      const piData = await piRes.json().catch(() => ({}));
+      if (!piData.clientSecret && piData.code && onRefused?.(piData, pendingId)) { setIsCharging(false); return; }
       if (!piData.clientSecret) throw new Error(piData.error || 'Could not create payment');
 
       // 2. Confirm on client
@@ -380,6 +396,11 @@ export const CheckoutHub = ({
   prepareNow,
   splitActive,
   setSplitActive,
+  ticketPaid = null,
+  setTicketPaid,
+  getTicketPaid,
+  getTicket,
+  savePaidSale,
   moments,
   momentReward,
   momentDiscountValue,
@@ -721,8 +742,14 @@ export const CheckoutHub = ({
   // ── Card on file charge ────────────────────────────────────────────────────
   const handleCofCharge = async () => {
     if (!selectedClient || !tenantId) return;
+    if (payBlockedNow()) { setCardMode('select'); return; }   // paid already, or a reader payment not confirmed yet
     setIsCofCharging(true);
     try {
+      // The sale is saved as its started ticket first, and the charge names it: the server never charges a sale that's
+      // already paid (on this screen or another), and the payment is on the ticket the moment it goes through.
+      const pendingId = (prepareNow ? await prepareNow({ paymentMethod: 'card_on_file', amountTendered: amountToCharge, cardSurcharge }) : null) || getPendingId?.() || null;
+      if (prepareNow && !pendingId) { toast({ variant: 'destructive', title: 'The sale couldn’t be started', description: 'Check the internet connection and try again. Nothing was charged.' }); setCardMode('select'); return; }
+      if (getTicketPaid?.()) { setCardMode('select'); paidAlready(); return; }
       const res = await fetch('/api/stripe/charge-card', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
@@ -734,9 +761,21 @@ export const CheckoutHub = ({
           description: 'Studio Services — POS Checkout',
           category:    'Service Revenue',
           noLedger:    true,   // the checkout records the sale itself, line by line (services, products, tax, tip) — not one lump line here
+          ...(pendingId ? { pendingId } : {}),
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (data.code === 'ticket_paid' && data.paidWith) { setTicketPaid?.({ pendingId, ...data.paidWith, paidPayload: data.paidPayload || null }); setCardMode('select'); paidAlready(); return; }
+      if (data.code === 'ticket_split') { setCardMode('select'); setSplitActive?.(true); toast({ variant: 'destructive', title: 'Part of this bill is already paid', description: data.error || 'Finish it in Split the bill.' }); return; }
+      if (data.code === 'sale_done' || data.code === 'sale_discarded' || data.code === 'no_ticket') { if (prepareNow) await prepareNow(); setCardMode('select'); toast({ variant: 'destructive', title: data.code === 'sale_done' ? 'That sale was already saved' : 'Start the sale again', description: `${data.error || ''} Check the cart, then charge again.`.trim() }); return; }
+      if (data.code === 'reader_open' || data.code === 'reader_unknown') { setCardMode('select'); toast({ variant: 'destructive', title: 'Check the card reader payment first', description: data.error }); return; }
+      if (data.ok && data.sale === 'paid_twice') {
+        // The sale was paid another way while this charge went through: this payment is kept apart for a manager.
+        toast({ variant: 'destructive', duration: 20000, title: 'This sale was already paid', description: 'That saved-card payment was taken on top of it, so it’s kept apart for a manager to refund in Needs attention. Save the paid sale.' });
+        if (prepareNow) await prepareNow();
+        setCardMode('select');
+        return;
+      }
       if (data.ok) {
         setStripePaymentId(data.paymentIntentId);
         toast({ title: 'Card Charged', description: `$${amountToCharge.toFixed(2)} charged successfully.` });
@@ -757,23 +796,105 @@ export const CheckoutHub = ({
   };
 
   // ── Terminal payment ───────────────────────────────────────────────────────
+  // The sale is saved as a started ticket before the reader is handed the card, and the payment carries it, so it's
+  // accounted for whatever happens to this screen (lib/reader-sale). A payment we couldn't confirm is checked again or
+  // cancelled before anything else is taken, and trying again never charges a card twice.
+  const [readerPending, setReaderPending] = useState<{ id: string; pendingId: string } | null>(null);
+  const [readerBusy, setReaderBusy] = useState<'check' | 'release' | null>(null);
+  const lastReaderRef = useRef<{ id: string; pendingId: string } | null>(null);
+  const usd = (n: number) => `$${(Math.round(safeNumber(n) * 100) / 100).toFixed(2)}`;
+  // Saved for what the card was actually charged. If the sale changed after the charge, it's still saved with that
+  // payment, and the receipt is flagged to settle the difference (the server checks too).
+  const finishWithReader = async (paymentIntentId: string, already?: boolean, cents?: number) => {
+    setReaderPending(null); lastReaderRef.current = null;
+    const charged = safeNumber(cents) > 0 ? Math.round(safeNumber(cents)) / 100 : amountToCharge;
+    if (already) toast({ title: 'That card payment had already gone through', description: 'The sale is saved with it. Nothing was charged twice.' });
+    if (Math.abs(charged - amountToCharge) > 0.009) toast({ variant: 'destructive', duration: 20000, title: 'The total changed after the card was charged', description: `The card was charged ${usd(charged)} and the sale now comes to ${usd(amountToCharge)}. It’s saved with the ${usd(charged)} payment, and the receipt is flagged to settle the difference.` });
+    await onCheckout({ paymentMethod: 'terminal', amountTendered: charged, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: paymentIntentId, skipLedger: false, cardSurcharge });
+    setCardMode('select');
+  };
+  // A reader payment went through. If the server says the sale was already paid another way, this one is kept apart
+  // for a manager to refund, and the sale is saved with the first payment instead (never with this one).
+  const afterReaderPaid = async (r: { paymentIntentId?: string; already?: boolean; amountCents?: number; sale?: string }) => {
+    if (r.sale === 'paid_twice') {
+      setReaderPending(null); lastReaderRef.current = null;
+      toast({ variant: 'destructive', duration: 20000, title: 'This sale was already paid', description: 'That card payment was taken on top of it, so it’s kept apart for a manager to refund in Needs attention. Save the sale with the first payment.' });
+      if (prepareNow) await prepareNow();   // the ticket says how it was paid, and the screen offers to save it with that
+      setCardMode('select');
+      return;
+    }
+    if (r.paymentIntentId) await finishWithReader(r.paymentIntentId, r.already, r.amountCents);
+  };
+  // The sale is already paid (the screen lost track of it): no other payment is taken for it.
+  const paidAlready = () => {
+    const tp = getTicketPaid?.() || ticketPaid;
+    if (!tp) return false;
+    toast({ variant: 'destructive', title: 'This sale is already paid', description: `${tp.cents ? dollars(tp.cents) : 'It'} was paid ${viaWords(tp.via)}. Save the sale with that payment instead of taking another.` });
+    return true;
+  };
   const handleTerminalPayment = async () => {
     if (!terminal || !readerConnected) {
       setCardMode('reader');
       return;
     }
+    if (readerPending) { setCardMode('terminal'); return; }   // the last payment still needs checking first
+    if (paidAlready()) return;
+    terminal.beginPayment?.();   // the last payment's status never shows (or acts) while this one starts
     setCardMode('terminal');
+    const pendingId = (prepareNow ? await prepareNow({ paymentMethod: 'terminal', amountTendered: amountToCharge, cardSurcharge }) : null) || getPendingId?.() || null;
+    if (!pendingId) {
+      toast({ variant: 'destructive', title: 'The sale couldn’t be started', description: 'Check the internet connection and try again. Nothing was charged.' });
+      setCardMode('select');
+      return;
+    }
+    if (getTicketPaid?.()) { setCardMode('select'); paidAlready(); return; }   // it turned out to be paid already
+    const last = lastReaderRef.current;
+    const previous = last && last.pendingId === pendingId ? last.id : undefined;
     const result = await terminal.collectPayment({
       tenantId,
       clientId:    selectedClient?.id,
       amountCents: Math.round(amountToCharge * 100),
       description: (selectedTenant as any)?.name ? `${(selectedTenant as any).name} — front desk` : 'Front desk',
       saveCard:    saveNewCard && !!selectedClient,
+      kind:        'sale',
+      pendingId,
+      previousPaymentIntentId: previous,
     });
-    if (result.ok) {
-      await onCheckout({ paymentMethod: 'terminal', amountTendered: amountToCharge, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: result.paymentIntentId, skipLedger: false, cardSurcharge });
-      setCardMode('select');
-    }
+    if (result.paymentIntentId) lastReaderRef.current = { id: result.paymentIntentId, pendingId };
+    if (result.ok && result.paymentIntentId) { await afterReaderPaid(result); return; }
+    if (result.code === 'ticket_paid' && result.paidWith) { setTicketPaid?.({ pendingId, ...result.paidWith }); setCardMode('select'); paidAlready(); return; }
+    if (result.code === 'ticket_split') { setCardMode('select'); setSplitActive?.(true); toast({ variant: 'destructive', title: 'Part of this bill is already paid', description: result.error || 'Finish it in Split the bill.' }); return; }
+    if (result.unknown && result.paymentIntentId) setReaderPending({ id: result.paymentIntentId, pendingId });
+  };
+  const checkReaderAgain = async () => {
+    if (!terminal || !readerPending) return;
+    setReaderBusy('check');
+    try {
+      const r = await terminal.confirmPayment({ tenantId, paymentIntentId: readerPending.id, clientId: selectedClient?.id, saveCard: saveNewCard && !!selectedClient });
+      if (r.ok) { await afterReaderPaid({ ...r, paymentIntentId: readerPending.id }); return; }
+      if (!r.unknown) { setReaderPending(null); toast(r.refunded ? { title: 'That card payment was refunded', description: 'It can’t pay for this sale. Take the payment again, or another way.' } : { title: 'The card wasn’t charged', description: 'Take the payment again, or another way.' }); }
+    } finally { setReaderBusy(null); }
+  };
+  // Cash or another way while a reader payment for the sale isn't confirmed would risk taking it twice: check it first.
+  const readerUnsettled = () => {
+    if (!readerPending) return false;
+    toast({ variant: 'destructive', title: 'Check the card payment first', description: 'A card reader payment for this sale isn’t confirmed yet. Check it again or cancel it, then take the payment another way.' });
+    return true;
+  };
+  // Every other way to pay checks both first: an unconfirmed reader payment, and a sale already paid.
+  const payBlockedNow = () => readerUnsettled() || paidAlready();
+  const cancelReaderPayment = async () => {
+    if (!terminal || !readerPending) return;
+    setReaderBusy('release');
+    try {
+      const r = await terminal.releasePayment({ tenantId, paymentIntentId: readerPending.id });
+      if (r.charged) {
+        if (r.sale === 'paid_twice') { await afterReaderPaid({ ...r, paymentIntentId: readerPending.id, sale: 'paid_twice' }); return; }
+        toast({ title: 'That payment had gone through', description: 'Saving the sale with it. Nothing was charged twice.' }); await finishWithReader(readerPending.id, false, r.amountCents); return;
+      }
+      if (r.ok) { setReaderPending(null); setCardMode('select'); toast(r.refunded ? { title: 'That card payment was refunded', description: 'Nothing is owed on it. Take the payment again, or another way.' } : { title: 'Payment cancelled', description: 'Nothing was charged. Take it again, or another way.' }); return; }
+      toast({ variant: 'destructive', title: r.unknown ? 'Still can’t reach payments' : 'Couldn’t cancel it', description: r.error || 'Check the internet connection, then try again.' });
+    } finally { setReaderBusy(null); }
   };
 
   // Reset card mode when payment tab changes
@@ -872,9 +993,21 @@ export const CheckoutHub = ({
   const payOnIpadOn = cs.connected && csSet.payOnScreen !== false || cs.connected && csSet.payOnPhone !== false;
   // One request: the iPad runs review → tip → pay by itself (the tip is added to the payment on the server).
   const sendPayToScreen = async () => { const amount = Math.round(safeNumber(amountToCharge) * 100) / 100; const askTip = autoTipOn && safeNumber(tipAmount) === 0;
-    const id = await cs.ask('pay', { amount, clientId: selectedClient?.id || null, pendingId: getPendingId?.() || null, askTip, tipBase, providers: tipPeople.length > 1 && (selectedTenant as any)?.tipSharing?.mode !== 'pool' ? tipPeople.map((p) => ({ id: p.id, name: p.name })) : [] });
-    if (id) setPayReq({ id, amount }); else toast({ variant: 'destructive', title: 'The client screen couldn’t start the payment', description: 'Check Stripe is connected, or take the card another way.' }); };
-  const startPayOnIpad = () => { tipAskedFor.current = ticketKey; sendPayToScreen(); };
+    // The sale is saved as its started ticket first, as it is now, so the payment is never without one.
+    const pendingId = (prepareNow ? await prepareNow({ paymentMethod: 'card', amountTendered: amount, cardSurcharge }) : null) || getPendingId?.() || null;
+    if (getTicketPaid?.()) { paidAlready(); return; }
+    const r: any = await (cs.askFull || cs.ask)('pay', { amount, clientId: selectedClient?.id || null, pendingId, askTip, tipBase, providers: tipPeople.length > 1 && (selectedTenant as any)?.tipSharing?.mode !== 'pool' ? tipPeople.map((p) => ({ id: p.id, name: p.name })) : [] });
+    const id = typeof r === 'string' ? r : r?.ok ? r.requestId : null;
+    if (id) { setPayReq({ id, amount }); return; }
+    // The server wouldn't start it: the sale is already paid (on another screen), being split, or a card reader payment is still going.
+    if (r?.code === 'ticket_paid' && r.paidWith) { setTicketPaid?.({ pendingId, ...r.paidWith, paidPayload: r.paidPayload || null }); paidAlready(); return; }
+    if (r?.code === 'ticket_split') { setSplitActive?.(true); toast({ variant: 'destructive', title: 'Part of this bill is already paid', description: r.error || 'Finish it in Split the bill.' }); return; }
+    toast({ variant: 'destructive', title: 'The client screen couldn’t start the payment', description: r?.error || 'Check Stripe is connected, or take the card another way.' }); };
+  const startPayOnIpad = () => { if (payBlockedNow()) return; tipAskedFor.current = ticketKey; sendPayToScreen(); };
+  // Whether the sale on the screen still comes to what the paid ticket was charged (if not, something was added or
+  // changed since: "Save the paid sale" saves it as it was paid, and keeps what was added as a new sale).
+  const surchargeAny = cardSurchargeEnabled && finalTotal > 0 ? Number((finalTotal * cardSurchargeRate).toFixed(2)) : 0;
+  const ticketDueCents = ticketPaid ? Math.round((finalTotal + surchargeAny + safeNumber(ticketPaid.tip)) * 100) : 0;
   useEffect(() => { const r = cs.response; if (!r || !payReq || r.requestId !== payReq.id || r.kind !== 'pay' || !r.paid) return;
     const amt = payReq.amount; setPayReq(null);
     if (r.saved) toast({ title: 'Card saved for next time' });
@@ -913,7 +1046,7 @@ export const CheckoutHub = ({
     const k = `${ticketKey}|${amountToCharge}`; if (cofAutoSent.current === k || (cofReq && Math.abs(cofReq.amount - amountToCharge) < 0.005)) return; cofAutoSent.current = k;
     cs.ask('approve', { amount: amountToCharge, cardLabel: `${String(selectedClient?.cardOnFile?.brand || 'card')} ending ${String(selectedClient?.cardOnFile?.last4 || '••••')}`, clientId: selectedClient.id, clientName: selectedClient.name }).then((id: any) => { if (id) setCofReq({ id, amount: amountToCharge, status: 'waiting' }); });
   }, [autoOn, paymentTab, cardMode, amountToCharge, cofSkip, ticketKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCardMode('select'); }, [paymentTab]);
+  useEffect(() => { setCardMode(readerPending && paymentTab === 'card' ? 'terminal' : 'select'); }, [paymentTab]); // eslint-disable-line react-hooks/exhaustive-deps
   if (lastSale && isCartEmpty) return <div className="desk" style={{ background: 'transparent' }}><style>{DESK_CSS}</style><SaleComplete autoReturnSec={Number((selectedTenant as any)?.clientScreen?.deskReturnAfter ?? 10)} screenName={cs.connected ? cs.name : null} onBookOnScreen={cs.connected ? () => { cs.ask('thanks', { receiptId: lastSale.receiptId, total: lastSale.collected ?? lastSale.total, clientFirst: String(lastSale.clientName || '').split(' ')[0], rebook: rebookCtxOf(lastSale), rebookFirst: true }); toast({ title: `Booking their next visit on ${cs.name}` }); } : undefined} sale={lastSale} tenantId={tenantId} onNewSale={() => { clearLastSale?.(); if (cs.connected) cs.ask('idle', { soft: true }); }} onDone={onDone} /></div>;   // after the last hook
 
 
@@ -1170,8 +1303,8 @@ export const CheckoutHub = ({
           <section className={card} style={cardStyle} aria-label="Pay">
             <p className={h}>How they’re paying</p>
             {splitActive && prepareNow ? <SplitBill tenantId={tenantId} owed={safeNumber(finalTotal)} lines={splitLines} people={splitPeople} payerId={selectedClientId || null}
-              prepare={async () => prepareNow()} onCancel={() => setSplitActive?.(false)} onFinish={(paid) => onCheckout({ paymentMethod: 'split', amountTendered: paid, recoveryAmount, recoveryReason, recoveryApprovalToken })}
-              screen={cs.connected ? { connected: true, name: cs.name, ask: cs.ask, response: cs.response } : null} askTip={autoTipOn} tipBaseFor={(amt: number) => (safeNumber(finalTotal) > 0 ? Math.round(tipBase * (amt / safeNumber(finalTotal)) * 100) / 100 : 0)} />
+              prepare={async () => prepareNow()} takenShares={() => getTicket?.()?.tenders || []} onCancel={() => setSplitActive?.(false)} onFinish={(paid) => onCheckout({ paymentMethod: 'split', amountTendered: paid, recoveryAmount, recoveryReason, recoveryApprovalToken })}
+              screen={cs.connected ? { connected: true, name: cs.name, ask: cs.ask, askFull: cs.askFull, response: cs.response } : null} askTip={autoTipOn} tipBaseFor={(amt: number) => (safeNumber(finalTotal) > 0 ? Math.round(tipBase * (amt / safeNumber(finalTotal)) * 100) / 100 : 0)} />
             : <>
             <div role="tablist" aria-label="Payment method" className="grid grid-cols-3 gap-2">
               {([['card', 'Card', 'card'], ['cash', 'Cash', 'cash'], ['other', 'Other', 'receipt']] as const).map(([k, l, ic]) => { const on = paymentTab === k;
@@ -1179,6 +1312,22 @@ export const CheckoutHub = ({
                   className="flex h-[72px] flex-col items-center justify-center gap-1.5 rounded-2xl text-[14px] font-semibold transition active:scale-[.98]"
                   style={on ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)', color: 'var(--ink)' }}><DIcon name={ic} size={22} />{l}</button>; })}
             </div>
+            {readerPending && !(paymentTab === 'card' && cardMode === 'terminal') && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-2xl px-4 py-3" style={{ background: 'color-mix(in srgb, var(--warn) 10%, var(--card))' }}>
+              <p className="min-w-0 flex-1 text-[13.5px]">A card reader payment for this sale isn’t confirmed yet. Check it before taking another payment, so the card isn’t charged as well.</p>
+              <button type="button" onClick={() => { setPaymentTab('card'); setCardMode('terminal'); }} className="h-10 shrink-0 rounded-full px-4 text-[13.5px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Check it</button>
+            </div>}
+            {ticketPaid && !readerPending && !(paymentTab === 'card' && cardMode === 'terminal') && (() => { const tp = ticketPaid; const same = !tp.cents || Math.abs(tp.cents - ticketDueCents) <= 1;
+              const rung = (Array.isArray(tp.paidPayload?.items) ? tp.paidPayload.items : []).map((x: any) => `${x.name || 'Item'}${Number(x.quantity) > 1 ? ` ×${x.quantity}` : ''}`);
+              const visits = Array.isArray(tp.paidPayload?.appointmentIds) ? tp.paidPayload.appointmentIds.length : 0;
+              const what = [...(visits ? [`${visits} visit${visits === 1 ? '' : 's'}`] : []), ...rung].join(', ');
+              const when = tp.paidPayload?.paidAt ? new Date(tp.paidPayload.paidAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
+              return <div role="status" className="space-y-2.5 rounded-2xl px-4 py-3" style={{ background: 'color-mix(in srgb, var(--warn) 10%, var(--card))' }}>
+                <p className="text-[15px] font-semibold">This sale is already paid</p>
+                <p className="text-[13.5px]">{tp.cents ? dollars(tp.cents) : 'It'} was paid {viaWords(tp.via)}{when ? ` at ${when}` : ''}{what ? ` for ${what}` : ''}, but the sale wasn’t saved. Save it as it was paid, and don’t take another payment for it.{same ? '' : ' Anything added since stays here as a new sale.'}</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void savePaidSale?.()} disabled={isSubmitting || !savePaidSale} className="h-10 rounded-full px-4 text-[13.5px] font-semibold disabled:opacity-60" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{isSubmitting ? 'Saving…' : 'Save the paid sale'}</button>
+                </div>
+              </div>; })()}
             {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && <p className="text-[13px]" style={muted}>Card fee {(cardSurchargeRate * 100).toFixed(1)}% · +{coMoney(cardSurcharge)}</p>}
             <AnimatePresence mode="wait">
               {paymentTab === 'card' && cardMode === 'select' && (payReq || payAfterTip) && <div className="space-y-2 rounded-2xl p-4" style={{ background: 'var(--soft)' }}>
@@ -1189,11 +1338,11 @@ export const CheckoutHub = ({
               {paymentTab === 'card' && cardMode === 'select' && !payReq && !payAfterTip && <div className="grid gap-2">
                 {payOnIpadOn && <button type="button" onClick={startPayOnIpad} disabled={isCartEmpty || amountToCharge <= 0} className={rowBtn} style={{ background: 'color-mix(in srgb, var(--accent) 10%, var(--soft))' }}>
                   <span><span className="block text-[15px] font-semibold">Client pays on {cs.name}</span><span className="block text-[13px]" style={muted}>Card on the iPad, or Apple Pay / Google Pay on their phone{csSet.offerSaveCard !== false && selectedClient ? ' · they can save their card' : ''}</span></span><DIcon name="chevron" size={17} /></button>}
-                {hasCardOnFile && <button type="button" onClick={() => setCardMode('cof_tip')} className={rowBtn} style={{ background: 'var(--soft)' }}>
+                {hasCardOnFile && <button type="button" onClick={() => { if (!payBlockedNow()) setCardMode('cof_tip'); }} className={rowBtn} style={{ background: 'var(--soft)' }}>
                   <span><span className="block text-[15px] font-semibold">{String(selectedClient?.cardOnFile?.brand || 'Card').replace(/^./, (c: string) => c.toUpperCase())} ending {String(selectedClient?.cardOnFile?.last4 || '••••')}</span><span className="block text-[13px]" style={muted}>Card on file — they choose a tip, then you charge</span></span><DIcon name="chevron" size={17} /></button>}
                 <button type="button" onClick={readerConnected ? handleTerminalPayment : () => setCardMode('reader')} disabled={!terminal} className={rowBtn} style={{ background: 'var(--soft)', opacity: terminal ? 1 : 0.55 }}>
                   <span><span className="block text-[15px] font-semibold">{readerConnected ? terminal?.connectedReader?.label || 'Card reader' : 'Card reader'}</span><span className="block text-[13px]" style={muted}>{readerConnected ? 'Tap, insert or swipe' : terminal ? 'Connect a reader' : 'Connect your payments account in Settings to use a reader'}</span></span><DIcon name="chevron" size={17} /></button>
-                <button type="button" onClick={() => setCardMode('new_card')} className={rowBtn} style={{ background: 'var(--soft)' }}>
+                <button type="button" onClick={() => { if (!payBlockedNow()) setCardMode('new_card'); }} className={rowBtn} style={{ background: 'var(--soft)' }}>
                   <span><span className="block text-[15px] font-semibold">Type in a card</span><span className="block text-[13px]" style={muted}>Enter the card details</span></span><DIcon name="chevron" size={17} /></button>
                 {selectedClient && <label className="flex items-center gap-2 px-1 text-[14px]"><input type="checkbox" checked={saveNewCard} onChange={() => setSaveNewCard((v: boolean) => !v)} /> Save a typed card to their profile</label>}
               </div>}
@@ -1277,6 +1426,9 @@ export const CheckoutHub = ({
                   onCancel={() => setCardMode('select')}
                   onSuccess={() => setCardMode('select')}
                   onRetry={handleTerminalPayment}
+                  onCheck={checkReaderAgain}
+                  onRelease={cancelReaderPayment}
+                  busy={readerBusy}
                 />
               </motion.div>
             )}
@@ -1288,6 +1440,13 @@ export const CheckoutHub = ({
                   clientEmail={selectedClient?.email}
                   amount={amountToCharge}
                   saveCard={saveNewCard && !!selectedClient}
+                  prepare={prepareNow ? async () => { const id = (await prepareNow({ paymentMethod: 'card', amountTendered: amountToCharge, cardSurcharge })) || getPendingId?.() || null; if (getTicketPaid?.()) { setCardMode('select'); paidAlready(); return null; } return id; } : undefined}
+                  onRefused={(r, pid) => {
+                    if (r.code === 'ticket_paid' && r.paidWith) { setTicketPaid?.({ pendingId: pid, ...r.paidWith, paidPayload: r.paidPayload || null }); setCardMode('select'); paidAlready(); return true; }
+                    if (r.code === 'ticket_split') { setCardMode('select'); setSplitActive?.(true); toast({ variant: 'destructive', title: 'Part of this bill is already paid', description: r.error || 'Finish it in Split the bill.' }); return true; }
+                    if (['sale_done', 'sale_discarded', 'no_ticket', 'reader_open', 'reader_unknown'].includes(String(r.code))) { setCardMode('select'); if (prepareNow && r.code !== 'reader_open' && r.code !== 'reader_unknown') void prepareNow(); toast({ variant: 'destructive', title: r.code === 'reader_open' || r.code === 'reader_unknown' ? 'Check the card reader payment first' : 'Start the sale again', description: r.error }); return true; }
+                    return false;
+                  }}
                   onSuccess={async (paymentIntentId) => {
                     toast({ title: 'Card Charged', description: `$${amountToCharge.toFixed(2)} collected.` });
                     await onCheckout({ paymentMethod: 'card', amountTendered: amountToCharge, recoveryAmount, recoveryReason, recoveryApprovalToken, stripePaymentIntentId: paymentIntentId, cardSurcharge });
@@ -1308,7 +1467,7 @@ export const CheckoutHub = ({
                   setAmountTendered={setAmountTendered}
                   tipAmount={tipAmount}
                   onTipChange={handleTotalTipChange}
-                  onCheckout={() => onCheckout({ paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked })}
+                  onCheckout={() => { if (payBlockedNow()) return; onCheckout({ paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked }); }}
                   isSubmitting={isSubmitting}
                   isCartEmpty={isCartEmpty}
                   isGroupCheckout={isGroupCheckout}
@@ -1358,7 +1517,7 @@ export const CheckoutHub = ({
             )}
             </AnimatePresence>
             {paymentTab === 'other' && <p className="text-[14px]" style={muted}>For payments taken outside the app (a bank transfer, a cheque, a voucher). Record it with the button below.</p>}
-            {prepareNow && !isCartEmpty && safeNumber(finalTotal) > 0 && <button type="button" onClick={() => setSplitActive?.(true)} className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Split the bill</button>}
+            {prepareNow && !isCartEmpty && safeNumber(finalTotal) > 0 && <button type="button" onClick={() => { if (!payBlockedNow()) setSplitActive?.(true); }} className="h-11 w-full rounded-full text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Split the bill</button>}
             </>}
           </section>
           <section className={card} style={cardStyle} aria-label="Totals">
@@ -1401,7 +1560,7 @@ export const CheckoutHub = ({
       <div className="sticky bottom-0 z-10 -mx-5 mt-3 px-5 pb-1 pt-3" style={{ background: 'var(--paper)', borderTop: '1px solid var(--line)' }}>
         <div className="flex items-center justify-between gap-3">
           <div><p className="text-[12px]" style={muted}>{isCardTab ? 'To charge' : 'Due'}</p><p className="text-[30px] font-light tracking-tight tabular-nums leading-tight">{coMoney(dueNow)}</p></div>
-          {splitActive ? <p className="max-w-[55%] text-right text-[13px]" style={muted}>Splitting the bill — finish it above.</p> : paymentTab === 'other' ? <button type="button" onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked })} disabled={isSubmitting || payBlocked}
+          {splitActive ? <p className="max-w-[55%] text-right text-[13px]" style={muted}>Splitting the bill — finish it above.</p> : paymentTab === 'other' ? <button type="button" onClick={() => { if (payBlockedNow()) return; onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, recoveryApprovalToken, isEscalated: isOverrideUnlocked }); }} disabled={isSubmitting || payBlocked}
               className="h-12 rounded-full px-6 text-[15px] font-semibold disabled:opacity-40" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{isSubmitting ? 'Saving…' : finalTotal <= 0 ? 'Complete (nothing to pay)' : `Record ${coMoney(finalTotal)}`}</button>
             : <p className="max-w-[55%] text-right text-[13px]" style={muted}>{payBlocked ? (isOverAutonomy && !isOverrideUnlocked ? 'A manager needs to approve the recovery first' : isGroupCheckout && !selectedClientId ? 'Choose who’s paying' : 'Add something to the ticket') : paymentTab === 'cash' ? 'Enter the cash given above to finish' : cardMode === 'select' ? 'Choose how they pay by card above' : 'Finish the card payment above'}</p>}
         </div>

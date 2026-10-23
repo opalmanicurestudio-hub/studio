@@ -36,6 +36,19 @@ import { windowOpen } from '@/lib/order-windows';
 //     saying why. Once it has shipped, only the carrier's own options are left. The old address is kept in the
 //     event record, so a correction is an EVENT in the order's history, never an overwrite of it.
 //
+//     What the new address does to the shipping cost is worked out first (lib/address-cost). The shop's policy decides
+//     who pays a difference: the shop (kept on the order for its running total), the customer (the change waits for
+//     their payment: { needsPayment, pay } comes back, and 'address_pay' opens the payment), or the shop up to a limit.
+//
+//   { action: 'address_pay', ..., address, pay, checkToken? }   opens Stripe's page for the customer's share (signed).
+//   { action: 'address_paid', ..., sessionId }                   back from paying: the change goes on (lib/address-pay).
+//   { action: 'address_pay_cancel', ... }                        they kept their address instead.
+//
+//   { action: 'contact_code', ..., field: 'email'|'phone', value }  a 6-digit code to the NEW email or mobile.
+//   { action: 'contact_confirm', ..., verificationId, code }        the code is right: the order, its follow-ups and
+//     open messages take the new details, the old email is told (lib/order-contact). Not on an order held for review.
+//   { action: 'texts', ..., off }                                   updates by text on or off.
+//
 //   { action: 'confirm_address', tenantId, orderId, qrToken }
 //     The shop asked "is this the right address?" and the customer says yes.
 //
@@ -67,6 +80,12 @@ const CANCEL_STAGES = ['placed', 'paid'];
 // refund — so "packing has started" stops being a reason to say no.
 const LATE_CANCEL_STAGES = ['placed', 'paid', 'picking', 'packed', 'ready'];
 const REASONS = ['damaged_in_transit', 'defective', 'wrong_item', 'changed_mind', 'other'];
+const usd = (c: number) => `$${(Math.round(Number(c) || 0) / 100).toFixed(2)}`;
+// A change they paid for is waiting for the shop: it isn't replaced (its payment would be left with nothing done).
+function paidWaitingWords(r: any): string {
+  const to = r?.to ? [r.to.line1, r.to.city].filter(Boolean).join(', ') : '';
+  return `Your paid change${to ? ` to ${to}` : ''} is waiting for the shop. Send them a message on this page if it needs to be different.`;
+}
 
 export async function POST(req: NextRequest) {
   let body: any;
@@ -79,7 +98,7 @@ export async function POST(req: NextRequest) {
 
   const client = requestForensics(req);
 
-  if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return', 'update_address', 'confirm_address', 'resend_receipt'].includes(action)) {
+  if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return', 'update_address', 'confirm_address', 'resend_receipt', 'contact_code', 'contact_confirm', 'texts', 'address_pay', 'address_paid', 'address_pay_cancel'].includes(action)) {
     return NextResponse.json({ error: 'Missing order details' }, { status: 400 });
   }
 
@@ -252,10 +271,23 @@ export async function POST(req: NextRequest) {
         } catch { /* stays queued on the board */ }
       }
 
+      // What they paid to change the address goes back too (lib/address-pay; the five-minute check tries again if not).
+      let addrBack = 0; let addrLater = 0;
+      try {
+        const after: any = (await orderRef.get()).data() || {};
+        const owed = Object.entries<any>(after.addressPaid || {}).filter(([, e]) => e && !e.refundedAt);
+        if (owed.length) {
+          const { refundAddressPayment } = await import('@/lib/address-pay');
+          for (const [sid, e] of owed) { const r = await refundAddressPayment(db, tenantId, orderId, sid, 'cancelled').catch(() => ({ ok: false, cents: 0 }));
+            if (r.ok) addrBack += Math.round(Number(e.cents) || 0); else addrLater += Math.round(Number(e.cents) || 0); }
+        }
+      } catch { /* the five-minute check refunds it */ }
+      const addrLine = addrBack ? ` The $${(addrBack / 100).toFixed(2)} you paid to change the address was refunded to your card.` : addrLater ? ` The $${(addrLater / 100).toFixed(2)} you paid to change the address will be refunded to your card.` : '';
+
       // Said as it is: on its way when it went, approved when it's waiting for the shop to send it.
       return NextResponse.json({
         ok: true,
-        message: `Order cancelled.${result.pending > 0 ? ` ${refundWords(result.pending, sent)}` : ''}${restoredLine ? ` ${restoredLine.charAt(0).toUpperCase()}${restoredLine.slice(1)}.` : ''}`,
+        message: `Order cancelled.${result.pending > 0 ? ` ${refundWords(result.pending, sent)}` : ''}${restoredLine ? ` ${restoredLine.charAt(0).toUpperCase()}${restoredLine.slice(1)}.` : ''}${addrLine}`,
       });
     }
 
@@ -269,10 +301,22 @@ export async function POST(req: NextRequest) {
       const rs = tenant.retailSettings || {};
       // The order and its token first: a carrier check costs the shop, so only the order's own page can ask for one,
       // and only when a change is possible at all.
-      const pre = await orderRef.get();
+      let pre = await orderRef.get();
       if (!pre.exists) return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
-      const po: any = pre.data() || {};
+      let po: any = pre.data() || {};
       if (po.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
+      // A paid change waiting for the shop stays as it is: a new one would leave that payment with nothing done. They
+      // message the shop instead (who can keep the old address, which refunds it, or make the change).
+      if (po.addressRequest?.status === 'waiting' && po.addressRequest?.paid) return NextResponse.json({ error: paidWaitingWords(po.addressRequest) }, { status: 409 });
+      // A payment for another new address they didn't finish is closed first (one they did finish goes on first). If it
+      // can't be closed just now, nothing changes: paying it later would put that address back over this one.
+      if (po.addressPay?.status === 'awaiting_payment') {
+        const { cancelAddressPay } = await import('@/lib/address-pay');
+        const closed = await cancelAddressPay(db, tenantId, orderId, { tenant }).catch(() => null);
+        if (!closed || closed.result === 'pending') return NextResponse.json({ error: 'We couldn’t close your earlier payment page just now, so the address wasn’t changed. Try again in a minute.' }, { status: 503 });
+        pre = await orderRef.get(); po = pre.data() || {};
+        if (po.addressRequest?.status === 'waiting' && po.addressRequest?.paid) return NextResponse.json({ error: paidWaitingWords(po.addressRequest) }, { status: 409 });
+      }
       const early = changeMode(po, rs).mode;
       if (early === 'carrier') return NextResponse.json({ error: 'It\u2019s already with the carrier, so the address can\u2019t be changed here. Their tracking page shows what they can do, like holding it for pickup.' }, { status: 409 });
       if (early === 'none') return NextResponse.json({ error: po.method !== 'ship' ? 'This order isn\u2019t being shipped, so there\u2019s no address to change.' : 'This order can\u2019t be changed any more.' }, { status: 409 });
@@ -290,6 +334,37 @@ export async function POST(req: NextRequest) {
       const unitAnswer = body.unitAnswer === 'added' || body.unitAnswer === 'none' ? body.unitAnswer : null;
       const kept = check && check.verdict !== 'skipped' ? { ...check, ...(unitAnswer ? { unitAnswer } : {}) } : null;
 
+      // What the new address does to the shipping cost, and who pays it (lib/address-cost). Measured from the price to
+      // the order's original address, so a second move counts both, a move back counts nothing, and the shop's limit
+      // covers the order once. A difference the customer pays waits for their payment (what they paid before counts);
+      // one the shop covers is kept on the order for the policy screen's running total. A share too small to pay by
+      // card is the shop's.
+      const { addressCostFor, costPolicy, costAfterMove, signAddressPay } = await import('@/lib/address-cost');
+      const pol = costPolicy(rs);
+      const moving = !sameAddress(po.shippingAddress, clean);
+      const cost: any = moving ? await addressCostFor(db, tenantId, tenant, po, clean).catch(() => ({ ok: false, reason: 'error' })) : { ok: true, diffCents: 0, fromCents: 0, toCents: 0, service: '', carrier: '' };
+      const prior = po.addressCost && typeof po.addressCost === 'object' ? po.addressCost : null;
+      const facts = cost.ok && !cost.flat && moving ? { fromCents: Math.round(cost.fromCents), toCents: Math.round(cost.toCents), service: String(cost.service || ''), carrier: String(cost.carrier || '') } : null;
+      const after = facts ? costAfterMove(prior, facts, pol) : null;
+      const paidBefore = prior ? Math.max(0, Math.round(Number(prior.customerCents) || 0)) : 0;
+      if (early === 'direct' && after && after.owedCents > 0 && facts) {
+        const exp = Date.now() + 30 * 60000;
+        const st = after.state;
+        const pay = { cents: after.owedCents, shopCents: st.shopCents, diffCents: st.extraCents, fromCents: facts.fromCents, toCents: facts.toCents, origCents: st.origCents, paidBefore, service: facts.service, carrier: facts.carrier };
+        return NextResponse.json({ ok: true, applied: false, needsPayment: true, pay: { ...pay, exp, sig: signAddressPay(tenantId, orderId, po.shippingAddress, clean, pay, exp) },
+          message: paidBefore > 0
+            ? `Shipping to the new address costs ${usd(st.extraCents)} more than your original one. You’ve paid ${usd(paidBefore)}${st.shopCents > 0 ? ` and the shop covers ${usd(st.shopCents)}` : ''}, so it’s ${usd(after.owedCents)} to change it.`
+            : st.shopCents > 0
+              ? `Shipping to the new address costs ${usd(st.extraCents)} more. The shop covers ${usd(st.shopCents)}, so it’s ${usd(after.owedCents)} to change it.`
+              : `Shipping to the new address costs ${usd(after.owedCents)} more. Pay it to change the address.` });
+      }
+      // The cost couldn't be checked, and the customer could owe some of it: the shop decides.
+      const forceRequest = early === 'direct' && moving && !cost.ok && pol.payer !== 'shop';
+      // Kept on the order when the moves cost something (or cost something before, so a move back shows the shop's share
+      // falling to nothing). A request carries it, for the team's approval to count.
+      const costState = after && (after.state.extraCents > 0 || prior) ? after.state : null;
+      const costNote = facts && after ? { ...facts, origCents: after.state.origCents, extraCents: after.state.extraCents, diffCents: after.state.extraCents, paidBefore, at: new Date().toISOString() } : null;
+
       const result = await db.runTransaction(async (txn: any) => {
         const snap = await txn.get(orderRef);
         if (!snap.exists) return { status: 404, error: 'Order not found.' };
@@ -299,7 +374,11 @@ export async function POST(req: NextRequest) {
           return { status: 409, error: 'This order isn\u2019t being shipped, so there\u2019s no address to change.' };
         }
         if (order.addressRequest?.status === 'approving') return { status: 409, error: 'The shop is updating your address right now. Check back in a minute.' };
-        const { mode, why } = changeMode(order, rs);
+        if (order.addressRequest?.status === 'waiting' && order.addressRequest?.paid) return { status: 409, error: paidWaitingWords(order.addressRequest) };
+        // A payment page opened meanwhile (another tab): this change waits until that one is finished or closed.
+        if (order.addressPay?.status === 'awaiting_payment') return { status: 409, error: 'You have a payment for another new address open. Finish or close it, then try again.' };
+        let { mode, why }: any = changeMode(order, rs);
+        if (mode === 'direct' && forceRequest) { mode = 'request'; why = 'cost'; }
         if (mode === 'carrier') return { status: 409, error: 'It\u2019s already with the carrier, so the address can\u2019t be changed here. Their tracking page shows what they can do, like holding it for pickup.' };
         if (mode === 'none') return { status: 409, error: 'This order can\u2019t be changed any more.' };
         const now = new Date().toISOString();
@@ -317,6 +396,8 @@ export async function POST(req: NextRequest) {
             addressCheck: kept,
             // Packing already started: the packer sees "New address" when they ship it.
             addressChanged: { at: now, from: order.shippingAddress || null, by: 'customer', after: String(order.stage || '') },
+            // What the moves have cost so far, for the shop's running total (lib/address-cost).
+            ...(costState ? { addressCost: costState } : {}),
             ...(order.addressRequest?.status === 'waiting' ? { addressRequest: { ...order.addressRequest, status: 'replaced', answeredAt: now } } : {}),
             ...answered,
           }, { merge: true });
@@ -330,11 +411,12 @@ export async function POST(req: NextRequest) {
 
         // A request: after the label, after packing started (if that's the shop's point), every change (if the shop
         // asks for that), or a held order (never said to the customer).
+        // Written whole, never merged into an earlier request, so nothing of an old one (its payment, its answer) carries over.
         const reqId = evRef.id;
-        txn.set(orderRef, {
-          addressRequest: { id: reqId, kind: 'change', status: 'waiting', to: clean, from: order.shippingAddress || null, check: kept, at: now, why },
+        txn.update(orderRef, {
+          addressRequest: { id: reqId, kind: 'change', status: 'waiting', to: clean, from: order.shippingAddress || null, check: kept, at: now, why, ...(costNote && (costNote.extraCents > 0 || prior) ? { cost: costNote } : {}) },
           ...answered,
-        }, { merge: true });
+        });
         txn.set(evRef, {
           id: evRef.id, type: 'note', at: now,
           actorId: 'customer', actorName: order.customerName || 'Customer',
@@ -342,7 +424,9 @@ export async function POST(req: NextRequest) {
         });
         return {
           status: 200, applied: false, requested: true,
-          message: why === 'label'
+          message: why === 'cost'
+            ? 'We couldn\u2019t check the shipping cost for the new address just now, so we\u2019ve sent it to the shop. You\u2019ll see their answer here.'
+            : why === 'label'
             ? 'Your shipping label is already printed, so we\u2019ve sent the new address to the shop. You\u2019ll see their answer here.'
             : why === 'packing'
               ? 'Packing has started, so we\u2019ve sent the new address to the shop. You\u2019ll see their answer here.'
@@ -352,6 +436,97 @@ export async function POST(req: NextRequest) {
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true, applied: (result as any).applied === true, requested: (result as any).requested === true, message: (result as any).message });
+    }
+
+    // ── Paying the difference for a new address (lib/address-pay) ──
+    if (action === 'address_pay' || action === 'address_paid' || action === 'address_pay_cancel') {
+      const pre = await orderRef.get();
+      if (!pre.exists) return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
+      const po: any = pre.data() || {};
+      if (po.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
+      const tenant: any = (await db.collection('tenants').doc(tenantId).get()).data() || {};
+      const { startAddressPay, finishAddressPay, cancelAddressPay } = await import('@/lib/address-pay');
+      if (action === 'address_paid') {
+        const f = await finishAddressPay(db, tenantId, orderId, String(body.sessionId || '').slice(0, 200), { tenant });
+        return NextResponse.json({ ok: f.ok, result: f.result, message: f.message }, { status: f.result === 'not_found' ? 404 : 200 });
+      }
+      if (action === 'address_pay_cancel') {
+        const f = await cancelAddressPay(db, tenantId, orderId, { tenant });
+        return NextResponse.json({ ok: f.ok, result: f.result, message: f.message });
+      }
+      const { cleanAddress, changeMode, sameAddress } = await import('@/lib/address-flow');
+      const { verifyAddressPay } = await import('@/lib/address-cost');
+      const clean = cleanAddress(body.address);
+      const p: any = body.pay || {};
+      const facts = { cents: Math.round(Number(p.cents) || 0), shopCents: Math.round(Number(p.shopCents) || 0), diffCents: Math.round(Number(p.diffCents) || 0), fromCents: Math.round(Number(p.fromCents) || 0), toCents: Math.round(Number(p.toCents) || 0),
+        origCents: Math.round(Number(p.origCents) || 0), paidBefore: Math.round(Number(p.paidBefore) || 0), service: String(p.service || ''), carrier: String(p.carrier || '') };
+      // Already the address on the order (it was paid for on another page, say): nothing to pay.
+      if (clean && sameAddress(po.shippingAddress, clean)) return NextResponse.json({ ok: true, already: true, message: 'That’s already the address on your order, so there’s nothing to pay.' });
+      // The price was for moving from the address the order had then: if it changed since, they look again.
+      if (!clean || !verifyAddressPay(tenantId, orderId, po.shippingAddress, clean, facts, Number(p.exp), String(p.sig || ''))) return NextResponse.json({ error: 'That price has expired. Enter the new address again to see it.' }, { status: 409 });
+      // …and for what had been paid toward the moves then: one paid since (on another page) changes what's owed, so an
+      // old price can never be paid twice.
+      { const pc = po.addressCost && typeof po.addressCost === 'object' ? po.addressCost : null;
+        const paidNow = pc ? Math.max(0, Math.round(Number(pc.customerCents) || 0)) : 0;
+        const origNow = pc && Number.isFinite(Number(pc.origCents)) ? Math.round(Number(pc.origCents)) : facts.fromCents;
+        if (facts.paidBefore !== paidNow || facts.origCents !== origNow) return NextResponse.json({ error: 'That price is out of date. Enter the new address again to see what it costs now.' }, { status: 409 }); }
+      if (po.addressRequest?.status === 'waiting' && po.addressRequest?.paid) return NextResponse.json({ error: paidWaitingWords(po.addressRequest) }, { status: 409 });
+      if (changeMode(po, tenant.retailSettings || {}).mode !== 'direct') return NextResponse.json({ error: 'The address can\u2019t be changed here any more. Send the shop a message on this page and they\u2019ll help.' }, { status: 409 });
+      // The carrier check the page made for this address comes along (it was checked before the price was shown).
+      const { checkFromToken } = await import('@/lib/address-flow-server');
+      const signed = checkFromToken(tenantId, body.checkToken, clean);
+      const unitAnswer = body.unitAnswer === 'added' || body.unitAnswer === 'none' ? body.unitAnswer : null;
+      const check = signed ? { ...signed.check, choice: signed.picked, ...(unitAnswer ? { unitAnswer } : {}) } : null;
+      const origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '') || req.nextUrl.origin;
+      const r = await startAddressPay(db, tenantId, tenant, orderId, po, { to: clean, check: check && check.verdict !== 'skipped' ? check : null, unitAnswer, ...facts }, origin);
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+      return NextResponse.json({ ok: true, url: r.url });
+    }
+
+    // ── A new email or mobile, confirmed with a code sent to it (lib/order-contact) ──
+    if (action === 'contact_code' || action === 'contact_confirm' || action === 'texts') {
+      const pre = await orderRef.get();
+      if (!pre.exists) return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
+      const po: any = pre.data() || {};
+      if (po.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
+      if (po.stage === 'placed') return NextResponse.json({ error: 'This order isn\u2019t finished yet.' }, { status: 409 });
+      const { cleanContact, contactDiff } = await import('@/lib/contact-change');
+      const { orderFamily, familyHeld, sendContactCode, confirmContactCode, applyOrderContact } = await import('@/lib/order-contact');
+      const family = await orderFamily(db, tenantId, orderId, po);
+      // Never said why: an order held for review is the shop's to change.
+      const lockedMsg = 'Your details can\u2019t be changed online for this order. Send the shop a message on this page and they\u2019ll help.';
+      const origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '') || req.nextUrl.origin;
+      const who = { uid: 'customer', name: po.customerName || 'Customer', customer: true };
+      if (action === 'texts') {
+        const off = body.off === true;
+        if (!off && !String(po.customerPhone || '').trim()) return NextResponse.json({ error: 'Add a mobile number first.' }, { status: 400 });
+        const { next } = cleanContact(po, { textsOff: off });
+        const changes = contactDiff(po, next).filter((c) => c.field === 'texts');
+        if (changes.length) await applyOrderContact(db, tenantId, orderId, po, next, changes, who, origin, family);
+        return NextResponse.json({ ok: true, message: off ? 'Texts are off. Updates come by email.' : 'Texts are on. Updates come to your mobile.' });
+      }
+      if (familyHeld(family)) return NextResponse.json({ error: lockedMsg }, { status: 409 });
+      if (action === 'contact_code') {
+        const field = body.field === 'phone' ? 'phone' : 'email';
+        const raw = String(body.value || '').trim();
+        if (!raw) return NextResponse.json({ error: field === 'email' ? 'Enter the new email address.' : 'Enter the new mobile number.' }, { status: 400 });
+        const { next, errors } = cleanContact(po, field === 'email' ? { email: raw } : { phone: raw });
+        if (errors.length) return NextResponse.json({ error: errors[0] }, { status: 400 });
+        if (!contactDiff(po, next).some((c) => c.field === field)) return NextResponse.json({ error: field === 'email' ? 'That\u2019s already the email on your order.' : 'That\u2019s already the mobile on your order.' }, { status: 409 });
+        const r = await sendContactCode(db, tenantId, orderId, po, field, field === 'email' ? next.email : next.phone, { origin });
+        if (!r.ok) return NextResponse.json({ error: r.error }, { status: 429 });
+        return NextResponse.json({ ok: true, verificationId: r.verificationId, message: `We sent a 6-digit code to ${r.sentTo}. Enter it here to finish.` });
+      }
+      const c = await confirmContactCode(db, tenantId, orderId, String(body.verificationId || ''), String(body.code || ''));
+      if (!c.ok) return NextResponse.json({ error: c.error }, { status: 400 });
+      const cur: any = (await orderRef.get()).data() || po;
+      // A new mobile turns texts on: that's what they added it for.
+      const { next, errors } = cleanContact(cur, c.field === 'email' ? { email: c.value } : { phone: c.value, textsOff: false });
+      if (errors.length) return NextResponse.json({ error: errors[0] }, { status: 400 });
+      const changes = contactDiff(cur, next);
+      if (!changes.length) return NextResponse.json({ ok: true, message: 'That\u2019s already on your order.' });
+      await applyOrderContact(db, tenantId, orderId, cur, next, changes, who, origin, family);
+      return NextResponse.json({ ok: true, message: c.field === 'email' ? `Done. Updates about this order now go to ${next.email}.` : `Done. Updates about this order now come to the number ending in ${next.phone.replace(/\D/g, '').slice(-4)}.` });
     }
 
     if (action === 'confirm_address') {

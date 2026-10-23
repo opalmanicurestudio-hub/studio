@@ -22,6 +22,7 @@ import { clearCart } from '@/lib/shop-cart';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { cn } from '@/lib/utils';
 import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
+import { OrderContactCard } from '@/components/shop/OrderContactCard';
 import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
@@ -66,7 +67,9 @@ interface StatusOrder {
   shippingAddress?: { name?: string; line1: string; line2?: string; city: string; state: string; postalCode: string } | null;
   addressConfirm?: { status: string; askedAt: string | null } | null;
   addressRequest?: { status: string; to: any; at: string | null; reply: string | null; answeredAt: string | null } | null;
-  addressChange?: 'direct' | 'request' | 'carrier' | 'none'; addressChangeUntil?: 'label' | 'packing' | 'never';
+  addressChange?: 'direct' | 'request' | 'carrier' | 'none'; addressChangeUntil?: 'label' | 'packing' | 'never' | 'off'; addressChangeOff?: boolean;
+  addressPay?: { status: string; cents: number; shopCents: number; to: any; at: string | null; url: string | null; refundWhy?: string | null } | null;
+  customerEmail?: string; contact?: { phoneEnding: string | null; textsOff: boolean; locked: boolean };
   addressVerdict?: string | null; addressUnitMissing?: boolean;
   shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null; extraTracking?: { number: string; url: string | null }[]; shippedWith?: string[]; shipTogetherRefundCents?: number;
   dates?: CustomerDates | null; busyNote?: string; timeZone?: string; delayNotified?: boolean; labelStuck?: boolean;
@@ -76,6 +79,9 @@ const fmt = (cents: number) =>
   (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
 const ACTIVE_POLL_MS = 4000;
+
+// What a payment for a new address came to, as the toast's title (the message says the rest).
+const RESULT_TITLES: Record<string, string> = { applied: 'Address updated', requested: 'Sent to the shop', refunded: 'Payment refunded', refund_failed: 'Payment received', pending: 'Payment received', expired: 'Address not changed', cancelled: 'Address not changed' };
 
 export default function OrderStatusPage() {
   const params = useParams<{ tenantId: string; orderId: string }>();
@@ -150,6 +156,9 @@ export default function OrderStatusPage() {
   const [fixOpen, setFixOpen] = useState(false);
   const [fixAddr, setFixAddr] = useState({ name: '', line1: '', line2: '', city: '', state: '', postalCode: '' });
   const [fixSending, setFixSending] = useState(false);
+  // A new address that costs more to ship, with the customer's share to pay first (lib/address-cost, lib/address-pay).
+  const [payAsk, setPayAsk] = useState<{ pay: any; address: any; token?: string; unitAnswer?: 'added' | 'none'; message: string } | null>(null);
+  const [payBusy, setPayBusy] = useState(false);
   const [rcptSending, setRcptSending] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [claimType, setClaimType] = useState('missing');
@@ -388,7 +397,9 @@ export default function OrderStatusPage() {
     if (!selfToken || fixSending) return;
     setFixSending(true);
     try {
-      const data = await selfServe({ action: 'update_address', address: { ...fixAddr, ...o.address, name: fixAddr.name }, checkToken: o.token, unitAnswer: o.unitAnswer });
+      const address = { ...fixAddr, ...o.address, name: fixAddr.name };
+      const data = await selfServe({ action: 'update_address', address, checkToken: o.token, unitAnswer: o.unitAnswer });
+      if (data.needsPayment) { setPayAsk({ pay: data.pay, address, token: o.token, unitAnswer: o.unitAnswer, message: data.message }); setFixOpen(false); return; }
       toast({ title: data.requested ? 'Sent to the shop' : 'Address saved', description: data.message });
       setFixOpen(false);
       load();
@@ -411,6 +422,51 @@ export default function OrderStatusPage() {
     addrReview.setReview(null);
     setFixOpen(true);
   };
+  // Paying the shipping difference: Stripe's own page, then back here, where the change goes on (api/retail/self-serve).
+  const payForAddress = async () => {
+    if (!payAsk || payBusy) return;
+    setPayBusy(true);
+    try {
+      const d = await selfServe({ action: 'address_pay', address: payAsk.address, pay: payAsk.pay, checkToken: payAsk.token, unitAnswer: payAsk.unitAnswer });
+      if (d.url) { window.location.href = d.url; return; }
+      setPayBusy(false);
+      if (d.already) { setPayAsk(null); toast({ title: 'Already changed', description: d.message }); load(); }
+    } catch (e: any) {
+      setPayBusy(false); setPayAsk(null);
+      toast({ variant: 'destructive', title: 'Could not open the payment', description: e?.message || 'Try again.' });
+    }
+  };
+  const keepMyAddress = async () => {
+    if (payAsk) { setPayAsk(null); return; }
+    try { const d = await selfServe({ action: 'address_pay_cancel' }); toast({ title: RESULT_TITLES[String(d.result)] || 'Address not changed', description: d.message }); load(); }
+    catch (e: any) { toast({ variant: 'destructive', title: 'That didn’t go through', description: e?.message || 'Try again.' }); }
+  };
+  // Back from Stripe's page (the browser may bring the page back as it was): the price shown then may be out of date
+  // (it may have been paid already), so it's cleared and the order is looked at again.
+  useEffect(() => {
+    const reset = (e: PageTransitionEvent) => { if (e.persisted) { setPayBusy(false); setPayAsk(null); load(); } };
+    window.addEventListener('pageshow', reset);
+    return () => window.removeEventListener('pageshow', reset);
+  }, []);
+  const addrReturnDone = useRef(false);
+  useEffect(() => {
+    if (!selfToken || addrReturnDone.current) return;
+    const q = new URLSearchParams(window.location.search);
+    const paid = q.get('addr_paid'); const left = q.has('addr_cancel');
+    if (!paid && !left) return;
+    addrReturnDone.current = true;
+    (async () => {
+      try {
+        const d = await selfServe(paid ? { action: 'address_paid', sessionId: paid } : { action: 'address_pay_cancel' });
+        toast({ title: RESULT_TITLES[String(d.result)] || 'Thanks', description: d.message });
+      } catch (e: any) {
+        toast({ variant: 'destructive', title: 'We couldn’t check the payment yet', description: e?.message || 'It will show here shortly.' });
+      } finally {
+        try { const u = new URL(window.location.href); u.searchParams.delete('addr_paid'); u.searchParams.delete('addr_cancel'); window.history.replaceState(null, '', u.toString()); } catch { /* the page still works */ }
+        setPayAsk(null); load();
+      }
+    })();
+  }, [selfToken]); // eslint-disable-line react-hooks/exhaustive-deps
   const [confirmSending, setConfirmSending] = useState(false);
   const confirmAddress = async () => {
     if (!selfToken || confirmSending) return;
@@ -1597,10 +1653,11 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {selfToken && order && order.method === 'ship' && order.shippingAddress && (order.addressChange === 'direct' || order.addressChange === 'request' || order.addressRequest?.status === 'waiting') && (() => {
+        {selfToken && order && order.method === 'ship' && order.shippingAddress && (order.addressChange === 'direct' || order.addressChange === 'request' || order.addressRequest?.status === 'waiting' || order.addressChangeOff || order.addressPay?.status === 'awaiting_payment' || !!payAsk) && (() => {
           const asking = order.addressConfirm?.status === 'waiting';
           const req = order.addressRequest;
-          const canChange = (order.addressChange === 'direct' || order.addressChange === 'request') && req?.status !== 'waiting';
+          const paying = order.addressPay?.status === 'awaiting_payment' ? order.addressPay : null;
+          const canChange = (order.addressChange === 'direct' || order.addressChange === 'request') && req?.status !== 'waiting' && !payAsk && !paying;
           const until = order.addressChangeUntil === 'packing' ? 'packing starts' : 'the shipping label is printed';
           const why = order.addressVerdict === 'unconfirmed' || order.addressUnitMissing
             ? 'The carrier couldn’t confirm it. If there’s an apartment or unit number, add it so your order isn’t held up.'
@@ -1628,6 +1685,26 @@ export default function OrderStatusPage() {
               </>)}
               {req?.status === 'waiting' && (
                 <p className="rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-bold text-amber-900">You asked to change it to {oneLine(req.to)}. The shop will answer here.</p>)}
+              {payAsk && (
+                <div className="space-y-2 rounded-2xl bg-muted/40 p-4">
+                  <p className="text-[12px] font-bold">New address: {oneLine(payAsk.address)}</p>
+                  <p className="text-sm font-bold">{payAsk.message}</p>
+                  <Button disabled={payBusy} onClick={() => void payForAddress()} className="w-full h-12 rounded-2xl font-black uppercase text-xs tracking-widest">
+                    {payBusy ? <Loader className="h-4 w-4 animate-spin" /> : `Pay ${fmt(Number(payAsk.pay?.cents) || 0)} and change it`}
+                  </Button>
+                  <Button variant="outline" disabled={payBusy} onClick={() => void keepMyAddress()} className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest">Keep my address</Button>
+                </div>)}
+              {paying && !payAsk && (
+                <div className="space-y-2 rounded-2xl bg-amber-50 p-4">
+                  <p className="text-[12px] font-bold text-amber-900">You started paying {fmt(paying.cents)} to ship to {oneLine(paying.to)}. The address changes once it’s paid.</p>
+                  {paying.url && <Button asChild className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest"><a href={paying.url}>Finish paying</a></Button>}
+                  <Button variant="outline" onClick={() => void keepMyAddress()} className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest">Keep my address</Button>
+                </div>)}
+              {(order.addressPay?.status === 'refunded' || order.addressPay?.status === 'refund_failed') && !fixOpen && (() => { const ap = order.addressPay!; const done = ap.status === 'refunded'; const back = done ? `the ${fmt(ap.cents)} you paid was refunded to your card` : `the shop will refund the ${fmt(ap.cents)} you paid`;
+                const why = ap.refundWhy === 'cancelled' ? `Your order was cancelled, so ${back}.` : ap.refundWhy === 'off' ? `The address can’t be changed online any more, so ${back}.` : ap.refundWhy === 'kept' ? (done ? `The ${fmt(ap.cents)} you paid for the new address was refunded to your card.` : `The shop will refund the ${fmt(ap.cents)} you paid for the new address.`) : ap.refundWhy === 'replaced' ? `You started another payment, so ${back}.` : `Your order had already gone out, so the address couldn’t change and ${back}.`;
+                return <p className="rounded-xl bg-muted/50 px-3 py-2 text-[12px] font-bold">{why}</p>; })()}
+              {order.addressChangeOff && !fixOpen && (
+                <p className="text-[11px] font-bold text-muted-foreground">To change the address, send the shop a message on this page.</p>)}
               {req?.status === 'kept' && !fixOpen && (
                 <p className="rounded-xl bg-muted/50 px-3 py-2 text-[12px] font-bold">The shop kept this address{req.reply ? `: ${req.reply}` : '.'}</p>)}
               {req?.status === 'done' && !fixOpen && (
@@ -1658,6 +1735,17 @@ export default function OrderStatusPage() {
             </CardContent>
           </Card>);
         })()}
+
+        {selfToken && order && order.stage !== 'placed' && order.contact && (
+          <OrderContactCard
+            email={order.customerEmail || ''}
+            phoneEnding={order.contact.phoneEnding}
+            textsOff={order.contact.textsOff}
+            locked={order.contact.locked}
+            selfServe={selfServe}
+            onChanged={() => { void load(); }}
+            notify={(t) => toast({ title: t.title, description: t.description, ...(t.bad ? { variant: 'destructive' as const } : {}) })}
+          />)}
 
         {selfToken && order && promiseLate && (
           <Card className="border-2 border-amber-200 rounded-[2rem] overflow-hidden bg-amber-50/60">

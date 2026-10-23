@@ -92,6 +92,18 @@ export async function POST(req: NextRequest) {
   try {
     switch (event.type) {
 
+      // ── A payment Stripe confirmed after the page closed (a delayed method): only an address change's pays this way
+      //    (its pages take cards only, so it shouldn't happen; if it does, the change goes on or is refunded once). ──
+      case 'checkout.session.async_payment_succeeded': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.metadata?.type !== 'address_change' || !session.metadata?.retailOrderId) break;
+        const tenant = await getTenant(connAcct); if (!tenant) break;
+        try { const { finishAddressPay } = await import('@/lib/address-pay');
+          await finishAddressPay(db, tenant.id, String(session.metadata.retailOrderId), session.id, { session, stripe: stripe2 }); }
+        catch (e: any) { console.error('[connect-webhook] address change payment (delayed) failed', e?.message); }
+        break;
+      }
+
       // ── checkout.session.completed: deposit / completion / card vaulting ──
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
@@ -114,6 +126,13 @@ export async function POST(req: NextRequest) {
         // first; both are safe to run twice).
         // A pay link the front desk sent for fees → settle exactly those fees (once, however often this arrives).
         // Before the visit: a deposit top-up after the price went up (lib/prep-check-server; safe to run twice).
+        // A customer paid the shipping difference for a new address on their shop order (lib/address-pay; safe to run twice).
+        if (sessionType === 'address_change') {
+          try { if (session.metadata?.retailOrderId) { const { finishAddressPay } = await import('@/lib/address-pay');
+              await finishAddressPay(db, tenant.id, String(session.metadata.retailOrderId), session.id, { session, stripe: stripe2 }); }
+          } catch (e: any) { console.error('[connect-webhook] address change payment failed', e?.message); }
+          break;
+        }
         if (sessionType === 'deposit_topup') {
           try { if (session.payment_status === 'paid' && session.metadata?.appointmentId) { const { prepTopUpPaid } = await import('@/lib/prep-check-server');
               await prepTopUpPaid(getAdminDb(), tenant.id, String(session.metadata.appointmentId), { cents: Number(session.amount_total) || Number(session.metadata.cents) || 0, sessionId: session.id, chargeId: null }); }
@@ -588,107 +607,36 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      // ── charge.succeeded: record exact Stripe processing fee ─────────────
-      case 'charge.succeeded': {
+      // ── charge.succeeded / charge.captured: record exact Stripe processing fee (lib/stripe-fee) ─────────────
+      // A card reader payment is approved first (charge.succeeded, no fee yet) and captured after (charge.captured):
+      // the fee is recorded once, whichever brings it.
+      case 'charge.succeeded':
+      case 'charge.captured': {
         const charge = event.data.object as Stripe.Charge;
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
-
-        const balTxnId = typeof charge.balance_transaction === 'string'
-          ? charge.balance_transaction
-          : (charge.balance_transaction as any)?.id;
-        if (!balTxnId) break;
-
-        // Fetch the balance transaction — contains the EXACT fee Stripe took
-        const balTxn = await stripe2.balanceTransactions.retrieve(
-          balTxnId, {}, { stripeAccount: connAcct }
-        );
-
-        const feeAmountCents   = balTxn.fee;
-        const netAmountCents   = balTxn.net;
-        const grossAmountCents = balTxn.amount;
-        const feeAmountDollars = feeAmountCents / 100;
-
-        if (feeAmountCents <= 0) break;
-
-        // Idempotency check — don't write the same fee twice
-        const existing = await db.collection(`tenants/${tenant.id}/transactions`)
-          .where('stripeBalanceTxnId', '==', balTxnId)
-          .where('category', '==', 'Processing Fee')
-          .limit(1).get();
-        if (!existing.empty) break;
-
-        // Identify payment method type for the description
-        const pmDetails    = charge.payment_method_details;
-        const isTerminal   = pmDetails?.type === 'card_present';
-        const isManual     = (pmDetails?.card as any)?.read_method === 'contact_emv_fallback'
-          || charge.metadata?.manualEntry === 'true';
-        const paymentLabel = isTerminal ? 'Terminal (card present)'
-          : isManual ? 'Manual card entry'
-          : 'Card on file';
-
-        // Write the fee as an expense
-        const feeRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
-        await feeRef.set({
-          id:                       feeRef.id,
-          date:                     new Date(charge.created * 1000).toISOString(),
-          description:              `Stripe fee — ${paymentLabel}`,
-          clientOrVendor:           'Stripe',
-          clientId:                 charge.metadata?.clientId || null,
-          type:                     'expense',
-          context:                  'Business',
-          category:                 'Processing Fee',
-          taxBucket:                'processing_fee',
-          amount:                   feeAmountDollars,
-          paymentMethod:            paymentLabel,
-          hasReceipt:               false,
-          // Reconciliation fields
-          stripeChargeId:           charge.id,
-          stripeBalanceTxnId:       balTxnId,
-          stripeConnectedAccountId: connAcct,
-          grossChargeAmount:        grossAmountCents / 100,
-          netAfterFee:              netAmountCents / 100,
-          feeBreakdown:             balTxn.fee_details.map((d: any) => ({
-            type:     d.type,
-            amount:   d.amount / 100,
-            currency: d.currency,
-          })),
-          checkoutSessionId:        charge.metadata?.checkoutSessionId || null,
-          tenantId:                 tenant.id,
-        });
-
-        // Back-fill net amount on the original revenue transaction for accurate reporting
-        if (charge.metadata?.checkoutSessionId) {
-          const revTxns = await db.collection(`tenants/${tenant.id}/transactions`)
-            .where('checkoutSessionId', '==', charge.metadata.checkoutSessionId)
-            .where('taxBucket', '==', 'revenue')
-            .limit(1).get();
-          if (!revTxns.empty) {
-            await revTxns.docs[0].ref.update({
-              stripeFeeAmountDollars: feeAmountDollars,
-              stripeNetAmountDollars: netAmountCents / 100,
-              stripeChargeId:         charge.id,
-            });
+        const { recordChargeFee } = await import('@/lib/stripe-fee');
+        const fee = await recordChargeFee(db, stripe2, tenant.id, connAcct as string, charge);
+        if (fee > 0) console.log(`[connect-webhook] Fee $${(fee / 100).toFixed(2)} recorded for charge ${charge.id} on ${tenant.id}`);
+        // A desk sale's card payment that went through — a typed card, a saved card or the client screen (a card reader
+        // hold is captured by the desk or the sweep first) — goes on its sale's ticket too, in case the desk's screen
+        // never said so: a manager then records it without charging again (lib/reader-sale).
+        try {
+          const piId = typeof charge.payment_intent === 'string' ? charge.payment_intent : (charge.payment_intent as any)?.id;
+          if (piId && charge.paid && charge.captured !== false && !charge.refunded && !(Number(charge.amount_refunded) > 0)) {
+            const { deskPaymentOf, markSalePaid, tellDeskReader } = await import('@/lib/reader-sale');
+            const meta: any = (charge.metadata as any)?.tenantId ? charge.metadata : ((await stripe2.paymentIntents.retrieve(piId, {}, { stripeAccount: connAcct as string }).catch(() => null)) as any)?.metadata || {};
+            const desk = deskPaymentOf({ metadata: meta }, tenant.id);
+            if (desk && !desk.share && desk.via !== 'card_reader') {
+              const cents = Math.round(Number(charge.amount_captured || charge.amount) || 0);
+              const m = await markSalePaid(db, tenant.id, desk.pendingId, { id: piId, amount: charge.amount, amount_received: cents }, desk.via);
+              if (m.fresh && (m.result === 'paid_twice' || m.revived)) {
+                const pc: any = ((await db.doc(`tenants/${tenant.id}/pendingCheckouts/${desk.pendingId}`).get()).data() as any) || {};
+                await tellDeskReader(db, tenant.id, m.result === 'paid_twice' ? 'paid_twice' : 'unrecorded', pc, cents, desk.pendingId, desk.via).catch(() => {});
+              }
+            }
           }
-        }
-
-        // Also back-fill by stripeChargeId directly (covers deposit/completion
-        // transactions, which set stripeChargeId at creation time rather than
-        // relying on charge.metadata.checkoutSessionId).
-        if (!charge.metadata?.checkoutSessionId) {
-          const revByCharge = await db.collection(`tenants/${tenant.id}/transactions`)
-            .where('stripeChargeId', '==', charge.id)
-            .where('taxBucket', '==', 'revenue')
-            .limit(1).get();
-          if (!revByCharge.empty) {
-            await revByCharge.docs[0].ref.update({
-              stripeFeeAmountDollars: feeAmountDollars,
-              stripeNetAmountDollars: netAmountCents / 100,
-            });
-          }
-        }
-
-        console.log(`[connect-webhook] Fee $${feeAmountDollars.toFixed(2)} recorded for charge ${charge.id} on ${tenant.id}`);
+        } catch (e) { console.error('[connect-webhook] desk sale payment not marked on its ticket', e); }
         break;
       }
 

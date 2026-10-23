@@ -26,11 +26,13 @@ export function useClientScreen(tenantId?: string | null) {
   const online = !!screen?.tenantId && screen.tenantId === tenantId && !!screen.lastSeen && Date.now() - Date.parse(screen.lastSeen) < 150000;
   const connected = !!screen?.tenantId && screen.tenantId === tenantId;
   const push = React.useCallback((ticket: any) => (screenId && tenantId ? call({ tenantId, action: 'push', screenId, ticket }) : Promise.resolve(null)), [screenId, tenantId]);
-  const request = React.useCallback(async (kind: string, extra: any = {}) => { if (!screenId || !tenantId) return null; const r: any = await call({ tenantId, action: 'request', screenId, kind, ...extra });
+  // The whole answer (why it was refused, too: a sale already paid says how, and what it was rung up with).
+  const requestFull = React.useCallback(async (kind: string, extra: any = {}): Promise<any> => { if (!screenId || !tenantId) return null; const r: any = await call({ tenantId, action: 'request', screenId, kind, ...extra });
     if (r?.paymentClosed === 'paid') window.dispatchEvent(new Event('cf:screen-late-payment'));   // it had gone through before we moved on
-    return r?.ok ? r.requestId : null; }, [screenId, tenantId]);
+    return r || null; }, [screenId, tenantId]);
+  const request = React.useCallback(async (kind: string, extra: any = {}) => { const r: any = await requestFull(kind, extra); return r?.ok ? r.requestId : null; }, [requestFull]);
   const alive = React.useCallback(() => (screenId && tenantId ? call({ tenantId, action: 'alive', screenId }) : Promise.resolve(null)), [screenId, tenantId]);
-  return { screenId, setScreenId, screen, connected, online, name: screen?.name || null, request: screen?.request || null, response: screen?.response || null, push, ask: request, alive };
+  return { screenId, setScreenId, screen, connected, online, name: screen?.name || null, request: screen?.request || null, response: screen?.response || null, push, ask: request, askFull: requestFull, alive };
 }
 
 /** Pair an iPad, choose which screen this desk uses, or disconnect. */

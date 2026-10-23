@@ -16,11 +16,26 @@ import { logAuditAdmin } from '@/lib/audit';
 import { linkOrigin } from '@/lib/app-origin';
 import { clientScreenSettingsOf, rebookSettingsOf } from '@/lib/client-screen';
 import { rebookStart, rebookDay, rebookBook, rebookWaitlist } from '@/lib/rebook-actions';
+import { keepApartPayment, markSalePaid, readerStripe, safeId, ticketBlocks, ticketPayment, tellDeskReader } from '@/lib/reader-sale';
 
 export const dynamic = 'force-dynamic';
 const now = () => new Date().toISOString();
 const rid = () => crypto.randomBytes(8).toString('hex');
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+/** A payment that went through on the screen, on the sale's started ticket: it pays for the sale (with the tip the
+ *  client chose there, so a manager recording it later records it as paid), or, if the sale was already paid another
+ *  way, it's kept apart for a manager to refund and the desk and managers are told. */
+async function paidOnScreen(db: any, tenantId: string, pendingId: string, pi: any, q: any, more: Record<string, any> = {}) {
+  const m = await markSalePaid(db, tenantId, pendingId, pi, 'client_screen', { paidTip: num(q?.tip), paidTipAllocations: q?.tipAllocations || null, ...more });
+  // Paid twice, or paid after the desk had moved on to another sale: the desk and managers are told, so it's refunded or
+  // recorded — never lost.
+  if (m.fresh && (m.result === 'paid_twice' || m.revived)) {
+    const pc: any = ((await db.doc(`tenants/${tenantId}/pendingCheckouts/${pendingId}`).get()).data() as any) || {};
+    await tellDeskReader(db, tenantId, m.result === 'paid_twice' ? 'paid_twice' : 'unrecorded', pc, Math.round(Number(pi.amount_received || pi.amount) || 0), pendingId, 'client_screen').catch(() => {});
+  }
+  return m;
+}
 
 /** Close an unfinished payment on the screen before anything replaces it — cancel it at Stripe, so the client can't pay
  *  for a sale the desk has moved on from. If Stripe says it had already gone through, it's kept for a manager to record
@@ -29,12 +44,14 @@ async function closeOpenPayment(db: any, s: any, why: string): Promise<'none' | 
   const q = s?.request; if (!q || q.kind !== 'pay' || q.answeredAt || !q.paymentIntentId || !s.tenantId) return 'none';
   const t: any = ((await db.doc(`tenants/${s.tenantId}`).get()).data() as any) || {};
   if (!t.stripeAccountId || !process.env.STRIPE_SECRET_KEY) return 'none';
-  const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
+  const stripe: any = readerStripe();   // the same card payments client as the rest of the desk (lib/reader-sale)
   try { await stripe.paymentIntents.cancel(q.paymentIntentId, { cancellation_reason: 'abandoned' } as any, { stripeAccount: t.stripeAccountId } as any); return 'cancelled'; }
   catch {
     const pi: any = await stripe.paymentIntents.retrieve(q.paymentIntentId, { stripeAccount: t.stripeAccountId } as any).catch(() => null);
     if (pi?.status === 'succeeded') {
-      if (q.pendingId) await db.doc(`tenants/${s.tenantId}/pendingCheckouts/${q.pendingId}`).set({ paymentIntentId: pi.id, paidAt: new Date().toISOString(), paidVia: 'client_screen', status: 'paid_waiting', note: `Paid on the client screen after the desk ${why}` }, { merge: true }).catch(() => {});
+      // On its ticket: it pays for the sale, or — when the sale was already paid another way — it's kept apart for a
+      // manager to refund, and the desk is told (lib/reader-sale).
+      if (q.pendingId) await paidOnScreen(db, s.tenantId, String(q.pendingId), pi, q, { note: `Paid on the client screen after the desk ${why}` }).catch(() => {});
       return 'paid';
     }
     return 'none';
@@ -96,7 +113,7 @@ export async function POST(req: NextRequest) {
     if (!s?.tenantId || q?.kind !== 'pay' || q.id !== String(b.requestId || '')) return NextResponse.json({ ok: false, error: 'This payment is no longer open.' }, { status: 409 });
     const T = `tenants/${s.tenantId}`; const t: any = ((await db.doc(T).get()).data() as any) || {};
     const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Card payments are not set up for this business.' }, { status: 400 });
-    const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
+    const stripe: any = readerStripe();   // the same card payments client as the rest of the desk (lib/reader-sale)
     if (action === 'pay_view') return NextResponse.json({ ok: true, clientSecret: q.clientSecret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '', stripeAccount: acct,
       amount: num(q.amount), business: t.name || 'Payment', allowSave: !!q.allowSave, paid: !!q.answeredAt, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null });
     if (q.answeredAt) return NextResponse.json({ ok: true, already: true });
@@ -130,9 +147,10 @@ export async function POST(req: NextRequest) {
     await ref.update({ request: { ...q, answeredAt: now() }, response: { requestId: q.id, kind: 'pay', paid: true, paymentIntentId: pi.id, amount: num(q.amount), tip: num(q.tip), tipAllocations: q.tipAllocations || null, saved, at: now() }, lastSeen: now() });
     if (q.splitPendingId) {   // one share of a split bill → recorded on the started ticket right here (safe even if the desk is interrupted)
       const pRef = db.doc(`${T}/pendingCheckouts/${q.splitPendingId}`); const pc: any = ((await pRef.get()).data() as any) || {}; const tenders: any[] = Array.isArray(pc.tenders) ? pc.tenders : [];
-      if (!tenders.some((x) => x.stripePaymentIntentId === pi.id)) { const next = [...tenders, { id: crypto.randomBytes(6).toString('hex'), method: 'card', amount: Math.round((num(q.amount) - num(q.tip)) * 100) / 100, tip: num(q.tip), stripePaymentIntentId: pi.id, via: 'client_screen', payerName: q.shareLabel || null, label: q.shareLabel || null, at: now(), by: 'Client screen' }];
+      if (ticketPayment(pc)) await keepApartPayment(db, s.tenantId, String(q.splitPendingId), pi.id).catch(() => null);   // the sale was already paid in full: this share is extra
+      else if (!tenders.some((x) => x.stripePaymentIntentId === pi.id)) { const next = [...tenders, { id: crypto.randomBytes(6).toString('hex'), method: 'card', amount: Math.round((num(q.amount) - num(q.tip)) * 100) / 100, tip: num(q.tip), stripePaymentIntentId: pi.id, via: 'client_screen', payerName: q.shareLabel || null, label: q.shareLabel || null, at: now(), by: 'Client screen' }];
         await pRef.set({ tenders: next, status: 'partial', paidSoFar: next.reduce((a, x) => a + num(x.amount) + num(x.tip), 0), updatedAt: now() }, { merge: true }); }
-    } else if (q.pendingId) await db.doc(`${T}/pendingCheckouts/${q.pendingId}`).set({ paymentIntentId: pi.id, paidAt: now(), paidVia: 'client_screen', status: 'paid_waiting' }, { merge: true }).catch(() => {});   // if the desk misses it, a manager can still record it
+    } else if (q.pendingId) await paidOnScreen(db, s.tenantId, String(q.pendingId), pi, q).catch(() => {});   // if the desk misses it, a manager can still record it
     return NextResponse.json({ ok: true, saved });
   }
   if (action === 'hold') {
@@ -276,13 +294,20 @@ export async function POST(req: NextRequest) {
       q.providers = Array.isArray(b.providers) ? b.providers.slice(0, 8).map((p: any) => ({ id: String(p.id), name: String(p.name || 'Team member').slice(0, 40) })) : [];
       const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Please connect Stripe first (Settings → Payments).' }, { status: 400 });
       const amountCents = Math.round(num(b.amount) * 100); if (amountCents < 50) return NextResponse.json({ ok: false, error: 'There is nothing to charge.' }, { status: 400 });
-      const Stripe = (await import('stripe')).default; const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any });
+      const stripe: any = readerStripe();   // the same card payments client as the rest of the desk (lib/reader-sale)
+      // The payment names its sale's ticket (or the split it's a share of), and is never started for a sale that's
+      // already paid, finished, discarded, being split (for the whole bill), or has a card reader payment still going.
+      const forTicket = safeId(b.pendingId) || safeId(b.splitPendingId); const isShare = !safeId(b.pendingId) && !!safeId(b.splitPendingId);
+      if (forTicket) {
+        const block = await ticketBlocks(db, tenantId, forTicket, { share: isShare, stripe, acct });
+        if (block) return NextResponse.json({ ok: false, code: block.code, error: block.error, ...(block.paidWith ? { paidWith: block.paidWith, paidPayload: block.paidPayload } : {}) }, { status: block.status });
+      }
       let customerId: string | undefined;
       const cid = b.clientId ? String(b.clientId) : null; const cl: any = cid ? (((await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() as any) || null) : null;
       if (cl) { customerId = cl.cardOnFile?.customerId || undefined;
         if (!customerId) { const c = await stripe.customers.create({ name: cl.name || undefined, email: cl.email || undefined, phone: cl.phone || undefined, metadata: { tenantId, clientId: cid! } } as any, { stripeAccount: acct } as any); customerId = c.id; } }
       const pi: any = await stripe.paymentIntents.create({ amount: amountCents, currency: 'usd', automatic_payment_methods: { enabled: true }, ...(customerId ? { customer: customerId } : {}),
-        description: `${t.name || 'Sale'} — ${cl?.name || 'client'}`, metadata: { tenantId, clientId: cid || '', source: 'client_screen', screenId, pendingCheckoutId: String(b.pendingId || '') } } as any, { stripeAccount: acct } as any);
+        description: `${t.name || 'Sale'} — ${cl?.name || 'client'}`, metadata: { tenantId, clientId: cid || '', source: 'client_screen', screenId, pendingCheckoutId: forTicket, ...(isShare ? { split: '1' } : {}) } } as any, { stripeAccount: acct } as any);
       q.amount = amountCents / 100; q.amountBase = amountCents / 100; q.tip = 0; q.tipBase = Math.max(0, num(b.tipBase)); q.askTip = b.askTip === true; q.review = settings.reviewTicket !== false;
       q.presets = settings.tipPresets; q.allowCustom = settings.allowCustomTip; q.showNoTip = settings.showNoTip; q.paymentIntentId = pi.id; q.clientSecret = pi.client_secret; q.clientId = cid; q.customerId = customerId || null; q.allowSave = !!cl && settings.offerSaveCard !== false; q.saveCard = false; q.pendingId = b.pendingId ? String(b.pendingId) : null;
       q.phoneUrl = `${linkOrigin(t, req.nextUrl.origin)}/pay/${screenId}?r=${q.id}`;

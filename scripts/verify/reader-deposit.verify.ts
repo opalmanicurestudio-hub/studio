@@ -96,6 +96,7 @@ const retainers = async () => (await all(`${T}/transactions`)).filter((t: any) =
   await fresh();
   r = await begin({ amountCents: 2500, appointmentId: 'a1', kind: 'deposit' });
   const pi1 = r.body.paymentIntentId;
+  pis[pi1].status = 'requires_capture';   // the reader approved the card
   r = await take(pi1);
   let ap: any = await get(`${T}/appointments/a1`);
   check('the capture records the deposit itself: paid and confirmed, its credit and its income line', r.body.ok && r.body.deposit?.ok && ap.depositStatus === 'paid' && ap.status === 'confirmed'
@@ -206,7 +207,7 @@ const retainers = async () => (await all(`${T}/transactions`)).filter((t: any) =
   const dialog = src('src/components/planner/AddAppointmentDialog.tsx');
   check('the booking screen takes only what the server says the booking owes (no amount of its own)', /const depCents = Math\.max\(0, Math\.round\(Number\(out\.depositCents\) \|\| 0\)\);/.test(dialog) && !/out\.depositCents\) \|\| depositDetails\.amount/.test(dialog));
   check('…holds a reader booking for a day, and asks the server again when the answer is lost', /payLater \|\| viaReader \? \{ holdUntil/.test(dialog) && /for \(let i = 0; !d && paid\?\.paymentIntentId && i < 3; i\+\+\)/.test(dialog) && !/it won’t be charged twice/.test(dialog));
-  check('the reader passes the capture’s record back, and the payment’s id even when the answer was lost', /deposit: captureData\.deposit \|\| null, captured: true/.test(src('src/components/pos/StripeTerminalProvider.tsx')) && /paymentIntentId: processResult\.paymentIntent\.id, captured: false/.test(src('src/components/pos/StripeTerminalProvider.tsx')));
+  check('the reader passes the capture’s record back, and the payment’s id even when the answer was lost', /deposit: data\?\.deposit \|\| null, captured: true/.test(src('src/components/pos/StripeTerminalProvider.tsx')) && /error: processResult\.error\.message, paymentIntentId: piId, captured: false/.test(src('src/components/pos/StripeTerminalProvider.tsx')));
   check('…including when the connection drops while it’s captured (the screen then asks the server instead of saying it failed)', /return \{ ok: false, error: err\.message, paymentIntentId: piId, captured: false \}/.test(src('src/components/pos/StripeTerminalProvider.tsx')));
   check('the desk is told when a deposit it took was already paid', /d\.paidTwice \|\| d\.viaReader/.test(dialog) && /d\.paidTwice \|\| d\.viaReader\) && d\.message/.test(src('src/components/pos/desk/StaffBookSheet.tsx')));
   check('undoing a booking refunds a reader deposit to the card', /a\.depositPaidVia === 'card_on_file' \|\| a\.depositPaidVia === 'card_reader'/.test(src('src/app/api/appointments/undo-booking/route.ts')));
