@@ -16,7 +16,7 @@ import { ScanGate } from '@/components/retail/ScanGate';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { claimNextBatch, claimSpecificOrder, recordItemScan, recordPackScan } from '@/lib/retail-fulfill';
 import { finishPacking } from '@/lib/orders-flow';
-import { codesMatch, fulfilmentPolicy, isPackComplete, parseProductQr, type RetailOrder } from '@/lib/retail-orders';
+import { fulfilmentPolicy, isPackComplete, lineMatchesScan, type RetailOrder } from '@/lib/retail-orders';
 import { dueLine, firstName, itemCount, methodLabel, orderNum, packQueue, packProgress } from '@/lib/orders-view';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { Btn, C, Empty, Initials, ListRow, UndoBar, feel, muted, Ic } from '@/components/orders/ui';
@@ -205,8 +205,8 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
       }
       const atBin = shelf.find((r) => r.scanned < r.needed && binMatches(r.bin, value));
       if (atBin) { show({ kind: 'ok', title: `You’re at ${atBin.bin}`, sub: `Grab ${atBin.needed - atBin.scanned} × ${atBin.name}.` }); return; }
-      const pid = parseProductQr(raw);
-      const owner = queue.find((o) => (o.lines || []).some((l: any) => (pid && l.productId === pid) || l.productId === raw || codesMatch(l.barcode, raw) || codesMatch(l.sku, raw)));
+      // A waiting order that needs it: by the codes its lines were sold with (label, id, barcode, SKU, case and others).
+      const owner = queue.find((o) => (o.lines || []).some((l: any) => lineMatchesScan(l, raw)));
       if (owner && mine.length < perms.claimLimit) {
         const grab = await claimSpecificOrder(fs, tenantId, owner.id, actor as any);
         if (!('error' in grab)) { const r2 = await recordItemScan(fs, tenantId, owner.id, value, actor as any); if (r2.ok) { show({ kind: 'ok', title: `${orderNum(owner)} is yours`, sub: r2.message }); return; } }

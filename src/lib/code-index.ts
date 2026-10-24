@@ -45,10 +45,19 @@ function cleanCreate(c: any): Record<string, any> | null {
   return o;
 }
 
+/** Read several documents in one step (one round trip to the database where it can). */
+async function readAll(tx: any, refs: any[]): Promise<any[]> {
+  if (!refs.length) return [];
+  if (typeof tx.getAll === 'function') return tx.getAll(...refs);
+  return Promise.all(refs.map((r) => tx.get(r)));
+}
+const dataOf = (snap: any) => (snap?.exists ? snap.data() || {} : null);
+
 /** A product's codes, saved with their index entries in one step. `change` holds only the fields to change, or works
  *  them out from the product as it is now (so two codes learned at once both stay). A code new to this product that
- *  another product has is refused, naming it, and nothing is written. One the product had already, that another
- *  product has too, isn't new: both keep it until someone chooses which (the codes check). */
+ *  another product has is refused, naming it, and nothing is written; that holds for an archived product too, though
+ *  it holds no codes in the index until it's brought back. One the product had already, that another product has too,
+ *  isn't new: both keep it until someone chooses which (the codes check). */
 export async function setProductCodes(db: any, tenantId: string, productId: string, change: CodeChange, o: { by: string; create?: any }): Promise<SetResult> {
   const pid = safeId(productId);
   const gone404: SetResult = { ok: false, error: 'That product isn’t in your inventory.', status: 404 };
@@ -56,6 +65,7 @@ export async function setProductCodes(db: any, tenantId: string, productId: stri
   const create = o.create === undefined ? null : cleanCreate(o.create);
   if (o.create !== undefined && !create) return { ok: false, error: 'That product couldn’t be read. Try again.', status: 400 };
   const pRef = db.doc(invPath(tenantId, pid)); const col = indexCol(tenantId);
+  const ref = (code: string) => db.doc(`${col}/${codeDocId(code)}`);
   return db.runTransaction(async (tx: any) => {
     const at = nowIso();
     const ps = await tx.get(pRef);
@@ -65,38 +75,35 @@ export async function setProductCodes(db: any, tenantId: string, productId: stri
     if (asked && typeof asked.refuse === 'string') return { ok: false, error: asked.refuse, status: asked.status || 400 };
     const patch = cleanCodePatch(asked || {});
     const next: any = { ...cur, ...patch };
-    const before = ps.exists ? claims(cur) : []; const after = claims(next);
-    const had = new Set(before.map((c) => c.code));
+    const carried = new Set((ps.exists ? codesOf(cur) : []).map((c) => c.code));   // archived or not
+    const all = codesOf(next);                                                       // every code it will carry
+    const before = ps.exists ? claims(cur) : []; const after = claims(next);          // the codes it holds in the index
     const gone = before.filter((b) => !after.some((a) => a.code === b.code));
     // Reads first: the entries for every code it will carry and every code it gives up, and the products they name.
-    const aRefs = after.map((c) => db.doc(`${col}/${codeDocId(c.code)}`)); const gRefs = gone.map((c) => db.doc(`${col}/${codeDocId(c.code)}`));
-    const aE: any[] = []; for (const r of aRefs) { const s = await tx.get(r); aE.push(s.exists ? s.data() || {} : null); }
-    const gE: any[] = []; for (const r of gRefs) { const s = await tx.get(r); gE.push(s.exists ? s.data() || {} : null); }
-    const others = new Map<string, any>();
-    for (const e of [...aE, ...gE]) for (const id of entryOwners(e)) if (id !== pid && !others.has(id)) { const s = await tx.get(db.doc(invPath(tenantId, id))); others.set(id, s.exists ? s.data() || {} : null); }
-    const holders = (e: any, code: string) => entryOwners(e).filter((id) => id !== pid && holding(others.get(id), code));
-    // A code new to this product that another product still has: refused, naming it.
+    const codes = [...new Set([...all.map((c) => c.code), ...gone.map((c) => c.code)])];
+    const entries = new Map<string, any>(); (await readAll(tx, codes.map(ref))).forEach((snap, i) => entries.set(codes[i], dataOf(snap)));
+    const ids = [...new Set(codes.flatMap((c) => entryOwners(entries.get(c))).filter((id) => id !== pid && safeId(id)))];
+    const others = new Map<string, any>(); (await readAll(tx, ids.map((id) => db.doc(invPath(tenantId, id))))).forEach((snap, i) => others.set(ids[i], dataOf(snap)));
+    const holders = (code: string) => entryOwners(entries.get(code)).filter((id) => id !== pid && holding(others.get(id), code));
+    // A code new to this product that another product still holds: refused, naming it.
     const clashes: Clash[] = [];
-    after.forEach((c, i) => { if (had.has(c.code) || !aE[i]) return; const h = holders(aE[i], c.code)[0];
-      if (h) clashes.push({ code: c.code, raw: c.raw, kind: c.kind, productId: h, name: String(others.get(h)?.name || 'another product') }); });
+    for (const c of all) { if (carried.has(c.code)) continue; const h = holders(c.code)[0];
+      if (h) clashes.push({ code: c.code, raw: c.raw, kind: c.kind, productId: h, name: String(others.get(h)?.name || 'another product') }); }
     if (clashes.length) return { ok: false, status: 409, clashes, error: clashSentence(clashes[0]) };
     // Writes.
     const fields: Record<string, any> = {}; for (const k of CODE_FIELDS) if (k in patch) fields[k] = (patch as any)[k];
     tx.set(pRef, { ...(ps.exists ? {} : { ...create, id: pid }), ...fields, codesUpdatedAt: at }, { merge: true });
-    after.forEach((c, i) => {
-      const h = aE[i] ? holders(aE[i], c.code) : [];
-      if (!h.length) { tx.set(aRefs[i], { code: c.code, raw: c.raw, kind: c.kind, pack: c.pack, productId: pid, parentId: next.parentId || null, at, by: o.by }); return; }
+    const me = { id: pid, item: next };
+    for (const c of after) {
       // On another product too, from before: neither owns it until someone chooses.
-      tx.set(aRefs[i], { code: c.code, raw: c.raw, kind: c.kind, pack: c.pack, productId: h[0], productIds: [...h, pid], clash: true, parentId: null, at, by: o.by });
-    });
-    gone.forEach((c, i) => {
-      const e = gE[i]; if (!e || !entryOwners(e).includes(pid)) return;   // another product's entry isn't this one's to change
-      const rest = holders(e, c.code);
-      if (!rest.length) { tx.delete(gRefs[i]); return; }
-      if (rest.length === 1) { const oc = codesOf(others.get(rest[0])).find((x) => x.code === c.code)!;
-        tx.set(gRefs[i], { code: c.code, raw: oc.raw, kind: oc.kind, pack: oc.pack, productId: rest[0], parentId: others.get(rest[0])?.parentId || null, at, by: o.by }); return; }
-      tx.set(gRefs[i], { code: c.code, raw: e.raw || c.raw, kind: e.kind || c.kind, pack: e.pack || c.pack, productId: rest[0], productIds: rest, clash: true, parentId: null, at, by: o.by });
-    });
+      const e = entryFor(c.code, [me, ...holders(c.code).map((id) => ({ id, item: others.get(id) }))]);
+      tx.set(ref(c.code), { ...e, at, by: o.by });
+    }
+    for (const c of gone) {
+      const e = entries.get(c.code); if (!e || !entryOwners(e).includes(pid)) continue;   // another product's entry isn't this one's to change
+      const rest = entryFor(c.code, holders(c.code).map((id) => ({ id, item: others.get(id) })));
+      if (rest) tx.set(ref(c.code), { ...rest, at, by: o.by }); else tx.delete(ref(c.code));
+    }
     return { ok: true, codes: after.length, product: { ...next, id: pid } };
   });
 }
@@ -174,7 +181,7 @@ export async function keepCodeOn(db: any, tenantId: string, raw: string, product
     const st: any = (await tx.get(stRef)).data() || {};
     const listed = (Array.isArray(st.clashes) ? st.clashes : []).find((c: any) => c.code === code);
     const ids = [...new Set([pid, ...entryOwners(e), ...((listed?.owners || []).map((x: any) => String(x.productId)))])].filter((x) => safeId(x));
-    const docs: any[] = []; for (const id of ids) { const s = await tx.get(db.doc(invPath(tenantId, id))); docs.push(s.exists ? s.data() || {} : null); }
+    const docs: any[] = (await readAll(tx, ids.map((id) => db.doc(invPath(tenantId, id))))).map(dataOf);
     const kd = docs[0];
     if (!holding(kd, code)) return { ok: false, error: 'That product doesn’t have this code any more. Check again to see where it is now.', status: 409 };
     const at = nowIso(); const c = codesOf(kd).find((x) => x.code === code)!; const removedFrom: string[] = [];
@@ -202,10 +209,12 @@ async function allInventory(db: any, tenantId: string): Promise<{ items: any[]; 
 const sameEntry = (a: any, b: any) => ['code', 'raw', 'kind', 'pack', 'productId'].every((k) => (a?.[k] ?? null) === (b?.[k] ?? null))
   && (a?.parentId || null) === (b?.parentId || null) && !!a?.clash === !!b?.clash && (a?.productIds || []).join('|') === (b?.productIds || []).join('|');
 
-/** The entry a code should have, from the products that hold it (null when none does). */
-function entryFor(code: string, holders: { id: string; item: any }[]): any {
+/** The entry a code should have, from the products that hold it (null when none does). A code on several names them
+ *  all, in one fixed order, so the same holders always give the same entry. */
+function entryFor(code: string, list: { id: string; item: any }[]): any {
+  const holders = [...new Map(list.map((h) => [h.id, h])).values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   if (!holders.length) return null;
-  const c = codesOf(holders[0].item).find((x) => x.code === code)!;
+  const c = codesOf({ type: 'retail', ...holders[0].item }).find((x) => x.code === code) || { raw: code, kind: 'unit' as CodeKind, pack: 1 };
   return holders.length === 1
     ? { code, raw: c.raw, kind: c.kind, pack: c.pack, productId: holders[0].id, parentId: holders[0].item.parentId || null }
     : { code, raw: c.raw, kind: c.kind, pack: c.pack, productId: holders[0].id, productIds: holders.map((h) => h.id), clash: true, parentId: null };
@@ -218,10 +227,10 @@ async function settleEntries(db: any, tenantId: string, part: { id: string; code
   const col = indexCol(tenantId);
   return db.runTransaction(async (tx: any) => {
     const refs = part.map((p) => db.doc(`${col}/${p.id}`));
-    const cur: any[] = []; for (const r of refs) { const snap = await tx.get(r); cur.push(snap.exists ? snap.data() || {} : null); }
+    const cur: any[] = (await readAll(tx, refs)).map(dataOf);
     const names = part.map((p, i) => [...new Set([...p.candidates, ...entryOwners(cur[i])])].filter((x) => safeId(x)));
-    const docs = new Map<string, any>();
-    for (const id of new Set(names.flat())) { const snap = await tx.get(db.doc(invPath(tenantId, id))); docs.set(id, snap.exists ? snap.data() || {} : null); }
+    const ids = [...new Set(names.flat())];
+    const docs = new Map<string, any>(); (await readAll(tx, ids.map((id) => db.doc(invPath(tenantId, id))))).forEach((snap, i) => docs.set(ids[i], dataOf(snap)));
     const at = nowIso(); const finals = new Map<string, any>(); let written = 0;
     part.forEach((p, i) => {
       const next = p.code ? entryFor(p.code, names[i].filter((id) => holding(docs.get(id), p.code)).map((id) => ({ id, item: docs.get(id) }))) : null;
@@ -234,8 +243,8 @@ async function settleEntries(db: any, tenantId: string, part: { id: string; code
 }
 
 /** Bring the index up to date with the codes on every product. Only entries that differ from what the products say
- *  are touched, each settled from the products as they are at that moment (settleEntries). A code found on more than
- *  one product is given to none of them, and listed for the codes check. */
+ *  are touched, each settled from the products as they are at that moment (settleEntries, a hundred at a time). A
+ *  code found on more than one product is given to none of them, and listed for the codes check. */
 export async function buildCodeIndex(db: any, tenantId: string, o: { by?: string } = {}): Promise<{ products: number; codes: number; clashes: number; written: number; items: any[] }> {
   const col = indexCol(tenantId); const by = o.by || 'Codes check';
   const { items, complete } = await allInventory(db, tenantId);
@@ -249,7 +258,7 @@ export async function buildCodeIndex(db: any, tenantId: string, o: { by?: string
   // Entries no product was seen to hold (not when the shop has more products than one check reads).
   if (complete) for (const [id, cur] of existing) if (!want.has(id)) differ.push({ id, code: String(cur.code || ''), candidates: [] });
   const finals = new Map<string, any>(); let written = 0;
-  for (let i = 0; i < differ.length; i += 40) { const r = await settleEntries(db, tenantId, differ.slice(i, i + 40), by); for (const [k, v] of r.finals) finals.set(k, v); written += r.written; }
+  for (let i = 0; i < differ.length; i += 100) { const r = await settleEntries(db, tenantId, differ.slice(i, i + 100), by); for (const [k, v] of r.finals) finals.set(k, v); written += r.written; }
   // The codes on more than one product, as the index now holds them.
   const clashes: any[] = [];
   for (const [id, e] of want) {

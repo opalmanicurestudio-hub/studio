@@ -31,6 +31,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 // ── NEW IMPORTS — four feature additions ──────────────────────────────────────
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
 import { QRScanner } from '@/components/pos/QRScanner';
+import { ScanGate } from '@/components/retail/ScanGate';
 import { DeskCheckIn } from '@/components/pos/desk/DeskCheckIn';
 import { DeskPOS } from '@/components/pos/desk/DeskPOS';
 import { StripeTerminalProvider } from '@/components/pos/StripeTerminalProvider';
@@ -59,7 +60,7 @@ function POSPage() {
     autoAppliedOfferRef, discountValue, membershipDiscountValue, taxCalc, totalCalc, payerOptions, handleSelectAppointment, handleAddToCart,
     earlyStart, setEarlyStart, handleStartService, handleSendToFrontDesk, handleAssignStaff, autoAssignedIds, handleAssignNext, handleUpdateStatus,
     handleCheckout, handleCancelAction, onCancellationConfirm, handleCancellationConfirm, handleConfirmRefund, handleResolveCheckInConfirmation, handleRevertToService, handleRevertToReady,
-    resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction, resolveRetailScan,
+    resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   } = __engine;
   const [resumeDraft, setResumeDraft] = useState<any>(null);
@@ -190,19 +191,18 @@ function POSPage() {
         </div>
       </Drawer>
 
-      {isCameraScanOpen && (
+      <Drawer open={isCameraScanOpen && (scanMode === 'retail' || scanMode === 'checkout')} onClose={() => setIsCameraScanOpen(false)} title="Scan">
+        {isCameraScanOpen && (scanMode === 'retail' || scanMode === 'checkout') && (
+          <ScanGate cameraFirst label="Point at a barcode or QR code" onScan={(raw) => { setIsCameraScanOpen(false); (__engine as any).handlePosScan(raw); }} />
+        )}
+      </Drawer>
+      {isCameraScanOpen && scanMode !== 'retail' && scanMode !== 'checkout' && (
         <QRScanner
           onClose={() => setIsCameraScanOpen(false)}
           onScan={(raw) => {
             setIsCameraScanOpen(false);
             const code = raw.trim().toUpperCase();
-
-            if (scanMode === 'retail' || scanMode === 'checkout') {
-              (__engine as any).handlePosScan(raw);   // products first, then tickets (lib/pos-scan)
-              return;
-            }
-
-            // checkin / checkout modes both go through the appointment lookup dialog
+            // a ticket: the appointment lookup
             setScanQuery(code);
             resolveScanCode(code);
             setIsScanLookupOpen(true);

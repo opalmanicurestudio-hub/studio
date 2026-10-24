@@ -6,13 +6,14 @@
 //   • a listing whose variants hold the stock → "which one?"
 //   • a ticket: short code, check-in token or visit-link URL (found here if it's in today's list; otherwise the
 //     server lookup takes over)
-import { codesMatch, hasStockVariants, parseOrderQr } from '@/lib/retail-orders';
+import { parseOrderQr } from '@/lib/retail-orders';
 import { parseScan } from '@/lib/scan-codes';
-import { unitCodes } from '@/lib/product-codes';
+import { codeBook, lookupCode, type CodeBook } from '@/lib/code-lookup';
 
 export type ScanHit =
-  | { kind: 'product'; item: any }
+  | { kind: 'product'; item: any; pack: number; packKind?: 'case' | 'pallet' }   // pack > 1: a case's or pallet's code
   | { kind: 'choose'; parent: any; variants: any[] }
+  | { kind: 'clash'; items: any[] }   // a code two products share: which one?
   | { kind: 'ticket'; record: any; walkIn: boolean }
   | { kind: 'order'; value: string }   // an online order's pickup QR
   | { kind: 'lookup'; value: string }
@@ -27,19 +28,18 @@ export function variantsOf(parent: any, inventory: any[]) {
   return (inventory || []).filter((i) => ids.has(i.id));
 }
 
-export function identifyPosScan(raw: string, ctx: { inventory: any[]; appointments: any[]; walkIns: any[] }): ScanHit {
+/** The desk's products, ready to look up (lib/code-lookup): what it can sell. */
+export const deskBook = (inventory: any[]): CodeBook => codeBook((inventory || []).filter(isSellable));
+
+export function identifyPosScan(raw: string, ctx: { inventory: any[]; appointments: any[]; walkIns: any[]; book?: CodeBook }): ScanHit {
   const t = String(raw ?? '').trim().replace(/^['"\s]+|['"\s]+$/g, '');
   if (!t) return { kind: 'empty' };
   if (parseOrderQr(t)) return { kind: 'order', value: t };   // an online order's pickup code → order pickup
-  const inv = (ctx.inventory || []).filter(isSellable);
-  const asProduct = (item: any): ScanHit => (hasStockVariants(item.optionGroups) ? { kind: 'choose', parent: item, variants: variantsOf(item, ctx.inventory) } : { kind: 'product', item });
-  // Your printed labels, or a shop product link
-  const link = /clarityflow:\/\/product\/([A-Za-z0-9_-]+)/i.exec(t) || /\/product\/([A-Za-z0-9_-]{6,})/.exec(t);
-  if (link) { const item = inv.find((i) => i.id === link[1]); if (item) return asProduct(item); }
-  // A barcode or SKU (tolerant), or a bare product id
-  // Any of the product's codes (lib/product-codes): the same ones packing and receiving scan.
-  const byCode = inv.find((i) => unitCodes(i).some((c) => codesMatch(c, t))) || inv.find((i) => i.id === t);
-  if (byCode) return asProduct(byCode);
+  // A product: its label or link, any code it carries (the one lookup every scanner uses), or its id.
+  const found = lookupCode(ctx.book || deskBook(ctx.inventory), t);
+  if (found.kind === 'product') return { kind: 'product', item: found.item, pack: found.pack, ...(found.pack > 1 ? { packKind: found.via === 'pallet' ? 'pallet' as const : 'case' as const } : {}) };
+  if (found.kind === 'choose') return { kind: 'choose', parent: found.listing, variants: found.variants };
+  if (found.kind === 'clash') return { kind: 'clash', items: found.items };
   // A ticket in today's list
   const parsed = parseScan(t); const value = parsed.kind === 'empty' ? t : parsed.value; const needle = value.toUpperCase();
   const carries = (r: any) => { const code = String(r?.shortCode ?? '').trim().toUpperCase(); const token = String(r?.checkInToken ?? '').trim();

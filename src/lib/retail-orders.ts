@@ -1311,6 +1311,7 @@ export function codeVariants(value: string): Set<string> {
   if (/^\d{14}$/.test(one) && gtinValid(one)) {
     const short = one.replace(/^0+/, '');
     for (const n of [8, 12, 13, 14]) if (short.length <= n) out.add(short.padStart(n, '0'));
+    if (short.length === 11) out.add(short);   // a UPC-A typed without its small first digit
   }
   return out;
 }

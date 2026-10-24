@@ -5,7 +5,8 @@ import {
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
-import { buildEvent, codesMatch, parseProductQr } from '@/lib/retail-orders';
+import { buildEvent } from '@/lib/retail-orders';
+import { lookupCode, pickFor, type CodeBook } from '@/lib/code-lookup';
 
 // ─── src/lib/waves.ts ─────────────────────────────────────────────────────────
 // Wave picking: pick everything at once by product, then sort into orders at a
@@ -265,6 +266,7 @@ export interface TotePutHit {
   productId: string;
   name: string;
   putInTote: number;   // units of this product now in this tote
+  units: number;       // units this scan put in (a case's code puts the case, never more than the tote still needs)
   toteNeed: number;    // units of this product this tote wants in total
   toteDone: boolean;   // this tote has everything it needs
   rowComplete: boolean; // this product is fully picked across all totes
@@ -328,19 +330,19 @@ export function parseToteScan(value: string, wave: Wave): number | null {
   return null;
 }
 
-/** Resolve an item code against the wave's rows (barcode, SKU, product QR). */
+/** Resolve an item code against the wave's rows, as every scanner reads codes (lib/code-lookup): the product's label,
+ *  any code it carries, or a listing's own code when one of its variants is on the list. A case's or pallet's code is
+ *  worth its units (`units`). */
 export function matchWaveItem(
   rows: PickRow[],
   value: string,
-  codesForProduct: Map<string, string[]>,
-): PickRow | null {
+  book: CodeBook,
+): (PickRow & { units: number }) | null {
   const raw = String(value || '').trim();
   if (!raw) return null;
-  const qrId = parseProductQr(raw);
-  return rows.find((r) =>
-    (qrId !== null && qrId === r.productId)
-    || (codesForProduct.get(r.productId) || []).some((c) => codesMatch(c, raw))
-  ) || null;
+  const found = lookupCode(book, raw);
+  const row = pickFor(found, rows, (r) => r.productId).pick || rows.find((r) => r.productId === raw) || null;
+  return row ? { ...row, units: found.kind === 'product' ? Math.max(1, found.pack) : 1 } : null;
 }
 
 /** One put, validated: does THIS tote still need THIS item? */
@@ -349,9 +351,9 @@ export function wavePut(
   scannedByTote: Record<string, Record<string, number>>,
   tote: number,
   itemValue: string,
-  codesForProduct: Map<string, string[]>,
+  book: CodeBook,
 ): TotePutHit | TotePutMiss {
-  const row = matchWaveItem(rows, itemValue, codesForProduct);
+  const row = matchWaveItem(rows, itemValue, book);
   if (!row) {
     return { ok: false, reason: 'no_match', message: 'Not on this pick list — put it back.' };
   }
@@ -376,9 +378,10 @@ export function wavePut(
   }
 
   const toteRow = row.totes.find((t) => t.tote === tote)!;
-  const inToteNow = Math.max(0, Number(scannedByTote[String(tote)]?.[row.productId]) || 0) + 1;
+  const units = Math.min(row.units, needHere);
+  const inToteNow = Math.max(0, Number(scannedByTote[String(tote)]?.[row.productId]) || 0) + units;
 
-  const resAfter = { ...res, [tote]: { ...res[tote], [row.productId]: needHere - 1 } };
+  const resAfter = { ...res, [tote]: { ...res[tote], [row.productId]: needHere - units } };
   const toteDone = Object.values(resAfter[tote]).every((n) => n <= 0);
   const rowLeft = row.totes.reduce((a, t) => a + Math.max(0, resAfter[t.tote][row.productId] || 0), 0);
   const rowComplete = rowLeft <= 0;
@@ -389,6 +392,7 @@ export function wavePut(
     productId: row.productId,
     name: row.name,
     putInTote: inToteNow,
+    units,
     toteNeed: toteRow.qty,
     toteDone,
     rowComplete,
@@ -400,7 +404,7 @@ export function wavePut(
  *  `scanned` in step; ticks the row when the aggregate reaches its total. */
 export async function recordWavePut(
   fs: Firestore, tenantId: string, waveId: string,
-  tote: number, productId: string, toteNeed: number, totalQty: number, actor?: { id: string; name: string },
+  tote: number, productId: string, toteNeed: number, totalQty: number, actor?: { id: string; name: string }, units = 1,
 ): Promise<void> {
   await runTransaction(fs, async (txn) => {
     const ref = doc(waveCol(fs, tenantId), waveId);
@@ -411,17 +415,19 @@ export async function recordWavePut(
     const bucket = { ...(byTote[String(tote)] || {}) };
     const curTote = Math.max(0, Number(bucket[productId]) || 0);
     if (curTote >= toteNeed) return;
-    bucket[productId] = curTote + 1;
+    // A case's code puts the case in, never more than the tote still needs.
+    const added = Math.max(1, Math.min(Math.floor(Number(units) || 1), toteNeed - curTote));
+    bucket[productId] = curTote + added;
     byTote[String(tote)] = bucket;
 
     const scanned = { ...(data.scanned || {}) };
-    const agg = Math.min(totalQty, Math.max(0, Number(scanned[productId]) || 0) + 1);
+    const agg = Math.min(totalQty, Math.max(0, Number(scanned[productId]) || 0) + added);
     scanned[productId] = agg;
 
     const pickedProductIds: string[] = data.pickedProductIds || [];
     // Who scanned it, so the numbers screen can credit wave picks to a person (lib/fulfilment-access).
     const pickedBy = { ...(data.pickedBy || {}) };
-    if (actor?.id) { const cur = pickedBy[actor.id] || { name: actor.name, items: 0 }; pickedBy[actor.id] = { name: actor.name || cur.name, items: (Number(cur.items) || 0) + 1 }; }
+    if (actor?.id) { const cur = pickedBy[actor.id] || { name: actor.name, items: 0 }; pickedBy[actor.id] = { name: actor.name || cur.name, items: (Number(cur.items) || 0) + added }; }
     txn.update(ref, {
       scannedByTote: byTote,
       scanned,

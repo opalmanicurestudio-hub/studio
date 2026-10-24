@@ -72,8 +72,8 @@ const put = (id: string, x: any) => db.doc(`${T}/inventory/${id}`).set({ id, typ
   check('a code Firestore can’t use as a document name is kept under a fixed hash of it',
     cf.codeDocId('HC-50') === 'HC-50' && /^h_[0-9a-f]{16}$/.test(cf.codeDocId('A/B')) && cf.codeDocId('A/B') === cf.codeDocId('A/B') && cf.codeDocId('A/B') !== cf.codeDocId('A/C') && cf.codeDocId('__X__').startsWith('h_'));
   const codes = cf.codesOf({ type: 'retail', sku: 'gel-1', barcode: '012345678905', upc: '12345678905', barcodes: ['0 12345 67890 5', 'GP-OLD'], caseBarcode: '10012345678902', casePack: 12, palletBarcode: 'pal-9', palletPack: 10, tagIds: ['04A2B3C4'] });
-  check('a product’s codes: SKU, barcodes (one entry for one number), case and pallet worth their packs, tags',
-    codes.map((c) => `${c.kind}:${c.code}:${c.pack}`).join(' ') === 'sku:GEL-1:1 unit:00012345678905:1 unit:GP-OLD:1 case:10012345678902:12 pallet:PAL-9:10 tag:04A2B3C4:1', codes);
+  check('a product’s codes: SKU, barcodes (one entry for one number), a case worth its units, a pallet its cases of units, tags',
+    codes.map((c) => `${c.kind}:${c.code}:${c.pack}`).join(' ') === 'sku:GEL-1:1 unit:00012345678905:1 unit:GP-OLD:1 case:10012345678902:12 pallet:PAL-9:120 tag:04A2B3C4:1', codes);
   check('equipment and overhead items hold no scan codes (three dryers can share a model number)', cf.codesOf({ type: 'equipment', sku: 'DRY-1' }).length === 0 && cf.codesOf({ type: 'overhead', sku: 'X' }).length === 0);
   check('a SKU kept as a number and typed back as text is unchanged; a changed barcode is the only field sent',
     cf.changedCodes({ sku: 12345, barcode: 'A' }, { sku: '12345', barcode: 'A' }) === null && JSON.stringify(cf.changedCodes({ sku: 'S', barcode: 'A' }, { sku: 'S', barcode: 'B' })) === JSON.stringify({ barcode: 'B' }));
@@ -148,7 +148,14 @@ const put = (id: string, x: any) => db.doc(`${T}/inventory/${id}`).set({ id, typ
   await db.doc(`${T}/inventory/arch`).set({ status: 'active' }, { merge: true });
   await ci.reindexProducts(db, 't1', ['arch'], 'Kai');
   const back = await get(`${T}/codeIndex/CREAM-1`);
-  check('…brought back from the archive, its code another product took meanwhile is listed as shared, and its free code is its own', back.clash === true && back.productIds.sort().join() === 'arch,live' && (await get(`${T}/codeIndex/OLD-BAR`)).productId === 'arch', back);
+  check('…brought back from the archive, its code another product took meanwhile is listed as shared, and its free code is its own', back.clash === true && back.productIds.join() === 'arch,live' && (await get(`${T}/codeIndex/OLD-BAR`)).productId === 'arch', back);
+  check('…a shared code names its products in one fixed order, so the next check has nothing to rewrite', (await ci.buildCodeIndex(db, 't1')).written === 0);
+  await db.doc(`${T}/inventory/arch`).set({ status: 'archived' }, { merge: true });
+  const la = await ci.learnCode(db, 't1', 'arch', 'cream-1', 'Kai');
+  const lb = await ci.learnCode(db, 't1', 'arch', 'live-new', 'Kai');
+  await put('live2', { name: 'Newest cream', sku: 'LIVE-2' }); await ci.buildCodeIndex(db, 't1');
+  const lc2 = await ci.learnCode(db, 't1', 'arch', 'live-2', 'Kai');
+  check('an archived product still can’t be given a code another product has (packing an order whose product was archived)', la.ok && /already on this product/.test(la.message) && lb.ok && !lc2.ok && /already on Newest cream/.test(lc2.message), { la, lb, lc2 });
 
   // Stale entries go; a product saved while the index was being built isn't lost.
   await db.doc(`${T}/codeIndex/LEFT-1`).set({ code: 'LEFT-1', productId: 'nobody' });
@@ -299,7 +306,7 @@ const put = (id: string, x: any) => db.doc(`${T}/inventory/${id}`).set({ id, typ
   check('Inventory saves and adds products through the codes path (the form stays open when refused)', /await saveProduct\(firestore, tenantId, saved, updatedItem\)/.test(invPage) && /await addProduct\(firestore, tenantId, newProduct\)/.test(invPage) && !/updateDocumentNonBlocking\(itemDocRef, updatedItem\)/.test(invPage));
   check('…so does a product’s own page', /await saveProduct\(firestore, tenantId, product, updatedProduct\)/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')));
   check('…compared with the product as the form opened it, so a code learned or paired since isn’t put back', /const saved = editingItem && editingItem\.id === updatedItem\.id \? editingItem/.test(invPage));
-  check('…products brought back from the archive are indexed again', /batch\.commit\(\)\.then\(\(\) => reindexCodes\(tenantId, ids\)\)/.test(invPage));
+  check('…products brought back from the archive are indexed again, all of them (a hundred at a time)', /batch\.commit\(\)\.then\(async \(\) => \{ for \(let i = 0; i < ids\.length; i \+= 100\) await reindexCodes\(tenantId, ids\.slice\(i, i \+ 100\)\); \}\)/.test(invPage));
   check('a SKU kept as a number loads into the edit form as text (or the save would silently do nothing)', /sku: \(product as any\)\.sku == null \? '' : String\(\(product as any\)\.sku\)/.test(src('src/components/inventory/EditProductDialog.tsx')));
   check('the product forms wait for the save and close only when it worked', /const ok = await onProductUpdated\(/.test(src('src/components/inventory/EditProductDialog.tsx')) && /if \(ok !== false\) onOpenChange\(false\)/.test(src('src/components/inventory/EditProductDialog.tsx'))
     && /ok = await onProductAdded\(/.test(src('src/components/inventory/AddProductDialog.tsx')) && /if \(ok !== false\) onOpenChange\(false\)/.test(src('src/components/inventory/AddProductDialog.tsx')));
@@ -331,6 +338,9 @@ const put = (id: string, x: any) => db.doc(`${T}/inventory/${id}`).set({ id, typ
   r = await IMPORT(req({ tenantId: 't1', action: 'save', kind: 'products', importId: 'imp2', rows: [{ name: 'Top coat', sku: 'b-123' }] }));
   check('…a code on a product that shares its name with another is still found (never given to a new product)', r.status === 200 && (await db.collection(`${T}/inventory`).get()).docs.length === 2 && (await get(`${T}/codeIndex/B-123`)).productId === 'g2', r.body);
   actor.role = 'staff';
+
+  const ciSrc = src('src/lib/code-index.ts');
+  check('building the index reads a hundred entries, and their products, in one step each (the first build of a big shop stays quick)', /i \+= 100\) \{ const r = await settleEntries\(db, tenantId, differ\.slice\(i, i \+ 100\), by\)/.test(ciSrc) && /if \(typeof tx\.getAll === 'function'\) return tx\.getAll\(\.\.\.refs\);/.test(ciSrc) && (ciSrc.match(/await readAll\(tx,/g) || []).length >= 5);
 
   // ── The database rules ──
   const rules = src('firestore.rules');

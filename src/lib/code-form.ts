@@ -45,7 +45,8 @@ export function readCode(raw: any): ReadCode {
   if (!s) return { kind: 'empty' };
   const qr = /^clarityflow:\/\/product\/([A-Za-z0-9_-]{1,160})\/?$/i.exec(s);
   if (qr) return { kind: 'product', productId: qr[1] };
-  const link = /^https?:\/\/[^\s]+\/shop\/[A-Za-z0-9_-]+\/product\/([A-Za-z0-9_-]{1,160})(?:[/?#]|$)/i.exec(s);
+  // A link to the product: in the shop (on any address the shop is served at), or its page in the app.
+  const link = /^https?:\/\/[^\s/]+(?:\/[^\s?#]*)?\/product\/([A-Za-z0-9_-]{1,160})(?:[/?#]|$)/i.exec(s);
   if (link) return { kind: 'product', productId: link[1] };
   const code = codeForm(s);
   return code ? { kind: 'code', code } : { kind: 'empty' };
@@ -111,8 +112,10 @@ export function codesOf(item: any): { code: string; kind: CodeKind; pack: number
   const add = (raw: any, kind: CodeKind, pack = 1) => { const code = codeForm(raw); if (!code || seen.has(code)) return; seen.add(code); out.push({ code, kind, pack, raw: String(raw).trim() }); };
   add(item.sku, 'sku');
   for (const v of [item.barcode, item.upc, item.gtin, item.ean, ...(Array.isArray(item.barcodes) ? item.barcodes : [])]) add(v, 'unit');
-  add(item.caseBarcode, 'case', Math.max(1, Math.round(Number(item.casePack) || 0)) || 1);
-  add(item.palletBarcode, 'pallet', Math.max(1, Math.round(Number(item.palletPack) || 0)) || 1);
+  // A case counts its units; a pallet its cases × units a case (as packing and receiving count them, scanUnitsFor).
+  const casePack = Math.max(0, Math.round(Number(item.casePack) || 0)); const palletPack = Math.max(0, Math.round(Number(item.palletPack) || 0));
+  add(item.caseBarcode, 'case', casePack > 1 ? casePack : 1);
+  add(item.palletBarcode, 'pallet', casePack > 1 && palletPack > 1 ? casePack * palletPack : 1);
   for (const t of Array.isArray(item.tagIds) ? item.tagIds : []) add(t, 'tag');
   return out;
 }

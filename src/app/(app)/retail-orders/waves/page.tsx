@@ -23,7 +23,8 @@ import {
 import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
 import { openPrint } from '@/lib/open-print';
-import { unitCodes } from '@/lib/product-codes';
+import { codeBook } from '@/lib/code-lookup';
+import { codesOf } from '@/lib/code-form';
 
 // ─── Wave picking ─────────────────────────────────────────────────────────────
 // Phase one of two-phase fulfilment: pick the whole morning's orders in one
@@ -94,14 +95,8 @@ export default function WavesPage() {
 
   const ordersById = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
 
-  const codesFor = useMemo(() => {
-    const map = new Map<string, string[]>();
-    (inventory || []).forEach((i: any) => {
-      const codes = unitCodes(i);
-      if (codes.length) map.set(i.id, codes);
-    });
-    return map;
-  }, [inventory]);
+  // Every product's codes, as every scanner reads them (lib/code-lookup).
+  const codesFor = useMemo(() => codeBook(inventory || []), [inventory]);
 
   const cutoffIso = useMemo(
     () => (cutoff ? new Date(cutoff).toISOString() : new Date().toISOString()),
@@ -276,7 +271,7 @@ export default function WavesPage() {
     setLastDrop({ tote: res.tote, name: res.name, putInTote: res.putInTote, toteNeed: res.toteNeed, toteDone: res.toteDone });
     const toteRow = rows.find((r) => r.productId === res.productId)!;
     void recordWavePut(firestore as Firestore, tenantId, active.id, res.tote, res.productId,
-      toteRow.totes.find((t) => t.tote === res.tote)?.qty || 0, toteRow.totalQty, actor);
+      toteRow.totes.find((t) => t.tote === res.tote)?.qty || 0, toteRow.totalQty, actor, res.units);
     if (res.toteDone) {
       /* THE WAVE ADVANCES ITSELF. When a solo operator's last beep completes
        * the last tote, making them find a "move to the bench" button is a
@@ -352,7 +347,7 @@ export default function WavesPage() {
    *  overriding. A coded row stays scan-only for everyone else. */
   const onRowTap = (r: { productId: string }, done: boolean) => {
     if (!firestore || !active) return;
-    const coded = codesFor.has(r.productId);
+    const coded = codesOf(codesFor.byId.get(r.productId)).length > 0;
     if (!done && coded && !perms.canManage) {
       toast({ title: 'Scan it in', description: 'This item has a barcode — beep each unit into its tote. A manager can tap to override.' });
       return;

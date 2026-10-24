@@ -650,16 +650,17 @@ export function usePosEngine() {
     setRetailItems(prev => [...prev.filter((i: any) => !(i.type === 'tuition' && i.planId === x.planId)), { id: `tuition:${x.planId}`, planId: x.planId, name: `Tuition — ${x.name} · ${x.program}`, quantity: 1, price: x.amount, type: 'tuition' as any, tuitionApply: x.apply === 'paydown' ? 'paydown' : 'ahead' } as any]);
   }, []);
 
-  const handleAddToCart = useCallback((item: any) => {
+  const handleAddToCart = useCallback((item: any, qty = 1) => {
+    const n = Math.max(1, Math.round(Number(qty) || 1));
     setRetailItems(prev => {
       const existing = prev.find(i => i.id === item.id);
-      if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + 1 } : i);
+      if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + n } : i);
       let price = 0; let type: 'product' | 'service' | 'membership' | 'package' = 'product';
       if ('msrp' in item) { price = safeNumber(item.msrp || item.costPerUnit); type = 'product'; }
       else if ('duration' in item) { price = safeNumber(item.price); type = 'service'; }
       else if ('interval' in item) { price = safeNumber(item.price); type = 'membership'; }
       else if ('sessions' in item) { price = safeNumber(item.price); type = 'package'; }
-      return [...prev, { id: item.id, name: item.name, quantity: 1, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
+      return [...prev, { id: item.id, name: item.name, quantity: n, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
     });
   }, []);
 
@@ -1607,46 +1608,32 @@ export function usePosEngine() {
     setIsVoidDialogOpen(false); setVoidTransactionId(null);
   };
 
-  // ── Retail QR / barcode resolution ──────────────────────────────────────────
-  // Matches a scanned code against inventory. Adjust the field names below
-  // (`barcode` / `sku`) to whatever InventoryItem actually uses if it
-  // differs — this assumes those fields exist on the type; if they don't
-  // yet, this needs a schema addition plus a way to assign/print codes per
-  // product before retail scanning can work end-to-end.
-  const resolveRetailScan = useCallback((raw: string) => {
-    const code = raw.trim().toUpperCase();
-    const item = (inventory || []).find((i: any) =>
-      (i.barcode && String(i.barcode).toUpperCase() === code) ||
-      (i.sku && String(i.sku).toUpperCase() === code)
-    );
-    if (item) {
-      handleAddToCart(item);
-      toast({ title: 'Added to Cart', description: item.name });
-    } else {
-      toast({ variant: 'destructive', title: 'Product Not Found', description: `No item matches code ${code}.` });
-    }
-  }, [inventory, handleAddToCart, toast]);
-
   // ── One scan, anywhere on the POS (lib/pos-scan): products first, then tickets ──
-  const [variantChoice, setVariantChoice] = useState<{ parent: any; variants: any[] } | null>(null);
-  const addProductChecked = useCallback((item: any) => {
+  // Which one: a listing's own code (its variants), or a code two products share (both). `clash` says which it is.
+  const [variantChoice, setVariantChoice] = useState<{ parent: any; variants: any[]; clash?: boolean } | null>(null);
+  // A case's or pallet's code: add that many, or just one.
+  const [packChoice, setPackChoice] = useState<{ item: any; pack: number; packKind: 'case' | 'pallet' } | null>(null);
+  const addProductChecked = useCallback((item: any, qty = 1) => {
+    const n = Math.max(1, Math.round(Number(qty) || 1));
     const inCart = (retailItems || []).find((i: any) => i.id === item.id)?.quantity || 0;
     const left = onHand(item) - inCart;
     const heldN = Math.max(0, Math.round(Number(item.stockReserved) || 0));
-    handleAddToCart(item);
+    handleAddToCart(item, n);
+    const added = n > 1 ? `${n} × ${item.name} added` : `${item.name} added`;
     if (item.type === 'retail' || item.msrp) {
-      if (left <= 0 && heldN > 0 && (Number(item.totalStock) || 0) > inCart) toast({ variant: 'destructive', title: `${item.name} added`, description: `The ${heldN === 1 ? 'one' : heldN} left on the shelf ${heldN === 1 ? 'is' : 'are'} held for paid online orders. A manager approves selling ${heldN === 1 ? 'it' : 'them'} at checkout.` });
-      else if (left <= 0) toast({ variant: 'destructive', title: `${item.name} added`, description: 'None on the shelf on record — check the shelf, and receive stock if it’s there.' });
-      else if (left <= 2) toast({ title: `${item.name} added`, description: `Only ${left - 1 <= 0 ? 'this one' : `${left - 1} more`} on the shelf after this.` });
-      else toast({ title: `${item.name} added` });
+      if (left <= 0 && heldN > 0 && (Number(item.totalStock) || 0) > inCart) toast({ variant: 'destructive', title: added, description: `The ${heldN === 1 ? 'one' : heldN} left on the shelf ${heldN === 1 ? 'is' : 'are'} held for paid online orders. A manager approves selling ${heldN === 1 ? 'it' : 'them'} at checkout.` });
+      else if (left < n) toast({ variant: 'destructive', title: added, description: left <= 0 ? 'None on the shelf on record — check the shelf, and receive stock if it’s there.' : `Only ${left} on the shelf on record — check the shelf, and receive stock if it’s there.` });
+      else if (left - n <= 1) toast({ title: added, description: left - n <= 0 ? 'That’s the last on the shelf.' : 'Only 1 more on the shelf after this.' });
+      else toast({ title: added });
     }
   }, [retailItems, handleAddToCart, toast]);
   const handlePosScan = useCallback((raw: string) => {
     const hit = identifyPosScan(raw, { inventory: inventory || [], appointments: appointmentsFromInventory || [], walkIns: (walkIns as any[]) || [] });
     if (hit.kind === 'empty') return;
     if (hit.kind === 'order') { window.dispatchEvent(new CustomEvent('cf:order-pickup', { detail: { value: hit.value } })); return; }   // → the desk's pickup panel
-    if (hit.kind === 'product') { addProductChecked(hit.item); return; }
-    if (hit.kind === 'choose') { if (!hit.variants.length) { toast({ variant: 'destructive', title: `${hit.parent.name} has no sizes set up`, description: 'Add its variants in Inventory.' }); return; } setVariantChoice({ parent: hit.parent, variants: hit.variants }); return; }
+    if (hit.kind === 'product') { if (hit.pack > 1) { setPackChoice({ item: hit.item, pack: hit.pack, packKind: hit.packKind || 'case' }); return; } addProductChecked(hit.item); return; }
+    if (hit.kind === 'choose') { setVariantChoice({ parent: hit.parent, variants: hit.variants }); return; }
+    if (hit.kind === 'clash') { setVariantChoice({ parent: { name: 'product' }, variants: hit.items, clash: true }); return; }
     if (hit.kind === 'ticket') {
       const r: any = hit.record;
       const ready = !hit.walkIn && (readyForCheckoutAppointments || []).some((a: any) => a.id === r.id);
@@ -1667,7 +1654,7 @@ export function usePosEngine() {
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
     onAddClientClick: () => setIsAddClientOpen(true),
     onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
-    onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
+    onAddItem: addProductChecked, onPosScan: handlePosScan, variantChoice, setVariantChoice, packChoice, setPackChoice, getPendingId: () => pendingIdRef.current, prepareNow, splitActive, setSplitActive,
     heldShort, heldApproval: heldApproval && heldCovered(heldApproval.ref, heldShort) ? heldApproval : null, setHeldApproval,
     ticketPaid, setTicketPaid, getTicketPaid: () => ticketPaidRef.current, getTicket: () => lastTicketRef.current, savePaidSale, otherPaid, saveOtherPaidSale,
     subtotal: subtotalCalc, tax: taxCalc, taxLabel, total: totalCalc, lastSale, clearLastSale: () => setLastSale(null), moments, momentReward, momentDiscountValue, staffDiscount, setStaffDiscount, staffDiscountValue, groupInfo, groupDiscountRaw, groupDiscountValue, skipGroupDiscount, setSkipGroupDiscount, tipAmount, setTipAmount, onCheckout: handleCheckout,
@@ -1749,8 +1736,8 @@ export function usePosEngine() {
     autoAppliedOfferRef, discountValue, membershipDiscountValue, taxCalc, totalCalc, payerOptions, handleSelectAppointment, handleAddToCart,
     earlyStart, setEarlyStart, handleStartService, handleSendToFrontDesk, handleAssignStaff, autoAssignedIds, handleAssignNext, handleUpdateStatus,
     handleCheckout, recoveryApprovalRef, handleCancelAction, onCancellationConfirm, handleCancellationConfirm, handleConfirmRefund, handleResolveCheckInConfirmation, handleRevertToService, handleRevertToReady,
-    handlePosScan, addProductChecked, variantChoice, setVariantChoice,
-    resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction, resolveRetailScan,
+    handlePosScan, addProductChecked, variantChoice, setVariantChoice, packChoice, setPackChoice,
+    resolveScanCode, scanTimerRef, handleScanInput, handleScanConfirm, handleOpenTill, handleCloseTill, handleVoidTransaction,
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   };
 }

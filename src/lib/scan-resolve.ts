@@ -7,7 +7,8 @@
 // has that code yet (and the packer can add it to the right product, lib/scan-resolve learnCode).
 import { type Firestore, collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { learnProductCode } from './codes-api';
-import { codeDocId, codeForm } from './code-form';
+import { codeDocId, codeForm, codesOf } from './code-form';
+import { numberKey } from './code-lookup';
 import { lineMatchesScan, parseProductQr, type OrderLine, type ScanHint } from './retail-orders';
 import { lineProductId, lookupForms, productMatch, unitCodes, variantIdsOf } from './product-codes';
 import { codesMatch } from './retail-orders';
@@ -72,6 +73,14 @@ export async function resolveOrderScan(fs: Firestore, tenantId: string, lines: O
   await Promise.all(ids.map(async (id) => { try { const s = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, id)); if (s.exists()) items.set(id, { id, ...(s.data() as any) }); } catch { /* not readable: skipped */ } }));
   for (const [id, item] of items) {
     if (productMatch(item, t, id)) { const l = lineFor(id); if (l) return { kind: 'line', hint: { lineId: l.lineId, identity: identityOf(item) }, via: 'product' }; }
+  }
+  // The same number written another way (leading zeros a spreadsheet dropped, dashes), when only one item on the order
+  // has it: by the codes the line was sold with, or its product's codes now (lib/code-lookup numberKey).
+  const n = numberKey(t);
+  if (n) {
+    const near = [...new Set(lines.filter((l) => [l.barcode, l.sku, l.caseBarcode, l.palletBarcode, ...(Array.isArray(l.codes) ? l.codes : [])].some((c) => numberKey(c) === n)
+      || codesOf(items.get(lineProductId(l))).some((c) => numberKey(c.raw) === n)).map(lineProductId))];
+    if (near.length === 1) { const l = lineFor(near[0]); if (l) return { kind: 'line', hint: { lineId: l.lineId, identity: identityOf(items.get(near[0])) }, via: 'product' }; }
   }
 
   // Which product the scan is (the shop's label names it; otherwise its code).

@@ -26,7 +26,10 @@ import { openCount } from '@/lib/assist';
 import { useInventory } from '@/context/InventoryContext';
 import { Stations } from '@/components/pos/desk/Stations';
 import { Kits } from '@/components/pos/desk/Kits';
-import { kitKey, secondsLeft } from '@/lib/kits';
+import { findKit, kitKey, secondsLeft } from '@/lib/kits';
+import { identifyPosScan } from '@/lib/pos-scan';
+import { machineCode } from '@/lib/scan-route';
+import { findBundle } from '@/lib/linens';
 import { Linens } from '@/components/pos/desk/Linens';
 import { Sterilisation } from '@/components/pos/desk/Sterilisation';
 import { Disinfection } from '@/components/pos/desk/Disinfection';
@@ -125,7 +128,6 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const { resources: allResources, inventory: allInventory } = useInventory() as any;
   const [pickupOpen, setPickupOpen] = useState(false); const [pickupScan, setPickupScan] = useState<string | null>(null);
   useEffect(() => { const on = (ev: any) => { setPickupScan(String(ev?.detail?.value || '') || null); setPickupOpen(true); }; window.addEventListener('cf:order-pickup', on); return () => window.removeEventListener('cf:order-pickup', on); }, []);
-  useBarcodeScanner((code) => e.handlePosScan?.(code), !!e.handlePosScan);
   useEffect(() => { const open = () => { setMode('desk'); setCheckoutOpen(true); }; window.addEventListener('cf:open-checkout', open); return () => window.removeEventListener('cf:open-checkout', open); }, []);
   const clientScreen = useClientScreen(e.tenantId);
   // The visit ticket can use the POS's own actions while you're here.
@@ -168,6 +170,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const { data: protocols } = useCollection<any>(protoQ);   // cleaning protocols (O7) — turnover checklists + quarantine
   const kitsQ = useMemoFirebase(() => (e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'kits') : null), [e.firestore, e.tenantId]);
   const { data: kits } = useCollection<any>(kitsQ);   // kits (O5)
+  const bundlesQ = useMemoFirebase(() => (e.firestore && e.tenantId ? collection(e.firestore, 'tenants', e.tenantId, 'linenBundles') : null), [e.firestore, e.tenantId]);
+  const { data: bundles } = useCollection<any>(bundlesQ);   // linen bundles, so a bundle's tag scanned at the desk opens the scanner sheet
   const isMgr = ['owner', 'admin', 'manager'].includes(String(e.role || ''));
   // Housekeeping for stations, kits and linens (reminders, closing out finished visits) — asked for by this open desk
   // every few minutes, so it happens even where the scheduled job runs rarely. The server ignores repeats.
@@ -253,7 +257,18 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const active = guests.filter((g) => g.stage !== 'done');
   const selectedGuest = sel ? guests.find((g) => g.key === sel) || null : null;
   // K7: who's here and what's outstanding — checked-in guests not yet started + people at the front door, one list.
-  const scanner = useScanSheet();   // one scanner for kits, bundles, sterilisers and stations (USB scanners open it too)
+  const scanner = useScanSheet(false);   // one scanner for kits, bundles, sterilisers and stations
+  // A USB or Bluetooth scanner at the desk does one thing per scan: a product, an online order or one of today's
+  // tickets goes to the desk; a kit's, bundle's, steriliser's or station's code opens the scanner sheet; anything else
+  // is looked up as a ticket.
+  useBarcodeScanner((code) => {
+    const hit = identifyPosScan(code, { inventory: e.inventory || [], appointments: e.appointmentsFromInventory || [], walkIns: (e.walkIns as any[]) || [] });
+    if (hit.kind !== 'lookup' && hit.kind !== 'empty') { e.handlePosScan?.(code); return; }
+    const t = String(code).trim().toUpperCase().split(/[/=#]/).pop() || '';
+    const sterilisers: string[] = Array.isArray(e.selectedTenant?.ops?.sterilisers) && e.selectedTenant.ops.sterilisers.length ? e.selectedTenant.ops.sterilisers : ['Autoclave'];
+    if (/^[KL][A-Z0-9]{4}$/.test(t) || sterilisers.some((m) => machineCode(m) === t) || /(?:^|[/=#])S:[A-Za-z0-9_-]{3,}$/.test(String(code).trim()) || !!findKit(kits || [], code) || !!findBundle(bundles || [], code)) { scanner.openWith(code); return; }
+    e.handlePosScan?.(code);
+  }, !!e.handlePosScan);
   const delays = useDelays(todaysAppts, e.services || [], e.selectedTenant || tenant);
   const delayMargin = delaySettings(e.selectedTenant || tenant).marginMin;
   const pushedBack = (id: string) => { let m = 0; for (const d of delays) for (const k of d.next) if (k.id === id && k.lateMin > m) m = k.lateMin; return m >= delayMargin ? m : 0; };
@@ -768,10 +783,19 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       </Drawer>
       <TodaysSales open={salesOpen} onClose={() => setSalesOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} transactions={e.transactions || []} staff={e.staff || []} role={(e as any).role || null} />
       <LogCallSheet open={logCallOpen} onClose={() => setLogCallOpen(false)} tenantId={e.tenantId} tenant={e.selectedTenant} clients={e.clients || []} staff={e.staff || []} appointments={e.appointmentsFromInventory || []} uid={e.currentUser?.uid || null} />
-      <Drawer accent={accent} open={!!e.variantChoice} onClose={() => e.setVariantChoice?.(null)} title={`Which ${e.variantChoice?.parent?.name || 'one'}?`}>
+      <Drawer accent={accent} open={!!e.variantChoice} onClose={() => e.setVariantChoice?.(null)} title={e.variantChoice?.clash ? 'Which product is it?' : `Which ${e.variantChoice?.parent?.name || 'one'}?`}>
+        {e.variantChoice?.clash && <p className="mb-3 text-[14px]" style={{ color: 'var(--muted)' }}>This code is on more than one product. Choose which keeps it in Inventory, Codes and listings.</p>}
         <div className="grid grid-cols-2 gap-2">{(e.variantChoice?.variants || []).map((v: any) => <button key={v.id} type="button" onClick={() => { e.addProductChecked?.(v); e.setVariantChoice?.(null); }} className="rounded-2xl p-4 text-left" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
           <span className="block text-[15px] font-semibold">{v.name}</span><span className="block text-[14px] tabular-nums">${Number(v.msrp || v.costPerUnit || 0).toFixed(2)}</span>
           <span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{Math.max(0, (Number(v.totalStock) || 0) - (Number(v.stockReserved) || 0))} on the shelf</span></button>)}</div>
+      </Drawer>
+      <Drawer accent={accent} open={!!e.packChoice} onClose={() => e.setPackChoice?.(null)} title={e.packChoice ? `${e.packChoice.packKind === 'pallet' ? 'A pallet' : 'A case'} of ${e.packChoice.pack}` : ''}>
+        {e.packChoice && <div className="space-y-3">
+          <p className="text-[15px]"><b>{e.packChoice.item?.name}</b>. That’s the {e.packChoice.packKind === 'pallet' ? 'pallet’s' : 'case’s'} own code, so it counts as {e.packChoice.pack}.</p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => { const c = e.packChoice; e.setPackChoice?.(null); if (c) e.addProductChecked?.(c.item, c.pack); }} className="h-12 flex-1 rounded-full text-[15px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Add {e.packChoice.pack}</button>
+            <button type="button" onClick={() => { const c = e.packChoice; e.setPackChoice?.(null); if (c) e.addProductChecked?.(c.item, 1); }} className="h-12 flex-1 rounded-full text-[15px] font-semibold" style={{ background: 'var(--soft)' }}>Just one</button>
+          </div></div>}
       </Drawer>
       <Drawer accent={accent} open={pickupOpen} onClose={() => setPickupOpen(false)} title="Order pickup"><OrderPickup firestore={e.firestore} tenantId={e.tenantId} actor={{ id: getAuth().currentUser?.uid || 'desk', name: getAuth().currentUser?.displayName || 'Front desk' }} scanned={pickupScan}
         screen={clientScreen.connected ? { connected: true, name: clientScreen.name, ask: clientScreen.ask, response: clientScreen.response } : null} /></Drawer>

@@ -6,6 +6,7 @@
 // Life: ready → in use → dirty → being cleaned → ready. Anything can be pulled out ("out") with a reason; only a manager
 // puts it back into service or retires it.
 import { hasTag } from '@/lib/tags';
+import { codeBook, lookupCode } from '@/lib/code-lookup';
 export type KitStatus = 'ready' | 'in_use' | 'dirty' | 'cleaning' | 'out' | 'retired';
 export const KIT_LABEL: Record<KitStatus, string> = { ready: 'Clean & ready', in_use: 'In use', dirty: 'Needs cleaning', cleaning: 'Cleansing', out: 'Pulled out', retired: 'Retired' };
 export const KIT_NEXT: Partial<Record<KitStatus, { to: KitStatus; label: string }>> = {
@@ -85,11 +86,15 @@ export interface KitType { id: string; name: string; items: KitItem[]; cleanse?:
 export const kitKey = (name: any) => norm(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'kit';
 export const typeOf = (types: KitType[], name: any) => (types || []).find((t) => sameKitType(t.name, name)) || null;
 
-/** The inventory item a scanned or typed code means: its SKU or barcode, else its id, else an exact name. */
+/** The inventory item a scanned or typed code means: any code it carries, as every scanner reads it (lib/code-lookup,
+ *  tools' SKUs too: kits are made of them), else its id, else an exact name. */
 export function matchInventory(inventory: any[], scanned: string): any | null {
   const t = String(scanned || '').trim().toLowerCase(); if (!t) return null;
+  const found = lookupCode(codeBook(inventory || [], { equipment: true }), scanned, { variants: false });
+  if (found.kind === 'product') return found.item;
+  if (found.kind === 'clash') return found.items[0] || null;
   const eq = (v: any) => String(v ?? '').trim().toLowerCase() === t;
-  return (inventory || []).find((i) => eq(i?.sku) || eq(i?.barcode) || eq(i?.upc)) || (inventory || []).find((i) => hasTag(i, scanned)) || (inventory || []).find((i) => eq(i?.id)) || (inventory || []).find((i) => eq(i?.name)) || null;
+  return (inventory || []).find((i) => hasTag(i, scanned)) || (inventory || []).find((i) => eq(i?.id)) || (inventory || []).find((i) => eq(i?.name)) || null;
 }
 /** Add one of an item to a contents list (scanning the same thing again raises its quantity). */
 export function addKitItem(items: KitItem[], inv: any, qty = 1): KitItem[] {

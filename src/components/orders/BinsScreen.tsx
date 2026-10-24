@@ -10,15 +10,16 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { binOf, compareBins, normalizeBin } from '@/lib/bins';
-import { codesMatch, parseProductQr } from '@/lib/retail-orders';
+import { codeBook, lookupCode } from '@/lib/code-lookup';
 import { printShelfLabels, printToteTags } from '@/lib/shelf-labels-client';
 import { parseTote } from '@/lib/totes';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
 
+/** The product a scan is, by any code it carries (lib/code-lookup, as every scanner reads it): a listing itself, since
+ *  it's the shelf being labelled. A code two products share finds neither. */
 export function findProduct(items: any[], raw: string): any | null {
-  const v = raw.trim(); if (!v) return null;
-  const pid = parseProductQr(v);
-  return items.find((i) => (pid && i.id === pid) || i.id === v || codesMatch(i.barcode, v) || codesMatch(i.sku, v)) || null;
+  const found = lookupCode(codeBook(items), raw, { variants: false });
+  return found.kind === 'product' ? found.item : null;
 }
 
 export function BinsScreen() {
@@ -53,8 +54,10 @@ export function BinsScreen() {
   };
   const onScan = (raw: string) => {
     if (current) { void save(raw); return; }
-    const p = findProduct(products, raw);
-    if (p) { scanFeedback(true); pick(p); } else { scanFeedback(false); setMsg({ ok: false, text: 'No product has that code. Check its barcode or SKU on the product.' }); }
+    const found = lookupCode(codeBook(products), raw, { variants: false });
+    if (found.kind === 'product') { scanFeedback(true); pick(found.item); return; }
+    scanFeedback(false);
+    setMsg({ ok: false, text: found.kind === 'clash' ? `That code is on ${found.items.length} products. Choose which keeps it in Inventory, Codes and listings.` : 'No product has that code. Check its barcode or SKU on the product.' });
   };
   const print = (rows: { bin: string; name: string }[]) => { if (!rows.length) return; if (!printShelfLabels(rows)) setToast('Allow pop-ups to print labels.'); };
 

@@ -24,7 +24,8 @@ import { ACTIVE_STAGES, dueLine, firstName, itemCount, matchesSearch, methodLabe
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Empty, IconBtn, Initials, LargeTitle, ListRow, Seg, Sheet, UndoBar, feel, muted, Ic } from './ui';
 import { OrderWorkspace, type Layout, type WorkTab } from './workspace/OrderWorkspace';
-import { lineProductId, productMatch } from '@/lib/product-codes';
+import { lineProductId } from '@/lib/product-codes';
+import { codeBook, lookupCode } from '@/lib/code-lookup';
 import { ShipSheet } from './ShipSheet';
 import { HandoverSheet } from './HandoverSheet';
 import { PhoneShopBar, useWide, useWidest } from './shell';
@@ -456,8 +457,10 @@ export function OrdersApp() {
     const v = String(raw || '').trim();
     if (v.length < 3) return;
     const numOf = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
-    // The products this code belongs to today, so a code added after an order was placed still finds it.
-    const owners = new Set((inventory || []).filter((i: any) => productMatch(i, v)).map((i: any) => String(i.id)));
+    // The products this code belongs to today (lib/code-lookup), so a code added after an order was placed still finds
+    // it, and a listing's own code finds its variants.
+    const found = lookupCode(codeBook(inventory || []), v);
+    const owners = new Set<string>(found.kind === 'product' ? [String(found.item.id)] : found.kind === 'choose' ? found.variants.map((x: any) => String(x.id)) : found.kind === 'clash' ? found.items.map((x: any) => String(x.id)) : []);
     const matches = (l: any) => lineMatchesScan(l, v) || owners.has(lineProductId(l));
     const toPick = (l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && (l.qtyScanned || 0) < (l.qtyOrdered || 0);
     // With the second scan on, a unit picked at the shelf and not yet in the box is still wanted by its order.

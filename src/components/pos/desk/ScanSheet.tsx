@@ -83,9 +83,12 @@ export function ScanSheet({ open, onClose, tenantId, tenant, appts, services, st
     </div>, document.body);
 }
 
-/** Desk / wall / phone: a USB or Bluetooth scanner anywhere on the screen opens the scanner with that code. */
-export function useScanSheet() {
+/** Desk / wall / phone: a USB or Bluetooth scanner anywhere on the screen opens the scanner with that code. `listen`
+ *  false: a screen that hears scanners itself (the front desk) hands codes over with openWith instead, so one scan
+ *  never does two things. */
+export function useScanSheet(listen = true) {
   const [open, setOpen] = React.useState(false); const [pending, setPending] = React.useState<{ code: string; n: number } | null>(null); const n = React.useRef(0);
-  useWedge((code) => { n.current += 1; setPending({ code, n: n.current }); setOpen(true); }, !open);
-  return { open, pending, show: () => setOpen(true), hide: () => setOpen(false) };
+  const openWith = React.useCallback((code: string) => { n.current += 1; setPending({ code, n: n.current }); setOpen(true); }, []);
+  useWedge(openWith, listen && !open);
+  return { open, pending, show: () => setOpen(true), hide: () => setOpen(false), openWith };
 }

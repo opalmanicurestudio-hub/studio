@@ -19,9 +19,12 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
-  RETURN_REASONS, codesMatch, type OrderLine, type RetailOrder, type RetailReturn,
+  RETURN_REASONS, lineMatchesScan, type OrderLine, type RetailOrder, type RetailReturn,
   type ReturnReason, type ReturnResolution,
 } from '@/lib/retail-orders';
+import { codeBook, lookupCode, pickFor } from '@/lib/code-lookup';
+import { lineProductId } from '@/lib/product-codes';
+import { useInventory } from '@/context/InventoryContext';
 import {
   findReturnableOrder, openReturn, receiveReturnLine, resolveReturn,
   type Actor, type ReturnableOrder, type ReturnDoc, type ReturnSelection,
@@ -47,6 +50,7 @@ const REASON_LABELS: Record<ReturnReason, string> = {
 export default function RetailReturnsPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
+  const { inventory } = useInventory() as any;
   const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
   const { toast } = useToast();
@@ -151,14 +155,13 @@ export default function RetailReturnsPage() {
   const onReceiveScan = useCallback((value: string) => {
     if (!activeReturn || !parentOrder) return;
     const raw = value.trim();
-    const productId = raw.startsWith('clarityflow://product/') ? raw.split('/').pop() : null;
-    const match = activeReturn.lines.find((rl) => {
-      if (rl.disposition) return false;
-      const orig = parentOrder.lines.find((ol) => ol.lineId === rl.lineId);
-      if (!orig) return false;
-      if (productId) return orig.productId === productId;
-      return codesMatch(orig.barcode, raw) || codesMatch(orig.sku, raw);
-    });
+    const open = activeReturn.lines.filter((rl) => !rl.disposition)
+      .map((rl) => ({ rl, orig: parentOrder.lines.find((ol) => ol.lineId === rl.lineId) }))
+      .filter((x): x is { rl: (typeof activeReturn.lines)[number]; orig: OrderLine } => !!x.orig);
+    // The codes the line was sold with first, then the products' codes now (one added since, a listing's own code),
+    // as every scanner reads them (lib/code-lookup).
+    let match = open.find((x) => lineMatchesScan(x.orig, raw))?.rl;
+    if (!match) match = pickFor(lookupCode(codeBook(inventory || []), raw), open, (x) => lineProductId(x.orig)).pick?.rl;
     if (!match) {
       scanFeedback(false);
       toast({ variant: 'destructive', title: 'Not on this return', description: 'That code does not match an unverified line.' });
@@ -167,7 +170,7 @@ export default function RetailReturnsPage() {
     scanFeedback(true);
     setVerifiedLineId(match.lineId);
     toast({ title: `${match.name} verified`, description: 'Grade its condition to decide where it goes.' });
-  }, [activeReturn, parentOrder, toast]);
+  }, [activeReturn, parentOrder, inventory, toast]);
 
   const disposition = async (lineId: string, d: 'restock' | 'open_box' | 'quarantine' | 'damaged' | 'dispose') => {
     if (!firestore || !tenantId || !activeReturn || busy) return;

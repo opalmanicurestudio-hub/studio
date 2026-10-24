@@ -24,9 +24,8 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '../ui/scroll-area';
 import { type InventoryItem, type Order } from '@/lib/data';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
-import { codesMatch, parseProductQr } from '@/lib/retail-orders';
-import { scanUnitsFor, unitsPerPallet } from '@/lib/retail-orders';
-import { productMatch } from '@/lib/product-codes';
+import { unitsPerPallet } from '@/lib/retail-orders';
+import { codeBook, lookupCode, pickFor } from '@/lib/code-lookup';
 import { Truck, Sparkles, CheckCircle2, AlertTriangle, Calendar as CalendarIcon, PackageOpen, ArrowRight, Package, Check, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -64,15 +63,13 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
 
   const onReceiveScan = (value: string) => {
     const raw = value.trim();
-    const qrPid = parseProductQr(raw);
+    // The product the scan is: any code it carries, as every scanner reads it (lib/code-lookup). A listing's own code is
+    // its one variant on this delivery; a case's or pallet's code counts the whole case or pallet.
+    const found = lookupCode(codeBook(inventory as any[]), raw);
+    const pack = found.kind === 'product' ? found.pack : 1;
     setReceivedItems((prev) => {
-      const idx = prev.findIndex((ri) => {
-        if (qrPid) return ri.productId === qrPid;
-        if (ri.productId === raw || ri.productId.toLowerCase() === raw.toLowerCase()) return true;
-        const inv = inventory.find((i) => i.id === ri.productId) as any;
-        // Any of the product's codes, its case's or pallet's (lib/product-codes), or its name.
-        return (!!inv && !!productMatch(inv, raw, ri.productId)) || codesMatch(ri.productName, raw);
-      });
+      const picked = pickFor(found, prev, (ri) => ri.productId).pick;
+      const idx = picked ? prev.indexOf(picked) : prev.findIndex((ri) => ri.productId === raw || ri.productId.toLowerCase() === raw.toLowerCase());
       if (idx === -1) {
         scanFeedback(false);
         return prev;
@@ -80,9 +77,8 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
       scanFeedback(true);
       return prev.map((ri, i) => {
         if (i !== idx) return ri;
-        const inv = inventory.find((x) => x.id === ri.productId) as any;
         const remaining = Math.max(0, ri.quantityOrdered - ri.quantityReceived);
-        const step = scanUnitsFor(inv || {}, raw, remaining).units;
+        const step = pack > 1 ? (remaining > 0 ? Math.min(pack, remaining) : pack) : 1;
         return { ...ri, quantityReceived: ri.quantityReceived + step };
       });
     });

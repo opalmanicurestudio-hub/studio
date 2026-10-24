@@ -156,6 +156,14 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   r = await recordPackScan(web as any, 't1', 'o1', '00012345678912', actor);
   check('the pack check at the box finds the item by its current codes too', r.ok && r.lineId === 'A', r);
 
+  // A number written another way on the order (a spreadsheet dropped its leading zeros) still finds its line, when only
+  // one item on the order has that number; never a guess between two.
+  await fresh();
+  let near: any = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
+  check('packing: a number without the leading zeros its record has still finds the one line with it', near.kind === 'line' && near.hint.lineId === 'N', near);
+  near = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' }), line({ lineId: 'M', productId: 'n2', sku: '', barcode: '0555111' })] as any, '555111');
+  check('…two lines with that number: no guess', near.kind !== 'line', near);
+
   // ── The register uses the same codes ──
   const hit: any = identifyPosScan('00012345678912', { inventory: [{ ...gel, type: 'retail', msrp: 15 }], appointments: [], walkIns: [] });
   check('the register finds a product by its GTIN as packing does', hit.kind === 'product' && hit.item.id === 'gel', hit.kind);
@@ -167,8 +175,8 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   check('the product forms refuse a code another product already has', [add, src('src/components/inventory/EditProductDialog.tsx')].every((s) => /formClashes\(/.test(s) && /That code belongs to another product/.test(s)));
   const pack = src('src/components/orders/workspace/PackPane.tsx');
   check('the packing screen names what was scanned from the answer, and offers to add a new code to an item', /setUndo\(\{ text: `\$\{r\.name \|\| 'Item'\} /.test(pack) && /learnCode\(fs, tenantId, lineProductId\(l\), learn\)/.test(pack) && /Which item has the code/.test(pack));
-  check('receiving, scan routing and waves read the same codes', /productMatch\(/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /productMatch\(/.test(src('src/components/inventory/ReceiveStockDialog.tsx'))
-    && /unitCodes\(i\)/.test(src('src/lib/scan-route.ts')) && /unitCodes\(i\)/.test(src('src/app/(app)/retail-orders/waves/page.tsx')));
+  check('receiving, scan routing and waves read the same codes (the one lookup, lib/code-lookup)', /lookupCode\(codeBook\(/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /lookupCode\(codeBook\(/.test(src('src/components/inventory/ReceiveStockDialog.tsx'))
+    && /lookupCode\(codeBook\(/.test(src('src/lib/scan-route.ts')) && /codeBook\(inventory \|\| \[\]\)/.test(src('src/app/(app)/retail-orders/waves/page.tsx')));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

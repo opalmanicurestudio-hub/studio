@@ -99,6 +99,9 @@ import { collection, doc, setDoc, writeBatch } from 'firebase/firestore';
 
 import { reasonLabel, recordManualException } from '@/lib/inventory-exceptions';
 import { addProduct, saveProduct } from '@/lib/codes-client';
+import { codeBook, lookupCode, variantsIn } from '@/lib/code-lookup';
+import { codeForm, codesOf } from '@/lib/code-form';
+import { ScanGate } from '@/components/retail/ScanGate';
 import { reindexCodes } from '@/lib/codes-api';
 import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
@@ -114,7 +117,6 @@ import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/Re
 import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
 import { buildEntry } from '@/lib/stock-ledger';
 import { useTenant } from '@/context/TenantContext';
-import { Html5Qrcode } from 'html5-qrcode';
 import { ProductCard } from '@/components/inventory/ProductCard';
 import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -893,7 +895,7 @@ export default function InventoryPage() {
         });
         // Back from the archive, a product holds its codes again; one another product took meanwhile is listed as
         // shared on the codes check (lib/code-index).
-        void batch.commit().then(() => reindexCodes(tenantId, ids));
+        void batch.commit().then(async () => { for (let i = 0; i < ids.length; i += 100) await reindexCodes(tenantId, ids.slice(i, i + 100)); });
         toast({ title: `${selectedItems.size} item(s) have been restored.` });
         setSelectedItems(new Set());
     }, [selectedItems, firestore, tenantId, toast]);
@@ -1409,7 +1411,10 @@ export default function InventoryPage() {
     
     if (searchTerm) {
         const lowercasedSearchTerm = searchTerm.toLowerCase();
+        // A code typed or scanned into the search finds its product in any form (lib/code-form).
+        const asCode = codeForm(searchTerm);
         items = items.filter(item => 
+            (!!asCode && codesOf({ ...item, type: 'retail' }).some((c) => c.code === asCode)) ||
             item.name.toLowerCase().includes(lowercasedSearchTerm) ||
             item.id.toLowerCase().includes(lowercasedSearchTerm) ||
             String((item as any).sku || '').toLowerCase().includes(lowercasedSearchTerm) ||
@@ -1460,55 +1465,26 @@ export default function InventoryPage() {
   };
 
 
+  // The scan button: any code a product carries, as every scanner reads it (lib/code-lookup), or its label.
   const handleScan = useCallback((data: string) => {
-    if (data.startsWith('clarityflow://product/')) {
-        const productId = data.split('/').pop();
-        if (productId) {
-            setSearchTerm(productId);
-            toast({
-                title: "Product Found",
-                description: `Displaying results for scanned product.`,
-            });
-        }
-    } else {
-        toast({
-            variant: 'destructive',
-            title: 'Invalid QR Code',
-            description: 'Please scan a valid ClarityFlow product QR code.',
-        });
+    const book = codeBook(inventory || [], { equipment: true });
+    const found = lookupCode(book, data, { variants: false });
+    setIsScannerOpen(false);
+    if (found.kind === 'none') {
+      toast({ variant: 'destructive', title: 'No product has this code', description: 'Open the product and add it (Barcode), so it scans everywhere.' });
+      return;
     }
-  }, [toast]);
-  
-  useEffect(() => {
-    let html5QrCode: Html5Qrcode | undefined;
-    if (isScannerOpen) {
-      const timer = setTimeout(() => {
-        const element = document.getElementById('qr-reader-inventory');
-        if (element) {
-          html5QrCode = new Html5Qrcode('qr-reader-inventory');
-          const onScanSuccess = (decodedText: string) => {
-            if (html5QrCode?.isScanning) {
-              html5QrCode.stop().catch(console.error);
-            }
-            handleScan(decodedText);
-            setIsScannerOpen(false);
-          };
-          const onScanFailure = () => { /* ignore */ };
-          html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
-            .catch(err => {
-              toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start the camera. Please check permissions and try again.' });
-              setIsScannerOpen(false);
-            });
-        }
-      }, 300);
-      return () => {
-          clearTimeout(timer);
-          if (html5QrCode && html5QrCode.isScanning) {
-            html5QrCode.stop().catch(err => console.error("Failed to stop QR Code scanner.", err));
-          }
-      };
+    setActiveFilter('all'); setAttentionFilter(null); setShowArchived(false);
+    if (found.kind === 'product') {
+      // A listing's own code: the listing, and which variants it has.
+      const vs = variantsIn(book, found.item);
+      setSearchTerm(String(found.item.id));
+      toast({ title: 'Product found', description: vs.length ? `${found.item.name}, which comes in ${vs.length} variants: ${vs.slice(0, 4).map((v: any) => v.name).join(', ')}${vs.length > 4 ? ' and more' : ''}.` : `Showing ${found.item.name}.` });
+      return;
     }
-  }, [isScannerOpen, handleScan, toast]);
+    setSearchTerm(String(data).trim());
+    toast({ variant: 'destructive', title: `That code is on ${found.kind === 'clash' ? found.items.length : 2} products`, description: 'They’re shown below. Choose which keeps it in Inventory, Codes and listings.' });
+  }, [inventory, toast]);
   
   const hasInventory = inventory && inventory.length > 0;
   const hasFilteredInventory = filteredInventory.length > 0;
@@ -1873,11 +1849,8 @@ export default function InventoryPage() {
               Position the product's barcode or QR code inside the frame.
             </DialogDescription>
           </DialogHeader>
-          <div className="p-4 relative">
-             <div id="qr-reader-inventory" className="w-full rounded-md bg-muted" />
-             <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
-            </div>
+          <div className="p-4">
+            {isScannerOpen && <ScanGate cameraFirst label="Point at a barcode or QR code" onScan={handleScan} />}
           </div>
            <DialogFooter className="p-4 pt-0">
                 <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>

@@ -120,6 +120,8 @@ export function ScanGate({
           Html5QrcodeSupportedFormats.EAN_8,
           Html5QrcodeSupportedFormats.UPC_A,
           Html5QrcodeSupportedFormats.UPC_E,
+          // A case's carton code (ITF-14), which counts a whole case.
+          Html5QrcodeSupportedFormats.ITF,
         ],
         verbose: false,
       } as any);

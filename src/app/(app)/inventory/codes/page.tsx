@@ -30,6 +30,9 @@ const TILES: { id: Tile; title: string; sub: string; shopOnly: boolean }[] = [
   { id: 'variantsListed', title: 'Variants listed on their own', sub: 'They show next to their own listing', shopOnly: true },
 ];
 const productHref = (id: string) => `/inventory/product/${encodeURIComponent(id)}`;
+// The places that scan, all asking the one lookup (lib/code-lookup): any code finds its product, a case's code counts
+// the case, and a listing's own code asks which variant (or picks the one that's on the order or delivery).
+const SCANNERS = ['Desk and counter', 'Packing bench', 'Picking', 'Returns', 'Receiving stock', 'Inventory', 'Staff app'];
 
 export default function CodesCheckPage() {
   const { selectedTenant } = useTenant() as any;
@@ -169,7 +172,18 @@ export default function CodesCheckPage() {
                 <div className="mt-1">{busy && !data ? <p className="m-0 py-10 text-center text-[15px]" style={muted}>Checking every product…</p> : list()}</div>
               </section>
               <aside className="min-w-0 flex-[1_1_320px] rounded-[18px] border p-4" style={{ borderColor: C.line }}>
-                <p className="m-0 text-[13px] font-semibold" style={muted}>How codes work</p>
+                <p className="m-0 text-[13px] font-semibold" style={muted}>Every scanner</p>
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full border-collapse text-[13.5px]">
+                    <thead><tr>{['Where', 'Product', 'Case', 'Asks which variant'].map((h) => <th key={h} className="whitespace-nowrap border-b px-2.5 py-2 text-left text-[12.5px] font-semibold" style={{ borderColor: C.line, color: C.muted }}>{h}</th>)}</tr></thead>
+                    <tbody>{SCANNERS.map((w, i) => (
+                      <tr key={w}>
+                        <td className="whitespace-nowrap px-2.5 py-2 font-semibold" style={{ borderBottom: i < SCANNERS.length - 1 ? `1px solid ${C.line}` : 0 }}>{w}</td>
+                        {[0, 1, 2].map((k) => <td key={k} className="whitespace-nowrap px-2.5 py-2 font-semibold" style={{ color: C.ok, borderBottom: i < SCANNERS.length - 1 ? `1px solid ${C.line}` : 0 }}>Yes</td>)}
+                      </tr>))}</tbody>
+                  </table>
+                </div>
+                <p className="m-0 mt-4 text-[13px] font-semibold" style={muted}>How codes work</p>
                 <p className="m-0 mt-2 text-[14px] leading-relaxed">Every code is kept once, in one form, on one product or variant: your SKU, the barcode on the product, a case’s or pallet’s code, and tags. A code that’s already taken is refused wherever it’s typed, scanned in or imported, and you’re shown the product it’s on.</p>
                 {data && <p className="m-0 mt-3 text-[12.5px]" style={muted}>{data.codes} {data.codes === 1 ? 'code' : 'codes'} on {data.products} {data.products === 1 ? 'item' : 'items'}.</p>}
               </aside>

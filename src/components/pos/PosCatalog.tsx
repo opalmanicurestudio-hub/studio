@@ -1,6 +1,6 @@
 'use client';
 // src/components/pos/PosCatalog.tsx — WHAT YOU CAN SELL AT THE DESK, at a glance (Counter, and "Add to this sale" in checkout).
-// Photo tiles with price and on-shelf stock, sizes / shades shown inline, members-only and "already in this sale" badges,
+// Photo tiles with price and on-shelf stock, variants shown inline, members-only and "already in this sale" badges,
 // search that also takes a scanned code (Enter adds it), departments for the tools you use, and category chips.
 import * as React from 'react';
 import { hasStockVariants } from '@/lib/retail-orders';
@@ -38,7 +38,10 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }} data-scan-field
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key !== 'Enter') return;
+            // A handheld scanner typing here was already heard by the desk's scanner listener (it stops the Enter), so
+            // the scan isn't added a second time.
+            const heard = e.nativeEvent.defaultPrevented; e.preventDefault(); if (heard) { setQ(''); return; } submit(); }} data-scan-field
           placeholder={dept === 'products' ? 'Search, or scan a barcode' : 'Search'} aria-label="Search, or scan a barcode" inputMode="search" enterKeyHint="search"
           className="h-11 min-w-0 flex-1 rounded-xl px-3.5 text-[16px] outline-none" style={{ background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)' }} />
       </div>

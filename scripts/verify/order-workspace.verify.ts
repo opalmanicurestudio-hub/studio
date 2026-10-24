@@ -57,7 +57,7 @@ check('an item scanned on the orders screen counts into your order that needs it
   /if \(!t\) \{[\s\S]{0,700}?await itemScan\(v\); return;\s*\}/.test(app) && /claim = startPacking\(fs, tenantId, waiting, actor\)/.test(app) && /if \(await claim\) await count\(waiting, true\)/.test(app));
 check('…the count is the scan at the box, and the order opens on its Pack tab', /const r = await scanInto\(fs, tenantId, o\.id, v, actor, rs\)/.test(app) && /openOn\(o\.id, 'pack'\)/.test(app));
 check('…your own order still waiting for its box check is found first (a scan never claims another order instead)', /const mineOpen = orders\.find\(\(o\) => o\.stage === 'picking' && o\.claimedBy === actor\.id && wantsHere\(o\)\)/.test(app) && /const toBox = \(l: any\) => rs\?\.requirePackScan === true/.test(app));
-check('…a code added to a product after the order was placed still finds the order', /owners\.has\(lineProductId\(l\)\)/.test(app) && /productMatch\(i, v\)/.test(app));
+check('…a code added to a product after the order was placed still finds the order (and a listing’s own code its variants)', /owners\.has\(lineProductId\(l\)\)/.test(app) && /const found = lookupCode\(codeBook\(inventory \|\| \[\]\), v\);/.test(app));
 check('…someone else’s order is named, not taken', /which \$\{theirs\.claimedByName/.test(app));
 check('…a tote tag, an order slip or a label that matches nothing is named for what it is, and a product’s own QR code still counts as an item',
   /if \(tote\) \{ feel\(false\); setToast\(`Tote \$\{tote\} is empty\.`\)/.test(app) && /clarityflow:\\\/\\\/order\\\//.test(app) && !/clarityflow:\\\/\\\/\/i\.test/.test(app) && /if \(looksLikeTracking\(v\)\)/.test(app));

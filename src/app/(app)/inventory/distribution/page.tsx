@@ -20,7 +20,7 @@ import {
   allocationList, distribute, holderKey, itemAllocations, markUsed, parDeficits,
   poolQty, returnToStock, setPar, type Actor, type Holder,
 } from '@/lib/inventory-allocation';
-import { codesMatch, parseProductQr } from '@/lib/retail-orders';
+import { codeBook, lookupCode } from '@/lib/code-lookup';
 import { cn } from '@/lib/utils';
 
 // ─── Distribution ─────────────────────────────────────────────────────────────
@@ -92,19 +92,16 @@ export default function DistributionPage() {
   const onScan = (value: string) => {
     if (!firestore || !tenantId || !holder) return;
     const raw = value.trim();
-    const pid = parseProductQr(raw);
-    const item = trackable.find((i: any) =>
-      pid ? i.id === pid
-        : i.id === raw || String(i.id).toLowerCase() === raw.toLowerCase() ||
-          codesMatch(String(i.barcode || ''), raw) || codesMatch(String(i.sku || ''), raw)
-    );
-    if (!item) {
+    // Any code the item carries, as every scanner reads it (lib/code-lookup); a case's code moves the whole case.
+    const found = lookupCode(codeBook(trackable), raw, { variants: false });
+    if (found.kind !== 'product') {
       scanFeedback(false);
-      toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: 'No item matches this code.' });
+      toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: found.kind === 'clash' ? `That code is on ${found.items.length} products. Choose which keeps it in Inventory, Codes and listings.` : 'No item matches this code.' });
       return;
     }
+    const item = found.item;
     scanFeedback(true);
-    run(`scan-${item.id}`, () => distribute(firestore as Firestore, tenantId, item.id, holder, 1, actor));
+    run(`scan-${item.id}`, () => distribute(firestore as Firestore, tenantId, item.id, holder, found.pack, actor));
   };
 
   const restockToPar = async () => {

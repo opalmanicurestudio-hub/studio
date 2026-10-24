@@ -15,8 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { codesMatch, parseProductQr } from '@/lib/retail-orders';
-import { productMatch } from '@/lib/product-codes';
+import { codeBook, lookupCode, packWords } from '@/lib/code-lookup';
 import { cn } from '@/lib/utils';
 
 // ─── QuickReceiveDialog v2 ────────────────────────────────────────────────────
@@ -67,29 +66,29 @@ export function QuickReceiveDialog({
 
   const qtyFor = (id: string) => lines.find((l) => l.productId === id)?.qty || 0;
 
-  const addItem = (item: any, viaScan: boolean) => {
+  const addItem = (item: any, viaScan: boolean, qty = 1) => {
+    const n = Math.max(1, Math.round(Number(qty) || 1));
     setLines((prev) => {
       const idx = prev.findIndex((l) => l.productId === item.id);
-      if (idx >= 0) return prev.map((l, i) => (i === idx ? { ...l, qty: l.qty + 1 } : l));
-      return [...prev, { productId: item.id, name: String(item.name || 'Item'), qty: 1, unitCost: '' }];
+      if (idx >= 0) return prev.map((l, i) => (i === idx ? { ...l, qty: l.qty + n } : l));
+      return [...prev, { productId: item.id, name: String(item.name || 'Item'), qty: n, unitCost: '' }];
     });
     if (viaScan) scanFeedback(true);
   };
 
   const onScan = (value: string) => {
     const raw = value.trim();
-    const pid = parseProductQr(raw);
-    // Any of the product's codes (lib/product-codes), as the register and packing scan them, or its name.
-    const item = items.find((i: any) =>
-      pid ? i.id === pid
-        : !!productMatch(i, raw) || codesMatch(String(i.name || ''), raw)
-    );
-    if (!item) {
-      scanFeedback(false);
-      toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: 'No product has this code yet. Close the scanner and tap the item in the list, then add the code to it (edit the product, Barcode) so it scans next time.' });
+    // Any code the product carries, as every scanner reads it (lib/code-lookup); a case's code counts the whole case.
+    const found = lookupCode(codeBook(items, { equipment: true }), raw);
+    if (found.kind === 'product') {
+      addItem(found.item, true, found.pack);
+      if (found.pack > 1) toast({ title: `${found.item.name}: ${packWords(found)}`, description: `Counted ${found.pack}. Change the number in the list if the case wasn’t full.` });
       return;
     }
-    addItem(item, true);
+    scanFeedback(false);
+    if (found.kind === 'choose') { toast({ variant: 'destructive', title: `That’s ${found.listing.name}’s own code`, description: `Tap the variant you received in the list: ${found.variants.map((v: any) => v.name).slice(0, 4).join(', ')}.` }); return; }
+    if (found.kind === 'clash') { toast({ variant: 'destructive', title: `That code is on ${found.items.length} products`, description: 'Tap the right one in the list. Choose which keeps the code in Inventory, Codes and listings.' }); return; }
+    toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: 'No product has this code yet. Close the scanner and tap the item in the list, then add the code to it (edit the product, Barcode) so it scans next time.' });
   };
 
   const close = (v: boolean) => {

@@ -221,7 +221,7 @@ export const EditEquipmentDialog = ({
       supplierUrl:       equipment?.supplierUrl || '',
       primaryLocationId: equipment?.primaryLocationId || '',
       imageUrl:          equipment?.imageUrl || '',
-      sku:               equipment?.sku || '',
+      sku:               equipment?.sku == null ? '' : String(equipment?.sku),
     },
   });
   const { handleSubmit, reset, trigger } = methods;
@@ -240,7 +240,7 @@ export const EditEquipmentDialog = ({
         supplierUrl:       equipment.supplierUrl || '',
         primaryLocationId: equipment.primaryLocationId || '',
         imageUrl:          equipment.imageUrl || '',
-        sku:               equipment.sku || '',
+        sku:               equipment.sku == null ? '' : String(equipment.sku),
       });
       setStep(1);
     }

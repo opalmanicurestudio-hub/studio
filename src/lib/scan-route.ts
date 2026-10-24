@@ -1,11 +1,11 @@
 // src/lib/scan-route.ts — ONE SCANNER FOR EVERYTHING. Any code scanned (camera, USB / Bluetooth scanner, NFC tap) is
 // recognised and sent to the right place: a kit (K…), a linen bundle (L…), a steriliser's machine label (M…), a station
-// label (S:<id>), or a product in inventory. A tag paired to a kit or bundle (RFID / NFC) is found by its tag too.
+// label (S:<id>), or a product in inventory (lib/code-lookup). A tag paired to a kit or bundle (RFID / NFC) is found
+// by its tag too.
 // After a machine label, kits scanned within a few minutes go into that steriliser load instead of their usual next step.
 import { findKit, type Kit } from '@/lib/kits';
 import { findBundle, type LinenBundle } from '@/lib/linens';
-import { unitCodes } from '@/lib/product-codes';
-import { codesMatch } from '@/lib/retail-orders';
+import { codeBook, lookupCode } from '@/lib/code-lookup';
 
 export type ScanTarget = 'kit' | 'bundle' | 'machine' | 'station' | 'product' | 'unknown';
 export interface ScanRoute { target: ScanTarget; code: string; id: string | null; label: string }
@@ -23,8 +23,10 @@ export function routeScan(raw: string, d: { kits?: Kit[]; bundles?: LinenBundle[
   const m = (d.machines || []).find((x) => machineCode(x) === t); if (m) return { target: 'machine', code, id: m, label: m };
   const k = findKit(d.kits || [], code); if (k) return { target: 'kit', code, id: k.id, label: `${k.name} ${k.code}` };
   const b = findBundle(d.bundles || [], code); if (b) return { target: 'bundle', code, id: b.id, label: `${b.name} ${b.code}` };
-  const p = (d.inventory || []).find((i: any) => unitCodes(i).some((x) => codesMatch(x, code)));
-  if (p) return { target: 'product', code, id: p.id, label: String(p.name || 'Product') };
+  // A product: any code it carries, in the one lookup every scanner uses (a listing itself, not which variant).
+  const found = lookupCode(codeBook(d.inventory || [], { equipment: true }), code, { variants: false });
+  if (found.kind === 'product') return { target: 'product', code, id: String(found.item.id), label: String(found.item.name || 'Product') };
+  if (found.kind === 'clash') return { target: 'unknown', code, id: null, label: `This code is on ${found.items.length} products. Choose which keeps it in Inventory, Codes and listings` };
   return { target: 'unknown', code, id: null, label: /^K[A-Z0-9]{4}$/.test(t) ? 'No kit with that code' : /^L[A-Z0-9]{4}$/.test(t) ? 'No bundle with that code' : 'Not recognised' };
 }
 
