@@ -30,7 +30,7 @@ export function variantsOf(parent: any, inventory: any[]) {
 }
 
 /** The desk's products, ready to look up (lib/code-lookup): what it can sell, knowing every other item's codes too. */
-export const deskBook = (inventory: any[]): CodeBook => codeBook(inventory || [], { only: isSellable });
+export const deskBook = (inventory: any[]): CodeBook => codeBook(inventory || [], { equipment: true, only: isSellable });
 
 export function identifyPosScan(raw: string, ctx: { inventory: any[]; appointments: any[]; walkIns: any[]; book?: CodeBook }): ScanHit {
   const t = String(raw ?? '').trim().replace(/^['"\s]+|['"\s]+$/g, '');

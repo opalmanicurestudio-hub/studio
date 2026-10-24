@@ -343,7 +343,7 @@ export function matchWaveItem(
 
 /** The row a scan is for, with how many units it's worth, or the sentence that asks which when it could be two of the
  *  list's rows (a listing's own code with two of its variants on the list, a code two products share). */
-function waveItem(rows: PickRow[], value: string, book: CodeBook): { row: (PickRow & { units: number }) | null; ask: string } {
+export function waveItem(rows: PickRow[], value: string, book: CodeBook): { row: (PickRow & { units: number }) | null; ask: string } {
   const raw = String(value || '').trim();
   if (!raw) return { row: null, ask: '' };
   const found = lookupCode(book, raw);

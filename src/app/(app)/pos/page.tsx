@@ -193,7 +193,11 @@ function POSPage() {
 
       <Drawer open={isCameraScanOpen && (scanMode === 'retail' || scanMode === 'checkout')} onClose={() => setIsCameraScanOpen(false)} title="Scan">
         {isCameraScanOpen && (scanMode === 'retail' || scanMode === 'checkout') && (
-          <ScanGate cameraFirst label="Point at a barcode or QR code" onScan={(raw) => { setIsCameraScanOpen(false); (__engine as any).handlePosScan(raw); }} />
+          <ScanGate cameraFirst label="Point at a barcode or QR code" onScan={(raw) => { setIsCameraScanOpen(false);
+            // The desk routes it (a product or ticket to the sale, a kit's or bundle's label to the kit scanner); with no
+            // desk on screen, it's a product or a ticket.
+            const ev = new CustomEvent('cf:desk-scan', { detail: { code: raw }, cancelable: true });
+            if (window.dispatchEvent(ev)) (__engine as any).handlePosScan(raw); }} />
         )}
       </Drawer>
       {isCameraScanOpen && scanMode !== 'retail' && scanMode !== 'checkout' && (

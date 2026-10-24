@@ -261,14 +261,22 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   // A USB or Bluetooth scanner at the desk does one thing per scan: a product, an online order or one of today's
   // tickets goes to the desk; a kit's, bundle's, steriliser's or station's code opens the scanner sheet; anything else
   // is looked up as a ticket.
-  useBarcodeScanner((code) => {
+  const routeScan = (code: string) => {
     const hit = identifyPosScan(code, { inventory: e.inventory || [], appointments: e.appointmentsFromInventory || [], walkIns: (e.walkIns as any[]) || [] });
     if (hit.kind !== 'lookup' && hit.kind !== 'empty' && hit.kind !== 'unsold') { e.handlePosScan?.(code); return; }
     const t = String(code).trim().toUpperCase().split(/[/=#]/).pop() || '';
     const sterilisers: string[] = Array.isArray(e.selectedTenant?.ops?.sterilisers) && e.selectedTenant.ops.sterilisers.length ? e.selectedTenant.ops.sterilisers : ['Autoclave'];
     if (/^[KL][A-Z0-9]{4}$/.test(t) || sterilisers.some((m) => machineCode(m) === t) || /(?:^|[/=#])S:[A-Za-z0-9_-]{3,}$/.test(String(code).trim()) || !!findKit(kits || [], code) || !!findBundle(bundles || [], code)) { scanner.openWith(code); return; }
     e.handlePosScan?.(code);
-  }, !!e.handlePosScan);
+  };
+  useBarcodeScanner(routeScan, !!e.handlePosScan);
+  // The desk's camera (the Scan drawer) routes a scan the same way, so a kit's label opens the kit scanner there too.
+  const routeRef = useRef(routeScan); routeRef.current = routeScan;
+  useEffect(() => {
+    const on = (ev: Event) => { const code = String((ev as CustomEvent).detail?.code || ''); if (!code) return; ev.preventDefault(); routeRef.current(code); };
+    window.addEventListener('cf:desk-scan', on);
+    return () => window.removeEventListener('cf:desk-scan', on);
+  }, []);
   const delays = useDelays(todaysAppts, e.services || [], e.selectedTenant || tenant);
   const delayMargin = delaySettings(e.selectedTenant || tenant).marginMin;
   const pushedBack = (id: string) => { let m = 0; for (const d of delays) for (const k of d.next) if (k.id === id && k.lateMin > m) m = k.lateMin; return m >= delayMargin ? m : 0; };

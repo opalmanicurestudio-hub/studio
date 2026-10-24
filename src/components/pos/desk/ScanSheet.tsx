@@ -90,6 +90,6 @@ export function ScanSheet({ open, onClose, tenantId, tenant, appts, services, st
 export function useScanSheet(listen = true) {
   const [open, setOpen] = React.useState(false); const [pending, setPending] = React.useState<{ code: string; n: number } | null>(null); const n = React.useRef(0);
   const openWith = React.useCallback((code: string) => { n.current += 1; setPending({ code, n: n.current }); setOpen(true); }, []);
-  useWedge(openWith, listen && !open);
+  useWedge(openWith, listen && !open, 'background');
   return { open, pending, show: () => setOpen(true), hide: () => setOpen(false), openWith };
 }

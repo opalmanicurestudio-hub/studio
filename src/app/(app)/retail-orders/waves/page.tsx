@@ -17,7 +17,7 @@ import { useToast } from '@/hooks/use-toast';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import {
-  buildWave, claimTote, dealTotes, eligibleForWave, matchWaveItem, packQueue, parseToteScan, pickList, markRowPicked, recordWavePut, saveToteDeal, setWaveStatus, suggestTote, toteResiduals, unitsByTote, wavePut,
+  buildWave, claimTote, dealTotes, eligibleForWave, packQueue, parseToteScan, pickList, markRowPicked, recordWavePut, saveToteDeal, setWaveStatus, suggestTote, toteResiduals, unitsByTote, waveItem, wavePut,
   waveCol, waveSummary, type Wave,
 } from '@/lib/waves';
 import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
@@ -325,17 +325,18 @@ export default function WavesPage() {
 
     if (activeTote !== null) { commitPut(activeTote, value); return; }
 
-    const matched = matchWaveItem(rows, value, codesFor);
+    // With two of the list's rows it could be (a listing's own code, two of its variants on the list), it asks which.
+    const { row: matched, ask } = waveItem(rows, value, codesFor);
     const suggested = matched ? suggestTote(rows, active.scannedByTote || {}, matched.productId) : null;
     if (!matched || suggested === null) {
       scanFeedback(false);
       setLastDrop(null);
       toast({
         variant: 'destructive',
-        title: matched ? 'Already picked' : 'Wrong item',
-        description: matched
+        title: ask ? 'Which one is it?' : matched ? 'Already picked' : 'Wrong item',
+        description: ask || (matched
           ? `${matched.name} is fully picked — put the extra back.`
-          : 'Not on this pick list — put it back.',
+          : 'Not on this pick list — put it back.'),
       });
       return;
     }

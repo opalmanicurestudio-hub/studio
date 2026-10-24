@@ -63,6 +63,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   const [scanOpen, setScanOpen] = useState(false);
 
   const [scanNote, setScanNote] = useState('');
+  const scannedLines = React.useRef(new Set<string>());
   // Every item's codes, tools and supplies included: a delivery can hold anything in inventory.
   const book = React.useMemo(() => codeBook(inventory as any[], { equipment: true }), [inventory]);
   const onReceiveScan = (value: string) => {
@@ -85,15 +86,21 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
       return;
     }
     scanFeedback(true); setScanNote('');
+    // Each line starts at what was ordered, for a delivery that came complete; scanning a line counts it from zero
+    // instead (scanning all 6 of a 6-unit line is 6, not 12).
+    const firstScan = !scannedLines.current.has(hit.productId); scannedLines.current.add(hit.productId);
     setReceivedItems((prev) => prev.map((ri) => {
       if (ri.productId !== hit.productId) return ri;
-      const remaining = Math.max(0, ri.quantityOrdered - ri.quantityReceived);
+      const have = firstScan ? 0 : ri.quantityReceived;
+      const remaining = Math.max(0, ri.quantityOrdered - have);
       const step = pack > 1 ? (remaining > 0 ? Math.min(pack, remaining) : pack) : 1;
-      return { ...ri, quantityReceived: ri.quantityReceived + step };
+      return { ...ri, quantityReceived: have + step };
     }));
   };
 
+
   useEffect(() => {
+    scannedLines.current = new Set();
     if (order) {
       setReceivedItems(order.items.map(item => ({
         productId: item.productId,

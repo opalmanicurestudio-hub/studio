@@ -94,7 +94,8 @@ export async function resolveOrderScan(fs: Firestore, tenantId: string, lines: O
     if (near.length === 1) { const l = lineFor(near[0]); if (l) return { kind: 'line', hint: { lineId: l.lineId, identity: identityOf(items.get(near[0])) }, via: 'product' }; }
   }
 
-  for (const p of scanned) {
+  // Live products first; an archived one is still the product its old labels name (an import's duplicate, say).
+  for (const p of [...scanned, ...owners.filter((o) => o.status === 'archived')]) {
     // A listing's code (the name on the shelf), with the order holding one of its variants.
     const variants = variantIdsOf(p);
     if (variants.length) {

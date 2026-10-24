@@ -527,7 +527,7 @@ export function OrdersApp() {
     }
     inFront.current = { orderId: t.order.id, at: Date.now() };
     feel(true); setOpenId(t.order.id); setToast(t.kind === 'tote' ? `Tote ${t.tote}: ${numOf(t.order)}` : `${numOf(t.order)} is open`);
-  });
+  }, true, { layer: 'background' });
 
   const panel = open && (
     <OrderWorkspace key={open.id} fs={fs} tenantId={tenantId} order={open} all={orders} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor}

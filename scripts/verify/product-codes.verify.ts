@@ -130,6 +130,9 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   await db.doc(`${T}/inventory/gel-copy`).set({ id: 'gel-copy', name: 'Gel polish', sku: 'GEL-01' });
   res = await resolveOrderScan(web as any, 't1', [line()] as any, 'clarityflow://product/gel-copy');
   check('a label printed from a duplicate of the product (same SKU) counts the order’s item', res.kind === 'line' && res.hint.lineId === 'A' && res.via === 'duplicate', res);
+  await db.doc(`${T}/inventory/gel-copy`).set({ id: 'gel-copy', name: 'Gel polish', sku: 'GEL-01', status: 'archived' });
+  res = await resolveOrderScan(web as any, 't1', [line()] as any, 'clarityflow://product/gel-copy');
+  check('…an archived duplicate’s label too (its units still carry it)', res.kind === 'line' && res.hint.lineId === 'A' && res.via === 'duplicate', res);
 
   // Not on the order.
   await db.doc(`${T}/inventory/top`).set({ id: 'top', name: 'Top coat', sku: 'TOP-1' });
