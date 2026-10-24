@@ -5,6 +5,8 @@ import { sanitizeTheme, themeToCss } from '@/lib/shop-theme';
 import { seoDescription } from '@/lib/shop-seo';
 import { jsonLd } from '@/lib/json-ld';
 import { seoOrigin, shopFactsOf, shopJsonLd, type ShopFacts } from '@/lib/shop-discovery';
+import { brandOf, type ShopBrand } from '@/lib/shop-site';
+import { ShopFooter, ShopSiteProvider, type ShopSite } from '@/components/shop/ShopChrome';
 
 // ─── /shop/[tenantId]/layout.tsx ──────────────────────────────────────────────
 // Every customer-facing page sits inside this, so a shop's brand is applied
@@ -39,7 +41,7 @@ async function loadShop(tenantId: string) {
   try {
     const db = getAdminDb();
     const snap = await db.collection('tenants').doc(tenantId).get();
-    if (!snap.exists) return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null) };
+    if (!snap.exists) return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null), brand: brandOf(null), announcement: '', address: '' };
     const data = snap.data() as any;
     const rs = data?.retailSettings || {};
     // The footer needs the shop's name and this read already has it — one
@@ -53,10 +55,13 @@ async function loadShop(tenantId: string) {
       facts: shopFactsOf(tenantId, data),
       // The shop's own domain when it has one, the same address customers' links use.
       origin: seoOrigin(data),
+      brand: brandOf(data) as ShopBrand,
+      announcement: String(rs.shopAnnouncement || '').trim().slice(0, 300),
+      address: data?.address && typeof data.address === 'object' ? [data.address.street || data.address.line1, data.address.city, data.address.state || data.address.region].filter(Boolean).join(', ') : '',
     };
   } catch {
     // A theme is decoration; never let it stop a shop from selling.
-    return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null) };
+    return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null), brand: brandOf(null), announcement: '', address: '' };
   }
 }
 
@@ -64,7 +69,10 @@ export async function generateMetadata(
   { params }: { params: Promise<{ tenantId: string }> },
 ): Promise<Metadata> {
   const { tenantId } = await params;
-  const { shopName, tagline, logoUrl, origin } = await loadShop(tenantId);
+  const { shopName, tagline, origin, brand } = await loadShop(tenantId);
+  const logoUrl = brand.logoUrl;
+  // The browser-tab icon: the shop's own small icon, else its logo.
+  const icon = brand.iconUrl || brand.logoUrl;
   const url = origin ? `${origin}/shop/${tenantId}` : undefined;
   const title = shopName || 'Shop';
   const description = seoDescription({ shopName: title, description: tagline });
@@ -81,6 +89,7 @@ export async function generateMetadata(
       ...(logoUrl ? { images: [logoUrl] } : {}),
     },
     twitter: { card: logoUrl ? 'summary_large_image' : 'summary', title, description },
+    ...(icon ? { icons: { icon, apple: icon } } : {}),
   };
 }
 
@@ -92,7 +101,9 @@ export default async function ShopLayout({
   params: Promise<{ tenantId: string }>;
 }) {
   const { tenantId } = await params;
-  const { theme, shopName, facts, origin } = await loadShop(tenantId);
+  const { theme, shopName, tagline, facts, origin, brand, announcement, address } = await loadShop(tenantId);
+  const dark = theme.surface.replace('#', '').length >= 6 && (parseInt(theme.surface.slice(1, 3), 16) * 0.299 + parseInt(theme.surface.slice(3, 5), 16) * 0.587 + parseInt(theme.surface.slice(5, 7), 16) * 0.114) < 128;
+  const site: ShopSite = { tenantId, name: shopName || 'Shop', tagline, announcement, brand, layout: theme.site, dark, address };
   const ld = facts && origin && shopName ? shopJsonLd(facts, origin) : [];
 
   return (
@@ -108,34 +119,10 @@ export default async function ShopLayout({
       className="cf-shop min-h-dvh flex flex-col"
     >
       {ld.map((x, i) => <script key={i} type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(x) }} />)}
-      <div className="flex-1">{children}</div>
-      <footer
-        className="print:hidden border-t px-4 pt-6 text-center"
-        style={{
-          borderColor: 'var(--shop-border, rgba(0,0,0,.08))',
-          background: 'var(--shop-surface, transparent)',
-          color: 'var(--shop-muted, inherit)',
-          paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))',
-        }}
-      >
-        <nav aria-label="Legal" className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[12px]">
-          <a href="/legal/terms" className="underline underline-offset-2 hover:opacity-80" style={{ color: 'var(--shop-ink, inherit)' }}>
-            Terms of use
-          </a>
-          <a href="/legal/privacy" className="underline underline-offset-2 hover:opacity-80" style={{ color: 'var(--shop-ink, inherit)' }}>
-            Privacy policy
-          </a>
-        </nav>
-        <p className="text-[11px] mt-3 max-w-md mx-auto leading-relaxed">
-          This shop uses only essential cookies — the ones that keep your cart
-          and sign-in working. Nothing tracks you across the web.
-        </p>
-        {shopName ? (
-          <p className="text-[11px] mt-2 opacity-80">
-            &copy; {new Date().getFullYear()} {shopName}
-          </p>
-        ) : null}
-      </footer>
+      <ShopSiteProvider value={site}>
+        <div className="flex-1">{children}</div>
+        <ShopFooter />
+      </ShopSiteProvider>
     </div>
   );
 }

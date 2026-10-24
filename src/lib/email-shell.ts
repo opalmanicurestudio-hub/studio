@@ -17,7 +17,10 @@
 // Senders build only their BODY html and hand it here. One place to change
 // the look; zero drift between senders.
 
-export type EmailBrand = { shopName: string; brandColor: string };
+import { brandOf } from '@/lib/shop-site';
+
+/** logoUrl: the logo that reads on the brand-colored header (its light version on a dark color); show: as the shop shows it. */
+export type EmailBrand = { shopName: string; brandColor: string; logoUrl?: string; show?: 'mark+name' | 'mark' | 'name' };
 
 // Jakarta-first everywhere. Clients that honor webfonts (Apple Mail — most
 // phone inboxes) render the brand typeface; clients that strip them (Gmail,
@@ -36,6 +39,11 @@ export function brandFromTenant(t: any): EmailBrand {
     shopName = String(t?.businessName || t?.name || shopName);
     const c = t?.retailSettings?.shopTheme?.brand;
     if (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.trim())) brandColor = c.trim();
+    // The shop's logo on the header: its light version on a dark brand color, when it has one; a dark logo on a dark
+    // header without a light version would vanish, so then the name shows alone.
+    const b = brandOf(t); const darkHeader = readableTextOn(brandColor) === '#ffffff';
+    const logo = darkHeader ? b.darkLogoUrl : b.logoUrl;
+    if (logo && b.show !== 'name') return { shopName, brandColor, logoUrl: logo, show: b.show };
   } catch { /* never block an email on cosmetics */ }
   return { shopName, brandColor };
 }
@@ -78,6 +86,7 @@ export function emailButton(href: string, label: string, brand: EmailBrand): str
  * (the claim-decision sender already does).
  */
 export function brandedEmail(brand: EmailBrand, bodyHtml: string, opts?: { preheader?: string; title?: string; tag?: string }): string {
+  const esc = (v: string) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c]);
   const headerFg = readableTextOn(brand.brandColor);
   const pre = opts?.preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${opts.preheader}</div>`
@@ -95,14 +104,14 @@ export function brandedEmail(brand: EmailBrand, bodyHtml: string, opts?: { prehe
 </head><body style="margin:0;padding:0">${pre}<div style="background:#f4f4f5;padding:24px 12px">
   <div style="max-width:560px;margin:0 auto">
     <div style="background:${brand.brandColor};color:${headerFg};border-radius:16px 16px 0 0;padding:18px 24px;font-family:${EMAIL_FONT}">
-      <span style="font-size:${opts?.title ? '11px' : '15px'};font-weight:800;letter-spacing:0.06em;text-transform:uppercase${opts?.title ? ';opacity:0.85' : ''}">${brand.shopName}</span>
+      ${brand.logoUrl ? `<img src="${esc(brand.logoUrl)}" alt="${brand.show === 'mark' ? esc(brand.shopName) : ''}" height="${opts?.title ? 26 : 32}" style="height:${opts?.title ? 26 : 32}px;width:auto;max-width:180px;vertical-align:middle;border:0${brand.show === 'mark' ? '' : ';margin-right:10px'}">` : ''}${brand.logoUrl && brand.show === 'mark' ? '' : `<span style="font-size:${opts?.title ? '11px' : '15px'};font-weight:800;letter-spacing:0.06em;text-transform:uppercase;vertical-align:middle${opts?.title ? ';opacity:0.85' : ''}">${esc(brand.shopName)}</span>`}
       ${titleBlock ? `<div style="margin-top:10px">${titleBlock}</div>` : ''}
     </div>
     <div style="background:#ffffff;border-radius:0 0 16px 16px;padding:26px 24px;font-family:${EMAIL_FONT}">
       ${bodyHtml}
     </div>
     <p style="font-family:${EMAIL_FONT};font-size:11px;color:#94a3b8;text-align:center;margin:14px 0 0">
-      Sent by ${brand.shopName}
+      Sent by ${esc(brand.shopName)}
     </p>
   </div>
 </div></body></html>`;

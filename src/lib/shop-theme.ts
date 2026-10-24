@@ -13,6 +13,8 @@
 // phone. Contrast is enforced rather than trusted, so nobody can ship pale
 // grey text on white by accident.
 
+import { isSiteLayout, siteTypeCss, type SiteLayout } from '@/lib/shop-site';
+
 export type LayoutPreset = 'grid' | 'editorial' | 'list';
 export type SurfaceStyle = 'soft' | 'flat' | 'glass' | 'bordered';
 export type CornerStyle = 'sharp' | 'soft' | 'round';
@@ -46,6 +48,10 @@ export interface ShopTheme {
   headerStyle: HeaderStyle;
   heroStyle: 'banner' | 'minimal' | 'split' | 'none';
   showPrices: boolean;
+  /** The whole-site layout (lib/shop-site): how every page is put together. */
+  site: SiteLayout;
+  /** The preset it started from, if any (lib/shop-site SITE_PRESETS). */
+  preset: string;
 }
 
 export const DEFAULT_THEME: ShopTheme = {
@@ -68,6 +74,8 @@ export const DEFAULT_THEME: ShopTheme = {
   headerStyle: 'minimal',
   heroStyle: 'banner',
   showPrices: true,
+  site: 'atelier',
+  preset: '',
 };
 
 /** Curated starting points — a shop picks one, then tweaks the brand colour. */
@@ -197,6 +205,8 @@ export function sanitizeTheme(raw: any): ShopTheme {
     font: pick(raw?.font, ['jakarta', 'serif', 'mono', 'rounded'] as const, DEFAULT_THEME.font),
     heroStyle: pick(raw?.heroStyle, ['banner', 'minimal', 'split', 'none'] as const, DEFAULT_THEME.heroStyle),
     showPrices: raw?.showPrices !== false,
+    site: isSiteLayout(raw?.site) ? raw.site : DEFAULT_THEME.site,
+    preset: typeof raw?.preset === 'string' && /^[a-z0-9-]{2,40}$/.test(raw.preset) ? raw.preset : '',
   };
 }
 
@@ -242,6 +252,7 @@ export function themeToCss(theme: ShopTheme): string {
     `--shop-backdrop-size:${t.backdrop === 'grid' ? '28px 28px' : t.backdrop === 'grain' ? '120px 120px' : 'auto'}`,
     `--shop-motion:${t.motion === 'none' ? '0ms' : t.motion === 'lively' ? '260ms' : '160ms'}`,
     `--shop-lift:${t.motion === 'lively' ? '-3px' : t.motion === 'subtle' ? '-1px' : '0px'}`,
+    siteTypeCss(t.site),
   ].join(';');
 }
 

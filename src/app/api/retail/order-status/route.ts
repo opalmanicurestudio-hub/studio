@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { brandOf } from '@/lib/shop-site';
 import { PIN_TRIES, pickupPin, pinKeyOf } from '@/lib/pickup-pass';
 
 import { putTracking, trackingKey } from '@/lib/order-tracking';
@@ -272,6 +273,8 @@ export async function GET(req: NextRequest) {
   const body: any = {
     help, verify, linkExpiresAt: linkUntil, ...(newPass ? { newPass } : {}), track,
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
+    // The shop's logo for the receipt and invoice header (its public business logo).
+    shopLogoUrl: brandOf(tenantSnap.exists ? tenantSnap.data() : null).logoUrl || null,
     // Where the shop physically is, so the customer's phone can answer "am I
     // there yet?" locally. Sent to the browser deliberately: the alternative
     // is streaming their position to us, which is worse for them and worse

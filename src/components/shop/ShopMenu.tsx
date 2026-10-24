@@ -53,7 +53,7 @@ export function ShopMenu({
         size="icon"
         aria-label="Open menu"
         onClick={() => setOpen(true)}
-        className="h-10 w-10 rounded-xl shrink-0"
+        className="h-11 w-11 rounded-xl shrink-0"
       >
         <Menu className="h-5 w-5" />
       </Button>
@@ -70,7 +70,7 @@ export function ShopMenu({
               <p className="min-w-0 flex-1 truncate font-black uppercase tracking-tighter text-base leading-none">
                 {shopName}
               </p>
-              <Button variant="ghost" size="icon" aria-label="Close menu" onClick={close} className="h-9 w-9 rounded-xl">
+              <Button variant="ghost" size="icon" aria-label="Close menu" onClick={close} className="h-11 w-11 rounded-xl">
                 <X className="h-4 w-4" />
               </Button>
             </div>

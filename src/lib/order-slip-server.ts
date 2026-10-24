@@ -4,7 +4,9 @@
 import QRCode from 'qrcode';
 import { buildSlip, slipSettingsOf, type SlipModel, type SlipSize } from './order-slip';
 
-export async function slipFor(db: any, tenantId: string, orderId: string, order: any, tenant: any, origin: string, size?: SlipSize): Promise<{ model: SlipModel; size: SlipSize; shopName: string; qr: string; giftQr: string }> {
+import { brandOf } from '@/lib/shop-site';
+
+export async function slipFor(db: any, tenantId: string, orderId: string, order: any, tenant: any, origin: string, size?: SlipSize): Promise<{ model: SlipModel; size: SlipSize; shopName: string; logoUrl: string; qr: string; giftQr: string }> {
   const rs = tenant?.retailSettings || {};
   const ids = [...new Set(((order?.lines || []) as any[]).map((l) => String(l.productId || '')).filter((x) => x && !x.includes('/')))].slice(0, 60);
   const products: Record<string, any> = {};
@@ -17,5 +19,5 @@ export async function slipFor(db: any, tenantId: string, orderId: string, order:
   const giftUrl = origin && order?.gift?.token ? `${origin}/shop/${tenantId}/gift/${orderId}?g=${encodeURIComponent(order.gift.token)}` : '';
   const qr = orderUrl ? await QRCode.toDataURL(orderUrl, { width: 300, margin: 0 }).catch(() => '') : '';
   const giftQr = giftUrl ? await QRCode.toDataURL(giftUrl, { width: 300, margin: 0 }).catch(() => '') : '';
-  return { model, size: size || slipSettingsOf(rs).size, shopName: String(tenant?.businessName || tenant?.name || ''), qr, giftQr };
+  return { model, size: size || slipSettingsOf(rs).size, shopName: String(tenant?.businessName || tenant?.name || ''), logoUrl: brandOf(tenant).logoUrl, qr, giftQr };
 }

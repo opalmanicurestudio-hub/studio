@@ -72,7 +72,9 @@ function Card({ icon, title, children }: { icon: React.ReactNode; title: string;
   return <div className="card"><Icon d={icon} /><div><b>{title}</b>{children}</div></div>;
 }
 
-export function SmartSlip({ m, size, shopName, qr, giftQr }: { m: SlipModel; size: SlipSize; shopName: string; qr?: string; giftQr?: string }) {
+export function SmartSlip({ m, size, shopName, logoUrl, qr, giftQr }: { m: SlipModel; size: SlipSize; shopName: string; logoUrl?: string; qr?: string; giftQr?: string }) {
+  // The shop's logo above its name, when it has one (printed in black and white, so kept small).
+  const shop = <span className="shop">{logoUrl ? <img src={logoUrl} alt="" style={{ height: '1.9em', width: 'auto', maxWidth: '9em', objectFit: 'contain', display: 'block', marginBottom: '.35em' }} /> : null}{shopName}</span>;
   const paper = size !== '4x6';
   const weight = m.notInBox.length + m.swaps.length * 1.5 + m.care.length + (m.useBy.length ? 1 : 0) + m.inBox.length * 0.45 + (m.damage ? 1.2 : 0);
   // A busy order on a 4 × 6 slip tightens up, and the damage note moves into the footer, so everything fits one label.
@@ -82,7 +84,7 @@ export function SmartSlip({ m, size, shopName, qr, giftQr }: { m: SlipModel; siz
   if (m.gift) {
     return (
       <div className={`ss s${size}`}>
-        <span className="shop">{shopName}</span>
+        {shop}
         <div className="head"><div><span className="sub">A gift for</span><span className="title" style={{ fontSize: '3.4em' }}>{m.gift.to || 'you'}</span></div></div>
         {m.gift.message ? <div className="msg">“{m.gift.message}”</div> : null}
         <div><div className="lbl">In this box</div><div className="list">{m.inBox.map((l, i) => <div className="row" key={i}><span className="nm">{l.name}</span><span className="q">{l.qty}</span></div>)}</div></div>
@@ -109,7 +111,7 @@ export function SmartSlip({ m, size, shopName, qr, giftQr }: { m: SlipModel; siz
     <div className={`ss s${size}${dense ? ' dense' : ''}`}>
       <div className="head">
         <div>
-          <span className="shop">{shopName}</span>
+          {shop}
           <span className="title">Thanks{m.firstName ? `, ${m.firstName}` : ''}.</span>
           <span className="sub">{[`Order ${m.orderNo}`, paper && m.packedOn ? `packed ${m.packedOn}${m.packedBy ? ` by ${m.packedBy}` : ''}` : '', boxLine].filter(Boolean).join(' · ')}</span>
         </div>

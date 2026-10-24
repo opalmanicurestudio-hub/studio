@@ -1,9 +1,10 @@
 'use client';
 
 import { RestockAlert } from '@/components/shop/RestockAlert';
-import { ArrowLeft, BookOpen, CheckCircle2, ChevronRight, FileDown, ListChecks, Loader, Minus, Package, Plus, RotateCcw, ShieldCheck, ShoppingBag, Star, Truck } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronRight, FileDown, ListChecks, Loader, Minus, Package, Plus, RotateCcw, ShieldCheck, Star, Truck } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { ShopHeader } from '@/components/shop/ShopChrome';
 import { useParams } from 'next/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -232,26 +233,8 @@ export default function ProductPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-32">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" aria-label="Back to shop" className="h-10 w-10 rounded-xl">
-            <Link href={`/shop/${tenantId}`}><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Link>
-          </Button>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground truncate">{shopName}</p>
-            <p className="font-black uppercase tracking-tighter text-sm leading-none truncate">{product.category}</p>
-          </div>
-          <Button asChild variant="outline" className="h-10 rounded-xl font-black uppercase text-[9px] tracking-widest border-2 relative">
-            <Link href={`/shop/${tenantId}`}>
-              <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Cart
-              {cartCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 h-5 min-w-5 px-1 rounded-full bg-foreground text-background text-[10px] font-black flex items-center justify-center">
-                  {cartCount}
-                </span>
-              )}
-            </Link>
-          </Button>
-        </div>
+      <ShopHeader active="product" />
+      <div>
         {wholesale && (
           <div className="bg-primary text-primary-foreground">
             <div className="max-w-4xl mx-auto px-4 py-1.5 flex items-center gap-2">
@@ -260,7 +243,7 @@ export default function ProductPage() {
             </div>
           </div>
         )}
-      </header>
+      </div>
 
       <main className="max-w-4xl mx-auto px-4 py-6 grid md:grid-cols-2 gap-6">
         <div className="space-y-3">

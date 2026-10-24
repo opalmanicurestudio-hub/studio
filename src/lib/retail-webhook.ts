@@ -17,7 +17,7 @@ import StripeLib from 'stripe';
 import { buildEvent, onlineSellable } from './retail-orders';
 import { assessRisk, riskPolicy, type RiskResult } from './retail-risk';
 
-import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
+import { getEmailBrand, brandedEmail, brandFromTenant, emailButton, type EmailBrand } from '@/lib/email-shell';
 import { payOrder } from '@/lib/order-paid';
 import { sendNotification } from '@/lib/notify';
 
@@ -208,7 +208,7 @@ export async function sendOrderConfirmation(
   if (!origin) return 'skipped';
 
   let shopName = 'Our team';
-  let emailBrand = { shopName: 'Your shop', brandColor: '#16171a' };
+  let emailBrand: EmailBrand = { shopName: 'Your shop', brandColor: '#16171a' };
   let shopSettings: any = {};
   try {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
@@ -216,11 +216,7 @@ export async function sendOrderConfirmation(
       const t = tSnap.data() || {};
       shopSettings = t.retailSettings || {};
       shopName = String(t.businessName || t.name || shopName);
-      emailBrand = {
-        shopName,
-        brandColor: (typeof t?.retailSettings?.shopTheme?.brand === 'string' && /^#[0-9a-fA-F]{6}$/.test(t.retailSettings.shopTheme.brand.trim()))
-          ? t.retailSettings.shopTheme.brand.trim() : '#16171a',
-      };
+      emailBrand = { ...brandFromTenant(t), shopName };
     }
   } catch {
     // name is cosmetic
@@ -387,18 +383,14 @@ async function sendCartRecovery(
     if (!origin) return;
 
     let shopName = 'our shop';
-    let emailBrand = { shopName: 'our shop', brandColor: '#16171a' };
+    let emailBrand: EmailBrand = { shopName: 'our shop', brandColor: '#16171a' };
     let enabled = true;
     try {
       const tSnap = await db.collection('tenants').doc(tenantId).get();
       if (tSnap.exists) {
         const t = tSnap.data() || {};
         shopName = String(t.businessName || t.name || shopName);
-        emailBrand = {
-          shopName,
-          brandColor: (typeof t?.retailSettings?.shopTheme?.brand === 'string' && /^#[0-9a-fA-F]{6}$/.test(t.retailSettings.shopTheme.brand.trim()))
-            ? t.retailSettings.shopTheme.brand.trim() : '#16171a',
-        };
+        emailBrand = { ...brandFromTenant(t), shopName };
         enabled = (t.retailSettings || {}).cartRecoveryEnabled !== false;
       }
     } catch {

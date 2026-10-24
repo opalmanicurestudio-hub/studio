@@ -1,9 +1,10 @@
 'use client';
 
 import {
-  ArrowLeft, Car, CircleUserRound, Loader, LogOut, Mail, Package, RefreshCw, Store, Truck, Wallet,
+  Car, CircleUserRound, Loader, LogOut, Mail, Package, RefreshCw, Store, Truck, Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
+import { ShopHeader } from '@/components/shop/ShopChrome';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import React, { Suspense, useCallback, useEffect, useState } from 'react';
 
@@ -145,11 +146,9 @@ function AccountInner() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" aria-label="Back to shop" className="h-10 w-10 rounded-xl">
-            <Link href={`/shop/${tenantId}`}><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Link>
-          </Button>
+      <ShopHeader active="account" />
+      <div>
+        <div className="max-w-2xl mx-auto px-4 pt-5 pb-1 flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="font-black uppercase tracking-tighter text-xl leading-none">My Orders</h1>
             {session && (
@@ -167,7 +166,7 @@ function AccountInner() {
             </>
           )}
         </div>
-      </header>
+      </div>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         {!checkedStorage ? (

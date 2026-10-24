@@ -85,8 +85,8 @@ export default async function PackingSlipPage({
         <style>{smart ? `@page { size: ${page}; margin: 0; } body { margin: 0; } ${SMART_SLIP_CSS}` : SLIP_CSS}</style>
       </head>
       <body>
-        {smart ? <SmartSlip m={smart.model} size={smart.size} shopName={smart.shopName} qr={smart.qr} giftQr={smart.giftQr} /> : <SlipSheet tenantId={tenantId} orderId={orderId} order={order} tenant={tenant} origin={origin} />}
-        <script dangerouslySetInnerHTML={{ __html: 'setTimeout(function(){window.print()},400);' }} />
+        {smart ? <SmartSlip m={smart.model} size={smart.size} shopName={smart.shopName} logoUrl={smart.logoUrl} qr={smart.qr} giftQr={smart.giftQr} /> : <SlipSheet tenantId={tenantId} orderId={orderId} order={order} tenant={tenant} origin={origin} />}
+        <script dangerouslySetInnerHTML={{ __html: 'setTimeout(function(){var im=[].slice.call(document.images).filter(function(i){return !i.complete});var go=function(){window.print()};if(!im.length)return go();var n=im.length,t=setTimeout(go,4000);im.forEach(function(i){i.addEventListener("load",d);i.addEventListener("error",d)});function d(){if(--n<=0){clearTimeout(t);go()}}},400);' }} />
       </body>
     </html>
   );

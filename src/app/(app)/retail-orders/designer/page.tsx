@@ -23,10 +23,12 @@ import {
   type ShopPageConfig, type ShopSection, type ShopSectionProduct, type ShopSectionType,
 } from '@/lib/shop-sections';
 import {
-  DEFAULT_THEME, THEME_PRESETS, contrastRatio, readableOn, sanitizeTheme,
+  DEFAULT_THEME, contrastRatio, readableOn, sanitizeTheme,
   type ShopTheme,
 } from '@/lib/shop-theme';
 import { cn } from '@/lib/utils';
+import { SiteLook } from '@/components/shop/designer/SiteLook';
+import { brandOf, sanitizeBrandSettings, type ShopBrand } from '@/lib/shop-site';
 import { listedInShop, listingBuyable, listingsOf, variantIdsOf, variantPriceCents } from '@/lib/variants';
 
 // ─── Shop Designer ────────────────────────────────────────────────────────────
@@ -49,6 +51,8 @@ export default function ShopDesignerPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [theme, setTheme] = useState<ShopTheme>(DEFAULT_THEME);
+  const [brand, setBrand] = useState<ShopBrand>(brandOf(null));
+  const [startLogo, setStartLogo] = useState('');
   const [pdp, setPdp] = useState<{
     showTrust: boolean; showFaq: boolean; showRelated: boolean; showVideo: boolean;
     showStickyBar: boolean; faq: { q: string; a: string }[];
@@ -58,6 +62,7 @@ export default function ShopDesignerPage() {
   useEffect(() => {
     if (loaded || !selectedTenant) return;
     setTheme(sanitizeTheme((selectedTenant as any)?.retailSettings?.shopTheme));
+    setBrand(brandOf(selectedTenant)); setStartLogo(brandOf(selectedTenant).logoUrl);
     const rs = (selectedTenant as any)?.retailSettings || {};
     setPdp({
       showTrust: rs.pdpShowTrust !== false,
@@ -129,7 +134,11 @@ export default function ShopDesignerPage() {
     setSaving(true);
     try {
       await setDoc(doc(firestore as Firestore, 'tenants', tenantId), {
+        // The business logo (also on the booking page, receipts and emails), and how the shop shows it.
+        // Only when a new one was uploaded here: an older shop-only logo is never copied over the business logo.
+        ...(brand.logoUrl && brand.logoUrl !== startLogo ? { logoUrl: brand.logoUrl } : {}),
         retailSettings: {
+          shopBrand: sanitizeBrandSettings(brand),
           shopPageConfig: JSON.parse(JSON.stringify(sanitizeShopConfig(config))),
           shopTheme: JSON.parse(JSON.stringify(sanitizeTheme(theme))),
           pdpShowTrust: pdp.showTrust,
@@ -180,38 +189,17 @@ export default function ShopDesignerPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+        <SiteLook tenantId={tenantId} announcement={String((selectedTenant as any)?.retailSettings?.shopAnnouncement || '')} shopName={String((selectedTenant as any)?.businessName || (selectedTenant as any)?.name || '')} theme={theme} setTheme={setTheme} brand={brand} setBrand={setBrand} />
+
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-4 space-y-3 sm:p-5">
             <div className="flex items-center gap-2">
               <Paintbrush className="w-4 h-4 text-primary shrink-0" />
-              <p className="text-[11px] font-black uppercase tracking-widest">Your shop&rsquo;s look</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {THEME_PRESETS.map((p) => {
-                const active = theme.brand === (p.theme.brand || DEFAULT_THEME.brand)
-                  && theme.surface === (p.theme.surface || DEFAULT_THEME.surface);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setTheme(sanitizeTheme({ ...DEFAULT_THEME, ...p.theme }))}
-                    aria-pressed={active}
-                    className={cn('rounded-2xl border-2 p-2 text-left transition-shadow', active && 'ring-2 ring-primary')}
-                    style={{ background: p.theme.surface || DEFAULT_THEME.surface }}
-                  >
-                    <span className="block h-8 w-full rounded-lg" style={{ background: p.theme.brand || DEFAULT_THEME.brand }} />
-                    <span className="mt-1.5 block truncate text-[11px] font-black uppercase tracking-widest"
-                      style={{ color: p.theme.ink || DEFAULT_THEME.ink }}>
-                      {p.name}
-                    </span>
-                  </button>
-                );
-              })}
+              <p className="text-[11px] font-black uppercase tracking-widest">Fine-tune</p>
             </div>
 
             {([
-              ['look', 'Colours', null],
+              ['look', 'Colors', null],
               ['layout', 'Layout & spacing', null],
               ['type', 'Type & buttons', null],
               ['product', 'Product page', null],
@@ -237,7 +225,7 @@ export default function ShopDesignerPage() {
                         <div key={key} className="flex items-center gap-3">
                           <input
                             type="color"
-                            aria-label={`${lab} colour`}
+                            aria-label={`${lab} color`}
                             value={(theme as any)[key]}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
                             className="h-11 w-11 shrink-0 cursor-pointer rounded-xl border-2 bg-card p-1"
@@ -256,7 +244,7 @@ export default function ShopDesignerPage() {
                       ))}
                       {contrastRatio(theme.ink, theme.surface) < 4.5 && (
                         <p className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3 text-[11px] font-bold text-amber-800">
-                          That text colour is hard to read on that background — the shop will use a readable one instead.
+                          That text color is hard to read on that background — the shop will use a readable one instead.
                         </p>
                       )}
                     </div>

@@ -253,7 +253,7 @@ export function BoxView({ tenantId, offer, byId, offers, onAdded }: { tenantId: 
             <ChoicePicks compact product={p} value={choiceOf(p)} onChange={(v) => setSel({ ...sel, [p.id]: v })} />
           </div>))}
       </div>
-      <aside className="space-y-4 rounded-[1.5rem] border-2 bg-neutral-50 p-5 lg:sticky lg:top-24">
+      <aside className="space-y-4 rounded-[1.5rem] border-2 bg-neutral-50 p-5 lg:sticky lg:top-32">
         <div className="flex items-baseline justify-between"><p className="m-0 text-[17px] font-semibold">Your box</p><p className="m-0 text-[13px] text-neutral-500">{n} of up to {top.count}</p></div>
         <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(top.count, 6)}, minmax(0, 1fr))` }}>
           {Array.from({ length: top.count }).map((_, i) => { const x = picks[i]; const p = x ? byId.get(x.productId) : null;
@@ -261,7 +261,7 @@ export function BoxView({ tenantId, offer, byId, offers, onAdded }: { tenantId: 
         </div>
         <div>
           <div className="relative h-1.5 rounded-full bg-neutral-200"><span className="absolute inset-y-0 left-0 rounded-full bg-neutral-900 transition-[width] duration-500" style={{ width: `${Math.min(100, (n / top.count) * 100)}%` }} /></div>
-          <div className="mt-2 flex justify-between text-[12px] text-neutral-500">{offer.tiers.map((t) => <span key={t.count} style={pct === t.pct ? { color: '#16171a', fontWeight: 600 } : undefined}>{t.count} · {t.pct}%</span>)}</div>
+          <div className="mt-2 flex justify-between text-[12px] text-neutral-500">{offer.tiers.map((t) => <span key={t.count} style={pct === t.pct ? { color: 'var(--shop-ink, #16171a)', fontWeight: 600 } : undefined}>{t.count} · {t.pct}%</span>)}</div>
           <p className="m-0 mt-2 text-[14px]">{next ? (n === 0 ? `Pick ${next.more} to save ${next.pct}%.` : `Add ${next.more} more to save ${next.pct}%.`) : `Box full. You are saving ${pct}%.`}</p>
         </div>
         <div className="space-y-1 border-t pt-3 text-[14px]" style={{ borderColor: '#e5e5e5' }}>

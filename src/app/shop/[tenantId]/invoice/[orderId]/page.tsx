@@ -108,6 +108,7 @@ export default function InvoicePage({ params }: { params: Promise<{ tenantId: st
       <div className="pp inv">
         <div className="head">
           <div>
+            {data.shopLogoUrl ? <img src={data.shopLogoUrl} alt="" className="shop-logo" style={{ height: 34, width: 'auto', maxWidth: 160, objectFit: 'contain', marginBottom: 8 }} /> : null}
             {data.shopName ? <p className="shop">{data.shopName}</p> : null}
             <h1>Invoice</h1>
             <p className="sub">Order {num}</p>

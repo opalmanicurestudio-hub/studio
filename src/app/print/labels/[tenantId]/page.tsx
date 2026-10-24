@@ -127,7 +127,7 @@ export default async function PrintLabelsPage({
           </div>))}
           {withSlip && slips.get(o.id) && (
             <div className="label slip">
-              {(() => { const x = slips.get(o.id)!; return <SmartSlip m={x.model} size={x.size} shopName={x.shopName} qr={x.qr} giftQr={x.giftQr} />; })()}
+              {(() => { const x = slips.get(o.id)!; return <SmartSlip m={x.model} size={x.size} shopName={x.shopName} logoUrl={x.logoUrl} qr={x.qr} giftQr={x.giftQr} />; })()}
             </div>
           )}
           </React.Fragment>

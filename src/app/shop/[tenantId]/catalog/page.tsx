@@ -1,12 +1,12 @@
 'use client';
 
-import { ArrowLeft, Loader, PackageX, Search, Store } from 'lucide-react';
+import { Loader, PackageX, Search, Store } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { ShopMenu } from '@/components/shop/ShopMenu';
+import { ShopHeader } from '@/components/shop/ShopChrome';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -40,7 +40,6 @@ export default function CatalogPage() {
   const tenantId = String(params?.tenantId || '');
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [shopName, setShopName] = useState('Shop');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -58,7 +57,6 @@ export default function CatalogPage() {
         if (!alive) return;
         if (!res.ok) throw new Error(data.error || 'Could not load the catalog');
         setProducts(Array.isArray(data.products) ? data.products : []);
-        setShopName(data.shop?.name || 'Shop');
       } catch (e: any) {
         if (alive) setError(e?.message || 'Could not load the catalog');
       } finally {
@@ -103,25 +101,12 @@ export default function CatalogPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-20">
-      <header className="sticky top-0 z-30 border-b-2 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 py-3">
-          <ShopMenu
-            tenantId={tenantId}
-            shopName={shopName}
-            categories={categories}
-            activeCategory={category === 'all' ? undefined : category}
-          />
-          <Button asChild variant="ghost" size="icon" aria-label="Back to shop" className="h-10 w-10 rounded-xl shrink-0">
-            <Link href={`/shop/${tenantId}`}><ArrowLeft className="h-4 w-4" /></Link>
-          </Button>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg font-black uppercase leading-none tracking-tighter">All products</h1>
-            <p className="mt-0.5 text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-              {loading ? 'Loading…' : `${visible.length} item${visible.length === 1 ? '' : 's'}`}
-            </p>
-          </div>
+      <ShopHeader active="catalog" categories={categories} activeCategory={category === 'all' ? undefined : category} />
+      <div className="border-b" style={{ borderColor: 'var(--shop-line)' }}>
+        <div className="mx-auto flex max-w-5xl items-baseline justify-between gap-3 px-4 pb-2 pt-5">
+          <h1 className="truncate text-[26px] leading-tight" style={{ fontWeight: 'var(--shop-head-weight, 600)' as any, letterSpacing: 'var(--shop-head-track, -0.02em)' }}>All products</h1>
+          <p className="shrink-0 text-[13px]" style={{ color: 'var(--shop-muted)' }}>{loading ? 'Loading…' : `${visible.length} item${visible.length === 1 ? '' : 's'}`}</p>
         </div>
-
         <div className="mx-auto max-w-5xl space-y-3 px-4 pb-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" aria-hidden="true" />
@@ -179,7 +164,7 @@ export default function CatalogPage() {
             </select>
           </div>
         </div>
-      </header>
+      </div>
 
       <main className="mx-auto max-w-5xl px-4 py-6">
         {loading && (

@@ -1,6 +1,6 @@
 'use client';
 
-import { CircleUserRound, Loader, Lock, Minus, Package, Plus, ShoppingBag, Store, Truck, X } from 'lucide-react';
+import { Loader, Lock, Minus, Package, Plus, Store, Truck, X } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -23,7 +23,7 @@ import {
 } from '@/lib/shop-cart';
 import { shopLine } from '@/lib/variants';
 import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
-import { ShopMenu } from '@/components/shop/ShopMenu';
+import { ShopHeader } from '@/components/shop/ShopChrome';
 import { cn } from '@/lib/utils';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { OfferStrip, type ShopOffer } from '@/components/shop/offers';
@@ -262,7 +262,6 @@ export default function ShopPage() {
     wholesale && p.wholesalePriceCents != null ? p.wholesalePriceCents : p.priceCents;
 
   const cartEntries = Object.entries(cart).filter(([key, q]) => q > 0 && byId.has(parseCartKey(key).productId));
-  const cartCount = cartEntries.reduce((a, [, q]) => a + q, 0);
   // What each cart line sells for, the same sums checkout makes (lib/variants): a variant's own price when it has one,
   // otherwise the listing's, plus what the other choices add.
   const lineOf = (key: string) => { const { productId, selections } = parseCartKey(key); const p: any = byId.get(productId); return p ? shopLine(p, selections, wholesale) : null; };
@@ -305,27 +304,13 @@ export default function ShopPage() {
   if (shop.paused) {
     return (
       <div className="flex min-h-dvh flex-col">
-        <header className="bg-white border-b">
-          <div className="mx-auto flex h-16 max-w-5xl items-center gap-2.5 px-4">
-            {shop.logoUrl ? (
-              <Image src={shop.logoUrl} alt={shop.name} width={80} height={80} className="h-9 w-9 shrink-0 object-contain sm:h-10 sm:w-10" />
-            ) : (
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 sm:h-10 sm:w-10">
-                <Store className="h-4 w-4 text-primary" />
-              </div>
-            )}
-            <div className="min-w-0">
-              <h1 className="font-black uppercase tracking-tighter text-lg leading-none truncate">{shop.name}</h1>
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">{shop.tagline || 'Shop'}</p>
-            </div>
-          </div>
-        </header>
+        <ShopHeader minimal />
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="max-w-md w-full rounded-[2.5rem] border-2 bg-white p-10 text-center space-y-4 shadow-xl shadow-primary/5">
             <div className="w-16 h-16 mx-auto rounded-2xl border-2 bg-primary/5 flex items-center justify-center">
               <Package className="w-7 h-7 text-primary" />
             </div>
-            <p className="font-black uppercase tracking-tighter text-xl">Restocking in progress</p>
+            <h1 className="font-black uppercase tracking-tighter text-xl">Restocking in progress</h1>
             <p className="text-sm font-bold text-muted-foreground leading-relaxed">
               {shop.pausedMessage || 'We are briefly paused while we update the shelves. Check back shortly — good things are landing.'}
             </p>
@@ -340,82 +325,14 @@ export default function ShopPage() {
 
   return (
     <div className="min-h-dvh pb-32">
-      <header className="sticky top-0 z-30 bg-white backdrop-blur border-b">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center gap-2 sm:gap-3">
-          <ShopMenu
-            tenantId={tenantId}
-            shopName={shop.name}
-            categories={[...new Set(products.map((p) => p.category).filter(Boolean))].sort()}
-            onUnlockWholesale={shop.wholesaleOffered && !wholesale ? () => setUnlockOpen(true) : undefined}
-            wholesaleUnlocked={wholesale}
-          />
-
-          <Link
-            href={`/shop/${tenantId}`}
-            className="flex min-w-0 flex-1 items-center gap-2.5"
-            aria-label={`${shop.name} home`}
-          >
-            {shop.logoUrl ? (
-              // object-contain, no border, no background: a logo with a
-              // transparent background should sit ON the header, not inside a
-              // cropped grey box. object-cover was also silently cropping any
-              // logo that was not square.
-              <Image
-                src={shop.logoUrl}
-                alt={shop.name}
-                width={80}
-                height={80}
-                className="h-9 w-9 shrink-0 object-contain sm:h-10 sm:w-10"
-              />
-            ) : (
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 sm:h-10 sm:w-10">
-                <Store className="h-4 w-4 text-primary" />
-              </div>
-            )}
-            <div className="min-w-0">
-              <h1 className="truncate text-[15px] font-black uppercase leading-tight tracking-tight sm:text-lg">
-                {shop.name}
-              </h1>
-              {shop.tagline && (
-                // Long taglines used to overflow — this one had no truncate at
-                // all. Hidden on the narrowest screens, where the name is the
-                // only thing worth the space.
-                <p className="hidden truncate text-[10px] font-black uppercase tracking-widest text-muted-foreground min-[420px]:block">
-                  {shop.tagline}
-                </p>
-              )}
-            </div>
-          </Link>
-
-          <Button asChild variant="ghost" size="icon" aria-label="Your account" className="h-10 w-10 shrink-0 rounded-xl">
-            <Link href={`/shop/${tenantId}/account`}><CircleUserRound className="h-5 w-5" /></Link>
-          </Button>
-          <Button
-            asChild
-            className="relative h-10 w-10 shrink-0 rounded-xl p-0 font-black uppercase tracking-widest sm:w-auto sm:px-4 sm:text-[10px]"
-          >
-            <Link
-              href={`/shop/${tenantId}/checkout`}
-              aria-label={cartCount > 0 ? `Cart, ${cartCount} item${cartCount === 1 ? '' : 's'} — go to checkout` : 'Cart — go to checkout'}
-            >
-              <ShoppingBag className="h-4 w-4 sm:mr-1.5" aria-hidden="true" />
-              <span className="hidden sm:inline">Cart</span>
-              {cartCount > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-black text-background">
-                  {cartCount}
-                </span>
-              )}
-            </Link>
-          </Button>
-        </div>
-
-        {shop.announcement && !wholesale && (
-          <div className="bg-foreground text-background">
-            <div className="max-w-5xl mx-auto px-4 py-1.5">
-              <p className="text-[10px] font-black uppercase tracking-widest text-center">{shop.announcement}</p>
-            </div>
-          </div>
-        )}
+      <ShopHeader
+        active="home"
+        categories={[...new Set(products.map((p) => p.category).filter(Boolean))].sort()}
+        onUnlockWholesale={shop.wholesaleOffered && !wholesale ? () => setUnlockOpen(true) : undefined}
+        wholesaleUnlocked={wholesale}
+        hideAnnouncement={wholesale}
+      />
+      <div>
         {shop.busyBanner && (
           <div className="border-b bg-muted">
             <div className="max-w-5xl mx-auto px-4 py-2">
@@ -431,7 +348,7 @@ export default function ShopPage() {
             </div>
           </div>
         )}
-      </header>
+      </div>
 
       <ShopSectionsRenderer
         config={shop.pageConfig}

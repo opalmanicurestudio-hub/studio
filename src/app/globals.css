@@ -555,6 +555,8 @@ body { background-image: none; }
 [data-shop-theme] .bg-gray-50,
 [data-shop-theme] .bg-gray-100,
 [data-shop-theme] .bg-neutral-100 { background-color: var(--shop-tint-strong); }
+[data-shop-theme] .bg-neutral-50 { background-color: var(--shop-tint, var(--shop-card)); }
+[data-shop-theme] :is(.text-neutral-500, .text-neutral-600) { color: var(--shop-muted); }
 
 [data-shop-theme] .text-slate-400,
 [data-shop-theme] .text-slate-500,
@@ -863,7 +865,7 @@ html.studio [role="dialog"] .bg-background, html.studio [data-radix-popper-conte
   .cf-shop .rounded-\[2rem\] { border-radius: 24px; }
   .cf-shop .rounded-\[2\.5rem\] { border-radius: 28px; }
   .cf-shop :is(button, a).rounded-xl:is(.h-9, .h-10, .h-11, .h-12, .h-14) { border-radius: 999px; }
-  .cf-shop .bg-muted\/5 { background-color: #fff; }
+  .cf-shop .bg-muted\/5 { background-color: var(--shop-surface, #fff); }
 }
 
 /* ── STAFF PORTAL — a bolder, app-like hierarchy for the team's phones and the shared tablet (.cf-portal). The rest of

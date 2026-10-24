@@ -110,7 +110,7 @@ export default async function BulkSlipsPage({
         {jobs.map(({ order, smart }) => (
           <div className="job" key={order.id}>
             {smart
-              ? <SmartSlip m={smart.model} size={smart.size} shopName={smart.shopName} qr={smart.qr} giftQr={smart.giftQr} />
+              ? <SmartSlip m={smart.model} size={smart.size} shopName={smart.shopName} logoUrl={smart.logoUrl} qr={smart.qr} giftQr={smart.giftQr} />
               : <SlipSheet tenantId={tenantId} orderId={order.id} order={order} tenant={tenant} origin={origin} />}
           </div>
         ))}

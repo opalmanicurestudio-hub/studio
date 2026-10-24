@@ -39,6 +39,8 @@ export function writeCart(tenantId: string, cart: CartMap): void {
   try {
     const clean = Object.fromEntries(Object.entries(cart).filter(([, q]) => q > 0));
     localStorage.setItem(cartKey(tenantId), JSON.stringify(clean));
+    // The shop's header shows the bag count; it listens for this.
+    try { window.dispatchEvent(new Event('cf-cart')); } catch { /* not in a browser */ }
   } catch {
     // storage unavailable — cart stays in memory only
   }
@@ -99,6 +101,7 @@ export function clearCart(tenantId: string): void {
   try {
     localStorage.removeItem(cartKey(tenantId));
     localStorage.removeItem(expKey(tenantId));
+    window.dispatchEvent(new Event('cf-cart'));
   } catch { /* noop */ }
 }
 

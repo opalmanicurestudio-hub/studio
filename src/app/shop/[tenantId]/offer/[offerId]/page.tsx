@@ -4,8 +4,9 @@
 // sends offers whose products are all on sale online right now.
 import * as React from 'react';
 import Link from 'next/link';
+import { ShopHeader } from '@/components/shop/ShopChrome';
 import { useParams } from 'next/navigation';
-import { Loader, ShoppingBag } from 'lucide-react';
+import { Loader } from 'lucide-react';
 import { readCart, readWholesaleCode } from '@/lib/shop-cart';
 import { BoxView, LookView, SetView, type ShopOffer } from '@/components/shop/offers';
 
@@ -33,16 +34,8 @@ export default function OfferPage() {
   const back = `/shop/${tenantId}`;
 
   return (
-    <div className="min-h-dvh bg-white text-neutral-900">
-      <header className="sticky top-0 z-30 border-b bg-white/90 backdrop-blur" style={{ borderColor: '#ececee' }}>
-        <div className="mx-auto flex h-16 max-w-5xl items-center gap-3 px-4">
-          <Link href={back} className="min-w-0 flex-1 truncate text-[15px] font-semibold uppercase tracking-[0.12em]">{data?.shop?.name || 'Shop'}</Link>
-          <Link href={`/shop/${tenantId}/checkout`} className="relative grid h-11 w-11 place-items-center rounded-full bg-neutral-100" aria-label={count ? `Bag, ${count} item${count === 1 ? '' : 's'}` : 'Bag'}>
-            <ShoppingBag className="h-5 w-5" aria-hidden="true" />
-            {count > 0 && <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-neutral-900 px-1 text-[11px] font-semibold text-white">{count}</span>}
-          </Link>
-        </div>
-      </header>
+    <div className="min-h-dvh" style={{ background: 'var(--shop-surface)', color: 'var(--shop-ink)' }}>
+      <ShopHeader active="offer" />
       <main className="mx-auto max-w-5xl px-4 pb-24 pt-6">
         {!data && !err && <div className="grid place-items-center py-24"><Loader className="h-7 w-7 animate-spin opacity-40" aria-label="Loading" /></div>}
         {err && <p className="py-24 text-center text-[15px] text-neutral-500">{err}</p>}
