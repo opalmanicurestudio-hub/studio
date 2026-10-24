@@ -18,7 +18,7 @@ export function giftToken(): string {
 export function giftWindow(order: any, rs: any, now = Date.now()): { open: boolean; days: number; reason: string } {
   if (rs?.returnsEnabled === false) return { open: false, days: 0, reason: 'This shop doesn’t take returns or exchanges.' };
   const days = Math.max(1, Math.floor(Number(rs?.returnWindowDays) || 30));
-  if (!['shipped', 'handed_off', 'completed'].includes(String(order?.stage || ''))) return { open: false, days, reason: 'Exchanges open once the gift has arrived.' };
+  if (!['shipped', 'completed'].includes(String(order?.stage || ''))) return { open: false, days, reason: 'Exchanges open once the gift has arrived.' };
   // From delivery, or the ship date when the carrier never confirmed it (lib/order-windows).
   if (!windowOpen(order?.completedAt || order?.deliveredAt ? order : { ...order, completedAt: order?.shippedAt }, days, now)) return { open: false, days, reason: `Exchanges are open for ${days} days after delivery, and that time has passed for this gift.` };
   return { open: true, days, reason: '' };

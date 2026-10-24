@@ -49,7 +49,7 @@ export type ReturnableOrder = RetailOrder & { id: string };
  * LOOKUP — scan the customer's QR or type the order number
  * ════════════════════════════════════════════════════════════════════════════ */
 
-const RETURNABLE_STAGES = ['completed', 'shipped', 'handed_off'];
+const RETURNABLE_STAGES = ['completed', 'shipped'];
 
 /** What happens after a return step commits, outside its transaction. The server (api/retail/fulfil) sets these:
  *  store credit worked out and issued by the server (lib/return-credit), the customer's email, renters' shares. */

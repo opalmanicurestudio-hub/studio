@@ -1,4 +1,5 @@
 'use client';
+import { eventWords } from '@/lib/order-events';
 import { cancelIt } from '@/lib/orders-flow';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
@@ -65,19 +66,6 @@ const safeText = (v: any): string => {
   }
 };
 
-const EVENT_LABELS: Record<string, string> = {
-  placed: 'Order placed', payment_confirmed: 'Payment confirmed', stock_reserved: 'Stock reserved',
-  batch_claimed: 'Claimed for picking', batch_released: 'Released back to queue',
-  batch_auto_released: 'Auto-released (idle claim)', item_scanned: 'Item scanned',
-  scan_mismatch: 'Scan mismatch', line_shorted: 'Line shorted', pick_complete: 'Pick complete',
-  packed: 'Packed', packing_slip_printed: 'Packing slip printed', label_generated: 'Label generated',
-  label_scan_verified: 'Label verified', marked_ready: 'Marked ready', customer_arrived: 'Customer arrived',
-  handoff_scanned: 'Handoff QR scanned', shipped: 'Shipped', completed: 'Completed',
-  cancel_requested: 'Cancel requested', restock_scanned: 'Restocked', cancelled: 'Cancelled',
-  refund_issued: 'Refund issued', return_opened: 'Return opened', return_resolved: 'Return resolved',
-  replacement_created: 'Replacement created', backorder_split: 'Backorder split',
-  override: 'Manager override', note: 'Note',
-};
 
 const STAGE_FILTERS: { id: 'all' | 'active' | 'backordered' | 'late_promise' | OrderStage; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -86,8 +74,7 @@ const STAGE_FILTERS: { id: 'all' | 'active' | 'backordered' | 'late_promise' | O
   { id: 'late_promise', label: 'Past promise' },
   { id: 'completed', label: 'Completed' },
   { id: 'shipped', label: 'Shipped' },
-  { id: 'cancelled', label: 'Cancelled' },
-  { id: 'refunded', label: 'Refunded' },
+  { id: 'cancelled', label: 'Canceled' },
   { id: 'placed', label: 'Drafts' },
 ];
 
@@ -225,8 +212,8 @@ export default function RetailOrderHistoryPage() {
   const stageBadge = (stage: OrderStage) => (
     <Badge variant="outline" className={cn(
       'h-6 px-2.5 font-black text-[8px] uppercase tracking-widest border-2 shrink-0',
-      ['completed', 'handed_off', 'shipped'].includes(stage) && 'bg-green-50 border-green-100 text-green-700',
-      ['cancelled', 'refunded'].includes(stage) && 'bg-muted border-border text-muted-foreground',
+      ['completed', 'shipped'].includes(stage) && 'bg-green-50 border-green-100 text-green-700',
+      ['cancelled'].includes(stage) && 'bg-muted border-border text-muted-foreground',
       ACTIVE_STAGES.includes(stage) && 'bg-primary/5 border-primary/20 text-primary'
     )}>
       {STAGE_LABELS[stage] || stage}
@@ -374,7 +361,7 @@ export default function RetailOrderHistoryPage() {
                       <Printer className="mr-1.5 h-3.5 w-3.5" /> Slip
                     </Button>
                   )}
-                  {!['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(detail.stage) && (
+                  {!['shipped', 'completed', 'cancelled'].includes(detail.stage) && (
                     <Button variant="outline" size="sm" disabled={busy}
                       className="h-9 rounded-xl border-2 border-amber-300 text-amber-800 font-black uppercase text-[9px] tracking-widest"
                       onClick={async () => {
@@ -401,7 +388,7 @@ export default function RetailOrderHistoryPage() {
                       Delay notice
                     </Button>
                   )}
-                  {!['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(detail.stage) && (
+                  {!['shipped', 'completed', 'cancelled'].includes(detail.stage) && (
                     <Button variant="outline" size="sm" disabled={busy}
                       className="h-9 rounded-xl border-2 border-destructive/30 text-destructive font-black uppercase text-[9px] tracking-widest"
                       onClick={async () => {
@@ -482,7 +469,7 @@ export default function RetailOrderHistoryPage() {
                         </div>
                         <div className="pb-4 min-w-0">
                           <p className="text-xs font-black uppercase tracking-tight">
-                            {EVENT_LABELS[safeText(ev.type)] || safeText(ev.type)}
+                            {safeText(eventWords({ ...ev, actorName: '' }).text)}
                           </p>
                           <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
                             {when(ev.at)} · {safeText(ev.actorName)}

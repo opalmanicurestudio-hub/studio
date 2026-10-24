@@ -796,7 +796,7 @@ export async function handoffByScan(
       const oSnap = await txn.get(oRef);
       const order = { ...(oSnap.data() as RetailOrder), id: orderId };
 
-      if (!['ready', 'arrived'].includes(order.stage)) {
+      if (!['ready', 'arrived'].includes(order.stage) || !canAdvance(order, 'completed').ok) {
         return {
           ok: false,
           message: `Order #${order.orderNumber} is ${STAGE_LABELS[order.stage]}, so it cannot be handed off yet.`,
@@ -831,7 +831,7 @@ export async function handoffWithoutScan(
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
       const order = { ...(oSnap.data() as RetailOrder), id: orderId };
-      if (!['ready', 'arrived'].includes(order.stage)) {
+      if (!['ready', 'arrived'].includes(order.stage) || !canAdvance(order, 'completed').ok) {
         return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]} and is not ready for handoff.` };
       }
 
@@ -962,10 +962,10 @@ export async function cancelOrder(
       if (!snap.exists()) return { ok: false, message: 'Order not found.' };
       const order = snap.data() as RetailOrder;
 
-      if (['shipped', 'handed_off', 'completed'].includes(order.stage)) {
+      if (['shipped', 'completed'].includes(order.stage)) {
         return { ok: false, message: `Order #${order.orderNumber} has already been ${order.stage.replace('_', ' ')}. Please handle it as a return instead.` };
       }
-      if (['cancelled', 'refunded'].includes(order.stage)) {
+      if (['cancelled'].includes(order.stage)) {
         return { ok: false, message: `#${order.orderNumber} is already ${order.stage}.` };
       }
 

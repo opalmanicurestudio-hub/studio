@@ -62,7 +62,7 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
-const GONE = ['shipped', 'handed_off', 'completed'];
+const GONE = ['shipped', 'completed'];
 const ACTIONS = ['rates', 'purchase', 'replace', 'box', 'drop_box', 'void', 'unscanned_ok', 'voided_seen', 'refund_seen', 'charge_seen'];
 
 const lower = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
@@ -277,7 +277,7 @@ export async function POST(req: NextRequest) {
 
     // purchase, replace, box: never a label over one that's live, never for a closed order, never while the customer's
     // address change waits, and only for the address the rates were priced for.
-    if (['cancelled', 'refunded', 'completed'].includes(String(order.stage))) return NextResponse.json({ error: `This order is ${order.stage}.` }, { status: 409 });
+    if (['cancelled', 'completed'].includes(String(order.stage))) return NextResponse.json({ error: `This order is ${order.stage}.` }, { status: 409 });
     if (openRequest(order)) return NextResponse.json({ error: 'The customer asked to change the address. Answer that on the order first, so the label goes to the right place.' }, { status: 409 });
     const boughtFor = addressKey(order.shippingAddress);
     if (body.addressKey && String(body.addressKey) !== boughtFor) return NextResponse.json({ error: 'The address changed since these rates came in. Get new rates and buy the label again.', addressChanged: true }, { status: 409 });

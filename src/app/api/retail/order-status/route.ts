@@ -244,9 +244,9 @@ export async function GET(req: NextRequest) {
   const returnWindowOk = windowOpen(order, rs.returnWindowDays);
   const help = {
     canCancel: ['placed', 'paid'].includes(order.stage) && polH.cancelAllowed !== false && cancelWindowOk,
-    canReturn: ['shipped', 'handed_off', 'completed'].includes(order.stage) && rs.returnsEnabled !== false && returnWindowOk,
+    canReturn: ['shipped', 'completed'].includes(order.stage) && rs.returnsEnabled !== false && returnWindowOk,
     // The report window, as api/retail/claims enforces it (a message to the shop is always there).
-    canReport: ['shipped', 'handed_off', 'completed'].includes(order.stage) && windowOpen(order, Math.max(0, Math.floor(Number(rs.deliveryIssueWindowDays) || 0))),
+    canReport: ['shipped', 'completed'].includes(order.stage) && windowOpen(order, Math.max(0, Math.floor(Number(rs.deliveryIssueWindowDays) || 0))),
     canChangeAddress: order.method === 'ship' && ['placed', 'paid', 'picking', 'packed'].includes(order.stage),
     hasTracking: Boolean(order.trackingUrl || order.trackingNumber),
     refundState: (Number(order.refundedCents) || 0) > 0 ? 'refunded' : (Number(order.pendingRefundCents) || 0) > 0 ? 'pending' : 'none',

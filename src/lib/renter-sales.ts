@@ -11,7 +11,7 @@ export const soldForOf = (item: any): SoldFor | null => {
   return { renterId: String(s.renterId), renterName: String(s.renterName || 'Renter'), shopCutPct: Math.min(100, Math.max(0, Number(s.shopCutPct) || 0)) };
 };
 
-export const FINAL_STAGES = ['shipped', 'handed_off', 'completed'];
+export const FINAL_STAGES = ['shipped', 'completed'];
 
 /** What the renter is owed for one order line right now: the units that reached the customer and weren't returned. */
 export function renterShareCents(line: any): number {

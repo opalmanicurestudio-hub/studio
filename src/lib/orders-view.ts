@@ -3,6 +3,7 @@
 //   Tabs: To pack (paid, being packed) · Ready (on the shelf, outside, packed and waiting to ship) · Done.
 //   "Needs you": the few things a person has to decide, each pointing at one order.
 import { fulfilmentPolicy, slaFor } from '@/lib/retail-orders';
+import { eventWords } from './order-events';
 import { dayKey, formatShortDay, formatTime } from '@/lib/tenant-time';
 import { voidedSlots } from '@/lib/label-boxes';
 import { labelDoubt, trailStatus } from '@/lib/label-doubt';
@@ -57,8 +58,8 @@ export function dueLine(o: any, retailSettings: any, now = Date.now(), timeZone?
   if (st === 'arrived') return { text: 'Outside now', late: true };
   // Orders that have gone (opened from Needs you, or the Done tab): when, not how late.
   if (st === 'shipped') { const t = ms(o.completedAt); return { text: t ? `Shipped ${formatShortDay(new Date(t), tz).replace(/^\w+, /, '')}` : 'Shipped', late: false }; }
-  if (st === 'completed' || st === 'handed_off') return { text: 'Done', late: false };
-  if (st === 'cancelled' || st === 'refunded') return { text: 'Cancelled', late: false };
+  if (st === 'completed') return { text: 'Done', late: false };
+  if (st === 'cancelled') return { text: 'Canceled', late: false };
   if (st === 'ready') {
     const since = ms(o.readyAt);
     const days = since ? Math.floor((now - since) / 864e5) : 0;
@@ -99,10 +100,10 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
     if (o.addressConfirm?.status === 'waiting' && ['paid', 'picking', 'packed'].includes(o.stage) && ms(o.addressConfirm.askedAt) && now - ms(o.addressConfirm.askedAt) > 24 * 3600e3) out.push({ key: `${o.id}-conf`, orderId: o.id, kind: 'unconfirmed', text: `${who} hasn’t confirmed the address yet` });
     // A label someone should look at (lib/label-sweep): nobody has scanned it for days, a void of it didn't finish, or a
     // cancelled order's label couldn't be voided automatically. Find the box, or void it and get the postage back.
-    if (o.labelUnscannedOpen === true && o.shippoTransactionId && ['packed', 'shipped', 'cancelled', 'refunded'].includes(o.stage)) {
-      const closed = ['cancelled', 'refunded'].includes(o.stage);
+    if (o.labelUnscannedOpen === true && o.shippoTransactionId && ['packed', 'shipped', 'cancelled'].includes(o.stage)) {
+      const closed = ['cancelled'].includes(o.stage);
       out.push({ key: `${o.id}-lbl`, orderId: o.id, kind: 'label', text: o.labelUnscanned?.why === 'void_unfinished' ? `Voiding ${who}’s label didn’t finish`
-        : closed ? `${who}’s ${o.stage === 'refunded' ? 'refunded' : 'cancelled'} order still has a label` : o.stage === 'shipped' ? `The carrier hasn’t scanned ${who}’s box` : `${who}’s label hasn’t been used` });
+        : closed ? `${who}’s canceled order still has a label` : o.stage === 'shipped' ? `The carrier hasn’t scanned ${who}’s box` : `${who}’s label hasn’t been used` });
     }
     if (o.voidedLabelMoving?.open === true) out.push({ key: `${o.id}-vlm`, orderId: o.id, kind: 'voided', text: (Number(o.voidedLabelMoving.voidedBoxes) || 0) + (Number(o.voidedLabelMoving.unconfirmedBoxes) || 0) > 0 ? `A box of ${who}’s went out while other labels were being voided`
       : o.voidedLabelMoving.unsure ? `A label being voided for ${who} was scanned by the carrier` : `A voided label for ${who} was scanned by the carrier` });
@@ -159,25 +160,5 @@ export function soloShop(staff: any[], perms: (m: any) => { canPick: boolean }):
   return (staff || []).filter((m) => m && m.archived !== true && perms(m).canPick).length <= 1;
 }
 
-/** A timeline row from an order event, in plain words. */
-export function eventLine(e: any): { text: string; tone: 'ok' | 'warn' | 'plain' } {
-  const m = e?.meta || {};
-  const by = e?.actorName ? ` · ${e.actorName}` : '';
-  switch (e?.type) {
-    case 'payment_confirmed': return { text: 'Paid', tone: 'plain' };
-    case 'batch_claimed': return { text: `Packing started${by}`, tone: 'plain' };
-    case 'item_scanned': return { text: `${m.via === 'tap' ? 'Ticked' : 'Scanned'} into the box (${m.qtyScanned}/${m.qtyOrdered})${by}`, tone: 'plain' };
-    case 'pick_complete': return { text: 'Everything is in', tone: 'ok' };
-    case 'packed': return { text: `Packed${by}`, tone: 'ok' };
-    case 'ready': return { text: `Ready for pickup${by}`, tone: 'ok' };
-    case 'arrived': return { text: 'Customer arrived', tone: 'plain' };
-    case 'handed_off': return { text: `Handed over${by}`, tone: 'ok' };
-    case 'shipped': case 'label_generated': return { text: `${m.carrier ? `${m.carrier} ` : ''}label${m.trackingNumber ? ` · ${m.trackingNumber}` : ''}`, tone: 'plain' };
-    case 'line_shorted': return { text: `Marked missing${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' };
-    case 'refund_issued': return { text: `Refund of ${money(Number(m.amountCents) || 0)} sent${by}`, tone: 'ok' };
-    case 'order_cancelled': return { text: `Cancelled${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' };
-    case 'scan_mismatch': return { text: `Wrong item scanned${by}`, tone: 'warn' };
-    case 'batch_released': case 'batch_auto_released': return { text: `Put back in the queue${by}`, tone: 'plain' };
-    default: return { text: String(m.text || String(e?.type || '').replace(/_/g, ' ')), tone: 'plain' };
-  }
-}
+/** A timeline row from an order event, in plain words (each kind of step described once, lib/order-events). */
+export const eventLine = eventWords;

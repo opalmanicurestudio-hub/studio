@@ -97,7 +97,7 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const needPhoto = photoMissing.length > 0;
   const photoCap = packPhotoLimit({ ...order, packBoxes: Array.from({ length: boxCount }) }, policy);
   // Photos are added while packing, and after (until it ships); someone else's order in packing is theirs to photograph.
-  const photosOpen = mode !== 'preview' && !(mode === 'review' && order.stage === 'picking') && !['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(String(order.stage));
+  const photosOpen = mode !== 'preview' && !(mode === 'review' && order.stage === 'picking') && !['shipped', 'completed', 'cancelled'].includes(String(order.stage));
   const saveBoxes = async (list: PackBox[]) => {
     try { await updateDoc(doc(fs, `tenants/${tenantId}/retailOrders`, order.id), { packBoxes: list.slice(0, MAX_PACK_BOXES) }); setErr(''); }
     catch { setErr('The box didn’t save. Try again.'); }

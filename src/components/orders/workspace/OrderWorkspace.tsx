@@ -39,7 +39,7 @@ const paidService = (o: any) => {
 export type Layout = 'phone' | 'two' | 'three';
 export type WorkTab = 'pack' | 'ship' | 'customer' | 'record';
 
-const DONE = ['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'];
+const DONE = ['shipped', 'completed', 'cancelled'];
 /** "9:02 AM" today, "Oct 17, 9:02 AM" before. */
 function paidWhen(iso: string, tz: string): string {
   const t = Date.parse(String(iso || '')); if (!Number.isFinite(t)) return '';
@@ -157,7 +157,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const steps = ship ? ['Paid', 'Packed', 'Labeled', 'Shipped', 'Delivered'] : ['Paid', 'Packed', 'Ready', 'Picked up'];
   const now = ship
     ? ({ paid: 1, picking: 1, packed: order.labelUrl || order.shippoTransactionId ? 3 : 2, shipped: 4, completed: 5 } as Record<string, number>)[stage] ?? 1
-    : ({ paid: 1, picking: 1, packed: 2, ready: 3, arrived: 3, completed: 4, handed_off: 4 } as Record<string, number>)[stage] ?? 1;
+    : ({ paid: 1, picking: 1, packed: 2, ready: 3, arrived: 3, completed: 4, } as Record<string, number>)[stage] ?? 1;
 
   // MORE: the rarer jobs, kept off the screen until they're needed.
   const follow = isFollowUp(order);
@@ -166,7 +166,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
     && (order.lines || []).some((l: any) => l.preorder !== true);
   const canCancel = !terminal && (perms.canManage || canRefund || isManager);
   // Refund part of it (some items, the shipping, an amount): someone allowed to send refunds, once it's paid.
-  const canRefundPart = canRefund && !!order.qrToken && !['placed', 'cancelled', 'refunded'].includes(stage) && !order.isTest;
+  const canRefundPart = canRefund && !!order.qrToken && !['placed', 'cancelled'].includes(stage) && !order.isTest;
   const doCancel = async () => { setBusy('cancel'); const r = await cancelIt(fs, tenantId, order, actor, reason.trim() || 'Cancelled by the shop'); setBusy(''); if (r.ok) { setConfirmCancel(false); onToast(r.message); } else setErr(r.message); };
   const split = async () => { setBusy('split'); setMore(false); const r = await splitReadyFromWaiting(fs, tenantId, order.id, actor); setBusy(''); feel(r.ok); if (r.ok) onToast(r.message); else setErr(r.message); };
   const hold = async () => { setBusy('hold'); setMore(false); onToast(await setHold(fs, tenantId, [order], actor, true)); setBusy(''); };
@@ -196,7 +196,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
         {order.claimedByName && stage === 'picking' ? ` · ${order.claimedBy === actor.id ? 'you’re packing' : `${firstName(order.claimedByName)} is packing`}` : ''}
       </p>
       <OrderFacts fs={fs} tenantId={tenantId} order={order} all={all} rs={rs} onOpen={(id) => (onOpenOrder ? onOpenOrder(id) : window.location.assign(`/retail-orders?order=${encodeURIComponent(id)}`))} />
-      {stage !== 'cancelled' && stage !== 'refunded' && (
+      {stage !== 'cancelled' && (
         <div className="mt-4 flex gap-1.5" aria-label="Where this order is">
           {steps.map((s, i) => (
             <div key={s} className="flex-1 text-[12px] font-semibold" style={{ color: i === now ? C.ink : C.muted }}><div className="mb-1.5 h-1 rounded-full" style={{ background: i < now ? C.ink : i === now ? C.mint : C.line }} />{s}</div>))}

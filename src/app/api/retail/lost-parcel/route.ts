@@ -20,7 +20,7 @@ import { lineFor, taxBasisOf } from '@/lib/order-family';
 export const dynamic = 'force-dynamic';
 
 const newId = () => randomBytes(6).toString('hex');
-const SHIPPED = ['shipped', 'handed_off'];
+const SHIPPED = ['shipped'];
 const OPEN_CLAIM = new Set(['in_review', 'needs_info', 'info_requested', 'open']);
 const num = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
 
@@ -32,7 +32,7 @@ const sentLines = (o: any) => (Array.isArray(o?.lines) ? o.lines : [])
 
 /** Why this order's customer shouldn't also get a replacement: a refund on its way or sent, or a report still open. */
 function alreadyCovered(o: any, claims: any[]): string | null {
-  if ((Number(o?.pendingRefundCents) || 0) > 0 || o?.stage === 'refunded' || ((Number(o?.totalCents) || 0) > 0 && (Number(o?.refundedCents) || 0) >= (Number(o?.totalCents) || 0))) {
+  if ((Number(o?.pendingRefundCents) || 0) > 0 || ((Number(o?.totalCents) || 0) > 0 && (Number(o?.refundedCents) || 0) >= (Number(o?.totalCents) || 0))) {
     return `${num(o)} is being refunded, so a replacement would pay for it twice. Sort out the refund first.`;
   }
   if (claims.some((c) => c.orderId === o?.id && c.type === 'not_received' && OPEN_CLAIM.has(String(c.status || '')))) {

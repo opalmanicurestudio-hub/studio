@@ -12,7 +12,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 export const PASS_DAYS = 30;
 export const LINK_MIN_DAYS = 30;
 const DAY = 864e5;
-const FINISHED = ['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'];
+const FINISHED = ['shipped', 'completed', 'cancelled'];
 
 const secret = () => String(process.env.ORDER_PASS_SECRET || process.env.CRON_SECRET || process.env.FIREBASE_ADMIN_PRIVATE_KEY || 'order-pass');
 const sign = (tenantId: string, code: string, exp: number) => createHmac('sha256', secret()).update(`pass:${tenantId}:${code}:${exp}`).digest('base64url').slice(0, 32);
@@ -23,7 +23,7 @@ export function linkExpiresAt(o: any, rs: any): string | null {
   if (!FINISHED.includes(stage)) return null;
   // Something to download stays reachable for as long as it was sold for: for good when no limit was set.
   const digital = (o?.lines || []).filter((l: any) => l?.digital === true && !['refunded'].includes(String(l?.status || '')));
-  if (digital.length && stage !== 'cancelled' && stage !== 'refunded') {
+  if (digital.length && stage !== 'cancelled') {
     if (digital.some((l: any) => !(Number(l.digitalAccessDays) > 0))) return null;
     const paid = Date.parse(String(o?.paidAt || ''));
     const until = Number.isFinite(paid) ? paid + Math.max(...digital.map((l: any) => Number(l.digitalAccessDays))) * DAY : NaN;

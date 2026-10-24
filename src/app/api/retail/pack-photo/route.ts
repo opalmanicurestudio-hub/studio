@@ -18,7 +18,7 @@ export const maxDuration = 30;
 
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
 // Photos are part of how an order went out: not for one that was cancelled.
-const CLOSED = ['cancelled', 'refunded'];
+const CLOSED = ['cancelled'];
 
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({} as any));

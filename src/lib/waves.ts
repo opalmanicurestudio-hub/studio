@@ -606,7 +606,7 @@ export function packQueue(wave: Wave, ordersById: Map<string, any>): WaveOrder[]
   return wave.orders
     .filter((w) => {
       const o = ordersById.get(w.orderId);
-      return !o || !['handed_off', 'shipped', 'completed', 'cancelled', 'refunded'].includes(String(o.stage));
+      return !o || !['shipped', 'completed', 'cancelled'].includes(String(o.stage));
     })
     .sort((a, b) => a.tote - b.tote);
 }

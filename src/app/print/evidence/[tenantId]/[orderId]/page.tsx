@@ -1,4 +1,5 @@
 import { checkPrintKey } from '@/lib/print-key';
+import { eventTypeOf } from '@/lib/order-events';
 import { PACK_PHOTO_KIND_LABEL, packPhotosOf } from '@/lib/pack-photo';
 import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 /**
@@ -31,7 +32,6 @@ const EVENT_LABELS: Record<string, string> = {
   line_reopened: 'Line reopened',
   pick_complete: 'Pick complete',
   packed: 'Packed',
-  packing_slip_printed: 'Packing slip printed',
   label_generated: 'Shipping label generated',
   label_scan_verified: 'Label verified onto box',
   marked_ready: 'Marked ready',
@@ -39,14 +39,15 @@ const EVENT_LABELS: Record<string, string> = {
   handoff_scanned: 'Handoff verified by scan',
   shipped: 'Handed to carrier',
   completed: 'Completed',
-  cancel_requested: 'Cancellation requested',
-  restock_scanned: 'Item restocked by scan',
   cancelled: 'Cancelled',
   refund_issued: 'Refund issued',
   return_opened: 'Return opened',
   return_resolved: 'Return resolved',
   replacement_created: 'Replacement created',
   backorder_split: 'Backorder split off',
+  manifested: 'On the day’s USPS form',
+  held_for_review: 'Held for review',
+  hold_released: 'Released from review',
   override: 'Manager override',
   address_updated: 'Shipping address corrected',
   note: 'Note',
@@ -122,7 +123,8 @@ export default async function PrintEvidencePage({
 
   const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : {};
   const order = orderSnap.data() as any;
-  const events = eventsSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+  // Older names read as the one they mean now (lib/order-events).
+  const events = eventsSnap.docs.map((d: any) => { const x: any = { id: d.id, ...(d.data() || {}) }; return { ...x, type: eventTypeOf(x.type) || x.type }; });
   const shopName = String(tenant.businessName || tenant.name || 'Shop');
   const num = `#${String(order.orderNumber ?? '').padStart(4, '0')}`;
   const photos: string[] = Array.isArray(order.packPhotoUrls) ? order.packPhotoUrls : [];

@@ -1,3 +1,5 @@
+import { eventIdFor } from '@/lib/order-events';
+import { getAdminDb } from '@/lib/firebase-admin';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { buildEvent, canAdvance, type RetailOrder } from '@/lib/retail-orders';
@@ -20,22 +22,6 @@ import { buildEvent, canAdvance, type RetailOrder } from '@/lib/retail-orders';
 //
 // Idempotent: repeat taps update the vehicle description, nothing else.
 
-function getAdminDb() {
-  const { initializeApp, getApps, cert } = require('firebase-admin/app');
-  const { getFirestore } = require('firebase-admin/firestore');
-  const APP_NAME = 'admin-retail-arrive';
-  let app = getApps().find((a: any) => a.name === APP_NAME);
-  if (!app) {
-    app = initializeApp({
-      credential: cert({
-        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    }, APP_NAME);
-  }
-  return getFirestore(app);
-}
 
 export async function POST(req: NextRequest) {
   let body: any;
@@ -99,64 +85,53 @@ export async function POST(req: NextRequest) {
   // that says "arrived" when the car is ten minutes out sends someone walking
   // outside for nothing. It records the heads-up and lets the board show it.
   if (onWay) {
-    const curbsideOnWay = {
-      ...(order.curbside || {}),
+    // In one step with the order as it is now, and only while it's still coming (not once it's handed over or canceled).
+    const r: any = await db.runTransaction(async (tx: any) => {
+      const o = ((await tx.get(orderRef)).data() || {}) as RetailOrder;
+      if (!['paid', 'picking', 'packed', 'ready'].includes(o.stage)) return { refused: true, stage: o.stage };
+      tx.set(orderRef, { curbside: { ...(o.curbside || {}), ...accessPatch, onWayAt: o.curbside?.onWayAt || now, ...(etaMinutes !== null ? { etaMinutes } : {}) } }, { merge: true });
+      if (!o.curbside?.onWayAt) {
+        const evRef = orderRef.collection('events').doc(eventIdFor('note', 'on_my_way'));
+        tx.set(evRef, { id: evRef.id, ...buildEvent('note', 'customer', o.customerName || 'Customer', { text: `On the way${etaMinutes !== null ? ` \u2014 about ${etaMinutes} min out` : ''}` }) });
+      }
+      return { stage: o.stage };
+    });
+    if (r.refused) return NextResponse.json({ error: 'This order isn’t waiting for you any more.', stage: r.stage }, { status: 409 });
+    return NextResponse.json({ ok: true, onWay: true, stage: r.stage, etaMinutes });
+  }
+
+  // In one step with the order as it is now: a check-in that lands as the order is handed over never puts it back to
+  // arrived, and two taps are one arrival on its history (lib/order-events eventIdFor).
+  const r: any = await db.runTransaction(async (tx: any) => {
+    const cur = await tx.get(orderRef);
+    const o = (cur.data() || {}) as RetailOrder;
+    const firstCheckIn = !o.curbside?.arrivedAt;
+    const curbside = {
+      ...(o.curbside || {}),
       ...accessPatch,
-      onWayAt: order.curbside?.onWayAt || now,
-      ...(etaMinutes !== null ? { etaMinutes } : {}),
+      arrivedAt: o.curbside?.arrivedAt || now,
+      spotOrVehicle: spotOrVehicle || o.curbside?.spotOrVehicle || '',
+      ...(firstCheckIn ? { checkInSource } : {}),
+      ...(firstCheckIn && accuracyM !== null ? { arrivedAccuracyM: accuracyM } : {}),
     };
-    const b = db.batch();
-    b.set(orderRef, { curbside: curbsideOnWay }, { merge: true });
-    if (!order.curbside?.onWayAt) {
-      const evRef = orderRef.collection('events').doc();
-      b.set(evRef, {
+    const onTime = o.stage === 'ready' && canAdvance(o, 'arrived').ok; // on the shelf: they're here for it
+    if (onTime) tx.set(orderRef, { stage: 'arrived', curbside }, { merge: true });
+    else if (['paid', 'picking', 'packed'].includes(o.stage)) tx.set(orderRef, { curbside }, { merge: true }); // early: no stage change
+    else return { refused: o.stage === 'arrived' ? 'Already checked in' : 'This order cannot check in right now', status: o.stage === 'arrived' ? 200 : 409 };
+    if (firstCheckIn || onTime) {
+      const evRef = orderRef.collection('events').doc(eventIdFor('customer_arrived', onTime ? 'at_ready' : 'early'));
+      tx.set(evRef, {
         id: evRef.id,
-        ...buildEvent('note', 'customer', order.customerName || 'Customer', {
-          text: `On the way${etaMinutes !== null ? ` \u2014 about ${etaMinutes} min out` : ''}`,
+        ...buildEvent('customer_arrived', 'customer', o.customerName || 'Customer', {
+          spotOrVehicle: curbside.spotOrVehicle,
+          early: !onTime,
+          source: checkInSource,
+          ...(accuracyM !== null ? { accuracyM } : {}),
         }),
       });
     }
-    await b.commit();
-    return NextResponse.json({ ok: true, onWay: true, stage: order.stage, etaMinutes });
-  }
-
-  const firstCheckIn = !order.curbside?.arrivedAt;
-  const curbside = {
-    ...(order.curbside || {}),
-    ...accessPatch,
-    arrivedAt: order.curbside?.arrivedAt || now,
-    spotOrVehicle: spotOrVehicle || order.curbside?.spotOrVehicle || '',
-    ...(firstCheckIn ? { checkInSource } : {}),
-    ...(firstCheckIn && accuracyM !== null ? { arrivedAccuracyM: accuracyM } : {}),
-  };
-
-  const batch = db.batch();
-  const onTime = canAdvance(order, 'arrived').ok; // true only when stage === 'ready'
-
-  if (onTime) {
-    batch.set(orderRef, { stage: 'arrived', curbside }, { merge: true });
-  } else if (['paid', 'picking', 'packed'].includes(order.stage)) {
-    batch.set(orderRef, { curbside }, { merge: true }); // early — no stage change
-  } else {
-    return NextResponse.json(
-      { error: order.stage === 'arrived' ? 'Already checked in' : 'This order cannot check in right now' },
-      { status: order.stage === 'arrived' ? 200 : 409 }
-    );
-  }
-
-  if (firstCheckIn || onTime) {
-    const evRef = orderRef.collection('events').doc();
-    batch.set(evRef, {
-      id: evRef.id,
-      ...buildEvent('customer_arrived', 'customer', order.customerName || 'Customer', {
-        spotOrVehicle: curbside.spotOrVehicle,
-        early: !onTime,
-        source: checkInSource,
-        ...(accuracyM !== null ? { accuracyM } : {}),
-      }),
-    });
-  }
-
-  await batch.commit();
-  return NextResponse.json({ ok: true, stage: onTime ? 'arrived' : order.stage, early: !onTime });
+    return { onTime, stage: o.stage };
+  });
+  if (r.refused) return NextResponse.json({ error: r.refused }, { status: r.status });
+  return NextResponse.json({ ok: true, stage: r.onTime ? 'arrived' : r.stage, early: !r.onTime });
 }

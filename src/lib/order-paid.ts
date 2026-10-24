@@ -178,7 +178,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, pay: 
       if (charged != null && charged !== expectedCard) console.warn(`[order-paid] order ${orderId}: card paid ${charged}, expected ${expectedCard}`);
       ev(buildEvent('payment_confirmed', 'system', 'Stripe', { checkoutSessionId: String(session?.id || ''), amountCents: charged ?? expectedCard, amountMatched: charged == null || charged === expectedCard }));
     } else {
-      ev({ type: 'paid', at, actorId: 'system', actorName: pay.via === 'store_credit' ? 'Store credit' : 'Gift card',
+      ev({ type: 'payment_confirmed', at, actorId: 'system', actorName: pay.via === 'store_credit' ? 'Store credit' : 'Gift card',
         meta: { text: pay.via === 'store_credit' ? `Paid in full with store credit: ${money(creditTaken)} redeemed, nothing charged` : `Paid in full with gift card ${pay.gift.code}: ${money(giftSpent || giftWant)} redeemed, nothing charged` } });
     }
     ev(buildEvent('stock_reserved', 'system', 'Retail Engine', { lineCount: lines.length, units: lines.reduce((a: number, l: any) => a + c0(l.qtyOrdered), 0), qr: buildOrderQrValue(qrToken) }));

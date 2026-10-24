@@ -90,7 +90,7 @@ export async function handleRetailOrderPaid(
       let charge: any = null;
       if (chargeId && stripe) { try { charge = await stripe.charges.retrieve(chargeId, {}, connAcct ? { stripeAccount: connAcct } : undefined); } catch { /* judged without it */ } }
       let prior = 0;
-      if (email) { try { const p = await db.collection(`tenants/${tenantId}/retailOrders`).where('customerEmail', '==', order.customerEmail).limit(10).get(); prior = p.docs.filter((d: any) => d.id !== orderId && ['shipped', 'handed_off', 'completed'].includes((d.data() as any).stage)).length; } catch { /* treated as new */ } }
+      if (email) { try { const p = await db.collection(`tenants/${tenantId}/retailOrders`).where('customerEmail', '==', order.customerEmail).limit(10).get(); prior = p.docs.filter((d: any) => d.id !== orderId && ['shipped', 'completed'].includes((d.data() as any).stage)).length; } catch { /* treated as new */ } }
       risk = assessRisk(order, charge, prior, pol);
     }
   } catch { risk = null; }

@@ -42,10 +42,8 @@ export const ORDER_STAGES = [
   'ready',       // pickup orders: on the ready shelf / label printed for ship
   'arrived',     // curbside only: customer checked in "I'm here"
   'shipped',     // ship orders: carrier label scanned onto box
-  'handed_off',  // pickup: customer QR scanned at counter/car
-  'completed',   // terminal success
+  'completed',   // terminal success: handed over (pickup), or delivered (ship)
   'cancelled',   // terminal: refunded, reservations released
-  'refunded',    // terminal: post-completion full refund (via return flow)
 ] as const;
 
 export type OrderStage = (typeof ORDER_STAGES)[number];
@@ -67,20 +65,18 @@ export type PriceTier = (typeof PRICE_TIERS)[number];
  * Method-specific branches (curbside vs ship) are enforced in canAdvance().
  */
 export const LEGAL_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
-  placed:     ['paid', 'cancelled'],
+  placed:     ['paid', 'completed', 'cancelled'],       // 'completed' = a download-only order, done once paid
   paid:       ['picking', 'cancelled'],
   picking:    ['packed', 'paid', 'cancelled'],          // 'paid' = batch released back to queue
-  packed:     ['ready', 'shipped', 'cancelled'],        // a packed ship order can go straight out; cancel after packed requires restock scan
-  ready:      ['arrived', 'shipped', 'handed_off', 'cancelled'],
-  arrived:    ['handed_off'],
+  packed:     ['ready', 'shipped', 'cancelled'],         // a curbside customer already outside: ready, and straight to arrived (markReady)
+  ready:      ['arrived', 'completed', 'shipped', 'cancelled'],
+  arrived:    ['completed'],
   shipped:    ['completed'],
-  handed_off: ['completed'],
-  completed:  ['refunded'],
+  completed:  [],
   cancelled:  [],
-  refunded:   [],
 };
 
-export const TERMINAL_STAGES: OrderStage[] = ['completed', 'cancelled', 'refunded'];
+export const TERMINAL_STAGES: OrderStage[] = ['completed', 'cancelled'];
 
 /* ════════════════════════════════════════════════════════════════════════════
  * INVENTORY BRIDGE  (existing tenants/{tid}/inventory items, type 'retail')
@@ -979,6 +975,7 @@ export interface RetailOrder {
  * AUDIT EVENTS  (append-only subcollection — never update, never delete)
  * ════════════════════════════════════════════════════════════════════════════ */
 
+// Every kind of step an order's history holds, each described once in lib/order-events (EVENT_INFO).
 export const ORDER_EVENT_TYPES = [
   'placed',
   'payment_confirmed',
@@ -992,22 +989,23 @@ export const ORDER_EVENT_TYPES = [
   'line_reopened',              // meta: { lineId, qtyShorted, reason, resolution }
   'pick_complete',
   'packed',
-  'packing_slip_printed',
   'label_generated',           // meta: { carrier?, trackingNumber? }
-  'label_scan_verified',       // label barcode scanned onto the correct box
+  'label_scan_verified',       // the label's barcode scanned onto the right box
   'marked_ready',
   'customer_arrived',          // meta: { spotOrVehicle }
   'handoff_scanned',           // customer QR verified at counter/car
   'shipped',
+  'manifested',                // meta: { manifestId, carrier } — on the day's USPS form
   'completed',
-  'cancel_requested',
-  'restock_scanned',           // meta: { sku, lineId, qty } — packed-order cancel path
   'cancelled',
   'refund_issued',             // meta: { amountCents, stripeRefundId, scope: 'full'|'partial' }
   'return_opened',             // meta: { returnId }
   'return_resolved',           // meta: { returnId, resolution }
   'replacement_created',       // meta: { childOrderId }
   'backorder_split',           // meta: { childOrderId, lineIds }
+  'address_updated',           // meta: { from, to } — by the team, or the customer with a code
+  'held_for_review',           // meta: { reason } — a manager holds it before packing
+  'hold_released',
   'override',                  // meta: { rule, reason } — manager PIN bypass; always logged
   'note',
 ] as const;
@@ -1655,9 +1653,14 @@ export function canAdvance(order: RetailOrder, target: OrderStage): GuardResult 
       }
       return { ok: true };
 
-    case 'handed_off':
-      if (order.method === 'ship') {
-        return { ok: false, reason: 'Ship orders complete via shipped, not handoff.' };
+    case 'completed':
+      // A ship order completes when the carrier delivers it (from shipped); a pickup order when it's handed over.
+      // Straight from placed only for a download-only order (done once paid).
+      if (order.stage === 'placed' && !((order.lines || []).length > 0 && (order.lines || []).every((l: any) => l?.digital === true))) {
+        return { ok: false, reason: 'Only a download-only order is completed when it’s paid.' };
+      }
+      if (order.method === 'ship' && order.stage !== 'shipped' && order.stage !== 'placed') {
+        return { ok: false, reason: 'A ship order is completed by its delivery, not handed over.' };
       }
       return { ok: true };
 
@@ -1677,7 +1680,7 @@ export function canCancel(order: RetailOrder): GuardResult {
   if (TERMINAL_STAGES.includes(order.stage)) {
     return { ok: false, reason: 'Order is already in a terminal state.' };
   }
-  if (['arrived', 'shipped', 'handed_off'].includes(order.stage)) {
+  if (['arrived', 'shipped'].includes(order.stage)) {
     return { ok: false, reason: 'Too late to cancel; open a return instead.' };
   }
   return { ok: true };
@@ -1787,10 +1790,8 @@ export const STAGE_LABELS: Record<OrderStage, string> = {
   ready: 'Ready',
   arrived: 'Customer Here',
   shipped: 'Shipped',
-  handed_off: 'Picked Up',
   completed: 'Completed',
-  cancelled: 'Cancelled',
-  refunded: 'Refunded',
+  cancelled: 'Canceled',
 };
 
 export const METHOD_LABELS: Record<FulfillmentMethod, string> = {

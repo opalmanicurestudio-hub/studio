@@ -60,7 +60,7 @@ export async function sendDelayNotice(db: any, input: DelayInput): Promise<Delay
     const snap = await txn.get(orderRef);
     if (!snap.exists) return null;
     const o = snap.data() as any;
-    if (['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(String(o.stage))) return null;
+    if (['shipped', 'completed', 'cancelled'].includes(String(o.stage))) return null;
     if (o.notifiedForPromiseAt === promiseIso) return null;
     if (input.expect && (String(o.shipPromiseAt || '') !== String(input.expect.shipPromiseAt || '')
       || (Number(o.autoDelayNotices) || 0) !== input.expect.autoNotices || o.trackingNumber || o.shippoTransactionId)) return null;

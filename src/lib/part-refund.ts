@@ -56,7 +56,7 @@ function partRefundAsk0(o: any, ask: any): { ok: true; add: PartRefund } | { ok:
   const kind = String(ask?.kind || '') as PartKind;
   const note = String(ask?.note || '').trim().slice(0, 300);
   if (!note) return { ok: false, error: 'Say why it’s being refunded.' };
-  if (['cancelled', 'refunded', 'placed'].includes(String(o?.stage || ''))) return { ok: false, error: o?.stage === 'placed' ? 'This order hasn’t been paid.' : 'This order has been cancelled and refunded already.' };
+  if (['cancelled', 'placed'].includes(String(o?.stage || ''))) return { ok: false, error: o?.stage === 'placed' ? 'This order hasn’t been paid.' : 'This order has been cancelled and refunded already.' };
   if (kind === 'items') {
     const r = itemsRefund(o, Array.isArray(ask?.lines) ? ask.lines : []);
     if (!r.ok) return r;

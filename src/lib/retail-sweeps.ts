@@ -106,7 +106,7 @@ export async function sweepStalledShipments(
 
     const since = new Date(now - lookbackDays * DAY).toISOString();
     const snap = await db.collection(`tenants/${tenantId}/retailOrders`)
-      .where('stage', 'in', ['shipped', 'handed_off'])
+      .where('stage', 'in', ['shipped'])
       .get();
 
     for (const d of snap.docs) {

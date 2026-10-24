@@ -101,7 +101,7 @@ export async function markAllShipped(fs: Firestore, t: string, orders: any[], ac
 }
 
 export async function setHold(fs: Firestore, t: string, orders: any[], actor: Actor, hold: boolean, reason = ''): Promise<string> {
-  const todo = orders.filter((o) => !!o.holdForReview !== hold && !['shipped', 'handed_off', 'completed', 'cancelled'].includes(o.stage));
+  const todo = orders.filter((o) => !!o.holdForReview !== hold && !['shipped', 'completed', 'cancelled'].includes(o.stage));
   if (!todo.length) return hold ? 'These are already held.' : 'None of these are held.';
   const at = new Date().toISOString();
   await Promise.all(todo.map(async (o) => {

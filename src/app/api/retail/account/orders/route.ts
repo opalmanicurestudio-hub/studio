@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
   [...seen.values()]
     .sort((a, b) => String(b.paidAt || b.placedAt || '').localeCompare(String(a.paidAt || a.placedAt || '')))
     .forEach((o: any) => {
-      if (['placed', 'cancelled', 'refunded'].includes(String(o.stage))) return;
+      if (['placed', 'cancelled'].includes(String(o.stage))) return;
       (o.lines || []).forEach((l: any) => {
         if (l.digital !== true) return;
         if (['refunded', 'backordered'].includes(String(l.status))) return;

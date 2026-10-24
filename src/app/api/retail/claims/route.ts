@@ -50,7 +50,7 @@ function getAdminDb() {
 }
 
 const CLAIM_TYPES = ['missing', 'damaged', 'wrong_item', 'not_received'] as const;
-const CLAIM_STAGES = ['shipped', 'handed_off', 'completed'];
+const CLAIM_STAGES = ['shipped', 'completed'];
 
 const safeClaim = (d: any) => ({
   id: d.id, type: d.type, qty: d.qty || 1,

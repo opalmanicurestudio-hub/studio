@@ -354,7 +354,7 @@ let bad = 0; const ok = (c: boolean, m: string) => { if (!c) { bad++; console.lo
     { id: 'm', stage: 'shipped', method: 'ship', customerName: 'Ana Ruiz', voidedLabelMoving: { open: true, unsure: true } },
     { id: 'v', stage: 'packed', method: 'ship', customerName: 'Joy Park', voidedLabelMoving: { open: true, unsure: true, voidedBoxes: 0, unconfirmedBoxes: 1 } },
   ], Date.now());
-  ok(n2.find((x) => x.orderId === 'u')?.text === 'Voiding Rae’s label didn’t finish' && n2.find((x) => x.orderId === 'x')?.text === 'Lee’s cancelled order still has a label'
+  ok(n2.find((x) => x.orderId === 'u')?.text === 'Voiding Rae’s label didn’t finish' && n2.find((x) => x.orderId === 'x')?.text === 'Lee’s canceled order still has a label'
     && n2.find((x) => x.orderId === 'm')?.text === 'A label being voided for Ana was scanned by the carrier'
     && n2.find((x) => x.orderId === 'v')?.text === 'A box of Joy’s went out while other labels were being voided', 'a void that didn’t finish, a cancelled order’s label left over, and a box out on a label being voided are listed');
 

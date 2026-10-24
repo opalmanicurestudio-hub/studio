@@ -48,7 +48,7 @@ import { ClaimSheet, StalledSheet, monthDay } from './LossSheets';
 import { claimsToFile, type ClaimToFile } from '@/lib/lost-recovered';
 import { protectionPolicy } from '@/lib/shipment-protection';
 
-const DONE_STAGES = ['shipped', 'handed_off', 'completed', 'cancelled'];
+const DONE_STAGES = ['shipped', 'completed', 'cancelled'];
 
 /** What the message to a customer starts as, for a parcel the carrier is having trouble with. */
 function carrierMessage(it: CarrierItem): string | null {
@@ -177,7 +177,7 @@ export function OrdersApp() {
   const schedule = React.useMemo(() => scheduleFrom(rs), [rs]);
   const day = React.useMemo(() => {
     const today = dayKey(new Date(now), shopZone);
-    const sentToday = recent.filter((o) => o.method === 'ship' && ['shipped', 'handed_off', 'completed'].includes(String(o.stage)) && o.completedAt && dayKey(new Date(Date.parse(o.completedAt)), shopZone) === today && !o.labelFromOrderId && !o.shippedWithOrderId).length;
+    const sentToday = recent.filter((o) => o.method === 'ship' && ['shipped', 'completed'].includes(String(o.stage)) && o.completedAt && dayKey(new Date(Date.parse(o.completedAt)), shopZone) === today && !o.labelFromOrderId && !o.shippedWithOrderId).length;
     return dayPicture({ orders, flagged: unscanned, recentPacked: recent, sentToday, rs, schedule, now, timeZone: shopZone });
   }, [orders, unscanned, recent, rs, schedule, now, shopZone]);
   // A coming ship day with more to pack than the team can ship goes under Needs you (lib/capacity), when the shop wants.

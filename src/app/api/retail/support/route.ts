@@ -117,10 +117,8 @@ export async function POST(req: NextRequest) {
     ready: 'Your order is ready for pickup.',
     arrived: 'We can see that you have arrived, and your order is on its way out to you.',
     shipped: 'Your order has shipped.',
-    handed_off: 'Your order has been picked up.',
     completed: 'Your order is complete.',
     cancelled: 'This order has been cancelled.',
-    refunded: 'This order has been refunded.',
   };
   /* ═══ ONE ISSUE = ONE CASE ═════════════════════════════════════════════
    * Before creating anything, look for an open case on this order. A new
@@ -186,7 +184,7 @@ export async function POST(req: NextRequest) {
       ? 'You can cancel this order yourself. Please open your order page and tap \u201cCancel this order\u201d. The items will be released right away, and any payment will be queued for a refund.'
       : `${stageLine[order.stage] || ''} As packing has already started, a member of our team will need to review your cancellation request. Your message has been added to our queue.`;
   } else if (/return|exchange/.test(lower)) {
-    autoReply = ['shipped', 'handed_off', 'completed'].includes(order.stage)
+    autoReply = ['shipped', 'completed'].includes(order.stage)
       ? 'You can start a return from your order page. Please tap \u201cStart a return\u201d, select the items and the reason, and then bring them to us or ship them back.'
       : 'Returns can be started once your order has been picked up or delivered. Your message has been added to our queue.';
   } else if (/where|status|when|ready|track|eta|how long/.test(lower)) {

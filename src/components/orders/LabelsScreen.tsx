@@ -63,7 +63,7 @@ export function LabelsScreen() {
     { id: 'stuck', title: 'A void that didn’t finish', detail: stuck.length === 1 ? `${orderNum(stuck[0])}: Shippo didn’t answer. It can’t ship until it’s sorted.` : `${stuck.length} orders. They can’t ship until they’re sorted.`, count: stuck.length,
       items: stuck.map((o) => ({ key: o.id, orderId: o.id, title: `${orderNum(o)} · ${o.customerName || 'Customer'}`, detail: 'Void it again, or keep the label if it’s fine in Shippo' })) },
     { id: 'unused', title: 'Labels nobody has used', detail: `${unused.length} label${unused.length === 1 ? '' : 's'} the carrier hasn’t scanned`, count: unused.length,
-      items: unused.map((o) => ({ key: o.id, orderId: o.id, title: `${orderNum(o)} · ${o.customerName || 'Customer'}`, detail: o.stage === 'shipped' ? `Marked shipped ${day(o.completedAt)}, no scan since` : ['cancelled', 'refunded'].includes(String(o.stage)) ? 'The order was cancelled; void it for the postage' : `Bought ${day(o.labelUnscanned?.boughtAt || o.shipmentProtection?.decidedAt)}` })) },
+      items: unused.map((o) => ({ key: o.id, orderId: o.id, title: `${orderNum(o)} · ${o.customerName || 'Customer'}`, detail: o.stage === 'shipped' ? `Marked shipped ${day(o.completedAt)}, no scan since` : ['cancelled'].includes(String(o.stage)) ? 'The order was cancelled; void it for the postage' : `Bought ${day(o.labelUnscanned?.boughtAt || o.shipmentProtection?.decidedAt)}` })) },
   ].filter((s) => s.count > 0);
   const moneyRows: Section[] = [
     { id: 'waiting', title: 'Refunds on the way', detail: `${waiting.length} label${waiting.length === 1 ? '' : 's'} · ${money(waitingCents)} · Shippo usually confirms within 2 weeks`, count: waiting.length,

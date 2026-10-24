@@ -1,7 +1,7 @@
 // src/lib/order-tags.ts — WHAT AN ORDER IS, AT A GLANCE (pure; the list, the order, the slips and the customer's page
 // read it):
 //   status    — one clear word for where it is: "To pack", "Waiting on stock", "Packing", "Ready for pickup",
-//               "Shipped", "Delivered", "Picked up", "Cancelled"…
+//               "Shipped", "Delivered", "Picked up", "Canceled"…
 //   payment   — how it stands with the money: paid (and how), paid on another order, a refund waiting or on its way,
 //               partly refunded, refunded, not paid
 //   tags      — what's worth knowing besides: wholesale, a gift, a pre-order, a backorder (and which order it's for),
@@ -33,8 +33,7 @@ export function orderStatus(o: any): Said {
   if (s === 'arrived') return { label: 'Outside now', tone: 'warn' };
   if (s === 'shipped') return { label: 'Shipped', tone: 'ok' };
   if (s === 'completed') return ship ? (o?.deliveredAt ? { label: 'Delivered', tone: 'ok' } : { label: 'Shipped', tone: 'ok' }) : o?.method === 'digital' ? { label: 'Delivered', tone: 'ok' } : { label: 'Picked up', tone: 'ok' };
-  if (s === 'handed_off') return { label: 'Picked up', tone: 'ok' };
-  if (s === 'cancelled') return { label: 'Cancelled', tone: '' };
+  if (s === 'cancelled') return { label: 'Canceled', tone: '' };
   if (s === 'refunded') return { label: 'Refunded', tone: '' };
   return { label: s ? s[0].toUpperCase() + s.slice(1) : 'Order', tone: '' };
 }

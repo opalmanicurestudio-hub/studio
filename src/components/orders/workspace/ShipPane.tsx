@@ -109,11 +109,11 @@ export function PickupPane({ fs, tenantId, order, actor, shopZone, rs, onHandove
       <p className="m-0 text-[15px] font-semibold">Once it’s packed</p>
       <p className="m-0 mt-1 text-[14px]" style={muted}>It gets a shelf spot, and {who} is told it’s ready{order.method === 'curbside' ? ', with a link to say when they’re outside' : ''}.{order.pickupAt ? ` They asked for ${formatTime(order.pickupAt, shopZone)}.` : ''}</p>
     </div>);
-  if (['completed', 'handed_off'].includes(stage)) return (
+  if (['completed'].includes(stage)) return (
     <div className="rounded-2xl p-4" style={{ background: C.okSoft }}>
       <p className="m-0 text-[15px] font-semibold" style={{ color: C.ok }}>Picked up{order.completedAt ? ` ${shortDay(order.completedAt)}, ${formatTime(order.completedAt, shopZone)}` : ''}</p>
     </div>);
-  if (stage === 'cancelled' || stage === 'refunded') return <p className="m-0 text-[15px]" style={muted}>This order was cancelled.</p>;
+  if (stage === 'cancelled') return <p className="m-0 text-[15px]" style={muted}>This order was canceled.</p>;
 
   return (
     <div>

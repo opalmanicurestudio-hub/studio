@@ -87,7 +87,7 @@ export function parcelArrived(o: any): boolean {
  *  order part paid by gift card or store credit is never settled by card refunds alone: that part is still theirs. */
 function settled(p: any): boolean {
   if (!p) return false;
-  if (['cancelled', 'refunded'].includes(String(p.stage || ''))) return true;
+  if (['cancelled'].includes(String(p.stage || ''))) return true;
   const paid = Math.max(cardPaidCents(p), cents(p.totalCents));
   return paid > 0 && cents(p.refundedCents) >= paid;
 }
@@ -117,7 +117,7 @@ export function familyLeftCents(payer: any, followUps: any[]): number {
 }
 
 const OPEN_STAGES = ['placed', 'paid', 'picking', 'packed', 'ready', 'arrived'];
-const SENT_STAGES = ['shipped', 'handed_off', 'completed'];
+const SENT_STAGES = ['shipped', 'completed'];
 
 /** Cancelling the order the customer paid on. Its follow-ups that haven't gone out are cancelled with it, their items
  *  refunded on this order, and its card gets back everything it hasn't had back yet, less what's already queued on the

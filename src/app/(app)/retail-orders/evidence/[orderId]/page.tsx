@@ -1,5 +1,6 @@
 'use client';
 
+import { eventTypeOf } from '@/lib/order-events';
 import { openPrint } from '@/lib/open-print';
 import { methodWords } from '@/lib/order-method';
 import { collection, doc, onSnapshot, orderBy, query, type Firestore } from 'firebase/firestore';
@@ -44,7 +45,6 @@ const EVENT_LABELS: Record<string, string> = {
   line_reopened: 'Line reopened',
   pick_complete: 'Pick complete',
   packed: 'Packed',
-  packing_slip_printed: 'Packing slip printed',
   label_generated: 'Shipping label generated',
   label_scan_verified: 'Label verified onto box',
   marked_ready: 'Marked ready',
@@ -52,14 +52,15 @@ const EVENT_LABELS: Record<string, string> = {
   handoff_scanned: 'Handoff verified by scan',
   shipped: 'Handed to carrier',
   completed: 'Completed',
-  cancel_requested: 'Cancellation requested',
-  restock_scanned: 'Item restocked by scan',
   cancelled: 'Cancelled',
   refund_issued: 'Refund issued',
   return_opened: 'Return opened',
   return_resolved: 'Return resolved',
   replacement_created: 'Replacement created',
   backorder_split: 'Backorder split off',
+  manifested: 'On the day’s USPS form',
+  held_for_review: 'Held for review',
+  hold_released: 'Released from review',
   override: 'Manager override',
   address_updated: 'Shipping address corrected',
   note: 'Note',
@@ -109,7 +110,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
     );
     const unsubEvents = onSnapshot(
       query(collection(firestore as Firestore, `tenants/${tenantId}/retailOrders/${orderId}/events`), orderBy('at', 'asc')),
-      (snap: any) => setEvents(snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))),
+      (snap: any) => setEvents(snap.docs.map((d: any) => { const x: any = { id: d.id, ...(d.data() || {}) }; return { ...x, type: eventTypeOf(x.type) || x.type }; })),   // older names read as the one they mean now
       () => {}
     );
     return () => { unsubOrder(); unsubEvents(); };

@@ -43,6 +43,6 @@ export function orderNow(o: any, help: any = {}): Now | null {
     ? { tone: 'calm', title: 'On the way out to you', body: 'Someone is bringing your order out now.' }
     : { tone: 'calm', title: 'We know you’re here', body: 'Someone will bring it out in a moment.' };
   if (o.stage === 'shipped') return { tone: 'calm', title: 'On its way', body: `${o.carrier ? `Shipped with ${o.carrier}.` : 'It’s with the carrier.'}${w?.eta ? ` ${o.carrier || 'The carrier'} expects it ${w.eta}.` : w?.arrive ? ` It should arrive ${w.arrive}.` : ''}`, action: o.trackingUrl ? { label: 'Track it', kind: 'link', target: o.trackingUrl } : undefined, extra: refund };
-  if (['handed_off', 'completed'].includes(o.stage)) return { tone: 'done', title: `Enjoy${hi ? `, ${hi}` : ''}`, body: 'Something not right? You can report a problem or start a return below.', action: help?.canReport ? { label: 'Get help with this order', kind: 'scroll', target: 'order-help' } : undefined, extra: refund };
+  if (['completed'].includes(o.stage)) return { tone: 'done', title: `Enjoy${hi ? `, ${hi}` : ''}`, body: 'Something not right? You can report a problem or start a return below.', action: help?.canReport ? { label: 'Get help with this order', kind: 'scroll', target: 'order-help' } : undefined, extra: refund };
   return null;
 }

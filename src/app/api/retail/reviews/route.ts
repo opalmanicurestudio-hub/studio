@@ -8,7 +8,7 @@ import { variantIdsOf } from '@/lib/variants';
 // Reviews are only worth anything if they're real, so eligibility is proven
 // rather than claimed: the poster must hold an order's qrToken, that order
 // must contain the product, and it must actually have been received
-// (handed_off | shipped | completed). No accounts, no scraping, no "verified"
+// (shipped | completed). No accounts, no scraping, no "verified"
 // badge that means nothing — a review can't exist without a purchase behind it.
 //
 // One review per product per order. Editing re-submits over the same id, so a
@@ -20,7 +20,7 @@ import { variantIdsOf } from '@/lib/variants';
 
 export const dynamic = 'force-dynamic';
 
-const RECEIVED_STAGES = ['handed_off', 'shipped', 'completed'];
+const RECEIVED_STAGES = ['shipped', 'completed'];
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');

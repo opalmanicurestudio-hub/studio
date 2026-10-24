@@ -48,8 +48,7 @@ const STAGE_WORDS: Record<string, string> = {
   placed: 'placed, awaiting payment', paid: 'paid, waiting to be picked',
   picking: 'being picked', packed: 'packed', ready: 'ready for pickup',
   arrived: 'customer has arrived', shipped: 'shipped and in transit',
-  handed_off: 'handed to the customer', completed: 'completed',
-  cancelled: 'cancelled', refunded: 'refunded',
+  completed: 'completed (picked up, or delivered)', cancelled: 'canceled',
 };
 
 function buildOrderContext(order: any, rs: any, claims: any[], returns: any[]): string {

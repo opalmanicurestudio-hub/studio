@@ -708,9 +708,16 @@ service cloud.firestore {
               && (request.resource.data.get('holdForReview', false) == true || resource.data.get('holdForReview', false) != true)
            ));
       allow delete: if false;
-      // The order's history: added to, never rewritten.
+      // The order's history: added to, never rewritten. The steps of the order are recorded by the server as they
+      // happen; from a browser only the team's notes and the few things done there (holding an order for review, opening
+      // a return at the desk, checking a label onto its box, and a manager marking a refund done by hand), each with when
+      // it happened, so no screen can add a step that didn't happen.
       match /events/{eventId} {
-        allow read, create: if isTeam(tenantId);
+        allow read: if isTeam(tenantId);
+        allow create: if isTeam(tenantId)
+          && request.resource.data.get('at', '') is string && request.resource.data.get('at', '') != ''
+          && (request.resource.data.get('type', '') in ['note', 'held_for_review', 'hold_released', 'return_opened', 'label_scan_verified']
+              || (request.resource.data.get('type', '') == 'refund_issued' && isManager(tenantId)));
         allow update, delete: if false;
       }
       // What the customer was sent, as it shows on their order page (lib/order-inbox): the team reads it beside the

@@ -162,7 +162,7 @@ export function staffKpis(orders: OrderLike[], now: number = Date.now(), wavePic
     const events = [...(order.events || [])].sort((a, b) => String(a.at).localeCompare(String(b.at)));
     // Who started it: a claim, or for a wave order, the person who finished walking the wave.
     const claim = events.find((e) => e.type === 'batch_claimed') || events.find((e) => e.type === 'note' && e.meta?.kind === 'wave_to_packing');
-    const done = events.find((e) => ['marked_ready', 'ready', 'packed', 'handed_off', 'shipped'].includes(e.type));
+    const done = events.find((e) => ['marked_ready', 'ready', 'packed', 'shipped'].includes(e.type));
     // Who boxed it or shelved it: the first packed/ready event, whoever picked it.
     const packedBy = events.find((e) => ['packed', 'marked_ready'].includes(e.type));
     let lastClaimer: { id: string; name: string } | null = null;

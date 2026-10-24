@@ -10,7 +10,7 @@
 import { staffIdForLogin } from '@/lib/owner-staff';
 
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
-const OUT = ['shipped', 'completed', 'handed_off'];
+const OUT = ['shipped', 'completed'];
 // What counts as fulfilling it: packing it, and sending it or handing it over.
 const WORK = new Set(['item_scanned', 'pick_complete', 'packed', 'marked_ready', 'label_generated', 'shipped', 'handoff_scanned', 'completed', 'override']);
 const NOT_PEOPLE = new Set(['', 'system', 'staff', 'customer', 'shippo', 'stripe', 'automation']);

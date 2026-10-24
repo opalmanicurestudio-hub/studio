@@ -26,7 +26,7 @@ import { claimLabelBuy, noteRefundId, noteRefundRequests, releaseLabelBuy, withd
 const SHIPPO = 'https://api.goshippo.com';
 const DAY = 86400e3;
 const SCANNED = ['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'];
-const GONE = ['shipped', 'handed_off', 'completed'];
+const GONE = ['shipped', 'completed'];
 const timeout = (ms: number): AbortSignal | undefined => { try { return (AbortSignal as any).timeout(ms); } catch { return undefined; } };
 
 // Shippo's codes for the carriers' tracking. A carrier not listed here is never looked up (so never voided by us).
@@ -80,7 +80,7 @@ export async function neverScanned(apiKey: string, order: any): Promise<boolean>
   return (await labelState(apiKey, order)) === 'pre';
 }
 
-const CLOSED = ['cancelled', 'refunded'];
+const CLOSED = ['cancelled'];
 const shared = (o: any) => Array.isArray(o?.shippedWithOrderIds) && o.shippedWithOrderIds.length > 0;
 const orderNo = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
 const scannedOnRecord = (o: any) => !!o?.labelSeenMoving || SCANNED.includes(trailStatus(o));
@@ -194,7 +194,7 @@ async function voidClaimed(db: any, tenantId: string, ref: any, order: any, apiK
     return { ok: false, refused: 'moving', error: 'The carrier has already scanned this label, so it can’t be voided.' };
   }
   // A packed box can still go out, so finishing its void needs the same proof an automatic void does.
-  const strict = careful || (!!opts.finishing && !['cancelled', 'refunded'].includes(String(order.stage)));
+  const strict = careful || (!!opts.finishing && !['cancelled'].includes(String(order.stage)));
   if (strict && state !== 'pre') return { ok: false, refused: 'unsure', error: 'The carrier’s tracking couldn’t confirm this label is unused, so it was left alone.' };
 
   // Written down first, against the order as it is now: if this stops part way, the next morning's check knows a void
@@ -356,14 +356,14 @@ export async function sweepLabels(db: any, tenantId: string, apiKey: string, opt
   for (const d of docs) {
     const o: any = d.data() || {};
     const stage = String(o.stage || '');
-    if (!o.shippoTransactionId || o.deliveredAt || ['completed', 'handed_off'].includes(stage)) continue;
+    if (!o.shippoTransactionId || o.deliveredAt || ['completed'].includes(stage)) continue;
     const bought = Date.parse(String(o.shipmentProtection?.decidedAt || '')) || now;
     const age = (now - bought) / DAY;
     // 1. A void whose outcome isn't known. Finished only while the box isn't going anywhere (packed and on no USPS form
     //    since the void began, cancelled, or refunded) and for at most three tries; otherwise someone is told.
     const mk = String(o.labelVoiding?.txn || '') === String(o.shippoTransactionId) ? o.labelVoiding : null;
     if (mk) {
-      const safe = !scannedOnRecord(o) && !shared(o) && ['packed', 'cancelled', 'refunded'].includes(stage) && !formSince(o, mk.at) && (Number(mk.tries) || 0) < 3;
+      const safe = !scannedOnRecord(o) && !shared(o) && ['packed', 'cancelled'].includes(stage) && !formSince(o, mk.at) && (Number(mk.tries) || 0) < 3;
       jobs.push({ d, o, kind: safe ? 'finish' : 'unfinished', at: bought });
       continue;
     }

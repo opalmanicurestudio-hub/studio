@@ -56,7 +56,7 @@ async function authorize(db: any, tenantId: string, orderId: string, qrToken: st
   if (!orderSnap.exists) return { error: 'Order not found', status: 404 };
   const order = orderSnap.data() as any;
   if (!order.qrToken || String(order.qrToken) !== qrToken) return { error: 'Not allowed', status: 403 };
-  if (['placed', 'cancelled', 'refunded'].includes(String(order.stage))) {
+  if (['placed', 'cancelled'].includes(String(order.stage))) {
     return { error: 'This order isn\u2019t active.', status: 409 };
   }
   const line = (order.lines || []).find((l: any) => l.productId === productId && l.digital === true);
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
     if (!order.qrToken || String(order.qrToken) !== qrToken) {
       return NextResponse.json({ error: 'Not allowed' }, { status: 403 });
     }
-    if (['placed', 'cancelled', 'refunded'].includes(String(order.stage))) {
+    if (['placed', 'cancelled'].includes(String(order.stage))) {
       return NextResponse.json({ error: 'This order isn\u2019t active.' }, { status: 409 });
     }
     const line = (order.lines || []).find((l: any) => l.productId === productId && l.digital === true);

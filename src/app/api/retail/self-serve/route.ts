@@ -24,7 +24,7 @@ import { checkPass } from '@/lib/order-pass';
 //
 //   { action: 'start_return', tenantId, orderId, qrToken,
 //     selections: [{ lineId, qty, reason }], resolution, notes? }
-//     Allowed once goods are out (shipped | handed_off | completed). Creates
+//     Allowed once goods are out (shipped | completed). Creates
 //     a status:'open' return — identical shape to staff-opened ones — so it
 //     lands in the Returns inbox BEFORE the customer walks in. Quantities
 //     validated against what's still returnable per line; resolution limited
@@ -79,7 +79,7 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
-const RETURN_STAGES = ['shipped', 'handed_off', 'completed'];
+const RETURN_STAGES = ['shipped', 'completed'];
 const CANCEL_STAGES = ['placed', 'paid'];
 // Stages where nothing has left the building yet. Past the promised ship
 // date, the FTC rule gives the buyer an unconditional right to cancel for a
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
           ? LATE_CANCEL_STAGES.includes(order.stage)
           : CANCEL_STAGES.includes(order.stage);
         if (!cancellable) {
-          if (['cancelled', 'refunded'].includes(order.stage)) {
+          if (['cancelled'].includes(order.stage)) {
             return { status: 409, error: 'This order is already cancelled.' };
           }
           return {
@@ -226,7 +226,7 @@ export async function POST(req: NextRequest) {
         });
         const evRef = orderRef.collection('events').doc();
         txn.set(evRef, {
-          id: evRef.id, type: 'order_cancelled', at: now,
+          id: evRef.id, type: 'cancelled', at: now,
           actorId: 'customer', actorName: order.customerName || 'Customer',
           meta: { reason: reason || 'self-serve', pendingRefundCents: pending, ...(client ? { client } : {}) },
         });
@@ -241,7 +241,7 @@ export async function POST(req: NextRequest) {
           });
           const fEv = fRef.collection('events').doc();
           txn.set(fEv, {
-            id: fEv.id, type: 'order_cancelled', at: now,
+            id: fEv.id, type: 'cancelled', at: now,
             actorId: 'customer', actorName: order.customerName || 'Customer',
             meta: { reason: `Cancelled with order #${order.orderNumber}`, pendingRefundCents: 0, ...(client ? { client } : {}) },
           });

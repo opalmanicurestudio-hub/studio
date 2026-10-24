@@ -1,4 +1,5 @@
 import { checkPrintKey } from '@/lib/print-key';
+import { eventTypeOf } from '@/lib/order-events';
 import { PRINT_CSS, PRINT_FONT_HREF } from '@/lib/print-style';
 /**
  * /print/claim-pack/[tenantId]/[excId] — the CLAIM PACK: everything a
@@ -64,9 +65,10 @@ export default async function PrintClaimPackPage({
   if (exc.orderId) {
     try {
       const evSnap = await db.collection(`tenants/${tenantId}/retailOrders/${exc.orderId}/events`).get();
-      const KEEP = new Set(['paid', 'picking', 'packed', 'label_generated', 'shipped', 'handed_off', 'completed', 'note']);
+      // The steps a carrier claim needs, by their one name (lib/order-events; older names read as the one they mean now).
+      const KEEP = new Set(['payment_confirmed', 'batch_claimed', 'packed', 'label_generated', 'shipped', 'completed', 'note']);
       events = evSnap.docs
-        .map((d: any) => d.data() as any)
+        .map((d: any) => { const x: any = d.data() || {}; return { ...x, type: eventTypeOf(x.type) || x.type }; })
         .filter((e: any) => KEEP.has(String(e.type)))
         .sort((a: any, b: any) => String(a.at || '').localeCompare(String(b.at || '')));
     } catch { events = []; }

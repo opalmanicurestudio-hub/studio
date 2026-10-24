@@ -42,7 +42,7 @@ import { formatDay } from '@/lib/tenant-time';
 //   ready      → BIG pickup QR + counter/curbside instructions
 //   arrived    → "we're bringing it out" (curbside)
 //   shipped    → tracking link when the label has one
-//   handed_off / completed → receipt view
+//   completed → receipt view
 //   cancelled  → clear message + refund note
 //
 // Partial fulfillment is first-class: shorted/refunded lines are labeled and
@@ -504,7 +504,7 @@ export default function OrderStatusPage() {
   };
 
   const loadClaims = React.useCallback(async () => {
-    if (!selfToken || !order || !['shipped', 'handed_off', 'completed'].includes(order.stage)) return;
+    if (!selfToken || !order || !['shipped', 'completed'].includes(order.stage)) return;
     try {
       const res = await fetch(`/api/retail/claims?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&t=${encodeURIComponent(selfToken)}`);
       const data = await res.json();
@@ -869,11 +869,11 @@ export default function OrderStatusPage() {
         { id: 'paid', label: 'Confirmed' },
         { id: 'picking', label: 'Preparing' },
         { id: 'ready', label: 'Ready' },
-        { id: 'handed_off', label: 'Picked up' },
+        { id: 'completed', label: 'Picked up' },
       ];
   const stageRank: Record<string, number> = {
     placed: -1, paid: 0, picking: 1, packed: isShip ? 2 : 1.5, ready: 2,
-    arrived: 2.5, shipped: 3, handed_off: 3, completed: 3.5, cancelled: -2, refunded: 3.5,
+    arrived: 2.5, shipped: 3, completed: 3.5, cancelled: -2,
   };
   const rank = stageRank[order.stage] ?? 0;
 
@@ -988,7 +988,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {isPickup && qrDataUrl && !['handed_off', 'completed'].includes(order.stage) && (
+        {isPickup && qrDataUrl && !['completed'].includes(order.stage) && (
           <Card id="pickup-code" className={cn(
             'border-2 rounded-[2rem] overflow-hidden bg-white transition-all',
             order.stage === 'ready' || order.stage === 'arrived' ? 'border-primary shadow-xl shadow-primary/10' : ''
@@ -1010,7 +1010,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {order.method === 'curbside' && !['handed_off', 'completed', 'cancelled', 'placed'].includes(order.stage) && (
+        {order.method === 'curbside' && !['completed', 'cancelled', 'placed'].includes(order.stage) && (
           <Card id="curbside" className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-3">
               <div className="flex items-center gap-2">
@@ -1235,7 +1235,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {['handed_off', 'completed'].includes(order.stage) && (
+        {['completed'].includes(order.stage) && (
           <Card className={cn(
             'border-2 rounded-[2rem] overflow-hidden',
             outcome.tone === 'good' ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/50'
@@ -1554,7 +1554,7 @@ export default function OrderStatusPage() {
                           {instantQ === 'status' && (
                             order.stage === 'ready' ? 'Your order is READY — pickup details are at the top of this page.'
                             : order.stage === 'shipped' ? (order.trackingNumber ? `Shipped via ${order.carrier || 'carrier'} — tracking ${order.trackingNumber}. Link is above.` : 'Shipped — tracking will appear here once available.')
-                            : ['handed_off', 'completed'].includes(order.stage) ? 'This order is complete — the receipt is on this page.'
+                            : ['completed'].includes(order.stage) ? 'This order is complete — the receipt is on this page.'
                             : ['picking', 'packed'].includes(order.stage) ? 'Your order is being packed right now — this page updates live.'
                             : order.stage === 'paid' ? 'Confirmed and in the packing queue — this page updates live as it moves.'
                             : 'This page always shows the live status of your order.'
@@ -1570,7 +1570,7 @@ export default function OrderStatusPage() {
                               : 'Packing has already started, so changes need a human — send us a note below and we’ll sort it out.'
                           )}
                           {instantQ === 'return' && (
-                            ['shipped', 'handed_off', 'completed'].includes(order.stage)
+                            ['shipped', 'completed'].includes(order.stage)
                               ? 'Tap “Start a return” below — pick your items and reason, and we’ll take it from there.'
                               : 'Returns open once your order is picked up or delivered — the button will appear right on this page.'
                           )}
@@ -1801,7 +1801,7 @@ export default function OrderStatusPage() {
           </Button>
         )}
 
-        {selfToken && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
+        {selfToken && order && ['shipped', 'completed'].includes(order.stage) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-5 space-y-3">
               <div id="claims-entry" className="flex items-center justify-between gap-2">
@@ -2034,7 +2034,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {selfToken && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
+        {selfToken && order && ['shipped', 'completed'].includes(order.stage) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-5 space-y-3">
               <p className="text-[11px] font-black uppercase tracking-widest">How did it go?</p>
@@ -2124,7 +2124,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {selfToken && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
+        {selfToken && order && ['shipped', 'completed'].includes(order.stage) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-5 space-y-3">
               {retDone ? (

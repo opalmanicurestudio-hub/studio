@@ -106,7 +106,7 @@ export default async function PrintWavePage({
     if (!order) return;
     // A cancelled order still prints, flagged, so nobody wonders why a tote is
     // empty — but its units are excluded from the counts.
-    const dead = ['cancelled', 'refunded'].includes(String(order.stage));
+    const dead = ['cancelled'].includes(String(order.stage));
     if (dead) return;
     (order.lines || []).forEach((l: any) => {
       const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
@@ -137,7 +137,7 @@ export default async function PrintWavePage({
 
   const totes = await Promise.all((wave.orders || []).map(async (w: any) => {
     const order = orderById.get(w.orderId);
-    const cancelled = order ? ['cancelled', 'refunded'].includes(String(order.stage)) : false;
+    const cancelled = order ? ['cancelled'].includes(String(order.stage)) : false;
     return {
       tote: w.tote,
       orderNumber: w.orderNumber,
