@@ -49,7 +49,9 @@ export const markPacked = (_fs: any, tenantId: string, orderId: string, _actor: 
 export const markReady = (_fs: any, tenantId: string, orderId: string, _actor: Actor) => step<Ans & { autoArrived?: boolean; notifyReady?: boolean }>(tenantId, 'markReady', { orderId });
 /** The team member's photo is read by the server from their staff record. */
 export const markBringingOut = (_fs: any, tenantId: string, orderId: string, _actor: Actor, _photo?: string) => step(tenantId, 'bringingOut', { orderId });
-export const handoffByScan = (_fs: any, tenantId: string, value: string, _actor: Actor) => step<Ans & { orderNumber?: number }>(tenantId, 'handoffScan', { value });
+export const handoffByScan = (_fs: any, tenantId: string, value: string, _actor: Actor, orderId?: string) => step<Ans & { orderNumber?: number; collector?: string | null }>(tenantId, 'handoffScan', { value, ...(orderId ? { orderId } : {}) });
+/** Handed over by the 4-digit code the person says (checked on the server, lib/pickup-pass). */
+export const handoffByPin = (tenantId: string, orderId: string, pin: string) => step<Ans & { orderNumber?: number; collector?: string | null; locked?: boolean }>(tenantId, 'handoffPin', { orderId, pin });
 export const handoffWithoutScan = (_fs: any, tenantId: string, orderId: string, verifiedBy: string, _actor: Actor) => step(tenantId, 'handoffNoScan', { orderId, verifiedBy });
 export const splitReadyFromWaiting = (_fs: any, tenantId: string, orderId: string, _actor: Actor) => step<Ans & { childOrderId?: string }>(tenantId, 'splitReady', { orderId });
 export const releaseBackorder = (_fs: any, tenantId: string, orderId: string, _actor: Actor, opts: { onlyIfCovered?: boolean } = {}) => step<Ans & { short?: { productId: string; name: string; have: number; need: number }[] }>(tenantId, 'releaseBackorder', { orderId, onlyIfCovered: opts.onlyIfCovered !== false });

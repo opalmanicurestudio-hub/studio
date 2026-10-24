@@ -129,9 +129,10 @@ export function PickupPane({ fs, tenantId, order, actor, shopZone, rs, onHandove
           <p className="m-0 text-[13px]" style={muted}>{order.curbside?.spotOrVehicle || (order.method === 'curbside' ? 'They tap I’m here when they arrive' : 'They show their code at the counter')}</p>
         </div>
       </div>
+      {order.collector?.name && <p className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: C.okSoft, color: C.ok }}>{order.collector.name} is collecting for {order.customerName || who}.</p>}
       <div className="mt-4 flex flex-wrap gap-2">
         {outside && !out && <Btn kind="primary" className="flex-1" disabled={busy} onClick={() => void goOut()}>{busy ? 'Telling them…' : 'I’m bringing it out'}</Btn>}
-        <Btn kind={outside && !out ? 'soft' : 'primary'} className="flex-1" onClick={onHandover}>Hand over to {who}</Btn>
+        <Btn kind={outside && !out ? 'soft' : 'primary'} className="flex-1" onClick={onHandover}>Hand over to {order.collector?.name ? firstName(order.collector.name) : who}</Btn>
       </div>
       <p className="m-0 mt-3 text-[13px]" style={muted}>Hand over by scanning the code on their phone, or by checking their name and the last four digits of their phone.</p>
     </div>);

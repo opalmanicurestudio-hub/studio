@@ -5,7 +5,7 @@
 import { type Firestore, doc, updateDoc } from 'firebase/firestore';
 import {
   claimSpecificOrder, markPacked, markReady, recordBoxScan, recordLineTap, resolveShortLine,
-  releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffWithoutScan, markShipped, cancelOrder, releaseBackorder, takeOverOrder, type Actor,
+  releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffByPin, handoffWithoutScan, markShipped, cancelOrder, releaseBackorder, takeOverOrder, type Actor,
 } from '@/lib/fulfil-client';
 import { nextFreeSlot } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -84,8 +84,12 @@ export async function bringingOut(fs: Firestore, t: string, o: any, actor: Actor
 
 export { syncRenterCredits } from './renter-credit-client';
 
-export async function handOver(fs: Firestore, t: string, o: any, actor: Actor, via: { scan?: string; verifiedBy?: string }): Promise<Result> {
-  return via.scan ? handoffByScan(fs, t, via.scan, actor) : handoffWithoutScan(fs, t, o.id, via.verifiedBy || 'Checked name and phone', actor);
+/** Hand it over: by the QR code on their phone (this order's part, when it was split), the pickup code they say
+ *  (checked on the server, lib/pickup-pass), or a check of their name and phone. */
+export async function handOver(fs: Firestore, t: string, o: any, actor: Actor, via: { scan?: string; pin?: string; verifiedBy?: string }): Promise<Result & { locked?: boolean }> {
+  if (via.scan) return handoffByScan(fs, t, via.scan, actor, o.id);
+  if (via.pin) return handoffByPin(t, o.id, via.pin);
+  return handoffWithoutScan(fs, t, o.id, via.verifiedBy || 'Checked name and phone', actor);
 }
 
 export async function shipIt(fs: Firestore, t: string, o: any, actor: Actor, tracking: { carrier?: string; number?: string; url?: string; extraNumbers?: string[] }): Promise<Result> {

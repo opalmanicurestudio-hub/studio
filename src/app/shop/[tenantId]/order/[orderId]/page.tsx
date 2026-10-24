@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
 import { OrderContactCard } from '@/components/shop/OrderContactCard';
 import { OrderVerify } from '@/components/shop/OrderVerify';
+import { PickupCollector } from '@/components/shop/PickupCollector';
 import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
@@ -64,6 +65,8 @@ interface StatusOrder {
   subtotalCents: number; taxCents: number; shippingCents: number; promo?: { code: string; label: string; cents: number; freeShipping: boolean } | null;
   refundedCents: number; totalCents: number;
   timestamps: Record<string, string | null>;
+  pickupPin?: string | null; collector?: string | null; collectorEditable?: boolean;
+  handoff?: { at: string | null; method: string; collectedBy: string; collectorName: string | null } | null;
   curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number; bringingOutAt?: string | null; bringingOutBy?: string; bringingOutPhoto?: string | null } | null;
   shippingAddress?: { name?: string; line1: string; line2?: string; city: string; state: string; postalCode: string } | null;
   addressConfirm?: { status: string; askedAt: string | null } | null;
@@ -1076,11 +1079,28 @@ export default function OrderStatusPage() {
                 </p>
               </div>
               <img src={qrDataUrl} alt={`Pickup QR for order ${order.orderNumber}`} className="w-56 h-56 mx-auto rounded-2xl border-2" />
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                Backup: give your name and order #{String(order.orderNumber).padStart(4, '0')} at the counter
-              </p>
+              {order.pickupPin || order.collectorEditable || order.collector ? (
+                <PickupCollector
+                  pin={order.pickupPin || null}
+                  collector={order.collector || null}
+                  canChange={!!order.collectorEditable}
+                  onSave={async (name) => { await selfServe({ action: 'collector', name }); await load(); }}
+                />
+              ) : (
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
+                  Backup: give your name and order #{String(order.orderNumber).padStart(4, '0')} at the counter
+                </p>
+              )}
             </CardContent>
           </Card>
+        )}
+
+        {isPickup && order.stage === 'completed' && order.handoff && (
+          <div className="rounded-2xl px-5 py-4 text-[15px]" style={{ background: '#f5f5f7', color: '#16171a' }} role="status">
+            {order.handoff.collectedBy === 'someone_else'
+              ? `${order.handoff.collectorName || 'The person you named'} collected it${order.handoff.at ? ` at ${new Date(order.handoff.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}.`
+              : `Picked up${order.handoff.at ? ` at ${new Date(order.handoff.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}.`}
+          </div>
         )}
 
         {order.method === 'curbside' && !['completed', 'cancelled', 'placed'].includes(order.stage) && (

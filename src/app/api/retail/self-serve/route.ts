@@ -7,10 +7,11 @@ import { syncTracking } from '@/lib/order-tracking';
 import { getAdminDb as getAdminDbForTracking } from '@/lib/firebase-admin';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
-import { delayNotified, isPromiseLate, returnRefundCents } from '@/lib/retail-orders';
+import { buildEvent, delayNotified, isPromiseLate, returnRefundCents } from '@/lib/retail-orders';
 import { canReturnLine } from '@/lib/return-eligibility';
 import { windowOpen } from '@/lib/order-windows';
 import { checkPass } from '@/lib/order-pass';
+import { cleanCollector } from '@/lib/pickup-pass';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -118,7 +119,7 @@ async function handle(req: NextRequest) {
 
   const client = requestForensics(req);
 
-  if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return', 'update_address', 'confirm_address', 'resend_receipt', 'contact_code', 'contact_confirm', 'texts', 'address_pay', 'address_paid', 'address_pay_cancel'].includes(action)) {
+  if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return', 'update_address', 'confirm_address', 'resend_receipt', 'contact_code', 'contact_confirm', 'texts', 'address_pay', 'address_paid', 'address_pay_cancel', 'collector'].includes(action)) {
     return NextResponse.json({ error: 'Missing order details' }, { status: 400 });
   }
 
@@ -127,7 +128,7 @@ async function handle(req: NextRequest) {
 
   // Their details: the pass as well as the link (lib/order-pass). Coming back from paying for an address change carries
   // its own proof (the paid Stripe session, checked there).
-  if (['update_address', 'address_pay', 'address_pay_cancel', 'contact_code', 'contact_confirm', 'texts', 'confirm_address'].includes(action) && !checkPass(tenantId, qrToken, body.pass)) {
+  if (['update_address', 'address_pay', 'address_pay_cancel', 'contact_code', 'contact_confirm', 'texts', 'confirm_address', 'collector'].includes(action) && !checkPass(tenantId, qrToken, body.pass)) {
     const pre = await orderRef.get().catch(() => null);
     if (!pre?.exists || (pre.data() as any)?.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
     return NextResponse.json({ error: 'To change your details, first confirm it’s you. We’ll send a code to the email or mobile on your order.', code: 'pass_needed' }, { status: 401 });
@@ -572,6 +573,33 @@ async function handle(req: NextRequest) {
       });
       if (result.status !== 200) return NextResponse.json({ error: (result as any).error }, { status: result.status });
       return NextResponse.json({ ok: true, message: 'Thanks. We\u2019ll ship it to this address.' });
+    }
+
+    // WHO'S COLLECTING (lib/pickup-pass): the customer, or someone they name. The team's screens show the name, and the
+    // handoff records who collected it. Only while it's still waiting to be collected.
+    if (action === 'collector') {
+      const name = cleanCollector(body.name);
+      const r: any = await db.runTransaction(async (txn: any) => {
+        const snap = await txn.get(orderRef);
+        if (!snap.exists) return { status: 404, error: 'Order not found.' };
+        const order = snap.data() as any;
+        if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
+        if (!['counter', 'curbside'].includes(String(order.method))) return { status: 409, error: 'This order isn’t a pickup.' };
+        if (!['paid', 'picking', 'packed', 'ready', 'arrived'].includes(String(order.stage))) return { status: 409, error: 'This order isn’t waiting to be collected.' };
+        // The parts of an order split for a back-ordered item share its code, and whoever collects one collects them all.
+        const fam = await txn.get(db.collection(`tenants/${tenantId}/retailOrders`).where('qrToken', '==', qrToken).limit(10));
+        const parts = fam.docs.filter((d: any) => d.id !== orderId && ['paid', 'picking', 'packed', 'ready', 'arrived'].includes(String(d.data()?.stage)));
+        if (cleanCollector(order.collector?.name) === name && parts.every((d: any) => cleanCollector(d.data()?.collector?.name) === name)) return { status: 200 };
+        const now = new Date().toISOString();
+        const value = name ? { name, at: now } : null;
+        txn.update(orderRef, { collector: value });
+        parts.forEach((d: any) => txn.update(d.ref, { collector: value }));
+        const ev = orderRef.collection('events').doc();
+        txn.set(ev, { id: ev.id, ...JSON.parse(JSON.stringify(buildEvent('note', 'customer', String(order.customerName || 'Customer'), { text: name ? `${name} is collecting it` : 'Collecting it themselves' }))) });
+        return { status: 200 };
+      });
+      if (r.status !== 200) return NextResponse.json({ error: r.error }, { status: r.status });
+      return NextResponse.json({ ok: true, collector: name || null });
     }
 
     if (action === 'resend_receipt') {

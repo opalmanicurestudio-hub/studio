@@ -28,7 +28,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   label_scan_verified: { customer: false, words: (_m, by) => ({ text: `Label checked onto its box${by}`, tone: 'ok' }) },
   marked_ready: { customer: true, words: (_m, by) => ({ text: `Ready for pickup${by}`, tone: 'ok' }) },
   customer_arrived: { customer: true, words: (m) => ({ text: `Customer arrived${m.spotOrVehicle ? ` · ${m.spotOrVehicle}` : ''}`, tone: 'plain' }) },
-  handoff_scanned: { customer: true, words: (_m, by) => ({ text: `Pickup code scanned${by}`, tone: 'ok' }) },
+  handoff_scanned: { customer: true, words: (m, by) => ({ text: `${m.method === 'pin' ? 'Pickup code checked' : 'Pickup code scanned'}${m.collectorName ? `, collected by ${m.collectorName}` : ''}${by}`, tone: 'ok' }) },
   shipped: { customer: true, words: (m, by) => ({ text: `Shipped${m.carrier ? ` with ${m.carrier}` : ''}${m.trackingNumber ? ` · ${m.trackingNumber}` : ''}${by}`, tone: 'ok' }) },
   manifested: { customer: false, words: (_m, by) => ({ text: `On the day’s USPS form${by}`, tone: 'plain' }) },
   completed: { customer: true, words: (m, by) => ({ text: m.text ? String(m.text) : `Completed${by}`, tone: 'ok' }) },
@@ -41,7 +41,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   address_updated: { customer: true, words: (_m, by) => ({ text: `Delivery address changed${by}`, tone: 'plain' }) },
   held_for_review: { customer: false, words: (m, by) => ({ text: `Held for review${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
   hold_released: { customer: false, words: (_m, by) => ({ text: `Released from review${by}`, tone: 'ok' }) },
-  override: { customer: false, words: (m, by) => ({ text: `${m.rule === 'handoff_without_scan' ? 'Handed over without the pickup code' : 'Rule set aside'}${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
+  override: { customer: false, words: (m, by) => ({ text: `${m.rule === 'handoff_without_scan' ? 'Handed over without the pickup code' : 'Rule set aside'}${m.reason ? `: ${m.reason}` : ''}${m.collectorName ? `, collected by ${m.collectorName}` : ''}${by}`, tone: 'warn' }) },
   message_failed: { customer: false, words: (m) => ({ text: `The ${m.what || 'message'} didn’t reach the customer${m.tries ? ` after ${m.tries} tries` : ''}. Let them know on the order page.`, tone: 'warn' }) },
   note: { customer: false, words: (m) => ({ text: String(m.text || 'Note'), tone: 'plain' }) },
 };

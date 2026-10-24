@@ -16,7 +16,7 @@ export const ORDER_PAGE_KINDS = new Set([
   'order_confirmation', 'order_ready', 'order_shipped', 'order_delayed', 'delay_notice', 'carrier_delivered', 'order_short',
   'order_swap', 'order_id_check', 'preorder_eta', 'preorder_cancelled', 'refund_issued', 'return_label', 'return_received',
   'claim_info_request', 'support_reply', 'support_received', 'order_uncollected', 'address_confirm', 'address_reply',
-  'shop_message',
+  'shop_message', 'order_collected',
 ]);
 /** Sent in full as well as posted: the receipt. */
 const FULL_TOO = new Set(['order_confirmation']);
@@ -30,6 +30,7 @@ const KEEP_SMS = new Set(['order_swap']);
 export function nudgeLine(kind: string, num: string, shop: string, subject?: string): string {
   switch (kind) {
     case 'order_ready': return `Your order ${num} is ready for pickup.`;
+    case 'order_collected': return `Your order ${num} was collected.`;
     case 'order_shipped': return `Your order ${num} is on its way.`;
     case 'order_delayed': case 'delay_notice': return `There’s a new delivery date for your order ${num}.`;
     case 'carrier_delivered': return `Your order ${num} was delivered.`;
@@ -146,14 +147,24 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
 
   // 2. One nudge per kind per window, by text when we have their number, by email otherwise.
   let first = false;
+  const stampIso = new Date(now).toISOString();
   try {
     first = await db.runTransaction(async (tx: any) => {
       const s = await tx.get(ref); const at = Date.parse(String(s.data()?.nudges?.[newsKey] || ''));
       if (Number.isFinite(at) && now - at < NUDGE_WINDOW_MS) return false;
-      tx.set(ref, { nudges: { [newsKey]: new Date(now).toISOString() } }, { merge: true });
+      tx.set(ref, { nudges: { [newsKey]: stampIso } }, { merge: true });
       return true;
     });
   } catch { first = true; }
+  // A nudge the text or email service didn't take gives its place back, so the next try (an email after a failed
+  // text, or the message queue trying again, lib/order-outbox) sends it instead of finding it "already nudged".
+  const sendNudge = async (next: any) => {
+    const r = await send(next);
+    if (r?.status === 'failed') {
+      try { await db.runTransaction(async (tx: any) => { const s = await tx.get(ref); if (s.data()?.nudges?.[newsKey] === stampIso) tx.set(ref, { nudges: { [newsKey]: null } }, { merge: true }); }); } catch { /* the window runs out on its own */ }
+    }
+    return r;
+  };
   if (!first) { await logPosted(db, tenantId, input, orderId, 'Posted on the order page; the customer was already nudged'); return { ok: true, status: 'sent', error: 'posted to the order page' }; }
 
   const { smsConfigured } = await import('./sms');
@@ -162,10 +173,10 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
   const line = lineFor();
   if (viaText) {
     const text = KEEP_SMS.has(kind) && input.channel === 'sms' && input.text ? String(input.text) : `${shop}: ${line}${link ? ` ${link}` : ''}`;
-    return send({ ...input, viaOrderPage: true, channel: 'sms', to: String(order.customerPhone), text, html: undefined, subject: undefined });
+    return sendNudge({ ...input, viaOrderPage: true, channel: 'sms', to: String(order.customerPhone), text, html: undefined, subject: undefined });
   }
   if (!order.customerEmail) { await logPosted(db, tenantId, input, orderId, 'Posted on the order page; no phone or email to nudge'); return { ok: true, status: 'sent', error: 'posted to the order page' }; }
   const { brandedEmailHtml } = await import('./email-template');
   const html = brandedEmailHtml({ studioName: shop, title: line, bodyLines: ['The details are on your order page. Questions? Message us from there.'], cta: link ? { label: 'Open your order', url: link } : null } as any);
-  return send({ ...input, viaOrderPage: true, channel: 'email', to: String(order.customerEmail), subject: line, text: `${line} ${link}`.trim(), html });
+  return sendNudge({ ...input, viaOrderPage: true, channel: 'email', to: String(order.customerEmail), subject: line, text: `${line} ${link}`.trim(), html });
 }

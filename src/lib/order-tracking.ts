@@ -59,7 +59,8 @@ function stepText(e: any, o: any): string {
     case 'customer_arrived': return 'You checked in';
     case 'handoff_scanned': return 'Pickup code checked';
     case 'shipped': return `Shipped${m.carrier ? ` with ${m.carrier}` : ''}`;
-    case 'completed': return ship ? 'Delivered' : 'Picked up';
+    // Who collected it isn't named here (the live view holds no names): the order page shows it with the customer's pass.
+    case 'completed': return ship ? 'Delivered' : o?.handoff?.collectedBy === 'someone_else' ? 'Picked up by the person you named' : 'Picked up';
     case 'cancelled': return 'Canceled';
     case 'refund_issued': return `Refund of ${money(m.amountCents)} sent`;
     case 'return_opened': return 'Return started';

@@ -588,7 +588,8 @@ function Arrival({ o, now, onOut, onHand }: { o: any; now: number; onOut: () => 
   return (
     <div className="cf-anim-rise rounded-2xl border-2 p-4" style={{ borderColor: mins >= 5 && !out ? C.warn : C.ink }}>
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0"><p className="m-0 truncate text-[22px] font-light">{o.customerName || 'Customer'}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{[o.curbside?.spotOrVehicle, o.shelfSlot ? `Shelf ${o.shelfSlot}` : '', `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</p></div>
+        <div className="min-w-0"><p className="m-0 truncate text-[22px] font-light">{o.customerName || 'Customer'}</p><p className="m-0 mt-0.5 text-[14px]" style={muted}>{[o.curbside?.spotOrVehicle, o.shelfSlot ? `Shelf ${o.shelfSlot}` : '', `${itemCount(o)} item${itemCount(o) === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}</p>
+          {o.collector?.name && <p className="m-0 mt-0.5 text-[14px] font-semibold" style={{ color: C.ok }}>{o.collector.name} is collecting</p>}</div>
         <span className={`shrink-0 text-[14px] font-semibold${mins >= 5 && !out ? ' cf-anim-pulse rounded-full px-2' : ''}`} style={{ color: out ? C.ok : mins >= 5 ? C.warn : C.muted }}>{out ? 'On the way' : mins < 1 ? 'Just now' : `${mins} min`}</span>
       </div>
       <div className="mt-3 flex gap-2">

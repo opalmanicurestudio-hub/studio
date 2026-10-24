@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { PIN_TRIES, pickupPin, pinKeyOf } from '@/lib/pickup-pass';
 
 import { putTracking, trackingKey } from '@/lib/order-tracking';
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
@@ -351,6 +352,17 @@ export async function GET(req: NextRequest) {
         completedAt: order.completedAt || null,
         cancelledAt: order.cancelledAt || null,
       },
+      // The pickup code to say at the counter or the car (lib/pickup-pass), and who's collecting: only with the
+      // customer's pass, never from the link alone.
+      pickupPin: passOk && isPickup && active && order.stage !== 'placed' && Number(order.pinTries || 0) < PIN_TRIES ? pickupPin(tenantId, pinKeyOf(order, orderId)) || null : null,
+      collector: passOk && isPickup && order.collector?.name ? String(order.collector.name) : null,
+      // Whether they can say who's collecting here (with the pass, while it's waiting to be collected).
+      collectorEditable: passOk && isPickup && ['paid', 'picking', 'packed', 'ready'].includes(String(order.stage)),
+      // How it was handed over: when, how it was checked, and who collected it (their name only with the pass).
+      handoff: order.handoff ? {
+        at: order.handoff.at || null, method: String(order.handoff.method || ''), collectedBy: String(order.handoff.collectedBy || 'customer'),
+        collectorName: passOk && order.handoff.collectedBy === 'someone_else' ? String(order.handoff.collectorName || '') : null,
+      } : null,
       curbside: order.curbside
         ? {
             arrivedAt: order.curbside.arrivedAt || null,
@@ -436,6 +448,8 @@ export async function GET(req: NextRequest) {
       const nm = String(a.name || '').trim(); if (nm.includes(' ')) hide.push([nm, nm.split(/\s+/)[0]]);
     }
     const full = String(order.customerName || '').trim(); if (full.includes(' ')) hide.push([full, full.split(/\s+/)[0]]);
+    // Who collected it, or is collecting it, is shown only with the pass (lib/pickup-pass).
+    for (const n of [order.collector?.name, order.handoff?.collectorName]) { const v = String(n || '').trim(); if (v.length >= 2 && order.handoff?.collectedBy !== 'customer') hide.push([v, 'The person you named']); }
     const em = String(order.customerEmail || '').trim(); if (em) hide.push([em, maskEmail(em)]);
     const ph = String(order.customerPhone || '').trim(); if (ph.replace(/\D/g, '').length >= 7) hide.push([ph, `•••${ph.replace(/\D/g, '').slice(-4)}`]);
     hide.sort((x, y) => y[0].length - x[0].length);

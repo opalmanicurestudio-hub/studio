@@ -18,6 +18,7 @@ import { effectiveUnitCents } from '@/lib/retail-swap';
 import { labelDoubt, labelHolderId } from '@/lib/label-doubt';
 import { cancelWithFollowUps, followUpCancelCents, followUpLabel, heldUnits, isFollowUp, lineFor, taxBasisOf } from '@/lib/order-family';
 import { resolveOrderScan, scanMissMessage, type ScanResolution } from '@/lib/scan-resolve';
+import { handoffRecord, pinKeyOf, pinMatches, PIN_TRIES, type HandoffMethod } from '@/lib/pickup-pass';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // The fulfillment steps. They run on the server (api/retail/fulfil, with the
@@ -526,6 +527,7 @@ export async function resolveShortLine(
           // for it if the first parcel turns up (lib/order-family).
           ...((order as any).replacementFor === 'lost_in_transit' ? { replacementFor: 'lost_in_transit', lostParcelOrderId: (order as any).lostParcelOrderId || (order as any).parentOrderId || null } : {}),
           qrToken: order.qrToken || null, // same customer QR completes the backorder
+          ...((order as any).collector?.name ? { collector: (order as any).collector } : {}), // and whoever they named collects it
           placedAt: new Date().toISOString(), paidAt: order.paidAt || new Date().toISOString(),
         };
         txn.set(childRef, JSON.parse(JSON.stringify(child)));
@@ -782,14 +784,36 @@ export async function markBringingOut(
   }
 }
 
-export async function handoffByScan(
-  fs: Firestore, tenantId: string, scannedValue: string, actor: Actor
-): Promise<{ ok: boolean; message: string; orderNumber?: number; orderId?: string }> {
-  const token = parseOrderQr(scannedValue) ?? scannedValue.trim();
-  const match = await getDocs(query(orderCol(fs, tenantId), where('qrToken', '==', token), limit(1)));
-  if (match.empty) return { ok: false, message: 'Not a valid pickup code for this shop.' };
+/** The handoff, in one step with the order: stock out of the shelf, the order completed, and who handed it over, who
+ *  collected it and how it was checked recorded on the order and its history (lib/pickup-pass). */
+function completeHandoff(txn: any, fs: Firestore, tenantId: string, oRef: any, order: RetailOrder & { id: string }, itemSnaps: any[], actor: Actor, method: HandoffMethod, check?: string) {
+  convertSaleInTxn(txn, fs, tenantId, order, itemSnaps, actor);
+  const handoff = handoffRecord(order, actor, method, check);
+  txn.update(oRef, clean({ stage: 'completed', completedAt: handoff.at, handoff }));
+  const meta = clean({ method, collectedBy: handoff.collectedBy, ...(handoff.collectedBy === 'someone_else' ? { collectorName: handoff.collectorName || '' } : {}) }) as any;
+  if (method === 'checked') txn.set(doc(collection(oRef, 'events')), evPayload('override', actor, { rule: 'handoff_without_scan', reason: `Identity verified: ${check || 'checked'}`.slice(0, 140), ...meta }));
+  else txn.set(doc(collection(oRef, 'events')), evPayload('handoff_scanned', actor, meta));
+  txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor, meta));
+  return handoff;
+}
 
-  const orderId = match.docs[0].id;
+/** Handed over by the QR code on their phone. The parts of an order split for a back-ordered item share its code: the
+ *  part this screen has open, or else the one part that's ready, is the one handed over. */
+export async function handoffByScan(
+  fs: Firestore, tenantId: string, scannedValue: string, actor: Actor, opts: { orderId?: string } = {}
+): Promise<{ ok: boolean; message: string; orderNumber?: number; orderId?: string; collector?: string | null }> {
+  const token = parseOrderQr(scannedValue) ?? scannedValue.trim();
+  const match = await getDocs(query(orderCol(fs, tenantId), where('qrToken', '==', token), limit(10)));
+  if (match.empty) return { ok: false, message: 'Not a valid pickup code for this shop.' };
+  const parts = match.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+  const waiting = parts.filter((o: any) => ['ready', 'arrived'].includes(String(o.stage)));
+  let orderId = '';
+  if (opts.orderId) {
+    if (!parts.some((o: any) => o.id === opts.orderId)) return { ok: false, message: 'That code is for a different order. Check the name on their phone.' };
+    orderId = opts.orderId;
+  } else if (waiting.length === 1) orderId = waiting[0].id;
+  else if (waiting.length > 1) return { ok: false, message: `This code is for ${waiting.length} parts of an order that are ready. Open the order to hand over each part.` };
+  else orderId = parts[0].id;
   try {
     const done: any = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -804,15 +828,44 @@ export async function handoffByScan(
       }
 
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
-      convertSaleInTxn(txn, fs, tenantId, order, itemSnaps, actor);
-
-      const now = new Date().toISOString();
-      txn.update(oRef, { stage: 'completed', completedAt: now });
-      txn.set(doc(collection(oRef, 'events')), evPayload('handoff_scanned', actor));
-      txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor));
-      return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, orderId, order };
+      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'qr');
+      return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, orderId, order, collector: h.collectedBy === 'someone_else' ? h.collectorName : null };
     });
     // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
+    if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }
+    if (done && typeof done === 'object') delete done.order;
+    return done;
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'The handoff did not go through. Please try again.' };
+  }
+}
+
+/** Handed over by the 4-digit code the person says (lib/pickup-pass). A wrong code counts a try; after a few in a row
+ *  the code stops working for this order, and the QR code or a check of their name and phone is the way. */
+export async function handoffByPin(
+  fs: Firestore, tenantId: string, orderId: string, said: string, actor: Actor
+): Promise<{ ok: boolean; message: string; orderNumber?: number; orderId?: string; collector?: string | null; locked?: boolean }> {
+  try {
+    const done: any = await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = { ...(oSnap.data() as RetailOrder), id: orderId } as any;
+      if (!['ready', 'arrived'].includes(order.stage) || !canAdvance(order, 'completed').ok) {
+        return { ok: false, message: `Order #${order.orderNumber} is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS]}, so it cannot be handed off yet.` };
+      }
+      const tries = Math.max(0, Number(order.pinTries) || 0);
+      if (tries >= PIN_TRIES) return { ok: false, locked: true, message: 'The code was wrong too many times, so it no longer works for this order. Scan the QR code on their phone, or check their name and phone.' };
+      if (!pinMatches(tenantId, pinKeyOf(order, orderId), said)) {
+        txn.update(oRef, { pinTries: tries + 1 });
+        const left = PIN_TRIES - tries - 1;
+        if (left <= 0) txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Pickup code wrong too many times; it no longer works for this order' }));
+        return { ok: false, locked: left <= 0, message: left > 0 ? `That code doesn’t match order #${order.orderNumber}. Ask them to check their order page.` : 'That code doesn’t match, and it no longer works for this order. Scan the QR code on their phone, or check their name and phone.' };
+      }
+      const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
+      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'pin');
+      return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, orderId, order, collector: h.collectedBy === 'someone_else' ? h.collectorName : null };
+    });
     if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }
     if (done && typeof done === 'object') delete done.order;
     return done;
@@ -836,15 +889,8 @@ export async function handoffWithoutScan(
       }
 
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
-      convertSaleInTxn(txn, fs, tenantId, order, itemSnaps, actor);
-
-      const now = new Date().toISOString();
-      txn.update(oRef, { stage: 'completed', completedAt: now });
-      txn.set(doc(collection(oRef, 'events')), evPayload('override', actor, {
-        rule: 'handoff_without_scan', reason: `Identity verified: ${verifiedBy}`.slice(0, 140),
-      }));
-      txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor));
-      return { ok: true, message: `Order #${order.orderNumber} handed off (no scan — logged)`, order };
+      const h = completeHandoff(txn, fs, tenantId, oRef, order, itemSnaps, actor, 'checked', verifiedBy);
+      return { ok: true, message: `Order #${order.orderNumber} handed off (no scan — logged)`, order, collector: h.collectedBy === 'someone_else' ? h.collectorName : null };
     });
     // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
     if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }
@@ -1183,6 +1229,7 @@ export async function splitReadyFromWaiting(
         hasPreorder: true,
         shipPromiseAt: (order as any).shipPromiseAt || null,
         qrToken: order.qrToken || null,
+        ...((order as any).collector?.name ? { collector: (order as any).collector } : {}),
         placedAt: new Date().toISOString(), paidAt: order.paidAt || new Date().toISOString(),
       };
       txn.set(childRef, JSON.parse(JSON.stringify(child)));

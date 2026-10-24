@@ -27,7 +27,7 @@ type Need = 'pick' | 'pack' | 'handover' | 'ship' | 'manage' | 'staff' | 'return
 const ACTIONS: Record<string, Need> = {
   claimNext: 'pick', claimOrder: 'pick', takeOver: 'pick', releaseBatch: 'pick', sweepStale: 'staff',
   scanItem: 'pick', scanBox: 'pick', tapLine: 'pick', undoCount: 'pick', shortLine: 'pick', reopenLine: 'pick',
-  scanPack: 'pack', markPacked: 'pack', markReady: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffNoScan: 'handover',
+  scanPack: 'pack', markPacked: 'pack', markReady: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
   receiveReturnLine: 'returns', resolveReturn: 'returns', decideClaim: 'claims',
@@ -150,7 +150,8 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         break;
       }
       case 'bringingOut': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markBringingOut(db, tenantId, orderId, actor, await photoOf(db, tenantId, actor.id)); if (out?.ok && !/already/.test(out.message || '')) F.notifyCurbside(tenantId, orderId, 'out'); delete out?.notify; break; }
-      case 'handoffScan': out = await F.handoffByScan(db, tenantId, s(b.value, 300), actor); break;
+      case 'handoffScan': out = await F.handoffByScan(db, tenantId, s(b.value, 300), actor, { orderId: orderId || undefined }); break;
+      case 'handoffPin': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffByPin(db, tenantId, orderId, s(b.pin, 12), actor); break; }
       case 'handoffNoScan': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffWithoutScan(db, tenantId, orderId, s(b.verifiedBy, 140) || 'Checked name and phone', actor); break; }
       case 'splitReady': { const m = need1(orderId, 'order'); if (m) return m; out = await F.splitReadyFromWaiting(db, tenantId, orderId, actor); break; }
       case 'releaseBackorder': { const m = need1(orderId, 'order'); if (m) return m; out = await F.releaseBackorder(db, tenantId, orderId, actor, { onlyIfCovered: b.onlyIfCovered !== false }); break; }
@@ -196,6 +197,8 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         break;
       }
     }
+    // Someone else collected it: the customer is told who, and when (api/retail/collected-notify).
+    if (out?.ok && out.collector && ['handoffScan', 'handoffPin', 'handoffNoScan'].includes(action)) sendMessage('order_collected', { orderId: safeId(out.orderId || orderId) });
     // The customer's order page changes as the step happens (lib/order-tracking): every order the step touched.
     if (out && out.ok !== false) {
       const touched = new Set<string>([orderId, out.orderId, out.childOrderId, ...(Array.isArray(out.orderIds) ? out.orderIds : []), ...(Array.isArray(out.released) ? out.released.map((x: any) => x?.orderId) : []), ...(Array.isArray(touchedIds) ? touchedIds : [])].map((x) => safeId(x)).filter(Boolean));
