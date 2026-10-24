@@ -1,7 +1,7 @@
 
 'use client';
 
-import { recipeCost } from '@/lib/product-cost';
+import { planCost, hourlyRate } from '@/lib/product-cost';
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,7 +37,7 @@ const safeDate = (val: any): Date => {
 export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, clients, onEdit, onViewUsers, onDelete }) => {
   const { staff, pricingTiers, inventory } = useInventory();
   const { selectedTenant } = useTenant();
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
 
   const activePackages = useMemo(() => {
@@ -50,8 +50,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
     if (!primaryService) return { materialCost: 0, timeLiabilityHours: 0 };
     
     const calculateServiceMaterialCost = (s: Service) => {
-        if (!s.products) return 0;
-        return recipeCost(s.products, inventory).total;
+        if (!s) return 0;
+        return planCost(s, inventory).total;
     };
 
     const materials = calculateServiceMaterialCost(primaryService) * pack.sessions;

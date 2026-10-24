@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const g = await requireRole(req, tenantId, 'staff'); if (g.deny) return g.deny;
   if (g.actor?.isRenter) return NextResponse.json({ ok: false, error: 'Only the business’s own team can count its stock.' }, { status: 403 });
   try {
-    const r = await recordCount(getAdminDb(), tenantId, productId, b.counted, { id: String(g.actor.uid), name: String(g.actor.name || 'A team member') });
+    const r = await recordCount(getAdminDb(), tenantId, productId, b.counted, { id: String(g.actor.uid), name: String(g.actor.name || 'A team member') }, { open: b.open });
     return NextResponse.json(r, { status: r.ok ? 200 : 409 });
   } catch (e: any) {
     console.error('[inventory/count]', String(e?.message || e).slice(0, 200));

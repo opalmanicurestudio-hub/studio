@@ -4,7 +4,7 @@
 //
 // A visit's money: what it brings in − provider pay × (1 + employer taxes) − products − running costs for the time the
 // station is busy (the business's cost per hour × set-up + service + turnover). Same parts as lib/visit-cost.
-import { recipeCost } from './product-cost';
+import { recipeCost, planCost } from './product-cost';
 import { rateFor, payForService, productChargeFor } from '@/lib/commission';
 
 export type VisitKind = { key: 'full' | 'member' | 'covered' | 'package'; label: string; brings: number; charged: number; covered: boolean; note?: string };
@@ -52,7 +52,7 @@ export function visitOutcome(input: { service: any; staff: any; kind: VisitKind;
   const { service, staff, kind } = input; const inv = input.inventory || [];
   const pay = payForVisit(staff, service, kind, input.minutes, input.tenant);
   const payCost = pay == null ? 0 : pay * (1 + Math.max(0, n(input.taxPct)) / 100);
-  const materials = recipeCost(service?.products || [], inv).total;
+  const materials = planCost(service, inv).total;
   const stationMin = (n(input.minutes) || n(service?.duration) || 60) + n(service?.padBefore) + n(service?.padAfter);
   const overhead = (stationMin / 60) * Math.max(0, n(input.costPerHour));
   const keep = kind.brings - payCost - materials - overhead;

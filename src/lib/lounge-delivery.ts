@@ -5,6 +5,7 @@
 //     itself is NOT taken off again (that double count is fixed here); a recipe item (e.g. a latte) still uses up its
 //     ingredients, which the order step never touched;
 //   · older orders without the mark are settled the old way, so none are missed.
+import { moveStock } from '@/lib/usage';
 import { collection, doc, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { safeNumber } from '@/lib/utils';
@@ -41,46 +42,12 @@ export async function deliverRefreshment(firestore: any, tenantId: string, reque
       if (!product) return;
 
       const productRef = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
-      const updateData: any = {};
-      let unitLabel = product.unit || 'units';
-      
-      if (product.costingMethod === 'uses') {
-          unitLabel = product.useUnit || 'uses';
-          let currentUses = safeNumber(product.partialContainerUses);
-          let currentStock = safeNumber(product.totalStock);
-          const usesPerContainer = safeNumber(product.estimatedUses) || 1;
-          
-          currentUses -= ingredient.quantityUsed;
-          while (currentUses <= 0 && currentStock > 0) {
-              currentStock -= 1;
-              currentUses += usesPerContainer;
-          }
-          if (currentStock <= 0 && currentUses < 0) {
-              currentStock = 0;
-              currentUses = 0;
-          }
-          updateData.totalStock = currentStock;
-          updateData.partialContainerUses = currentUses;
-      } else if (product.costingMethod === 'size' && product.size) {
-          unitLabel = product.unit || 'ml';
-          let currentSize = safeNumber(product.partialContainerSize);
-          let currentStock = safeNumber(product.totalStock);
-          const sizePerContainer = safeNumber(product.size);
-          currentSize -= ingredient.quantityUsed;
-          while (currentSize <= 0 && currentStock > 0) {
-              currentStock -= 1;
-              currentSize += sizePerContainer;
-          }
-          if (currentStock <= 0 && currentSize < 0) {
-              currentStock = 0;
-              currentSize = 0;
-          }
-          updateData.totalStock = currentStock;
-          updateData.partialContainerSize = currentSize;
-      } else {
-          updateData.totalStock = increment(-ingredient.quantityUsed);
-      }
-
+      // The same stock step as checkout (lib/usage moveStock): the open container first, a new one only when it runs out.
+      // A product counted by uses or by amount with no number set is left alone (it used to lose whole containers).
+      const r = moveStock(product, safeNumber(ingredient.quantityUsed));
+      if (r.notCounted) return;
+      const unitLabel = product.costingMethod === 'uses' ? (product.useUnit || 'uses') : product.costingMethod === 'size' ? (product.unit || 'ml') : (product.unit || 'units');
+      const updateData: any = product.costingMethod === 'uses' || product.costingMethod === 'size' ? r.patch : { totalStock: increment(-ingredient.quantityUsed) };
       batch.update(productRef, sanitizeForFirestore(updateData));
 
       const correctionRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));

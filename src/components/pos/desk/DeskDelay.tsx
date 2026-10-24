@@ -11,6 +11,7 @@
 // or cancelled silently. The decision is stored on the appointment, the
 // provider(s) told, and the next client warned only if still at risk.
 
+import { hourlyRate } from '@/lib/product-cost';
 import { ProviderShortlist } from '@/components/ops/ProviderShortlist';
 import { getAuth } from 'firebase/auth';
 import { lateReplyText, type LateOption } from '@/lib/late-reply';
@@ -54,7 +55,7 @@ export function DeskDelay({ e, appt, accent, onClose, onReschedule }: { e: any; 
     const canCondense = suggest.length > 0 && fits(appt.staffId, suggest);
     const others = (e.staff || []).filter((s: any) => s.id !== appt.staffId && s.isActive !== false && !s.isStudent && (!Array.isArray(s.serviceIds) || !s.serviceIds.length || s.serviceIds.includes(appt.serviceId)))
       .filter((s: any) => !busyBetween(s.id, arrive.getTime(), arrive.getTime() + (mins([]) + padAfter) * 60000) && fits(s.id, []));
-    const grace = Number(t.lateArrivalGracePeriod ?? 15), rate = Number(t.tmhr || 50), premium = Number(t.lateInconveniencePremium || 0);
+    const grace = Number(t.lateArrivalGracePeriod ?? 15), rate = hourlyRate(t), premium = Number(t.lateInconveniencePremium || 0);
     const fee = late > grace ? Number(((late / 60) * rate + premium).toFixed(2)) : 0;
     return { start, arrive, addOns, mins, next, fits, suggest, canCondense, others, grace, fee, autoCancel: t.autoCancelLateArrivals === true, padAfter };
   }, [appt, late, e.appointmentsFromInventory, e.staff, e.services]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -1,6 +1,6 @@
 'use client';
 
-import { recipeCost } from '@/lib/product-cost';
+import { planCost, hourlyRate, stationMinutes } from '@/lib/product-cost';
 import { hasRealCard } from '@/lib/card-on-file';
 import { hoursToDeadline } from '@/lib/change-rules';
 import React, { useState, useMemo, useEffect } from 'react';
@@ -173,7 +173,7 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
   );
 
   const hasCardOnFile = !!hasRealCard(client);
-  const tmhr = tenant?.tmhr || 50;
+  const tmhr = hourlyRate(tenant);
   const taxBurden = tenant?.employerTaxBurdenPct || 10;
 
   const sessionItems = useMemo(() => {
@@ -187,8 +187,8 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
   const recoveryMatrix = useMemo(() => {
     return sessionItems.map(s => {
       const duration = s.duration || 60;
-      const houseOverhead = (duration / 60) * tmhr;
-      const rc = recipeCost(s.products || [], inventory);
+      const houseOverhead = (stationMinutes(s) / 60) * tmhr;   // booked time plus set-up and clean-up (lib/product-cost)
+      const rc = planCost(s, inventory);
       const materialCost = rc.total;
 
       const proId =

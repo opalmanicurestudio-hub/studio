@@ -24,7 +24,7 @@
 //     addOnServices={addOnServices}   // resolved Service[] for any add-ons
 //     staffMember={assignedStaff}
 //     inventory={inventory}
-//     tmhr={selectedTenant?.tmhr || 50}
+//     tmhr={hourlyRate(selectedTenant)}
 //   />
 //
 // Gating: this section is NOT gated by the showProfitability toggle from

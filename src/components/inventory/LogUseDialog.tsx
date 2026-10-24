@@ -1,6 +1,7 @@
 
 'use client';
 
+import { logUseOf } from '@/lib/count-client';
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -22,7 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { type InventoryItem, type StockCorrection } from '@/lib/data';
+import { type InventoryItem } from '@/lib/data';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -31,11 +32,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Pipette, Sparkles, X, Activity, Loader } from 'lucide-react';
 import { ScrollArea } from '../ui/scroll-area';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { cn, safeNumber } from '@/lib/utils';
-import { useFirebase, useUser, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc, increment } from 'firebase/firestore';
+import { cn } from '@/lib/utils';
+import { useFirebase, useUser } from '@/firebase';
+
 import { useTenant } from '@/context/TenantContext';
-import { nanoid } from 'nanoid';
 
 const useSchema = z.object({
   productId: z.string().min(1, 'Product selection is required.'),
@@ -97,77 +97,15 @@ export const LogUseDialog: React.FC<LogUseDialogProps> = ({
   const handleFormSubmit = async (data: UseFormData) => {
     if (!firestore || !tenantId || !selectedProduct) return;
 
-    const productDocRef = doc(firestore, 'tenants', tenantId, 'inventory', selectedProduct.id);
-    const stockCorrectionsRef = collection(firestore, 'tenants', tenantId, 'stockCorrections');
-    
-    const updateData: any = {};
-    let unitLabel = 'units';
-    
-    // PARTIAL DEDUCTION LOGIC
-    if (selectedProduct.costingMethod === 'uses') {
-        unitLabel = selectedProduct.useUnit || 'uses';
-        let currentUses = safeNumber(selectedProduct.partialContainerUses);
-        let currentStock = safeNumber(selectedProduct.totalStock);
-        const usesPerContainer = safeNumber(selectedProduct.estimatedUses) || 1;
-        
-        currentUses -= data.quantity;
-        while (currentUses <= 0 && currentStock > 0) {
-            currentStock -= 1;
-            currentUses += usesPerContainer;
-        }
-        
-        if (currentStock < 0) {
-            toast({ variant: 'destructive', title: 'Insufficient Stock', description: `Not enough portions available for ${selectedProduct.name}.` });
-            return;
-        }
-        
-        updateData.totalStock = currentStock;
-        updateData.partialContainerUses = currentUses;
-    } else if (selectedProduct.costingMethod === 'size' && selectedProduct.size) {
-        unitLabel = selectedProduct.unit || 'ml';
-        let currentSize = safeNumber(selectedProduct.partialContainerSize);
-        let currentStock = safeNumber(selectedProduct.totalStock);
-        const sizePerContainer = safeNumber(selectedProduct.size);
-
-        currentSize -= data.quantity;
-        while (currentSize <= 0 && currentStock > 0) {
-            currentStock -= 1;
-            currentSize += sizePerContainer;
-        }
-        
-        if (currentStock < 0) {
-            toast({ variant: 'destructive', title: 'Insufficient Stock', description: `Not enough volume available for ${selectedProduct.name}.` });
-            return;
-        }
-        
-        updateData.totalStock = currentStock;
-        updateData.partialContainerSize = currentSize;
-    } else {
-        // Direct deduction
-        if (selectedProduct.totalStock < data.quantity) {
-            toast({ variant: 'destructive', title: 'Insufficient Stock', description: `Not enough units available for ${selectedProduct.name}.` });
-            return;
-        }
-        updateData.totalStock = increment(-data.quantity);
-        unitLabel = selectedProduct.unit || 'units';
-    }
-    
-    updateDocumentNonBlocking(productDocRef, updateData);
-
-    const newCorrection: Omit<StockCorrection, 'id'> = {
-        productId: selectedProduct.id,
-        date: new Date().toISOString(),
-        change: -data.quantity,
-        unit: unitLabel,
-        reason: data.reason || `Manual Use Log by Admin`,
-    };
-    addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
-    
-    toast({ title: 'Use Logged', description: `${data.quantity} ${unitLabel} of ${selectedProduct.name} reconciled.` });
+    // Taken off on the server, the same way checkout does it (lib/log-use): the open container first, a new one only
+    // when it runs out, and recorded on the stock history with who logged it.
+    const r = await logUseOf(tenantId, selectedProduct.id, Number(data.quantity), data.reason || 'Logged by hand');
+    if (!r.ok) { toast({ variant: 'destructive', title: 'Not logged', description: r.error }); return; }
+    toast({ title: 'Logged', description: `${data.quantity} ${r.unit} of ${selectedProduct.name} taken off stock${r.shortfall ? `, ${r.shortfall} more than the record showed` : ''}.` });
     onOpenChange(false);
   };
 
-  const unitLabel = selectedProduct?.costingMethod === 'uses' ? (selectedProduct.useUnit || 'uses') : (selectedProduct?.unit || 'units');
+  const unitLabel = selectedProduct?.costingMethod === 'uses' ? (selectedProduct.useUnit || 'uses') : selectedProduct?.costingMethod === 'size' ? (selectedProduct.unit || 'ml') : (selectedProduct?.unit || 'units');
   const overheadItems = allProducts.filter(p => p.type === 'overhead');
 
   const formBody = (

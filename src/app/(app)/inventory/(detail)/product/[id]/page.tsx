@@ -29,6 +29,7 @@ import { useClientsByIds } from '@/hooks/use-clients';
 import { choiceFor, listingsOf, priceCentsOf, variantIdsOf } from '@/lib/variants';
 import { shopStatus } from '@/components/products/ProductsList';
 import { CountSheet } from '@/components/products/CountSheet';
+import { UseTestSheet, canTestUses, startUseTest } from '@/components/products/UseTestSheet';
 import { productFeatures } from '@/lib/product-features';
 import { Btn, C, Sheet, muted } from '@/components/orders/ui';
 import QRCode from 'qrcode';
@@ -90,6 +91,7 @@ export default function ProductDetailPage() {
     const [countTarget, setCountTarget] = useState<any>(null);
     const [isReceiveOpen, setIsReceiveOpen] = useState(false);
     const [qr, setQr] = useState('');
+    const [useTestOpen, setUseTestOpen] = useState(false);
     const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
     
     // Vault State
@@ -430,6 +432,14 @@ export default function ProductDetailPage() {
                                         <Line k={p.costingMethod ? 'One container cost' : 'One cost'} v={money(cost)} />
                                         {p.costingMethod ? <Line k="One container holds" v={perContainer(p) ? fmtQty(perContainer(p) as number) : <span style={{ color: C.warn }}>Not set</span>} /> : null}
                                         <Line k={useWord} v={perUseCost === null ? <span style={{ color: C.warn }}>Can’t count yet</span> : money(perUseCost)} />
+                                        {canTestUses(p) && (
+                                            <div className="flex flex-wrap items-center justify-between gap-3 border-t py-2.5 text-[15px]" style={{ borderColor: C.line }}>
+                                                <span style={muted}>{p.isExperimentActive ? `Uses test running: ${Math.round((Number(p.experimentUses) || 0) * 100) / 100} ${one === 'use' ? 'uses' : many} counted so far` : p.lastTestResult?.kind === 'uses' ? `Last uses test: ${p.lastTestResult.counted} ${many} a container${p.lastTestResult.applied ? ', now used' : ''}` : 'Not sure how many a container gives?'}</span>
+                                                {p.isExperimentActive
+                                                    ? <Btn kind="soft" onClick={() => setUseTestOpen(true)}>End the test</Btn>
+                                                    : <Btn kind="soft" onClick={() => { if (firestore && tenantId) { startUseTest(firestore as any, tenantId, p); toast({ title: 'Uses test started', description: 'Every recorded use is counted from now. End it when this container is empty.' }); } }}>Test it</Btn>}
+                                            </div>
+                                        )}
                                         {fundOn && perUseCost !== null ? <Line k={`Set aside for restocking (${markup}%${ownMarkup ? '' : ', the business’s'})`} v={money(perUseCost * (1 + markup / 100))} /> : null}
                                         {usedIn.length > 0 && (
                                             <div className="mt-3 border-t pt-3" style={{ borderColor: C.line }}>
@@ -618,7 +628,10 @@ export default function ProductDetailPage() {
 
             {(isCountOpen || countTarget) && tenantId && (
                 <CountSheet tenantId={tenantId} product={countTarget || product} onClose={() => { setIsCountOpen(false); setCountTarget(null); }}
-                    onCounted={(d) => toast({ title: d === 0 ? 'It matches' : 'Counted', description: d === 0 ? 'The shelf matches the record.' : `${d < 0 ? `${-d} fewer` : `${d} more`} than the record. It’s on the history.` })} />
+                    onCounted={(d, changed) => toast({ title: !changed ? 'It matches' : 'Counted', description: !changed ? 'The shelf matches the record.' : d === 0 ? 'The open one is updated. It’s on the history.' : `${d < 0 ? `${-d} fewer` : `${d} more`} than the record. It’s on the history.` })} />
+            )}
+            {useTestOpen && firestore && tenantId && (
+                <UseTestSheet fs={firestore as any} tenantId={tenantId} product={product} onClose={() => setUseTestOpen(false)} onDone={(msg) => toast({ title: 'Uses test ended', description: msg })} />
             )}
             {qr && (
                 <Sheet title="Its QR code" sub="Every scanner in the shop reads it as this product." onClose={() => setQr('')} closeLabel="Done">

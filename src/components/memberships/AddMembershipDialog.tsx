@@ -1,6 +1,6 @@
 'use client';
 
-import { recipeCost } from '@/lib/product-cost';
+import { planCost, hourlyRate } from '@/lib/product-cost';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -53,8 +53,8 @@ const ProfitabilityAnalysis = ({ perks, price, tmhr, taxBurden, staff }: { perks
     const { materialCost, timeLiabilityHours } = useMemo(() => {
         const calculateServiceMaterialCost = (svcId: string, perkQty: number) => {
             const s = services.find(svc => svc.id === svcId);
-            if (!s || !s.products) return 0;
-            return recipeCost(s.products, inventory).total * perkQty;
+            if (!s) return 0;
+            return planCost(s, inventory).total * perkQty;
         };
         const servicesCost = perks.services.reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);
         const addOnsCost = perks.addOns.reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);
@@ -133,7 +133,7 @@ export const AddMembershipDialog: React.FC<AddMembershipDialogProps> = ({ open, 
   const isMobile = useIsMobile();
   const { services, inventory, pricingTiers, staff } = useInventory();
   const { selectedTenant } = useTenant();
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   
   const [name, setName] = useState('');

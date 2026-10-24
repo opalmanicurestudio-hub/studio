@@ -42,7 +42,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
 import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
-import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
+import { UseTestSheet, canTestUses, startUseTest } from '@/components/products/UseTestSheet';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
 import { LogUseDialog } from '@/components/inventory/LogUseDialog';
 import { Locations } from '@/components/inventory/Locations';
@@ -1157,73 +1157,6 @@ export default function InventoryPage() {
     return { success: true, message: "Write-off successful." };
   }, [inventory, firestore, tenantId, toast]);
   
-  const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
-    if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
-    
-    const product = inventory.find((p: InventoryItem) => p.id === productId);
-    if (!product) return { success: false, message: 'Product not found' };
-
-    const productDocRef = doc(firestore, 'tenants', tenantId, 'inventory', productId);
-    const stockCorrectionsRef = collection(firestore, 'tenants', tenantId, 'stockCorrections');
-    
-    const updateData: Partial<InventoryItem> = {};
-    let unit = 'units';
-    
-    if (product.costingMethod === 'uses') {
-        unit = product.useUnit || 'uses';
-        let currentUses = product.partialContainerUses || 0;
-        let currentStock = product.totalStock;
-        const usesPerContainer = product.estimatedUses || 1;
-        
-        currentUses -= quantity;
-        while (currentUses < 0 && currentStock > 0) {
-            currentStock -= 1;
-            currentUses += usesPerContainer;
-        }
-        
-        updateData.totalStock = currentStock;
-        updateData.partialContainerUses = currentUses;
-
-    } else if (product.costingMethod === 'size') {
-        unit = product.unit || 'ml';
-        let currentSize = product.partialContainerSize || 0;
-        let currentStock = product.totalStock;
-        const sizePerContainer = product.size || 1;
-
-        currentSize -= quantity;
-        while (currentSize < 0 && currentStock > 0) {
-            currentStock -= 1;
-            currentSize += sizePerContainer;
-        }
-        
-        updateData.totalStock = currentStock;
-        updateData.partialContainerSize = currentSize;
-
-    } else { // 'unit' costing method, or undefined
-        updateData.totalStock = (product.totalStock || 0) - quantity;
-        unit = product.unit || 'units';
-    }
-
-    if ((updateData.totalStock !== undefined && updateData.totalStock < 0) || 
-        (updateData.partialContainerUses !== undefined && updateData.partialContainerUses < 0) || 
-        (updateData.partialContainerSize !== undefined && updateData.partialContainerSize < 0)) {
-        return { success: false, message: `Insufficient stock for ${product.name}.`};
-    }
-    
-    updateDocumentNonBlocking(productDocRef, updateData);
-
-    const newCorrection = buildEntry({
-        productId,
-        type: 'used',
-        delta: -quantity,
-        unit,
-        reason: notes || 'Manual Use Log',
-        ...(updateData.totalStock !== undefined ? { balanceAfter: updateData.totalStock } : {}),
-    });
-    addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
-    
-    return { success: true, message: `${quantity} ${unit} of ${product.name} logged.` };
-  };
 
   const handleLogSaleConfirm = (productId: string, quantity: number, paymentMethod: string): { success: boolean; message: string; } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
@@ -1364,34 +1297,17 @@ export default function InventoryPage() {
     });
   };
   
+  // The uses test (components/products/UseTestSheet): started when a new container is opened, every recorded use counted.
   const handleToggleExperiment = (item: InventoryItem) => {
     if (!firestore || !tenantId) return;
-    const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
-    updateDocumentNonBlocking(itemRef, { isExperimentActive: true, experimentUses: 0 });
-    toast({
-        title: "Experiment Started!",
-        description: `You are now tracking the cost-per-use for ${item.name}.`,
-    });
+    startUseTest(firestore as any, tenantId, item, '');
+    toast({ title: 'Uses test started', description: `Every use of ${item.name} is counted from now. End it when this container is empty.` });
   };
 
   const handleEndExperiment = (item: InventoryItem) => {
     setSelectedProduct(item);
     setIsEndExperimentOpen(true);
   };
-  
-  const handleEndExperimentConfirmed = (results: any) => {
-    if (!selectedProduct || !firestore || !tenantId) return;
-    
-    const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', selectedProduct.id);
-    updateDocumentNonBlocking(itemRef, { isExperimentActive: false, lastTestResult: results });
-
-    toast({
-        title: "Experiment Ended",
-        description: `Cost-per-use tracking for ${selectedProduct.name} has been stopped.`,
-    });
-    setIsEndExperimentOpen(false);
-    setSelectedProduct(null);
-  }
 
   // Counts live on the chips so a filter tells you what you'd get BEFORE you
   // tap it — the difference between a menu and a map.
@@ -1421,6 +1337,7 @@ export default function InventoryPage() {
     if (vs.length) return { variants: { count: vs.length, stock: vs.reduce((n, v) => n + Math.max(0, Number(invById.get(v)?.totalStock) || 0), 0) } };
     return undefined;
   };
+  
   const attention = useMemo(() => {
     const live = (inventory || []).filter((i: any) => i.status !== 'archived') as any[];
     return {
@@ -1586,7 +1503,7 @@ export default function InventoryPage() {
                 { label: 'Edit details', run: () => handleEditItem(item) },
                 ...(item.type === 'professional' || item.type === 'overhead' ? [{ label: 'Log a use', run: () => handleOpenLogUse(item) }] : []),
                 ...(item.type === 'retail' && features.sell ? [{ label: 'Log a sale', run: () => handleOpenLogSale(item) }] : []),
-                ...(item.type === 'professional' ? [item.isExperimentActive ? { label: 'End the cost-per-use test', run: () => handleEndExperiment(item) } : { label: 'Test its cost per use', run: () => handleToggleExperiment(item) }] : []),
+                ...(canTestUses(item) ? [item.isExperimentActive ? { label: 'End the uses test', run: () => handleEndExperiment(item) } : { label: 'Test how many uses a container gives', run: () => handleToggleExperiment(item) }] : []),
                 ...(item.type !== 'equipment' && item.type !== 'overhead' ? [{ label: 'Write some off', run: () => handleOpenWriteOff(item), danger: true }] : []),
               ]}
             />
@@ -1667,7 +1584,6 @@ export default function InventoryPage() {
         onOpenChange={setIsLogUseOpen}
         product={selectedProduct}
         allProducts={inventory || []}
-        onConfirm={handleLogUseConfirm}
         dialogType={logUseDialogType}
       />
       <LogSaleDialog
@@ -1686,13 +1602,9 @@ export default function InventoryPage() {
         />
       )}
       
-      {selectedProduct && (
-        <EndCostPerUseTestDialog
-            open={isEndExperimentOpen}
-            onOpenChange={setIsEndExperimentOpen}
-            product={selectedProduct}
-            onConfirm={handleEndExperimentConfirmed}
-        />
+      {selectedProduct && isEndExperimentOpen && firestore && tenantId && (
+        <UseTestSheet fs={firestore as any} tenantId={tenantId} product={(inventory || []).find((i: any) => i.id === selectedProduct.id) || selectedProduct}
+          onClose={() => setIsEndExperimentOpen(false)} onDone={(msg) => toast({ title: 'Uses test ended', description: msg })} />
        )}
         <AddLocationDialog 
             open={isAddLocationDialogOpen} 

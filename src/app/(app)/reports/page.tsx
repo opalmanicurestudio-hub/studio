@@ -1,6 +1,6 @@
 'use client';
 
-import { lineCost } from '@/lib/product-cost';
+import { lineCost, hourlyRate } from '@/lib/product-cost';
 import { periodPay } from '@/lib/pay-period';
 import { sessionsFrom, workedMinutes, clockPolicy } from '@/lib/timeclock';
 import { serviceCommission, perServicePay } from '@/lib/commission';
@@ -124,7 +124,7 @@ export default function ReportsPage() {
     };
 
     const taxBurden = selectedTenant.employerTaxBurdenPct || 10;
-    const tmhr = selectedTenant.tmhr || 50;
+    const tmhr = hourlyRate(selectedTenant);
 
     // Independent providers keep their own books — they never appear in the
     // studio's staff performance table (no commission, no revenue share).

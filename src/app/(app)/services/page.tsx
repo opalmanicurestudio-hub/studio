@@ -1,6 +1,6 @@
 'use client';
 
-import { recipeCost } from '@/lib/product-cost';
+import { planCost, hourlyRate } from '@/lib/product-cost';
 import { rateFor, payForService } from '@/lib/commission';
 import { bookingLink } from '@/lib/share-links';
 import { ServiceMenuBoard } from '@/components/services/ServiceMenuBoard';
@@ -70,7 +70,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   const performance = useMemo(() => ({ totalBookings: history?.b || 0, totalRevenue: history?.tx || 0 }), [history]);
 
   const materialCost = useMemo(() => {
-    return recipeCost(service.products || [], inventory).total;
+    return planCost(service, inventory).total;
   }, [service.products, inventory]);
 
   const timeCost = (totalDuration / 60) * tmhr;
@@ -298,7 +298,7 @@ export default function ServicesPage() {
   const { appointments } = useAppointmentWindow();   // the last 90 days are in the shared window
   const { stats: history } = useHistoryStats();
 
-  useEffect(() => { setTmhr(selectedTenant?.tmhr ?? 50); }, [selectedTenant]);
+  useEffect(() => { setTmhr(hourlyRate(selectedTenant)); }, [selectedTenant]);
 
   useEffect(() => {
     if (services) {
@@ -467,7 +467,7 @@ export default function ServicesPage() {
                 </div>
                 {view === 'menu' ? (!hasServices && !isLoading ? <EmptyState onAddNewService={() => setQuickAdd({ open: true, category: null })} /> :
                   <ServiceMenuBoard services={filteredServices} timingRows={timingRows} bookings30={(id) => bookingsFor(id, since30)} attention={attention}
-                    costOf={(svc: any) => { const rc = recipeCost(svc.products || [], inventory || []); const prod = rc.total; return { incomplete: rc.gaps.map((g) => g.name), product: Math.round(prod * 100) / 100, time: Math.round((((svc.duration || 0) + (svc.padBefore || 0) + (svc.padAfter || 0)) / 60) * tmhr * 100) / 100 }; }}
+                    costOf={(svc: any) => { const rc = planCost(svc, inventory || []); const prod = rc.total; return { incomplete: rc.gaps.map((g) => g.name), product: Math.round(prod * 100) / 100, time: Math.round((((svc.duration || 0) + (svc.padBefore || 0) + (svc.padAfter || 0)) / 60) * tmhr * 100) / 100 }; }}
                     selected={selectedItems} onToggleSelect={handleItemSelect} onEdit={handleOpenEditService} onDuplicate={(svc) => withTiming(svc).__duplicate?.()} onAddIn={(cat) => setQuickAdd({ open: true, category: cat })}
                     onSetPrice={(svc, price) => { if (firestore && tenantId) { updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', svc.id), { price }); toast({ title: `${svc.name} is now $${price.toFixed(2)}` }); } }}
                     onReorder={(_cat, ids) => { if (firestore && tenantId) ids.forEach((id, n) => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'services', id), { menuOrder: n })); }}

@@ -1,6 +1,6 @@
 'use client';
 
-import { recipeCost } from '@/lib/product-cost';
+import { hourlyRate, planCost, stationMinutes } from '@/lib/product-cost';
 import { getAuth } from 'firebase/auth';
 import { payPost } from '@/components/pay/pay-client';
 import { PayStatement } from '@/components/staff/PayStatement';
@@ -475,7 +475,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
   const [withholdMaterials, setWithholdMaterials] = useState(false);
   const [withholdLabor, setWithholdLabor] = useState(false);
   const { toast } = useToast();
-  const tmhr = tenant?.tmhr || 50;
+  const tmhr = hourlyRate(tenant);
 
   const costsBreakdown = useMemo(() => {
     if (!transaction || !services || !appointments || !staff) return { overhead: 0, materials: 0, labor: 0, staffMember: null };
@@ -486,13 +486,14 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
     let materials = 0;
     if (apt.checkoutState?.formula?.length > 0) {
       materials = apt.checkoutState.formula.reduce((acc: number, item: any) => acc + item.quantity * item.costPerUnit, 0);
-    } else if (svc.products?.length > 0) {
-      materials = recipeCost(svc.products, inventory).total;
+    } else {
+      materials = planCost(svc, inventory).total;
     }
     const actualDuration = apt.actualStartTime && apt.actualEndTime
       ? differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime))
       : (apt.checkoutState?.actualDuration || svc.duration || 60);
-    const overhead = (actualDuration / 60) * tmhr;
+    // A finished visit: the real time plus the service's set-up and clean-up (lib/product-cost stationMinutes).
+    const overhead = (stationMinutes(svc, { actualMin: actualDuration }) / 60) * tmhr;
     const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
     let labor = 0;
     if (earnsCommission(staffMember)) labor = transaction.amount * (Number(transaction.commissionPct) >= 0 && transaction.commissionPct != null ? Number(transaction.commissionPct) : rateFor(staffMember, svc, 40)) / 100;

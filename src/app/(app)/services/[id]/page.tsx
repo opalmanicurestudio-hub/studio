@@ -1,6 +1,6 @@
 'use client';
 
-import { unitCost, recipeCost } from '@/lib/product-cost';
+import { unitCost, planCost, hourlyRate } from '@/lib/product-cost';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -36,7 +36,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
   const { materialCost, timeCost } = useMemo(() => {
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
-    const materialCost = recipeCost(service.products || [], inventory).total;
+    const materialCost = planCost(service, inventory).total;
     return { materialCost, timeCost };
   }, [service, tmhr, inventory]);
 
@@ -188,7 +188,7 @@ export default function ServiceDetailPage() {
   const { toast } = useToast();
 
   const service = useMemo(() => services.find(s => s.id === id), [services, id]);
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   const tenantId = selectedTenant?.id;
 

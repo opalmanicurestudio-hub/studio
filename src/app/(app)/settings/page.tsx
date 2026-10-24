@@ -1,6 +1,6 @@
 'use client';
 import { C } from '@/components/orders/ui';
-import { recipeCost } from '@/lib/product-cost';
+import { planCost, hourlyRate } from '@/lib/product-cost';
 import { READY_KEYS, READY_LABEL, READY_HELP, READY_DEFAULTS } from '@/lib/visit-readiness';
 import { US_STATES } from '@/lib/pay-extras';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -195,10 +195,10 @@ const ServicePolicyCard = ({ service, tmhr, inventory, isEditing, localPolicy, o
     const duration = safeNumber(service.duration);
     const totalDuration = (duration / 60) + ((service.padBefore || 0) + (service.padAfter || 0)) / 60;
     const timeCost = totalDuration * tmhr;
-    return timeCost + recipeCost(service.products || [], inventory).total;
+    return timeCost + planCost(service, inventory).total;
   }, [service, tmhr, inventory]);
   // Products the floor can't include yet (no cost, or no size / uses set): named, so the floor isn't trusted blind.
-  const floorGaps = useMemo(() => recipeCost(service.products || [], inventory).gaps, [service, inventory]);
+  const floorGaps = useMemo(() => planCost(service, inventory).gaps, [service, inventory]);
 
   const policy = localPolicy || { mode: 'inherit', window: undefined, value: undefined };
 
@@ -838,7 +838,7 @@ function SettingsPageImpl() {
                   <div className="px-5 py-4">
                     <input placeholder="Search your services" value={serviceSearch} onChange={(e) => setServiceSearch(e.target.value)} className={cfInput} style={cfInputStyle} aria-label="Search services" />
                     <div className="mt-4 grid grid-cols-1 gap-4">{filteredServices.map((service) => (
-                      <ServicePolicyCard key={service.id} service={service} tmhr={tenantData.tmhr || 50} inventory={inventory} isEditing={isEditing} localPolicy={servicePolicies[service.id]} onPolicyChange={(updates) => handlePolicyChange(service.id, updates)} />))}</div>
+                      <ServicePolicyCard key={service.id} service={service} tmhr={hourlyRate(tenantData)} inventory={inventory} isEditing={isEditing} localPolicy={servicePolicies[service.id]} onPolicyChange={(updates) => handlePolicyChange(service.id, updates)} />))}</div>
                   </div>
                 </Section>
               </More>

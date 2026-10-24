@@ -15,7 +15,7 @@
 
 import { rateFor, payForService } from '@/lib/commission';
 import { PayImpact } from '@/components/staff/PayImpact';
-import { costGap, restockMarkupPct, unitCost } from '@/lib/product-cost';
+import { costGap, restockMarkupPct, unitCost, hourlyRate, planCost } from '@/lib/product-cost';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, CARE_LABEL, type ToolCare, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -245,14 +245,8 @@ const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
   pricingTiers: PricingTier[]; values: any; tmhr: number; taxBurden: number; staff: Staff[];
 }) => {
   const { inventory } = useInventory();
-  const materialCost = useMemo(() => (values.products || []).reduce((acc: number, p: any) => {
-    const prod = inventory.find(i => i.id === p.id);
-    let cpu = 0;
-    if (prod) {
-      cpu = unitCost(prod) ?? 0;
-    }
-    return acc + (cpu * (p.quantityUsed || 1));
-  }, 0), [values.products, inventory]);
+  // Products and disposables by the shared rule (lib/product-cost planCost), as every other screen counts them.
+  const materialCost = useMemo(() => planCost({ products: values.products || [], blueprint: values.blueprint }, inventory).total, [values.products, values.blueprint, inventory]);
 
   // FIX: spread into a new array before sorting — pricingTiers comes
   // straight from a useCollection Firestore hook, and .sort() mutates
@@ -308,7 +302,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   const allServices: any[] = ((useInventory() as any).services || []) as any[];   // for the return plan pickers
   const { selectedTenant } = useTenant();
   const { firestore } = useFirebase();
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
 
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -389,17 +383,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     }
   }, [depositType]);
 
-  const breakEven = useMemo(() => {
-    const total = (values.duration || 0) + (values.padBefore || 0) + (values.padAfter || 0);
-    // Product at cost, plus each product's restocking markup (its own, else the business's) when the fund is on.
-    const fundOn = (selectedTenant as any)?.restocking?.enabled === true;
-    const mat = (values.products || []).reduce((acc: number, p: any) => {
-      const prod = inventory.find(i => i.id === p.id);
-      if (!prod) return acc;
-      return acc + (unitCost(prod) ?? 0) * (p.quantityUsed || 1) * (fundOn ? 1 + restockMarkupPct(prod, selectedTenant) / 100 : 1);
-    }, 0);
-    return (total / 60) * tmhr + mat;
-  }, [values.duration, values.padBefore, values.padAfter, values.products, tmhr, inventory, selectedTenant]);
 
   const selectedProducts    = watch('products') || [];
   const selectedResourceIds = watch('requiredResourceIds') || [];
@@ -497,6 +480,18 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   const [needCard, setNeedCard] = useState<boolean>(!!(service as any)?.requiresCard);
   const [bpPhases, setBpPhases] = useState<Phase[]>(() => (service as any)?.blueprint?.phases?.length ? (service as any).blueprint.phases : phasesFromService(service || {}));
   const [bpReqs, setBpReqs] = useState<Requirement[]>(() => (service as any)?.blueprint?.requirements || []);
+  const breakEven = useMemo(() => {
+    const total = (values.duration || 0) + (values.padBefore || 0) + (values.padAfter || 0);
+    // Product at cost, plus each product's restocking markup (its own, else the business's) when the fund is on.
+    const fundOn = (selectedTenant as any)?.restocking?.enabled === true;
+    const mat = (values.products || []).reduce((acc: number, p: any) => {
+      const prod = inventory.find(i => i.id === p.id);
+      if (!prod) return acc;
+      return acc + (unitCost(prod) ?? 0) * (p.quantityUsed || 1) * (fundOn ? 1 + restockMarkupPct(prod, selectedTenant) / 100 : 1);
+    }, 0);
+    const disposables = planCost({ products: [], blueprint: { requirements: bpOn ? bpReqs : [] } }, inventory).total;
+    return (total / 60) * tmhr + mat + disposables;
+  }, [values.duration, values.padBefore, values.padAfter, values.products, tmhr, inventory, selectedTenant, bpOn, bpReqs]);
   const bpT = deriveTimings(bpPhases);
   const setPhase = (i: number, patch: Partial<Phase>) => setBpPhases((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const movePhase = (i: number, d: number) => setBpPhases((ps) => { const n = [...ps]; const j = i + d; if (j < 0 || j >= n.length) return ps; [n[i], n[j]] = [n[j], n[i]]; return n; });
@@ -844,7 +839,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               <PayImpact service={{ id: values.id, type: values.isAddon ? 'addon' : 'service', price: Number(values.price) || 0, memberPrice: (values as any).memberPrice, duration: Number(values.duration) || 60, padBefore: Number(values.padBefore) || 0, padAfter: Number(values.padAfter) || 0, products: values.products || [], commissionRate: (values as any).commissionRate, providerPay: (values as any).providerPay, productCharge: (values as any).productCharge }} />
               <RecoveryMatrix
                 pricingTiers={pricingTiers || []}
-                values={values}
+                values={{ ...values, blueprint: { requirements: bpOn ? bpReqs : [] } }}
                 tmhr={tmhr}
                 taxBurden={taxBurden}
                 staff={staff}

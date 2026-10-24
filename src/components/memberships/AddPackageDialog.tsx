@@ -1,6 +1,6 @@
 'use client';
 
-import { recipeCost } from '@/lib/product-cost';
+import { planCost, hourlyRate } from '@/lib/product-cost';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -44,8 +44,8 @@ const ProfitabilityAnalysis = ({ service, sessions, price, tmhr, taxBurden, staf
     const { baseHouseFloor } = useMemo(() => {
         if (!service) return { baseHouseFloor: 0 };
         const calculateServiceMaterialCost = (s: Service) => {
-            if (!s.products) return 0;
-            return recipeCost(s.products, inventory).total;
+            if (!s) return 0;
+            return planCost(s, inventory).total;
         };
         const materialCost = calculateServiceMaterialCost(service) * sessions;
         const totalServiceTime = ((service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0)) * sessions;
@@ -112,7 +112,7 @@ export const AddPackageDialog: React.FC<AddPackageDialogProps> = ({ open, onOpen
   const isMobile = useIsMobile();
   const { services, inventory, pricingTiers, staff } = useInventory();
   const { selectedTenant } = useTenant();
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
 
   const [name, setName] = useState('');

@@ -1,5 +1,6 @@
 'use client';
 
+import { hourlyRate } from '@/lib/product-cost';
 import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
@@ -236,7 +237,7 @@ function QuoteGeneratorPageInner() {
     const clientQSettled = useDebounced(clientQ.trim().length >= 2 ? clientQ : '', 200);
     const { clients: clientHits } = useClientSearch(clientQSettled, 20);
     const { selectedTenant } = useTenant();
-    const tmhr = selectedTenant?.tmhr || 50;
+    const tmhr = hourlyRate(selectedTenant);
     const { toast } = useToast();
     const { firestore, user } = useFirebase();
     const tenantId = selectedTenant?.id;

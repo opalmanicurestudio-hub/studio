@@ -1,5 +1,7 @@
 'use client';
 
+import { rateAddOns } from '@/lib/product-cost';
+import { useInventory } from '@/context/InventoryContext';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -321,7 +323,19 @@ const FinancialProfileManager = ({ activeTab, profiles, setProfiles, isEditing, 
 
 const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestore, selectedTenant, taxBurden, setTaxBurden, isEditing }: any) => {
   const { toast } = useToast();
-  const tmhr = totalHours > 0 ? (lifestyleTotal + businessTotal) / totalHours : 0;
+  // What running-cost items and equipment wear would add per hour (lib/product-cost rateAddOns), for the owner to include
+  // or not; the choice is kept with the rate.
+  const { inventory } = useInventory();
+  const since = useMemo(() => new Date(Date.now() - 30 * 86400000).toISOString(), []);
+  const usedQ = useMemoFirebase(() => (firestore && selectedTenant?.id ? query(collection(firestore, 'tenants', selectedTenant.id, 'stockCorrections'), where('date', '>=', since)) : null), [firestore, selectedTenant?.id, since]);
+  const { data: recentMoves } = useCollection<any>(usedQ);
+  const extra = useMemo(() => rateAddOns(inventory || [], recentMoves || [], totalHours), [inventory, recentMoves, totalHours]);
+  const [incRunning, setIncRunning] = useState<boolean>(selectedTenant?.rateIncludes?.runningCosts === true);
+  const [incWear, setIncWear] = useState<boolean>(selectedTenant?.rateIncludes?.equipmentWear === true);
+  // The business loads after the page: take its saved choices when it arrives, or when another business is chosen.
+  useEffect(() => { setIncRunning(selectedTenant?.rateIncludes?.runningCosts === true); setIncWear(selectedTenant?.rateIncludes?.equipmentWear === true); }, [selectedTenant?.id, selectedTenant?.rateIncludes?.runningCosts, selectedTenant?.rateIncludes?.equipmentWear]);
+  const base = totalHours > 0 ? (lifestyleTotal + businessTotal) / totalHours : 0;
+  const tmhr = base + (incRunning ? extra.runningPerHour : 0) + (incWear ? extra.wearPerHour : 0);
 
   return (
     <Card className="border-4 border-primary/20 bg-primary/5 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden relative group">
@@ -359,6 +373,24 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
             <span>OpEx Load / Hr</span>
             <span className="font-mono text-foreground">${(totalHours > 0 ? businessTotal / totalHours : 0).toFixed(2)}</span>
           </div>
+          {totalHours > 0 && (extra.runningPerMonth > 0 || extra.wearPerMonth > 0) && (
+            <div className="space-y-2 rounded-2xl p-3" style={{ background: 'var(--card)' }}>
+              <p className="m-0 text-[13px] font-semibold normal-case tracking-normal text-foreground">Not counted in the rate unless you add them</p>
+              {extra.runningPerMonth > 0 && (
+                <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-[13px] normal-case tracking-normal text-foreground">
+                  <span><input type="checkbox" className="mr-2 h-5 w-5 align-middle" checked={incRunning} disabled={!isEditing} onChange={(e) => setIncRunning(e.target.checked)} />Running-cost items used, last 30 days<span className="block pl-7 text-[12px] text-muted-foreground">{extra.runningItems.slice(0, 3).map((x) => x.name).join(', ')}{extra.runningItems.length > 3 ? ` and ${extra.runningItems.length - 3} more` : ''}: ${extra.runningPerMonth.toFixed(2)} a month</span></span>
+                  <span className="font-mono">+${extra.runningPerHour.toFixed(2)}/hr</span>
+                </label>
+              )}
+              {extra.wearPerMonth > 0 && (
+                <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-3 text-[13px] normal-case tracking-normal text-foreground">
+                  <span><input type="checkbox" className="mr-2 h-5 w-5 align-middle" checked={incWear} disabled={!isEditing} onChange={(e) => setIncWear(e.target.checked)} />Equipment wear<span className="block pl-7 text-[12px] text-muted-foreground">{extra.wearItems.length} piece{extra.wearItems.length === 1 ? '' : 's'} spread over their expected life: ${extra.wearPerMonth.toFixed(2)} a month</span></span>
+                  <span className="font-mono">+${extra.wearPerHour.toFixed(2)}/hr</span>
+                </label>
+              )}
+              <p className="m-0 text-[12px] normal-case tracking-normal text-muted-foreground">Leave one out if it’s already in your business bills, so it isn’t counted twice.</p>
+            </div>
+          )}
           <div className="flex justify-between text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-primary">
             <span>Billable Hours / Mo</span>
             <span className="font-mono text-[10px] sm:text-xs">{totalHours.toFixed(1)}h</span>
@@ -370,10 +402,12 @@ const TmhrBreakdownCard = ({ lifestyleTotal, businessTotal, totalHours, firestor
           className="w-full h-12 sm:h-14 rounded-2xl text-[9px] sm:text-[10px] font-black uppercase tracking-tight shadow-xl shadow-primary/20 active:scale-95"
           onClick={async () => {
             if (!selectedTenant || !firestore) return;
+            // No billable hours: there's no rate to work out, and saving $0 would make every fee and floor free of time.
+            if (!(totalHours > 0)) { toast({ variant: 'destructive', title: 'Set your hours first', description: 'Add a schedule profile so the hourly cost can be worked out.' }); return; }
             try {
               await updateDocumentNonBlocking(
                 doc(firestore, 'tenants', selectedTenant.id),
-                { tmhr, employerTaxBurdenPct: taxBurden },
+                { tmhr, employerTaxBurdenPct: taxBurden, rateIncludes: { runningCosts: incRunning, equipmentWear: incWear } },
               );
               toast({ title: 'Studio standard updated', description: `TMHR set to $${tmhr.toFixed(2)}/hr` });
             } catch {

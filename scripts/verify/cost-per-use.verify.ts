@@ -98,7 +98,7 @@ import { makeDb, check, failures, strictTransactions } from './fake-db';
     .split('\n').filter(Boolean).filter((l) => !/src\/lib\/product-cost\.ts|inventory\/report\/page\.tsx|InventorySidebar\.tsx|EndCostPerUseTestDialog\.tsx/.test(l));
   check('no screen divides by size or uses itself any more (stock value on the report and the cost-per-use test aside)', copies.length === 0, copies.slice(0, 5));
   const menu = fs.readFileSync('src/app/(app)/services/page.tsx', 'utf8');
-  check('the services menu board prices products by the rule (it read productId and never divided: always $0)', /recipeCost\(svc\.products/.test(menu) && !/pr\.productId/.test(menu));
+  check('the services menu board prices products by the rule (it read productId and never divided: always $0)', /planCost\(svc, inventory/.test(menu) && !/pr\.productId/.test(menu));
   const floorSrc = fs.readFileSync('src/app/(app)/settings/page.tsx', 'utf8'); const cancelSrc = fs.readFileSync('src/components/planner/CancelAppointmentDialog.tsx', 'utf8'); const board = fs.readFileSync('src/components/services/ServiceMenuBoard.tsx', 'utf8');
   check('where a floor, a fee or a margin is set, the products it can’t include yet are named (not silently left at $0)', /floorGaps\.length > 0/.test(floorSrc) && /productGaps\?\.length/.test(cancelSrc) && /c\.incomplete\?\.length/.test(board));
   const card = fs.readFileSync('src/components/money/RestockingFundCard.tsx', 'utf8');
@@ -107,6 +107,47 @@ import { makeDb, check, failures, strictTransactions } from './fake-db';
   check('the product page shows cost per use, what’s left to use, the markup the fund uses and the services that use it',
     /unitCost\(p\)/.test(page) && /usesLeft\(p\)/.test(page) && /restockMarkupPct\(p, selectedTenant\)/.test(page) && /Used in \{usedIn\.length\}/.test(page));
   check('running-cost items are counted, costed and editable like other stock', /const countable = kindOf !== 'equipment';/.test(page) && /\{ label: 'Edit details', run: \(\) => handleEditItem\(item\) \}/.test(fs.readFileSync('src/app/(app)/inventory/page.tsx', 'utf8')));
+
+  // ── Cost round 2: one time basis, disposables, the hourly rate, hand-logged uses, the uses test ──
+  check('a service ties up the station for its booked time plus set-up and clean-up; a finished visit for its real time plus them',
+    pc.stationMinutes({ duration: 45, padBefore: 5, padAfter: 10 }) === 60 && pc.stationMinutes({ duration: 45, padBefore: 5, padAfter: 10 }, { actualMin: 70 }) === 85 && pc.stationMinutes({ duration: 30 }, { addOns: [{ duration: 15 }] }) === 45);
+  check('…a service with no length saved counts as an hour, and 0 stays 0', pc.stationMinutes({}) === 60 && pc.stationMinutes({ duration: 0 }) === 0);
+  check('the hourly running cost is what the business set (0 allowed), else $50', pc.hourlyRate({ tmhr: 72 }) === 72 && pc.hourlyRate({ tmhr: 0 }) === 0 && pc.hourlyRate({}) === 50);
+  const gloves = { id: 'gl', name: 'Gloves', costPerUnit: 10, costingMethod: 'uses', estimatedUses: 50 };
+  const withDisp = { products: [{ id: 'g', quantityUsed: 1 }], blueprint: { requirements: [{ kind: 'disposable', name: 'Gloves', qty: 2, inventoryItemId: 'gl' }, { kind: 'disposable', name: 'Spare', qty: 1, inventoryItemId: 'gl', mode: 'optional' }] } };
+  check('a service’s plan counts its disposables too (2 pairs of gloves at $0.20), not optional ones', Math.round(pc.planCost(withDisp, [gel, gloves]).total * 100) === 240);
+  check('service cost uses the same time and disposables ($2 gel + $0.40 gloves; 60 min at $60/hr)', (() => { const c = computeServiceCost({ ...withDisp, duration: 45, padBefore: 5, padAfter: 10, price: 0 }, {}, null, [gel, gloves], 60); return Math.round(c.materials * 100) === 240 && c.overhead === 60; })());
+  const rate = pc.rateAddOns([{ id: 'o', type: 'overhead', name: 'Foils', costPerUnit: 20, costingMethod: 'uses', estimatedUses: 200 }, { id: 'e', type: 'equipment', name: 'Lamp', costPerUnit: 240, lifespanYears: 2 }], [{ type: 'used', productId: 'o', change: -400 }, { type: 'counted', productId: 'o', change: -50 }], 100);
+  check('beside the hourly rate: running-cost items used ($40 of foils a month) and equipment wear ($10 a month) per billable hour', rate.runningPerMonth === 40 && rate.wearPerMonth === 10 && rate.runningPerHour === 0.4 && rate.wearPerHour === 0.1, rate);
+
+  const { logUse } = await import('../../src/lib/log-use');
+  const db3: any = strictTransactions(makeDb());
+  await db3.doc('tenants/t1/inventory/f').set({ id: 'f', name: 'Foils', type: 'overhead', costPerUnit: 20, costingMethod: 'uses', estimatedUses: 200, useUnit: 'foils', totalStock: 2, partialContainerUses: 3, isExperimentActive: true, experimentUses: 10 });
+  const lu: any = await logUse(db3, 't1', 'f', 5, 'Foils for a color', { id: 'k1', name: 'Kai Park' });
+  const f2 = (await db3.doc('tenants/t1/inventory/f').get()).data(); const fe = (await db3.collection('tenants/t1/stockCorrections').get()).docs.map((d: any) => d.data());
+  check('a use logged by hand uses up the open container first, then opens a new one (3 left − 5: a new box, 198 left)', lu.ok && f2.totalStock === 1 && f2.partialContainerUses === 198 && fe[0]?.type === 'used' && fe[0]?.actorName === 'Kai Park', { lu, f2, fe });
+  check('while a uses test runs, every recorded use is counted (10 + 5)', f2.experimentUses === 15, f2);
+  await db3.doc('tenants/t1/inventory/z').set({ id: 'z', name: 'Builder', type: 'professional', costPerUnit: 20, costingMethod: 'uses', totalStock: 3 });
+  const lz: any = await logUse(db3, 't1', 'z', 1, '', { id: 'k1', name: 'Kai Park' });
+  check('…a product with no uses set is refused with the reason, and keeps its shelf', !lz.ok && /no number of uses/.test(lz.error) && (await db3.doc('tenants/t1/inventory/z').get()).data().totalStock === 3, lz);
+  const lounge = fs.readFileSync('src/lib/lounge-delivery.ts', 'utf8'); const kds = fs.readFileSync('src/app/kds/[tenantId]/page.tsx', 'utf8'); const logDlg = fs.readFileSync('src/components/inventory/LogUseDialog.tsx', 'utf8');
+  check('the lounge, the kitchen screen and Log a use all move stock with the same step as checkout', /moveStock\(product/.test(lounge) && /moveStock\(product/.test(kds) && /logUseOf\(/.test(logDlg) && !/usesPerContainer/.test(lounge + kds + logDlg));
+  const sheet = fs.readFileSync('src/components/products/UseTestSheet.tsx', 'utf8');
+  check('ending a uses test offers to use the real number as the product’s own (uses per container, or what a container holds)', /\[field\]: got/.test(sheet) && /field = product\?\.costingMethod === 'uses' \? 'estimatedUses' : 'size'/.test(sheet));
+  const fin = fs.readFileSync('src/app/(app)/financials/page.tsx', 'utf8');
+  check('the hourly rate shows what running-cost items and equipment wear would add, and includes them only if the owner says so', /rateAddOns\(/.test(fin) && /rateIncludes: \{ runningCosts: incRunning, equipmentWear: incWear \}/.test(fin));
+  const fallbacks = execSync(`grep -rnE "tmhr\\)? (\\|\\||\\?\\?) 50" src || true`).toString().split('\n').filter(Boolean).filter((l) => !/product-cost\.ts/.test(l));
+  check('one hourly-rate fallback everywhere (no screen keeps its own “|| 50”)', fallbacks.length === 0, fallbacks.slice(0, 5));
+
+  // ── Review fixes, cost round 2 ──
+  const rate2 = pc.rateAddOns([{ id: 'o', type: 'overhead', name: 'Foils', costPerUnit: 20, costingMethod: 'uses', estimatedUses: 200 }], [{ type: 'used', productId: 'o', change: -400 }, { type: 'used', productId: 'o', change: 100 }, { type: 'used', productId: 'o', change: -200, refKind: 'appointment' }], 100);
+  check('running costs beside the rate: net use (a put-back counts back), and uses that belong to a visit left out (already in its service’s cost)', rate2.runningPerMonth === 30, rate2);
+  const finSrc = fs.readFileSync('src/app/(app)/financials/page.tsx', 'utf8');
+  check('the rate’s checkboxes take the saved choices once the business loads, and no $0 rate is saved without hours', /setIncRunning\(selectedTenant\?\.rateIncludes\?\.runningCosts === true\)/.test(finSrc) && /if \(!\(totalHours > 0\)\)/.test(finSrc));
+  const tr = fs.readFileSync('src/components/planner/TechnicianReviewDialog.tsx', 'utf8');
+  check('the hand-off review compares the formula with the recipe’s products only (disposables out of both sides)', /const standardCost = recipeCost\(service\.products/.test(tr));
+  const sheetSrc = fs.readFileSync('src/components/products/UseTestSheet.tsx', 'utf8');
+  check('using a smaller container size from the test caps what the open one holds', /openNow > got \? \{ \[openField\]: got \}/.test(sheetSrc));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

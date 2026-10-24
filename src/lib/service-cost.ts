@@ -14,7 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { rateFor, payForService } from '@/lib/commission';
-import { recipeCost } from '@/lib/product-cost';
+import { recipeCost, planCost, stationMinutes } from '@/lib/product-cost';
 export interface ServiceCostBreakdown {
   overhead: number;
   materials: number;
@@ -55,12 +55,13 @@ export function computeServiceCost(
       (acc: number, item: any) => acc + (item.quantity || 0) * (item.costPerUnit || 0),
       0
     );
-  } else if (service.products?.length > 0) {
-    materials = recipeCost(service.products, inventory).total;   // the shared rule (lib/product-cost)
+  } else {
+    materials = planCost(service, inventory).total;   // products and disposables, by the shared rule (lib/product-cost)
   }
 
+  // The station's time: booked length plus set-up and clean-up (lib/product-cost stationMinutes), at the hourly rate given.
   const duration = service.duration || 60;
-  const overhead = (duration / 60) * (tmhr || 0);
+  const overhead = (stationMinutes(service) / 60) * (Number(tmhr) || 0);
 
   let labor = 0;
   if (staffMember?.payStructure === 'commission') {

@@ -5,6 +5,7 @@
 //     most a visit can pay and still keep the business's target margin.
 //   • mode "person" (staff dialog): the person's own pay setup on their main services.
 // Numbers come from lib/pay-impact (pay + employer taxes, products, running costs per hour of station time).
+import { hourlyRate } from '@/lib/product-cost';
 import * as React from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { useAppointmentWindow, useAppointmentsInRange } from '@/hooks/use-appointments';
@@ -33,7 +34,7 @@ function Card({ title, sub, rows, target }: { title: string; sub?: string; rows:
 export function PayImpact({ service, mode = 'compare', staffMember, serviceIds }: { service?: any; mode?: 'compare' | 'person'; staffMember?: any; serviceIds?: string[] }) {
   const inv: any = useInventory(); const { selectedTenant } = useTenant() as any;
   const inventory = inv?.inventory || []; const memberships = inv?.memberships || []; const packages = inv?.packages || []; const team = inv?.staff || []; const allServices = inv?.services || [];
-  const costPerHour = Number(selectedTenant?.tmhr) || 50; const taxPct = Number(selectedTenant?.employerTaxBurdenPct) || 10;
+  const costPerHour = hourlyRate(selectedTenant); const taxPct = Number(selectedTenant?.employerTaxBurdenPct) || 10;
   const [target, setTarget] = React.useState<number>(Number(selectedTenant?.opsCosts?.minMarginPct) || 20);
   const [what, setWhat] = React.useState<{ commissionPct?: number; perHour?: number; hourly?: number }>({});
   const base = { inventory, costPerHour, taxPct, tenant: selectedTenant };

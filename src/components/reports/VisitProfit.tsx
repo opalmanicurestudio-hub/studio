@@ -2,6 +2,7 @@
 // src/components/reports/VisitProfit.tsx — WHAT VISITS REALLY EARN (O9): revenue, actual cost and profit added up by
 // service, provider or station, from what actually happened on each finished visit (time taken, products used). Worst
 // first, so the services that lose money or always run over are at the top. Managers set the small per-use costs here.
+import { hourlyRate } from '@/lib/product-cost';
 import * as React from 'react';
 import { collection, query, where, doc, updateDoc } from 'firebase/firestore';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
@@ -25,7 +26,7 @@ export function VisitProfit() {
   const rq = useMemoFirebase(() => (firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'resources') : null), [firestore, tenantId]);
   const { data: usage } = useCollection<any>(uq); const { data: resources } = useCollection<any>(rq);
   const manager = ['owner', 'admin', 'manager'].includes(String(role || ''));
-  const oc = React.useMemo(() => selectedTenant?.opsCosts || {}, [selectedTenant?.opsCosts]); const tmhr = Number(selectedTenant?.tmhr) || 50;
+  const oc = React.useMemo(() => selectedTenant?.opsCosts || {}, [selectedTenant?.opsCosts]); const tmhr = hourlyRate(selectedTenant);
   const [draft, setDraft] = React.useState<{ linenEach: string; kitEach: string; minMarginPct: string } | null>(null); const [saved, setSaved] = React.useState<string | null>(null);
 
   const visits = React.useMemo(() => { const from = Date.parse(since); const u = new Map((usage || []).map((x: any) => [x.visitId || x.id, x]));

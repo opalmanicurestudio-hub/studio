@@ -1,5 +1,6 @@
 'use client';
 
+import { moveStock } from '@/lib/usage';
 import { verifyPin } from '@/lib/pin-client';
 import React, {
   useState, useMemo, useEffect, useRef, Suspense, useCallback,
@@ -841,21 +842,13 @@ function KDSContent() {
           const product = inventory.find(p => p.id === ingredient.id);
           if (!product) return;
           const productRef  = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
-          const updateData: any = {};
-          if (product.costingMethod === 'uses') {
-            let uses  = safeNumber(product.partialContainerUses) - ingredient.quantityUsed;
-            let stock = safeNumber(product.totalStock);
-            const usesPerContainer = safeNumber(product.estimatedUses) || 1;
-            while (uses <= 0 && stock > 0) { stock -= 1; uses += usesPerContainer; }
-            if (stock <= 0) { stock = 0; uses = Math.max(0, uses); }
-            updateData.totalStock = stock;
-            updateData.partialContainerUses = uses;
-          } else {
-            updateData.totalStock = increment(-ingredient.quantityUsed);
-          }
+          // The same stock step as checkout (lib/usage moveStock); a product with no uses or size set is left alone.
+          const r = moveStock(product, safeNumber(ingredient.quantityUsed));
+          if (r.notCounted) return;
+          const updateData: any = product.costingMethod === 'uses' || product.costingMethod === 'size' ? r.patch : { totalStock: increment(-ingredient.quantityUsed) };
           b.update(productRef, sanitize(updateData));
           const corrRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
-          b.set(corrRef, sanitize({ id: nanoid(), productId: product.id, date: now, change: -ingredient.quantityUsed, unit: product.unit || 'unit', reason: `KDS Delivery: ${item.name} (x${qty}) — ${request._displayName}`, requestId: request.id }));
+          b.set(corrRef, sanitize({ id: nanoid(), productId: product.id, date: now, change: -ingredient.quantityUsed, unit: product.costingMethod === 'uses' ? (product.useUnit || 'uses') : (product.unit || 'unit'), reason: `KDS Delivery: ${item.name} (x${qty}) — ${request._displayName}`, requestId: request.id }));
         });
 
         if (request.isRedemption && request.clientId && request.clientId !== 'guest-walkin') {

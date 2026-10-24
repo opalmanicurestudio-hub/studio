@@ -9,6 +9,7 @@
 // Then: memberships / packages enrolled, and any next-visit deposit confirmed.
 // The screen uses the same calculation (lib/checkout-calc), so the totals match; if they ever don't, the sale is
 // still recorded exactly as worked out here and flagged for review — never silently.
+import { hourlyRate } from '@/lib/product-cost';
 import { depleteBatchesFIFO } from '@/lib/retail-orders';
 import { giftCap, limitsOn, type BillLine } from '@/lib/gift-limits';
 import { homeLocation } from '@/lib/business-locations';
@@ -882,7 +883,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   let totalLtvIncrease = 0, totalCashIncrease = 0, cashTipsTotal = 0;
   const add = (amt: number) => { totalLtvIncrease += amt; if (method === 'cash') totalCashIncrease += amt; };
   const cashTipsByStaff: Record<string, any> = {}; const cashTipsPlain: Record<string, number> = {};
-  const tmhr = num(tenant.tmhr) || 50;
+  const tmhr = hourlyRate(tenant);
   for (const [idx, v] of visits.entries()) {
     const vc = calc.visits[idx]; const a = v.appointment; const mainStaff = staff.find((s: any) => s.id === vc.mainStaffId);
     const had = whoHad(v); const forHad = { clientId: had.id, clientOrVendor: had.name || 'Client' };   // the visit is theirs; the payer is on every line

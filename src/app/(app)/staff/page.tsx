@@ -1,5 +1,6 @@
 'use client';
 
+import { hourlyRate } from '@/lib/product-cost';
 import { getAuth } from 'firebase/auth';
 import { periodPay } from '@/lib/pay-period';
 import { sessionsFrom, workedMinutes, clockPolicy } from '@/lib/timeclock';
@@ -761,7 +762,7 @@ export default function StaffPage() {
 
             if (price > 0 && svc) {
                 try {
-                    const r = computeServiceProfitability(svc, a, staffMember, inventory || [], selectedTenant?.tmhr || 50, price);
+                    const r = computeServiceProfitability(svc, a, staffMember, inventory || [], hourlyRate(selectedTenant), price);
                     todayNet += Number(r.margin || 0);
                 } catch {
                     /* one unpriceable service must not blank the row */

@@ -1,6 +1,6 @@
 'use client';
 
-import { recipeCost } from '@/lib/product-cost';
+import { planCost, hourlyRate } from '@/lib/product-cost';
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ interface MembershipCardProps {
 export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clients, onEdit, onViewUsers, onDelete }) => {
   const { services, inventory, staff } = useInventory();
   const { selectedTenant } = useTenant();
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   
   const activeMembers = useMemo(() => {
@@ -36,9 +36,9 @@ export const MembershipCard: React.FC<MembershipCardProps> = ({ membership, clie
   const { materialCost, timeLiabilityHours } = useMemo(() => {
     const calculateServiceMaterialCost = (svcId: string, perkQty: number) => {
         const s = services.find(svc => svc.id === svcId);
-        if (!s || !s.products) return 0;
+        if (!s) return 0;
         
-        return recipeCost(s.products, inventory).total * perkQty;
+        return planCost(s, inventory).total * perkQty;
     };
 
     const servicesMaterialCost = (membership.includedServices || []).reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);

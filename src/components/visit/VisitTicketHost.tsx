@@ -5,6 +5,7 @@
 // Start and waiving a fee happen in place; actions that need the planner's own dialogs (Finish → the hand-off review,
 // edit, cancel, rebook, print) take you to the planner with this visit open. A walk-in, or a visit too old to be
 // loaded here, opens the quick visit ticket instead.
+import { hourlyRate } from '@/lib/product-cost';
 import { startBlocker } from '@/lib/visit-requests';
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
@@ -41,7 +42,7 @@ export function VisitTicketHost() {
     return <AppointmentDetailsSheet
       open={!!id} onOpenChange={(o: boolean) => { if (!o) setId(null); }} appointment={appt}
       client={apptClient} service={(services || []).find((s: any) => s.id === appt.serviceId) || null}
-      tmhr={selectedTenant?.tmhr || 50} transactions={[]}
+      tmhr={hourlyRate(selectedTenant)} transactions={[]}
       onStartService={(aid: string) => { if (!firestore || !tenantId) return; const a: any = appt && appt.id === aid ? appt : null; if (!a) return;
         if (startBlocker(a, (services || []).find((s: any) => s.id === a.serviceId), (apptClient as any), undefined, selectedTenant)) return;   // the sheet shows why
         const now = new Date().toISOString(); const b = writeBatch(firestore);

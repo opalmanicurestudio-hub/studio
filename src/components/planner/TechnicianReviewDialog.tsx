@@ -28,7 +28,7 @@
  * All state, handlers, and business logic below are unchanged from v1.
  */
 
-import { unitCost, recipeCost } from '@/lib/product-cost';
+import { unitCost, recipeCost, hourlyRate } from '@/lib/product-cost';
 import { handoffEntry } from '@/lib/handoff-log';
 import React, { useMemo, useState, useEffect } from 'react';
 import {
@@ -186,7 +186,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const meId: string = actorStaffId || ctxStaffId || currentUser?.uid || '';   // the person's STAFF id (never a portal sign-in id)
   const [finishing, setFinishing] = useState(false);
   const [afterPhotoMissing, setAfterPhotoMissing] = useState(false);
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
   const isMobile = useIsMobile();
   const { toast } = useToast();
   
@@ -373,6 +373,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     const timeOverage = agreedCharge + (timeOverageMinutes / 60) * tmhr;
     
     const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+    // The recipe's products only: what the provider edits (the formula) is products, so disposables stay out of both sides.
     const standardCost = recipeCost(service.products || [], inventory).total;
     const materialOverage = Math.max(0, currentCost - standardCost);
 

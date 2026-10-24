@@ -1,5 +1,6 @@
 'use client';
 
+import { hourlyRate } from '@/lib/product-cost';
 import { useTransactionsInRange } from '@/hooks/use-transactions';
 import { useAppointmentsInRange, useAppointmentById } from '@/hooks/use-appointments';
 import { useClient, useClientsByIds } from '@/hooks/use-clients';
@@ -153,7 +154,7 @@ function PlannerPageContent() {
   const [resolveBusy, setResolveBusy] = useState(false);
   const [awaitingCursor, setAwaitingCursor] = useState(0);
   const [tmhr, setTmhr] = useState(0);
-  useEffect(() => { setTmhr(selectedTenant?.tmhr || 50); }, [selectedTenant]);
+  useEffect(() => { setTmhr(hourlyRate(selectedTenant)); }, [selectedTenant]);
 
   const events = eventsFromInventory || [];
 
@@ -909,7 +910,7 @@ function PlannerPageContent() {
       if (price > 0 && svc) {
         const assigned = (allStaff || []).find((s: any) => s.id === a.staffId);
         try {
-          const r = computeServiceProfitability(svc, a, assigned, inventory || [], selectedTenant?.tmhr || 50, price);
+          const r = computeServiceProfitability(svc, a, assigned, inventory || [], hourlyRate(selectedTenant), price);
           net += Number(r.margin || 0);
         } catch {
           /* one unpriceable service must not blank the whole strip */
@@ -944,7 +945,7 @@ function PlannerPageContent() {
   const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
     if (!firestore || !tenantId || !selectedTenant) return;
     const docRef = isWalkIn ? doc(firestore, 'tenants', tenantId, 'walkIns', id) : doc(firestore, 'tenants', tenantId, 'appointments', id);
-    const tmhrValue = selectedTenant.tmhr || 50;
+    const tmhrValue = hourlyRate(selectedTenant);
     const premium = selectedTenant.lateInconveniencePremium || 0;
 
     if (status === 'running_late' && lateMinutes && !isWalkIn) {

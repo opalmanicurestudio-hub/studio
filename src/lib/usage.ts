@@ -46,6 +46,12 @@ export function moveStock(it: any, qty: number): { patch: Record<string, any>; m
   // Counted by uses or by amount with no number set: there's no telling how many containers this is, so the shelf is
   // left as it is (it used to be set to zero) and the visit says why.
   if (pk && !(size > 0)) return { patch: {}, moved: 0, shortfall: 0, notCounted: costGap(it) || 'no container size or uses' };
+  const r = moveStockRaw(it, qty, pk, size);
+  // While a cost-per-use test runs, every use is counted, so the test can say how many uses a container really gives.
+  if (it?.isExperimentActive === true && qty !== 0) r.patch = { ...r.patch, experimentUses: Math.max(0, Math.round((n(it.experimentUses) + qty) * 1000) / 1000) };
+  return r;
+}
+function moveStockRaw(it: any, qty: number, pk: string | null, size: number): { patch: Record<string, any>; moved: number; shortfall: number; notCounted?: string } {
   if (qty > 0) {
     const r = deductMainStock(it, qty);
     if (r.success) return { patch: { totalStock: r.updatedTotalStock, ...(pk === 'partialContainerUses' ? { partialContainerUses: r.updatedPartialContainerUses ?? n(it.partialContainerUses) } : pk === 'partialContainerSize' ? { partialContainerSize: r.updatedPartialContainerSize ?? n(it.partialContainerSize) } : {}) }, moved: qty, shortfall: 0 };

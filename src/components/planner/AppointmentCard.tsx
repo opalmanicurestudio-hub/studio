@@ -20,6 +20,7 @@
 // to find that spot.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { hourlyRate } from '@/lib/product-cost';
 import { needsConfirm } from '@/lib/confirm-ask';
 import { visitClock, startedAt } from '@/lib/visit-clock';
 import { pendingFormIds } from '@/lib/visit-requests';
@@ -148,7 +149,7 @@ export function AppointmentCard({
       appointment,
       assignedStaff,
       inventory || [],
-      selectedTenant?.tmhr || 50,
+      hourlyRate(selectedTenant),
       price
     );
     return classifyProfitability(result.marginPct);

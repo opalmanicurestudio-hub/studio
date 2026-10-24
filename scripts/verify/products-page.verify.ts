@@ -74,6 +74,24 @@ const req = (body: any) => ({ json: async () => body, headers: new Map() }) as a
   r = await recordCount(db, 't1', 'p1', -4 as any, { id: 'k1', name: 'Kai Park' });
   check('a number that isn’t a count is refused', !r.ok, r);
 
+  // ── Products used by the dose: sealed ones plus the open one ──
+  await db.doc(`${T}/inventory/u1`).set({ id: 'u1', name: 'Gel', type: 'professional', costingMethod: 'uses', estimatedUses: 20, useUnit: 'uses', costPerUnit: 40, totalStock: 3, partialContainerUses: 12, batches: [{ id: 'ub', stock: 3, receivedDate: '2026-01-01' }] });
+  r = await recordCount(db, 't1', 'u1', 2, { id: 'k1', name: 'Kai Park' }, { open: 5 });
+  const u1 = (await db.doc(`${T}/inventory/u1`).get()).data();
+  const uEntry = (await db.collection(`${T}/stockCorrections`).get()).docs.map((d: any) => d.data()).filter((e: any) => e.productId === 'u1').pop();
+  check('a count of a product used by the dose sets the sealed ones and what’s left in the open one, and records the difference in uses (3×20+12 → 2×20+5: 27 fewer)',
+    r.ok && u1.totalStock === 2 && u1.partialContainerUses === 5 && uEntry?.change === -27 && /2 sealed \+ 5 uses in the open one/.test(uEntry?.reason || ''), { u1, uEntry });
+  r = await recordCount(db, 't1', 'u1', 2, { id: 'k1', name: 'Kai Park' }, { open: 25 });
+  check('…an open one holding more than a full container is refused', !r.ok && /between 0 and 20/.test(r.error), r);
+  r = await recordCount(db, 't1', 'u1', 2, { id: 'k1', name: 'Kai Park' });
+  const { recordCount: rc2 } = await import('../../src/lib/stock-count');
+  const onlyOpen: any = await rc2(db, 't1', 'u1', 2, { id: 'k1', name: 'Kai Park' }, { open: 9 });
+  check('…a count where only the open one changed says so (it said “It matches”)', onlyOpen.ok && onlyOpen.delta === 0 && onlyOpen.changed === true, onlyOpen);
+  const badOpen: any = await rc2(db, 't1', 'u1', 2, { id: 'k1', name: 'Kai Park' }, { open: true as any });
+  check('…an open amount that isn’t a number is ignored, never read as 1', badOpen.ok && (await db.doc(`${T}/inventory/u1`).get()).data().partialContainerUses === 9, badOpen);
+  await rc2(db, 't1', 'u1', 2, { id: 'k1', name: 'Kai Park' }, { open: 5 });
+  check('…and leaving the open one out keeps it as it was', r.ok && (await db.doc(`${T}/inventory/u1`).get()).data().partialContainerUses === 5, r);
+
   // ── The route ──
   const { POST } = await import('../../src/app/api/inventory/count/route');
   r = await POST(req({ tenantId: 't1', productId: 'p1', counted: 9 }));

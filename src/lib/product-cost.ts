@@ -75,3 +75,70 @@ export function recipeCost(products: any[], inventory: any[]): { total: number; 
   }
   return { total, gaps };
 }
+
+// ── WHAT A SERVICE COSTS TO RUN: ITS PRODUCTS, ITS DISPOSABLES, AND THE STATION'S TIME ──
+// One answer for every screen that plans a price, a deposit, a fee, a floor or a margin.
+
+/** What a service's products and its disposables (gloves, files, foils linked to stock on its blueprint) cost for one
+ *  visit; what can't be counted yet is named. A disposable is used once per client, so it's always one each. */
+export function planCost(service: any, inventory: any[]): { total: number; gaps: { id: string; name: string; gap: string }[] } {
+  const rc = recipeCost(service?.products || [], inventory);
+  const byId = new Map((inventory || []).map((i: any) => [String(i.id), i]));
+  let total = rc.total; const gaps = [...rc.gaps];
+  for (const r of (service?.blueprint?.requirements || []) as any[]) {
+    if (r?.kind !== 'disposable' || r.mode === 'optional' || !r.inventoryItemId) continue;
+    const it: any = byId.get(String(r.inventoryItemId)); if (!it) continue;
+    const c = lineCost(it, Math.max(1, Math.round(n(r.qty) || 1)));
+    if (c === null) gaps.push({ id: String(it.id), name: String(it.name || r.name || 'A disposable'), gap: costGap(it) || 'no cost' }); else total += c;
+  }
+  return { total, gaps };
+}
+/** How long a service ties up the station: its booked time (or, for a finished visit, the real time) plus its set-up and
+ *  clean-up. Add-ons add their booked time. A service with no length saved at all counts as an hour (0 stays 0). */
+export function stationMinutes(service: any, opts: { addOns?: any[]; actualMin?: number | null } = {}): number {
+  const d = service?.duration; const booked = d === undefined || d === null || d === '' ? 60 : Math.max(0, n(d));
+  const extra = (opts.addOns || []).reduce((a, s) => a + Math.max(0, n(s?.duration)), 0);
+  const worked = opts.actualMin && opts.actualMin > 0 ? n(opts.actualMin) : booked + extra;
+  return worked + Math.max(0, n(service?.padBefore)) + Math.max(0, n(service?.padAfter));
+}
+/** The business's hourly running cost (what an hour of the station costs to keep open): what it set (0 is allowed),
+ *  else $50 until it's worked out. */
+export function hourlyRate(tenant: any): number {
+  const v = tenant?.tmhr;
+  return v !== undefined && v !== null && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : 50;
+}
+/** Running cost for the time a service ties up the station. */
+export function timeCost(service: any, tenant: any, opts: { addOns?: any[]; actualMin?: number | null } = {}): number {
+  return (stationMinutes(service, opts) / 60) * hourlyRate(tenant);
+}
+
+/** What running-cost items (foils, towels, cleaning supplies, used in the last 30 days) and equipment wear (its price
+ *  spread over its expected life) would add to the hourly running cost. Shown beside the rate so the owner decides
+ *  whether to include them; nothing here changes the rate on its own. */
+export function rateAddOns(inventory: any[], usedLast30: any[], billableHoursPerMonth: number) {
+  const byId = new Map((inventory || []).map((i: any) => [String(i.id), i]));
+  // Net use per item (a "used less than the recipe" correction puts some back), floored at nothing. Uses that belong to a
+  // visit are left out: a running-cost item linked to a service is already in that service's cost (planCost), and
+  // counting it in the hourly rate too would charge it twice.
+  const net = new Map<string, number>();
+  for (const e of usedLast30 || []) {
+    if (e?.type !== 'used') continue; if ((e.refKind || e.ref?.kind) === 'appointment') continue;
+    const it: any = byId.get(String(e.productId)); if (!it || it.type !== 'overhead') continue;
+    net.set(String(it.id), (net.get(String(it.id)) || 0) - n(e.change));
+  }
+  let running = 0; const runningItems = new Map<string, number>();
+  for (const [id, q] of net) { const it: any = byId.get(id); const u = unitCost(it); if (u === null || q <= 0) continue;
+    const c = q * u; running += c; runningItems.set(String(it.name || 'Item'), (runningItems.get(String(it.name || 'Item')) || 0) + c); }
+  let wear = 0; const wearItems: { name: string; perMonth: number }[] = [];
+  for (const it of inventory || []) {
+    if (it?.type !== 'equipment' || it.status === 'archived') continue;
+    const years = n(it.lifespanYears); const price = n(it.costPerUnit) * Math.max(1, n(it.totalStock) || 1);
+    if (!(years > 0) || !(price > 0)) continue;
+    const m = price / (years * 12); wear += m; wearItems.push({ name: String(it.name || 'Equipment'), perMonth: m });
+  }
+  const h = n(billableHoursPerMonth);
+  return {
+    runningPerMonth: running, runningPerHour: h > 0 ? running / h : 0, runningItems: [...runningItems.entries()].map(([name, perMonth]) => ({ name, perMonth })).sort((a, b) => b.perMonth - a.perMonth),
+    wearPerMonth: wear, wearPerHour: h > 0 ? wear / h : 0, wearItems: wearItems.sort((a, b) => b.perMonth - a.perMonth),
+  };
+}

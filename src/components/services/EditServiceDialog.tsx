@@ -1,6 +1,6 @@
 'use client';
 
-import { unitCost } from '@/lib/product-cost';
+import { unitCost, hourlyRate } from '@/lib/product-cost';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -448,7 +448,7 @@ const Step4 = ({
   const { register, control, setValue, watch } = useFormContext<ServiceFormData>();
   const { staff } = useInventory();
   const { selectedTenant } = useTenant();
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
   const taxBurden = selectedTenant?.employerTaxBurdenPct || 10;
   const currentValues = watch();
   const requiredFormIds = watch('requiredFormIds') || [];
@@ -521,7 +521,7 @@ export const EditServiceDialog: React.FC<any> = ({
   const { inventory, services: allServices } = useInventory();
   const { selectedTenant } = useTenant();
   const { firestore } = useFirebase();
-  const tmhr = selectedTenant?.tmhr || 50;
+  const tmhr = hourlyRate(selectedTenant);
 
   // ── ALL nested dialog state lives here — OUTSIDE the form ──
   const [isProductBrowserOpen,     setIsProductBrowserOpen]     = useState(false);

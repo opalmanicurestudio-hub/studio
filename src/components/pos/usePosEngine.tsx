@@ -8,6 +8,7 @@
 // new POS will too. Do not fork logic into a layout — add it here.
 
 
+import { hourlyRate } from '@/lib/product-cost';
 import { useToday, useTransactionsInRange } from '@/hooks/use-transactions';
 import { useAppointmentWindow, useClientVisits } from '@/hooks/use-appointments';
 import { useClientsByIds } from '@/hooks/use-clients';
@@ -1080,7 +1081,7 @@ export function usePosEngine() {
     const effectiveIsWalkIn = isWalkIn && !isAssignedWalkIn;
     const collectionName = effectiveIsWalkIn ? 'walkIns' : 'appointments';
     const docRef = doc(firestore, 'tenants', tenantId, collectionName, id);
-    const tmhrValue = selectedTenant.tmhr || 50; const premium = selectedTenant.lateInconveniencePremium || 0;
+    const tmhrValue = hourlyRate(selectedTenant); const premium = selectedTenant.lateInconveniencePremium || 0;
     if (status === 'running_late' && lateMinutes && !effectiveIsWalkIn) {
       const apt = appointmentsFromInventory?.find(a => a.id === id);
       if (apt) {
