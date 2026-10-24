@@ -1007,6 +1007,7 @@ export const ORDER_EVENT_TYPES = [
   'held_for_review',           // meta: { reason } — a manager holds it before packing
   'hold_released',
   'override',                  // meta: { rule, reason } — manager PIN bypass; always logged
+  'message_failed',            // meta: { what, tries, why } — a step's message didn't reach the customer (lib/order-outbox)
   'note',
 ] as const;
 

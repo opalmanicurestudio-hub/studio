@@ -6,7 +6,8 @@ import { sendCarrierUpdate } from '@/lib/shipping-notify';
 // ─── /api/retail/shipped-notify ──────────────────────────────────────────────
 // "Your order is on its way" when staff type tracking from a label bought elsewhere. Labels bought in the app are
 // announced by the carrier's first scan instead (shippo-webhook), so this only sends for orders without one. Uses the
-// same message and the same once-only marker as the carrier's in-transit update, so a customer never gets both.
+// same message and the same once-only marker as the carrier's in-transit update, so a customer never gets both. A send
+// that didn't go answers retry: true, so the queue that sent it (lib/order-outbox) tries later.
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,9 +24,11 @@ export async function POST(req: NextRequest) {
     const order: any = os.data(); if (!order || order.stage !== 'shipped' || !order.trackingNumber || order.shippoTransactionId) return NextResponse.json({ ok: true, sent: false });
     const r = await sendCarrierUpdate({ markerRef: ref.collection('events').doc('carrier-transit'), order, tenant: ts.data() || {}, origin: req.nextUrl.origin, tenantId, orderId, db,
       update: { status: 'TRANSIT' as any, carrier: String(order.carrier || ''), trackingNumber: String(order.trackingNumber), trackingUrl: order.trackingUrl || undefined } });
-    return NextResponse.json({ ok: true, sent: (r as any)?.ok === true });
+    // The email service didn't take it (the once-only mark is given back by sendCarrierUpdate): try again later.
+    if ((r as any)?.reason === 'send_failed') return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The email service didn’t take it.' }, { status: 503 });
+    return NextResponse.json({ ok: true, sent: (r as any)?.ok === true && (r as any)?.sent !== false, why: (r as any)?.reason });
   } catch (e: any) {
     console.error('[shipped-notify]', e?.message);
-    return NextResponse.json({ ok: true, sent: false });
+    return NextResponse.json({ ok: false, sent: false, retry: true, why: String(e?.message || 'failed').slice(0, 120) }, { status: 503 });
   }
 }

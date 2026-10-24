@@ -280,7 +280,7 @@ export async function sendCarrierUpdate(opts: {
   // Through the mailroom: logged, tracked to delivered/opened, and under the
   // same from-address as everything else. The policy check above stays as a
   // fast pre-check; sendNotification re-applies it and records a skip.
-  let sent = false;
+  let sent = false; let skipped = false;
   try {
     const { sendNotification } = await import('@/lib/notify');
     const r = await sendNotification(db, {
@@ -292,13 +292,14 @@ export async function sendCarrierUpdate(opts: {
       recipientId: orderId,
       recipientName: order?.customerName || null,
     });
-    sent = r.ok;
+    sent = r.ok; skipped = !r.ok && r.status !== 'failed';
     if (!r.ok) console.error('[shipping-notify] not sent:', r.status, r.error);
   } catch (e: any) {
     console.error('[shipping-notify] send failed:', e?.message || e);
   }
 
-  if (!sent) { await release(); return { ok: false, reason: 'send_failed' }; }
+  // Switched off by the shop (or no email service): not a failure to try again.
+  if (!sent) { await release(); return { ok: false, reason: skipped ? 'not_sent_by_policy' : 'send_failed' }; }
 
   // Only mark it told once it actually went. A failed send stays retryable on
   // the carrier's next webhook for the same status.

@@ -11,6 +11,7 @@ import { SWAP_ANSWER_HOURS, normaliseIfUnavailable, swapLines, type SwapItem } f
 import { brandedEmailHtml } from './email-template';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { autoRefund, refundWords, refundWordsShort } from './auto-refund';
+import { queueAndSend } from './order-outbox';
 
 type Actor = { id: string; name: string };
 const money = (c: number) => `$${(Math.max(0, c) / 100).toFixed(2)}`;
@@ -208,7 +209,8 @@ export async function expireSwapOffers(db: any, t: string): Promise<number> {
     const base = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
     // Within the shop's automatic amount it goes back now, before the customer is told, so the notice can say it went.
     await autoRefund(db, t, d.id, base);
-    if (base) { try { await fetch(`${base}/api/retail/short-notify`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET || '') }, body: JSON.stringify({ tenantId: t, orderId: d.id, lineId: o.swapOffer.lineId }) }); } catch { /* the order page shows it */ } }
+    // Queued, so it's tried again if it doesn't go (lib/order-outbox).
+    await queueAndSend(db, t, 'order_short', { orderId: d.id, lineId: o.swapOffer.lineId }, { base }).catch(() => 'none');
   }
   return n;
 }

@@ -17,6 +17,7 @@ import { shareOrderTip } from '@/lib/order-tips';
 import { resolveCreditReturn } from '@/lib/return-credit';
 import { decideClaim } from '@/lib/claim-decide';
 import { syncTracking } from '@/lib/order-tracking';
+import { queueMessage, deliverMessage, type MessageKind } from '@/lib/order-outbox';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -37,28 +38,30 @@ const safeId = (v: any) => { const x = s(v, 160); return x && !x.includes('/') &
 
 /** Who's asking, for the follow-ups a step starts (a message, a renter's share, store credit), kept for each request on
  *  its own: two requests on one server can never use each other's person. */
-type Ctx = { actor: { id: string; name: string }; boss: boolean; base: string; auth: string };
+type Ctx = { actor: { id: string; name: string }; boss: boolean; base: string; auth: string; tenantId: string; queued: Promise<unknown>[] };
 const ctxStore = new AsyncLocalStorage<Ctx>();
 const ctx = (): Ctx | undefined => ctxStore.getStore();
-/** One of the app's own routes, asked by the server after the step commits (with the caller's sign-in, and the
- *  server's key where the route takes it). The app's own address when it's set, never a header a caller could send. */
-function callRoute(path: string, body: any): void {
-  const c = ctx(); if (!c?.base) return;
-  const { base, auth } = c; const secret = String(process.env.CRON_SECRET || '');
-  after(async () => {
-    try { await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: auth } : {}), ...(secret ? { 'x-cf-internal': secret, 'x-internal-key': secret } : {}) }, body: JSON.stringify(body) }); } catch { /* the board and the order page still show it */ }
-  });
+/** A step's message to the customer (lib/order-outbox): queued before the step answers, so it's never lost with the
+ *  request, then sent straight after it (with the caller's sign-in, and the server's key); one that doesn't go is tried
+ *  again by the five-minute job. Sent from the app's own address when it's set, never one a caller could send. */
+function sendMessage(kind: MessageKind, a: { orderId?: string; lineId?: string; returnId?: string; claimId?: string; key?: string }, tenantId?: string): void {
+  const c = ctx(); if (!c) return;
+  const db = getAdminDb(); const t = tenantId || c.tenantId;
+  c.queued.push(queueMessage(db, t, kind, a).then((id) => {
+    if (id) after(async () => { await deliverMessage(db, id, { base: c.base, auth: c.auth }).catch((e: any) => console.warn('[fulfil] message', id, String(e?.message || e).slice(0, 160))); });
+  }).catch((e: any) => console.error('[fulfil] message not queued', kind, String(e?.message || e).slice(0, 160))));
 }
 F.setFulfilEffects({
-  curbside: (t, orderId, moment) => callRoute('/api/retail/curbside-notify', { tenantId: t, orderId, moment }),
-  short: (t, orderId, lineId) => callRoute('/api/retail/short-notify', { tenantId: t, orderId, lineId }),
+  // The shop's own alert about a customer left waiting comes from the board (api/retail/curbside-notify), not a step.
+  curbside: (t, orderId, moment) => { if (moment !== 'staff_escalation') sendMessage(moment === 'ready' ? 'curbside_ready' : 'curbside_out', { orderId }, t); },
+  short: (t, orderId, lineId) => sendMessage('order_short', { orderId, lineId }, t),
   renterCredits: (t, o) => { const name = ctx()?.actor.name || 'A team member'; if (o?.id && (o.lines || []).some((l: any) => l?.soldFor?.renterId)) after(async () => { await syncRenterCreditsForOrder(getAdminDb(), t, String(o.id), name).catch(() => 0); }); },
   tip: (t, o) => { if (o?.id && (Number(o.tipCents) || 0) > 0) after(async () => { await shareOrderTip(getAdminDb(), t, String(o.id)).catch(() => null); }); },
 });
 R.setReturnEffects({
   // The person who checked the return in, as the step was handed them; a manager's rights only from this request.
   credit: async (t, returnId, who) => resolveCreditReturn(getAdminDb(), t, returnId, { uid: who.id, name: who.name, isManager: ctx()?.actor.id === who.id && ctx()?.boss === true }) as any,
-  notify: (t, returnId) => callRoute('/api/retail/return-notify', { tenantId: t, returnId }),
+  notify: (t, returnId) => sendMessage('return_outcome', { returnId }, t),
   renterCredits: (t, orderId) => { const name = ctx()?.actor.name || 'A team member'; after(async () => { await syncRenterCreditsForOrder(getAdminDb(), t, orderId, name).catch(() => 0); }); },
 });
 
@@ -97,7 +100,7 @@ export async function POST(req: NextRequest) {
   const actor = { id: String(a.uid), name: String(a.name || 'A team member') };
   const db = getAdminDb();
   const base = String(process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/+$/, '') || req.nextUrl?.origin || '';
-  return ctxStore.run({ actor, boss, base, auth: req.headers.get('authorization') || '' }, () => run(req, b, tenantId, action, actor, a, perms, boss, db));
+  return ctxStore.run({ actor, boss, base, auth: req.headers.get('authorization') || '', tenantId, queued: [] }, () => run(req, b, tenantId, action, actor, a, perms, boss, db));
 }
 
 async function run(req: NextRequest, b: any, tenantId: string, action: string, actor: { id: string; name: string }, a: any, perms: any, boss: boolean, db: any) {
@@ -142,7 +145,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         if (out?.ok) {
           const o: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
           if (o.method === 'curbside') { if (out.notifyReady) F.notifyCurbside(tenantId, orderId, 'ready'); }
-          else if (o.method !== 'ship') callRoute('/api/retail/ready-notify', { tenantId, orderId });
+          else if (o.method !== 'ship') sendMessage('order_ready', { orderId });
         }
         break;
       }
@@ -167,6 +170,9 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         const m = need1(orderId, 'order'); if (m) return m;
         const t = b.tracking && typeof b.tracking === 'object' ? b.tracking : {};
         out = await F.markShipped(db, tenantId, orderId, { carrier: s(t.carrier, 60) || undefined, number: s(t.number, 80) || undefined, url: s(t.url, 500) || undefined, extraNumbers: Array.isArray(t.extraNumbers) ? t.extraNumbers.slice(0, 20).map((x: any) => s(x, 80)).filter(Boolean) : undefined }, actor);
+        // Tracking typed in from a label bought elsewhere: the carrier won't tell the customer, so the shop does. A label
+        // bought in the app is announced by the carrier's first scan instead (api/retail/shippo-webhook).
+        if (out?.ok) { const o: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {}; if (o.trackingNumber && !o.shippoTransactionId) sendMessage('order_shipped', { orderId }); }
         break;
       }
       case 'cancel': { const m = need1(orderId, 'order'); if (m) return m; out = await F.cancelOrder(db, tenantId, orderId, actor, s(b.reason, 300) || undefined); break; }
@@ -184,7 +190,10 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       }
       case 'decideClaim': {
         const id = safeId(b.claimId); const m = need1(id, 'report'); if (m) return m;
-        out = await decideClaim(db, tenantId, id, b.approve === true, { cents: Number.isFinite(Number(b.cents)) ? Number(b.cents) : null, declineWhy: s(b.declineWhy, 400) }); break;
+        out = await decideClaim(db, tenantId, id, b.approve === true, { cents: Number.isFinite(Number(b.cents)) ? Number(b.cents) : null, declineWhy: s(b.declineWhy, 400) });
+        // The customer is told the decision (api/retail/claim-notify), once per decision.
+        if (out?.ok) { const c: any = (await db.doc(`tenants/${tenantId}/retailClaims/${id}`).get()).data() || {}; sendMessage('claim_decided', { claimId: id, key: String(c.decidedAt || '') }); }
+        break;
       }
     }
     // The customer's order page changes as the step happens (lib/order-tracking): every order the step touched.
@@ -192,9 +201,13 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       const touched = new Set<string>([orderId, out.orderId, out.childOrderId, ...(Array.isArray(out.orderIds) ? out.orderIds : []), ...(Array.isArray(out.released) ? out.released.map((x: any) => x?.orderId) : []), ...(Array.isArray(touchedIds) ? touchedIds : [])].map((x) => safeId(x)).filter(Boolean));
       for (const id of touched) after(async () => { await syncTracking(db, tenantId, id); });
     }
+    // Every message the step queued is in the queue before it answers.
+    await Promise.allSettled(ctx()?.queued || []);
     return NextResponse.json(out ?? { ok: false, message: 'That didn’t go through. Try again.' });
   } catch (e: any) {
     console.error('[fulfil]', action, String(e?.message || e).slice(0, 200));
+    // A step that went through before something after it failed still tells the customer.
+    await Promise.allSettled(ctx()?.queued || []);
     return NextResponse.json({ ok: false, message: 'That didn’t go through. Try again.' }, { status: 500 });
   }
 }

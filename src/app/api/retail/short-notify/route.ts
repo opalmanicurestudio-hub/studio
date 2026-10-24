@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
     if (tSnap.exists) tenant = tSnap.data() || {};
     alreadySent = !!mSnap.exists;
   } catch {
-    return NextResponse.json({ ok: false, reason: 'read_failed' }, { status: 200 });
+    return NextResponse.json({ ok: false, reason: 'read_failed', retry: true }, { status: 503 });
   }
 
   // Already told them once. Silence beats a duplicate apology.
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
       : `You are receiving this because you placed order ${num} with ${shopName}.`,
   });
 
-  let sent = false;
+  let sent = false; let failedFinal = false;
   try {
     const { sendNotification } = await import('@/lib/notify');
     const res = await sendNotification(db, {
@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
         html,
       kind: 'order_short', recipientType: 'client', orderId,
     });
-    sent = res.ok;
+    sent = res.ok; failedFinal = !res.ok && res.status !== 'failed';
     if (!res.ok) {
       console.error('[short-notify] not sent:', res.status, res.error);
     }
@@ -198,8 +198,9 @@ export async function POST(req: NextRequest) {
     console.error('[short-notify] send failed:', e?.message || e);
   }
 
-  // Only mark it sent if it actually went. A failed send stays retryable.
-  if (!sent) return NextResponse.json({ ok: false, reason: 'send_failed' }, { status: 200 });
+  // Only mark it sent if it actually went. A failed send stays retryable: the queue that sent it tries later
+  // (lib/order-outbox). One the shop switched off, or a missing email service, isn't tried again.
+  if (!sent) return failedFinal ? NextResponse.json({ ok: true, sent: false, reason: 'not_sent_by_policy' }) : NextResponse.json({ ok: false, reason: 'send_failed', retry: true }, { status: 503 });
 
   try {
     await markerRef.set({

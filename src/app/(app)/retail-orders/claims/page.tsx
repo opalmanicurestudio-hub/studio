@@ -27,8 +27,8 @@ import { decideClaim } from '@/lib/fulfil-client';
 // not an investigation. Approving queues the money in the order's
 // pendingRefundCents (the same staff banner every refund uses); declining
 // requires a written reason because the customer's email quotes it verbatim.
-// After either decision the desk pings claim-notify, which emails the
-// customer exactly once per decision — appealed claims come back here with
+// After either decision the server emails the customer (claim-notify, from
+// the queue that retries it), exactly once per decision — appealed claims come back here with
 // the customer's note attached and "Appealed after decline" on the record.
 
 type Claim = {
@@ -126,11 +126,7 @@ export default function RetailClaimsPage() {
       // Decided on the server, in one step with the order (lib/claim-decide).
       const r = await decideClaim(String(tenantId), c.id, approve, { cents: Number.isFinite(approveCents[c.id]) ? approveCents[c.id] : null, declineWhy: declineWhy.trim() });
       if (!r.ok) throw new Error(r.message);
-      fetch('/api/retail/claim-notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, claimId: c.id }),
-      }).catch(() => {});
+      // The customer is emailed the decision by the server, as it's made (api/retail/fulfil, lib/order-outbox).
       /* THE EXCEPTION SPINE. An approved claim IS an inventory loss — a unit
        * was consumed without producing its value — so approval records the
        * exception: reason from the claim type, responsible party and

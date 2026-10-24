@@ -29,7 +29,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/staff-auth' || /\/src\/lib\/staff-auth(\.ts)?$/.test(request)) return fake(request, { verifyStaffActor: async () => (signedIn ? { ok: true, actor, tenant: {} } : { ok: false, status: 401, error: 'Please sign in again.' }) });
   return load.call(this, request, ...rest);
 };
-(globalThis as any).fetch = async (url: any, init?: any) => { called.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null }); return { ok: true, json: async () => ({ ok: true }) }; };
+(globalThis as any).fetch = async (url: any, init?: any) => { called.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null }); return { ok: true, status: 200, json: async () => ({ ok: true, sent: true }) }; };
 
 const T = 'tenants/t1';
 const get = async (p: string) => (await db.doc(p).get()).data() || null;
@@ -159,7 +159,7 @@ const as = (x: any) => { actor = { uid: 'k1', name: 'Kai Park', role: 'staff', i
   const route = src('src/app/api/retail/fulfil/route.ts');
   check('each request’s person is kept on its own (two requests on one server never use each other’s), and store credit is issued as the person who checked the return in',
     /new AsyncLocalStorage<Ctx>\(\)/.test(route) && /ctxStore\.run\(/.test(route) && /credit: async \(t, returnId, who\) => resolveCreditReturn\(getAdminDb\(\), t, returnId, \{ uid: who\.id, name: who\.name/.test(route) && !/F\.setFulfilEffects\(\{[^]*?\}\);[^]*export async function POST[^]*F\.setFulfilEffects/.test(route) && route.indexOf('F.setFulfilEffects') < route.indexOf('export async function POST'));
-  check('follow-ups go to the app’s own address, with the caller’s sign-in (so they work even without the server key)', /process\.env\.NEXT_PUBLIC_APP_URL/.test(route) && /Authorization: auth/.test(route));
+  check('follow-ups go to the app’s own address, with the caller’s sign-in (so they work even without the server key)', /process\.env\.NEXT_PUBLIC_APP_URL/.test(route) && /deliverMessage\(db, id, \{ base: c\.base, auth: c\.auth \}\)/.test(route) && /Authorization: o\.auth/.test(src('src/lib/order-outbox.ts')));
   check('the screens use the person’s staff record, the id the server stamps on what they claim', ['src/components/orders/OrdersApp.tsx', 'src/components/orders/LostScreen.tsx', 'src/components/orders/ProblemsApp.tsx'].every((p) => /id: staffId \|\| user\?\.uid/.test(src(p))));
   check('putting a batch back or moving a wave says when it didn’t go through', /if \(!r\.ok\) throw new Error\(r\.message\);[^]*if \(!r\.ok\) throw new Error\(r\.message\);/.test(src('src/lib/fulfil-client.ts')) && /The wave didn’t move to the bench/.test(src('src/app/(app)/retail-orders/waves/page.tsx')));
   // Nothing the server's order steps reach is a browser-only file (on the server it would be a placeholder, and the

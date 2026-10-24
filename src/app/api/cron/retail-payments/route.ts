@@ -18,6 +18,7 @@ import { sweepAddressPays } from '@/lib/address-pay';
 import { finishPaidOrder } from '@/lib/retail-webhook';
 import { shareOrderTip } from '@/lib/order-tips';
 import { sweepMoneyOnTheWay } from '@/lib/money-sweep';
+import { drainOutbox } from '@/lib/order-outbox';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
@@ -25,6 +26,10 @@ export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false }, { status: 401 });
   const db = getAdminDb(); const counts: Record<string, number> = { paid: 0, expired: 0, waiting: 0, skipped: 0, failed: 0, swapsRefunded: 0, restockEmails: 0, pickupReminders: 0, readerChecked: 0, readerCaptured: 0, readerReleased: 0, addressPays: 0, finished: 0, tipsShared: 0,
     moneyChecked: 0, moneyRecorded: 0, moneyReleased: 0, moneyWaiting: 0, moneyFailed: 0 };
+  // Order messages that didn't go the first time, tried again (lib/order-outbox): first, so a long run of shops can't
+  // hold them up.
+  const startedAt = Date.now(); let messages: Record<string, number> = {};
+  try { messages = await drainOutbox(db, String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '') || req.nextUrl.origin, { budgetMs: 10e3 }); } catch (e: any) { console.error('[cron/retail-payments] messages', String(e?.message || e).slice(0, 160)); }
   // Several businesses at once, within the time limit, resuming where the last run stopped (lib/cron-fanout).
   const run = await forEachTenant(db, 'retail-payments', async (t) => {
     const tenant: any = t.data;
@@ -74,7 +79,7 @@ export async function GET(req: NextRequest) {
       }
     } catch { /* next run */ }
     await money();
-  });
+  }, { startedAt });   // the shops share the run's time with the messages above
   await heartbeat(db, 'retail-payments');   // HQ's account check uses this to spot a stopped task
-  return NextResponse.json({ ok: true, ...counts, businesses: run.done, of: run.total, resumesAt: run.ranOut ? run.nextStart : null });
+  return NextResponse.json({ ok: true, ...counts, messages, businesses: run.done, of: run.total, resumesAt: run.ranOut ? run.nextStart : null });
 }

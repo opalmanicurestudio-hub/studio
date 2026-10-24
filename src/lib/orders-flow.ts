@@ -77,11 +77,6 @@ export async function finishPacking(fs: Firestore, t: string, o: any, all: any[]
   return { ok: true, message: `Ready. Put it on shelf ${slot}.`, slot };
 }
 
-/** Counter pickup: tell the customer it's ready (the curbside text only covers curbside). */
-export async function tellReady(t: string, orderId: string): Promise<void> {
-  try { await fetch('/api/retail/ready-notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId }) }); } catch { /* the order page shows it either way */ }
-}
-
 export async function bringingOut(fs: Firestore, t: string, o: any, actor: Actor, photo?: string): Promise<Result> {
   // The customer is told someone's on the way by the server, with this person's name and photo (api/retail/fulfil).
   return markBringingOut(fs, t, o.id, actor, photo);
@@ -94,12 +89,8 @@ export async function handOver(fs: Firestore, t: string, o: any, actor: Actor, v
 }
 
 export async function shipIt(fs: Firestore, t: string, o: any, actor: Actor, tracking: { carrier?: string; number?: string; url?: string; extraNumbers?: string[] }): Promise<Result> {
-  const r = await markShipped(fs, t, o.id, tracking, actor);
-  // Tracking typed from a label bought elsewhere: the carrier won't tell the customer, so we do.
-  if (r.ok && !o.shippoTransactionId && (tracking.number || o.trackingNumber)) {
-    try { await fetch('/api/retail/shipped-notify', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId: t, orderId: o.id }) }); } catch { /* the order page shows tracking either way */ }
-  }
-  return r;
+  // Tracking typed from a label bought elsewhere: the server tells the customer as it marks it shipped (api/retail/fulfil).
+  return markShipped(fs, t, o.id, tracking, actor);
 }
 
 export async function cancelIt(fs: Firestore, t: string, o: any, actor: Actor, reason: string): Promise<Result> {

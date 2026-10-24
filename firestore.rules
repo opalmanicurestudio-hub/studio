@@ -998,6 +998,11 @@ service cloud.firestore {
       allow get: if true;
       allow list, write: if false;
     }
+    // MESSAGES AN ORDER STEP SENDS (lib/order-outbox): queued and tried again by the server only. Nobody reads or writes
+    // them from a browser; a message that never went shows on the order's history instead.
+    match /messageOutbox/{id} {
+      allow read, write: if false;
+    }
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }

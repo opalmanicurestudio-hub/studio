@@ -20,13 +20,16 @@ export const dynamic = 'force-dynamic';
  *   replacement  → the no-charge replacement shipment now in the queue
  *
  * Idempotent by claim on the return doc (outcomeEmailAt), so retries and
- * double-fires send exactly once.
+ * double-fires send exactly once. A send the email service didn't take gives
+ * the claim back and answers retry: true, so the queue that sent it
+ * (lib/order-outbox) tries later.
  */
 
 const str = (v: any, max: number): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
 
 export async function POST(req: NextRequest) {
+  let release: (() => Promise<void>) | null = null;
   try {
     let body: any = {};
     try { body = await req.json(); } catch { body = {}; }
@@ -54,16 +57,22 @@ export async function POST(req: NextRequest) {
     }
 
     let claimed = false;
+    const stamp = new Date().toISOString();
     try {
       claimed = await db.runTransaction(async (tx: any) => {
         const s = await tx.get(retRef);
         if (!s.exists) return false;
         if ((s.data() as any).outcomeEmailAt) return false;
-        tx.set(retRef, { outcomeEmailAt: new Date().toISOString() }, { merge: true });
+        tx.set(retRef, { outcomeEmailAt: stamp }, { merge: true });
         return true;
       });
-    } catch { claimed = false; }
+    } catch {
+      // Couldn't tell whether it was sent: nothing went, so try again later.
+      return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The return couldn’t be read just then.' }, { status: 503 });
+    }
     if (!claimed) return NextResponse.json({ ok: true, alreadyNotified: true });
+    // Gives the claim back (only our own), so a later try can send it.
+    release = async () => { await db.runTransaction(async (tx: any) => { const s = await tx.get(retRef); if (s.exists && (s.data() as any)?.outcomeEmailAt === stamp) tx.update(retRef, { outcomeEmailAt: null }); }).catch(() => {}); };
 
     const orderSnap = await db.doc(`tenants/${tenantId}/retailOrders/${ret.orderId}`).get();
     const order = orderSnap.exists ? (orderSnap.data() as any) : {};
@@ -169,8 +178,10 @@ export async function POST(req: NextRequest) {
       recipientId: ret.orderId || null, recipientName: (gr ? gr.name : order?.customerName) || null,
     });
 
+    if (!r.ok && r.status === 'failed') { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: String(r.error || 'not sent').slice(0, 160) }, { status: 503 }); }
     return NextResponse.json({ ok: true, sent: r.ok });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'Notify failed.' }, { status: 500 });
+    if (release) await release();
+    return NextResponse.json({ ok: false, retry: true, error: e instanceof Error ? e.message : 'Notify failed.' }, { status: 500 });
   }
 }

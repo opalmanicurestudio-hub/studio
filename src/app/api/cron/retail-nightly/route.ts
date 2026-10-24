@@ -16,6 +16,7 @@ import { recordCronRun } from '@/lib/cron-heartbeat';
 import { refuseCron } from '@/lib/cron-auth';
 import { retailNightlyForShop } from '@/lib/retail-nightly';
 import { sweepTracking } from '@/lib/order-tracking';
+import { sweepOutbox } from '@/lib/order-outbox';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -53,7 +54,9 @@ export async function GET(req: NextRequest) {
   }
   // Live views of orders whose link has expired (lib/order-tracking): one sweep for every shop at once.
   let trackingRemoved = 0; if (!cutOff) { try { trackingRemoved = await sweepTracking(db); } catch (e: any) { console.warn('[cron/retail-nightly] tracking sweep', String(e?.message || e).slice(0, 160)); } }
+  // Order messages that went (or never will), kept a month (lib/order-outbox).
+  let messagesRemoved = 0; if (!cutOff) { try { messagesRemoved = await sweepOutbox(db); } catch (e: any) { console.warn('[cron/retail-nightly] message sweep', String(e?.message || e).slice(0, 160)); } }
   await curRef.set({ day: today, cycleStart, after: last, done: !cutOff, at: new Date().toISOString(), reached }, { merge: true });
   console.log('[cron/retail-nightly]', { shops: reached, cutOff, changed: Object.keys(results).length });
-  return NextResponse.json({ ok: true, shops: reached, cutOff, trackingRemoved, results });
+  return NextResponse.json({ ok: true, shops: reached, cutOff, trackingRemoved, messagesRemoved, results });
 }

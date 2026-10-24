@@ -56,7 +56,11 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
+/** A text that can't go however often it's tried (no service set up, not a number, they replied STOP). */
+const FINAL = /not configured|not a sendable|replied STOP|unsubscribed|landline|not a valid|invalid .*number|cannot receive|21211|21610|21612|21614/i;
+
 export async function POST(req: NextRequest) {
+  let release: (() => Promise<void>) | null = null;
   try {
     let body: any = {};
     try {
@@ -79,11 +83,16 @@ export async function POST(req: NextRequest) {
 
     // Claim the send inside a transaction, then text after it commits: a crash
     // loses one message rather than sending two.
+    const stamp = new Date().toISOString();
     const claimed = await db.runTransaction(async (txn: any) => {
       const snap = await txn.get(orderRef);
       if (!snap.exists) return null;
       const o = snap.data() as any;
       if (o.method !== 'curbside') return null;
+      // Only while it still means something: "it's ready" before they've arrived, "on the way out" before it's handed
+      // over (a message tried again later never arrives after the moment it's about).
+      if (moment === 'ready' && String(o.stage) !== 'ready') return null;
+      if (moment === 'out' && !['ready', 'arrived'].includes(String(o.stage))) return null;
       const sentKey = moment === 'ready' ? 'smsReadyAt'
         : moment === 'staff_escalation' ? 'smsStaffAlertAt' : 'smsBringingOutAt';
       if (o.curbside?.[sentKey]) return null;
@@ -96,9 +105,10 @@ export async function POST(req: NextRequest) {
       }
       if (!phone) return null;
       txn.update(orderRef, {
-        curbside: { ...(o.curbside || {}), [sentKey]: new Date().toISOString() },
+        curbside: { ...(o.curbside || {}), [sentKey]: stamp },
       });
       return {
+        sentKey,
         phone,
         firstName: String(o.customerName || '').trim().split(/\s+/)[0] || '',
         orderNumber: o.orderNumber ?? null,
@@ -109,6 +119,13 @@ export async function POST(req: NextRequest) {
     });
 
     if (!claimed) return NextResponse.json({ ok: true, sent: false });
+    // Gives the claim back (only our own), so a later try can send it.
+    release = async () => {
+      await db.runTransaction(async (txn: any) => {
+        const s = await txn.get(orderRef); const c = (s.data() as any)?.curbside || {};
+        if (s.exists && c[claimed.sentKey] === stamp) txn.update(orderRef, { curbside: { ...c, [claimed.sentKey]: null } });
+      }).catch(() => {});
+    };
 
     const num = `#${String(claimed.orderNumber ?? '').padStart(4, '0')}`;
     const hi = `Hi ${claimed.firstName || 'there'}, `;
@@ -131,11 +148,14 @@ export async function POST(req: NextRequest) {
       { email: claimed.email, subject: moment === 'ready' ? `Order ${num} is ready` : `Order ${num} is on its way out to you` },
     );
 
+    // The text service didn't take it (and no email did instead): try again later (lib/order-outbox).
+    if (!res.ok && !FINAL.test(String(res.error || ''))) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: String(res.error || 'not sent').slice(0, 160) }, { status: 503 }); }
     return NextResponse.json({ ok: true, sent: res.ok === true, why: res.ok ? undefined : res.error });
   } catch (err: any) {
     console.error('[curbside-notify] failed:', err?.message);
-    // Never an error the board has to interpret: the action it describes has
-    // already happened.
-    return NextResponse.json({ ok: true, sent: false });
+    // Not sent (the claim given back if it was made): try again later. The board's own alert ignores the answer; the
+    // action it describes has already happened.
+    if (release) await release();
+    return NextResponse.json({ ok: false, sent: false, retry: true, why: String(err?.message || 'failed').slice(0, 120) }, { status: 503 });
   }
 }

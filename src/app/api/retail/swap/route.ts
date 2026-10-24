@@ -3,6 +3,7 @@
 // { action: 'refund', … lineId } refunds instead. Customer: { action: 'decide', tenantId, orderId, qrToken, accept }
 // answers from their order page.
 import { NextRequest, NextResponse } from 'next/server';
+import { queueAndSend } from '@/lib/order-outbox';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { decideSwap, offerSwap, refundInstead } from '@/lib/retail-swap-server';
 
@@ -39,7 +40,8 @@ export async function POST(req: NextRequest) {
   }
   if (action === 'refund') {
     const r = await refundInstead(db, tenantId, orderId, lineId, actor, String(b.reason || 'Not on the shelf').slice(0, 120));
-    if (r.ok) { try { await fetch(`${origin}/api/retail/short-notify`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET || '') }, body: JSON.stringify({ tenantId, orderId, lineId }) }); } catch { /* the order page shows it */ } }
+    // The customer is told, from the queue that tries again if it doesn't go (lib/order-outbox).
+    if (r.ok) await queueAndSend(db, tenantId, 'order_short', { orderId, lineId }, { base: origin, auth: req.headers.get('authorization') || '' }).catch(() => 'none');
     return NextResponse.json(r, { status: r.ok ? 200 : 409 });
   }
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });

@@ -101,6 +101,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  let release: (() => Promise<void>) | null = null;
   try {
     // Claim the send INSIDE a transaction, then email after commit — the
     // same order-of-operations every notification here uses: a crash after
@@ -117,6 +118,9 @@ export async function POST(req: NextRequest) {
       return c;
     });
     if (!decision) return NextResponse.json({ ok: true, sent: false });
+    // A send the email service didn't take gives the claim back (only our own) and answers retry: true, so the queue
+    // that sent it (lib/order-outbox) tries later.
+    release = async () => { await db.runTransaction(async (txn: any) => { const s = await txn.get(claimRef); if (s.exists && (s.data() as any)?.notifiedForDecidedAt === decision.decidedAt) txn.update(claimRef, { notifiedForDecidedAt: null }); }).catch(() => {}); };
 
     const tenantSnap = await db.collection('tenants').doc(tenantId).get();
     const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : {};
@@ -155,8 +159,10 @@ export async function POST(req: NextRequest) {
       kind: approved ? 'claim_approved' : 'claim_decision', recipientType: 'client',
       recipientId: decision.orderId || null, recipientName: decision.customerName || null,
     });
+    if (!r.ok && r.status === 'failed') { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: String(r.error || 'not sent').slice(0, 160) }, { status: 503 }); }
     return NextResponse.json({ ok: true, sent: r.ok });
   } catch (e: any) {
-    return NextResponse.json({ ok: true, sent: false, why: String(e?.message || '').slice(0, 120) });
+    if (release) await release();
+    return NextResponse.json({ ok: false, sent: false, retry: true, why: String(e?.message || '').slice(0, 120) }, { status: 503 });
   }
 }

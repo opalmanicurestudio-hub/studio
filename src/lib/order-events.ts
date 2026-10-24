@@ -42,6 +42,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   held_for_review: { customer: false, words: (m, by) => ({ text: `Held for review${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
   hold_released: { customer: false, words: (_m, by) => ({ text: `Released from review${by}`, tone: 'ok' }) },
   override: { customer: false, words: (m, by) => ({ text: `${m.rule === 'handoff_without_scan' ? 'Handed over without the pickup code' : 'Rule set aside'}${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
+  message_failed: { customer: false, words: (m) => ({ text: `The ${m.what || 'message'} didn’t reach the customer${m.tries ? ` after ${m.tries} tries` : ''}. Let them know on the order page.`, tone: 'warn' }) },
   note: { customer: false, words: (m) => ({ text: String(m.text || 'Note'), tone: 'plain' }) },
 };
 
