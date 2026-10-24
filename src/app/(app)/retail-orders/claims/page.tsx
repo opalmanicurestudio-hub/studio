@@ -1,7 +1,7 @@
 'use client';
 
 import { collection, doc, onSnapshot, orderBy, query, limit, type Firestore } from 'firebase/firestore';
-import { getDoc, updateDoc } from 'firebase/firestore';
+import { getDoc } from 'firebase/firestore';
 
 import { recordInventoryException } from '@/lib/inventory-exceptions';
 import {
@@ -19,7 +19,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { decideClaim } from '@/lib/fulfil-client';
+import { decideClaim, requestClaimInfo } from '@/lib/fulfil-client';
 
 // ─── Claims desk ──────────────────────────────────────────────────────────────
 // Every claim arrives with its evidence already snapshotted at open time —
@@ -89,21 +89,13 @@ export default function RetailClaimsPage() {
     if (!firestore || !tenantId || !text || askBusy) return;
     setAskBusy(c.id);
     try {
-      const now = new Date().toISOString();
-      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailClaims`, c.id), {
-        infoRequestText: text.slice(0, 400),
-        infoRequestAt: now,
-        infoRequestBy: 'staff',
-      });
-      fetch('/api/retail/claim-notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, claimId: c.id, kind: 'info_request' }),
-      }).catch(() => {});
+      // Saved on the report and sent to the customer by the server (api/retail/fulfil, lib/order-outbox).
+      const r = await requestClaimInfo(String(tenantId), c.id, text.slice(0, 400));
+      if (!r.ok) throw new Error(r.message);
       setAskFor({ ...askFor, [c.id]: '' });
       toast({ title: 'Request sent', description: 'The customer sees it on their order page and gets a nudge to look.' });
-    } catch {
-      toast({ variant: 'destructive', title: 'Could not send the request' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not send the request', description: e?.message || undefined });
     } finally {
       setAskBusy(null);
     }

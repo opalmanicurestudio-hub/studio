@@ -291,7 +291,7 @@ export default function RetailSupportPage() {
         createdAt: new Date().toISOString(),
       });
       void fetch('/api/retail/credit-notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
         body: JSON.stringify({ tenantId, creditId: ref.id }),
       }).catch(() => undefined);
       setCreditDraft({ ...creditDraft, [t.id]: '' });

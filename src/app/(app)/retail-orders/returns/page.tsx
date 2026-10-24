@@ -26,10 +26,10 @@ import { askWhich, codeBook, lookupCode, pickFor } from '@/lib/code-lookup';
 import { lineProductId } from '@/lib/product-codes';
 import { useInventory } from '@/context/InventoryContext';
 import {
-  findReturnableOrder, openReturn,
+  findReturnableOrder,
   type Actor, type ReturnableOrder, type ReturnDoc, type ReturnSelection,
 } from '@/lib/retail-returns';
-import { receiveReturnLine, resolveReturn } from '@/lib/fulfil-client';
+import { openReturn, receiveReturnLine, resolveReturn } from '@/lib/fulfil-client';
 import { cn } from '@/lib/utils';
 
 // ─── Returns / RMA ────────────────────────────────────────────────────────────

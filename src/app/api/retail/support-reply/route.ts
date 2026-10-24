@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { sendNotification } from '@/lib/notify';
 
 // ─── /api/retail/support-reply/route.ts ───────────────────────────────────────
 // POST { tenantId, ticketId, reply, resolve? , staffName? }
@@ -74,6 +75,20 @@ export async function POST(req: NextRequest) {
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
+  // A customer with only a mobile on the order is told by text (lib/order-inbox sends the nudge to the order page).
+  let phone = String(ticket.customerPhone || '').trim();
+  if (!ticket.customerEmail && !phone && ticket.orderId) { try { phone = String(((await db.doc(`tenants/${tenantId}/retailOrders/${ticket.orderId}`).get()).data() as any)?.customerPhone || '').trim(); } catch { /* none */ } }
+  if (emailAllowed && !ticket.customerEmail && phone) {
+    try {
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      const shop = String(t.businessName || t.name || 'The shop');
+      const num = `#${String(ticket.orderNumber).padStart(4, '0')}`;
+      const link = `${String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '') || req.nextUrl.origin}/shop/${tenantId}/order/${ticket.orderId}`;
+      const r = await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `${shop}: ${staffName} replied about your order ${num}. ${link}`, kind: 'support_reply', recipientType: 'client', recipientId: ticket.orderId || null, orderId: ticket.orderId || null } as any);
+      // Posted on the order page with nobody to nudge (texts off and no email) isn't "told".
+      emailed = r.ok && !/nobody to nudge/.test(String((r as any).error || ''));
+    } catch { emailed = false; }
+  }
   if (emailAllowed && RESEND_API_KEY && RESEND_FROM && ticket.customerEmail) {
     const origin = req.nextUrl.origin;
     const link = `${origin}/shop/${tenantId}/order/${ticket.orderId}`;
@@ -102,7 +117,6 @@ export async function POST(req: NextRequest) {
         <p style="font-size:11px;color:#94a3b8;margin:18px 0 0;border-top:1px solid #e2e8f0;padding-top:10px;line-height:1.6">Your message: \u201c${String(ticket.message || '').slice(0, 240).replace(/</g, '&lt;')}${String(ticket.message || '').length > 240 ? '\u2026' : ''}\u201d</p>`,
         { preheader: `${staffName} at ${emailBrand.shopName} has replied about your order ${num}` });
 
-      const { sendNotification } = await import('@/lib/notify');
       const r = await sendNotification(db, {
         tenantId, channel: 'email', to: ticket.customerEmail,
         subject: `${emailBrand.shopName}: a reply about your order ${num}`,
@@ -110,7 +124,7 @@ export async function POST(req: NextRequest) {
         recipientId: ticket.orderId || null, recipientName: ticket.customerName || null,
         replyCase: ticketId,
       });
-      emailed = r.ok;
+      emailed = r.ok && !/nobody to nudge/.test(String((r as any).error || ''));
     } catch {
       emailed = false;
     }
@@ -127,7 +141,7 @@ export async function POST(req: NextRequest) {
   const evRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(ticket.orderId).collection('events').doc();
   batch.set(evRef, {
     id: evRef.id, type: 'note', at: now, actorId: 'staff', actorName: staffName,
-    meta: { text: `Support reply${emailed ? ' (emailed)' : ''}: ${reply.slice(0, 120)}` },
+    meta: { text: `Support reply${emailed ? ' (customer told)' : ''}: ${reply.slice(0, 120)}` },
   });
   await batch.commit();
 
@@ -135,9 +149,9 @@ export async function POST(req: NextRequest) {
     ok: true,
     emailed,
     message: emailed
-      ? 'Reply sent to the customer by email.'
-      : ticket.customerEmail
-        ? 'Reply saved. The email could not be sent. Please check your email settings.'
-        : 'Reply saved. This order has no email address on file.',
+      ? 'Reply sent. It’s on their order page, and they were told by text or email.'
+      : ticket.customerEmail || phone
+        ? 'Reply saved on their order page. The message telling them couldn’t be sent. Check your email and text settings.'
+        : 'Reply saved on their order page. This order has no email or mobile to tell them.',
   });
 }

@@ -135,12 +135,13 @@ export async function POST(req: NextRequest) {
 
     const tenantSnap = await db.collection('tenants').doc(tenantId).get();
     const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
-    const status = rs.reviewsAutoPublish === false ? 'pending' : 'published';
-
     // Deterministic id = one review per product per order, and a re-submit
     // edits rather than duplicates.
     const reviewId = `${orderId}__${productId}`;
     const now = new Date().toISOString();
+    // A review the shop hid stays hidden when the customer edits it (and one waiting for approval keeps waiting).
+    const prev: any = (await db.collection(`tenants/${tenantId}/retailReviews`).doc(reviewId).get()).data() || null;
+    const status = prev?.status === 'hidden' ? 'hidden' : rs.reviewsAutoPublish === false ? 'pending' : 'published';
 
     await db.collection(`tenants/${tenantId}/retailReviews`).doc(reviewId).set({
       id: reviewId,
@@ -157,7 +158,7 @@ export async function POST(req: NextRequest) {
       author: displayName(body.name || order.customerName || ''),
       customerEmail: String(order.customerEmail || ''),
       status,
-      createdAt: now,
+      createdAt: prev?.createdAt || now,
       updatedAt: now,
     }, { merge: true });
 
@@ -166,6 +167,7 @@ export async function POST(req: NextRequest) {
       status,
       message: status === 'published'
         ? 'Thank you for your review. It is now live.'
+        : status === 'hidden' ? 'Thank you, your review has been updated.'
         : 'Thank you for your review. It has been submitted and will appear once it is approved.',
     });
   } catch (e: any) {

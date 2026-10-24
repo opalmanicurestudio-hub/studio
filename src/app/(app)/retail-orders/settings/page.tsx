@@ -224,6 +224,11 @@ export default function RetailSettingsPage() {
       curbsideMode: existing.curbsideMode || 'freeform',
       curbsideSpots: existing.curbsideSpots || [],
       wholesaleTaxExempt: existing.wholesaleTaxExempt === true,
+      // Printing: loaded as saved, so changing one packing-slip option keeps the others (a save writes only what changed).
+      ...(existing.slip && typeof existing.slip === 'object' ? { slip: JSON.parse(JSON.stringify(existing.slip)) } : {}),
+      ...(existing.labelFormat ? { labelFormat: existing.labelFormat } : {}),
+      ...(typeof existing.labelPackingSlip === 'boolean' ? { labelPackingSlip: existing.labelPackingSlip } : {}),
+      ...(typeof existing.labelOrderRef === 'boolean' ? { labelOrderRef: existing.labelOrderRef } : {}),
     });
     if (tenant) setLoaded(true);
   }, [tenant, loaded]);
@@ -1163,7 +1168,7 @@ export default function RetailSettingsPage() {
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideAlertPhone: e.target.value })}
                 className="h-11 rounded-xl border-2 font-bold text-xs" />
               <p className="text-[10px] font-bold text-muted-foreground">
-                If a customer waits 5 minutes outside, or a lounge guest waits 6, this number gets a text \u2014 because a board nobody is watching is a person nobody is helping. Leave blank to turn it off.
+                If a customer waits 5 minutes outside, or a lounge guest waits 6, this number gets a text — because a board nobody is watching is a person nobody is helping. Leave blank to turn it off.
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <Input placeholder="Shop latitude" inputMode="decimal" aria-label="Shop latitude"
@@ -1604,7 +1609,7 @@ export default function RetailSettingsPage() {
                         <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
                           <div>
                             <Label className="text-[11px] font-black uppercase tracking-widest">Pre-order</Label>
-                            <p className="text-[11px] font-bold text-muted-foreground">Sell before it lands. You promise a ship-by date \u2014 the law holds you to it, and so does this.</p>
+                            <p className="text-[11px] font-bold text-muted-foreground">Sell before it lands. You promise a ship-by date — the law holds you to it, and so does this.</p>
                           </div>
                           <Switch aria-label="Pre-order"
                             checked={d.preorder === true}
@@ -1721,14 +1726,14 @@ export default function RetailSettingsPage() {
                               {runBusy === it.id ? 'Working\u2026' : 'Cancel this run + refund everyone'}
                             </Button>
                             <p className="text-[10px] font-bold text-muted-foreground">
-                              Taken so far: {(it as any).preorderSold || 0}. Leave the close date blank to keep taking orders until you turn it off. If you miss the ship-by date, buyers get a one-tap refund \u2014 so promise a date you can keep.
+                              Taken so far: {(it as any).preorderSold || 0}. Leave the close date blank to keep taking orders until you turn it off. If you miss the ship-by date, buyers get a one-tap refund — so promise a date you can keep.
                             </p>
                           </div>
                         )}
                         <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
                           <div>
                             <Label className="text-[11px] font-black uppercase tracking-widest">Digital item</Label>
-                            <p className="text-[11px] font-bold text-muted-foreground">No stock, no shipping \u2014 the link below is emailed the moment they pay.</p>
+                            <p className="text-[11px] font-bold text-muted-foreground">No stock, no shipping — the link below is emailed the moment they pay.</p>
                           </div>
                           <Switch aria-label="Digital item"
                             checked={d.digital === true}
@@ -1766,7 +1771,7 @@ export default function RetailSettingsPage() {
                               />
                               {fileBusy === it.id ? 'Uploading\u2026' : d.digitalFileName ? `File: ${d.digitalFileName}` : 'Upload the file (PDF, zip, image)'}
                             </label>
-                            <Input placeholder="\u2026or paste a link (course, video, download page)" aria-label="Digital delivery link"
+                            <Input placeholder="…or paste a link (course, video, download page)" aria-label="Digital delivery link"
                               value={d.digitalUrl}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalUrl: e.target.value } })}
                               className="h-10 rounded-xl border-2 font-bold text-xs" />
@@ -1775,7 +1780,7 @@ export default function RetailSettingsPage() {
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalAccessDays: e.target.value } })}
                               className="h-10 rounded-xl border-2 font-bold text-xs" />
                             <p className="text-[10px] font-bold text-muted-foreground">
-                              Uploaded files open inside the app, watermarked with the buyer&apos;s name \u2014 never a public URL. Leave access days blank for lifetime access; a window only limits NEW sales, never someone who already bought.
+                              Uploaded files open inside the app, watermarked with the buyer&apos;s name — never a public URL. Leave access days blank for lifetime access; a window only limits NEW sales, never someone who already bought.
                             </p>
                           </div>
                         )}

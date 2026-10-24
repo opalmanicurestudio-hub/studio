@@ -70,7 +70,7 @@ export default function WholesaleAccountsPage() {
         .sort((a: WholesaleAccount, b: WholesaleAccount) => (a.businessName || '').localeCompare(b.businessName || ''));
       setAccounts(list);
       setLoading(false);
-    });
+    }, () => setLoading(false));
   }, [firestore, tenantId]);
 
   const codeTaken = useMemo(
@@ -125,7 +125,8 @@ export default function WholesaleAccountsPage() {
 
   const regenerate = async (a: WholesaleAccount) => {
     if (!firestore || !tenantId || busy) return;
-    const code = generateAccessCode();
+    let code = generateAccessCode();
+    for (let i = 0; i < 5 && accounts.some((x) => x.accessCode === code); i++) code = generateAccessCode();
     setBusy(a.id);
     try {
       await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/wholesaleAccounts`, a.id), { accessCode: code });

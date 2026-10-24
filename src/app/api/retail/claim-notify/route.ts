@@ -29,6 +29,22 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
+/** A customer with no email on the report is told by text: the full message goes on their order page
+ *  (lib/order-inbox) and the text points them there. ok = someone was told; failed = the service didn't take it. */
+async function textInstead(db: any, tenantId: string, c: any, kind: string, line: string): Promise<{ ok: boolean; failed: boolean }> {
+  let phone = String(c?.customerPhone || '').trim();
+  const orderId = String(c?.orderId || '');
+  if (!phone && orderId && !orderId.includes('/')) { try { phone = String(((await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() as any)?.customerPhone || '').trim(); } catch { /* none */ } }
+  if (!phone) return { ok: false, failed: false };
+  const t: any = (await db.doc(`tenants/${tenantId}`).get().catch(() => null))?.data?.() || {};
+  const shop = String(t.businessName || t.name || 'The shop');
+  const base = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
+  const link = base && orderId ? ` ${base}/shop/${tenantId}/order/${orderId}` : '';
+  const { sendNotification } = await import('@/lib/notify');
+  const r: any = await sendNotification(db, { tenantId, channel: 'sms', to: phone, text: `${shop}: ${line}${link}`, kind, recipientType: 'client', recipientId: orderId || null, orderId: orderId || null } as any);
+  return { ok: r.ok === true && !/nobody to nudge/.test(String(r.error || '')), failed: r.status === 'failed' };
+}
+
 const TYPE_LABELS: Record<string, string> = {
   missing: 'missing item', damaged: 'damaged item', wrong_item: 'wrong item', not_received: 'order that never arrived',
 };
@@ -43,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
-  if (!RESEND_API_KEY || !RESEND_FROM) return NextResponse.json({ ok: true, sent: false, why: 'email not configured' });
+  const emailReady = !!RESEND_API_KEY && !!RESEND_FROM;
 
   const db = getAdminDb();
 
@@ -61,23 +77,30 @@ export async function POST(req: NextRequest) {
   // REQUEST timestamp instead of the decision's, so each new ask earns
   // exactly one email and retries send nothing.
   if (String(body.kind || '') === 'info_request') {
+    let reqData: any = null;
+    const giveBack = async () => { if (reqData) await db.runTransaction(async (txn: any) => { const s = await txn.get(claimRef); if (s.exists && (s.data() as any)?.notifiedForInfoRequestAt === reqData.infoRequestAt) txn.update(claimRef, { notifiedForInfoRequestAt: null }); }).catch(() => {}); };
     try {
-      const reqData = await db.runTransaction(async (txn: any) => {
+      reqData = await db.runTransaction(async (txn: any) => {
         const snap = await txn.get(claimRef);
         if (!snap.exists) return null;
         const c = snap.data() as any;
         if (!c.infoRequestText || !c.infoRequestAt) return null;
         if (c.notifiedForInfoRequestAt === c.infoRequestAt) return null;
-        if (!String(c.customerEmail || '').trim()) return null;
         txn.update(claimRef, { notifiedForInfoRequestAt: c.infoRequestAt });
         return c;
       });
       if (!reqData) return NextResponse.json({ ok: true, sent: false });
+      // No email to write to (or no email service): a text pointing to the order page, where the question is posted.
+      if (!String(reqData.customerEmail || '').trim() || !emailReady) {
+        const tx = await textInstead(db, tenantId, reqData, 'claim_info_request', `we need a little more about your report on ${String(reqData.lineName || 'your order')}. Please reply on your order page:`);
+        if (!tx.ok && tx.failed) { await giveBack(); return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The text service didn’t take it.' }, { status: 503 }); }
+        return NextResponse.json({ ok: true, sent: tx.ok, why: tx.ok ? undefined : 'no email or mobile to tell them' });
+      }
 
       const emailBrand = await getEmailBrand(db, tenantId);
       const firstName = String(reqData.customerName || '').trim().split(/\s+/)[0] || 'there';
       const item = String(reqData.lineName || 'your order');
-      const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+      const origin = String(process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '').trim().replace(/\/+$/, '');
       const orderLink = origin && reqData.orderId ? `${origin}/shop/${tenantId}/order/${reqData.orderId}` : '';
       const html = brandedEmail(emailBrand, `
         <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
@@ -94,10 +117,13 @@ export async function POST(req: NextRequest) {
         kind: 'claim_info_request', recipientType: 'client',
         recipientId: reqData.orderId || null, recipientName: reqData.customerName || null,
       });
+      // The email service didn't take it: the mark is given back (only our own) and the queue that sent it tries later.
+      if (!r.ok && r.status === 'failed') { await giveBack(); return NextResponse.json({ ok: false, sent: false, retry: true, why: String(r.error || 'not sent').slice(0, 160) }, { status: 503 }); }
       return NextResponse.json({ ok: true, sent: r.ok });
     } catch (err: any) {
       console.error('[claim-notify] info request ping failed:', err?.message);
-      return NextResponse.json({ ok: true, sent: false });
+      await giveBack();
+      return NextResponse.json({ ok: false, sent: false, retry: true, why: String(err?.message || 'failed').slice(0, 120) }, { status: 503 });
     }
   }
 
@@ -113,7 +139,6 @@ export async function POST(req: NextRequest) {
       if (!c.decidedAt) return null;
       if (!['resolved', 'declined'].includes(c.status)) return null;
       if (c.notifiedForDecidedAt === c.decidedAt) return null;
-      if (!String(c.customerEmail || '').trim()) return null;
       txn.update(claimRef, { notifiedForDecidedAt: c.decidedAt });
       return c;
     });
@@ -121,6 +146,13 @@ export async function POST(req: NextRequest) {
     // A send the email service didn't take gives the claim back (only our own) and answers retry: true, so the queue
     // that sent it (lib/order-outbox) tries later.
     release = async () => { await db.runTransaction(async (txn: any) => { const s = await txn.get(claimRef); if (s.exists && (s.data() as any)?.notifiedForDecidedAt === decision.decidedAt) txn.update(claimRef, { notifiedForDecidedAt: null }); }).catch(() => {}); };
+    // No email to write to (or no email service): a text pointing to the order page, where the decision shows.
+    if (!String(decision.customerEmail || '').trim() || !emailReady) {
+      const ok = decision.status === 'resolved';
+      const tx = await textInstead(db, tenantId, decision, ok ? 'claim_approved' : 'claim_decision', ok ? 'your report was approved and a refund is on its way. Details on your order page:' : 'we’ve reviewed your report. See our answer on your order page:');
+      if (!tx.ok && tx.failed) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The text service didn’t take it.' }, { status: 503 }); }
+      return NextResponse.json({ ok: true, sent: tx.ok, why: tx.ok ? undefined : 'no email or mobile to tell them' });
+    }
 
     const tenantSnap = await db.collection('tenants').doc(tenantId).get();
     const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : {};

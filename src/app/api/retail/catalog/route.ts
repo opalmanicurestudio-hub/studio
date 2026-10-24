@@ -62,7 +62,10 @@ export async function GET(req: NextRequest) {
   }
   const wholesaleUnlocked = wsAccess.unlocked;
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
-  const wholesaleOffered = rs.wholesaleCodeSet === true || String(rs.wholesaleAccessCode || '').trim().length > 0 || rs.wholesaleOffered !== false;
+  // "Unlock wholesale" shows only for a shop that sells wholesale: a house code, an active account, or the owner turned
+  // it on. (It used to show on every shop, wholesale or not.)
+  const wholesaleOffered = rs.wholesaleCodeSet === true || String(rs.wholesaleAccessCode || '').trim().length > 0 || rs.wholesaleOffered === true
+    || !(await db.collection(`tenants/${tenantId}/wholesaleAccounts`).where('status', '==', 'active').limit(1).get().catch(() => ({ empty: true }))).empty;
 
   const invSnap = await db.collection(`tenants/${tenantId}/inventory`)
     .where('type', '==', 'retail').get();

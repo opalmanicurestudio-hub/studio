@@ -687,7 +687,7 @@ service cloud.firestore {
               'booksAt', 'afterPaidAt', 'receiptSentAt', 'receiptSending', 'receiptSkipped', 'giftUseNotifiedAt',
               'tipSharedAt', 'tipSharedWith', 'tipUnassigned', 'partRefunds', 'shippingRefundedCents',
               'taxMode', 'taxCalculationId', 'taxTransactionId', 'tenders', 'shipTogetherRefundCents', 'outsideRefunds',
-              'collector', 'pinTries', 'collectedNotifiedAt'];
+              'collector', 'pinTries', 'collectedNotifiedAt', 'returnSeq'];
     }
     // What only the order steps change, on the server (api/retail/fulfil, with the person's role checked there): the
     // order's stage, its items and their counts, who's packing it, when each step happened, the lots that went out and
@@ -729,9 +729,9 @@ service cloud.firestore {
         allow write: if false;
       }
     }
-    // MESSAGE CASES AND PROBLEM REPORTS from shop customers: the team reads them and moves them along (resolve, ask for
-    // more information, decide), but who the customer is, and so where a reply goes, is changed only through the server
-    // (api/retail/customer-contact). Cases and reports are opened by the customer, through the server.
+    // MESSAGE CASES from shop customers: the team reads them and moves them along (resolve, reply), but who the customer
+    // is, and so where a reply goes, is changed only through the server (api/retail/customer-contact). Cases and reports
+    // are opened by the customer, through the server.
     function caseContactKeys() {
       return ['customerEmail', 'customerPhone', 'customerName', 'clientId', 'orderId', 'qrToken'];
     }
@@ -740,10 +740,22 @@ service cloud.firestore {
       allow update: if isTeam(tenantId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(caseContactKeys());
       allow create, delete: if false;
     }
+    // Problem reports are decided, and more asked about them, on the server (api/retail/fulfil decideClaim and
+    // requestClaimInfo): what a report is worth, its photos and its outcome can't be changed from a browser.
     match /tenants/{tenantId}/retailClaims/{claimId} {
       allow read: if isTeam(tenantId);
-      allow update: if isTeam(tenantId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(caseContactKeys());
-      allow create, delete: if false;
+      allow create, update, delete: if false;
+    }
+    // RETURNS: opened, checked in and settled on the server (api/retail/fulfil, api/retail/self-serve), which works out
+    // what comes back from what was paid. The team reads them.
+    match /tenants/{tenantId}/retailReturns/{returnId} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
+    // WHOLESALE ACCOUNTS: each buyer's code and discount. Managers only: a code is money off, so the rest of the team
+    // can't read the codes, add an account or reactivate a suspended one. Checkout reads them on the server.
+    match /tenants/{tenantId}/wholesaleAccounts/{accountId} {
+      allow read, write: if isManager(tenantId);
     }
     // RENT LEDGER. Managers record rent payments and credits; online-shop sale credits for renters are written only by
     // the server (lib/renter-sales-server), so nobody can add one from a browser.
@@ -765,7 +777,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns',
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',

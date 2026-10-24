@@ -720,7 +720,12 @@ async function handle(req: NextRequest) {
 
     const retRef = db.collection(`tenants/${tenantId}/retailReturns`).doc();
     const now = new Date().toISOString();
-    const batch = db.batch();
+    // In one step with the order: another return started since it was read (two taps, or the shop at the desk) means
+    // the checks above may not hold, so nothing is saved (each return counts on the order, as the shop's do).
+    const raced = await db.runTransaction(async (batch: any) => {
+    const cur: any = (await batch.get(orderRef)).data() || {};
+    if ((Number(cur.returnSeq) || 0) !== (Number(order.returnSeq) || 0)) return true;
+    batch.update(orderRef, { returnSeq: (Number(cur.returnSeq) || 0) + 1 });
     batch.set(retRef, JSON.parse(JSON.stringify({
       id: retRef.id, tenantId, orderId, orderNumber: order.orderNumber,
       lines, resolution, status: 'open', photoUrls: [],
@@ -736,7 +741,9 @@ async function handle(req: NextRequest) {
       actorId: 'customer', actorName: order.customerName || 'Customer',
       meta: { returnId: retRef.id, units: lines.reduce((a, l) => a + l.qty, 0), selfServe: true, ...(client ? { client } : {}) },
     });
-    await batch.commit();
+    return false;
+    });
+    if (raced) return NextResponse.json({ error: 'Something changed on your order just now. Please check it and try again.' }, { status: 409 });
 
     /* The label chain-link. The return-label route was fully built — policy-
      * aware, cost-recording, customer-emailing, billed only on carrier scan —

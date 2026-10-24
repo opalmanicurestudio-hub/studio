@@ -15,7 +15,7 @@
 import { buildEvent } from './retail-orders';
 import { eventIdFor } from './order-events';
 
-export type MessageKind = 'order_ready' | 'curbside_ready' | 'curbside_out' | 'order_short' | 'order_shipped' | 'return_outcome' | 'claim_decided' | 'order_collected';
+export type MessageKind = 'order_ready' | 'curbside_ready' | 'curbside_out' | 'order_short' | 'order_shipped' | 'return_outcome' | 'claim_decided' | 'claim_info' | 'order_collected';
 
 /** Each kind: the route that sends it, what it's called on the team's timeline, and what it's sent with. */
 const KINDS: Record<MessageKind, { path: string; what: string; body: (a: Args) => Record<string, string> }> = {
@@ -26,6 +26,7 @@ const KINDS: Record<MessageKind, { path: string; what: string; body: (a: Args) =
   order_shipped: { path: '/api/retail/shipped-notify', what: 'shipped email', body: (a) => ({ orderId: a.orderId! }) },
   return_outcome: { path: '/api/retail/return-notify', what: 'return settled email', body: (a) => ({ returnId: a.returnId! }) },
   claim_decided: { path: '/api/retail/claim-notify', what: 'email about their report', body: (a) => ({ claimId: a.claimId! }) },
+  claim_info: { path: '/api/retail/claim-notify', what: 'request for more about their report', body: (a) => ({ claimId: a.claimId!, kind: 'info_request' }) },
   order_collected: { path: '/api/retail/collected-notify', what: 'note that someone else collected it', body: (a) => ({ orderId: a.orderId! }) },
 };
 type Args = { orderId?: string; lineId?: string; returnId?: string; claimId?: string; key?: string };

@@ -65,6 +65,10 @@ export async function setWaveStatus(_fs: any, tenantId: string, waveId: string, 
   const r = await step(tenantId, 'waveStatus', { waveId, status }); if (!r.ok) throw new Error(r.message);
 }
 export const receiveReturnLine = (_fs: any, tenantId: string, ret: { id: string }, lineId: string, disposition: ReturnDisposition, _actor: Actor) => step<Ans & { allReceived?: boolean }>(tenantId, 'receiveReturnLine', { returnId: ret.id, lineId, disposition });
+/** A return opened at the desk (worked out and saved on the server, lib/retail-returns). */
+export const openReturn = (_fs: any, tenantId: string, order: { id: string }, selections: { lineId: string; qty: number; reason: string }[], resolution: string, notes: string, _actor: Actor) => step<Ans & { returnId?: string }>(tenantId, 'openReturn', { orderId: order.id, selections, resolution, notes });
+/** Asking the customer for more about a report; they're told from the server. */
+export const requestClaimInfo = (tenantId: string, claimId: string, text: string) => step(tenantId, 'requestClaimInfo', { claimId, text });
 export const resolveReturn = (_fs: any, tenantId: string, ret: { id: string }, _actor: Actor) => step<Ans & { refundQueuedCents?: number; orderQrToken?: string }>(tenantId, 'resolveReturn', { returnId: ret.id });
 export const decideClaim = (tenantId: string, claimId: string, approve: boolean, o: { cents?: number | null; declineWhy?: string } = {}) => step<Ans & { cents?: number }>(tenantId, 'decideClaim', { claimId, approve, cents: o.cents ?? null, declineWhy: o.declineWhy || '' });
 

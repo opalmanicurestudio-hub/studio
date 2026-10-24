@@ -113,7 +113,7 @@ const fresh = async (o: any = {}) => {
   // ── Only through here ──
   const rules = fs.readFileSync('firestore.rules', 'utf8');
   check('a browser can’t change an order’s name, email, mobile or texts setting (only this route can)', /'customerEmail', 'customerPhone', 'customerName', 'textsOff', 'clientId'/.test(rules));
-  check('…nor where a case or a problem report replies to', /match \/tenants\/\{tenantId\}\/retailSupport\/\{caseId\} \{[\s\S]{0,300}?caseContactKeys\(\)/.test(rules) && /match \/tenants\/\{tenantId\}\/retailClaims\/\{claimId\} \{[\s\S]{0,300}?caseContactKeys\(\)/.test(rules)
+  check('…nor where a case or a problem report replies to (a report isn’t written from a browser at all)', /match \/tenants\/\{tenantId\}\/retailSupport\/\{caseId\} \{[\s\S]{0,300}?caseContactKeys\(\)/.test(rules) && /match \/tenants\/\{tenantId\}\/retailClaims\/\{claimId\} \{\s*allow read: if isTeam\(tenantId\);\s*allow create, update, delete: if false;/.test(rules)
     && /'retailSupport', 'retailClaims',/.test(rules));
 
   await fresh();

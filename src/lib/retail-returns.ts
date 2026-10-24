@@ -145,7 +145,13 @@ export async function openReturn(
   const creditCents = resolution === 'store_credit' ? returnRefundCents(order, lines) : 0;
 
   try {
-    await runTransaction(fs, async (txn) => {
+    const blocked = await runTransaction(fs, async (txn) => {
+      // Another return or report started on this order since it was read: the checks above may no longer hold (two taps,
+      // or the desk and the customer at once), so nothing is saved and it's tried again. Each return counts on the order.
+      const oRef = doc(orderCol(fs, tenantId), order.id);
+      const cur: any = (await txn.get(oRef)).data() || {};
+      if ((Number(cur.returnSeq) || 0) !== (Number((order as any).returnSeq) || 0)) return true;
+      txn.update(oRef, { returnSeq: (Number(cur.returnSeq) || 0) + 1 });
       const ret: RetailReturn = {
         id: retRef.id, tenantId, orderId: order.id, orderNumber: order.orderNumber,
         lines, resolution, status: 'open', photoUrls: [],
@@ -155,7 +161,9 @@ export async function openReturn(
       txn.set(retRef, JSON.parse(JSON.stringify(ret)));
       txn.set(doc(collection(doc(orderCol(fs, tenantId), order.id), 'events')),
         evPayload('return_opened', actor, { returnId: retRef.id, units: lines.reduce((a, l) => a + l.qty, 0) }));
+      return false;
     });
+    if (blocked) return { ok: false, message: 'Something else changed on this order just now. Check it and try again.' };
     return { ok: true, message: `Return opened for order #${order.orderNumber}`, returnId: retRef.id };
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not open the return.' };

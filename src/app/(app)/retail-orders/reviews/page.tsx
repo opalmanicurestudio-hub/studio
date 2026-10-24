@@ -55,7 +55,8 @@ export default function RetailReviewsPage() {
   useEffect(() => {
     if (!firestore || !tenantId) return;
     const q = query(
-      collection(firestore as Firestore, `tenants/${tenantId}/reviews`),
+      // Shop reviews (api/retail/reviews). The salon's visit reviews live in tenants/{t}/reviews and are never touched here.
+      collection(firestore as Firestore, `tenants/${tenantId}/retailReviews`),
       orderBy('createdAt', 'desc'),
       limit(200)
     );
@@ -88,7 +89,7 @@ export default function RetailReviewsPage() {
     if (!firestore || !tenantId || busy) return;
     setBusy(r.id);
     try {
-      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/reviews/${r.id}`), { status });
+      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailReviews/${r.id}`), { status });
       toast({ title: status === 'published' ? 'Review published' : 'Review hidden', description: `${r.author} \u00b7 ${r.rating}\u2605` });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not update review', description: e?.message || 'Try again.' });
@@ -102,7 +103,7 @@ export default function RetailReviewsPage() {
     if (!window.confirm('Delete this review permanently? Hiding it keeps a record; deleting does not.')) return;
     setBusy(r.id);
     try {
-      await deleteDoc(doc(firestore as Firestore, `tenants/${tenantId}/reviews/${r.id}`));
+      await deleteDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailReviews/${r.id}`));
       toast({ title: 'Review deleted' });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not delete review', description: e?.message || 'Try again.' });

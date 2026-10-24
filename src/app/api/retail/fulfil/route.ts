@@ -18,6 +18,7 @@ import { resolveCreditReturn } from '@/lib/return-credit';
 import { decideClaim } from '@/lib/claim-decide';
 import { syncTracking } from '@/lib/order-tracking';
 import { queueMessage, deliverMessage, type MessageKind } from '@/lib/order-outbox';
+import { RETURN_REASONS, RETURN_RESOLUTIONS } from '@/lib/retail-orders';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -30,7 +31,7 @@ const ACTIONS: Record<string, Need> = {
   scanPack: 'pack', markPacked: 'pack', markReady: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
-  receiveReturnLine: 'returns', resolveReturn: 'returns', decideClaim: 'claims',
+  openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', decideClaim: 'claims', requestClaimInfo: 'returns',
 };
 
 const s = (v: any, n = 200) => String(v ?? '').slice(0, n);
@@ -177,6 +178,36 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         break;
       }
       case 'cancel': { const m = need1(orderId, 'order'); if (m) return m; out = await F.cancelOrder(db, tenantId, orderId, actor, s(b.reason, 300) || undefined); break; }
+      case 'openReturn': {
+        // A return opened at the desk: the order as it's saved, and what comes back worked out here (lib/retail-returns),
+        // never sent by the screen.
+        const m = need1(orderId, 'order'); if (m) return m;
+        const os = await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get();
+        if (!os.exists) return NextResponse.json({ ok: false, message: 'That order isn’t there any more.' }, { status: 404 });
+        const order: any = { ...(os.data() || {}), id: orderId };
+        if (!['shipped', 'completed'].includes(String(order.stage))) return NextResponse.json({ ok: false, message: `Order #${order.orderNumber} hasn’t gone out yet, so there’s nothing to return.` }, { status: 409 });
+        const reasons = new Set<string>(RETURN_REASONS as readonly string[]);
+        const selections = (Array.isArray(b.selections) ? b.selections : []).slice(0, 50)
+          .map((x: any) => ({ lineId: safeId(x?.lineId), qty: Math.max(0, Math.floor(Number(x?.qty) || 0)), reason: reasons.has(String(x?.reason)) ? String(x.reason) : 'other' }))
+          .filter((x: any) => x.lineId && x.qty > 0);
+        const resolution = (RETURN_RESOLUTIONS as readonly string[]).includes(String(b.resolution)) ? String(b.resolution) : 'refund';
+        out = await R.openReturn(db, tenantId, order, selections as any, resolution as any, s(b.notes, 500).trim(), actor);
+        break;
+      }
+      case 'requestClaimInfo': {
+        // Asking the customer for more about a report (a photo, the box): saved on the report here, and the customer is
+        // told from the queue (api/retail/claim-notify), so it's never lost.
+        const id = safeId(b.claimId); const m = need1(id, 'report'); if (m) return m;
+        const text = s(b.text, 400).trim(); if (!text) return NextResponse.json({ ok: false, message: 'What should they send?' }, { status: 400 });
+        const ref = db.doc(`tenants/${tenantId}/retailClaims/${id}`);
+        const cs = await ref.get(); if (!cs.exists) return NextResponse.json({ ok: false, message: 'That report isn’t there any more.' }, { status: 404 });
+        if (['resolved', 'declined', 'closed'].includes(String(cs.data()?.status || ''))) return NextResponse.json({ ok: false, message: 'That report has been decided already.' }, { status: 409 });
+        const at = new Date().toISOString();
+        await ref.update({ infoRequestText: text, infoRequestAt: at, infoRequestBy: actor.name });
+        sendMessage('claim_info', { claimId: id, key: at });
+        out = { ok: true, message: 'Asked. They see it on their order page.', orderId: String(cs.data()?.orderId || '') };
+        break;
+      }
       case 'receiveReturnLine': case 'resolveReturn': {
         // The return as it's saved, never as the screen sent it.
         const id = safeId(b.returnId); const m = need1(id, 'return'); if (m) return m;
