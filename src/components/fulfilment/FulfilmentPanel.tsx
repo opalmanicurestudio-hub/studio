@@ -14,7 +14,7 @@ import * as React from 'react';
 import { collection, doc, getDoc, onSnapshot, query, updateDoc, where, type Firestore } from 'firebase/firestore';
 import { ScanGate } from '@/components/retail/ScanGate';
 import { permissionsFor } from '@/lib/fulfilment-access';
-import { claimNextBatch, claimSpecificOrder, recordItemScan, recordPackScan } from '@/lib/retail-fulfill';
+import { claimNextBatch, claimSpecificOrder, recordItemScan, recordPackScan } from '@/lib/fulfil-client';
 import { finishPacking } from '@/lib/orders-flow';
 import { fulfilmentPolicy, isPackComplete, lineMatchesScan, type RetailOrder } from '@/lib/retail-orders';
 import { dueLine, firstName, itemCount, methodLabel, orderNum, packQueue, packProgress } from '@/lib/orders-view';

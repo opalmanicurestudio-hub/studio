@@ -117,7 +117,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
-import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
+import { releaseCoverableBackorders } from '@/lib/fulfil-client';
 import { buildEntry } from '@/lib/stock-ledger';
 import { useTenant } from '@/context/TenantContext';
 import { ProductCard } from '@/components/inventory/ProductCard';

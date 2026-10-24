@@ -1,6 +1,6 @@
 'use client';
 
-import { collection, doc, onSnapshot, orderBy, query, limit, runTransaction, type Firestore } from 'firebase/firestore';
+import { collection, doc, onSnapshot, orderBy, query, limit, type Firestore } from 'firebase/firestore';
 import { getDoc, updateDoc } from 'firebase/firestore';
 
 import { recordInventoryException } from '@/lib/inventory-exceptions';
@@ -19,6 +19,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { decideClaim } from '@/lib/fulfil-client';
 
 // ─── Claims desk ──────────────────────────────────────────────────────────────
 // Every claim arrives with its evidence already snapshotted at open time —
@@ -122,43 +123,9 @@ export default function RetailClaimsPage() {
     }
     setBusy(c.id);
     try {
-      await runTransaction(firestore as Firestore, async (txn) => {
-        const claimRef = doc(firestore as Firestore, `tenants/${tenantId}/retailClaims/${c.id}`);
-        const orderRef = doc(firestore as Firestore, `tenants/${tenantId}/retailOrders/${c.orderId}`);
-        const [claimSnap, orderSnap] = [await txn.get(claimRef), await txn.get(orderRef)];
-        if (!claimSnap.exists()) throw new Error('Claim vanished');
-        const cur = claimSnap.data() as any;
-        if (cur.status !== 'in_review') throw new Error('Already decided on another device');
-        const now = new Date().toISOString();
-        if (approve) {
-          const n = (v: any) => Math.max(0, Number(v) || 0);
-          const open = (l: any) => Math.max(0, n(l.qtyOrdered) - n(l.qtyShorted) - n(l.qtyReturned));
-          const o: any = orderSnap.exists() ? orderSnap.data() : null;
-          const oLines: any[] = Array.isArray(o?.lines) ? o.lines : [];
-          // One item is refunded once: units since returned, or refunded through another report, aren't paid again. Only
-          // part of it left: that share of the amount.
-          const asked0 = Math.max(0, Number(cur.claimValueCents) || 0);
-          const line = cur.lineId ? oLines.find((l: any) => l.lineId === cur.lineId) : null;
-          const want = Math.max(1, n(cur.qty));
-          const left = line ? Math.max(0, open(line) - n(line.qtyClaimed)) : want;
-          if (cur.lineId && left <= 0) throw new Error('That item has already been refunded, through a return or another report.');
-          const units = Math.min(want, left);
-          const asked = units < want ? Math.round((asked0 * units) / want) : asked0;
-          const edited = approveCents[c.id];
-          const cents = Number.isFinite(edited) ? Math.max(0, Math.min(Math.round(edited), asked)) : asked;
-          txn.update(claimRef, { status: 'resolved', resolution: 'refund', resolutionCents: cents, decidedAt: now, decidedBy: 'staff', ...(cents !== asked0 ? { partialOfCents: asked0 } : {}), ...(units < want ? { qtySettled: units } : {}) });
-          if (o) {
-            // The units this claim settles can't be returned or claimed again (qtyClaimed): its own item, or for an order
-            // that never arrived, everything still on it.
-            const lines = oLines.map((l: any) => (cur.lineId
-              ? (l.lineId === cur.lineId ? { ...l, qtyClaimed: n(l.qtyClaimed) + units } : l)
-              : { ...l, qtyClaimed: Math.max(n(l.qtyClaimed), open(l)) }));
-            txn.update(orderRef, { pendingRefundCents: Math.max(0, Number(o.pendingRefundCents) || 0) + cents, lines: JSON.parse(JSON.stringify(lines)) });
-          }
-        } else {
-          txn.update(claimRef, { status: 'declined', resolution: 'declined', decidedAt: now, decidedBy: 'staff', declineReason: declineWhy.trim().slice(0, 400) });
-        }
-      });
+      // Decided on the server, in one step with the order (lib/claim-decide).
+      const r = await decideClaim(String(tenantId), c.id, approve, { cents: Number.isFinite(approveCents[c.id]) ? approveCents[c.id] : null, declineWhy: declineWhy.trim() });
+      if (!r.ok) throw new Error(r.message);
       fetch('/api/retail/claim-notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

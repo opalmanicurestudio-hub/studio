@@ -6,7 +6,7 @@ import { nanoid } from 'nanoid';
 import React, { useMemo, useState } from 'react';
 
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
-import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
+import { releaseCoverableBackorders } from '@/lib/fulfil-client';
 import { applyStockDelta } from '@/lib/stock-ledger';
 import { Button } from '@/components/ui/button';
 import {

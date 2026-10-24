@@ -98,7 +98,7 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   check('a test order’s item stands for the real product and carries its codes, but points at no real stock',
     made.body.ok && tl?.productId === 'test-gel' && tl?.testOfProductId === 'gel' && tl?.barcode === '012345678905' && tl?.sku === 'GEL-01' && tl?.caseBarcode === '10012345678902' && tOrder.isTest === true, tl);
   await db.doc(`${T}/retailOrders/${made.body.orderId}`).set({ stage: 'picking' }, { merge: true });
-  let r: any = await recordItemScan(web as any, 't1', made.body.orderId, '012345678905', actor);
+  let r: any = await recordItemScan({ __fs: true } as any, 't1', made.body.orderId, '012345678905', actor);
   check('packing the test order: scanning the real product’s barcode counts it', r.ok && r.lineId === 'line-test0' && /Gel polish/.test(r.name), r);
   check('…and no stock moved', (await db.doc(`${T}/inventory/gel`).get()).data().totalStock === 4);
 
@@ -106,7 +106,7 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   await fresh();
   await db.doc(`${T}/inventory/gel`).set({ ...gel });
   await db.doc(`${T}/retailOrders/o1`).set(order([line({ sku: '', barcode: '' })]));
-  r = await recordItemScan(web as any, 't1', 'o1', 'GP-OLD', actor);
+  r = await recordItemScan({ __fs: true } as any, 't1', 'o1', 'GP-OLD', actor);
   check('a barcode added to the product after the order was placed scans (the order’s copy had none)', r.ok && r.lineId === 'A', r);
   const ev = (await db.collection(`${T}/retailOrders/o1/events`).get()).docs.map((d: any) => d.data());
   check('…and the timeline says it was matched by the product’s current codes', ev.some((e: any) => e.type === 'item_scanned' && e.meta?.matchedBy === 'product'), ev.map((e: any) => e.meta));
@@ -117,10 +117,10 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   await db.doc(`${T}/inventory/lip-rose`).set({ id: 'lip-rose', name: 'Lip tint Rose', sku: '' });
   await db.doc(`${T}/inventory/lip-coral`).set({ id: 'lip-coral', name: 'Lip tint Coral', sku: '' });
   const rose = line({ lineId: 'R', productId: 'lip-rose', sku: '', barcode: '', name: 'Lip tint', optionsLabel: 'Rose', qtyOrdered: 1 });
-  let res: any = await resolveOrderScan(web as any, 't1', [rose] as any, '7700001');
+  let res: any = await resolveOrderScan({ __fs: true } as any, 't1', [rose] as any, '7700001');
   check('the parent product’s barcode, and the order has one of its shades: that shade', res.kind === 'line' && res.hint.lineId === 'R' && res.via === 'parent', res);
   const coral = line({ lineId: 'C', productId: 'lip-coral', sku: '', barcode: '', name: 'Lip tint', optionsLabel: 'Coral', qtyOrdered: 1 });
-  res = await resolveOrderScan(web as any, 't1', [rose, coral] as any, '7700001');
+  res = await resolveOrderScan({ __fs: true } as any, 't1', [rose, coral] as any, '7700001');
   check('…two variants on the order: it asks for the variant’s own code instead of guessing',
     res.kind === 'choose' && /comes in variants, and this order has 2 of them\. Scan the variant’s own code/.test(scanMissMessage(res, '7700001', [rose, coral] as any)), res);
 
@@ -128,55 +128,55 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   await fresh();
   await db.doc(`${T}/inventory/gel`).set({ ...gel });
   await db.doc(`${T}/inventory/gel-copy`).set({ id: 'gel-copy', name: 'Gel polish', sku: 'GEL-01' });
-  res = await resolveOrderScan(web as any, 't1', [line()] as any, 'clarityflow://product/gel-copy');
+  res = await resolveOrderScan({ __fs: true } as any, 't1', [line()] as any, 'clarityflow://product/gel-copy');
   check('a label printed from a duplicate of the product (same SKU) counts the order’s item', res.kind === 'line' && res.hint.lineId === 'A' && res.via === 'duplicate', res);
   await db.doc(`${T}/inventory/gel-copy`).set({ id: 'gel-copy', name: 'Gel polish', sku: 'GEL-01', status: 'archived' });
-  res = await resolveOrderScan(web as any, 't1', [line()] as any, 'clarityflow://product/gel-copy');
+  res = await resolveOrderScan({ __fs: true } as any, 't1', [line()] as any, 'clarityflow://product/gel-copy');
   check('…an archived duplicate’s label too (its units still carry it)', res.kind === 'line' && res.hint.lineId === 'A' && res.via === 'duplicate', res);
   // The shop changed supplier: the old one is archived, with the same name and its own barcode. Its old bottle isn't the
   // order's item (the review found it counted by its name alone).
   await db.doc(`${T}/inventory/gel-old`).set({ id: 'gel-old', name: 'Gel polish', barcode: '036000291452', status: 'archived' });
-  res = await resolveOrderScan(web as any, 't1', [line()] as any, '036000291452');
+  res = await resolveOrderScan({ __fs: true } as any, 't1', [line()] as any, '036000291452');
   check('an archived product with the same name but its own barcode isn’t counted as the order’s item, and it says it’s archived',
     res.kind === 'elsewhere' && res.archived === true && /That’s Gel polish, an archived product, which isn’t on this order\./.test(scanMissMessage(res, '036000291452', [line()] as any)), res);
 
   // Not on the order.
   await db.doc(`${T}/inventory/top`).set({ id: 'top', name: 'Top coat', sku: 'TOP-1' });
   await db.doc(`${T}/retailOrders/o1`).set(order([line()]));
-  r = await recordItemScan(web as any, 't1', 'o1', 'TOP-1', actor);
+  r = await recordItemScan({ __fs: true } as any, 't1', 'o1', 'TOP-1', actor);
   check('another product’s code: it says which product it is, and what the order needs', !r.ok && r.miss === 'elsewhere' && /That’s Top coat, which isn’t on this order\. This order needs Gel polish\./.test(r.message), r);
-  r = await recordItemScan(web as any, 't1', 'o1', '5550001', actor);
+  r = await recordItemScan({ __fs: true } as any, 't1', 'o1', '5550001', actor);
   check('a code no product has: it says so, and how to fix it', !r.ok && r.miss === 'unknown' && /No product has the code 5550001 yet/.test(r.message) && /add the code to it/.test(r.message), r);
 
   // The packer says which item it is: the code goes on that product.
-  let lc = await learnCode(web as any, 't1', 'top', '5550001');
+  let lc = await learnCode({ __fs: true } as any, 't1', 'top', '5550001');
   check('adding a new code to a product with a SKU but no barcode makes it its barcode', lc.ok && (await db.doc(`${T}/inventory/top`).get()).data().barcode === '5550001', lc);
-  lc = await learnCode(web as any, 't1', 'gel', '5550002');
+  lc = await learnCode({ __fs: true } as any, 't1', 'gel', '5550002');
   check('…a product that has a barcode keeps it and gets the new one as an extra code', lc.ok && (await db.doc(`${T}/inventory/gel`).get()).data().barcode === '012345678905' && (await db.doc(`${T}/inventory/gel`).get()).data().barcodes.includes('5550002'), lc);
-  lc = await learnCode(web as any, 't1', 'gel', '5550001');
+  lc = await learnCode({ __fs: true } as any, 't1', 'gel', '5550001');
   check('…a code another product already has isn’t added twice', !lc.ok && /already on Top coat/.test(lc.message), lc);
-  lc = await learnCode(web as any, 't1', 'test-gel', '5550009');
+  lc = await learnCode({ __fs: true } as any, 't1', 'test-gel', '5550009');
   check('…and nothing is added to a test item’s stand-in', !lc.ok);
 
   // The second scan at the box uses the same rules.
   await fresh();
   await db.doc(`${T}/inventory/gel`).set({ ...gel });
   await db.doc(`${T}/retailOrders/o1`).set(order([line({ sku: '', barcode: '', qtyScanned: 2, status: 'picked' })], { stage: 'packed' }));
-  r = await recordPackScan(web as any, 't1', 'o1', '00012345678912', actor);
+  r = await recordPackScan({ __fs: true } as any, 't1', 'o1', '00012345678912', actor);
   check('the pack check at the box finds the item by its current codes too', r.ok && r.lineId === 'A', r);
 
   // A number written another way on the order (a spreadsheet dropped its leading zeros) still finds its line, when only
   // one item on the order has that number; never a guess between two.
   await fresh();
-  let near: any = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
+  let near: any = await resolveOrderScan({ __fs: true } as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
   check('packing: a number without the leading zeros its record has still finds the one line with it', near.kind === 'line' && near.hint.lineId === 'N', near);
-  near = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' }), line({ lineId: 'M', productId: 'n2', sku: '', barcode: '0555111' })] as any, '555111');
+  near = await resolveOrderScan({ __fs: true } as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' }), line({ lineId: 'M', productId: 'n2', sku: '', barcode: '0555111' })] as any, '555111');
   check('…two lines with that number: no guess', near.kind !== 'line', near);
   await db.doc(`${T}/inventory/bb`).set({ id: 'bb', type: 'professional', name: 'Backbar cream', barcode: '555111' });
-  near = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
+  near = await resolveOrderScan({ __fs: true } as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
   check('…but a product that has exactly that code is that product: not on this order (it never counts the other line)', near.kind === 'elsewhere' && near.productName === 'Backbar cream', near);
   await db.doc(`${T}/inventory/bb`).set({ id: 'bb', type: 'retail', status: 'archived', name: 'Old cream', barcode: '555111' });
-  near = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
+  near = await resolveOrderScan({ __fs: true } as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
   check('…an archived product’s code too', near.kind === 'elsewhere' && near.productName === 'Old cream', near);
 
   // ── The register uses the same codes ──

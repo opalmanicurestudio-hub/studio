@@ -144,9 +144,9 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1130, s
   // ── The rules: a browser can't make an order that looks paid ──
   const fsMod = await import('fs');
   const rules = fsMod.readFileSync('firestore.rules', 'utf8');
-  check('a new order from the browser can’t carry a payment, a gift card, store credit or a refund record',
-    /orderCreateLockedKeys\(\)/.test(rules) && /hasAny\(orderCreateLockedKeys\(\)\)/.test(rules) && ['giftCardId', 'giftSpentAt', 'giftCardCents', 'storeCreditRequestedCents', 'creditShortfallCents', 'nonCardRestored', 'stripePaymentIntentId', 'refundedOtherCents'].every((k) => new RegExp(`function orderCreateLockedKeys\\(\\) \\{[^}]*'${k}'`).test(rules))
-    && /function orderLockedKeys\(\) \{[^}]*'refundedOtherCents'[^}]*\];\s*\}\s*\/\/ What a new order/.test(rules));
+  check('no order is created from a browser (checkout and the order steps make them on the server), and an order’s payment fields can’t be changed from one',
+    /match \/tenants\/\{tenantId\}\/retailOrders\/\{orderId\} \{\s*allow read: if isTeam\(tenantId\);\s*\/\/[^\n]*\n\s*allow create: if false;/.test(rules)
+    && ['giftCardId', 'giftSpentAt', 'giftCardCents', 'storeCreditRequestedCents', 'creditShortfallCents', 'nonCardRestored', 'stripePaymentIntentId', 'refundedOtherCents'].every((k) => new RegExp(`function orderLockedKeys\\(\\) \\{[^}]*'${k}'`).test(rules)));
   check('the server’s records (what an order paid by gift card or credit, and what went back on its own) are where no browser reads or writes',
     /match \/tenants\/\{tenantId\}\/private\/\{docId\} \{\s*allow read, write: if false;/.test(rules) && /'private',/.test(rules));
 

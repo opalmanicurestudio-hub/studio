@@ -5,7 +5,7 @@
 // order completes, the event is logged). Optionally the customer signs for it on the client screen (iPad).
 import * as React from 'react';
 import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
-import { handoffByScan, handoffWithoutScan } from '@/lib/retail-fulfill';
+import { handoffByScan, handoffWithoutScan } from '@/lib/fulfil-client';
 import { parseOrderQr } from '@/lib/retail-orders';
 
 const money = (c: any) => `$${((Number(c) || 0) / 100).toFixed(2)}`;

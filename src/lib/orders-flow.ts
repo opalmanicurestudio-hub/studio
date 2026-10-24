@@ -4,9 +4,9 @@
 // Returns { ok, message } so every screen (and Klair later) reports the same way.
 import { type Firestore, doc, updateDoc } from 'firebase/firestore';
 import {
-  claimSpecificOrder, markPacked, markReady, notifyCurbside, recordBoxScan, recordLineTap, resolveShortLine,
+  claimSpecificOrder, markPacked, markReady, recordBoxScan, recordLineTap, resolveShortLine,
   releaseBatch, undoLineCount, markBringingOut, handoffByScan, handoffWithoutScan, markShipped, cancelOrder, releaseBackorder, takeOverOrder, type Actor,
-} from '@/lib/retail-fulfill';
+} from '@/lib/fulfil-client';
 import { nextFreeSlot } from '@/lib/orders-view';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
@@ -52,7 +52,7 @@ export async function releaseHeld(fs: Firestore, t: string, o: any, actor: Actor
 /** Put it down: stops packing and returns the order to the queue for anyone. */
 export async function stopPacking(fs: Firestore, t: string, o: any, batch: any, actor: Actor): Promise<Result> {
   if (!batch) return { ok: true, message: 'Saved' };
-  await releaseBatch(fs, t, batch, 'manual', actor);
+  try { await releaseBatch(fs, t, batch, 'manual', actor); } catch (e: any) { return { ok: false, message: e?.message || 'That didn’t go through. Try again.' }; }
   return { ok: true, message: 'Put back in the queue' };
 }
 
@@ -73,8 +73,7 @@ export async function finishPacking(fs: Firestore, t: string, o: any, all: any[]
   if (!r.ok) return { ok: true, message: `Packed. ${r.message}` };
   const slot = nextFreeSlot(all.filter((x) => x.id !== o.id));
   try { await updateDoc(doc(fs, `tenants/${t}/retailOrders`, o.id), { shelfSlot: slot }); } catch { /* a missing spot is cosmetic */ }
-  if (o.method === 'curbside') { if (r.notifyReady) notifyCurbside(t, o.id, 'ready'); }
-  else void tellReady(t, o.id);
+  // The customer is told it's ready by the server, as it marks it ready (api/retail/fulfil).
   return { ok: true, message: `Ready. Put it on shelf ${slot}.`, slot };
 }
 
@@ -84,9 +83,8 @@ export async function tellReady(t: string, orderId: string): Promise<void> {
 }
 
 export async function bringingOut(fs: Firestore, t: string, o: any, actor: Actor, photo?: string): Promise<Result> {
-  const r = await markBringingOut(fs, t, o.id, actor, photo);
-  if (r.ok) notifyCurbside(t, o.id, 'out');
-  return r;
+  // The customer is told someone's on the way by the server, with this person's name and photo (api/retail/fulfil).
+  return markBringingOut(fs, t, o.id, actor, photo);
 }
 
 export { syncRenterCredits } from './renter-credit-client';

@@ -98,6 +98,8 @@ const fresh = async (rs: any = {}, x: any = {}) => {
   // ── Settling a return ──
   const Rt = await import('../../src/lib/retail-returns');
   creditPOST = (await import('../../src/app/api/retail/return-credit/route')).POST;
+  { const RC = await import('../../src/lib/return-credit'); const Rt0 = await import('../../src/lib/retail-returns');
+    Rt0.setReturnEffects({ credit: async (t, id, a) => RC.resolveCreditReturn(db, t, id, { uid: a.id, name: a.name, isManager: false }) as any, notify: (t, id) => { fetches.push({ url: '/api/retail/return-notify', body: { tenantId: t, returnId: id } }); }, renterCredits: () => {} }); }
   const staff = { id: 'm1', name: 'Rae Moss' };
   await fresh({ policies: pol });
   await db.doc(`${T}/retailReturns/ret1`).set({ id: 'ret1', orderId: 'o1', orderNumber: 1070, resolution: 'refund', status: 'received', refundCents: 1400, openedBy: 'Customer — Sam Lee', lines: [{ lineId: 'A', sku: 'GEL', name: 'Gel polish', qty: 1, reason: 'changed_mind', disposition: 'restock' }] });

@@ -677,8 +677,7 @@ service cloud.firestore {
     // payment step, swap questions (all written by the server), and which order a backorder or replacement was made from.
     // Shorts, cancels and returns change the refund owed from the browser; the money itself only moves on the server,
     // where it's capped at what the card paid and the person's refund limit. Only managers release a hold or mark a refund
-    // as done by hand (with the tax and tip it gave back). New orders from the browser are the zero-value follow-ups the engine makes (a backorder, a
-    // replacement, a split); paid orders are only ever created by checkout on the server.
+    // as done by hand (with the tax and tip it gave back). Orders are only ever created on the server.
     function orderLockedKeys() {
       return ['chargedCents', 'totalCents', 'subtotalCents', 'taxCents', 'shippingCents', 'tipCents', 'qrToken', 'customerEmail', 'customerPhone', 'customerName', 'textsOff', 'clientId',
               'orderNumber', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq', 'lastStripeRefundId',
@@ -689,27 +688,20 @@ service cloud.firestore {
               'tipSharedAt', 'tipSharedWith', 'tipUnassigned', 'partRefunds', 'shippingRefundedCents',
               'taxMode', 'taxCalculationId', 'taxTransactionId', 'tenders', 'shipTogetherRefundCents', 'outsideRefunds'];
     }
-    // What a new order from the browser may never carry: those follow-ups have no payment of their own, so nothing about
-    // a payment, a gift card or store credit, or a refund already made can be set on one. Only checkout on the server
-    // creates an order that was paid.
-    function orderCreateLockedKeys() {
-      return ['chargedCents', 'tipCents', 'clientId', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq',
-              'lastStripeRefundId', 'riskCheck', 'holdAuto', 'idCheck', 'swapOffer', 'swapPendingPhone', 'giftSpentAt', 'giftCardCents',
-              'giftCardId', 'giftCardCode', 'storeCreditRequestedCents', 'creditShortfallCents', 'creditAppliedCents', 'nonCardRestoredAt',
-              'nonCardRestored', 'refundedOtherCents', 'paidVia', 'isTest', 'policySnapshot', 'addressCost', 'addressPay', 'addressRequest', 'addressPaid', 'addressPaidOpen', 'addressPaidRetry', 'addressPayLog'];
+    // What only the order steps change, on the server (api/retail/fulfil, with the person's role checked there): the
+    // order's stage, its items and their counts, who's packing it, when each step happened, the lots that went out and
+    // the follow-up orders made from it. So no screen can show a step that didn't happen.
+    function orderStepKeys() {
+      return ['stage', 'lines', 'batchId', 'claimedBy', 'claimedByName', 'claimedAt', 'packedAt', 'readyAt', 'completedAt', 'cancelledAt',
+              'saleLots', 'lotKeys', 'backorderOrderIds', 'holdUntilRestock'];
     }
     match /tenants/{tenantId}/retailOrders/{orderId} {
       allow read: if isTeam(tenantId);
-      allow create: if isTeam(tenantId)
-        && !request.resource.data.keys().hasAny(orderCreateLockedKeys())
-        && request.resource.data.get('totalCents', 0) == 0
-        && request.resource.data.get('subtotalCents', 0) == 0
-        && request.resource.data.get('taxCents', 0) == 0
-        && request.resource.data.get('shippingCents', 0) == 0
-        && request.resource.data.get('pendingRefundCents', 0) == 0
-        && request.resource.data.get('refundedCents', 0) == 0;
+      // Every order is made on the server: checkout, and the follow-ups the order steps make (api/retail/fulfil).
+      allow create: if false;
       allow update: if isTeam(tenantId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(orderLockedKeys())
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(orderStepKeys())
         && (isManager(tenantId) || (
               request.resource.data.get('refundedCents', 0) == resource.data.get('refundedCents', 0)
               && request.resource.data.get('refundedTaxCents', 0) == resource.data.get('refundedTaxCents', 0)

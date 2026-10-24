@@ -1,12 +1,8 @@
-'use client';
-
-import { staffAuthHeader } from './staff-fetch';
-import { shareOrderTipSoon, syncRenterCredits } from './renter-credit-client';
 import { shrinkStock } from './retail-orders';
 import { taxShareCents } from './restocking';
 import {
-  Firestore, collection, doc, getDoc, getDocs, limit, query, runTransaction, where,
-} from 'firebase/firestore';
+  type Firestore, collection, doc, getDoc, getDocs, limit, query, runTransaction, where,
+} from '@/lib/fs-any';
 import { nanoid } from 'nanoid';
 
 import {
@@ -24,13 +20,30 @@ import { cancelWithFollowUps, followUpCancelCents, followUpLabel, heldUnits, isF
 import { resolveOrderScan, scanMissMessage, type ScanResolution } from '@/lib/scan-resolve';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
-// Client-side fulfillment actions for the board. Every state change runs in a
-// Firestore TRANSACTION with the engine's guards re-checked against fresh
-// data, so two phones acting at once can never double-claim, double-scan, or
-// double-deplete. Every action appends its audit event in the same atomic
-// write. Uses the client SDK (like the inventory page) — no new auth layer.
+// The fulfillment steps. They run on the server (api/retail/fulfil, with the
+// person's role checked first; screens call them through lib/fulfil-client).
+// Every state change runs in a TRANSACTION with the engine's guards re-checked
+// against fresh data, so two phones acting at once can never double-claim,
+// double-scan, or double-deplete. Every action appends its audit event in the
+// same atomic write. Written against lib/fs-any, so the same code runs on the
+// server's database.
 
 export interface Actor { id: string; name: string; }
+
+/** What happens after a step commits, outside its transaction (a retried transaction must never send twice): the
+ *  customer's messages, renters' shares and the order's tip. The server (api/retail/fulfil) sets these; until then
+ *  nothing is sent, and the nightly and five-minute jobs catch up on shares and tips. */
+export type FulfilEffects = {
+  curbside: (tenantId: string, orderId: string, moment: 'ready' | 'out' | 'staff_escalation') => void;
+  short: (tenantId: string, orderId: string, lineId: string) => void;
+  renterCredits: (tenantId: string, order: any) => void;
+  tip: (tenantId: string, order: any) => void;
+};
+const NONE: FulfilEffects = { curbside: () => {}, short: () => {}, renterCredits: () => {}, tip: () => {} };
+let effects: FulfilEffects = NONE;
+export function setFulfilEffects(e: Partial<FulfilEffects>): void { effects = { ...NONE, ...e }; }
+const syncRenterCredits = (t: string, o: any) => { try { effects.renterCredits(t, o); } catch { /* the nightly job catches up */ } };
+const shareOrderTipSoon = (t: string, o: any) => { try { effects.tip(t, o); } catch { /* the five-minute job catches up */ } };
 
 /** Firestore rejects `undefined` anywhere in a payload ("invalid data …
  * in field meta"). Every event/correction is scrubbed here so no code path
@@ -439,29 +452,11 @@ export async function undoLineCount(
  * successful short into an error the picker has to interpret at the shelf.
  */
 export function notifyCurbside(tenantId: string, orderId: string, moment: 'ready' | 'out' | 'staff_escalation'): void {
-  if (typeof window === 'undefined') return;
-  try {
-    void fetch('/api/retail/curbside-notify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId, orderId, moment }),
-      keepalive: true,
-    }).catch(() => undefined);
-  } catch { /* the board banner is still true */ }
+  try { effects.curbside(tenantId, orderId, moment); } catch { /* the board banner is still true */ }
 }
 
 function notifyCustomerOfShort(tenantId: string, orderId: string, lineId: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    void staffAuthHeader().then((h) => fetch('/api/retail/short-notify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...h },
-      body: JSON.stringify({ tenantId, orderId, lineId }),
-      keepalive: true,
-    })).catch(() => undefined);
-  } catch {
-    // best effort by design
-  }
+  try { effects.short(tenantId, orderId, lineId); } catch { /* best effort by design */ }
 }
 
 export async function resolveShortLine(

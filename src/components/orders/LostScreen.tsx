@@ -32,13 +32,13 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
 export function LostScreen() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
   const { user } = useUser() as any;
-  const { selectedTenant, role } = useTenant() as any;
+  const { selectedTenant, role, staffId } = useTenant() as any;
   const wide = useWide();
   const tenantId = String(selectedTenant?.id || '');
   const rs = (selectedTenant?.retailSettings || {}) as any;
   const tz = tenantTimeZone(selectedTenant);
   const canFile = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
-  const actor = React.useMemo(() => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Team' }), [user]);
+  const actor = React.useMemo(() => ({ id: staffId || user?.uid || 'staff', name: user?.displayName || user?.email || 'Team' }), [user, staffId]);
   const thisMonth = dayKey(new Date(), tz).slice(0, 7);
   const [month, setMonth] = React.useState(thisMonth);
   const [rows, setRows] = React.useState<any[] | null>(null);

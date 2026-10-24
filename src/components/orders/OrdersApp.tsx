@@ -16,7 +16,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useFulfilmentPerms } from '@/hooks/use-fulfilment-perms';
 import { permissionsFor } from '@/lib/fulfilment-access';
-import { notifyCurbside, sweepStaleClaims, type Actor } from '@/lib/retail-fulfill';
+import { notifyCurbside, sweepStaleClaims, type Actor } from '@/lib/fulfil-client';
 import { curbsideWaitMinutes, lineMatchesScan } from '@/lib/retail-orders';
 import { scanInto, startPacking } from '@/lib/orders-flow';
 import { orderTags } from '@/lib/order-tags';
@@ -62,14 +62,15 @@ function carrierMessage(it: CarrierItem): string | null {
 
 export function OrdersApp() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
-  const { selectedTenant, can, role } = useTenant() as any; const { user } = useUser() as any;
+  const { selectedTenant, can, role, staffId } = useTenant() as any; const { user } = useUser() as any;
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const { inventory, staff } = useInventory() as any;
   const perms = useFulfilmentPerms();
   const tenantId = String(selectedTenant?.id || '');
   const rs = (selectedTenant as any)?.retailSettings || {};
   const shopZone = tenantTimeZone(selectedTenant);
-  const actor: Actor = React.useMemo(() => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Team' }), [user]);
+  // The person as the server knows them: their staff record (the same id the order steps stamp on what they claim).
+  const actor: Actor = React.useMemo(() => ({ id: staffId || user?.uid || 'staff', name: user?.displayName || user?.email || 'Team' }), [user, staffId]);
   const wide = useWide();
   const widest = useWidest();
   // A phone (or a narrow window), a computer screen with the list beside the order, or a wide one with the customer too.

@@ -129,7 +129,7 @@ const paySession = (sid: string, pi: string) => { sessions[sid] = { ...sessions[
   check('a request whose “payment” the server never recorded refunds nothing (not the order’s own payment)', r.status === 200 && stripeCalls.refunds.length === 0, stripeCalls.refunds);
   const rules = readFileSync('firestore.rules', 'utf8');
   const lockedIn = (fn: string) => (rules.split(`function ${fn}()`)[1] || '').split('}')[0];
-  check('…and the team can’t write a request, or the payment records, from the browser', ['addressRequest', 'addressPaid', 'addressPaidOpen', 'addressPaidRetry', 'addressPayLog'].every((k) => lockedIn('orderLockedKeys').includes(`'${k}'`) && lockedIn('orderCreateLockedKeys').includes(`'${k}'`)));
+  check('…and the team can’t write a request, or the payment records, from the browser (and no order is created from one)', ['addressRequest', 'addressPaid', 'addressPaidOpen', 'addressPaidRetry', 'addressPayLog'].every((k) => lockedIn('orderLockedKeys').includes(`'${k}'`)) && /retailOrders\/\{orderId\} \{\s*allow read: if isTeam\(tenantId\);\s*\/\/[^\n]*\n\s*allow create: if false;/.test(readFileSync('firestore.rules', 'utf8')));
   await fresh();
   await db.doc(`${T}/retailOrders/o1`).set({ addressRequest: { id: 'rq1', kind: 'change', status: 'waiting', to: FAR, at: new Date().toISOString() } }, { merge: true });
   actor = { uid: 'k1', name: 'Kai Park', role: 'front_desk', isManager: false, caps: [] };

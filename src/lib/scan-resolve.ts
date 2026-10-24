@@ -5,7 +5,7 @@
 // a label printed from a duplicate of the product, or a listing's code when the order has just one of its variants.
 // When the scan isn't on the order, it says why in words a packer can act on: which product it is, or that no product
 // has that code yet (and the packer can add it to the right product, lib/scan-resolve learnCode).
-import { type Firestore, collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
+import { type Firestore, collection, doc, getDoc, getDocs, limit, query, where } from '@/lib/fs-any';
 import { learnProductCode } from './codes-api';
 import { codeDocId, codeForm, codesOf } from './code-form';
 import { numberKey } from './code-lookup';

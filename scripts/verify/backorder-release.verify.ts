@@ -64,18 +64,18 @@ const bo = (id: string, lines: any[], placedAt: string) => ({ id, tenantId: 't1'
 
   // ── Releasing one by hand ──
   await fresh({ gel: [1, 0], file: [5, 0] }, [bo('b1', [gel(2), file(1)], '2026-10-01T10:00:00Z')]);
-  let r = await OF.releaseHeld(webFs, 't1', { id: 'b1' }, actor);
+  let r = await RF.releaseBackorder(webFs, 't1', 'b1', actor, { onlyIfCovered: true });
   check('one polish on the shelf for a backorder of two: it isn’t released, and the team is told what’s short',
     !r.ok && r.short?.length === 1 && r.short[0].have === 1 && r.short[0].need === 2 && /1 of 2 Gel polish/.test(r.message) && (await get(`${T}/retailOrders/b1`)).holdUntilRestock === true, r);
-  r = await OF.releaseHeld(webFs, 't1', { id: 'b1' }, actor, true);
+  r = await RF.releaseBackorder(webFs, 't1', 'b1', actor, { onlyIfCovered: false });
   let b1 = await get(`${T}/retailOrders/b1`);
   check('…released anyway when they say so: in the queue, its units held, and the history says it may come up short',
     r.ok && b1.holdUntilRestock === false && !!b1.releasedAt && (await get(`${T}/inventory/gel`)).stockReserved === 2 && (await get(`${T}/inventory/file`)).stockReserved === 1 && /may come up short/.test(r.message), { r, b1 });
-  r = await OF.releaseHeld(webFs, 't1', { id: 'b1' }, actor);
+  r = await RF.releaseBackorder(webFs, 't1', 'b1', actor, { onlyIfCovered: true });
   check('…and releasing it again says it isn’t waiting any more', !r.ok && /isn’t waiting on stock/.test(r.message));
 
   await fresh({ gel: [5, 0] }, [bo('b2', [gel(1), gel(2, { k: 'b' })], '2026-10-01T10:00:00Z')]);
-  r = await OF.releaseHeld(webFs, 't1', { id: 'b2' }, actor);
+  r = await RF.releaseBackorder(webFs, 't1', 'b2', actor, { onlyIfCovered: true });
   check('two lines of the same polish take all three units (each line used to overwrite the other)', r.ok && (await get(`${T}/inventory/gel`)).stockReserved === 3, { r, inv: await get(`${T}/inventory/gel`) });
 
   check('packing an order that’s waiting on stock says why it can’t start',

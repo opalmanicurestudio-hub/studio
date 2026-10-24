@@ -179,6 +179,9 @@ const fresh = async (x: any = {}) => {
 
   // ── The returns desk asks the server ──
   const Rt = await import('../../src/lib/retail-returns');
+  // As the server sets them (api/retail/fulfil): the credit issued by lib/return-credit, the email asked for.
+  const RC = await import('../../src/lib/return-credit');
+  Rt.setReturnEffects({ credit: async (t, id, a) => RC.resolveCreditReturn(db, t, id, { uid: a.id, name: a.name, isManager: false }) as any, notify: (_t, id) => { notified.push(id); }, renterCredits: () => {} });
   await fresh();
   await db.doc(`${T}/retailReturns/r9`).set(ret('r9', 1));
   const res: any = await Rt.resolveReturn(webFs, 't1', { ...(await get(`${T}/retailReturns/r9`)), id: 'r9' } as any, { id: 'k1', name: 'Kai Park' });

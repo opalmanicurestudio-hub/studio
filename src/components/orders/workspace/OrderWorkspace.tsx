@@ -9,7 +9,7 @@
 import * as React from 'react';
 import { collection, limit, onSnapshot, orderBy, query, where, type Firestore } from 'firebase/firestore';
 import { cancelIt, releaseHeld, startPacking, takeOverPacking } from '@/lib/orders-flow';
-import { splitReadyFromWaiting, type Actor } from '@/lib/retail-fulfill';
+import { splitReadyFromWaiting, type Actor } from '@/lib/fulfil-client';
 import { dueLine, firstName, methodLabel, money, orderNum } from '@/lib/orders-view';
 import { formatTime } from '@/lib/tenant-time';
 import { openRequest } from '@/lib/address-flow';

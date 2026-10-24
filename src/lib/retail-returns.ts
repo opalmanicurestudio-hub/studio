@@ -1,18 +1,15 @@
-'use client';
 
 import { refundTaxPart, refundTipPart } from '@/lib/refund-tax';
-import { syncRenterCredits } from './renter-credit-client';
-import { staffAuthHeader } from './staff-fetch';
 import { restockingFee } from './restocking';
 import { lineFor, taxBasisOf } from './order-family';
 import { releaseCoverableBackorders } from './retail-fulfill';
 import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
 import {
-  Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
-} from 'firebase/firestore';
+  type Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
+} from '@/lib/fs-any';
 import { nanoid } from 'nanoid';
 
-import { buildExceptionDoc } from '@/lib/inventory-exceptions';
+import { buildExceptionDoc } from '@/lib/exception-doc';
 import { buildEntry } from '@/lib/stock-ledger';
 
 import {
@@ -53,6 +50,16 @@ export type ReturnableOrder = RetailOrder & { id: string };
  * ════════════════════════════════════════════════════════════════════════════ */
 
 const RETURNABLE_STAGES = ['completed', 'shipped', 'handed_off'];
+
+/** What happens after a return step commits, outside its transaction. The server (api/retail/fulfil) sets these:
+ *  store credit worked out and issued by the server (lib/return-credit), the customer's email, renters' shares. */
+export type ReturnEffects = {
+  credit: (tenantId: string, returnId: string, actor: Actor) => Promise<{ ok: boolean; message?: string; error?: string; orderQrToken?: string; creditCents?: number }>;
+  notify: (tenantId: string, returnId: string) => void;
+  renterCredits: (tenantId: string, orderId: string) => void;
+};
+let returnEffects: ReturnEffects = { credit: async () => ({ ok: false, error: 'Store credit is issued by the server.' }), notify: () => {}, renterCredits: () => {} };
+export function setReturnEffects(e: ReturnEffects): void { returnEffects = e; }
 
 export async function findReturnableOrder(
   fs: Firestore, tenantId: string, key: string
@@ -447,25 +454,18 @@ export async function resolveReturn(
     let notify = !!result.ok;
     if (result.ok && result.byServer) {
       // STORE CREDIT: the server works out how much and who it's for, and settles the return in the same step.
-      const r = await fetch('/api/retail/return-credit', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-        body: JSON.stringify({ tenantId, returnId: ret.id }),
-      });
-      const d: any = await r.json().catch(() => ({}));
-      if (!r.ok || !d.ok) return { ok: false, message: d.error || d.message || 'The store credit couldn’t be issued just now. Nothing was added, so try again.' };
+      const d: any = await returnEffects.credit(tenantId, ret.id, actor).catch(() => ({ ok: false }));
+      if (!d.ok) return { ok: false, message: d.error || d.message || 'The store credit couldn’t be issued just now. Nothing was added, so try again.' };
       out = { ok: true, message: d.message || 'Return resolved', refundQueuedCents: 0, orderQrToken: String(d.orderQrToken || '') };
       // Nothing was issued (everything paid had already gone back): no "credit issued" email.
       notify = (Number(d.creditCents) || 0) > 0;
     }
     if (out.ok) {
       // A returned renter's product takes its share back off their rent credit (lib/renter-sales).
-      syncRenterCredits(tenantId, { id: ret.orderId }, true);
+      try { returnEffects.renterCredits(tenantId, ret.orderId); } catch { /* the nightly job catches up */ }
     }
     if (notify) {
-      void fetch('/api/retail/return-notify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, returnId: ret.id }),
-      }).catch(() => undefined);
+      try { returnEffects.notify(tenantId, ret.id); } catch { /* the return is settled either way */ }
     }
     return out;
   } catch (e: any) {

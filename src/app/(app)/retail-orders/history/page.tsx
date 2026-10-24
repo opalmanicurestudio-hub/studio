@@ -20,7 +20,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { cancelOrder } from '@/lib/retail-fulfill';
+import { cancelOrder } from '@/lib/fulfil-client';
 import { markRefundExecuted } from '@/lib/retail-returns';
 import {
   STAGE_LABELS, type OrderEvent, type OrderStage, type RetailOrder,

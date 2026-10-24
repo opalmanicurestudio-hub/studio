@@ -17,9 +17,10 @@ import { useToast } from '@/hooks/use-toast';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import {
-  buildWave, claimTote, dealTotes, eligibleForWave, packQueue, parseToteScan, pickList, markRowPicked, recordWavePut, saveToteDeal, setWaveStatus, suggestTote, toteResiduals, unitsByTote, waveItem, wavePut,
+  buildWave, claimTote, dealTotes, eligibleForWave, packQueue, parseToteScan, pickList, markRowPicked, recordWavePut, saveToteDeal, suggestTote, toteResiduals, unitsByTote, waveItem, wavePut,
   waveCol, waveSummary, type Wave,
 } from '@/lib/waves';
+import { setWaveStatus } from '@/lib/fulfil-client';
 import { hourIn, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
 import { openPrint } from '@/lib/open-print';
@@ -73,8 +74,8 @@ export default function WavesPage() {
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
-    const unsub = onSnapshot(waveCol(firestore as Firestore, tenantId), (snap) => {
-      const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Wave[];
+    const unsub = onSnapshot(waveCol(firestore as Firestore, tenantId), (snap: any) => {
+      const rows = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })) as Wave[];
       rows.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
       setWaves(rows);
     });
@@ -286,8 +287,9 @@ export default function WavesPage() {
       const resid = toteResiduals(rows, after);
       const allDone = Object.values(resid).every((byPid) => Object.values(byPid).every((n) => n <= 0));
       if (allDone) {
-        void setWaveStatus(firestore as Firestore, tenantId, active.id, 'packing', actor);
-        toast({ title: 'Wave picked — moving to the bench', description: 'Every tote has everything it needs. Grab the bins and the slip stack.' });
+        void setWaveStatus(firestore as Firestore, tenantId, active.id, 'packing', actor)
+          .then(() => toast({ title: 'Wave picked — moving to the bench', description: 'Every tote has everything it needs. Grab the bins and the slip stack.' }))
+          .catch((e: any) => toast({ variant: 'destructive', title: 'The wave didn’t move to the bench', description: e?.message || 'Try the button below.' }));
       } else {
         toast({ title: `Tote ${res.tote} is complete`, description: 'Everything that bin needs is in it.' });
       }
@@ -684,7 +686,7 @@ export default function WavesPage() {
               <div className="flex gap-2 print:hidden">
                 <Button
                   variant="outline"
-                  onClick={() => firestore && setWaveStatus(firestore as Firestore, tenantId, active.id, active.status === 'picking' ? 'packing' : 'done', actor)}
+                  onClick={() => firestore && setWaveStatus(firestore as Firestore, tenantId, active.id, active.status === 'picking' ? 'packing' : 'done', actor).catch((e: any) => toast({ variant: 'destructive', title: 'Not moved', description: e?.message || 'Try again.' }))}
                   className="h-12 flex-1 rounded-2xl border-2 text-[11px] font-black uppercase tracking-widest"
                 >
                   {active.status === 'picking' ? 'Shelves walked — move to the bench' : 'Close this wave'}

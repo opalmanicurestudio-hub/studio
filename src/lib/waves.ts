@@ -1,8 +1,7 @@
-'use client';
 
 import {
   type Firestore, collection, doc, getDocs, limit, orderBy, query, runTransaction, where,
-} from 'firebase/firestore';
+} from '@/lib/fs-any';
 import { nanoid } from 'nanoid';
 
 import { buildEvent } from '@/lib/retail-orders';

@@ -20,11 +20,11 @@ import { ProblemPanel } from './ProblemPanel';
 
 export function ProblemsApp() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
-  const { selectedTenant, can } = useTenant() as any; const { user } = useUser() as any;
+  const { selectedTenant, can, staffId } = useTenant() as any; const { user } = useUser() as any;
   const perms = useFulfilmentPerms();
   const tenantId = String(selectedTenant?.id || '');
   const rs = (selectedTenant as any)?.retailSettings || {};
-  const actor: Actor = React.useMemo(() => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Team' }), [user]);
+  const actor: Actor = React.useMemo(() => ({ id: staffId || user?.uid || 'staff', name: user?.displayName || user?.email || 'Team' }), [user, staffId]);
   const wide = useWide();
   const canRefund = typeof can === 'function' ? can('checkout.refund') : false;
 

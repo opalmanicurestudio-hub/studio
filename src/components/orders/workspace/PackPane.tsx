@@ -21,7 +21,7 @@ import { INSURED_PACK_RULES, PACK_PHOTO_KIND_LABEL, boxesMissingPhoto, insuredPa
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { finishPacking, scanInto, stopPacking, tapInto, undoTick } from '@/lib/orders-flow';
-import { reopenShortedLine, type Actor } from '@/lib/retail-fulfill';
+import { reopenShortedLine, type Actor } from '@/lib/fulfil-client';
 import { lineMatchesScan } from '@/lib/retail-orders';
 import { toteOf } from '@/lib/totes';
 import { firstName, money, packProgress } from '@/lib/orders-view';
@@ -188,7 +188,7 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
     const r = await reopenShortedLine(fs, tenantId, order.id, l.lineId, actor);
     feel(r.ok); if (r.ok) onToast(`${l.name} is back on the order.`); else setErr(r.message);
   };
-  const putDown = async () => { await stopPacking(fs, tenantId, order, batch, actor); onPutDown(); };
+  const putDown = async () => { const r = await stopPacking(fs, tenantId, order, batch, actor); if (!r.ok) { feel(false); setErr(r.message); return; } onPutDown(); };
 
   const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? (boxCount > 1 ? `Add a photo of box ${photoMissing[0]} first` : 'Add a photo of the box first') : order.method === 'ship' ? 'Done, packed for shipping' : `Done, it’s ready for ${firstName(order.customerName)}`;
 

@@ -5,7 +5,7 @@
 // sends it to their card.
 import * as React from 'react';
 import { doc, getDoc, type Firestore } from 'firebase/firestore';
-import { receiveReturnLine, resolveReturn } from '@/lib/retail-returns';
+import { receiveReturnLine, resolveReturn } from '@/lib/fulfil-client';
 import { restockingFee } from '@/lib/restocking';
 import { returnRefundCents } from '@/lib/retail-orders';
 import { money } from '@/lib/orders-view';
