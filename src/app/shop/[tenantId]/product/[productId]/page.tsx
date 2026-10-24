@@ -151,6 +151,11 @@ export default function ProductPage() {
   const retailLine = useMemo(() => (product ? shopLine(product, selections, false) : null), [product, selections]);
   const price = line?.baseCents ?? 0;
   const unitCents = line?.unitCents ?? 0;
+  // How the chosen variant sells (its own, else the listing's, lib/variants asSold): a pre-order, a download, made to
+  // order. The same as the cart and checkout read it.
+  const vc: any = line?.variantChoice || null;
+  const sold: any = vc ? { preorder: vc.preorder || { isPreorder: false, open: false }, digital: vc.digital === true, leadDays: vc.leadDays || null }
+    : { preorder: (product as any)?.preorder || null, digital: (product as any)?.digital === true, leadDays: (product as any)?.leadDays || null };
   const canBuy = !!product && (line?.variantChoice ? line.inStock : product.inStock);
   const lowNow = !!product && (line?.variantChoice ? line.variantChoice.lowStock === true : product.lowStock);
   const showStrike = !!product && wholesale && !!retailLine && price < retailLine.baseCents;
@@ -379,9 +384,9 @@ export default function ProductPage() {
               {paused
                 ? 'Shop briefly paused'
                 : canBuy
-                ? `${(product as any).preorder?.isPreorder ? 'Pre-order' : (product as any).digital ? 'Buy now' : 'Add to cart'} \u00b7 ${fmt(unitCents * qty)}`
-                : (product as any).preorder?.isPreorder
-                ? ((product as any).preorder.reason === 'closed' ? 'Pre-orders closed' : 'Run sold out')
+                ? `${sold.preorder?.isPreorder ? 'Pre-order' : sold.digital ? 'Buy now' : 'Add to cart'} \u00b7 ${fmt(unitCents * qty)}`
+                : sold.preorder?.isPreorder
+                ? (sold.preorder.reason === 'closed' ? 'Pre-orders closed' : 'Run sold out')
                 : 'Sold out'}
             </Button>
           </div>
@@ -394,11 +399,11 @@ export default function ProductPage() {
               )}
             >
               <span className={cn('h-2 w-2 rounded-full', canBuy ? 'bg-emerald-600' : 'bg-muted-foreground/40')} aria-hidden="true" />
-              {(product as any).preorder?.isPreorder
-                ? ((product as any).preorder.open
-                    ? `Pre-order${(product as any).preorder.etaAt ? ` \u00b7 ships by ${new Date(`${(product as any).preorder.etaAt}T12:00:00`).toLocaleDateString()}` : ''}`
-                    : (product as any).preorder.reason === 'closed' ? 'Pre-orders closed' : 'This run sold out')
-                : (product as any).digital
+              {sold.preorder?.isPreorder
+                ? (sold.preorder.open
+                    ? `Pre-order${sold.preorder.etaAt ? ` \u00b7 ships by ${new Date(`${sold.preorder.etaAt}T12:00:00`).toLocaleDateString()}` : ''}`
+                    : sold.preorder.reason === 'closed' ? 'Pre-orders closed' : 'This run sold out')
+                : sold.digital
                 ? 'Instant access \u2014 nothing ships'
                 : canBuy
                 ? (lowNow ? `Only ${line?.qtyAvailable ?? product.qtyAvailable} left` : 'In stock')
@@ -406,15 +411,15 @@ export default function ProductPage() {
             </span>
           </div>
 
-          {shipping && fulfil.offersShipping && canBuy && !paused && !(product as any).digital && (() => {
+          {shipping && fulfil.offersShipping && canBuy && !paused && !sold.digital && (() => {
             const line = {
-              preorder: (product as any).preorder?.isPreorder === true && (product as any).preorder?.open === true,
-              preorderEtaAt: (product as any).preorder?.etaAt || null,
-              leadDays: (product as any).leadDays || null,
+              preorder: sold.preorder?.isPreorder === true && sold.preorder?.open === true,
+              preorderEtaAt: sold.preorder?.etaAt || null,
+              leadDays: sold.leadDays || null,
             };
             const p = productPromise(line, now, shipping.timeZone, shipping.schedule);
             const count = shipping.schedule.countdown ? countdownFor(line, now, shipping.timeZone, shipping.schedule) : null;
-            const lead = leadSentence((product as any).leadDays || null);
+            const lead = leadSentence(sold.leadDays || null);
             const busy = busyLineFor(p, shipping.schedule, 'product', shipping.timeZone);
             return (
               <div className="rounded-2xl border-2 bg-white p-4" aria-live="polite">
@@ -428,7 +433,7 @@ export default function ProductPage() {
               </div>);
           })()}
 
-          {!canBuy && !paused && !(product as any).preorder?.isPreorder && !(product as any).digital && (
+          {!canBuy && !paused && !sold.preorder?.isPreorder && !sold.digital && (
             <RestockAlert key={line?.variantChoice?.id || 'all'} tenantId={tenantId} productId={(product as any).id || productId}
               productName={line?.variantChoice ? `${product.name} · ${line.variantChoice.label}` : product.name} choiceId={line?.variantChoice?.id} />
           )}
@@ -436,22 +441,22 @@ export default function ProductPage() {
           {cfg.showTrust && (
           <div className="grid grid-cols-3 gap-2">
             {[
-              (product as any).preorder?.isPreorder
+              sold.preorder?.isPreorder
                 ? {
                     icon: Truck,
-                    title: (product as any).preorder.etaAt
-                      ? `Ships by ${new Date(`${(product as any).preorder.etaAt}T12:00:00`).toLocaleDateString()}`
+                    title: sold.preorder.etaAt
+                      ? `Ships by ${new Date(`${sold.preorder.etaAt}T12:00:00`).toLocaleDateString()}`
                       : 'Made to order',
-                    sub: (product as any).preorder.closesAt
-                      ? `Pre-orders close ${new Date(`${(product as any).preorder.closesAt}T12:00:00`).toLocaleDateString()}${(product as any).preorder.remaining !== null ? ` \u00b7 ${(product as any).preorder.remaining} left in this run` : ''}`
+                    sub: sold.preorder.closesAt
+                      ? `Pre-orders close ${new Date(`${sold.preorder.closesAt}T12:00:00`).toLocaleDateString()}${sold.preorder.remaining !== null ? ` \u00b7 ${sold.preorder.remaining} left in this run` : ''}`
                       : 'Charged today, shipped when it lands \u2014 cancel any time before it ships',
                   }
-                : (product as any).digital
+                : sold.digital
                 ? { icon: Truck, title: 'Instant access', sub: 'Opens in your library the moment you pay' }
                 : fulfil.offersPickup
                 ? { icon: Truck, title: 'Fast local pickup', sub: 'Ready same day when in stock' }
                 : { icon: Truck, title: 'Ships to you', sub: 'Live carrier rates at checkout' },
-              (product as any).digital
+              sold.digital
                 ? { icon: RotateCcw, title: 'Yours to keep', sub: 'Personal use \u2014 please don\u2019t reshare' }
                 : { icon: RotateCcw, title: 'Easy returns', sub: 'Start one from your order page' },
               { icon: ShieldCheck, title: 'Secure checkout', sub: 'Card details never touch us' },

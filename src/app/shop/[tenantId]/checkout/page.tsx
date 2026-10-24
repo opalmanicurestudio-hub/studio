@@ -245,11 +245,24 @@ export default function CheckoutPage() {
 
   const cartEntries = Object.entries(cart).filter(([key, q]) => q > 0 && byId.has(parseCartKey(key).productId));
   const cartCount = cartEntries.reduce((a, [, q]) => a + q, 0);
+  // Something in the cart the shop doesn't list any more (a variant added on its own before it was sold inside its
+  // listing, a product taken off the shop) is taken out, and they're told, so the cart badge and this page agree.
+  const [dropped, setDropped] = useState(0);
+  useEffect(() => {
+    if (!cartHydrated || loading || loadError || !products.length) return;
+    const gone = Object.keys(cart).filter((k) => !byId.has(parseCartKey(k).productId));
+    if (!gone.length) return;
+    setCart((c) => { const n = { ...c }; gone.forEach((k) => delete n[k]); return n; });
+    setDropped((d) => d + gone.length);
+  }, [cartHydrated, loading, loadError, products]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // What each cart line sells for, the same sums the server makes when the order is placed (lib/variants): a variant's
+  // own price when it has one, otherwise the listing's, plus what the other choices add; and how the chosen variant
+  // sells (a pre-order, a download, made to order: its own, else the listing's).
+  const lineOf = (key: string) => { const { productId, selections } = parseCartKey(key); const p: any = byId.get(productId); return p ? shopLine(p, selections, wholesale) : null; };
   // A cart of nothing-but-digital has no parcel and no pickup: asking for a
   // delivery method (or an address) reads as a broken shop, and that's where
   // abandoned carts come from. The server already accepts this shape.
-  const digitalOnlyCart = cartEntries.length > 0 && cartEntries.every(([key]) =>
-    (byId.get(parseCartKey(key).productId) as any)?.digital === true);
+  const digitalOnlyCart = cartEntries.length > 0 && cartEntries.every(([key]) => lineOf(key)?.digital === true);
 
   // ── PRE-ORDERS IN THE CART ────────────────────────────────────────────────
   // A pre-order is the one thing in a cart that is not what it looks like:
@@ -260,9 +273,9 @@ export default function CheckoutPage() {
   // ticked. Derived AFTER cartEntries so the read is never above its source.
   const preorderItems = cartEntries
     .map(([key, qty]) => {
-      const prod: any = byId.get(parseCartKey(key).productId);
-      return prod?.preorder?.open === true
-        ? { name: String(prod.name || 'Item'), etaAt: prod.preorder.etaAt || null, qty }
+      const prod: any = byId.get(parseCartKey(key).productId); const l = lineOf(key);
+      return l?.preorder?.open === true
+        ? { name: [String(prod?.name || 'Item'), l.variantChoice?.label].filter(Boolean).join(' \u00b7 '), etaAt: l.preorder.etaAt || null, qty }
         : null;
     })
     .filter(Boolean) as { name: string; etaAt: string | null; qty: number }[];
@@ -288,14 +301,14 @@ export default function CheckoutPage() {
   // anything that decides the date changes.
   const [serverShipBy, setServerShipBy] = useState('');
   const promiseLines: PromiseLine[] = cartEntries.map(([key]) => {
-    const prod: any = byId.get(parseCartKey(key).productId);
-    return { digital: prod?.digital === true, preorder: prod?.preorder?.open === true, preorderEtaAt: prod?.preorder?.etaAt || null, leadDays: prod?.leadDays || null };
+    const l = lineOf(key);
+    return { digital: l?.digital === true, preorder: l?.preorder?.open === true, preorderEtaAt: l?.preorder?.etaAt || null, leadDays: l?.leadDays || null };
   });
   const datesFor = (carrier: string | null, service: string, days: number | null) =>
     shipSched ? orderPromise({ at: clock, timeZone: shopZone, schedule: shipSched, lines: promiseLines, carrier, service, transitDays: days }) : null;
   // 'Thu' within the coming week, 'Fri, Oct 30' further out, so a weekday alone is never a week off.
   const shipDay = (day: string) => (day <= addDays(dayKey(clock, shopZone), 6) ? dayLabel(day, shopZone).split(',')[0] : dayLabel(day, shopZone));
-  const leadNote = [...new Set(cartEntries.map(([key]) => leadSentence((byId.get(parseCartKey(key).productId) as any)?.leadDays || null)).filter(Boolean))][0] || '';
+  const leadNote = [...new Set(cartEntries.map(([key]) => leadSentence(lineOf(key)?.leadDays || null)).filter(Boolean))][0] || '';
 
 
 
@@ -307,13 +320,10 @@ export default function CheckoutPage() {
     setPreorderAgreed(false);
   }, [preorderKey]);
 
-  // What each cart line sells for, the same sums the server makes when the order is placed (lib/variants): a variant's
-  // own price when it has one, otherwise the listing's, plus what the other choices add.
-  const lineOf = (key: string) => { const { productId, selections } = parseCartKey(key); const p: any = byId.get(productId); return p ? shopLine(p, selections, wholesale) : null; };
-
   const subtotalCents = cartEntries.reduce((a, [key, q]) => a + (lineOf(key)?.unitCents || 0) * q, 0);
   const tipCents = shop?.tipsEnabled && tipPct > 0 ? Math.round((subtotalCents * tipPct) / 100) : 0;
-  const promoLines = () => cartEntries.map(([key, q]) => { const k = parseCartKey(key); return { productId: k.productId, qty: q, unitPriceCents: lineOf(key)?.unitCents || 0 }; });
+  // With the choices, so the server knows which variant each line is (a code made for one variant still applies).
+  const promoLines = () => cartEntries.map(([key, q]) => { const k = parseCartKey(key); return { productId: k.productId, selections: k.selections, qty: q, unitPriceCents: lineOf(key)?.unitCents || 0 }; });
   const applyPromo = async (code: string) => {
     const c = code.trim(); if (!c) return;
     setPromoBusy(true); setPromoErr(null);
@@ -341,7 +351,7 @@ export default function CheckoutPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId,
-          items: cartEntries.map(([key, qty]) => ({ productId: parseCartKey(key).productId, qty })),
+          items: cartEntries.map(([key, qty]) => ({ ...parseCartKey(key), qty })),
           address: { line1: addr.line1, line2: addr.line2, city: addr.city, state: addr.state, postalCode: addr.postalCode },
         }),
       });
@@ -560,12 +570,18 @@ export default function CheckoutPage() {
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
             Your cart is empty
           </p>
+          {dropped > 0 && <p role="status" className="mx-auto max-w-sm text-[12px] font-bold text-muted-foreground">What was in it isn’t in the shop any more, so it was taken out. A product that comes in variants is chosen on its own page.</p>}
           <Button asChild className="rounded-2xl font-black uppercase text-[10px] tracking-widest">
             <Link href={`/shop/${tenantId}`}>Browse the shop</Link>
           </Button>
         </div>
       ) : (
         <div className="space-y-6">
+          {dropped > 0 && (
+            <p role="status" className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-bold text-amber-900">
+              {dropped === 1 ? 'Something in your cart isn’t in the shop any more, so it was taken out.' : `${dropped} things in your cart aren’t in the shop any more, so they were taken out.`} A product that comes in variants is chosen on its own page.
+            </p>
+          )}
           <div className="space-y-3">
             {cartEntries.map(([id, qty]) => {
               const parsedKey = parseCartKey(id);
@@ -581,9 +597,9 @@ export default function CheckoutPage() {
                     {optInfo.stale && (
                       <p className="text-[10px] font-bold text-amber-700">That choice isn’t offered any more. Remove it and choose again on its page.</p>
                     )}
-                    {p?.preorder?.open === true && (
+                    {lineOf(id)?.preorder?.open === true && (
                       <p className="text-[8px] font-black uppercase tracking-widest text-amber-700">
-                        {`Pre-order${p.preorder.etaAt ? ` \u00b7 ships by ${formatPromiseDay(p.preorder.etaAt)}` : ''}`}
+                        {`Pre-order${lineOf(id)?.preorder?.etaAt ? ` \u00b7 ships by ${formatPromiseDay(lineOf(id)!.preorder.etaAt)}` : ''}`}
                       </p>
                     )}
                     <p className="text-[10px] font-bold text-primary">{fmt(optInfo.unitCents)} each</p>

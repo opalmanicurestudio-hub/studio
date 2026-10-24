@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 
-import { listedInShop, listingsOf } from '@/lib/variants';
+import { listedInShop, listingsOf, variantIdsOf } from '@/lib/variants';
 
 // ─── /sitemap.xml ────────────────────────────────────────────────────────────
 // The list of pages worth looking at. robots.txt already points here, so
@@ -88,11 +88,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         // A variant is sold inside its listing, so only the listing has a page (lib/variants).
         const shown = itemsSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
         const listings = listingsOf(shown);
+        // A variant whose listing isn't shown (hidden, or deleted) is looked up too: only one a listing still sells
+        // stays out (its page opens the listing); one whose listing is gone has a page of its own.
+        const byId = new Map<string, any>(shown.map((x: any) => [String(x.id), x]));
+        const away: string[] = [...new Set<string>(shown.map((x: any) => String(x.parentId || '')).filter((p: string) => p && !byId.has(p) && !p.includes('/')))].slice(0, 100);
+        const parents = new Map<string, any>();
+        if (away.length) (await db.getAll(...away.map((p: string) => db.doc(`tenants/${tenantId}/inventory/${p}`)))).forEach((snap: any, k: number) => { if (snap.exists) parents.set(away[k], { id: away[k], ...(snap.data() || {}) }); });
+        const soldInside = (item: any) => { const p = String(item.parentId || ''); if (!p || p === item.id) return false; const l = byId.get(p) || parents.get(p); return !!l && variantIdsOf(l).includes(String(item.id)); };
         for (const iDoc of itemsSnap.docs) {
           const item: any = { id: iDoc.id, ...(iDoc.data() as any) };
           // The storefront's own rules decide, so a sitemap entry can never
           // promise a page the shop would refuse to sell from.
-          if (!listedInShop(item, listings) || item.parentId) continue;
+          if (!listedInShop(item, listings) || soldInside(item)) continue;
           entries.push({
             url: `${origin}/shop/${tenantId}/product/${iDoc.id}`,
             lastModified: when(item.updatedAt || item.lastModified),

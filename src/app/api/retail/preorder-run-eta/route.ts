@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { inRunOf, ownRunsOf } from '@/lib/variants';
 import { staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 import { dayKey, endOfDay, formatDay, tenantTimeZone } from '@/lib/tenant-time';
@@ -77,12 +78,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'That date could not be read. Please check it and try again.' }, { status: 400 });
     }
     const ordersCol = db.collection(`tenants/${tenantId}/retailOrders`);
+    // A listing's run is its variants' orders too (lib/variants inRunOf).
+    const inRun = inRunOf(productId, await ownRunsOf(db, tenantId, productId));
     const snap = await ordersCol.where('hasPreorder', '==', true).limit(MAX_ORDERS).get();
     const affected = snap.docs
       .map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() as any) }))
       .filter((o: any) =>
         OPEN_STAGES.includes(String(o.stage)) &&
-        (o.lines || []).some((l: any) => l.productId === productId && l.preorder === true
+        (o.lines || []).some((l: any) => inRun(l) && l.preorder === true
           && !['refunded', 'cancelled'].includes(String(l.status))));
 
     if (dryRun) return NextResponse.json({ ok: true, dryRun: true, orders: affected.length });
@@ -109,7 +112,7 @@ export async function POST(req: NextRequest) {
           // only useful if it says what the promise moved FROM.
           const wasPromise = order.shipPromiseAt ? dayKey(new Date(String(order.shipPromiseAt)), zone) : '';
           const lines = (order.lines || []).map((l: any) =>
-            l.productId === productId && l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status))
+            inRun(l) && l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status))
               ? { ...l, preorderEtaAt: newDate }
               : l);
           txn.update(o.ref, {

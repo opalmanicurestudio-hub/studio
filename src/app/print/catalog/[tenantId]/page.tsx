@@ -2,6 +2,11 @@ import QRCode from 'qrcode';
 
 import { collectImages } from '@/lib/product-public';
 import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
+import { checkPrintKey } from '@/lib/print-key';
+import { getRetailSecrets } from '@/lib/retail-secrets';
+import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
+import { listingPriceCents } from '@/lib/retail-orders';
+import { choiceFor, listingsOf, variantIdsOf, variantPriceCents } from '@/lib/variants';
 
 // ─── /print/catalog/[tenantId]?tier=retail|wholesale&cat=Oils&qr=1 ────────────
 // The branded catalog — a lookbook at retail tier, a line sheet at wholesale.
@@ -13,9 +18,13 @@ import { PRINT_FONT_HREF, PRINT_FONT_STACK } from '@/lib/print-style';
 // paper catalog can be reordered from without typing anything.
 //
 // Query options:
-//   tier=wholesale  wholesale pricing + minimum order quantities
+//   tier=wholesale  wholesale pricing + minimum order quantities, for a wholesale account (code=) or the team (k, x:
+//                   a print key from the app); anyone else gets the retail catalog
 //   cat=Name        limit to one category
 //   qr=0            drop the QR codes (tighter, more editorial)
+//
+// A product that comes in variants is one card, named once, with its variants and the price each sells for (lib/
+// variants): "From" when they differ.
 //
 // Print: letter portrait, categories start on their own row, headers repeat.
 
@@ -44,48 +53,71 @@ export default async function PrintCatalogPage({
   params, searchParams,
 }: {
   params: Promise<{ tenantId: string }>;
-  searchParams: Promise<{ tier?: string; cat?: string; qr?: string }>;
+  searchParams: Promise<{ tier?: string; cat?: string; qr?: string; code?: string; k?: string; x?: string }>;
 }) {
   const { tenantId } = await params;
-  const { tier, cat, qr } = await searchParams;
-  const wholesale = String(tier || '') === 'wholesale';
+  const { tier, cat, qr, code, k, x } = await searchParams;
   const showQr = String(qr ?? '1') !== '0';
 
   const db = getAdminDb();
   const [tenantSnap, invSnap] = await Promise.all([
     db.collection('tenants').doc(tenantId).get(),
-    db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'retail').limit(300).get(),
+    db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'retail').limit(500).get(),
   ]);
 
   const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : {};
+  // Wholesale prices only for a wholesale account's code, or the team's print key.
+  const staffKey = checkPrintKey(tenantId, 'catalog', k, x);
+  let wsDiscount = 0; let codeOk = false;
+  if (String(tier || '') === 'wholesale' && !staffKey && String(code || '').trim()) {
+    const rs = tenant.retailSettings || {};
+    const a = await resolveWholesaleAccess(db, tenantId, { ...rs, wholesaleAccessCode: (await getRetailSecrets(db, tenantId)).wholesaleAccessCode }, String(code).trim()).catch(() => null);
+    codeOk = !!a?.unlocked; wsDiscount = Number(a?.account?.extraDiscountPercent) || 0;
+  }
+  const wholesale = String(tier || '') === 'wholesale' && (staffKey || codeOk);
+  const keep = staffKey ? `&k=${encodeURIComponent(String(k))}&x=${encodeURIComponent(String(x))}` : codeOk ? `&code=${encodeURIComponent(String(code).trim())}` : '';
+  const canWholesale = staffKey || codeOk;
   const shopName = String(tenant.businessName || tenant.name || 'Catalog');
   const logoUrl = String(tenant.logoUrl || '');
 
-  const rows = invSnap.docs
-    .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-    .filter((i: any) => i.showOnline !== false && i.status !== 'archived')
-    .filter((i: any) => (wholesale ? true : Number(i.msrp) > 0))
+  const all = invSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+  const byId = new Map<string, any>(all.map((i: any) => [String(i.id), i]));
+  const listings = listingsOf(all);
+  // Listings only: a variant is printed inside its listing, never as a product of its own.
+  const rows = all
+    .filter((i: any) => i.showOnline !== false && i.status !== 'archived' && !listings.has(String(i.id)))
+    .filter((i: any) => Number(i.msrp) > 0)
     .filter((i: any) => (cat ? String(i.category || 'General') === cat : true));
+  const tierOf = wholesale ? 'wholesale' : 'retail';
+  const priceOf = (cents: number) => (wholesale ? discountedCents(cents, wsDiscount) : cents) / 100;
 
   const items = await Promise.all(
-    rows.map(async (i: any) => ({
-      id: i.id,
-      name: String(i.name || 'Item'),
-      sku: String(i.sku || ''),
-      category: String(i.category || 'General'),
-      size: String(i.size ? `${i.size}${i.unit ? ` ${i.unit}` : ''}` : ''),
-      description: String(i.onlineDescription || i.description || '').slice(0, 130),
-      // Photos live under imageUrls (shop editor) OR imageUrl (inventory
-      // forms) — the catalog only read the first, so anything photographed
-      // in Inventory printed as an empty square.
-      image: collectImages(i)[0] || '',
-      price: wholesale && i.wholesalePriceDollars != null ? Number(i.wholesalePriceDollars) : Number(i.msrp) || 0,
-      minQty: wholesale && i.wholesaleMinQty ? Number(i.wholesaleMinQty) : 0,
-      stock: Number(i.totalStock) || 0,
-      qr: showQr
-        ? await QRCode.toDataURL(`clarityflow://product/${i.id}`, { width: 120, margin: 0 })
-        : '',
-    }))
+    rows.map(async (i: any) => {
+      // Its variants, each priced by the rule (its own price when it has one, otherwise the listing's).
+      const vs = variantIdsOf(i).map((id) => byId.get(id)).filter((v: any) => v && v.status !== 'archived' && (!v.parentId || String(v.parentId) === String(i.id)));
+      const prices = vs.map((v: any) => priceOf(variantPriceCents(v, i, tierOf)));
+      const low = prices.length ? Math.min(...prices) : priceOf(listingPriceCents(i, tierOf));
+      return {
+        id: i.id,
+        name: String(i.name || 'Item'),
+        sku: String(i.sku || ''),
+        category: String(i.category || 'General'),
+        size: String(i.size ? `${i.size}${i.unit ? ` ${i.unit}` : ''}` : ''),
+        variants: vs.map((v: any) => String(choiceFor(i, v.id)?.choice.label || v.name || '')).filter(Boolean).join(' \u00b7 '),
+        description: String(i.onlineDescription || i.description || '').slice(0, 130),
+        // Photos live under imageUrls (shop editor) OR imageUrl (inventory
+        // forms) — the catalog only read the first, so anything photographed
+        // in Inventory printed as an empty square.
+        image: collectImages(i)[0] || '',
+        price: low,
+        from: new Set(prices).size > 1,
+        minQty: wholesale && i.wholesaleMinQty ? Number(i.wholesaleMinQty) : 0,
+        stock: Number(i.totalStock) || 0,
+        qr: showQr
+          ? await QRCode.toDataURL(`clarityflow://product/${i.id}`, { width: 120, margin: 0 })
+          : '',
+      };
+    })
   );
 
   items.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
@@ -175,10 +207,12 @@ export default async function PrintCatalogPage({
         <div className="sheet">
           <div className="bar">
             <button type="button" id="printBtn">Print / save as PDF</button>
-            <a className="alt" href={`?tier=${wholesale ? 'retail' : 'wholesale'}${cat ? `&cat=${encodeURIComponent(cat)}` : ''}`}>
-              {wholesale ? 'Switch to retail catalog' : 'Switch to wholesale line sheet'}
-            </a>
-            <a className="alt" href={`?tier=${wholesale ? 'wholesale' : 'retail'}&qr=${showQr ? '0' : '1'}${cat ? `&cat=${encodeURIComponent(cat)}` : ''}`}>
+            {canWholesale && (
+              <a className="alt" href={`?tier=${wholesale ? 'retail' : 'wholesale'}${keep}${cat ? `&cat=${encodeURIComponent(cat)}` : ''}`}>
+                {wholesale ? 'Switch to retail catalog' : 'Switch to wholesale line sheet'}
+              </a>
+            )}
+            <a className="alt" href={`?tier=${wholesale ? 'wholesale' : 'retail'}${wholesale ? keep : ''}&qr=${showQr ? '0' : '1'}${cat ? `&cat=${encodeURIComponent(cat)}` : ''}`}>
               {showQr ? 'Hide QR codes' : 'Show QR codes'}
             </a>
           </div>
@@ -208,11 +242,12 @@ export default async function PrintCatalogPage({
                   <div className="item" key={i.id}>
                     {i.image ? <img className="ph" src={i.image} alt={i.name} loading="lazy" decoding="async" /> : <div className="ph-empty" />}
                     <p className="nm">{i.name}</p>
+                    {i.variants ? <p className="ds">{i.variants}</p> : null}
                     {i.size ? <p className="ds">{i.size}</p> : null}
                     {i.description ? <p className="ds">{i.description}</p> : null}
                     <div className="row">
                       <div>
-                        <p className="pr">{money(i.price)}</p>
+                        <p className="pr">{i.from ? `From ${money(i.price)}` : money(i.price)}</p>
                         {i.sku ? <p className="sk">{i.sku}</p> : null}
                         {i.minQty > 0 ? <span className="moq">Minimum {i.minQty}</span> : null}
                       </div>

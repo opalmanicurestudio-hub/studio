@@ -123,7 +123,8 @@ service cloud.firestore {
     // INVENTORY. The team reads and writes products as before, except a product's codes (its SKU, barcodes, case and
     // pallet codes and tags), its choices and the listing it's a variant of: those are saved only by the server
     // (lib/code-index), which keeps each code on one product and each variant in one listing. Equipment and overhead
-    // items aren't scanned or sold, and keep theirs like any other field.
+    // items aren't scanned or sold, and keep their codes like any other field, but no item's choices or listing are
+    // written from a browser (an equipment item turned into a product can't bring choices with it).
     function productCodeKeys() {
       return ['sku', 'barcode', 'barcodes', 'upc', 'gtin', 'ean', 'caseBarcode', 'casePack', 'palletBarcode', 'palletPack', 'tagIds', 'codesUpdatedAt'];
     }
@@ -150,12 +151,12 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/inventory/{itemId} {
       allow read: if isTeam(tenantId);
-      allow create: if isTeam(tenantId) && (codesFree(request.resource.data) || (noCodes(request.resource.data) && noLinks(request.resource.data)));
-      // Equipment stays free; a product's codes, choices and listing don't change here; equipment turned into a
-      // product carries none.
-      allow update: if isTeam(tenantId) && (
+      allow create: if isTeam(tenantId) && noLinks(request.resource.data) && (codesFree(request.resource.data) || noCodes(request.resource.data));
+      // Choices and the listing never change here. Equipment keeps its codes free; a product's codes don't change here;
+      // equipment turned into a product carries no codes and no choices.
+      allow update: if isTeam(tenantId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(productLinkKeys()) && (
         (codesFree(resource.data) && codesFree(request.resource.data))
-        || (!codesFree(resource.data) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(productCodeKeys().concat(productLinkKeys())))
+        || (!codesFree(resource.data) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(productCodeKeys()))
         || (codesFree(resource.data) && !codesFree(request.resource.data) && noCodes(request.resource.data) && noLinks(request.resource.data)));
       allow delete: if isTeam(tenantId);
     }

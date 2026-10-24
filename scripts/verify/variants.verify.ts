@@ -49,8 +49,9 @@ const url = (path: string, q: Record<string, string>) => ({ nextUrl: { searchPar
   check('each variant knows its listing; a listing is never a variant', listings.get('blush') === oil && listings.get('gold') === oil && !listings.has('oil'));
   check('variants are never listed on their own; the listing is', !V.listedInShop({ ...blush, showOnline: true, msrp: 24 }, listings) && V.listedInShop(oil, listings));
   check('a variant’s own price when it has one, otherwise the listing’s', V.variantPriceCents(gold, oil) === 2800 && V.variantPriceCents(blush, oil) === 2400 && V.variantPriceCents(clear, oil) === 2400);
-  check('…wholesale: its own wholesale price, else its own price, else the listing’s wholesale price',
-    V.variantPriceCents({ ...gold, wholesalePriceDollars: 15 }, oil, 'wholesale') === 1500 && V.variantPriceCents(gold, oil, 'wholesale') === 2800 && V.variantPriceCents(blush, oil, 'wholesale') === 1200);
+  check('…wholesale: its own wholesale price, else the listing’s wholesale price (a wholesale account never pays a variant’s retail price), else its retail price by the rule',
+    V.variantPriceCents({ ...gold, wholesalePriceDollars: 15 }, oil, 'wholesale') === 1500 && V.variantPriceCents(gold, oil, 'wholesale') === 1200 && V.variantPriceCents(blush, oil, 'wholesale') === 1200
+    && V.variantPriceCents(gold, { ...oil, wholesalePriceDollars: null }, 'wholesale') === 2800 && V.variantPriceCents(blush, { ...oil, wholesalePriceDollars: null }, 'wholesale') === 2400);
   const sale = V.choiceSale(oil, { g0: 'a', g1: 'w' });
   check('choices: the variant sold, and only gift wrap adds (an extra cost on a variant’s choice never applies)', sale.variantId === 'blush' && sale.extraCents === 250 && sale.label === 'Blush · Gift wrap' && sale.choices.g0 === 'a' && sale.choices.g1 === 'w' && !sale.unknown.length, sale);
   check('…priced by the rule', V.saleUnitCents(oil, blush, sale) === 2650 && V.saleUnitCents(oil, gold, V.choiceSale(oil, { g0: 'c' })) === 2800);
@@ -151,14 +152,15 @@ const url = (path: string, q: Record<string, string>) => ({ nextUrl: { searchPar
   check('the cart and checkout pages price each line the same way', /shopLine\(p, selections, wholesale\)/.test(src('src/app/shop/[tenantId]/page.tsx')) && /shopLine\(p, selections, wholesale\)/.test(src('src/app/shop/[tenantId]/checkout/page.tsx')) && !/optionDelta\(/.test(src('src/app/shop/[tenantId]/checkout/page.tsx')));
   check('the grids say “From” when a listing’s variants cost different amounts', /p\.priceVaries \? 'From ' : ''/.test(src('src/app/shop/[tenantId]/page.tsx')) && /p\.priceVaries \? 'From ' : ''/.test(src('src/app/shop/[tenantId]/catalog/page.tsx')));
   check('a variant’s own address isn’t indexed and points at its listing, and the sitemap lists only listings',
-    /robots: \{ index: false, follow: true \}/.test(src('src/app/shop/[tenantId]/product/[productId]/layout.tsx')) && /listedInShop\(item, listings\) \|\| item\.parentId/.test(src('src/app/sitemap.ts')));
+    /robots: \{ index: false, follow: true \}/.test(src('src/app/shop/[tenantId]/product/[productId]/layout.tsx')) && /listedInShop\(item, listings\) \|\| soldInside\(item\)/.test(src('src/app/sitemap.ts')));
 
   // ── Checkout ──
   const co = src('src/app/api/retail/checkout/route.ts');
   check('checkout: the variant sold by the one rule, refused when its choice isn’t offered any more, priced as shown, and the line records its listing and choices',
     /const sale = choiceSale\(listing, cartEntries\[i\]\.selections\);/.test(co) && /if \(sale\.unknown\.length\)/.test(co) && /line\.unitPriceCents = saleUnitCents\(listing, variant, sale, priceTier/.test(co)
     && /\(line as any\)\.listingId = listing\.id/.test(co) && /\(line as any\)\.choices = sale\.choices/.test(co) && !/resolveVariantProductId/.test(co) && !/discountedCents\(line\.unitPriceCents/.test(co));
-  check('…a variant bought on its own (an old cart) is refused, and a listing that can’t fly keeps its variants on the ground', /is no longer available on its own\. Choose it on its listing\./.test(co) && /shipGroundOnly: \(variant as any\)\.shipGroundOnly === true \|\| \(listing as any\)\.shipGroundOnly === true/.test(co));
+  check('…a variant bought on its own (an old cart) is refused, and the variant sells as its listing sets it (a listing that can’t fly keeps its variants on the ground)', /is no longer available on its own\. Choose it on its listing\./.test(co) && /item = asSold\(listing, variant\) as SellableItem;/.test(co)
+    && V.asSold({ id: 'l', type: 'retail', shipGroundOnly: true }, { id: 'v', type: 'retail' }).shipGroundOnly === true);
   const promo = await import('../../src/lib/promo-codes');
   check('a promo code for a listing covers its variants', /only\.includes\(String\(l\.listingId\)\)/.test(src('src/lib/promo-codes.ts')) && typeof promo === 'object');
 

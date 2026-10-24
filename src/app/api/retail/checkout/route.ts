@@ -16,7 +16,8 @@ import { createHash } from 'crypto';
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { nanoid } from 'nanoid';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
-import { choiceSale, saleUnitCents, variantIdsOf } from '@/lib/variants';
+import { asSold, choiceSale, saleUnitCents, variantIdsOf } from '@/lib/variants';
+import { ensureCodeIndex } from '@/lib/code-index';
 import { shipPromiseAt } from '@/lib/retail-orders';
 import { preorderAckSnapshot } from '@/lib/preorder-terms';
 import { finalSaleFor } from '@/lib/return-eligibility';
@@ -292,6 +293,9 @@ async function handleCheckout(req: NextRequest) {
   }
 
   // ── Load & validate every item against live inventory ────────────────────
+  // Each variant points at its listing first (variants saved before that are pointed the first time anything asks),
+  // so one in an old cart is sold inside its listing, never on its own.
+  await ensureCodeIndex(db, tenantId).catch(() => {});
   const productIds = cartEntries.map((e) => e.productId);
   const itemSnaps = await Promise.all(
     productIds.map((id) => db.collection(`tenants/${tenantId}/inventory`).doc(id).get())
@@ -331,24 +335,14 @@ async function handleCheckout(req: NextRequest) {
     if (sale.variantId) {
       const vSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(sale.variantId).get();
       variant = vSnap.exists ? { id: vSnap.id, ...vSnap.data() } : null;
-      if (!variant || variant.status === 'archived' || variant.type !== 'retail') {
+      // A variant another listing sells (an old link two listings shared) isn't sold here: the shop shows it sold out.
+      if (!variant || variant.status === 'archived' || variant.type !== 'retail' || (variant.parentId && String(variant.parentId) !== String(listing.id))) {
         return NextResponse.json({ error: `${listing.name || 'That item'} in ${sale.variantChoice?.label || 'that choice'} is no longer available`, productId: listing.id }, { status: 409 });
       }
-      // Keep the listing's shop identity, take the variant's physical one.
-      item = {
-        ...variant,
-        name: String(listing.name || variant.name || 'Item'),
-        optionGroups: listing.optionGroups,
-        showOnline: listing.showOnline,
-        status: listing.status,
-        type: listing.type,
-        // Made to order is the listing's, the same time its page and this checkout showed.
-        leadDays: (listing as any).leadDays ?? null,
-        // A listing that can't fly keeps all its variants on the ground.
-        shipGroundOnly: (variant as any).shipGroundOnly === true || (listing as any).shipGroundOnly === true,
-        // Its documents (SDS, guides) are the variant's own, else the listing's.
-        documents: Array.isArray((variant as any).documents) && (variant as any).documents.length ? (variant as any).documents : (listing as any).documents,
-      } as SellableItem;
+      // The listing's shop identity and the variant's physical one, with what the listing sets for how it's sold
+      // (pre-order, digital, made to order, weight, final sale, who it's sold for) wherever the variant doesn't set it,
+      // as the shop's page and this checkout's page showed it (lib/variants asSold).
+      item = asSold(listing, variant) as SellableItem;
     }
 
     // Pre-order items are SOLD before stock exists — that's the point. The
@@ -361,7 +355,10 @@ async function handleCheckout(req: NextRequest) {
         { status: 409 }
       );
     }
-    const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier, { deltaCents: 0, label: sale.label });
+    // A variant's line is named as its listing and the variant ("Rose oil · Blush"), as the desk and swaps name it, so
+    // the payment page, the order page, returns and reviews tell two variants apart; the other choices go under it.
+    const lineName = variant && sale.variantChoice ? `${String(listing.name || item.name || 'Item')} \u00b7 ${sale.variantChoice.label}` : item.name;
+    const line = buildOrderLine({ ...item, name: lineName } as SellableItem, qty, `line-${nanoid(8)}`, priceTier, { deltaCents: 0, label: variant ? sale.extrasLabel : sale.label });
     // The price shown is the price charged (lib/variants saleUnitCents): a wholesale account's discount comes off the
     // product's price, then the choices that change the price add theirs.
     line.unitPriceCents = saleUnitCents(listing, variant, sale, priceTier, priceTier === 'wholesale' ? wsDiscount : 0);

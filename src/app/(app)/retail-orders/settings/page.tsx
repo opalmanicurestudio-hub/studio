@@ -31,6 +31,8 @@ import { sellableStock } from '@/lib/retail-orders';
 import { changedCodes } from '@/lib/code-form';
 import { saveCodes } from '@/lib/codes-api';
 import { cn } from '@/lib/utils';
+import { openPrint } from '@/lib/open-print';
+import { VariantSettings } from '@/components/retail/VariantSettings';
 
 // ─── Shop Settings ────────────────────────────────────────────────────────────
 // One panel controls the whole retail surface. The storefront, checkout, and
@@ -1505,7 +1507,7 @@ export default function RetailSettingsPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => window.open(`/print/catalog/${tenantId}?tier=wholesale`, '_blank')}
+                onClick={async () => { const e = await openPrint(String(tenantId || ''), 'catalog', `/print/catalog/${tenantId}?tier=wholesale`); if (e) toast({ variant: 'destructive', title: 'Not opened', description: e }); }}
                 className="h-11 rounded-xl border-2 font-black uppercase text-[11px] tracking-widest"
               >
                 Line sheet
@@ -1860,6 +1862,8 @@ export default function RetailSettingsPage() {
                             <Link href={`/inventory/${it.id}`}>{(it.optionGroups || []).length ? 'Edit choices' : 'Add choices'}</Link>
                           </Button>
                         </div>
+                        <VariantSettings firestore={(firestore as Firestore) || null} tenantId={String(tenantId || '')} listing={it} byId={invById as Map<string, any>}
+                          onToast={(t) => toast({ ...(t.bad ? { variant: 'destructive' as const } : {}), title: t.title, ...(t.description ? { description: t.description } : {}) })} />
                         <Button disabled={itemBusy === it.id} onClick={() => saveItem(it)}
                           variant="outline" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
                           {itemBusy === it.id ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Save item'}

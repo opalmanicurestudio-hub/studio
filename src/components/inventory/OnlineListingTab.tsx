@@ -43,6 +43,9 @@ interface Props {
 }
 
 const money = (cents: number) => `$${(Math.max(0, cents) / 100).toFixed(2)}`;
+/** A new choice's or group's id, never one used before: a cart that still holds a removed choice is refused at
+ *  checkout, never sold whatever took its place (ids by position were reused). */
+const freshId = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 /** One collapsible section with its own save — the unit of work. */
 function Section({
@@ -469,7 +472,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
               variant="outline"
               onClick={() => {
                 const next = [...groups];
-                next[gi] = { ...g, choices: [...g.choices, { id: `c${gi}-${g.choices.length}`, label: '', deltaCents: 0 }] };
+                next[gi] = { ...g, choices: [...g.choices, { id: freshId('c'), label: '', deltaCents: 0 }] };
                 setGroups(next);
               }}
               className="h-10 w-full rounded-xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest"
@@ -480,7 +483,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
         ))}
         <Button
           variant="outline"
-          onClick={() => setGroups([...groups, { id: `g${groups.length}`, name: '', choices: [] }])}
+          onClick={() => setGroups([...groups, { id: freshId('g'), name: '', choices: [] }])}
           className="h-10 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
         >
           <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Add a choice group

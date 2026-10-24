@@ -30,6 +30,8 @@ export async function POST(req: NextRequest) {
   const id = `${watch}_${createHash('sha256').update(email).digest('hex').slice(0, 16)}`;
   const ref = db.doc(`tenants/${tenantId}/restockAlerts/${id}`);
   const existing = await ref.get();
+  // A request still waiting is kept (and given the listing, when it was made on the variant's own page before).
   if (!existing.exists || existing.data()?.notifiedAt) await ref.set({ id, productId: watch, productName: name, ...(choiceId ? { listingId: productId, choiceId } : {}), email, createdAt: new Date().toISOString(), notifiedAt: null });
+  else if (choiceId && existing.data()?.listingId !== productId) await ref.set({ productName: name, listingId: productId, choiceId }, { merge: true });
   return NextResponse.json({ ok: true, message: `We’ll email you once when ${name || 'it'} is back.` });
 }

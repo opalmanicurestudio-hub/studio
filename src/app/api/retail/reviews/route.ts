@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { variantIdsOf } from '@/lib/variants';
 
 // ─── /api/retail/reviews ──────────────────────────────────────────────────────
 // GET  ?tenantId=&productId=      → { average, count, reviews: [...] }
@@ -55,13 +56,19 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = getAdminDb();
-    const snap = await db.collection(`tenants/${tenantId}/retailReviews`)
-      .where('productId', '==', productId)
-      .where('status', '==', 'published')
-      .limit(100)
-      .get();
+    // A listing's reviews include its variants' (each review notes the listing its variant was bought from).
+    const col = db.collection(`tenants/${tenantId}/retailReviews`);
+    // Reviews written before that are found by the variants the listing sells now.
+    const lsnap = await db.doc(`tenants/${tenantId}/inventory/${productId}`).get().catch(() => null);
+    const vids = lsnap?.exists ? variantIdsOf({ ...(lsnap.data() || {}), id: productId }).slice(0, 60) : [];
+    const asks = [
+      col.where('productId', '==', productId).where('status', '==', 'published').limit(100).get(),
+      col.where('listingId', '==', productId).where('status', '==', 'published').limit(100).get(),
+      ...[0, 30].filter((k) => vids.length > k).map((k) => col.where('productId', 'in', vids.slice(k, k + 30)).where('status', '==', 'published').limit(100).get()),
+    ];
+    const docs = [...new Map((await Promise.all(asks)).flatMap((x: any) => x.docs).map((d: any) => [d.id, d])).values()];
 
-    const reviews = snap.docs
+    const reviews = docs
       .map((d: any) => {
         const r = d.data() as any;
         return {
@@ -138,6 +145,8 @@ export async function POST(req: NextRequest) {
       id: reviewId,
       tenantId,
       productId,
+      // A variant's review shows on its listing's page.
+      listingId: line.listingId ? String(line.listingId) : null,
       productName: String(line.name || ''),
       orderId,
       orderNumber: order.orderNumber ?? null,

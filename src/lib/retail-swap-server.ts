@@ -3,6 +3,7 @@
 // and the money move together, and two answers can't both win. The swap arithmetic itself is lib/retail-swap.
 import { shrinkStock } from './retail-orders';
 import { choiceFor, variantPriceCents } from './variants';
+import { ensureCodeIndex } from './code-index';
 import { nanoid } from 'nanoid';
 import { taxShareCents } from './restocking';
 import { SWAP_ANSWER_HOURS, normaliseIfUnavailable, swapLines, type SwapItem } from './retail-swap';
@@ -18,6 +19,8 @@ const OPEN_STAGES = ['paid', 'picking'];
 
 /** The replacement as the shop sells it today, read from the catalog, never from the caller. */
 export async function catalogItem(db: any, t: string, productId: string): Promise<SwapItem | null> {
+  // Each variant points at its listing first (variants saved before that are pointed the first time anything asks).
+  await ensureCodeIndex(db, t).catch(() => {});
   const s = await db.collection(`tenants/${t}/inventory`).doc(productId).get();
   if (!s.exists) return null; const i = { ...(s.data() as any), id: productId };
   // A variant sells as its listing and choice, for its own price or the listing's (lib/variants).

@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import React from 'react';
 
 import { listingPriceCents, isStorefrontVisible, type SellableItem } from '@/lib/retail-orders';
-import { buyable, choiceFor, listingBuyable, variantIdsOf, variantPriceCents } from '@/lib/variants';
+import { asSold, buyable, choiceFor, listingBuyable, variantIdsOf, variantPriceCents } from '@/lib/variants';
 import { publicDescription } from '@/lib/product-public';
 import { productJsonLd, seoDescription, seoTitle } from '@/lib/shop-seo';
 import { faqJsonLd } from '@/lib/shop-seo';
@@ -140,7 +140,7 @@ export default async function ProductSeoLayout({
   if (!item || listing || !isStorefrontVisible(item as SellableItem)) return <>{children}</>;
   // A listing with variants: in stock while any of them is, at its lowest price.
   const vids = variantIdsOf(item);
-  const vPrices = vids.map((id) => variants.get(id)).filter((v: any) => v && buyable(v)).map((v: any) => variantPriceCents(v, item));
+  const vPrices = vids.map((id) => variants.get(id)).filter((v: any) => v && v.status !== 'archived' && buyable(asSold(item, v))).map((v: any) => variantPriceCents(v, item));
 
   const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
   const images = Array.isArray(item.imageUrls) && item.imageUrls.length

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { quoteExpiry, signQuote, signRateFacts } from '@/lib/shipping-quote';
 import { orderPromise, publicSchedule, type PromiseLine } from '@/lib/ship-promise';
 import { tenantTimeZone } from '@/lib/tenant-time';
+import { asSold, choiceSale } from '@/lib/variants';
 
 // ─── /api/retail/shipping-quote ───────────────────────────────────────────────
 // POST { tenantId, items:[{productId, qty}], address:{line1,line2,city,state,postalCode} }
@@ -77,9 +78,16 @@ export async function POST(req: NextRequest) {
       if (!id || qty <= 0) continue;
       const snap = await db.collection(`tenants/${tenantId}/inventory`).doc(id).get();
       if (!snap.exists) continue;
-      const d = snap.data() as any;
+      let d = { ...(snap.data() as any), id: snap.id };
+      // A listing's line is the variant its choices sell, as checkout will sell it (its weight, whether it can fly, a
+      // pre-order or a download: lib/variants asSold).
+      const sale = choiceSale(d, it.selections && typeof it.selections === 'object' ? it.selections : null);
+      if (sale.variantId) {
+        const vs = await db.collection(`tenants/${tenantId}/inventory`).doc(sale.variantId).get();
+        if (vs.exists) d = asSold(d, { ...(vs.data() as any), id: vs.id });
+      }
       if (itemGroundOnly(d)) groundOnly = true;
-      const w = Number(d.weightOz) || 0;
+      const w = d.digital === true ? 0 : Number(d.weightOz) || 0;   // a download weighs nothing
       if (w > 0) { known = true; ounces += w * qty; }
       promiseLines.push({ digital: d.digital === true, preorder: d.preorder === true, preorderEtaAt: d.preorderEtaAt || null, leadDays: d.leadDays || null });
     }

@@ -598,7 +598,7 @@ export function usePosEngine() {
     let bestDiscountPct = 0; let eligibleProductIds: string[] = [];
     if (mId) { const membership = memberships.find(m => m.id === mId); if (membership?.retailDiscount) { bestDiscountPct = membership.retailDiscount; eligibleProductIds = membership.applicableProductIds || []; } }
     if (bestDiscountPct === 0) return 0;
-    return retailItems.reduce((acc, item) => { const isEligible = (item as any).type === 'product' && (eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id)); /* retail = real products only */ return isEligible ? acc + (item.price * item.quantity * (bestDiscountPct / 100)) : acc; }, 0);
+    return retailItems.reduce((acc, item) => { const isEligible = (item as any).type === 'product' && (eligibleProductIds.length === 0 || eligibleProductIds.includes(item.id) || (!!(item as any).listingId && eligibleProductIds.includes(String((item as any).listingId)))); /* retail = real products only */ return isEligible ? acc + (item.price * item.quantity * (bestDiscountPct / 100)) : acc; }, 0);
   }, [selectedClient, memberships, packages, retailItems, skipMemberDiscount]);
 
   // EVERY DISCOUNT BY NAME — what's applied, what was removed, and a code that isn't being used (and why).

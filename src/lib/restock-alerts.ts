@@ -4,7 +4,7 @@
 // minutes by the shop's regular job.
 import { brandedEmailHtml } from './email-template';
 import { isStorefrontVisible } from './retail-orders';
-import { canSell, listingStock, variantIdsOf } from './variants';
+import { canSell, choiceFor, listingStock, variantIdsOf } from './variants';
 
 export async function sendRestockAlerts(db: any, t: string, origin: string, o: { send?: (db: any, m: any) => Promise<any> } = {}): Promise<number> {
   const snap = await db.collection(`tenants/${t}/restockAlerts`).where('notifiedAt', '==', null).limit(300).get();
@@ -19,8 +19,9 @@ export async function sendRestockAlerts(db: any, t: string, origin: string, o: {
   for (const [pid, docs] of byProduct) {
     const it: any = await read(pid);
     if (!it) continue;
-    // What can be sold of it now: a listing's variants together, a variant on its own (inside its listing).
-    const listingId = String(docs[0].data().listingId || '');
+    // What can be sold of it now: a listing's variants together, a variant on its own (inside its listing). A request
+    // made on a variant's own page before it was sold inside its listing is a request for that variant too.
+    const listingId = String(docs.map((d: any) => d.data().listingId).find(Boolean) || (it.parentId && it.parentId !== pid ? it.parentId : '') || '');
     const listing: any = listingId ? await read(listingId) : null;
     let left = 0;
     if (listing) { if (!isStorefrontVisible(listing) || it.status === 'archived' || !variantIdsOf(listing).includes(pid)) continue; left = canSell(it); }
@@ -31,10 +32,12 @@ export async function sendRestockAlerts(db: any, t: string, origin: string, o: {
       left = listingStock(it, byId);
     }
     if (left <= 0) continue;
-    const name = String(docs[0].data().productName || it.name || 'It');
+    // A variant is named as its listing and the variant, however the request was made.
+    const name = listing ? `${listing.name || it.name || 'It'} \u00b7 ${choiceFor(listing, pid)?.choice.label || it.name || ''}` : String(docs[0].data().productName || it.name || 'It');
     for (const d of docs.slice(0, Math.max(1, left * 5))) {
       const a = d.data();
-      const url = origin ? `${origin}/shop/${t}/product/${a.listingId || pid}${a.choiceId ? `?choice=${encodeURIComponent(a.choiceId)}` : ''}` : '';
+      const choiceId = a.choiceId || (listing ? choiceFor(listing, pid)?.choice.id || '' : '');
+      const url = origin ? `${origin}/shop/${t}/product/${listing ? listing.id : pid}${choiceId ? `?choice=${encodeURIComponent(choiceId)}` : ''}` : '';
       try {
         const html = brandedEmailHtml({ studioName: shop, title: `${name} is back`, bodyLines: [`Good news: ${name} is back in stock at ${shop}.`, 'You asked us to let you know. This is the only email we’ll send about it.', `Kind regards, ${shop}`], cta: url ? { label: 'Shop it now', url } : null, footerNote: `You asked ${shop} to tell you when this item was back.` });
         const r = await sendNotification(db, { tenantId: t, channel: 'email', to: a.email, subject: `${name} is back at ${shop}`, html, kind: 'restock_alert', recipientType: 'client' } as any);

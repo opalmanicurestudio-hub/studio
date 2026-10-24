@@ -19,7 +19,7 @@
 // fields, its choices and its listing pointer can't be changed from a browser at all (firestore.rules).
 import { CODE_FIELDS, cleanCodePatch, codeDocId, codeForm, codesOf, digitsKey, holdsCodes, readCode, type CodeKind, type CodePatch } from '@/lib/code-form';
 import { onlineSellable, type OptionGroup } from '@/lib/retail-orders';
-import { choiceFor, choicesProblem, cleanChoices, listedInShop, listingStock, listingsOf, variantIdsOf } from '@/lib/variants';
+import { choiceFor, choicesProblem, cleanChoices, listedInShop, listingStock, listingsOf, strayLinks, variantIdsOf } from '@/lib/variants';
 import { looksLikeTag, normTag } from '@/lib/tags';
 
 export const indexCol = (t: string) => `tenants/${t}/codeIndex`;
@@ -335,6 +335,23 @@ export async function ensureCodeIndex(db: any, tenantId: string): Promise<void> 
   if (!st?.builtAt || (Number(st.version) || 1) < INDEX_VERSION) await buildCodeIndex(db, tenantId, { by: 'First use' });
 }
 
+/** A choice that now picks something other than it did before gets a new id, so a cart still holding it is asked to
+ *  choose again rather than sold the other product (an id can come back when a choice is removed and one added). */
+function renewMovedIds(listing: any, groups: OptionGroup[]) {
+  const had = new Map<string, string>();
+  for (const g of Array.isArray(listing?.optionGroups) ? listing.optionGroups : []) for (const c of Array.isArray(g?.choices) ? g.choices : []) had.set(`${g?.id}|${c?.id}`, String(c?.variantProductId || ''));
+  for (const g of groups) {
+    const ids = new Set(g.choices.map((c) => c.id));
+    for (const c of g.choices) {
+      const k = `${g.id}|${c.id}`;
+      if (!had.has(k) || had.get(k) === String(c.variantProductId || '')) continue;
+      let n = 1; let id = `${String(c.id).slice(0, 28)}-${Date.now().toString(36)}`.slice(0, 40);
+      while (ids.has(id)) id = `${String(c.id).slice(0, 26)}-${n++}${Date.now().toString(36)}`.slice(0, 40);
+      ids.add(id); c.id = id;
+    }
+  }
+}
+
 /** A listing's choices, saved with each variant's pointer to its listing in one step (lib/variants): every choice of
  *  the variants group picks a product of its own that no other listing sells, and that isn't a listing itself, archived
  *  or equipment; the other groups only change the price. A product no longer picked stops pointing here. The choices'
@@ -345,12 +362,13 @@ export async function saveListingChoices(db: any, tenantId: string, listingId: s
   if (!lid) return gone;
   const clean = cleanChoices(input);
   if (clean.problem) return { ok: false, error: clean.problem, status: 400 };
-  const groups = clean.groups;
+  const groups: OptionGroup[] = JSON.parse(JSON.stringify(clean.groups));
   const lRef = db.doc(invPath(tenantId, lid));
   const r: any = await db.runTransaction(async (tx: any) => {
     const ls = await tx.get(lRef);
     if (!ls.exists) return gone;
     const listing: any = { ...(ls.data() || {}), id: lid };
+    renewMovedIds(listing, groups);
     const next = { ...listing, optionGroups: groups };
     const before = variantIdsOf(listing); const after = variantIdsOf(next);
     const ids = [...new Set([...before, ...after])].filter((x) => safeId(x) && x !== lid);
@@ -401,7 +419,17 @@ export function shopGaps(items: any[]) {
   }
   const variantsListed = listed.filter((it) => listings.has(String(it.id)))
     .map((it) => ({ productId: it.id, name: name(it), listingId: String(listings.get(String(it.id))?.id || ''), listingName: name(listings.get(String(it.id))) }));
-  return { soldOut, noCode, variantsListed };
+  // Choices saved before the rules that can't sell as they are: a product two listings pick (it sells under the one it
+  // points at, and shows sold out in the other), or a variant in a group that only changes the price (not offered).
+  const choices: { productId: string; name: string; why: string }[] = [];
+  const pickers = new Map<string, any[]>();
+  for (const l of items) if (live(l)) for (const v of variantIdsOf(l)) pickers.set(v, [...(pickers.get(v) || []), l]);
+  for (const [v, ls] of pickers) if (ls.length > 1) {
+    const owner = listings.get(v); const others = ls.filter((l) => String(l.id) !== String(owner?.id ?? ''));
+    for (const l of others) choices.push({ productId: String(l.id), name: name(l), why: `${name(byId.get(v))} is also a variant of ${name(owner)}. Take it out of one of them.` });
+  }
+  for (const l of items) if (live(l) && strayLinks(l).length) choices.push({ productId: String(l.id), name: name(l), why: `“${strayLinks(l).map((x) => x.choice.label).join('”, “')}” pick${strayLinks(l).length === 1 ? 's' : ''} a product outside its variants, so the shop doesn’t offer ${strayLinks(l).length === 1 ? 'it' : 'them'}. Move ${strayLinks(l).length === 1 ? 'it' : 'them'} into the variants.` });
+  return { soldOut, noCode, variantsListed, choices };
 }
 
 /** The codes and listings check: the index brought up to date, then the four counts and what's behind each. */
@@ -412,8 +440,8 @@ export async function codesCheck(db: any, tenantId: string, o: { by?: string } =
   const clashes = Array.isArray(st.clashes) ? st.clashes : [];
   return {
     checkedAt: st.builtAt || nowIso(), products: built.products, codes: built.codes,
-    counts: { clashes: Number(st.clashCount ?? clashes.length) || 0, soldOut: gaps.soldOut.length, noCode: gaps.noCode.length, variantsListed: gaps.variantsListed.length },
-    clashes, soldOut: gaps.soldOut.slice(0, 200), noCode: gaps.noCode.slice(0, 200), variantsListed: gaps.variantsListed.slice(0, 200),
+    counts: { clashes: Number(st.clashCount ?? clashes.length) || 0, soldOut: gaps.soldOut.length, noCode: gaps.noCode.length, variantsListed: gaps.variantsListed.length, choices: gaps.choices.length },
+    clashes, soldOut: gaps.soldOut.slice(0, 200), noCode: gaps.noCode.slice(0, 200), variantsListed: gaps.variantsListed.slice(0, 200), choices: gaps.choices.slice(0, 200),
     lookalikes: Array.isArray(st.lookalikes) ? st.lookalikes : [],
   };
 }

@@ -11,6 +11,8 @@ const SCOPES: Record<string, (caps: string[], isManager: boolean) => boolean> = 
   orders: () => true,
   // A wave's pick sheet and its packing slips (one key opens both): customers' names and addresses, for the team.
   wave: () => true,
+  // The wholesale line sheet: wholesale prices, for the team.
+  catalog: () => true,
 };
 
 export async function POST(req: NextRequest) {

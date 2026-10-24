@@ -5,6 +5,7 @@
 import * as React from 'react';
 import { collection, doc, getDocs, onSnapshot, type Firestore } from 'firebase/firestore';
 import { addToTab, ensureTableVisit, removeFromTab, tabTotal, type TabLine } from '@/lib/table-tab';
+import { deskPrice, listingsOf, saleName, variantIdsOf } from '@/lib/variants';
 
 const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
 
@@ -16,9 +17,13 @@ export function TableTab({ firestore, tenantId, party, tableName, by }: { firest
     un = onSnapshot(doc(firestore, 'tenants', tenantId, 'appointments', id), (s) => setTab(((s.data() as any)?.tab || []) as TabLine[]), () => {}); }).catch(() => setMsg('The table’s visit couldn’t be opened.'));
     return () => { if (un) un(); }; }, [firestore, tenantId, party.id]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { Promise.all([getDocs(collection(firestore, `tenants/${tenantId}/inventory`)), getDocs(collection(firestore, `tenants/${tenantId}/services`))]).then(([inv, sv]) => {
-    const prods = inv.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => !x.isBackbar && !x.backbar && x.isArchived !== true && !x.hasVariants);
+    // Products as the desk sells them (lib/variants): a listing's variants in its place, named and priced as sold, and
+    // nothing without a price (the desk won't sell it).
+    const all = inv.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    const listings = listingsOf(all);
+    const prods = all.filter((x: any) => !x.isBackbar && !x.backbar && x.isArchived !== true && x.status !== 'archived' && !x.hasVariants && !variantIdsOf(x).length && !['equipment', 'overhead'].includes(String(x.type || '')));
     const svcs = sv.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.isActive !== false && !x.archived);
-    setCatalog([...prods.map((x: any) => ({ id: x.id, type: 'product', name: x.name || 'Item', price: Number(x.msrp ?? x.price) || 0, category: x.category || x.department || '' })),
+    setCatalog([...prods.map((x: any) => ({ id: x.id, type: 'product', name: saleName(x, listings), price: deskPrice(x, listings), category: x.category || listings.get(String(x.id))?.category || x.department || '' })).filter((x: any) => x.price > 0),
       ...svcs.map((x: any) => ({ id: x.id, type: 'service', name: x.name || 'Service', price: Number(x.price) || 0, category: x.category || '' }))]); }).catch(() => {}); }, [firestore, tenantId]);
   const add = async (it: any) => { if (!visitId) return; setBusy(true); setMsg(null);
     try { await addToTab(firestore, tenantId, visitId, { tableName, guestName: party.name || 'Table' }, it, { seat: seat || null, note: note.trim() || null, by }); setNote(''); setMsg(`${it.name} added${it.type === 'product' ? ' — sent to the kitchen' : ''}.`); } catch { setMsg('That didn’t save.'); }

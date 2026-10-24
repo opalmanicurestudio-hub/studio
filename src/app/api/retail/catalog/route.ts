@@ -82,7 +82,10 @@ export async function GET(req: NextRequest) {
         // Each variant with the price it sells for and whether it can be bought; the listing shows its lowest price.
         const optionGroups = shopOptionGroups(item, byId, { wholesale: wholesaleUnlocked, discountPct: wsDiscount, zone: shopZone, maxShown: MAX_SHOWN_QTY });
         const vg: any = optionGroups.find((g: any) => g.variants);
-        const pick = (k: 'priceCents' | 'wholesalePriceCents') => { const cs = vg ? vg.choices.filter((c: any) => c.inStock) : []; const xs = (cs.length ? cs : vg?.choices || []).map((c: any) => c[k]).filter((x: any) => x != null); return xs.length ? Math.min(...xs) : null; };
+        // The lowest price of what can be bought (else of its variants still in Inventory): a variant that's gone never
+        // makes it "From $0.00".
+        const liveCs: any[] = vg ? vg.choices.filter((c: any) => c.live !== false) : [];
+        const pick = (k: 'priceCents' | 'wholesalePriceCents') => { const cs = liveCs.filter((c: any) => c.inStock); const xs = (cs.length ? cs : liveCs).map((c: any) => c[k]).filter((x: any) => x != null && x > 0); return xs.length ? Math.min(...xs) : null; };
         const hasVariants = variantIdsOf(item).length > 0;
         // Pre-orders sell BEFORE stock exists — that is the whole point — so a
         // grid that decides availability from the shelf alone marks an open
@@ -101,7 +104,7 @@ export async function GET(req: NextRequest) {
         optionGroups,
         priceCents: (vg && pick('priceCents')) ?? listingPriceCents(item, 'retail'),
         // Variants at different prices: the grid says "from".
-        priceVaries: !!vg && new Set(vg.choices.map((c: any) => c.priceCents)).size > 1,
+        priceVaries: !!vg && new Set(liveCs.map((c: any) => c.priceCents)).size > 1,
         wholesalePriceCents: wholesaleUnlocked ? ((vg && pick('wholesalePriceCents')) ?? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount)) : null,
         wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
         inStock: hasVariants ? listingBuyable(item, byId, shopZone) : available > 0 || item.allowBackorder === true || preOpen || item.digital === true,

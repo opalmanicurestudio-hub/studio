@@ -7,12 +7,16 @@ import { restoreNonCardPayment } from '@/lib/cancel-restore';
 import { roomCents } from '@/lib/non-card-back';
 import { closeStaleReturns } from '@/lib/return-close';
 import { sweepRecoveryDeadlines, sweepStalledShipments, sweepStaleCases } from '@/lib/retail-sweeps';
+import { ensureCodeIndex } from './code-index';
 
 const err = (e: any) => ({ error: String(e?.message || e).slice(0, 200) });
 
 /** Every nightly check for one shop. One failing never stops the others. */
 export async function retailNightlyForShop(db: any, tenantId: string, tenant: any): Promise<Record<string, any>> {
   const out: Record<string, any> = {};
+  // Every variant points at its listing (variants saved before that are pointed the first night), so none is sold on
+  // its own anywhere. Only builds when the index is older than the current rules (lib/code-index).
+  try { await ensureCodeIndex(db, tenantId); } catch (e) { out.codeIndex = err(e); }
   try { const r = await reconcileReservations(db, tenantId); if (r.corrected > 0) out.stock = r; } catch (e) { out.stock = err(e); }
   try {
     const ro = await db.collection(`tenants/${tenantId}/retailOrders`).where('hasRenterItems', '==', true).limit(500).get();

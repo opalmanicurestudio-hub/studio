@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { inRunOf, ownRunsOf } from '@/lib/variants';
 import { requireCan, staffOrServer } from '@/lib/route-guard';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 import { effectiveUnitCents } from '@/lib/retail-swap';
@@ -40,13 +41,15 @@ export const dynamic = 'force-dynamic';
 const PAGE = 200;
 const MAX_PAGES = 50;
 const money = (c: number) => `$${(Math.max(0, c) / 100).toFixed(2)}`;
-const open = (l: any, productId: string) => l.productId === productId && l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status));
+// In the run: the product's own lines, and a listing's variants' (lib/variants inRunOf).
+type InRun = (l: any) => boolean;
+const open = (l: any, inRun: InRun) => inRun(l) && l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status));
 const owedOf = (l: any) => Math.max(0, (Number(l.qtyOrdered) || 0) - (Number(l.qtyShorted) || 0));
 
 /** What the run's items on this order were paid for, with their tax, and whether anything else is left to send. */
-function runShare(order: any, productId: string) {
-  const items = (order.lines || []).filter((l: any) => open(l, productId)).reduce((s: number, l: any) => s + effectiveUnitCents(l) * owedOf(l), 0);
-  const stillOwed = (order.lines || []).some((l: any) => !open(l, productId)
+function runShare(order: any, inRun: InRun) {
+  const items = (order.lines || []).filter((l: any) => open(l, inRun)).reduce((s: number, l: any) => s + effectiveUnitCents(l) * owedOf(l), 0);
+  const stillOwed = (order.lines || []).some((l: any) => !open(l, inRun)
     && !['refunded', 'cancelled', 'backordered'].includes(String(l.status)) && owedOf(l) > 0);
   return { items, cents: items ? items + taxShareCents(order, items) : 0, stillOwed };
 }
@@ -96,6 +99,7 @@ export async function POST(req: NextRequest) {
 
     const db = getAdminDb();
     const ordersCol = db.collection(`tenants/${tenantId}/retailOrders`);
+    const inRun = inRunOf(productId, await ownRunsOf(db, tenantId, productId));
 
     // Every order with pre-order items, page by page (one field, so no composite index); stage filtered in memory.
     const affected: any[] = [];
@@ -106,7 +110,7 @@ export async function POST(req: NextRequest) {
       const snap = await q.get();
       for (const d of snap.docs) {
         const o: any = { id: d.id, ref: d.ref, ...(d.data() as any) };
-        if (OPEN_STAGES.includes(String(o.stage)) && (o.lines || []).some((l: any) => open(l, productId))) affected.push(o);
+        if (OPEN_STAGES.includes(String(o.stage)) && (o.lines || []).some((l: any) => open(l, inRun))) affected.push(o);
       }
       if (snap.docs.length < PAGE) break;
       after = snap.docs[snap.docs.length - 1];
@@ -119,7 +123,7 @@ export async function POST(req: NextRequest) {
         ok: true, dryRun: true,
         orders: affected.length,
         refundCents: affected.reduce((sum: number, o: any) => {
-          const share = runShare(o, productId);
+          const share = runShare(o, inRun);
           return sum + (!share.stillOwed && !isFollowUp(o) ? Math.max(Number(o.pendingRefundCents) || 0, cardRefundableCents(o)) + roomCents(o) : share.cents);
         }, 0),
       });
@@ -141,14 +145,14 @@ export async function POST(req: NextRequest) {
           if (!fresh.exists) return null;
           const order = { ...(fresh.data() as any), id: o.id };
           if (!OPEN_STAGES.includes(String(order.stage))) return null;
-          const share = runShare(order, productId);
+          const share = runShare(order, inRun);
           if (share.items === 0) return null;
           const follow = isFollowUp(order);
           // The order the customer paid on, left with nothing to send: everything it hasn't given back yet goes back,
           // less what's still coming on orders made from it (a backorder of something else keeps going).
           const fam = !share.stillOwed && !follow ? await followUpsOf((r: any) => txn.get(r), ordersCol, o.id) : [];
 
-          const lines = (order.lines || []).map((l: any) => (open(l, productId)
+          const lines = (order.lines || []).map((l: any) => (open(l, inRun)
             ? { ...l, status: 'refunded', qtyShorted: (Number(l.qtyShorted) || 0) + owedOf(l), shortReason: 'run_cancelled' }
             : l));
           // Cancelled outright, the order it was paid on gives back what its card hasn't had back (covering anything
@@ -174,7 +178,7 @@ export async function POST(req: NextRequest) {
               text: `Pre-order run cancelled: ${money(pending - already)} refund queued${share.stillOwed ? ' (the rest of the order still ships)' : ' and the order was cancelled'}${reason ? ` \u00b7 ${reason}` : ''}`,
             },
           });
-          return { order, cents: pending - already, stillOwed: share.stillOwed, names: [...new Set((order.lines || []).filter((l: any) => open(l, productId)).map((l: any) => String(l.name || 'item')))] };
+          return { order, cents: pending - already, stillOwed: share.stillOwed, names: [...new Set((order.lines || []).filter((l: any) => open(l, inRun)).map((l: any) => String(l.name || 'item')))] };
         });
 
         if (!outcome) continue;

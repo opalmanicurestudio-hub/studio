@@ -8,6 +8,10 @@
 //   • A variant costs its own price when it has one, otherwise the listing's. An extra cost on a variant's choice
 //     doesn't apply: the variant's price is the price.
 //   • A listing is in stock while any of its variants is, and a variant is never listed on its own.
+//   • What a listing sets for how it's sold (pre-order, digital delivery, made to order, selling ahead of stock, weight
+//     for postage, final sale, ships by ground only, who it's sold for) applies to each of its variants that doesn't set
+//     it itself (asSold), the same in the shop, at checkout and in the shipping quote.
+//   • Only a retail product is a listing: an equipment item's choices sell nothing.
 // Choices saved before these rules (a choice in the variants group that picks no product sells the listing itself)
 // still sell as they did.
 import { isStorefrontVisible, listingPriceCents, onlineSellable, preorderState, type OptionChoice, type OptionGroup, type PriceTier } from './retail-orders';
@@ -21,9 +25,22 @@ export const pickedBy = (listing: any, c: any): string => {
   return id && id !== String(listing?.id ?? '') ? id : '';
 };
 
+/** Only a retail product can be a listing (an item with no type yet is taken as one). */
+const canList = (listing: any) => !listing?.type || listing.type === 'retail';
+
 /** The group of a listing's choices that holds its variants: the first with a choice that picks a product. */
 export function variantGroup(listing: any): OptionGroup | null {
+  if (!canList(listing)) return null;
   return groupsOf(listing).find((g) => g.choices.some((c) => pickedBy(listing, c))) || null;
+}
+
+/** A listing's choices outside its variants group that pick a product (saved before variants went in one group): they
+ *  can't be sold as they are, so the shop doesn't offer them, and the codes check lists the listing. */
+export function strayLinks(listing: any): { group: OptionGroup; choice: OptionChoice }[] {
+  const vg = variantGroup(listing); if (!vg) return [];
+  const out: { group: OptionGroup; choice: OptionChoice }[] = [];
+  for (const g of groupsOf(listing)) if (g !== vg) for (const c of g.choices) if (pickedBy(listing, c)) out.push({ group: g, choice: c });
+  return out;
 }
 
 /** The products a listing sells as its variants, in the order its choices show them. */
@@ -63,11 +80,37 @@ export const ownPrice = (variant: any, tier: PriceTier = 'retail') =>
   Number(variant?.msrp) > 0 || (tier === 'wholesale' && Number(variant?.wholesalePriceDollars) > 0);
 
 /** A variant's price in cents: its own when it has one, otherwise the listing's. Wholesale: its own wholesale price,
- *  else its own price, else the listing's wholesale price. */
+ *  else the listing's wholesale price, else its retail price by the same rule (a wholesale account never pays a
+ *  variant's retail price while the listing has a wholesale one). */
 export function variantPriceCents(variant: any, listing: any, tier: PriceTier = 'retail'): number {
-  if (tier === 'wholesale' && Number(variant?.wholesalePriceDollars) > 0) return Math.round(Number(variant.wholesalePriceDollars) * 100);
+  if (tier === 'wholesale') {
+    if (Number(variant?.wholesalePriceDollars) > 0) return Math.round(Number(variant.wholesalePriceDollars) * 100);
+    if (listing && Number(listing.wholesalePriceDollars) > 0) return Math.round(Number(listing.wholesalePriceDollars) * 100);
+  }
   if (Number(variant?.msrp) > 0) return Math.round(Number(variant.msrp) * 100);
-  return listing ? listingPriceCents(listing, tier) : 0;
+  return listing ? listingPriceCents(listing, 'retail') : 0;
+}
+
+/** A variant as the shop sells it: its own stock, codes and shelf, with its listing's name, choices and place in the
+ *  shop, and what the listing sets for how it's sold wherever the variant doesn't set it itself: a pre-order run (its
+ *  ship-by and closing dates and its places, counted for each variant), digital delivery (the listing's download),
+ *  made to order, selling ahead of stock, weight and size for postage, documents, final sale and who it's sold for.
+ *  Ships by ground only when either does. */
+export function asSold(listing: any, variant: any): any {
+  if (!variant) return listing;
+  if (!listing) return variant;
+  const v = variant; const l = listing;
+  const out: any = { ...v, name: String(l.name || v.name || 'Item'), optionGroups: l.optionGroups, showOnline: l.showOnline, status: l.status, type: l.type };
+  if (v.preorder !== true && l.preorder === true) Object.assign(out, { preorder: true, preorderEtaAt: l.preorderEtaAt ?? null, preorderClosesAt: l.preorderClosesAt ?? null, preorderLimit: l.preorderLimit ?? null });
+  if (v.digital !== true && l.digital === true) Object.assign(out, { digital: true, digitalUrl: l.digitalUrl ?? null, digitalFilePath: l.digitalFilePath ?? null, digitalFileName: l.digitalFileName ?? null, digitalAccessDays: l.digitalAccessDays ?? null });
+  if (!(Number(v.leadDays?.max ?? v.leadDays?.min) > 0)) out.leadDays = l.leadDays ?? null;
+  if (v.allowBackorder !== true && l.allowBackorder === true) out.allowBackorder = true;
+  for (const k of ['weightOz', 'lengthIn', 'widthIn', 'heightIn']) if (!(Number(v[k]) > 0) && Number(l[k]) > 0) out[k] = l[k];
+  out.shipGroundOnly = v.shipGroundOnly === true || l.shipGroundOnly === true;
+  if (!(Array.isArray(v.documents) && v.documents.length)) out.documents = l.documents;
+  if (v.finalSale !== true && l.finalSale === true) Object.assign(out, { finalSale: true, finalSaleCode: l.finalSaleCode ?? null, finalSaleReason: l.finalSaleReason ?? null });
+  if (!v.soldFor?.renterId && l.soldFor?.renterId) out.soldFor = l.soldFor;
+  return out;
 }
 
 /** A product's price in cents wherever it's sold: a variant's by the rule above, anything else its own. */
@@ -99,8 +142,8 @@ export function soldAs(items: any[]): any[] {
     if (!it || variantIdsOf(it).length) continue;
     const l = listings.get(String(it.id));
     if (!l) { out.push(it); continue; }
-    out.push({ ...it, name: saleName(it, listings), listingId: String(l.id), msrp: variantPriceCents(it, l) / 100, showOnline: l.showOnline, category: l.category || it.category,
-      status: l.status === 'archived' ? 'archived' : it.status, imageUrls: Array.isArray(it.imageUrls) && it.imageUrls.length ? it.imageUrls : l.imageUrls });
+    out.push({ ...asSold(l, it), name: saleName(it, listings), listingId: String(l.id), msrp: variantPriceCents(it, l) / 100, category: l.category || it.category,
+      status: l.status === 'archived' || it.status === 'archived' ? 'archived' : it.status, imageUrls: Array.isArray(it.imageUrls) && it.imageUrls.length ? it.imageUrls : l.imageUrls });
   }
   return out;
 }
@@ -114,6 +157,8 @@ export type ChoiceSale = {
   extraCents: number;
   /** Every choice's words, "Blush · Gift wrap". */
   label: string;
+  /** The words of the choices that only change the price, "Gift wrap" (a variant's line is named "Listing · Blush"). */
+  extrasLabel: string;
   /** The choice taken in each group, by group id. */
   choices: Record<string, string>;
   /** The groups whose picked choice the listing doesn't offer any more (it was changed since). */
@@ -125,17 +170,22 @@ export type ChoiceSale = {
 export function choiceSale(listing: any, selections: Record<string, string> | undefined | null): ChoiceSale {
   const vg = variantGroup(listing);
   let variantId = ''; let variantChoice: OptionChoice | null = null; let extraCents = 0;
-  const labels: string[] = []; const choices: Record<string, string> = {}; const unknown: string[] = [];
+  const labels: string[] = []; const extras: string[] = []; const choices: Record<string, string> = {}; const unknown: string[] = [];
   for (const g of groupsOf(listing)) {
+    // Outside the variants group, a choice that picks a product isn't offered (it was saved before variants went in
+    // one group): the shop doesn't show it, so it's never sold.
+    const usable = g === vg ? g.choices : g.choices.filter((c) => !(vg && pickedBy(listing, c)));
+    if (!usable.length) continue;
     const asked = selections?.[g.id];
-    const choice = g.choices.find((c) => c && c.id === asked) || g.choices[0];
+    const choice = usable.find((c) => c && c.id === asked) || usable[0];
     if (asked && choice?.id !== asked) unknown.push(String(g.name || 'choice'));
     if (!choice) continue;
     choices[g.id] = choice.id; if (choice.label) labels.push(String(choice.label));
     if (g === vg) { variantChoice = choice; variantId = pickedBy(listing, choice); if (variantId) continue; }
+    if (choice.label) extras.push(String(choice.label));
     extraCents += Math.round(Number(choice.deltaCents) || 0);
   }
-  return { variantId, variantChoice, extraCents, label: labels.join(' \u00b7 '), choices, unknown };
+  return { variantId, variantChoice, extraCents, label: labels.join(' \u00b7 '), extrasLabel: extras.join(' \u00b7 '), choices, unknown };
 }
 
 /** The price of one, in cents, for a listing and the product its choices sell (a variant, or the listing itself), with
@@ -157,6 +207,9 @@ export function buyable(item: any, zone?: string | null): boolean {
 }
 
 const live = (v: any) => !!v && v.status !== 'archived' && v.type === 'retail';
+/** A variant this listing really sells: live, and not a variant of another listing (an old link two listings share
+ *  sells under the listing it points at). */
+const sells = (listing: any, v: any) => live(v) && (!v.parentId || String(v.parentId) === String(listing?.id ?? ''));
 
 /** How many of a listing the online shop can sell: its variants' (and its own, when a choice in its variants group
  *  picks no product). `byId`: the shop's products. */
@@ -164,7 +217,7 @@ export function listingStock(listing: any, byId: Map<string, any>): number {
   const ids = variantIdsOf(listing);
   if (!ids.length) return canSell(listing);
   let n = 0;
-  for (const id of ids) { const v = byId.get(id); if (live(v)) n += canSell(v); }
+  for (const id of ids) { const v = byId.get(id); if (sells(listing, v)) n += canSell(v); }
   if (variantGroup(listing)!.choices.some((c) => !pickedBy(listing, c))) n += canSell(listing);
   return n;
 }
@@ -173,32 +226,60 @@ export function listingStock(listing: any, byId: Map<string, any>): number {
 export function listingBuyable(listing: any, byId: Map<string, any>, zone?: string | null): boolean {
   const ids = variantIdsOf(listing);
   if (!ids.length) return buyable(listing, zone);
-  if (ids.some((id) => { const v = byId.get(id); return live(v) && buyable(v, zone); })) return true;
+  if (ids.some((id) => { const v = byId.get(id); return sells(listing, v) && buyable(asSold(listing, v), zone); })) return true;
   return variantGroup(listing)!.choices.some((c) => !pickedBy(listing, c)) && buyable(listing, zone);
 }
 
-/** A listing's choices as the shop shows them. Each choice of the variants group says what it sells for and whether it
- *  can be bought (product ids stay on the server); the other choices say what they add. */
+/** How one choice sells: whether it can be bought, how many can be added, and whether it's a pre-order, a download or
+ *  made to order (the variant's own, else the listing's). */
+export function soldState(item: any, zone?: string | null, max = 99) {
+  const n = canSell(item); const pre = item?.preorder === true ? preorderState(item, zone) : null;
+  const can = buyable(item, zone);
+  const qty = !can ? 0 : item.allowBackorder === true || item.digital === true ? max
+    : pre?.open ? Math.min(Math.max(n, pre.remaining ?? max), max) : Math.min(n, max);
+  return {
+    inStock: can, qtyAvailable: qty,
+    preorder: pre ? { isPreorder: true, open: pre.open, reason: pre.reason, etaAt: pre.etaAt || null, closesAt: pre.closesAt || null, remaining: pre.remaining ?? null } : null,
+    digital: item?.digital === true,
+    leadDays: item?.digital === true ? null : leadDaysOf(item?.leadDays),
+  };
+}
+/** Made-to-order days as the shop shows them ({ min, max } business days, or null). */
+export function leadDaysOf(v: any): { min: number; max: number } | null {
+  if (!v || typeof v !== 'object') return null;
+  const max = Math.max(0, Math.min(120, Math.floor(Number(v.max ?? v.min) || 0)));
+  if (max <= 0) return null;
+  const min = Math.max(1, Math.min(max, Math.floor(Number(v.min ?? max) || max)));
+  return { min, max };
+}
+
+/** A listing's choices as the shop shows them. Each choice of the variants group says what it sells for, whether it
+ *  can be bought and how (a pre-order, a download, made to order: lib/variants asSold), with product ids kept on the
+ *  server; the other choices say what they add. A choice outside the variants group that picks a product (saved before
+ *  variants went in one group) isn't offered: it can't be sold as it is. A variant no longer in Inventory, archived, or
+ *  sold under another listing, shows as sold out. */
 export function shopOptionGroups(listing: any, byId: Map<string, any>, o: { wholesale?: boolean; discountPct?: number; zone?: string | null; maxShown?: number } = {}) {
   const vg = variantGroup(listing); const max = o.maxShown ?? 99;
   return groupsOf(listing).map((g) => {
-    if (g !== vg) return { id: g.id, name: g.name, choices: g.choices.map((c) => ({ id: c.id, label: c.label, deltaCents: Math.round(Number(c.deltaCents) || 0) })) };
+    if (g !== vg) return { id: g.id, name: g.name, choices: g.choices.filter((c) => !(vg && pickedBy(listing, c))).map((c) => ({ id: c.id, label: c.label, deltaCents: Math.round(Number(c.deltaCents) || 0) })) };
     return {
       id: g.id, name: g.name, variants: true,
       choices: g.choices.map((c) => {
-        const vid = pickedBy(listing, c); const v = vid ? byId.get(vid) : listing; const ok = vid ? live(v) : true;
+        const vid = pickedBy(listing, c); const raw = vid ? byId.get(vid) : listing; const ok = vid ? sells(listing, raw) : true;
+        const v = vid && ok ? asSold(listing, raw) : listing;
         const delta = vid ? 0 : Math.round(Number(c.deltaCents) || 0);
-        const retail = (vid ? (ok ? variantPriceCents(v, listing, 'retail') : 0) : listingPriceCents(listing, 'retail')) + delta;
-        const wholesale = o.wholesale ? discountedCents(vid ? (ok ? variantPriceCents(v, listing, 'wholesale') : 0) : listingPriceCents(listing, 'wholesale'), o.discountPct || 0) + delta : null;
-        const n = ok ? canSell(v) : 0; const can = ok && buyable(v, o.zone);
+        const retail = (vid ? (ok ? variantPriceCents(raw, listing, 'retail') : 0) : listingPriceCents(listing, 'retail')) + delta;
+        const wholesale = o.wholesale ? discountedCents(vid ? (ok ? variantPriceCents(raw, listing, 'wholesale') : 0) : listingPriceCents(listing, 'wholesale'), o.discountPct || 0) + delta : null;
+        const st = ok ? soldState(v, o.zone, max) : { inStock: false, qtyAvailable: 0, preorder: null, digital: false, leadDays: null };
+        const n = ok ? canSell(v) : 0;
         return {
           id: c.id, label: c.label, priceCents: retail, wholesalePriceCents: wholesale,
-          inStock: can, qtyAvailable: can ? (v.allowBackorder === true || v.digital === true ? max : Math.min(Math.max(n, v.preorder === true ? max : 0), max)) : 0,
+          ...st, live: ok,
           lowStock: ok && n > 0 && n <= (Number(v.lowStockThreshold) || 0),
         };
       }),
     };
-  });
+  }).filter((g) => g.choices.length);
 }
 
 /** The choices to show picked first: the first that can be bought in the variants group, the first in the others. */
@@ -225,12 +306,17 @@ export function shopLine(product: any, selections: Record<string, string> | unde
     if (g.variants) { variantChoice = c; unit = wholesale && c.wholesalePriceCents != null ? Number(c.wholesalePriceCents) : Number(c.priceCents) || 0; }
     else extra += Math.round(Number(c.deltaCents) || 0);
   }
+  const from = variantChoice || product;
   return {
     baseCents: unit, unitCents: unit + extra, label: labels.join(' \u00b7 '), variantChoice,
     // A choice picked before the shop changed its choices: checkout refuses it, so the cart says so first.
     stale,
-    inStock: variantChoice ? variantChoice.inStock === true : product?.inStock === true,
-    qtyAvailable: variantChoice ? Number(variantChoice.qtyAvailable) || 0 : Number(product?.qtyAvailable) || 0,
+    inStock: from?.inStock === true,
+    qtyAvailable: Number(from?.qtyAvailable) || 0,
+    // How the chosen variant sells (its own, else the listing's): a pre-order, a download, made to order.
+    preorder: from?.preorder?.open === true ? from.preorder : null,
+    digital: from?.digital === true,
+    leadDays: from?.leadDays || null,
   };
 }
 
@@ -249,12 +335,14 @@ export function cleanChoices(input: any): { groups: OptionGroup[]; problem: stri
     const name = String(g.name ?? '').trim().slice(0, 60);
     if (!raw.length) continue;
     if (!name) return { groups: out, problem: 'Give each group of choices a name, like Size.' };
-    const gid = idOk(String(g.id ?? '')) && !gids.has(String(g.id)) ? String(g.id) : fresh(`g${gi}`, gids); gids.add(gid);
+    // A new id is never one a choice had before (by position it would be), so a cart holding a removed choice is refused.
+    const stamp = Date.now().toString(36);
+    const gid = idOk(String(g.id ?? '')) && !gids.has(String(g.id)) ? String(g.id) : fresh(`g${gi}${stamp}`, gids); gids.add(gid);
     const cids = new Set<string>(); const choices: OptionChoice[] = [];
     for (const [ci, c] of raw.slice(0, 40).entries()) {
       const label = String(c.label ?? '').trim().slice(0, 80);
       if (!label) return { groups: out, problem: `Give every choice in “${name}” a name.` };
-      const cid = idOk(String(c.id ?? '')) && !cids.has(String(c.id)) ? String(c.id) : fresh(`c${gi}-${ci}`, cids); cids.add(cid);
+      const cid = idOk(String(c.id ?? '')) && !cids.has(String(c.id)) ? String(c.id) : fresh(`c${gi}-${ci}${stamp}`, cids); cids.add(cid);
       const v = String(c.variantProductId ?? '').trim();
       if (v && v.length <= 160 && !v.includes('/')) choices.push({ id: cid, label, deltaCents: 0, variantProductId: v });
       else choices.push({ id: cid, label, deltaCents: Math.max(-100000, Math.min(100000, Math.round(Number(c.deltaCents) || 0))) });
@@ -289,4 +377,23 @@ export function choicesProblem(listing: any, groups: OptionGroup[], get: (id: st
     if (other && String(other.id) !== me) return `${v.name || 'That product'} is already a variant of ${other.name || 'another listing'}. A product can be a variant of one listing.`;
   }
   return '';
+}
+
+/** Which order lines are in a product's pre-order run: its own, and, for a listing, its variants' (each sells on the
+ *  listing's run unless it has a run of its own: `ownRuns`, the variants on pre-order themselves). */
+export function inRunOf(productId: string, ownRuns: Set<string> = new Set()) {
+  return (l: any) => String(l?.productId ?? '') === productId || (String(l?.listingId ?? '') === productId && !ownRuns.has(String(l?.productId ?? '')));
+}
+/** A listing's variants that have a pre-order run of their own (server: reads them). */
+export async function ownRunsOf(db: any, tenantId: string, productId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const ls = await db.doc(`tenants/${tenantId}/inventory/${productId}`).get();
+    if (!ls.exists) return out;
+    for (const id of variantIdsOf({ ...(ls.data() || {}), id: productId }).slice(0, 60)) {
+      const vs = await db.doc(`tenants/${tenantId}/inventory/${id}`).get();
+      if (vs.exists && (vs.data() || {}).preorder === true) out.add(id);
+    }
+  } catch { /* none read: the run is its own lines only */ }
+  return out;
 }

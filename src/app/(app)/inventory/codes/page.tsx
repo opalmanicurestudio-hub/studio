@@ -15,19 +15,22 @@ type Owner = { productId: string; name: string; kind: string; raw: string };
 type ClashRow = { code: string; raw: string; kind: any; pack: number; owners: Owner[] };
 type Check = {
   checkedAt: string; shop: boolean; products: number; codes: number;
-  counts: { clashes: number; soldOut: number; noCode: number; variantsListed: number };
+  counts: { clashes: number; soldOut: number; noCode: number; variantsListed: number; choices?: number };
   clashes: ClashRow[]; soldOut: { productId: string; name: string; withStock: number }[];
   noCode: { productId: string; name: string; listingId?: string }[];
   variantsListed: { productId: string; name: string; listingId: string; listingName: string }[];
+  choices?: { productId: string; name: string; why: string }[];
   lookalikes: { a: string; b: string; aName: string; bName: string }[];
 };
-type Tile = 'clashes' | 'soldOut' | 'noCode' | 'variantsListed';
+type Tile = 'clashes' | 'soldOut' | 'noCode' | 'variantsListed' | 'choices';
 
 const TILES: { id: Tile; title: string; sub: string; shopOnly: boolean }[] = [
   { id: 'clashes', title: 'Codes on more than one product', sub: 'A scan can’t tell which one it is', shopOnly: false },
   { id: 'soldOut', title: 'Listings that look sold out', sub: 'Their variants have stock', shopOnly: true },
   { id: 'noCode', title: 'In the shop with nothing to scan', sub: 'No barcode or SKU on the product', shopOnly: true },
   { id: 'variantsListed', title: 'Variants listed on their own', sub: 'They show next to their own listing', shopOnly: true },
+  // Only shown when there's something to fix: choices saved before variants had their own rules.
+  { id: 'choices', title: 'Choices that can’t sell as set', sub: 'A variant in two listings, or outside its variants', shopOnly: true },
 ];
 const productHref = (id: string) => `/inventory/product/${encodeURIComponent(id)}`;
 // The places that scan, all asking the one lookup (lib/code-lookup): any code finds its product, a case's code counts
@@ -70,7 +73,7 @@ export default function CodesCheckPage() {
     void run();
   };
 
-  const tiles = TILES.filter((t) => !t.shopOnly || data?.shop !== false);
+  const tiles = TILES.filter((t) => (!t.shopOnly || data?.shop !== false) && (t.id !== 'choices' || (data?.counts.choices || 0) > 0));
   const checkedAt = data?.checkedAt ? new Date(data.checkedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: zone }).toLowerCase() : '';
   const rowCls = 'flex flex-wrap items-center gap-x-4 gap-y-2 border-b py-3 last:border-b-0';
 
@@ -118,6 +121,13 @@ export default function CodesCheckPage() {
           <div className="min-w-0 flex-[1_1_260px]"><p className="m-0 text-[15px] font-semibold">{r.name}</p><p className="m-0 mt-0.5 text-[13px]" style={muted}>No barcode or SKU yet. Scan the one printed on it, or give it a SKU.</p></div>
           <Link href={productHref(r.productId)} className="cf-press inline-flex h-11 items-center rounded-full px-5 text-[14px] font-semibold" style={{ background: C.soft, color: C.ink }}>Add a code</Link>
         </div>));
+    if (tile === 'choices') return (data.choices || []).length === 0
+      ? <Empty title="Every listing’s choices sell as set" sub="Each variant is in one listing, in its variants." />
+      : (data.choices || []).map((r, i) => (
+        <div key={`${r.productId}-${i}`} className={rowCls} style={{ borderColor: C.line }}>
+          <div className="min-w-0 flex-[1_1_260px]"><p className="m-0 text-[15px] font-semibold">{r.name}</p><p className="m-0 mt-0.5 text-[13px]" style={muted}>{r.why}</p></div>
+          <Link href={productHref(r.productId)} className="cf-press inline-flex h-11 items-center rounded-full px-5 text-[14px] font-semibold" style={{ background: C.soft, color: C.ink }}>Open</Link>
+        </div>));
     return data.variantsListed.length === 0
       ? <Empty title="No variant shows on its own" sub="Each variant is sold through its listing." />
       : data.variantsListed.map((r) => (
@@ -139,7 +149,7 @@ export default function CodesCheckPage() {
           <Btn kind="soft" className="h-11 shrink-0 px-4 text-[14px]" disabled={busy} onClick={() => void run()}>{busy ? 'Checking…' : 'Check again'}</Btn>
         </div>
         <p className="m-0 -mt-2 max-w-[760px] text-[15px] leading-relaxed" style={muted}>
-          {data?.shop === false ? 'A code on two products stops a scan from telling which one it is.' : 'Four things stop a scan or a sale from working. When all four are at zero, every scanner in the shop takes the same codes and every listing sells what’s on the shelf.'}
+          {data?.shop === false ? 'A code on two products stops a scan from telling which one it is.' : `${tiles.length > 4 ? 'Five' : 'Four'} things stop a scan or a sale from working. When all ${tiles.length > 4 ? 'five' : 'four'} are at zero, every scanner in the shop takes the same codes and every listing sells what’s on the shelf.`}
         </p>
 
         {error && !data ? (
@@ -149,9 +159,9 @@ export default function CodesCheckPage() {
           </div>
         ) : (
           <>
-            {tiles.length > 1 && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {tiles.length > 1 && <div className={`grid grid-cols-2 gap-3 ${tiles.length > 4 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}>
               {tiles.map((t) => {
-                const n = data ? data.counts[t.id] : null; const on = tile === t.id;
+                const n = data ? data.counts[t.id] ?? 0 : null; const on = tile === t.id;
                 return (
                   <button key={t.id} type="button" aria-pressed={on} onClick={() => setTile(t.id)}
                     className="cf-press flex min-h-[124px] flex-col gap-1.5 rounded-[18px] bg-transparent text-left"
@@ -166,7 +176,7 @@ export default function CodesCheckPage() {
             <div className="flex flex-wrap items-start gap-5">
               <section className="min-w-0 flex-[2_1_640px] rounded-[18px] border p-4" style={{ borderColor: C.line }} aria-label={current.title}>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="m-0 text-[13px] font-semibold" style={muted}>{current.title}{data ? ` · ${data.counts[tile]}` : ''}</p>
+                  <p className="m-0 text-[13px] font-semibold" style={muted}>{current.title}{data ? ` · ${data.counts[tile] ?? 0}` : ''}</p>
                   {tile === 'clashes' && (data?.clashes.length || 0) > 0 && <p className="m-0 text-[12.5px]" style={muted}>Choose which product keeps each code. The others keep their other codes.</p>}
                 </div>
                 <div className="mt-1">{busy && !data ? <p className="m-0 py-10 text-center text-[15px]" style={muted}>Checking every product…</p> : list()}</div>

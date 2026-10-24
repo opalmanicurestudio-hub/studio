@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { readWholesaleCode } from '@/lib/shop-cart';
 
 // ─── ShopMenu ─────────────────────────────────────────────────────────────────
 // The storefront's one navigation surface. A single scrolling page works at a
@@ -94,7 +95,7 @@ export function ShopMenu({
               </Link>
 
               <a
-                href={`/print/catalog/${tenantId}${wholesaleUnlocked ? '?tier=wholesale' : ''}`}
+                href={`/print/catalog/${tenantId}${wholesaleUnlocked ? `?tier=wholesale&code=${encodeURIComponent(readWholesaleCode(tenantId) || '')}` : ''}`}
                 target="_blank"
                 rel="noreferrer"
                 onClick={close}

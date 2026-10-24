@@ -1,5 +1,6 @@
 import { getRetailSecrets } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
+import { ensureCodeIndex } from '@/lib/code-index';
 
 import {
   isStorefrontVisible, listingPriceCents, type SellableItem,
@@ -49,6 +50,9 @@ export async function GET(req: NextRequest) {
   }
 
   const db = getAdminDb();
+  // Each variant points at its listing (variants saved before that are pointed the first time anything asks), so a
+  // variant's old link opens its listing.
+  await ensureCodeIndex(db, tenantId).catch(() => {});
   const [tenantSnap, itemSnap] = await Promise.all([
     db.collection('tenants').doc(tenantId).get(),
     db.collection(`tenants/${tenantId}/inventory`).doc(productId).get(),
