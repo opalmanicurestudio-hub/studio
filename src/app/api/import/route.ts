@@ -14,6 +14,8 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { sameKeys, fillIn, type ImportKind } from '@/lib/import-records';
 import { searchFields } from '@/lib/client-search';
+import { codeDocId, codeForm, codesOf } from '@/lib/code-form';
+import { buildCodeIndex, ensureCodeIndex, indexCol } from '@/lib/code-index';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -127,7 +129,7 @@ export async function POST(req: NextRequest) {
     for (const d of added.docs) {
       const x: any = d.data() || {};
       // Kept: anything used since (a visit booked, a sale, an edit) — removing it would lose real work.
-      const since = imp.finishedAt || imp.startedAt; const edited = !!x.updatedAt && x.updatedAt > since;
+      const since = imp.finishedAt || imp.startedAt; const edited = (!!x.updatedAt && x.updatedAt > since) || (!!x.codesUpdatedAt && x.codesUpdatedAt > since);
       const isClient = d.ref.path.includes('/clients/'); const isAppt = d.ref.path.includes('/appointments/');
       const gcUsed = (d.ref.path.includes('/giftCards/') && (x.history || []).some((h: any) => h.type === 'spend')) || (d.ref.path.includes('/depositCredits/') && (Number(x.usedCents) > 0 || x.status !== 'available')) || (d.ref.path.includes('/discounts/') && Number(x.usageCount) > Number(x.importedUsed ?? x.usageCount));
       const apptTouched = isAppt && ((x.updatedAt && x.updatedAt > since) || !!x.checkoutSessionId || (x.reminderSentAt && x.reminderSentBy !== 'import'));
@@ -141,6 +143,8 @@ export async function POST(req: NextRequest) {
       const back: any = {}; for (const [k, v] of Object.entries(x.patch || {})) if (JSON.stringify(cur[k]) === JSON.stringify(v)) back[k] = x.before?.[k] ?? null;
       if (Object.keys(back).length) { batch.set(db.doc(`${fcol}/${x.docId}`), back, { merge: true }); if (++n >= 400) { await batch.commit(); batch = db.batch(); n = 0; } } }
     if (n) await batch.commit();
+    // Codes on the products it took away, or SKUs it took back, are free again.
+    if (kind === 'products') { try { await buildCodeIndex(db, tenantId, { by: 'Import undone' }); } catch { /* the next codes check catches up */ } }
     await ref.set({ undoneAt: now(), undoneBy: g.actor?.name || null, removed, kept }, { merge: true });
     return NextResponse.json({ ok: true, removed, kept });
   }
@@ -181,7 +185,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   }
   const idx = await existingIndex(db, tenantId, kind);
-  const match = (d: any) => sameKeys(kind, d).map((k) => idx.get(k)).find(Boolean) || null;
+  // A product is matched by any code it carries first (its SKU, a barcode, in the one form every scanner uses), then
+  // by name; a code already on a product is never given to a second one (lib/code-index).
+  const byCode = new Map<string, any>();
+  if (kind === 'products') {
+    await ensureCodeIndex(db, tenantId);
+    // Every product's codes (not only the first product with each name), so no code already on one is given to another.
+    const known = new Map<string, any>(); for (const x of idx.values()) known.set(String(x.id), x);   // the same records the name match fills in
+    for (const d of (await db.collection(`${T}/inventory`).get()).docs) { const x: any = known.get(d.id) || { id: d.id, ...(d.data() || {}) }; if (x.status === 'archived') continue; for (const c of codesOf(x)) if (!byCode.has(c.code)) byCode.set(c.code, x); }
+  }
+  const match = (d: any) => (kind === 'products' && d.sku ? byCode.get(codeForm(d.sku)) : null) || sameKeys(kind, d).map((k) => idx.get(k)).find(Boolean) || null;
+  // The index entry for each code a product now carries, written with it.
+  const indexCodes = (batch: any, item: any, id: string, had: Set<string> = new Set()) => { let k = 0; if (kind !== 'products') return 0;
+    for (const c of codesOf(item)) { if (had.has(c.code)) continue; batch.set(db.doc(`${indexCol(tenantId)}/${codeDocId(c.code)}`), { code: c.code, raw: c.raw, kind: c.kind, pack: c.pack, productId: id, parentId: item.parentId || null, at: now(), by: 'Import' }); byCode.set(c.code, item); k++; }
+    return k; };
   if (b.action === 'check') {
     let fresh = 0, matched = 0, fills = 0; const samples: any[] = [];
     for (const d of rows) { const m = match(d); if (!m) { fresh++; continue; } matched++; const p = fillPatch(kind, m, d); if (Object.keys(p).length) { fills++; if (samples.length < 5) samples.push({ name: m.name, adds: Object.keys(p) }); } }
@@ -197,9 +214,14 @@ export async function POST(req: NextRequest) {
     const flush = async () => { if (n) { await batch.commit(); batch = db.batch(); n = 0; } };
     for (const d of rows) {
       const m = match(d);
-      if (!m) { const ref = db.collection(`${T}/${COL[kind]}`).doc(); const doc = clean(newDoc(kind, ref.id, d, meta)); if (kind === 'clients') { doc.importedSpent = doc.lifetimeValue; doc.importedLastVisit = doc.lastAppointment; } batch.set(ref, doc); added++; for (const k of sameKeys(kind, doc)) idx.set(k, doc); }
-      else { const p = clean(fillPatch(kind, m, d)); if (!Object.keys(p).length) continue; const before: any = {}; for (const k of Object.keys(p)) before[k] = m[k] ?? null;
-        batch.set(db.doc(`${T}/${COL[kind]}/${m.id}`), p, { merge: true }); batch.set(db.collection(`${T}/imports/${importId}/fills`).doc(), clean({ docId: m.id, patch: p, before })); n++; filled++; Object.assign(m, p); }
+      if (!m) { const ref = db.collection(`${T}/${COL[kind]}`).doc(); const doc = clean(newDoc(kind, ref.id, d, meta)); if (kind === 'clients') { doc.importedSpent = doc.lifetimeValue; doc.importedLastVisit = doc.lastAppointment; }
+        if (kind === 'products' && codesOf(doc).length) doc.codesUpdatedAt = now();
+        batch.set(ref, doc); added++; for (const k of sameKeys(kind, doc)) idx.set(k, doc); n += indexCodes(batch, doc, ref.id); }
+      else { const p = clean(fillPatch(kind, m, d)); if (!Object.keys(p).length) continue;
+        if (kind === 'products' && p.sku) p.codesUpdatedAt = now();
+        const before: any = {}; for (const k of Object.keys(p)) before[k] = m[k] ?? null; const had = new Set(codesOf(m).map((c) => c.code));
+        batch.set(db.doc(`${T}/${COL[kind]}/${m.id}`), p, { merge: true }); batch.set(db.collection(`${T}/imports/${importId}/fills`).doc(), clean({ docId: m.id, patch: p, before })); n++; filled++; Object.assign(m, p);
+        if (p.sku) n += indexCodes(batch, m, m.id, had); }
       if (++n >= 380) await flush();
     }
     await flush();

@@ -9,7 +9,7 @@ import {
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
   SidebarGroupLabel, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
-import { HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox } from 'lucide-react';
+import { HeartHandshake, AlertTriangle, Gamepad2, Armchair, BarChart, BookOpen, Bot, Box, Boxes, Building2, Calendar, CalendarClock, CalendarDays, ChefHat, ChevronRight, ClipboardList, Clock, Coffee, ConciergeBell, DoorOpen, ExternalLink, FileSignature, FileText, Fingerprint, FlaskConical, Gauge, Globe, HandCoins, HardHat, History as HistoryIcon, Hourglass, KeyRound, Landmark, Layers, LayoutDashboard, LifeBuoy, ListChecks, LogOut, Megaphone, MessageSquare, PackageCheck, PackageOpen, Paintbrush, PanelLeftClose, PanelLeftOpen, PartyPopper, Percent, Receipt, RotateCcw, Send, Settings, Shield, ShieldQuestion, ShoppingBag, Star, User, Users, Users2, Wallet, Wrench, UserCheck, ChevronDown, Gift, Target, AlignVerticalJustifyStart, Inbox, ScanBarcode } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
@@ -73,6 +73,7 @@ const STUDIO_ASSETS = [
   { href: '/services',    icon: BookOpen,      label: 'Services'       },
   { href: '/inventory',   icon: Box,           label: 'Manifest'           },
   { href: '/inventory/distribution', icon: Boxes, label: 'Distribution' },
+  { href: '/inventory/codes', icon: ScanBarcode, label: 'Codes and listings' },
   { href: '/inventory/formulas', icon: FlaskConical, label: 'Formulas' },
   { href: '/memberships', icon: Star,          label: 'Clubs'              },
   { href: '/discounts',   icon: Percent,       label: 'Incentives'         },

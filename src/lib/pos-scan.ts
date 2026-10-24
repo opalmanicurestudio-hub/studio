@@ -2,8 +2,8 @@
 // Works out what was scanned — PRODUCTS FIRST (a 12–13 digit barcode looks like a check-in token, which is why product
 // scans used to fail at checkout), then appointment / walk-in tickets:
 //   • your printed product labels (clarityflow://product/<id>) or a shop product link
-//   • a barcode, SKU or any other code the product carries — tolerant of leading zeros and UPC-A vs EAN-13
-//   • a parent product whose sizes / shades hold the stock → "which one?"
+//   • a barcode, SKU or any other code the product carries, compared in the one form (lib/code-form)
+//   • a listing whose variants hold the stock → "which one?"
 //   • a ticket: short code, check-in token or visit-link URL (found here if it's in today's list; otherwise the
 //     server lookup takes over)
 import { codesMatch, hasStockVariants, parseOrderQr } from '@/lib/retail-orders';

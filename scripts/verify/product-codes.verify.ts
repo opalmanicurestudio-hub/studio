@@ -36,6 +36,10 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'firebase/firestore') return web;
   if (request.endsWith('staff-fetch')) return { staffAuthHeader: async () => ({ Authorization: 'Bearer t' }) };
   if (request.endsWith('renter-credit-client')) return { syncRenterCredits: () => undefined };
+  // A code learned at packing is saved by the server (/api/inventory/codes → lib/code-index), here on the same records.
+  if (request.endsWith('codes-api')) return { __esModule: true, learnProductCode: async (t: string, pid: string, code: string) => {
+    const ci = await import('../../src/lib/code-index'); await ci.ensureCodeIndex(db, t);
+    const r = await ci.learnCode(db, t, pid, code, 'Kai Park'); return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.message }; } };
   return load.call(this, request, ...rest);
 };
 
@@ -160,7 +164,7 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   const src = (p: string) => fs.readFileSync(p, 'utf8');
   const add = src('src/components/inventory/AddProductDialog.tsx');
   check('adding a product keeps its SKU and its barcodes (the SKU used to be dropped)', /sku: String\(data\.sku\)\.trim\(\)/.test(add) && /\.\.\.\(barcode \? \{ barcode \} : \{\}\)/.test(add) && /<ProductCodesField \/>/.test(add));
-  check('the product forms refuse a code another product already has', [add, src('src/components/inventory/EditProductDialog.tsx')].every((s) => /codeOwners\(/.test(s) && /That code belongs to another product/.test(s)));
+  check('the product forms refuse a code another product already has', [add, src('src/components/inventory/EditProductDialog.tsx')].every((s) => /formClashes\(/.test(s) && /That code belongs to another product/.test(s)));
   const pack = src('src/components/orders/workspace/PackPane.tsx');
   check('the packing screen names what was scanned from the answer, and offers to add a new code to an item', /setUndo\(\{ text: `\$\{r\.name \|\| 'Item'\} /.test(pack) && /learnCode\(fs, tenantId, lineProductId\(l\), learn\)/.test(pack) && /Which item has the code/.test(pack));
   check('receiving, scan routing and waves read the same codes', /productMatch\(/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /productMatch\(/.test(src('src/components/inventory/ReceiveStockDialog.tsx'))

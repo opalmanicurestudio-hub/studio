@@ -2,7 +2,7 @@ import { getRetailSecrets } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
-  isStorefrontVisible, listingPriceCents, onlineSellable, type SellableItem,
+  listedInShop, listingPriceCents, listingStock, type SellableItem,
 } from '@/lib/retail-orders';
 import { publicFields } from '@/lib/product-public';
 import { preorderState } from '@/lib/retail-orders';
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
   // shows up complete online.
   const pub = publicFields(item);
 
-  if (!isStorefrontVisible(item)) {
+  if (!listedInShop(item)) {
     return NextResponse.json({ error: 'Product not available' }, { status: 404 });
   }
 
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
   const wholesaleUnlocked = wsAccess.unlocked;
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
 
-  const available = Math.max(0, onlineSellable(item));
+  const available = listingStock(item);
   // Pre-order runs close at the end of their day on the shop's clock, not the server's.
   const shopZone = tenantTimeZone(tenant);
   const pre = preorderState(item as any, shopZone);

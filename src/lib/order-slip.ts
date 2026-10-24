@@ -126,5 +126,5 @@ export function buildSlip(order: any, rs: any, products: Record<string, any> = {
 export function giftReturnsLine(rs: any): string | null {
   if (rs?.returnsEnabled === false) return null;
   const days = Math.max(1, Math.floor(Number(rs?.returnWindowDays) || 30));
-  return `Wrong size or shade? Scan to exchange it for shop credit within ${days} days of delivery. The person who sent it isn’t told.`;
+  return `Need a different variant? Scan to exchange it for shop credit within ${days} days of delivery. The person who sent it isn’t told.`;
 }

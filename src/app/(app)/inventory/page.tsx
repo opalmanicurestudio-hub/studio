@@ -98,6 +98,8 @@ import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, de
 import { collection, doc, setDoc, writeBatch } from 'firebase/firestore';
 
 import { reasonLabel, recordManualException } from '@/lib/inventory-exceptions';
+import { addProduct, saveProduct } from '@/lib/codes-client';
+import { reindexCodes } from '@/lib/codes-api';
 import { nanoid } from 'nanoid';
 import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
@@ -823,15 +825,17 @@ export default function InventoryPage() {
     setIsEditDialogOpen(true);
   };
 
-  const handleUpdateItem = (updatedItem: InventoryItem) => {
-    if (!firestore || !tenantId) return;
-    const itemDocRef = doc(firestore, `tenants/${tenantId}/inventory`, updatedItem.id);
-    updateDocumentNonBlocking(itemDocRef, updatedItem);
-    toast({
-        title: "Item Updated",
-        description: `${updatedItem.name} has been successfully updated.`,
-    });
+  // A product's codes are saved by the server, which refuses one another product has (lib/codes-client); the form
+  // stays open with the reason, and nothing is saved.
+  const handleUpdateItem = async (updatedItem: InventoryItem): Promise<boolean> => {
+    if (!firestore || !tenantId) return false;
+    // Compared with the product as the form opened it, so a code learned or paired since isn't put back.
+    const saved = editingItem && editingItem.id === updatedItem.id ? editingItem : (inventory || []).find((p: any) => p.id === updatedItem.id) || null;
+    const r = await saveProduct(firestore, tenantId, saved, updatedItem);
+    if (!r.ok) { toast({ variant: 'destructive', title: 'Not saved', description: r.error }); return false; }
+    toast({ title: 'Saved', description: `${updatedItem.name} is updated.` });
     setIsEditDialogOpen(false);
+    return true;
   };
 
   const handleItemSelect = useCallback((itemId: string) => {
@@ -882,11 +886,14 @@ export default function InventoryPage() {
     const handleBulkUnarchive = useCallback(() => {
         if (!firestore || !tenantId) return;
         const batch = writeBatch(firestore);
-        selectedItems.forEach(id => {
+        const ids = [...selectedItems];
+        ids.forEach(id => {
             const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
             batch.update(itemDoc, { status: 'active' });
         });
-        batch.commit();
+        // Back from the archive, a product holds its codes again; one another product took meanwhile is listed as
+        // shared on the codes check (lib/code-index).
+        void batch.commit().then(() => reindexCodes(tenantId, ids));
         toast({ title: `${selectedItems.size} item(s) have been restored.` });
         setSelectedItems(new Set());
     }, [selectedItems, firestore, tenantId, toast]);
@@ -897,15 +904,12 @@ export default function InventoryPage() {
     setIsAddProductDialogOpen(true);
   };
   
-  const handleProductAdded = (newProduct: InventoryItem) => {
-    if (!firestore || !tenantId) return;
-    const newProductRef = doc(firestore, 'tenants', tenantId, 'inventory', newProduct.id);
-    const sanitizedData = JSON.parse(JSON.stringify(newProduct));
-    setDocumentNonBlocking(newProductRef, sanitizedData, {});
-    toast({
-      title: `New ${newProduct.type} product created`,
-      description: `${newProduct.name} has been added to your inventory.`
-    });
+  const handleProductAdded = async (newProduct: InventoryItem): Promise<boolean> => {
+    if (!firestore || !tenantId) return false;
+    const r = await addProduct(firestore, tenantId, newProduct);
+    if (!r.ok) { toast({ variant: 'destructive', title: 'Not saved', description: r.error }); return false; }
+    toast({ title: 'Product added', description: `${newProduct.name} is in your inventory.` });
+    return true;
   };
 
   const handleEquipmentAdded = (newEquipment: InventoryItem) => {

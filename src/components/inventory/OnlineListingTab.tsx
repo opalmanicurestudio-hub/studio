@@ -303,13 +303,13 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
 
       <Section
         title="Choices &amp; variants"
-        hint="Sizes and shades that hold their own stock, or extras that only change the price."
+        hint="Variants that hold their own stock, or extras that only change the price."
         dirty={dirty.options}
         onSave={async () => { await onSave({ optionGroups: groups }); flash('options'); }}
       >
         {groups.length === 0 && (
           <p className="text-[11px] font-bold text-muted-foreground">
-            No choices yet. Add one if this product comes in sizes or shades.
+            No choices yet. Add one if this product comes in variants.
           </p>
         )}
         {groups.map((g, gi) => (

@@ -41,7 +41,6 @@ export type ReceivedItem = {
   costPerUnit: number;
   expirationDate?: Date;
   lot?: string;
-  capturedBarcode?: string;
 };
 
 interface ReceiveStockDialogProps {
@@ -66,7 +65,6 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   const onReceiveScan = (value: string) => {
     const raw = value.trim();
     const qrPid = parseProductQr(raw);
-    const isPlainCode = !qrPid && !raw.includes('://');
     setReceivedItems((prev) => {
       const idx = prev.findIndex((ri) => {
         if (qrPid) return ri.productId === qrPid;
@@ -83,10 +81,9 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
       return prev.map((ri, i) => {
         if (i !== idx) return ri;
         const inv = inventory.find((x) => x.id === ri.productId) as any;
-        const capture = isPlainCode && !(inv?.barcode) ? { capturedBarcode: raw } : {};
         const remaining = Math.max(0, ri.quantityOrdered - ri.quantityReceived);
         const step = scanUnitsFor(inv || {}, raw, remaining).units;
-        return { ...ri, quantityReceived: ri.quantityReceived + step, ...capture };
+        return { ...ri, quantityReceived: ri.quantityReceived + step };
       });
     });
   };
@@ -253,7 +250,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
           {scanOpen && (
             <ScanGate
               onScan={onReceiveScan}
-              label="Scan each unit as you unbox — new barcodes are saved to the item automatically"
+              label="Scan each unit as you unbox. A case’s code counts the whole case."
             />
           )}
         </div>

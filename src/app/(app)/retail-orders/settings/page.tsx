@@ -27,6 +27,8 @@ import { uploadPrivateFile } from '@/lib/upload-image';
 import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 
 import { optionGroupsToText, parseOptionGroups } from '@/lib/retail-orders';
+import { changedCodes } from '@/lib/code-form';
+import { saveCodes } from '@/lib/codes-api';
 import { cn } from '@/lib/utils';
 
 // ─── Shop Settings ────────────────────────────────────────────────────────────
@@ -161,6 +163,7 @@ export default function RetailSettingsPage() {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
     howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; palletPack: string; palletBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
     made: boolean; leadMin: string; leadMax: string;
+    codesBase?: { casePack: any; palletPack: any; palletBarcode: any; caseBarcode: any };
   }>>({});
   const [fileBusy, setFileBusy] = useState<string | null>(null);
   const [runBusy, setRunBusy] = useState<string | null>(null);
@@ -354,6 +357,8 @@ export default function RetailSettingsPage() {
     palletPack: it.palletPack ? String(it.palletPack) : '',
     palletBarcode: it.palletBarcode || '',
     caseBarcode: it.caseBarcode || '',
+    // The case and pallet codes as this draft started from, so only what was changed here is saved.
+    codesBase: { casePack: it.casePack ?? null, palletPack: it.palletPack ?? null, palletBarcode: it.palletBarcode ?? '', caseBarcode: it.caseBarcode ?? '' },
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
     docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
     options: optionGroupsToText(it.optionGroups),
@@ -390,6 +395,20 @@ export default function RetailSettingsPage() {
         const url = line.slice(idx + 1).trim();
         return name && /^https?:\/\//i.test(url) ? { name, url } : null;
       }).filter(Boolean).slice(0, 20);
+      // The case and pallet codes are saved by the server, which refuses a code another product has
+      // (lib/codes-client); nothing else is saved then, so the reason can be put right first.
+      // Compared with the codes the draft started from, so a code changed elsewhere since isn't put back.
+      const codes = changedCodes(d.codesBase || it, {
+        casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null,
+        palletPack: Math.max(0, Math.floor(Number(d.palletPack) || 0)) || null,
+        palletBarcode: d.palletBarcode.trim(),
+        caseBarcode: d.caseBarcode.trim(),
+        ...(d.codesBase ? {} : { sku: it.sku, barcode: it.barcode, barcodes: it.barcodes, upc: it.upc, gtin: it.gtin, ean: it.ean, tagIds: it.tagIds }),
+      });
+      if (codes) {
+        const r = await saveCodes(tenantId, it.id, codes);
+        if (!r.ok) { toast({ variant: 'destructive', title: 'Not saved', description: r.error }); return; }
+      }
       await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory`, it.id), {
         wholesalePriceDollars: d.wholesale.trim() === '' ? null : Number(d.wholesale) || 0,
         weightOz: Math.max(0, Number(d.weight) || 0),
@@ -414,16 +433,16 @@ export default function RetailSettingsPage() {
         digitalAccessDays: d.digital === true ? (Math.max(0, Math.floor(Number(d.digitalAccessDays) || 0)) || null) : null,
         digitalFilePath: d.digital === true ? (d.digitalFilePath || null) : null,
         digitalFileName: d.digital === true ? (d.digitalFileName || null) : null,
-        casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null,
-        palletPack: Math.max(0, Math.floor(Number(d.palletPack) || 0)) || null,
-        palletBarcode: d.palletBarcode.trim() || null,
-        caseBarcode: d.caseBarcode.trim() || null,
         imageUrls,
         specs: JSON.parse(JSON.stringify(specs)),
         documents: JSON.parse(JSON.stringify(documents)),
         optionGroups: JSON.parse(JSON.stringify(parseOptionGroups(d.options))),
         videoUrl: (d.video || '').trim(),
       });
+      // What's saved is what the draft starts from now.
+      setDrafts((prev) => (prev[it.id] ? { ...prev, [it.id]: { ...prev[it.id], codesBase: {
+        casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null, palletPack: Math.max(0, Math.floor(Number(d.palletPack) || 0)) || null,
+        palletBarcode: d.palletBarcode.trim(), caseBarcode: d.caseBarcode.trim() } } } : prev));
       toast({ title: `${it.name} updated` });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Update failed', description: e?.message });

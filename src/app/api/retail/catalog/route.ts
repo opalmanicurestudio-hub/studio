@@ -1,7 +1,7 @@
 import { getRetailSecrets } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 
-import { isStorefrontVisible, listingPriceCents, preorderState, onlineSellable, type SellableItem } from '@/lib/retail-orders';
+import { listedInShop, listingPriceCents, listingStock, preorderState, type SellableItem } from '@/lib/retail-orders';
 import { publicDescription, collectImages } from '@/lib/product-public';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { sanitizeShopConfig } from '@/lib/shop-config';
@@ -68,12 +68,12 @@ export async function GET(req: NextRequest) {
 
   const products = invSnap.docs
     .map((d: any) => ({ id: d.id, ...d.data() } as SellableItem))
-    .filter((item: SellableItem) => isStorefrontVisible(item))
+    .filter((item: SellableItem) => listedInShop(item))
     .flatMap((item: SellableItem) => {
       // One malformed inventory doc must never take the whole shop down:
       // anything that throws here is skipped (and logged), not fatal.
       try {
-        const available = Math.max(0, onlineSellable(item) || 0);
+        const available = listingStock(item);
         // Pre-orders sell BEFORE stock exists — that is the whole point — so a
         // grid that decides availability from the shelf alone marks an open
         // pre-order sold out, and the customer never reaches the

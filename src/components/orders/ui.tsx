@@ -1,11 +1,13 @@
 'use client';
 // src/components/orders/ui.tsx — THE BUILDING BLOCKS OF THE ORDERS SCREENS, drawn to the house rules: six type sizes,
 // 44px touch areas, one black main button over a frosted bar, red only for destructive actions, true-black dark mode
-// through the theme tokens (var(--paper), var(--ink), var(--soft), var(--line), var(--muted)).
+// through the theme tokens (var(--paper), var(--ink), var(--soft), var(--line), var(--cf-muted)). The grey for
+// secondary text has its own name: the app's --muted is a background shade (an "h s% l%" value, not a colour), so
+// text set in it came out in the text colour above it, black, instead of grey.
 import * as React from 'react';
 
 export const C = {
-  ink: 'var(--ink, #16171a)', paper: 'var(--paper, #fff)', soft: 'var(--soft, #f5f5f7)', line: 'var(--line, #ececee)', muted: 'var(--muted, #6d7075)',
+  ink: 'var(--ink, #16171a)', paper: 'var(--paper, #fff)', soft: 'var(--soft, #f5f5f7)', line: 'var(--line, #ececee)', muted: 'var(--cf-muted, #6d7075)',
   ok: 'var(--ok-ink, #1f7a4d)', okSoft: 'var(--ok-soft, #eaf6ef)', warn: 'var(--warn-ink, #b45309)', warnSoft: 'var(--warn-soft, #fff7ed)', bad: 'var(--bad-ink, #b42318)', badSoft: 'var(--bad-soft, #fdecea)', mint: '#7fd1a5',
 };
 export const muted: React.CSSProperties = { color: C.muted };

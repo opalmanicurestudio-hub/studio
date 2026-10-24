@@ -10,6 +10,8 @@ import { logAuditClient } from '@/lib/audit-client';
 import { findKit, matchInventory } from '@/lib/kits';
 import { findBundle } from '@/lib/linens';
 import { normTag, tagOwner, looksLikeTag, type TagOwner } from '@/lib/tags';
+import { codeForm, codesOf, holdsCodes } from '@/lib/code-form';
+import { pairProductTag } from '@/lib/codes-api';
 import { useNfc } from '@/lib/use-nfc';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 
@@ -42,13 +44,23 @@ export function TagPairing({ tenantId, inventory }: { tenantId: string; inventor
     if (tag === normTag(item.item.code) || tag === normTag(item.item.sku)) { scanFeedback(false); setMsg({ ok: false, text: 'That’s this item’s printed code — now read the tag itself.' }); return; }
     const owner = tagOwner(tag, all);
     if (owner) { scanFeedback(owner.id === item.id); setMsg({ ok: owner.id === item.id, text: owner.id === item.id ? 'That tag is already paired to this item.' : `That tag already belongs to ${owner.name}. Remove it there first.` }); return; }
+    // Never another product's code either (its barcode or SKU).
+    const coded = all.inventory.find((p: any) => p && p.status !== 'archived' && p.id !== item.id && codesOf(p).some((c) => c.code === codeForm(tag)));
+    if (coded) { scanFeedback(false); setMsg({ ok: false, text: `That code is already on ${coded.name || 'another product'}. Read a different tag.` }); return; }
+    const audit = () => void logAuditClient(firestore, tenantId, { action: 'tag.paired', targetType: item.kind, targetId: item.id, actor: { type: 'user', id: getAuth().currentUser?.uid, name: who() }, after: { tag }, summary: `Paired tag ${tag} to ${item.name}` });
+    // A product's tags are saved by the server, which keeps every code on one product (lib/code-index); equipment
+    // keeps its tags like any other field.
+    if (item.kind === 'product' && holdsCodes(item.item)) {
+      const r = await pairProductTag(tenantId, item.id, tag);
+      scanFeedback(r.ok); setMsg({ ok: r.ok, text: r.ok ? String(r.message || `Paired to ${item.name}.`) : r.error }); if (r.ok) audit(); return; }
     try { await updateDoc(doc(firestore, 'tenants', tenantId, COLL[item.kind], item.id), { tagIds: arrayUnion(tag) });
-      void logAuditClient(firestore, tenantId, { action: 'tag.paired', targetType: item.kind, targetId: item.id, actor: { type: 'user', id: getAuth().currentUser?.uid, name: who() }, after: { tag }, summary: `Paired tag ${tag} to ${item.name}` });
-      scanFeedback(true); setMsg({ ok: true, text: `Paired to ${item.name}. Read another tag for it, or choose a different item.` }); }
+      audit(); scanFeedback(true); setMsg({ ok: true, text: `Paired to ${item.name}. Read another tag for it, or choose a different item.` }); }
     catch { scanFeedback(false); setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
   const remove = async (tag: string) => { if (!firestore || !item) return;
+    const audit = () => void logAuditClient(firestore, tenantId, { action: 'tag.removed', targetType: item.kind, targetId: item.id, actor: { type: 'user', id: getAuth().currentUser?.uid, name: who() }, before: { tag }, summary: `Removed tag ${tag} from ${item.name}` });
+    if (item.kind === 'product' && holdsCodes(item.item)) { const r = await pairProductTag(tenantId, item.id, tag, true); if (r.ok) audit(); else setMsg({ ok: false, text: r.error }); return; }
     try { await updateDoc(doc(firestore, 'tenants', tenantId, COLL[item.kind], item.id), { tagIds: (item.item.tagIds || []).filter((x: string) => normTag(x) !== normTag(tag)) });
-      void logAuditClient(firestore, tenantId, { action: 'tag.removed', targetType: item.kind, targetId: item.id, actor: { type: 'user', id: getAuth().currentUser?.uid, name: who() }, before: { tag }, summary: `Removed tag ${tag} from ${item.name}` }); }
+      audit(); }
     catch { setMsg({ ok: false, text: 'That didn’t save — try again.' }); } };
   const nfc = useNfc((id) => { void handle(id); });
   if (!firestore) return null;

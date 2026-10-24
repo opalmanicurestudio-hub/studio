@@ -24,6 +24,7 @@
 // is a calendar day, and a calendar day only becomes an instant once you know
 // whose clock is being read. Deciding that inline is how a shop ends up late
 // on an order it shipped on time.
+import { codeForm, gtinValid } from './code-form';
 import { effectiveUnitCents } from './retail-swap';
 import { taxShareCents } from './restocking';
 import { deadlineAt } from './tenant-time';
@@ -601,6 +602,19 @@ export function variantAwareStock(
     if (v) total += sellableStock(v);
   }
   return total;
+}
+
+/** Does a product show in the shop as a listing of its own (the shop's grid, its product page, its sitemap)? The one
+ *  rule the shop and the codes check (lib/code-index) both use. `variantIds`: the products listings sell as their
+ *  variants. */
+export function listedInShop(item: SellableItem, _variantIds?: Set<string>): boolean {
+  return isStorefrontVisible(item);
+}
+
+/** How many of a listing the shop offers. The one rule the shop and the codes check both use. `variantsById`: the
+ *  shop's products, for a listing whose variants hold the stock. */
+export function listingStock(item: SellableItem, _variantsById?: Map<string, any>): number {
+  return Math.max(0, onlineSellable(item) || 0);
 }
 
 /** Parse editor lines like "Size | Small:0, Medium:0.50, Large:1" */
@@ -1281,11 +1295,10 @@ export type ScanResult =
  * scan_mismatch event.
  */
 /**
- * Canonical forms of a scanned/stored code for tolerant matching:
- *  - trimmed raw and uppercased (SKUs are case-insensitive in the real world)
- *  - digits-only form, with and without leading zeros — phones' native
- *    detectors often report UPC-A (12 digits) as EAN-13 with a leading 0,
- *    so "0123456789012" and "123456789012" must be treated as the same code.
+ * The ways a code may be written in a product's record, for a database lookup that can only match exactly: as typed,
+ * upper case, in the one form (lib/code-form), and a retail barcode's 8, 12, 13 and 14 digit renderings (a phone often
+ * reads a UPC-A as EAN-13, with a leading 0). Whether a found record really carries the code is then decided by
+ * codesMatch.
  */
 export function codeVariants(value: string): Set<string> {
   const out = new Set<string>();
@@ -1293,20 +1306,20 @@ export function codeVariants(value: string): Set<string> {
   if (!raw) return out;
   out.add(raw);
   out.add(raw.toUpperCase());
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length >= 6) {
-    out.add(digits);
-    out.add(digits.replace(/^0+/, ''));
-    if (digits.length === 12) out.add('0' + digits); // UPC-A as EAN-13
+  const one = codeForm(raw);
+  if (one) out.add(one);
+  if (/^\d{14}$/.test(one) && gtinValid(one)) {
+    const short = one.replace(/^0+/, '');
+    for (const n of [8, 12, 13, 14]) if (short.length <= n) out.add(short.padStart(n, '0'));
   }
   return out;
 }
 
+/** Are these the same code? Compared in the one form every scanner and the code index use (lib/code-form): letter
+ *  case, spaces and the way a retail barcode is printed don't matter; NP-000123 and AB-000123 are two codes. */
 export function codesMatch(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  const va = codeVariants(a);
-  for (const v of codeVariants(b)) if (va.has(v)) return true;
-  return false;
+  const x = codeForm(a);
+  return !!x && x === codeForm(b);
 }
 
 /** Does a scan match this line, as the line was sold: the product's label, its id, or any of its codes. */

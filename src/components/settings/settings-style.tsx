@@ -8,9 +8,9 @@ import * as React from 'react';
 import { DESK_FONT } from '@/components/pos/desk/kit';
 
 export const SETTINGS_CSS = `
-.cf-settings{--accent:hsl(var(--primary));--accent-ink:hsl(var(--primary-foreground));--ok:#1f7a4d;--warn:#b45309;--danger:#b42318;--paper:#fff;--ink:#16171a;--muted:#6d7075;--line:#ececee;--card:#fff;--soft:#f5f5f7;
+.cf-settings{--accent:hsl(var(--primary));--accent-ink:hsl(var(--primary-foreground));--ok:#1f7a4d;--warn:#b45309;--danger:#b42318;--paper:#fff;--ink:#16171a;--muted:#6d7075;--cf-muted:#6d7075;--line:#ececee;--card:#fff;--soft:#f5f5f7;
   background:var(--paper);color:var(--ink);font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
-.dark .cf-settings{--ok:#7fd1a5;--warn:#f0b35a;--danger:#ff8a80;--paper:#000;--ink:#f5f5f7;--muted:#9a9ca3;--line:#222226;--card:#0c0c0e;--soft:#18181b}
+.dark .cf-settings{--ok:#7fd1a5;--warn:#f0b35a;--danger:#ff8a80;--paper:#000;--ink:#f5f5f7;--muted:#9a9ca3;--cf-muted:#9a9ca3;--line:#222226;--card:#0c0c0e;--soft:#18181b}
 .cf-settings :focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:12px}
 .cf-sheet{background:var(--card);border:1px solid var(--line);border-radius:22px;overflow:hidden}
 .cf-row{display:flex;align-items:center;gap:16px;padding:16px 20px;transition:background-color .15s ease}

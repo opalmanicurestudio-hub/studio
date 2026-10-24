@@ -85,6 +85,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { saveProduct } from '@/lib/codes-client';
 import { doc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStockChangesFor } from '@/hooks/use-stock';
@@ -154,13 +155,15 @@ export default function ProductDetailPage() {
         toast({ title: 'Saved', description: 'Your shop is updated.' });
     };
 
-    const handleProductUpdate = (updatedProduct: InventoryItem) => {
-        // FIX: guard on tenantId (derived above) instead of the undefined bare identifier
-        if (!firestore || !tenantId) return;
-        const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', updatedProduct.id);
-        updateDocumentNonBlocking(itemRef, updatedProduct);
+    // A product's codes are saved by the server, which refuses one another product has (lib/codes-client): the form
+    // stays open with the reason, and nothing is saved.
+    const handleProductUpdate = async (updatedProduct: InventoryItem): Promise<boolean> => {
+        if (!firestore || !tenantId) return false;
+        const r = await saveProduct(firestore, tenantId, product, updatedProduct);
+        if (!r.ok) { toast({ variant: 'destructive', title: 'Not saved', description: r.error }); return false; }
         toast({ title: "Saved", description: "Your changes are saved." });
         setIsEditDialogOpen(false);
+        return true;
     };
     
     const productCategories = useMemo(() => {

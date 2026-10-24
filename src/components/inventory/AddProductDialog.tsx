@@ -21,8 +21,7 @@ import { z } from 'zod';
 import { Check, PlusCircle, DollarSign, Package, ShoppingCart, Calculator, Sparkles, Truck, ArrowRight, Building, FileText, Landmark, Pipette, CheckCircle, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
-import { ProductCodesField, clashText } from '@/components/inventory/ProductCodesField';
-import { codeOwners } from '@/lib/product-codes';
+import { ProductCodesField, clashText, formClashes } from '@/components/inventory/ProductCodesField';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -318,7 +317,7 @@ export const AddProductDialog: React.FC<{
   open: boolean; onOpenChange: (o: boolean) => void;
   initialType: 'professional' | 'retail';
   categories: string[]; onNewCategory: (c: string) => void;
-  onProductAdded: (p: InventoryItem) => void;
+  onProductAdded: (p: InventoryItem) => void | boolean | Promise<boolean | void>;
   locations: Location[]; onAddLocationClick: () => void;
 }> = ({ open, onOpenChange, initialType, categories, onNewCategory, onProductAdded, locations, onAddLocationClick }) => {
   const [step, setStep] = useState(1);
@@ -331,17 +330,22 @@ export const AddProductDialog: React.FC<{
   const { inventory } = useInventory() as any;
   const { toast } = useToast();
 
-  const onSubmit = (data: FormData) => {
-    // A barcode belongs to one product: one already on another product isn't saved here.
+  const [saving, setSaving] = useState(false);
+  const onSubmit = async (data: FormData) => {
+    if (saving) return;
+    // A code belongs to one product: one another product has isn't saved.
     const barcode = String(data.barcode || '').trim();
     const barcodes = [...new Set((data.barcodes || []).map((c) => String(c).trim()).filter((c) => c && c !== barcode))];
-    const clashes = codeOwners((inventory || []) as any[], [barcode, ...barcodes].filter(Boolean));
+    const clashes = formClashes((inventory || []) as any[], { sku: data.sku, barcode, barcodes }).block;
     if (clashes.length) { toast({ variant: 'destructive', title: 'That code belongs to another product', description: clashText(clashes) }); return; }
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
     // Same bridge as the edit dialog: a product typed once here arrives at
     // the storefront with its images and copy already in the shape the shop
     // reads, so "why isn't my description showing" stops being a question.
-    onProductAdded(syncPublicFields({
+    // The form stays open when the product can't be added (a code another product has), with the reason shown.
+    setSaving(true);
+    let ok: boolean | void = false;
+    try { ok = await onProductAdded(syncPublicFields({
       id: `prod-${nanoid(8)}`,
       name: data.name,
       type: data.type,
@@ -381,8 +385,8 @@ export const AddProductDialog: React.FC<{
       // equipment — the first approved StaffReplenishmentRequest is what
       // creates this item's first StationAllocation.
       ...(data.type === 'professional' && data.trackCustody ? { trackingMode: 'bulk' as const } : {}),
-    }));
-    onOpenChange(false);
+    })); } finally { setSaving(false); }
+    if (ok !== false) onOpenChange(false);
   };
 
   const goNext = async (e: React.MouseEvent) => {
@@ -420,7 +424,7 @@ export const AddProductDialog: React.FC<{
                 <Button variant="outline" type="button" onClick={() => onOpenChange(false)} className="flex-1 h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2">Cancel</Button>
                 {step < STEPS
                   ? <Button type="button" onClick={goNext} className="flex-[1.5] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30 group">Continue <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" /></Button>
-                  : <Button type="submit" className="flex-[1.5] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30">Save Asset</Button>
+                  : <Button type="submit" disabled={saving} className="flex-[1.5] h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/30">{saving ? 'Saving…' : 'Save Asset'}</Button>
                 }
               </div>
             </div>

@@ -1,35 +1,42 @@
 'use client';
 // src/components/inventory/ProductCodesField.tsx — A PRODUCT'S CODES, in the product form. Its barcode (scan it with the
-// camera, or type it) and any other codes it carries (a second barcode, the case's own code is set in the shop's
-// product settings). These are the codes the register, packing and receiving scan (lib/product-codes), so a product
-// is only ever given a code no other product has: the form says which product already uses one.
+// camera, or type it) and any other codes it carries (a second barcode; the case's own code is set in the shop's
+// product settings). Every scanner in the shop takes these, so a product is only ever given a code no other product
+// has: the form says which product has one already, and the server refuses it too (lib/code-index).
 import * as React from 'react';
 import { useFormContext } from 'react-hook-form';
 import { ScanGate } from '@/components/retail/ScanGate';
 import { useInventory } from '@/context/InventoryContext';
-import { codeOwners } from '@/lib/product-codes';
+import { codeClashes, type CodeClash } from '@/lib/code-form';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 
-/** Other products already using the codes in this form: a barcode the form won't save (`block`), and a SKU it only
- *  points out (`warn`), since older products may share one. */
+/** The codes in a product form that another product already has. `block`: new to this product, so they aren't
+ *  saved. `known`: on this product already when it was last saved, and on another one too; the codes check
+ *  (Inventory, Codes and listings) settles which one keeps each. */
+export function formClashes(items: any[], form: { sku?: any; barcode?: any; barcodes?: any[] }, saved?: any): { block: CodeClash[]; known: CodeClash[] } {
+  const all = codeClashes(items || [], { id: saved?.id, type: saved?.type || 'retail', sku: form.sku, barcode: form.barcode, barcodes: form.barcodes || [] }, { exceptId: saved?.id, saved });
+  return { block: all.filter((c) => !c.before), known: all.filter((c) => c.before) };
+}
+
 export function useCodeClashes(exceptId?: string) {
   const { watch } = useFormContext();
   const { inventory } = useInventory() as any;
   const barcode = String(watch('barcode') || '').trim();
   const extra: string[] = (watch('barcodes') || []) as string[];
   const sku = String(watch('sku') || '').trim();
-  return React.useMemo(() => ({
-    block: codeOwners((inventory || []) as any[], [barcode, ...extra].filter(Boolean), exceptId),
-    warn: sku ? codeOwners((inventory || []) as any[], [sku], exceptId) : [],
-  }), [inventory, barcode, sku, extra.join('|'), exceptId]);
+  return React.useMemo(() => {
+    const items = (inventory || []) as any[];
+    return formClashes(items, { sku, barcode, barcodes: extra }, exceptId ? items.find((p) => p.id === exceptId) || { id: exceptId } : undefined);
+  }, [inventory, barcode, sku, extra.join('|'), exceptId]);   // eslint-disable-line react-hooks/exhaustive-deps
 }
 
-/** Codes clashing with another product, as one sentence (or '' when there are none). */
-export function clashText(clashes: { code: string; item: any }[]): string {
+/** Codes clashing with another product, as sentences (or '' when there are none). */
+export function clashText(clashes: { raw?: string; code?: string; item: any }[], known = false): string {
   if (!clashes.length) return '';
-  return clashes.map((c) => `${c.code} is already on ${c.item?.name || 'another product'}`).join('. ') + '. Each code can belong to one product only.';
+  const said = clashes.map((c) => `${c.raw || c.code} is ${known ? 'also' : 'already'} on ${c.item?.name || 'another product'}`).join('. ');
+  return known ? `${said}. Choose which one keeps it in Inventory, Codes and listings.` : `${said}. A code can be on one product only.`;
 }
 
 export function ProductCodesField({ exceptId }: { exceptId?: string }) {
@@ -70,9 +77,11 @@ export function ProductCodesField({ exceptId }: { exceptId?: string }) {
               <button type="button" aria-label={`Remove ${c}`} onClick={() => setValue('barcodes', extra.filter((x) => x !== c), { shouldDirty: true })} className="text-muted-foreground">×</button>
             </span>))}
         </div>)}
-      {clashes.block.length > 0 || clashes.warn.length > 0
-        ? <p role="alert" className="m-0 text-[12px] font-semibold" style={{ color: '#b45309' }}>{clashText([...clashes.block, ...clashes.warn])}</p>
-        : <p className="m-0 text-[12px] text-muted-foreground">Scanned at the register, when packing orders and when stock comes in. Already printed on the product? Use that code.</p>}
+      {clashes.block.length > 0
+        ? <p role="alert" className="m-0 text-[12px] font-semibold" style={{ color: '#b45309' }}>{clashText(clashes.block)}</p>
+        : clashes.known.length > 0
+          ? <p role="status" className="m-0 text-[12px]" style={{ color: '#b45309' }}>{clashText(clashes.known, true)}</p>
+          : <p className="m-0 text-[12px] text-muted-foreground">Scanned at the register, when packing orders and when stock comes in. Already printed on the product? Use that code.</p>}
     </div>
   );
 }

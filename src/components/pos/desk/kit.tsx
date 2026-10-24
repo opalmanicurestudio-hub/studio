@@ -14,9 +14,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { readThemePref, resolveTheme, setThemePref, type ThemePref } from '@/lib/app-theme';
 
 export const DESK_CSS = `
-.desk{--accent:#16171a;--accent-ink:#fff;--paper:#fff;--panel:#fff;--ink:#16171a;--muted:#6d7075;--line:#ececee;--card:#fff;--soft:#f5f5f7;--warn:#a15c07;--ok:#1f7a4d;--danger:#b42318;--shade:0 1px 2px rgba(16,17,20,.04),0 8px 24px -16px rgba(16,17,20,.18);
+.desk{--accent:#16171a;--accent-ink:#fff;--paper:#fff;--panel:#fff;--ink:#16171a;--muted:#6d7075;--cf-muted:#6d7075;--line:#ececee;--card:#fff;--soft:#f5f5f7;--warn:#a15c07;--ok:#1f7a4d;--danger:#b42318;--shade:0 1px 2px rgba(16,17,20,.04),0 8px 24px -16px rgba(16,17,20,.18);
   background:var(--paper);color:var(--ink);font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;color-scheme:light}
-[data-desk-theme=dark].desk,[data-desk-theme=dark] .desk{--accent:#7fd1a5;--accent-ink:#000;--paper:#000;--panel:#0c0c0e;--ink:#f5f5f7;--muted:#9a9ca3;--line:#222226;--card:#0c0c0e;--soft:#18181b;--warn:#f0b35a;--ok:#7fd1a5;--danger:#ff8a80;--shade:0 0 0 1px #1c1c20;color-scheme:dark}
+[data-desk-theme=dark].desk,[data-desk-theme=dark] .desk{--accent:#7fd1a5;--accent-ink:#000;--paper:#000;--panel:#0c0c0e;--ink:#f5f5f7;--muted:#9a9ca3;--cf-muted:#9a9ca3;--line:#222226;--card:#0c0c0e;--soft:#18181b;--warn:#f0b35a;--ok:#7fd1a5;--danger:#ff8a80;--shade:0 0 0 1px #1c1c20;color-scheme:dark}
 .desk :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 @keyframes desk-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes desk-ping{0%{transform:scale(1);opacity:.5}80%,100%{transform:scale(2.6);opacity:0}}

@@ -67,8 +67,7 @@ import { cn } from '@/lib/utils';
 import { syncPublicFields } from '@/lib/product-public';
 import { binOf, normalizeBin, overflowOf } from '@/lib/bins';
 import { printShelfLabels } from '@/lib/shelf-labels-client';
-import { ProductCodesField, clashText } from '@/components/inventory/ProductCodesField';
-import { codeOwners } from '@/lib/product-codes';
+import { ProductCodesField, clashText, formClashes } from '@/components/inventory/ProductCodesField';
 import { useInventory } from '@/context/InventoryContext';
 import { format, parseISO } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -484,7 +483,7 @@ export const EditProductDialog: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   product: InventoryItem;
-  onProductUpdated: (product: InventoryItem) => void;
+  onProductUpdated: (product: InventoryItem) => void | boolean | Promise<boolean | void>;
   categories: string[];
   onNewCategory: (category: string) => void;
   locations: Location[];
@@ -528,6 +527,8 @@ export const EditProductDialog: React.FC<{
             storageLocation: binOf(product),
             careNote: (product as any).careNote || '',
             overflowLocation: overflowOf(product),
+            // As text: a SKU kept as a number would fail the form's check, and the save would do nothing.
+            sku: (product as any).sku == null ? '' : String((product as any).sku),
             barcode: String((product as any).barcode || ''),
             barcodes: Array.isArray((product as any).barcodes) ? (product as any).barcodes.map(String) : [],
         });
@@ -538,11 +539,13 @@ export const EditProductDialog: React.FC<{
   const { handleSubmit, trigger } = methods;
   const { inventory } = useInventory() as any;
   const { toast } = useToast();
-  const onSubmit = (data: ProductFormData) => {
-    // A barcode belongs to one product: one already on another product isn't saved here.
+  const [saving, setSaving] = useState(false);
+  const onSubmit = async (data: ProductFormData) => {
+    if (saving) return;
+    // A code belongs to one product: one new to this product that another product has isn't saved.
     const barcode = String(data.barcode || '').trim();
     const barcodes = [...new Set((data.barcodes || []).map((c) => String(c).trim()).filter((c) => c && c !== barcode))];
-    const clashes = codeOwners((inventory || []) as any[], [barcode, ...barcodes].filter(Boolean), product.id);
+    const clashes = formClashes((inventory || []) as any[], { sku: data.sku, barcode, barcodes }, product).block;
     if (clashes.length) { toast({ variant: 'destructive', title: 'That code belongs to another product', description: clashText(clashes) }); return; }
     data = { ...data, barcode, barcodes };
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : product.costPerUnit;
@@ -550,14 +553,18 @@ export const EditProductDialog: React.FC<{
     // This form has no expiry field, so a batch's expiry is only ever changed when one was actually given.
     if (updatedBatches.length > 0) updatedBatches[0] = { ...updatedBatches[0], costPerUnit, ...(data.expirationDate ? { expirationDate: data.expirationDate.toISOString() } : {}) };
     
-    onProductUpdated(syncPublicFields({ 
-        ...product, 
-        ...data, 
-        costPerUnit, 
-        batches: updatedBatches, 
-        supplierUrl: data.purchaseLink 
-    }));
-    onOpenChange(false);
+    // The form stays open when the save is refused (a code another product has), with the reason shown.
+    setSaving(true);
+    try {
+      const ok = await onProductUpdated(syncPublicFields({
+          ...product,
+          ...data,
+          costPerUnit,
+          batches: updatedBatches,
+          supplierUrl: data.purchaseLink
+      }));
+      if (ok !== false) onOpenChange(false);
+    } finally { setSaving(false); }
   };
 
   const handleNext = async (e: any) => { e.preventDefault(); if (await trigger(step === 1 ? ['name', 'category'] : [])) setStep(step + 1); };
@@ -590,7 +597,7 @@ export const EditProductDialog: React.FC<{
               {step < totalSteps ? (
                 <Button onClick={handleNext} type="button" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30 group">Continue <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" /></Button>
               ) : (
-                <Button type="submit" className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">Commit Changes</Button>
+                <Button type="submit" disabled={saving} className="flex-[1.5] h-12 md:h-16 font-black uppercase tracking-widest text-[10px] md:text-xl rounded-[2rem] shadow-2xl shadow-primary/30">{saving ? 'Saving…' : 'Commit Changes'}</Button>
               )}
             </div>
           </div>

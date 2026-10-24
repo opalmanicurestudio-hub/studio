@@ -4,7 +4,7 @@
 //   • the shop's own product label (clarityflow://product/<id>)
 //   • its barcode and SKU, and any other codes it carries (UPC, GTIN, EAN, extra barcodes kept on the product)
 //   • a sealed case's or pallet's own code, worth a case or a pallet of units
-// Matching is tolerant of leading zeros and UPC-A read as EAN-13 (codesMatch). A size or shade sold as its own product
+// Codes are compared in the one form (lib/code-form, through codesMatch). A variant sold as its own product
 // is found by its own codes, or by its parent's when the order has just one of that product's options.
 import { codesMatch, codeVariants, parseProductQr } from './retail-orders';
 
@@ -63,8 +63,8 @@ export function codeOwners<T extends { id: string; name?: string }>(items: T[], 
   return out;
 }
 
-/** The forms of a code worth looking up exactly (a database can't match "tolerantly"): as typed, uppercased, digits
- *  with and without leading zeros, UPC-A as EAN-13. At most 10, as one database query takes. */
+/** The ways a code may be written in a record, for a database lookup that only matches exactly: as typed, upper case,
+ *  in the one form, and a retail barcode's other renderings. At most 10, as one database query takes. */
 export function lookupForms(raw: string): string[] {
   return [...codeVariants(str(raw))].slice(0, 10);
 }

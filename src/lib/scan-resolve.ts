@@ -2,10 +2,12 @@
 // carry the codes their products had when it was bought, so most scans match straight away (lib/retail-orders
 // lineMatchesScan). When one doesn't, this looks at the products themselves: a barcode added after the order was
 // placed, another code the product carries (UPC, GTIN, an extra barcode), a case code, a test order's stand-in lines,
-// a label printed from a duplicate of the product, or a parent product's code when the order has just one of its sizes
-// or shades. When the scan isn't on the order, it says why in words a packer can act on: which product it is, or that
-// no product has that code yet (and the packer can add it to the right product, lib/scan-resolve learnCode).
-import { type Firestore, arrayUnion, collection, doc, getDoc, getDocs, limit, query, updateDoc, where } from 'firebase/firestore';
+// a label printed from a duplicate of the product, or a listing's code when the order has just one of its variants.
+// When the scan isn't on the order, it says why in words a packer can act on: which product it is, or that no product
+// has that code yet (and the packer can add it to the right product, lib/scan-resolve learnCode).
+import { type Firestore, collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
+import { learnProductCode } from './codes-api';
+import { codeDocId, codeForm } from './code-form';
 import { lineMatchesScan, parseProductQr, type OrderLine, type ScanHint } from './retail-orders';
 import { lineProductId, lookupForms, productMatch, unitCodes, variantIdsOf } from './product-codes';
 import { codesMatch } from './retail-orders';
@@ -30,12 +32,21 @@ const identityOf = (item: any) => ({
   ...(item?.palletBarcode ? { palletBarcode: String(item.palletBarcode) } : {}),
 });
 
-/** Products in inventory with this code, found by the database (as typed, and its other forms). */
+/** Products in inventory with this code: the code index first (lib/code-index, every code in its one form), then the
+ *  records themselves (as typed, and its other forms), for codes saved before the index was built. */
 export async function productsWithCode(fs: Firestore, tenantId: string, raw: string): Promise<any[]> {
   const forms = lookupForms(raw);
   if (!forms.length) return [];
   const inv = collection(fs, `tenants/${tenantId}/inventory`);
   const found = new Map<string, any>();
+  const one = codeForm(raw);
+  if (one) {
+    try {
+      const e = await getDoc(doc(fs, `tenants/${tenantId}/codeIndex`, codeDocId(one)));
+      const ids = e.exists() ? [...new Set([(e.data() as any)?.productId, ...(((e.data() as any)?.productIds) || [])].filter(Boolean).map(String))].slice(0, 6) : [];
+      await Promise.all(ids.map(async (id) => { try { const s = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, id)); if (s.exists()) found.set(id, { id, ...(s.data() as any) }); } catch { /* not readable: skipped */ } }));
+    } catch { /* the records below still answer */ }
+  }
   const asks = [
     ...['barcode', 'sku', 'upc', 'gtin', 'ean', 'caseBarcode', 'palletBarcode'].map((k) => query(inv, where(k, 'in', forms), limit(10))),
     query(inv, where('barcodes', 'array-contains-any', forms), limit(10)),
@@ -71,7 +82,7 @@ export async function resolveOrderScan(fs: Firestore, tenantId: string, lines: O
   } else scanned = await productsWithCode(fs, tenantId, t);
 
   for (const p of scanned) {
-    // A parent's code (the name on the shelf), with the order holding one of its sizes or shades.
+    // A listing's code (the name on the shelf), with the order holding one of its variants.
     const variants = variantIdsOf(p);
     if (variants.length) {
       const mine = lines.filter((l) => variants.includes(lineProductId(l)) && isOpen(l, packCheck));
@@ -101,22 +112,12 @@ export function scanMissMessage(r: ScanResolution, raw: string, lines: OrderLine
 }
 
 /** Gives a product a code it was scanned with (the packer said which item it is): its barcode when it has none, or one
- *  of its extra barcodes. Refused when another product already uses that code, so no two products share one. */
-export async function learnCode(fs: Firestore, tenantId: string, productId: string, raw: string): Promise<{ ok: boolean; message: string }> {
+ *  of its extra barcodes. Saved by the server (lib/code-index), which refuses a code another product already has, so
+ *  no two products share one. */
+export async function learnCode(_fs: Firestore, tenantId: string, productId: string, raw: string): Promise<{ ok: boolean; message: string }> {
   const code = String(raw || '').trim().slice(0, 64);
   if (!code || parseProductQr(code) !== null || code.includes('://')) return { ok: false, message: 'That isn’t a barcode that can be added to a product.' };
   if (!productId || productId.startsWith('test-')) return { ok: false, message: 'That item isn’t a product in your inventory.' };
-  try {
-    const owners = (await productsWithCode(fs, tenantId, code)).filter((p) => p.id !== productId);
-    if (owners.length) return { ok: false, message: `That code is already on ${owners[0].name || 'another product'}. Check the item, or change the code there first.` };
-    const ref = doc(fs, `tenants/${tenantId}/inventory`, productId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return { ok: false, message: 'That product isn’t in your inventory any more.' };
-    const item: any = snap.data() || {};
-    if (productMatch({ ...item, id: productId }, code)) return { ok: true, message: 'That code is already on this product.' };
-    await updateDoc(ref, String(item.barcode || '').trim() ? { barcodes: arrayUnion(code) } : { barcode: code });
-    return { ok: true, message: `Added ${code} to ${item.name || 'the product'}. It scans everywhere now.` };
-  } catch (e: any) {
-    return { ok: false, message: e?.message || 'The code didn’t save. Try again.' };
-  }
+  const r = await learnProductCode(tenantId, productId, code);
+  return r.ok ? { ok: true, message: String(r.message || 'Added. It scans everywhere now.') } : { ok: false, message: r.error };
 }
