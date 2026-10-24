@@ -265,7 +265,7 @@ const order = (x: any) => ({ tenantId: 't1', method: 'counter', customer: { name
   check('the checkout page reads each line’s variant for the pre-order tick, a download and the ship-by date, and sends the choices with the shipping quote and the promo code',
     /cartEntries\.every\(\(\[key\]\) => lineOf\(key\)\?\.digital === true\)/.test(cp) && /return l\?\.preorder\?\.open === true/.test(cp) && /items: cartEntries\.map\(\(\[key, qty\]\) => \(\{ \.\.\.parseCartKey\(key\), qty \}\)\)/.test(cp) && /selections: k\.selections/.test(cp));
   check('…and takes out of the cart what the shop doesn’t list any more, saying so (the cart badge used to count it)', /setDropped\(\(d\) => d \+ gone\.length\)/.test(cp) && /isn’t in the shop any more, so it was taken out/.test(cp));
-  const catSrc = src('src/app/api/retail/catalog/route.ts');
+  const catSrc = src('src/lib/shop-catalog.ts');
   check('the grid never says “From $0.00” and says “From” only when live variants cost different amounts', /const liveCs: any\[\] = vg \? vg\.choices\.filter\(\(c: any\) => c\.live !== false\) : \[\];/.test(catSrc) && /priceVaries: !!vg && new Set\(liveCs\.map/.test(catSrc));
   check('the sitemap leaves out only a variant a listing still sells (one whose listing was deleted has a page of its own)', /listedInShop\(item, listings\) \|\| soldInside\(item\)/.test(src('src/app/sitemap.ts')));
   check('Shop settings shows how each variant sells under its listing (its own wholesale price and weight, and a setting of its own put back to the listing’s)',

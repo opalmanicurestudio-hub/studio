@@ -245,7 +245,7 @@ const put = (id: string, x: any) => db.doc(`${T}/inventory/${id}`).set({ id, typ
   check('in the shop with nothing to scan: a listing with no code, and each variant with none under a listing with none', chk.noCode.map((x: any) => x.name).sort().join('|') === 'Cedar candle|Rose cuticle oil · Sheer gold', chk.noCode);
   check('no variant shows as a listing of its own (it’s sold inside its listing)', chk.counts.variantsListed === 0, chk.variantsListed);
   check('the counts come from the shop’s own rules (the shop’s grid and product page use the same ones)',
-    /listedInShop\(item, listings\)/.test(fs.readFileSync('src/app/api/retail/catalog/route.ts', 'utf8')) && /listingStock\(item, byId\)/.test(fs.readFileSync('src/app/api/retail/catalog/route.ts', 'utf8'))
+    /listedInShop\(item, listings\)/.test(fs.readFileSync('src/lib/shop-catalog.ts', 'utf8')) && /listingStock\(item, byId\)/.test(fs.readFileSync('src/lib/shop-catalog.ts', 'utf8'))
     && /choiceFor\(parent, item\.id\)/.test(fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8')) && /listingStock\(item, byId\)/.test(fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8')));
   check('the check points each variant at its listing, and its codes’ entries name the listing',
     (await get(`${T}/inventory/blush`)).parentId === 'oil' && (await get(`${T}/inventory/gold`)).parentId === 'oil' && (await get(`${T}/inventory/small`)).parentId === 'mask'

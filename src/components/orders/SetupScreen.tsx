@@ -22,6 +22,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     ['/retail-orders/policies', 'Policies', 'Cancelling, returns, restocking fees, refunds'],
     ['/retail-orders/designer', 'Shop designer', 'How your shop page looks'],
     ['/retail-orders/offers', 'Bundles and kits', 'Kits, build-your-own boxes, shoppable looks and bought-together picks'],
+    ['/retail-orders/discovery', 'Search and assistants', 'How you show up on Google and to AI assistants, and your Google Shopping feed'],
     ['/retail-orders/wholesale', 'Wholesale', 'Trade prices and access for businesses'],
   ] },
   { title: 'Customers', items: [

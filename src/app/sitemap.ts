@@ -1,6 +1,9 @@
 import type { MetadataRoute } from 'next';
 
 import { listedInShop, listingsOf, variantIdsOf } from '@/lib/variants';
+import { publicOffer } from '@/lib/retail-offers';
+import { liveOffers } from '@/lib/retail-offers-server';
+import { hasOwnPage, seoOrigin, shopFactsOf } from '@/lib/shop-discovery';
 
 // ─── /sitemap.xml ────────────────────────────────────────────────────────────
 // The list of pages worth looking at. robots.txt already points here, so
@@ -55,8 +58,9 @@ const when = (value: any): Date => {
 };
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
-  if (!origin) return [];
+  const base = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+  if (!base) return [];
+  const host = seoOrigin(null, base);
 
   const entries: MetadataRoute.Sitemap = [];
 
@@ -72,10 +76,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       // a crawler to an unfinished page.
       if (!String(tenant.businessName || tenant.name || '').trim()) continue;
 
+      const origin = host;
+      entries.push({ url: `${origin}/book/${tenantId}`, lastModified: when(tenant.updatedAt), changeFrequency: 'weekly', priority: 1 });
+      // A shop that can't take payments has no pages worth sending a crawler to yet. A paused one stays listed (its
+      // pages still open, showing it's paused), so a short pause doesn't cost its place in search.
+      if (!shopFactsOf(tenantId, tenant).listed) continue;
       entries.push(
         { url: `${origin}/shop/${tenantId}`, lastModified: when(tenant.updatedAt), changeFrequency: 'daily', priority: 0.9 },
         { url: `${origin}/shop/${tenantId}/catalog`, lastModified: when(tenant.updatedAt), changeFrequency: 'daily', priority: 0.7 },
-        { url: `${origin}/book/${tenantId}`, lastModified: when(tenant.updatedAt), changeFrequency: 'weekly', priority: 1 },
       );
 
       try {
@@ -95,17 +103,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         const parents = new Map<string, any>();
         if (away.length) (await db.getAll(...away.map((p: string) => db.doc(`tenants/${tenantId}/inventory/${p}`)))).forEach((snap: any, k: number) => { if (snap.exists) parents.set(away[k], { id: away[k], ...(snap.data() || {}) }); });
         const soldInside = (item: any) => { const p = String(item.parentId || ''); if (!p || p === item.id) return false; const l = byId.get(p) || parents.get(p); return !!l && variantIdsOf(l).includes(String(item.id)); };
+        const listed = new Map<string, any>();
         for (const iDoc of itemsSnap.docs) {
           const item: any = { id: iDoc.id, ...(iDoc.data() as any) };
           // The storefront's own rules decide, so a sitemap entry can never
           // promise a page the shop would refuse to sell from.
           if (!listedInShop(item, listings) || soldInside(item)) continue;
+          listed.set(String(iDoc.id), { inStock: true });
           entries.push({
             url: `${origin}/shop/${tenantId}/product/${iDoc.id}`,
             lastModified: when(item.updatedAt || item.lastModified),
             changeFrequency: 'weekly',
             priority: 0.8,
           });
+        }
+        // Kits, boxes and looks whose products are all listed (the same rule the shop shows them by).
+        for (const o of await liveOffers(db, tenantId).catch(() => [] as any[])) {
+          if (!hasOwnPage(o) || !publicOffer(o, listed)) continue;
+          entries.push({ url: `${origin}/shop/${tenantId}/offer/${encodeURIComponent(o.id)}`, lastModified: when(tenant.updatedAt), changeFrequency: 'weekly', priority: 0.7 });
         }
       } catch (e: any) {
         // One shop's products failing must not blank the whole sitemap.

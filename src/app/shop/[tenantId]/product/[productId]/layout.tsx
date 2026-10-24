@@ -3,10 +3,13 @@ import type { Metadata } from 'next';
 import React from 'react';
 
 import { listingPriceCents, isStorefrontVisible, type SellableItem } from '@/lib/retail-orders';
-import { asSold, buyable, choiceFor, listingBuyable, variantIdsOf, variantPriceCents } from '@/lib/variants';
+import { choiceFor, shopOptionGroups, variantIdsOf } from '@/lib/variants';
 import { publicDescription } from '@/lib/product-public';
-import { productJsonLd, seoDescription, seoTitle } from '@/lib/shop-seo';
+import { seoDescription, seoTitle } from '@/lib/shop-seo';
 import { faqJsonLd } from '@/lib/shop-seo';
+import { breadcrumbLd, productGroupLd, productLd, seoOrigin, shopFactsOf } from '@/lib/shop-discovery';
+import { cachedRating } from '@/lib/shop-public-server';
+import { tenantTimeZone } from '@/lib/tenant-time';
 
 // ─── /shop/[tenantId]/product/[productId]/layout.tsx ─────────────────────────
 // The product page itself is a client component — it has a cart, a quantity
@@ -63,6 +66,7 @@ async function load(tenantId: string, productId: string) {
     }
     return {
       shopName: String(tenant?.businessName || tenant?.name || '').trim(),
+      tenant, db,
       item, listing, variants,
       // The shop's product-page FAQ — already written, already shown to
       // customers, just not machine-readable until now.
@@ -70,7 +74,7 @@ async function load(tenantId: string, productId: string) {
       showFaq: tenant?.retailSettings?.pdpShowFaq !== false,
     };
   } catch {
-    return { shopName: '', item: null, listing: null, variants: new Map<string, any>(), faq: [], showFaq: false };
+    return { shopName: '', tenant: null as any, db: null as any, item: null, listing: null, variants: new Map<string, any>(), faq: [], showFaq: false };
   }
 }
 
@@ -78,10 +82,10 @@ export async function generateMetadata(
   { params }: { params: Promise<{ tenantId: string; productId: string }> },
 ): Promise<Metadata> {
   const { tenantId, productId } = await params;
-  const { shopName, item, listing } = await load(tenantId, productId);
+  const { shopName, tenant, item, listing } = await load(tenantId, productId);
   if (!item) return { title: shopName || 'Shop' };
 
-  const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+  const origin = seoOrigin(tenant);
   // A variant's own address is never indexed: its listing is the page (the shop opens it with the variant picked).
   if (listing) return { title: seoTitle({ shopName, productName: String(listing.name || ''), seoTitle: String(listing.seoTitle || '') }), robots: { index: false, follow: true }, ...(origin ? { alternates: { canonical: `${origin}/shop/${tenantId}/product/${listing.id}` } } : {}) };
   const url = origin ? `${origin}/shop/${tenantId}/product/${productId}` : undefined;
@@ -135,29 +139,25 @@ export default async function ProductSeoLayout({
   params: Promise<{ tenantId: string; productId: string }>;
 }) {
   const { tenantId, productId } = await params;
-  const { shopName, item, listing, variants, faq, showFaq } = await load(tenantId, productId);
+  const { shopName, tenant, db, item, listing, variants, faq, showFaq } = await load(tenantId, productId);
 
   if (!item || listing || !isStorefrontVisible(item as SellableItem)) return <>{children}</>;
-  // A listing with variants: in stock while any of them is, at its lowest price.
-  const vids = variantIdsOf(item);
-  const vPrices = vids.map((id) => variants.get(id)).filter((v: any) => v && v.status !== 'archived' && buyable(asSold(item, v))).map((v: any) => variantPriceCents(v, item));
-
-  const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
-  const images = Array.isArray(item.imageUrls) && item.imageUrls.length
-    ? item.imageUrls
-    : (item.imageUrl ? [item.imageUrl] : []);
-
-  const ld = productJsonLd({
-    shopName,
-    productName: String(item.name || ''),
-    description: publicDescription(item),
-    images,
-    priceCents: vPrices.length ? Math.min(...vPrices) : listingPriceCents(item as SellableItem),
-    inStock: vids.length ? listingBuyable(item, variants) : buyable(item),
-    sku: String(item.sku || ''),
-    url: origin ? `${origin}/shop/${tenantId}/product/${productId}` : undefined,
-    seoDescription: String(item.seoDescription || ''),
-  });
+  const origin = seoOrigin(tenant);
+  // No public address known (it's always set in production): no markup rather than relative links.
+  if (!origin) return <>{children}</>;
+  const url = `${origin}/shop/${tenantId}/product/${productId}`;
+  const images = (Array.isArray(item.imageUrls) && item.imageUrls.length ? item.imageUrls : (item.imageUrl ? [item.imageUrl] : [])).filter((u: string) => /^https:\/\//.test(String(u)));
+  const facts = shopFactsOf(tenantId, tenant);
+  const zone = tenantTimeZone(tenant);
+  // The rating the page shows, from the same reader (a rating in a result must match the one on the page), kept briefly.
+  const rating = db ? await cachedRating(db, tenantId, productId, item).catch(() => null) : null;
+  const common = { url, name: String(item.name || ''), description: String(item.seoDescription || '').trim() || publicDescription(item), images, zone, rating, brand: String(item.brand || '') };
+  // A listing in variants is a product group, each variant at its own price and stock (what the feed gives Google);
+  // a plain product is one product.
+  const byId = new Map<string, any>([[String(item.id), item], ...[...variants.entries()]]);
+  const vg: any = variantIdsOf(item).length ? shopOptionGroups(item, byId, { zone }).find((g: any) => g.variants) : null;
+  const ld = (vg && productGroupLd(facts, item, byId, vg.choices, common)) || productLd(facts, item, { ...common, priceCents: listingPriceCents(item as SellableItem) });
+  const crumbs = shopName ? breadcrumbLd([{ name: shopName, url: `${origin}/shop/${tenantId}` }, { name: 'Shop all', url: `${origin}/shop/${tenantId}/catalog` }, { name: String(item.name || 'Product'), url }]) : null;
 
   // Only marked up when the page actually SHOWS the questions — Google
   // requires the same Q&A to be visible, and marking up an invisible FAQ is
@@ -170,6 +170,7 @@ export default async function ProductSeoLayout({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLd(ld) }}
       />
+      {crumbs && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(crumbs) }} />}
       {faqLd && (
         <script
           type="application/ld+json"

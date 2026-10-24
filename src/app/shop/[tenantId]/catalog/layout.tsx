@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import React from 'react';
 
 import { clip, seoDescription } from '@/lib/shop-seo';
+import { seoOrigin } from '@/lib/shop-discovery';
 
 // ─── /shop/[tenantId]/catalog/layout.tsx ─────────────────────────────────────
 // The browse page is the one a search engine is most likely to send someone
@@ -41,9 +42,10 @@ async function loadShop(tenantId: string) {
     return {
       shopName: String(t?.businessName || t?.name || '').trim(),
       tagline: String(t?.retailSettings?.shopTagline || t?.tagline || '').trim(),
+      origin: seoOrigin(t),
     };
   } catch {
-    return { shopName: '', tagline: '' };
+    return { shopName: '', tagline: '', origin: seoOrigin(null) };
   }
 }
 
@@ -51,8 +53,7 @@ export async function generateMetadata(
   { params }: { params: Promise<{ tenantId: string }> },
 ): Promise<Metadata> {
   const { tenantId } = await params;
-  const { shopName, tagline } = await loadShop(tenantId);
-  const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+  const { shopName, tagline, origin } = await loadShop(tenantId);
   const url = origin ? `${origin}/shop/${tenantId}/catalog` : undefined;
 
   const shop = shopName || 'Shop';
@@ -84,8 +85,7 @@ export default async function CatalogSeoLayout({
   params: Promise<{ tenantId: string }>;
 }) {
   const { tenantId } = await params;
-  const { shopName } = await loadShop(tenantId);
-  const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+  const { shopName, origin } = await loadShop(tenantId);
   if (!shopName || !origin) return <>{children}</>;
 
   const ld = {

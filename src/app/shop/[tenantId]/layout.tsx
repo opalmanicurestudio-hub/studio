@@ -3,6 +3,8 @@ import React from 'react';
 
 import { sanitizeTheme, themeToCss } from '@/lib/shop-theme';
 import { seoDescription } from '@/lib/shop-seo';
+import { jsonLd } from '@/lib/json-ld';
+import { seoOrigin, shopFactsOf, shopJsonLd, type ShopFacts } from '@/lib/shop-discovery';
 
 // ─── /shop/[tenantId]/layout.tsx ──────────────────────────────────────────────
 // Every customer-facing page sits inside this, so a shop's brand is applied
@@ -37,7 +39,7 @@ async function loadShop(tenantId: string) {
   try {
     const db = getAdminDb();
     const snap = await db.collection('tenants').doc(tenantId).get();
-    if (!snap.exists) return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '' };
+    if (!snap.exists) return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null) };
     const data = snap.data() as any;
     const rs = data?.retailSettings || {};
     // The footer needs the shop's name and this read already has it — one
@@ -47,10 +49,14 @@ async function loadShop(tenantId: string) {
       shopName: String(data?.businessName || data?.name || '').trim(),
       tagline: String(rs.shopTagline || rs.shopBlurb || data?.tagline || '').trim(),
       logoUrl: String(rs.logoUrl || data?.logoUrl || '').trim(),
+      // What search engines may know about the shop as a business (lib/shop-discovery), from this same read.
+      facts: shopFactsOf(tenantId, data),
+      // The shop's own domain when it has one, the same address customers' links use.
+      origin: seoOrigin(data),
     };
   } catch {
     // A theme is decoration; never let it stop a shop from selling.
-    return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '' };
+    return { theme: sanitizeTheme(null), shopName: '', tagline: '', logoUrl: '', facts: null as ShopFacts | null, origin: seoOrigin(null) };
   }
 }
 
@@ -58,8 +64,7 @@ export async function generateMetadata(
   { params }: { params: Promise<{ tenantId: string }> },
 ): Promise<Metadata> {
   const { tenantId } = await params;
-  const { shopName, tagline, logoUrl } = await loadShop(tenantId);
-  const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+  const { shopName, tagline, logoUrl, origin } = await loadShop(tenantId);
   const url = origin ? `${origin}/shop/${tenantId}` : undefined;
   const title = shopName || 'Shop';
   const description = seoDescription({ shopName: title, description: tagline });
@@ -87,7 +92,8 @@ export default async function ShopLayout({
   params: Promise<{ tenantId: string }>;
 }) {
   const { tenantId } = await params;
-  const { theme, shopName } = await loadShop(tenantId);
+  const { theme, shopName, facts, origin } = await loadShop(tenantId);
+  const ld = facts && origin && shopName ? shopJsonLd(facts, origin) : [];
 
   return (
     <div
@@ -101,6 +107,7 @@ export default async function ShopLayout({
       ) as React.CSSProperties) }}
       className="cf-shop min-h-dvh flex flex-col"
     >
+      {ld.map((x, i) => <script key={i} type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(x) }} />)}
       <div className="flex-1">{children}</div>
       <footer
         className="print:hidden border-t px-4 pt-6 text-center"

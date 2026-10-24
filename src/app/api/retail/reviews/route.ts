@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { variantIdsOf } from '@/lib/variants';
+import { publishedReviews } from '@/lib/shop-public-server';
 
 // ─── /api/retail/reviews ──────────────────────────────────────────────────────
 // GET  ?tenantId=&productId=      → { average, count, reviews: [...] }
@@ -56,39 +56,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const db = getAdminDb();
-    // A listing's reviews include its variants' (each review notes the listing its variant was bought from).
-    const col = db.collection(`tenants/${tenantId}/retailReviews`);
-    // Reviews written before that are found by the variants the listing sells now.
-    const lsnap = await db.doc(`tenants/${tenantId}/inventory/${productId}`).get().catch(() => null);
-    const vids = lsnap?.exists ? variantIdsOf({ ...(lsnap.data() || {}), id: productId }).slice(0, 60) : [];
-    const asks = [
-      col.where('productId', '==', productId).where('status', '==', 'published').limit(100).get(),
-      col.where('listingId', '==', productId).where('status', '==', 'published').limit(100).get(),
-      ...[0, 30].filter((k) => vids.length > k).map((k) => col.where('productId', 'in', vids.slice(k, k + 30)).where('status', '==', 'published').limit(100).get()),
-    ];
-    // One query failing (a missing index, say) leaves the others' reviews showing.
-    const docs = [...new Map((await Promise.all(asks.map((a: any) => Promise.resolve(a).catch(() => ({ docs: [] }))))).flatMap((x: any) => x.docs).map((d: any) => [d.id, d])).values()];
-
-    const reviews = docs
-      .map((d: any) => {
-        const r = d.data() as any;
-        return {
-          id: d.id,
-          rating: Math.max(1, Math.min(5, Number(r.rating) || 0)),
-          title: String(r.title || ''),
-          body: String(r.body || ''),
-          author: String(r.author || 'Verified buyer'),
-          at: String(r.createdAt || ''),
-        };
-      })
-      .sort((a: any, b: any) => String(b.at).localeCompare(String(a.at)))
-      .slice(0, 30);
-
-    const count = reviews.length;
-    const average = count
-      ? Math.round((reviews.reduce((sum: number, r: any) => sum + r.rating, 0) / count) * 10) / 10
-      : 0;
-
+    const { average, count, reviews } = await publishedReviews(db, tenantId, productId);
     return NextResponse.json({ average, count, reviews });
   } catch (e: any) {
     // A review outage must never take a product page down with it.
