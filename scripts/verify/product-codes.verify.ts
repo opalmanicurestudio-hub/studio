@@ -133,6 +133,12 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   await db.doc(`${T}/inventory/gel-copy`).set({ id: 'gel-copy', name: 'Gel polish', sku: 'GEL-01', status: 'archived' });
   res = await resolveOrderScan(web as any, 't1', [line()] as any, 'clarityflow://product/gel-copy');
   check('…an archived duplicate’s label too (its units still carry it)', res.kind === 'line' && res.hint.lineId === 'A' && res.via === 'duplicate', res);
+  // The shop changed supplier: the old one is archived, with the same name and its own barcode. Its old bottle isn't the
+  // order's item (the review found it counted by its name alone).
+  await db.doc(`${T}/inventory/gel-old`).set({ id: 'gel-old', name: 'Gel polish', barcode: '036000291452', status: 'archived' });
+  res = await resolveOrderScan(web as any, 't1', [line()] as any, '036000291452');
+  check('an archived product with the same name but its own barcode isn’t counted as the order’s item, and it says it’s archived',
+    res.kind === 'elsewhere' && res.archived === true && /That’s Gel polish, an archived product, which isn’t on this order\./.test(scanMissMessage(res, '036000291452', [line()] as any)), res);
 
   // Not on the order.
   await db.doc(`${T}/inventory/top`).set({ id: 'top', name: 'Top coat', sku: 'TOP-1' });

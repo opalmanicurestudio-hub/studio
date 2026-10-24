@@ -17,7 +17,7 @@ export type ScanResolution =
   | { kind: 'snapshot' }                                                   // the line's own codes match: nothing to work out
   | { kind: 'line'; hint: ScanHint; via: 'product' | 'parent' | 'duplicate' }
   | { kind: 'choose'; productName: string; lineNames: string[] }           // a listing's code, and the order has several of its variants
-  | { kind: 'elsewhere'; productName: string }                             // a product in inventory, not on this order
+  | { kind: 'elsewhere'; productName: string; archived?: boolean }        // a product in inventory, not on this order
   | { kind: 'unknown' };                                                   // no product has this code
 
 const CLOSED = ['shorted', 'refunded', 'backordered'];
@@ -103,15 +103,17 @@ export async function resolveOrderScan(fs: Firestore, tenantId: string, lines: O
       if (mine.length === 1) return { kind: 'line', hint: { lineId: mine[0].lineId, identity: identityOf(items.get(lineProductId(mine[0]))) }, via: 'parent' };
       if (mine.length > 1) return { kind: 'choose', productName: String(p.name || 'This product'), lineNames: mine.map((l) => [l.name, l.optionsLabel].filter(Boolean).join(' · ')) };
     }
-    // A label printed from a duplicate of a product on the order: the same codes, or the same name.
+    // A label printed from a duplicate of a product on the order: the same codes, or the same name. An archived product
+    // found by its barcode goes by the codes only: one with the same name is often the product it was replaced by (a new
+    // supplier's), and its old stock isn't what the order is for.
     const codes = unitCodes(p);
-    const name = String(p.name || '').trim().toLowerCase();
+    const name = p.status !== 'archived' || qr !== null ? String(p.name || '').trim().toLowerCase() : '';
     const same = lines.find((l) => isOpen(l, packCheck) && (
       codes.some((c) => lineMatchesScan(l, c) || unitCodes(items.get(lineProductId(l))).some((x) => codesMatch(x, c)))
       || (!!name && String(l.name || '').replace(/\s*\(test\)$/i, '').trim().toLowerCase() === name)));
     if (same) return { kind: 'line', hint: { lineId: same.lineId, identity: identityOf(items.get(lineProductId(same))) }, via: 'duplicate' };
   }
-  if (owners.length) return { kind: 'elsewhere', productName: String((scanned[0] || owners[0]).name || 'Another product') };
+  if (owners.length) return { kind: 'elsewhere', productName: String((scanned[0] || owners[0]).name || 'Another product'), ...(scanned.length ? {} : { archived: true }) };
   return { kind: 'unknown' };
 }
 
@@ -121,7 +123,7 @@ export function scanMissMessage(r: ScanResolution, raw: string, lines: OrderLine
   const open = lines.filter((l) => !CLOSED.includes(l.status)).map((l) => l.name);
   const needs = open.length ? ` This order needs ${open.slice(0, 3).join(', ')}${open.length > 3 ? ` and ${open.length - 3} more` : ''}.` : '';
   if (r.kind === 'choose') return `${r.productName} comes in variants, and this order has ${r.lineNames.length} of them. Scan the variant’s own code, or tap it below.`;
-  if (r.kind === 'elsewhere') return `That’s ${r.productName}, which isn’t on this order.${needs}`;
+  if (r.kind === 'elsewhere') return `That’s ${r.productName}${r.archived ? ', an archived product,' : ','} which isn’t on this order.${needs}`;
   return `No product has the code ${code} yet. If it’s one of these items, tap it below to count it, or add the code to it so it scans next time.`;
 }
 

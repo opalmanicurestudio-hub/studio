@@ -115,6 +115,8 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   }, [order]);
 
   const handleItemChange = (productId: string, field: 'quantityReceived' | 'quantityDamaged' | 'expirationDate' | 'lot', value: number | Date | string | undefined) => {
+    // A count typed in is a count: a scan after it adds to it (only a line no one has counted yet starts from zero).
+    if (field === 'quantityReceived') scannedLines.current.add(productId);
     setReceivedItems(prev => prev.map(item => {
         if (item.productId === productId) {
             const updatedItem = { ...item, [field]: value };
