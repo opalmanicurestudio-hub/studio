@@ -654,7 +654,7 @@ export default function CheckoutPage() {
 
           <div className={cn('space-y-2', digitalOnlyCart && 'hidden')}>
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How would you like it?</Label>
-            <div className="grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
+            <div className={cn('grid grid-cols-2 gap-2', [shop.pickupOffered !== false, shop.curbsideOffered, shop.shippingOffered].filter(Boolean).length >= 3 && 'min-[380px]:grid-cols-3')}>
               {([
                 { id: 'counter' as Method, label: 'Pickup', icon: Store, show: shop.pickupOffered !== false },
                 { id: 'curbside' as Method, label: shop.curbsideMode === 'drive_thru' ? 'Drive-Thru' : 'Curbside', icon: Package, show: shop.curbsideOffered },

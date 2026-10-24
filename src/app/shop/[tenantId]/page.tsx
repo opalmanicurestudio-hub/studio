@@ -1,21 +1,15 @@
 'use client';
 
-import { Loader, Lock, Minus, Package, Plus, Store, Truck, X } from 'lucide-react';
-import Image from 'next/image';
-import Link from 'next/link';
+import { Loader, Package, Store } from 'lucide-react';
 import { useParams, useSearchParams } from 'next/navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import {
   addToCart, cartExpiresAt, cartKeyFor, clearCart, parseCartKey, readCart,
@@ -23,7 +17,8 @@ import {
 } from '@/lib/shop-cart';
 import { shopLine } from '@/lib/variants';
 import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
-import { ShopHeader } from '@/components/shop/ShopChrome';
+import { ShopHeader, useShopSite } from '@/components/shop/ShopChrome';
+import { HomeCatalog, HomeIntro, spotlightPick, type HomeBag } from '@/components/shop/home/HomeLayouts';
 import { cn } from '@/lib/utils';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
 import { OfferStrip, type ShopOffer } from '@/components/shop/offers';
@@ -68,6 +63,7 @@ interface ShopInfo {
   freeShippingOverDollars: number;
   shippingOffered: boolean;
   curbsideOffered: boolean;
+  pickupOffered?: boolean;
   curbsideMode?: 'spots' | 'drive_thru' | 'freeform';
   curbsideSpots?: string[];
   layout?: 'grid' | 'list' | 'showcase';
@@ -94,7 +90,7 @@ function GiftCardShopTile({ tenantId, gift, wide }: { tenantId: string; gift: an
   useEffect(() => { const el = ref.current; if (!el) return; const f = () => setW(Math.max(110, Math.min(200, Math.floor(el.clientWidth * 0.72)))); f(); const ro = new ResizeObserver(f); ro.observe(el); return () => ro.disconnect(); }, []);
   const h = Math.round(w * 265 / 420);
   return (
-    <a href={`/gift/${encodeURIComponent(tenantId)}`} className={cn('group flex flex-col justify-between gap-4 overflow-hidden rounded-3xl border-2 bg-white p-4 transition-all hover:shadow-lg', wide && 'sm:flex-row sm:items-center')} style={{ background: 'linear-gradient(160deg,#fff,#f7f4fb)' }}>
+    <a href={`/gift/${encodeURIComponent(tenantId)}`} className={cn('group flex flex-col justify-between gap-4 overflow-hidden rounded-3xl border-2 p-4 transition-all hover:shadow-lg', wide && 'sm:flex-row sm:items-center')} style={{ background: 'var(--shop-card)', color: 'var(--shop-ink)' }}>
       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Gift cards</p>
       <div ref={ref} className="w-full"><div className="relative mx-auto" style={{ width: Math.round(w * 1.24), height: h + Math.round(h * 0.45) }}>
         {b && <div className="absolute left-0 top-0 -rotate-6 transition-transform group-hover:-rotate-[8deg]"><GiftCardFace design={b} brand={gift.brand} amount={`$${from}`} name="For you" width={w} /></div>}
@@ -282,6 +278,29 @@ export default function ShopPage() {
 
 
 
+  const site = useShopSite();
+  const layout = site?.layout || 'atelier';
+  const toCatalog = () => document.getElementById('shop-catalog')?.scrollIntoView({ behavior: 'smooth' });
+  // A new object each render; the catalog's sorting only follows what it needs (wholesale prices).
+  const bag: HomeBag = {
+    tenantId, wholesale,
+    priceOf: (p) => unitPrice(p as ShopProduct),
+    qtyOf: (p) => cart[p.id] ?? 0,
+    onAdd: (p) => setQty(p as ShopProduct, wholesale && p.wholesaleMinQty ? p.wholesaleMinQty : 1),
+    // Below a wholesale minimum the line comes out of the bag rather than sitting under it.
+    onQty: (p, q) => setQty(p as ShopProduct, wholesale && p.wholesaleMinQty && q < p.wholesaleMinQty && q < (cart[p.id] ?? 0) ? 0 : q),
+  };
+  const chipList = gift ? [...categories.slice(0, 1), '__gift', ...categories.slice(1)] : categories;
+  // The owner's own hero (page designer) takes the place of the layout's welcome.
+  const ownHero = (shop?.pageConfig?.sections || []).some((s: any) => s.type === 'hero' && s.enabled !== false);
+  const spotlight = layout === 'spotlight' && !ownHero ? spotlightPick(products) : null;
+  const delivery = !shop ? null
+    : shop.shippingOffered && shop.freeShippingOverDollars > 0 ? `Free delivery over $${shop.freeShippingOverDollars}`
+      : shop.shippingOffered ? 'We deliver to your door'
+        : shop.curbsideOffered ? 'Order ahead, pick up curbside'
+          : shop.pickupOffered !== false ? 'Order ahead, pick up in store'
+            : null;
+
   if (loading && !shop) {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center gap-4 bg-muted/5">
@@ -350,151 +369,45 @@ export default function ShopPage() {
         )}
       </div>
 
+      {!ownHero && (
+        <HomeIntro
+          layout={layout}
+          name={shop.name}
+          tagline={site?.tagline || shop.tagline || ''}
+          products={products}
+          categories={categories}
+          bag={bag}
+          dark={!!site?.dark}
+          delivery={delivery}
+          hasGift={!!gift}
+          onShop={toCatalog}
+          onPickCategory={(c) => { setCategory(c); toCatalog(); }}
+        />
+      )}
+
       <ShopSectionsRenderer
         config={shop.pageConfig}
         products={products.map((p) => ({
           id: p.id, name: p.name, priceCents: unitPrice(p), imageUrls: p.imageUrls, inStock: p.inStock,
         }))}
         tenantId={tenantId}
-        onShopNow={() => document.getElementById('shop-catalog')?.scrollIntoView({ behavior: 'smooth' })}
+        onShopNow={toCatalog}
       />
 
       <OfferStrip tenantId={tenantId} offers={offers} products={products} />
 
-      <div id="shop-catalog" className="max-w-5xl mx-auto px-4 pt-6 pb-2 flex gap-2 overflow-x-auto scroll-mt-24">
-        {(gift ? [...categories.slice(0, 1), '__gift', ...categories.slice(1)] : categories).map((c) => (
-          <button
-            key={c}
-            type="button"
-            aria-pressed={category === c}
-            onClick={() => setCategory(c)}
-            className={cn(
-              'shrink-0 h-9 px-4 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-all',
-              category === c ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40'
-            )}
-          >
-            {c === 'all' ? 'Everything' : c === '__gift' ? 'Gift cards' : c}
-          </button>
-        ))}
-      </div>
-
-      <main className={cn(
-        'max-w-5xl mx-auto px-4 py-4 gap-4',
-        (shop.layout || 'grid') === 'grid' && 'grid grid-cols-2 md:grid-cols-3',
-        shop.layout === 'showcase' && 'grid grid-cols-1 md:grid-cols-2',
-        shop.layout === 'list' && 'flex flex-col'
-      )}>
-        {gift && (category === 'all' || category === '__gift') && <GiftCardShopTile tenantId={tenantId} gift={gift} wide={shop.layout === 'list'} />}
-        {shown.length === 0 && category !== '__gift' && (
-          <div className="col-span-full text-center py-24 space-y-3">
-            <Package className="w-10 h-10 mx-auto opacity-20" />
-            <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Nothing here yet</p>
-          </div>
-        )}
-        {shown.map((p) => {
-          const inCart = cart[p.id] ?? 0;
-          const price = unitPrice(p);
-          const showStrike = wholesale && p.wholesalePriceCents != null && p.wholesalePriceCents < p.priceCents;
-          const productHref = `/shop/${tenantId}/product/${p.id}`;
-          if (shop.layout === 'list') {
-            return (
-              <Card key={p.id} className={cn('border-2 rounded-3xl overflow-hidden bg-white transition-all', !p.inStock && 'opacity-60')}>
-                <CardContent className="p-3 flex items-center gap-4">
-                  <Link href={productHref} className="w-20 h-20 rounded-2xl bg-muted/10 relative overflow-hidden shrink-0">
-                    {p.imageUrls[0] ? (
-                      <Image src={p.imageUrls[0]} alt={p.name} fill className="object-cover" />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center"><Package className="w-6 h-6 opacity-15" /></div>
-                    )}
-                  </Link>
-                  <Link href={productHref} className="min-w-0 flex-1 space-y-0.5">
-                    <p className="font-black uppercase tracking-tight text-xs leading-tight">{p.name}</p>
-                    {p.description && <p className="text-[10px] font-bold text-muted-foreground line-clamp-1">{p.description}</p>}
-                    <div className="flex items-baseline gap-1.5">
-                      <p className="font-black text-sm text-primary">{p.priceVaries ? 'From ' : ''}{fmt(price)}</p>
-                      {showStrike && <p className="text-[9px] font-bold text-muted-foreground line-through">{fmt(p.priceCents)}</p>}
-                      {p.lowStock && p.inStock && <span className="text-[8px] font-black uppercase tracking-widest text-amber-600">Almost gone</span>}
-                      {!p.inStock && <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Sold out</span>}
-                    </div>
-                  </Link>
-                  <div className="shrink-0">
-                    {inCart === 0 ? (
-                      <Button disabled={!p.inStock}
-                        onClick={() => { if ((p as any).optionGroups?.length > 0) { window.location.href = `/shop/${tenantId}/product/${p.id}`; return; } setQty(p, wholesale && p.wholesaleMinQty ? p.wholesaleMinQty : 1); }}
-                        className="h-10 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest">
-                        Add
-                      </Button>
-                    ) : (
-                      <div className="flex items-center gap-1 rounded-xl border-2 p-1">
-                        <Button variant="ghost" size="icon" aria-label={`Decrease quantity of ${p.name}`} className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart - 1)}><Minus className="h-3 w-3" aria-hidden="true" /></Button>
-                        <span className="w-6 text-center font-black font-mono text-sm">{inCart}</span>
-                        <Button variant="ghost" size="icon" aria-label={`Increase quantity of ${p.name}`} className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart + 1)}><Plus className="h-3 w-3" aria-hidden="true" /></Button>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          }
-          return (
-            <Card key={p.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white transition-all hover:border-primary/30', !p.inStock && 'opacity-60')}>
-              <Link href={productHref} className={cn(shop.layout === 'showcase' ? 'aspect-[4/3]' : 'aspect-square', 'bg-muted/10 relative block')}>
-                {p.imageUrls[0] ? (
-                  <Image src={p.imageUrls[0]} alt={p.name} fill className="object-cover" />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Package className="w-10 h-10 opacity-15" />
-                  </div>
-                )}
-                {p.lowStock && p.inStock && (
-                  <Badge className="absolute top-3 left-3 bg-amber-50 text-amber-700 border-2 border-amber-100 font-black text-[8px] uppercase tracking-widest">
-                    Almost gone
-                  </Badge>
-                )}
-                {!p.inStock && (
-                  <Badge className="absolute top-3 left-3 bg-slate-100 text-slate-600 border-2 border-slate-200 font-black text-[8px] uppercase tracking-widest">
-                    Sold out
-                  </Badge>
-                )}
-              </Link>
-              <CardContent className="p-4 space-y-3">
-                <Link href={productHref} className="space-y-1 block">
-                  <p className={cn('font-black uppercase tracking-tight leading-tight line-clamp-2', shop.layout === 'showcase' ? 'text-sm' : 'text-xs')}>{p.name}</p>
-                  {shop.layout === 'showcase' && p.description && (
-                    <p className="text-[10px] font-bold text-muted-foreground line-clamp-2">{p.description}</p>
-                  )}
-                  <div className="flex items-baseline gap-1.5">
-                    <p className="font-black text-base text-primary">{p.priceVaries ? 'From ' : ''}{fmt(price)}</p>
-                    {showStrike && <p className="text-[10px] font-bold text-muted-foreground line-through">{fmt(p.priceCents)}</p>}
-                  </div>
-                  {wholesale && p.wholesaleMinQty ? (
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Min {p.wholesaleMinQty}</p>
-                  ) : null}
-                </Link>
-                {inCart === 0 ? (
-                  <Button
-                    disabled={!p.inStock}
-                    onClick={() => { if ((p as any).optionGroups?.length > 0) { window.location.href = `/shop/${tenantId}/product/${p.id}`; return; } setQty(p, wholesale && p.wholesaleMinQty ? p.wholesaleMinQty : 1); }}
-                    className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest"
-                  >
-                    Add to cart
-                  </Button>
-                ) : (
-                  <div className="flex items-center justify-between rounded-xl border-2 p-1">
-                    <Button variant="ghost" size="icon" aria-label={`Decrease quantity of ${p.name}`} className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart - 1)}>
-                      <Minus className="h-3 w-3" aria-hidden="true" />
-                    </Button>
-                    <span className="font-black font-mono text-sm">{inCart}</span>
-                    <Button variant="ghost" size="icon" aria-label={`Increase quantity of ${p.name}`} className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart + 1)}>
-                      <Plus className="h-3 w-3" aria-hidden="true" />
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
-      </main>
+      <HomeCatalog
+        layout={layout}
+        cardStyle={shop.layout || 'grid'}
+        products={shown}
+        categories={chipList}
+        category={category}
+        setCategory={setCategory}
+        giftTile={gift ? <GiftCardShopTile tenantId={tenantId} gift={gift} wide={shop.layout === 'list'} /> : null}
+        bag={bag}
+        dark={!!site?.dark}
+        skipId={spotlight?.id || null}
+      />
 
       <Dialog open={unlockOpen} onOpenChange={setUnlockOpen}>
         <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 p-8">

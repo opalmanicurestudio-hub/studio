@@ -699,14 +699,16 @@ body { background-image: none; }
   overflow-wrap: anywhere;
 }
 
-/* Grid tracks must be allowed to shrink; 1fr alone will not. */
-[data-shop-theme] .grid {
+/* Grid tracks must be allowed to shrink; 1fr alone will not. Kept at one class's weight (:where) so a wider screen's
+   columns (md:grid-cols-3, lg:grid-cols-[...]) still take over, as written. This relies on Tailwind printing its screen-size
+   variants last in the file (its default); a plain arbitrary grid-cols-[...] still yields to this rule. */
+:where([data-shop-theme]) .grid {
   grid-template-columns: repeat(var(--shop-cols, 1), minmax(0, 1fr));
 }
-[data-shop-theme] .grid-cols-2 { --shop-cols: 2; }
-[data-shop-theme] .grid-cols-3 { --shop-cols: 3; }
-[data-shop-theme] .grid-cols-4 { --shop-cols: 4; }
-[data-shop-theme] .grid-cols-1 { --shop-cols: 1; }
+:where([data-shop-theme]) .grid-cols-2 { --shop-cols: 2; }
+:where([data-shop-theme]) .grid-cols-3 { --shop-cols: 3; }
+:where([data-shop-theme]) .grid-cols-4 { --shop-cols: 4; }
+:where([data-shop-theme]) .grid-cols-1 { --shop-cols: 1; }
 
 /* Roomy spacing is lovely at 800px and wasteful at 375px — cap it on phones. */
 @media (max-width: 480px) {
@@ -715,8 +717,8 @@ body { background-image: none; }
     --shop-gap: min(var(--shop-gap), 0.75rem);
     --shop-section: min(var(--shop-section), 1.75rem);
   }
-  [data-shop-theme] .grid-cols-3,
-  [data-shop-theme] .grid-cols-4 { --shop-cols: 2; }
+  :where([data-shop-theme]) .grid-cols-3,
+  :where([data-shop-theme]) .grid-cols-4 { --shop-cols: 2; }
 }
 
 /* Staff screens get the same protection without the theming. */

@@ -136,7 +136,7 @@ export function OfferStrip({ tenantId, offers, products }: { tenantId: string; o
   const shown = offers.filter((o) => (o.kind === 'set' && o.kit) || o.kind === 'box' || o.kind === 'look');
   if (!shown.length) return null;
   return (
-    <section aria-labelledby="offers-heading" className="mx-auto max-w-5xl px-4 pt-8">
+    <section aria-labelledby="offers-heading" className="mx-auto max-w-6xl px-4 pt-8">
       <h2 id="offers-heading" className="text-[22px] font-light tracking-[-0.02em]">Kits, boxes and looks</h2>
       <div className="-mx-4 mt-3 flex snap-x gap-3 overflow-x-auto px-4 pb-2">
         {shown.map((o) => {

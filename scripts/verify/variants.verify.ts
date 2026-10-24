@@ -150,7 +150,7 @@ const url = (path: string, q: Record<string, string>) => ({ nextUrl: { searchPar
   check('the product page shows the picked variant’s price, stock and sold out, and the price it shows is the one charged (one shared sum)',
     /const line = useMemo\(\(\) => \(product \? shopLine\(product, selections, wholesale\) : null\)/.test(page) && /firstChoices\(data\.product\.optionGroups \|\| \[\]\)/.test(page) && / · sold out/.test(page.replace(/\\u00b7/g, '·')) && /window\.location\.replace\(/.test(page) && !/optionDeltaCents/.test(page));
   check('the cart and checkout pages price each line the same way', /shopLine\(p, selections, wholesale\)/.test(src('src/app/shop/[tenantId]/page.tsx')) && /shopLine\(p, selections, wholesale\)/.test(src('src/app/shop/[tenantId]/checkout/page.tsx')) && !/optionDelta\(/.test(src('src/app/shop/[tenantId]/checkout/page.tsx')));
-  check('the grids say “From” when a listing’s variants cost different amounts', /p\.priceVaries \? 'From ' : ''/.test(src('src/app/shop/[tenantId]/page.tsx')) && /p\.priceVaries \? 'From ' : ''/.test(src('src/app/shop/[tenantId]/catalog/page.tsx')));
+  check('the grids say “From” when a listing’s variants cost different amounts', /p\.priceVaries \? 'From ' : ''/.test(src('src/components/shop/home/HomeLayouts.tsx')) && /<HomeCatalog/.test(src('src/app/shop/[tenantId]/page.tsx')) && /p\.priceVaries \? 'From ' : ''/.test(src('src/app/shop/[tenantId]/catalog/page.tsx')));
   check('a variant’s own address isn’t indexed and points at its listing, and the sitemap lists only listings',
     /robots: \{ index: false, follow: true \}/.test(src('src/app/shop/[tenantId]/product/[productId]/layout.tsx')) && /listedInShop\(item, listings\) \|\| soldInside\(item\)/.test(src('src/app/sitemap.ts')));
 

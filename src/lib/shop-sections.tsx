@@ -388,7 +388,7 @@ export function ShopSectionsRenderer({
   const sections = (config?.sections || []).filter((s) => s.enabled !== false);
   if (sections.length === 0) return null;
   return (
-    <div className="max-w-5xl mx-auto px-4 pt-6 space-y-5">
+    <div className="max-w-6xl mx-auto px-4 pt-6 space-y-5">
       {sections.map((s) => (
         <SectionBoundary key={s.id}>
           {s.type === 'hero' && <HeroSection s={s} onShopNow={onShopNow} />}
