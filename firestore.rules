@@ -667,17 +667,16 @@ service cloud.firestore {
       allow read: if isTeam(tenantId);
       allow write: if false;
     }
-    // SHOP ORDERS. The team runs fulfilment from the browser (claim, scan, pack, shelf, hand over, ship, short, return), so
-    // the team can update orders, but never the money, identity or verification fields: when the sale went into the books
-    // and its receipt went out, who an online tip was shared with, part refunds and the shipping refunded (all written by
-    // the server), what was charged and refunded,
-    // the order total, the customer's name, email, mobile and texts setting (changed only through the server, by
-    // managers and the front desk, api/retail/customer-contact, or by the customer with a code, api/retail/self-serve),
-    // what a new address cost, the customer's request to change it and their payments for it (lib/address-pay), the pickup code, the payment ids, the risk check and holds set by the
-    // payment step, swap questions (all written by the server), and which order a backorder or replacement was made from.
-    // Shorts, cancels and returns change the refund owed from the browser; the money itself only moves on the server,
-    // where it's capped at what the card paid and the person's refund limit. Only managers release a hold or mark a refund
-    // as done by hand (with the tax and tip it gave back). Orders are only ever created on the server.
+    // SHOP ORDERS. Every step of an order (claim, scan, pack, ready, hand over, ship, short, cancel, return) runs on the
+    // server (api/retail/fulfil), so the team updates orders from the browser only for small things (a shelf spot, a
+    // note it was seen), never the money, identity or verification fields: when the sale went into the books and its
+    // receipt went out, who an online tip was shared with, part refunds and the shipping refunded, what was charged and
+    // refunded, the order total, the customer's name, email, mobile and texts setting (changed only through the server,
+    // by managers and the front desk, api/retail/customer-contact, or by the customer with a code, api/retail/self-serve),
+    // what a new address cost, the customer's request to change it and their payments for it (lib/address-pay), the
+    // pickup code, the payment ids, the risk check and holds set by the payment step, swap questions, and which order a
+    // backorder or replacement was made from. Only managers release a hold or mark a refund as done by hand (with the tax
+    // and tip it gave back). Orders are only ever created on the server.
     function orderLockedKeys() {
       return ['chargedCents', 'totalCents', 'subtotalCents', 'taxCents', 'shippingCents', 'tipCents', 'qrToken', 'customerEmail', 'customerPhone', 'customerName', 'textsOff', 'clientId',
               'orderNumber', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq', 'lastStripeRefundId',
