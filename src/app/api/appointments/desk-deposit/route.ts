@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
     // One charge for the deposit AND any balance collected with it; the ledger line is split afterwards.
     const r = await internalPost(internalOrigin(null, req.nextUrl.origin), '/api/stripe/charge-card', {
       tenantId, clientId: ap.clientId, amountCents: cents + bal, description: bal ? `Deposit — ${ap.serviceName || 'next visit'} + ${money(bal)} balance` : `Deposit — ${ap.serviceName || 'next visit'}`, category: 'Retainers',
-      appointmentId, reason: 'Front desk deposit (card on file)', mode: 'auto', kind: 'deposit', idempotencyKey: lock.key }, { retries: 0 }); // never retry a charge
+      appointmentId, reason: 'Front desk deposit (card on file)', mode: 'auto', kind: 'deposit', idempotencyKey: lock.key, onLost: 'deposit' }, { retries: 0 }); // never retry a charge
     if (!r.ok && (r.transportError || !r.status || r.status >= 500)) {
       // No answer from the card processor: the charge may have gone through. The next attempt asks about this one.
       await aRef.set({ depositChargeLock: { at: new Date(startedAt).toISOString(), by: auth.actor.name || 'Front desk', key: lock.key, unknown: true } }, { merge: true }).catch(() => {});

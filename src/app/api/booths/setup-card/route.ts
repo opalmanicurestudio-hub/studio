@@ -47,11 +47,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
-import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
+import { incidentalOpened, recordRenterIncidental, releaseRenterIncidental } from '@/lib/renter-incidentals';
 import { requireCan, requireRole } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
+import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 
 // Ids named after what they record, so a second run of the same step finds it done.
 const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
@@ -59,7 +60,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
 const CLAIM_MS = 2 * 60000;
 const freshClaim = (at: any) => !!at && Date.now() - (Date.parse(String(at)) || 0) < CLAIM_MS;
 // Stripe said no (nothing moved) — as against no answer at all (it may have gone through).
-const stripeRefused = (e: any) => ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
+const stripeRefused = (e: any) => saidNo(e);
 const bearer = (req: NextRequest) => /^bearer\s+\S/i.test(req.headers.get('authorization') || '');
 
 // ── The owner's card link ────────────────────────────────────────────────────
@@ -129,19 +130,6 @@ function ownBase(req: NextRequest, tenant: any, returnUrl: unknown, tenantId: st
   } catch { return fallback; }
 }
 const isCardPage = (base: string, tenantId: string) => { try { return new URL(base).pathname.replace(/\/+$/, '') === `/card-setup/${tenantId}`; } catch { return false; } };
-
-
-// Exact Stripe fee via the charge's balance transaction. Fail-open.
-async function stripeFeeFor(paymentIntentId: string | null): Promise<{ feeCents: number; chargeId: string | null }> {
-  try {
-    if (!paymentIntentId || !process.env.STRIPE_SECRET_KEY) return { feeCents: 0, chargeId: null };
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    const pi: any = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
-    const charge: any = pi?.latest_charge;
-    const bt: any = charge?.balance_transaction;
-    return { feeCents: Number(bt?.fee) || 0, chargeId: charge?.id || null };
-  } catch { return { feeCents: 0, chargeId: null }; }
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -313,7 +301,9 @@ export async function GET(req: NextRequest) {
 // The business's own team only (signed in, allowed to take payments). Once per attempt: the screen names each attempt
 // (key; the same charge asked again keeps it). Two taps, or a retry after a lost answer, charge once and record once:
 // the attempt is claimed in one step, charged under one key, and its lines in the books are named after it. No answer
-// from Stripe leaves it claimed: asking again in a couple of minutes sends the same charge, never a second.
+// from Stripe leaves it claimed: asking again in a couple of minutes sends the same charge, never a second. The renter's
+// record says the attempt is open until it closes, so the five-minute check settles one nobody asks about again
+// (lib/renter-incidentals).
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
@@ -352,8 +342,12 @@ export async function PUT(req: NextRequest) {
     const attemptRef = db.doc(`tenants/${tenantId}/renters/${renterId}/charges/inc_${key}`);
     const claim: any = await db.runTransaction(async (tx: any) => {
       const a: any = (await tx.get(attemptRef)).data() || null;
+      const rNow: any = (await tx.get(renterRef)).data() || {};
       if (a?.status === 'charged') return { already: true, cents: Number(a.amountCents) || 0 };
       if (a?.status === 'charging' && freshClaim(a.claimAt)) return { busy: true };
+      // The renter's record lists the attempt as open (lib/renter-incidentals), in the same step that claims it.
+      const opened = incidentalOpened(rNow, key, nowIso);
+      if (opened) tx.set(renterRef, opened, { merge: true });
       if (a?.status === 'charging') {
         // Asked again after no answer: the same charge (its stored amount, card and wording), never a different one.
         tx.set(attemptRef, { claimAt: nowIso }, { merge: true });
@@ -387,45 +381,14 @@ export async function PUT(req: NextRequest) {
       const msg = err?.raw?.message || err?.message || 'Card charge failed.';
       if (stripeRefused(err)) {
         // Nothing moved: the attempt is closed and nothing is recorded.
-        await attemptRef.set({ status: 'failed', claimAt: null, failedAt: new Date().toISOString(), error: String(msg).slice(0, 200) }, { merge: true });
+        await releaseRenterIncidental(db, String(tenantId), String(renterId), key, String(msg));
         return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect another way; the renter is not affected.` }, { status: 402 });
       }
       return NextResponse.json({ ok: false, error: 'Stripe didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' }, { status: 502 });
     }
 
-    // ── Recorded once: the income line, its Stripe fee, and the renter's incidentals log, with the attempt marked ──
-    const charge: any = intent?.latest_charge;
-    let feeCents = Number(charge?.balance_transaction?.fee) || 0;
-    let chargeId: string | null = typeof charge === 'string' ? charge : (charge?.id || null);
-    if (!feeCents) { const f = await stripeFeeFor(intent.id); feeCents = f.feeCents; chargeId = chargeId || f.chargeId; }
-    const txnRef = db.doc(`tenants/${tenantId}/transactions/renterinc_${safeKey(renterId)}_${key}`);
-    const feeRef = db.doc(`tenants/${tenantId}/transactions/renterincfee_${safeKey(renterId)}_${key}`);
-    const at = new Date().toISOString();
-    const wrote = await db.runTransaction(async (tx: any) => {
-      const a: any = (await tx.get(attemptRef)).data() || {};
-      await tx.get(renterRef);
-      if (a.status === 'charged') return false;
-      tx.set(txnRef, {
-        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue', source: 'booth_rent',
-        amount: cents / 100, category: 'Renter Incidental',
-        description: `${description} — ${renterName} (card on file)`,
-        clientOrVendor: renterName, date: at, paymentMethod: 'Card on file (Stripe)',
-        hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId, renterId, sourceId: renterId, tenantId, createdAt: at,
-      });
-      // Paired Processing Fees expense for the incidental charge.
-      if (feeCents > 0) tx.set(feeRef, {
-        id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-        amount: feeCents / 100, category: 'Processing Fees',
-        description: `Stripe fee — incidental charge (${renterName})`,
-        clientOrVendor: 'Stripe', date: at, paymentMethod: 'Deducted from payout',
-        hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
-        renterId, relatedTxnId: txnRef.id, tenantId, createdAt: at,
-      });
-      // The renter's incidentals log, for their history.
-      tx.set(renterRef, { incidentals: FieldValue.arrayUnion({ amountCents: cents, description, at, paymentIntentId: intent.id }), incidentalsTotalCents: FieldValue.increment(cents) }, { merge: true });
-      tx.set(attemptRef, { status: 'charged', chargedAt: at, paymentIntentId: intent.id, claimAt: null }, { merge: true });
-      return true;
-    });
+    // ── Recorded once (lib/renter-incidentals): the income line, its Stripe fee, and the renter's incidentals log, with the attempt marked ──
+    const wrote = await recordRenterIncidental(db, String(tenantId), String(renterId), key, intent, cents, description, renterName, { stripe });
     if (!wrote) return NextResponse.json({ ok: true, chargedCents: cents, already: true });
     await logAuditAdmin(db, String(tenantId), {
       action: 'booth.renter_charged', targetType: 'renter', targetId: String(renterId),

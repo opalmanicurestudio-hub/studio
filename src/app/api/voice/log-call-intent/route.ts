@@ -98,7 +98,8 @@ export const dynamic = 'force-dynamic';
 async function chargeFee(body: Record<string, any>): Promise<{ ok: true; paymentIntentId: string } | { ok: false; unknown: boolean; parked: boolean }> {
   const url = `${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`;
   try {
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...internalHeaders(String(url)) }, body: JSON.stringify(body) });
+    // Nothing is canceled or moved on a lost answer, so a charge that went through anyway is flagged, not kept quietly.
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...internalHeaders(String(url)) }, body: JSON.stringify({ onLost: 'refund', ...body }) });
     const d: any = await res.json().catch(() => null);
     if (res.status < 500 && d?.ok && d.paymentIntentId) return { ok: true, paymentIntentId: String(d.paymentIntentId) };
     return { ok: false, unknown: res.status >= 500 || !d || d.unknown === true, parked: d?.parkedAsBalance === true };

@@ -198,7 +198,9 @@ export async function markBulkPaid(db: any, tenantId: string, id: string, p: Pai
 
 /** A second payment on an order already paid (or cancelled): written on the order under its own page first (so two
  *  notices at the same moment refund it once), refunded to the card under one key for that payment, and the managers
- *  are told. If the refund doesn't go through, it stays on the order for a manager, and their note says so. */
+ *  are told. If Stripe says no, it stays on the order for a manager, and their note says so. If Stripe doesn't answer,
+ *  it stays on its way (the order says so: extraRefundOpenAt) and the five-minute check sends it again under the same
+ *  key (settleStuckBulkRefunds). */
 async function refundSecondPayment(db: any, tenantId: string, id: string, o: any, p: PaidBy) {
   const ref = db.doc(`${T(tenantId)}/giftBulk/${id}`);
   const t: any = (await db.doc(T(tenantId)).get()).data() || {}; const acct = t.stripeAccountId || null;
@@ -215,21 +217,64 @@ async function refundSecondPayment(db: any, tenantId: string, id: string, o: any
     const cur: any = (await tx.get(ref)).data() || {}; const e = cur.extraPayments?.[key] || null;
     if (e?.state === 'refunded') return { done: true };
     if (e?.state === 'refunding' && Date.now() - (Date.parse(String(e.claimAt || '')) || 0) < CLAIM_MS) return { busy: true };
-    tx.set(ref, { extraPayments: { [key]: { sessionId: String(p.sessionId), paymentIntentId: pi, cents, why, state: 'refunding', claimAt: at, firstAt: e?.firstAt || at } } }, { merge: true });
+    tx.set(ref, { extraPayments: { [key]: { sessionId: String(p.sessionId), paymentIntentId: pi, cents, why, state: 'refunding', claimAt: at, firstAt: e?.firstAt || at } },
+      extraRefundOpenAt: cur.extraRefundOpenAt && cur.extraRefundOpenAt < at ? cur.extraRefundOpenAt : at }, { merge: true });
     return { go: true };
   });
   if (claim.done) return { ok: false as const, twice: true, refunded: true, cents, error: `This order ${words}, so this payment of ${money(cents)} was refunded to the card.` };
   if (claim.busy) return { ok: false as const, twice: true, refunded: false, cents, error: `This order ${words}, so this payment of ${money(cents)} is being refunded to the card.` };
+  const state = await sendSecondRefund(db, tenantId, id, key, { paymentIntentId: pi, cents, why, company: o.company, paidVia: o.paidVia || null }, acct);
+  const ok = state === 'refunded';
+  return { ok: false as const, twice: true, refunded: ok, cents,
+    error: ok ? `This order ${words}, so this payment of ${money(cents)} was refunded to the card.` : state === 'refunding' ? `This order ${words}, so this payment of ${money(cents)} is being refunded to the card.` : `This order ${words}. ${t.name || 'The business'} will refund this payment of ${money(cents)}.` };
+}
+
+/** Send a second payment's refund (under its one key), write where it got to, and tell the managers once. */
+async function sendSecondRefund(db: any, tenantId: string, id: string, key: string, e: { paymentIntentId: string | null; cents: number; why: string; company: string; paidVia: string | null }, acct: string | null): Promise<'refunded' | 'refunding' | 'refund_failed'> {
+  const ref = db.doc(`${T(tenantId)}/giftBulk/${id}`); const { paymentIntentId: pi, cents, why } = e;
+  const words = why === 'cancelled' ? 'was cancelled' : 'was already paid';
   const r: any = pi && cents > 0 ? await refundAmount(acct, pi, cents, `gift-bulk-twice-${safe(pi)}-${cents}`, { tenantId, giftBulkId: id, why }) : { ok: false, error: 'No card payment was found to refund.' };
   // Refunded in Stripe by hand already: the money went back.
-  const ok = !!r.ok || r.code === 'charge_already_refunded';
-  await ref.set({ extraPayments: { [key]: ok ? { state: 'refunded', refundedAt: now(), refundId: r.id || null } : { state: 'refund_failed', error: String(r.error || 'The refund didn’t go through.').slice(0, 200), failedAt: now() } } }, { merge: true });
-  const how = o.paidVia && o.paidVia !== 'card' && why === 'paid_twice' ? ` (marked paid by ${o.paidVia === 'transfer' ? 'bank transfer' : o.paidVia})` : '';
-  await alertManagers(db, tenantId, ok
-    ? `${o.company} paid ${money(cents)} for their gift card order, which ${words}${how}. That payment was refunded to their card automatically.`
-    : `${o.company} paid ${money(cents)} for their gift card order, which ${words}${how}. The automatic refund didn’t go through, so please refund it in Stripe.`, '/gift-cards?company=1', null).catch(() => {});
-  return { ok: false as const, twice: true, refunded: ok, cents,
-    error: ok ? `This order ${words}, so this payment of ${money(cents)} was refunded to the card.` : `This order ${words}. ${t.name || 'The business'} will refund this payment of ${money(cents)}.` };
+  const state = r.ok || r.code === 'charge_already_refunded' ? 'refunded' : r.unknown ? 'refunding' : 'refund_failed';
+  // The managers hear once per change of where it got to (an unanswered refund sent again every few minutes says so once).
+  const told = String((((await ref.get()).data() || {}).extraPayments?.[key] || {}).toldState || '');
+  await ref.set({ extraPayments: { [key]: { ...(state === 'refunded' ? { state, refundedAt: now(), refundId: r.id || null } : state === 'refunding' ? { state } : { state, error: String(r.error || 'The refund didn’t go through.').slice(0, 200), failedAt: now() }), settlingAt: null, toldState: state } } }, { merge: true });
+  await db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(ref)).data() || {};
+    const open = Object.values(cur.extraPayments || {}).filter((x: any) => x?.state === 'refunding').map((x: any) => String(x.claimAt || '')).sort()[0] || null;
+    if ((cur.extraRefundOpenAt || null) !== open) tx.set(ref, { extraRefundOpenAt: open }, { merge: true });
+  }).catch(() => {});
+  const how = e.paidVia && e.paidVia !== 'card' && why === 'paid_twice' ? ` (marked paid by ${e.paidVia === 'transfer' ? 'bank transfer' : e.paidVia})` : '';
+  if (told !== state) await alertManagers(db, tenantId, state === 'refunded'
+    ? `${e.company} paid ${money(cents)} for their gift card order, which ${words}${how}. That payment was refunded to their card automatically.`
+    : state === 'refunding' ? `${e.company} paid ${money(cents)} for their gift card order, which ${words}${how}. Stripe hasn’t confirmed the refund yet. It will be checked again in a few minutes, so there’s no need to refund it by hand.`
+    : `${e.company} paid ${money(cents)} for their gift card order, which ${words}${how}. The automatic refund didn’t go through, so please refund it in Stripe.`, '/gift-cards?company=1', null).catch(() => {});
+  return state;
+}
+
+/** The five-minute check: a second payment's refund left on its way more than 15 minutes (Stripe's answer was lost, and
+ *  no notice came after) is sent again under the same key, so it goes back once. */
+export async function settleStuckBulkRefunds(db: any, tenantId: string, tenant: any, o: { now?: number } = {}): Promise<{ checked: number; recorded: number; released: number; waiting: number }> {
+  const out = { checked: 0, recorded: 0, released: 0, waiting: 0 };
+  const acct = tenant?.stripeAccountId || null; if (!acct) return out;
+  const at = o.now ?? Date.now(); const iso = new Date(at).toISOString();
+  const snap = await db.collection(`${T(tenantId)}/giftBulk`).where('extraRefundOpenAt', '>', '').limit(20).get().catch(() => ({ docs: [] as any[] }));
+  for (const d of snap.docs) {
+    const g: any = d.data() || {};
+    for (const [k, e0] of Object.entries(g.extraPayments || {}) as [string, any][]) {
+      if (e0?.state !== 'refunding' || at - (Date.parse(String(e0.claimAt || '')) || at) < 15 * 60000) continue;
+      const e: any = await db.runTransaction(async (tx: any) => {
+        const cur: any = ((await tx.get(d.ref)).data() || {}).extraPayments?.[k] || null;
+        if (!cur || cur.state !== 'refunding' || (cur.settlingAt && at - (Date.parse(String(cur.settlingAt)) || 0) < 5 * 60000)) return null;
+        tx.set(d.ref, { extraPayments: { [k]: { settlingAt: iso } } }, { merge: true }); return cur;
+      }).catch(() => null);
+      if (!e) continue;
+      out.checked++;
+      const st = await sendSecondRefund(db, tenantId, d.id, k, { paymentIntentId: e.paymentIntentId || null, cents: Math.round(Number(e.cents) || 0), why: String(e.why || 'paid_twice'), company: g.company || 'A company', paidVia: g.paidVia || null }, acct);
+      if (st === 'refunded') out.recorded++; else if (st === 'refund_failed') out.released++; else out.waiting++;
+    }
+  }
+  return out;
 }
 
 /** A company asks from the shop page — the managers get it as a request to set up. */

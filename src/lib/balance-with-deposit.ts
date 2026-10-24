@@ -34,7 +34,9 @@ export async function settleCollectedBalance(db: any, tenantId: string, appointm
     tx.set(txRef, { id: txRef.id, tenantId, date: nowIso, description: 'Balance paid with a booking deposit', clientOrVendor: c.name || ap.clientName || null, clientId: ap.clientId,
       type: 'income', context: 'Business', category: 'Fee Recovery', amount: balanceCents / 100, paymentMethod: meta.paymentMethod, hasReceipt: false, appointmentId,
       ...(meta.sessionId ? { checkoutSessionId: meta.sessionId } : {}), ...(meta.chargeId ? { stripeChargeId: meta.chargeId } : {}) });
-    tx.set(aRef, { balanceCollectedAt: nowIso, balanceCollectedCents: balanceCents }, { merge: true });
+    // Which card charge paid it, so a charge whose answer was lost can tell its own balance part from one paid another
+    // way (lib/lost-charges).
+    tx.set(aRef, { balanceCollectedAt: nowIso, balanceCollectedCents: balanceCents, balanceCollectedChargeId: meta.chargeId || null }, { merge: true });
     return { name: c.name || ap.clientName || 'Client', clientId: ap.clientId };
   });
   if (done) await logAuditAdmin(db, tenantId, { action: 'balance.paid', targetType: 'client', targetId: done.clientId, amount: balanceCents / 100,

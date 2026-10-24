@@ -2,6 +2,7 @@
 // Used when a charge must be undone automatically (e.g. a rescheduled time was
 // taken in the split second after the fee was charged). Idempotent per payment.
 import Stripe from 'stripe';
+import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 // Every refund the app sends carries its mark (metadata.origin 'app'), so the payments handler can tell it from one made
 // in the Stripe Dashboard (lib/outside-refund), which it records itself. A retry of a refund first sent before the mark
 // (same key, so Stripe wants the same details) is sent as it was then, and gets the same refund back.
@@ -27,7 +28,9 @@ export async function refundPaymentIntent(stripeAccountId: string | null | undef
 
 // Refund part or all of a card payment. `key` names this one refund, so a retry
 // (double tap, network drop) returns the same refund instead of making a second.
-export async function refundAmount(stripeAccountId: string | null | undefined, paymentIntentId: string, cents: number, key: string, metadata?: Record<string, string>): Promise<{ ok: boolean; id?: string; error?: string; code?: string }> {
+/** `unknown`: Stripe didn't answer (or answered with its own error), so the refund may have gone through — asking again
+ *  under the same key finds it. Without it, Stripe said no. */
+export async function refundAmount(stripeAccountId: string | null | undefined, paymentIntentId: string, cents: number, key: string, metadata?: Record<string, string>): Promise<{ ok: boolean; id?: string; error?: string; code?: string; unknown?: boolean }> {
   if (!process.env.STRIPE_SECRET_KEY) return { ok: false, error: 'Card payments aren’t set up on the server.' };
   if (!stripeAccountId || !paymentIntentId || !(cents > 0)) return { ok: false, error: 'That payment can’t be refunded to the card.' };
   try {
@@ -38,5 +41,9 @@ export async function refundAmount(stripeAccountId: string | null | undefined, p
     try { r = await stripe.refunds.create({ ...asBefore, metadata: { ...(metadata || {}), ...APP_MARK } }, opts); }
     catch (e: any) { if (!isKeyClash(e)) throw e; r = await stripe.refunds.create(asBefore, opts); }
     return { ok: true, id: r.id };
-  } catch (e: any) { console.error('[stripe-refund] amount failed', e?.message); return { ok: false, error: e?.message ? String(e.message).slice(0, 200) : 'The card refund didn’t go through.', ...(e?.code || e?.raw?.code ? { code: String(e.code || e.raw.code) } : {}) }; }
+  } catch (e: any) {
+    console.error('[stripe-refund] amount failed', e?.message);
+    const refused = saidNo(e);
+    return { ok: false, error: e?.message ? String(e.message).slice(0, 200) : 'The card refund didn’t go through.', ...(e?.code || e?.raw?.code ? { code: String(e.code || e.raw.code) } : {}), ...(refused ? {} : { unknown: true }) };
+  }
 }

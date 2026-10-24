@@ -7,16 +7,61 @@
 //     any more, or the part of a payment that's more than was owed) goes back to the card: written on the invoice first
 //     (two notices at the same moment refund it once), refunded under one key for that payment and amount, and the
 //     studio is told. If Stripe says no, it stays on the invoice for the studio, and the note says so; if Stripe doesn't
-//     answer, the next notice or return sends the same refund again.
+//     answer, the next notice or return sends the same refund again, and when neither comes the five-minute check does
+//     (settleStuckRentRefunds): a refund Stripe already has for it is recorded, one it never got is sent under the same
+//     key. While one is on its way the invoice says so (extraRefundOpenAt), so the check can find it.
 // A page whose bank payment is still clearing is recorded only once Stripe says the money arrived.
 import { logAuditAdmin } from '@/lib/audit';
+import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 
 export type RentPaid = { missing?: boolean; already?: boolean; paidCents?: number; refundedCents?: number; extra?: boolean; refunded?: boolean; message?: string };
 
 const usd = (c: number) => `$${(Math.round(c) / 100).toFixed(2)}`;
 const sidKey = (s: any) => String(s || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 120);
 const piOf = (s: any): string | null => (typeof s?.payment_intent === 'string' ? s.payment_intent : s?.payment_intent?.id || null);
-const refusedByStripe = (e: any) => ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
+const refusedByStripe = (e: any) => saidNo(e);
+type Why = 'paid_twice' | 'not_open' | 'overpaid';
+const refundKey = (why: string, pi: string, cents: number) => `rent-${why}-${sidKey(pi)}-${Math.round(cents)}`;
+
+/** The invoice says whether a refund of money it didn't need is still on its way (so the five-minute check finds it). */
+async function markRefundOpen(db: any, invRef: any) {
+  await db.runTransaction(async (tx: any) => {
+    const cur: any = (await tx.get(invRef)).data() || {};
+    const open = Object.values(cur.extraPayments || {}).filter((x: any) => x?.state === 'refunding' || x?.state === 'to_refund').map((x: any) => String(x.claimAt || x.firstAt || '')).sort()[0] || null;
+    if ((cur.extraRefundOpenAt || null) !== open) tx.set(invRef, { extraRefundOpenAt: open }, { merge: true });
+  }).catch(() => {});
+}
+
+/** Send the refund of money the invoice didn't need (or record the one Stripe already has for it), write where it got
+ *  to on the invoice, and tell the studio, once per payment (the note is named after it and says where it got to). */
+async function finishRentRefund(db: any, stripe: any, tenantId: string, invoiceId: string, k: string,
+  e: { paymentIntentId: string | null; cents: number; why: Why }, names: { renterName: string; due: string }, found: any = null): Promise<{ state: 'refunded' | 'refund_failed' | 'refunding'; error: string }> {
+  const invRef = db.doc(`tenants/${tenantId}/rentInvoices/${invoiceId}`);
+  const { paymentIntentId: pi, cents, why } = e;
+  let state: 'refunded' | 'refund_failed' | 'refunding' = 'refunding'; let refundId: string | null = found?.id || null; let error = '';
+  if (found) state = 'refunded';
+  else if (!pi || !(cents > 0)) { state = 'refund_failed'; error = 'No card payment was found to refund.'; }
+  else {
+    try {
+      const rf: any = await stripe.refunds.create({ payment_intent: String(pi), amount: Math.round(cents), reason: 'requested_by_customer',
+        metadata: { tenantId, invoiceId, kind: 'rent_refund', why, origin: 'app' } }, { idempotencyKey: refundKey(why, String(pi), cents) });
+      state = 'refunded'; refundId = rf?.id || null;
+    } catch (x: any) {
+      if (String(x?.code || x?.raw?.code || '') === 'charge_already_refunded') state = 'refunded';
+      else if (refusedByStripe(x)) { state = 'refund_failed'; error = String(x?.raw?.message || x?.message || 'The refund was refused.').slice(0, 200); }
+    }
+  }
+  await invRef.set({ extraPayments: { [k]: { state, settlingAt: null, ...(state === 'refunded' ? { refundedAt: new Date().toISOString(), refundId } : {}), ...(error ? { error } : {}) } } }, { merge: true });
+  await markRefundOpen(db, invRef);
+  const { renterName, due } = names;
+  const happened = why === 'paid_twice' ? `${renterName} paid their rent due ${due} a second time (${usd(cents)}).`
+    : why === 'not_open' ? `${renterName} paid ${usd(cents)} for their rent due ${due}, which isn’t open any more.`
+    : `${renterName} paid ${usd(cents)} more than their rent due ${due} needed.`;
+  const nRef = db.doc(`tenants/${tenantId}/notifications/rent_extra_${k}`);
+  await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(), type: 'rent_paid', link: '/rent',
+    message: `${happened} ${state === 'refunded' ? 'It was refunded to their card automatically.' : state === 'refund_failed' ? `The automatic refund didn’t go through (${error}), so please refund it in Stripe.` : 'Stripe hasn’t confirmed the refund yet. It will be checked again in a few minutes, so there’s no need to refund it by hand.'}` }).catch(() => {});
+  return { state, error };
+}
 
 /** A finished page whose money hasn't arrived: still clearing (a bank debit takes days), failed (a new page can be
  *  made), or unknown (Stripe didn't answer — ask again). */
@@ -40,7 +85,7 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
   const k = sidKey(cs.id); const pi = piOf(cs);
 
   // Money that came in but isn't owed, back to the card.
-  const refundExtra = async (cents: number, why: 'paid_twice' | 'not_open' | 'overpaid') => {
+  const refundExtra = async (cents: number, why: Why) => {
     const at = new Date().toISOString();
     const what = why === 'overpaid' ? `the extra ${usd(cents)} you paid` : `your payment of ${usd(cents)}`;
     const lead = why === 'paid_twice' ? 'This invoice was already paid' : why === 'not_open' ? 'This invoice isn’t open any more' : 'Your rent is paid';
@@ -48,31 +93,14 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
       const cur: any = (await tx.get(invRef)).data() || {}; const e = cur.extraPayments?.[k] || null;
       if (e?.state === 'refunded') return { done: true };
       if (e?.state === 'refunding' && Date.now() - (Date.parse(String(e.claimAt || '')) || 0) < 2 * 60000) return { busy: true };
-      tx.set(invRef, { extraPayments: { [k]: { sessionId: String(cs.id), paymentIntentId: pi, cents, why, state: 'refunding', claimAt: at, firstAt: e?.firstAt || at } } }, { merge: true });
+      // ('to_refund': written with the payment, not asked for yet.)
+      tx.set(invRef, { extraPayments: { [k]: { sessionId: String(cs.id), paymentIntentId: pi, cents, why, state: 'refunding', claimAt: at, firstAt: e?.firstAt || at } },
+        extraRefundOpenAt: cur.extraRefundOpenAt && cur.extraRefundOpenAt < at ? cur.extraRefundOpenAt : at }, { merge: true });
       return { go: true };
     });
     if (claim.done) return { refunded: true, message: `${lead}, so ${what} was refunded to your card.` };
     if (claim.busy) return { refunded: false, message: `${lead}, so ${what} is being refunded to your card.` };
-    let state: 'refunded' | 'refund_failed' | 'refunding' = 'refunding'; let refundId: string | null = null; let error = '';
-    if (!pi || !(cents > 0)) { state = 'refund_failed'; error = 'No card payment was found to refund.'; }
-    else {
-      try {
-        const rf: any = await stripe.refunds.create({ payment_intent: String(pi), amount: Math.round(cents), reason: 'requested_by_customer',
-          metadata: { tenantId, invoiceId, kind: 'rent_refund', why, origin: 'app' } }, { idempotencyKey: `rent-${why}-${sidKey(pi)}-${Math.round(cents)}` });
-        state = 'refunded'; refundId = rf?.id || null;
-      } catch (e: any) {
-        if (String(e?.code || e?.raw?.code || '') === 'charge_already_refunded') state = 'refunded';
-        else if (refusedByStripe(e)) { state = 'refund_failed'; error = String(e?.raw?.message || e?.message || 'The refund was refused.').slice(0, 200); }
-      }
-    }
-    await invRef.set({ extraPayments: { [k]: { state, ...(state === 'refunded' ? { refundedAt: new Date().toISOString(), refundId } : {}), ...(error ? { error } : {}) } } }, { merge: true });
-    // The studio hears about it once per payment (the note is named after it, and says where it got to).
-    const happened = why === 'paid_twice' ? `${renterName} paid their rent due ${due} a second time (${usd(cents)}).`
-      : why === 'not_open' ? `${renterName} paid ${usd(cents)} for their rent due ${due}, which isn’t open any more.`
-      : `${renterName} paid ${usd(cents)} more than their rent due ${due} needed.`;
-    const nRef = db.doc(`tenants/${tenantId}/notifications/rent_extra_${k}`);
-    await nRef.set({ id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(), type: 'rent_paid', link: '/rent',
-      message: `${happened} ${state === 'refunded' ? 'It was refunded to their card automatically.' : state === 'refund_failed' ? `The automatic refund didn’t go through (${error}), so please refund it in Stripe.` : 'Stripe hasn’t confirmed the refund yet. Please check it in Stripe before refunding it by hand.'}` }).catch(() => {});
+    const { state } = await finishRentRefund(db, stripe, tenantId, invoiceId, k, { paymentIntentId: pi, cents, why }, { renterName, due });
     return { refunded: state === 'refunded', message: state === 'refunded' ? `${lead}, so ${what} was refunded to your card.`
       : state === 'refunding' ? `${lead}, so ${what} is being refunded to your card.` : `${lead}. ${what.charAt(0).toUpperCase()}${what.slice(1)} will be refunded by the studio.` };
   };
@@ -119,10 +147,15 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
     });
     // Less than what's owed now (a late fee came on while they were paying): it counts toward the invoice, which stays
     // open for the rest.
-    tx.set(invRef, take >= owed
+    // More than was owed: what's over is written on the invoice in the same step, to go back, so it's never lost if this
+    // is cut off before the refund is asked for (the five-minute check finds it there).
+    const over = Math.max(0, paidNow - take);
+    tx.set(invRef, { ...(take >= owed
       ? { status: 'paid', paidAt: nowIso, paidMethod: 'Card (Stripe)', paidAmountCents: take, paidLedgerEntryId: lineRef.id, stripePaymentIntentId: pi, paidSessionId: String(cs.id) }
-      : { paidCents: (Number(cur.paidCents) || 0) + take, lastPaidOnlineAt: nowIso, updatedAt: nowIso }, { merge: true });
-    return { take, over: Math.max(0, paidNow - take) };
+      : { paidCents: (Number(cur.paidCents) || 0) + take, lastPaidOnlineAt: nowIso, updatedAt: nowIso }),
+      ...(over > 0 ? { extraPayments: { [k]: { sessionId: String(cs.id), paymentIntentId: pi, cents: over, why: 'overpaid', state: 'to_refund', firstAt: nowIso } },
+        extraRefundOpenAt: cur.extraRefundOpenAt && cur.extraRefundOpenAt < nowIso ? cur.extraRefundOpenAt : nowIso } : {}) }, { merge: true });
+    return { take, over };
   });
   if (out.already) return { already: true };
   if (out.extra) { const r = await refundExtra(out.extra, out.why); return { extra: true, refunded: r.refunded, message: r.message }; }
@@ -166,4 +199,55 @@ export async function recordRentPayment(db: any, stripe: any, tenantId: string, 
     message: `${renterName} has paid $${(out.take / 100).toFixed(2)} in rent online.`,
   });
   return { paidCents: out.take, ...(out.over > 0 ? { refundedCents } : {}) };
+}
+
+/** The five-minute check: a refund of money an invoice didn't need, left on its way more than 15 minutes (Stripe's
+ *  answer was lost, and no notice or return came after). A refund Stripe already has for that payment and amount — the
+ *  app's, or one made by hand in Stripe — is recorded; otherwise it's sent under the same key, so it goes back once.
+ *  Two runs at once settle it once (each payment's refund is taken over in one step first). */
+export async function settleStuckRentRefunds(db: any, tenantId: string, _tenant: any, o: { stripe?: any; now?: number } = {}): Promise<{ checked: number; recorded: number; released: number; waiting: number }> {
+  const out = { checked: 0, recorded: 0, released: 0, waiting: 0 };
+  const now = o.now ?? Date.now(); const iso = new Date(now).toISOString();
+  const snap = await db.collection(`tenants/${tenantId}/rentInvoices`).where('extraRefundOpenAt', '>', '').limit(50).get().catch(() => ({ docs: [] as any[] }));
+  if (!snap.docs.length) return out;
+  let stripe = o.stripe;
+  if (!stripe) { const S = (await import('stripe')).default; stripe = new S(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }); }
+  for (const d of snap.docs) {
+    const inv: any = d.data() || {};
+    const since = (e: any) => Date.parse(String(e?.claimAt || e?.firstAt || '')) || now;
+    const stale = Object.entries(inv.extraPayments || {}).filter(([, e]: any) => (e?.state === 'refunding' || e?.state === 'to_refund') && now - since(e) >= 15 * 60000);
+    if (!stale.length) { await markRefundOpen(db, d.ref); continue; }
+    let names: { renterName: string; due: string } | null = null;
+    for (const [k] of stale) {
+      // Taken over in one step.
+      const e: any = await db.runTransaction(async (tx: any) => {
+        const cur: any = ((await tx.get(d.ref)).data() || {}).extraPayments?.[k] || null;
+        if (!cur || !['refunding', 'to_refund'].includes(String(cur.state)) || now - (Date.parse(String(cur.claimAt || cur.firstAt || '')) || now) < 15 * 60000) return null;
+        if (cur.settlingAt && now - (Date.parse(String(cur.settlingAt)) || 0) < 5 * 60000) return null;
+        tx.set(d.ref, { extraPayments: { [k]: { settlingAt: iso } } }, { merge: true });
+        return cur;
+      }).catch(() => null);
+      if (!e) continue;
+      out.checked++;
+      if (!names) {
+        const lease: any = inv.leaseId ? ((await db.doc(`tenants/${tenantId}/leases/${inv.leaseId}`).get()).data() || null) : null;
+        const renter: any = lease?.renterId ? ((await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).get()).data() || null) : null;
+        names = { renterName: `${renter?.firstName || ''} ${renter?.lastName || ''}`.trim() || 'Renter', due: String(inv.dueDate || '').slice(0, 10) };
+      }
+      const cents = Math.round(Number(e.cents) || 0); const pi = e.paymentIntentId ? String(e.paymentIntentId) : null;
+      let found: any = null;
+      if (pi) {
+        try {
+          const l: any = await stripe.refunds.list({ payment_intent: pi, limit: 100 });
+          const since = (Date.parse(String(e.firstAt || e.claimAt || '')) || now) - 3600e3;
+          found = (Array.isArray(l?.data) ? l.data : []).find((r: any) => !['failed', 'canceled'].includes(String(r?.status || '')) && Number(r?.amount) === cents
+            && ((r?.metadata?.kind === 'rent_refund' && String(r?.metadata?.invoiceId || '') === d.id && String(r?.metadata?.why || '') === String(e.why))
+              || (!r?.metadata?.kind && (Number(r?.created) || 0) * 1000 >= since))) || null;
+        } catch { await d.ref.set({ extraPayments: { [k]: { settlingAt: null } } }, { merge: true }).catch(() => {}); out.waiting++; continue; }
+      }
+      const r = await finishRentRefund(db, stripe, tenantId, d.id, k, { paymentIntentId: pi, cents, why: e.why }, names, found);
+      if (r.state === 'refunded') out.recorded++; else if (r.state === 'refund_failed') out.released++; else out.waiting++;
+    }
+  }
+  return out;
 }

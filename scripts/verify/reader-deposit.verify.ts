@@ -210,7 +210,7 @@ const retainers = async () => (await all(`${T}/transactions`)).filter((t: any) =
   check('the reader passes the capture’s record back, and the payment’s id even when the answer was lost', /deposit: data\?\.deposit \|\| null, captured: true/.test(src('src/components/pos/StripeTerminalProvider.tsx')) && /error: processResult\.error\.message, paymentIntentId: piId, captured: false/.test(src('src/components/pos/StripeTerminalProvider.tsx')));
   check('…including when the connection drops while it’s captured (the screen then asks the server instead of saying it failed)', /return \{ ok: false, error: err\.message, paymentIntentId: piId, captured: false \}/.test(src('src/components/pos/StripeTerminalProvider.tsx')));
   check('the desk is told when a deposit it took was already paid', /d\.paidTwice \|\| d\.viaReader/.test(dialog) && /d\.paidTwice \|\| d\.viaReader\) && d\.message/.test(src('src/components/pos/desk/StaffBookSheet.tsx')));
-  check('undoing a booking refunds a reader deposit to the card', /a\.depositPaidVia === 'card_on_file' \|\| a\.depositPaidVia === 'card_reader'/.test(src('src/app/api/appointments/undo-booking/route.ts')));
+  check('undoing a booking refunds a reader deposit to the card', /a\.depositPaidVia === 'card_on_file' \|\| a\.depositPaidVia === 'card_reader'/.test(src('src/lib/undo-booking.ts')) && /undoPiFor\(a, receipt, cents\)/.test(src('src/app/api/appointments/undo-booking/route.ts')));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

@@ -27,8 +27,10 @@ import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { requireRole } from '@/lib/route-guard';
 import { limitPublic, bump } from '@/lib/rate-limit';
 import { checkGuestPass, deskSignedIn, makeStationToken, renewStationLink, stationLinkOk, stationLinkVersion, stationRenterId } from '@/lib/station-token';
+import { recordKioskCharge, releaseKioskCharge } from '@/lib/kiosk-charges';
 import { createHash } from 'crypto';
 import Stripe from 'stripe';
+import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
@@ -37,7 +39,7 @@ const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice
 const CLAIM_MS = 2 * 60000;
 const freshClaim = (at: any) => !!at && Date.now() - (Date.parse(String(at)) || 0) < CLAIM_MS;
 // Stripe said no (nothing moved) — as against no answer at all (it may have gone through).
-const stripeRefused = (e: any) => ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
+const stripeRefused = (e: any) => saidNo(e);
 const NO_ANSWER = 'Stripe didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.';
 
 // Build the exact day-use agreement text for a reservation, using the owner's
@@ -100,18 +102,6 @@ async function persistKioskSignature(db: FirebaseFirestore.Firestore, tenantId: 
   }
 }
 
-
-// Exact Stripe fee via the charge's balance transaction. Fail-open.
-async function stripeFeeFor(paymentIntentId: string | null): Promise<{ feeCents: number; chargeId: string | null }> {
-  try {
-    if (!paymentIntentId || !process.env.STRIPE_SECRET_KEY) return { feeCents: 0, chargeId: null };
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    const pi: any = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
-    const charge: any = pi?.latest_charge;
-    const bt: any = charge?.balance_transaction;
-    return { feeCents: Number(bt?.fee) || 0, chargeId: charge?.id || null };
-  } catch { return { feeCents: 0, chargeId: null }; }
-}
 
 async function loadRules(db: FirebaseFirestore.Firestore, tenantId: string): Promise<any> {
   const DEFAULTS = {
@@ -402,8 +392,9 @@ export async function POST(req: NextRequest) {
     // charged an amount they weren't shown. A price cap keeps a kiosk bug from becoming a disaster.
     // Once per order: the screen names each order and keeps the name when it asks again. The server makes the order's
     // id from that name, claims it in one step, charges under one key, and writes one line in the books named after it.
-    // No answer from Stripe keeps the claim, so asking again sends the same charge, never a second. A station (or a
-    // guest's stay) that has had a lot charged in a short time is asked to pay another way.
+    // No answer from Stripe keeps the claim, so asking again sends the same charge, never a second; a claim nobody asks
+    // about again is settled by the five-minute check (lib/kiosk-charges). A station (or a guest's stay) that has had a
+    // lot charged in a short time is asked to pay another way.
     if (action === 'charge') {
       if (!ID_RE.test(String(tenantId))) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
       const limited = await limitPublic(req, 'concierge_charge', String(tenantId), { perHour: 60, perDay: 2000 });
@@ -507,7 +498,7 @@ export async function POST(req: NextRequest) {
           return { cents: Number(c.amountCents) || 0, pm: String(c.pm || ''), customer: String(c.customer || '') };
         }
         tx.set(claimRef, { id: orderId, status: 'charging', claimAt: nowIso, amountCents, pm: payer.pm, customer: payer.customer, payerKind: payer.kind, payerId: payer.id,
-          boothId: payer.boothId, boothName: payer.boothName, itemId, quantity, description: what, requestId: null, createdAt: c?.createdAt || nowIso }, { merge: true });
+          payerName: payer.name, boothId: payer.boothId, boothName: payer.boothName, itemId, quantity, description: what, requestId: null, createdAt: c?.createdAt || nowIso }, { merge: true });
         return { cents: amountCents, pm: payer.pm, customer: payer.customer };
       });
       if (claim.already) return done(claim.already);
@@ -530,41 +521,14 @@ export async function POST(req: NextRequest) {
         if (stripeRefused(err)) {
           // Nothing moved: the order is free to try again (as a new attempt), and nothing is recorded. Non-punitive —
           // a decline just means collect another way.
-          await claimRef.set({ status: 'failed', claimAt: null, failedAt: new Date().toISOString(), error: String(msg).slice(0, 200) }, { merge: true });
+          await releaseKioskCharge(db, String(tenantId), orderId, String(msg));
           return NextResponse.json({ ok: false, error: `Card declined: ${msg} — ${payer.instead}.` }, { status: 402 });
         }
         return NextResponse.json({ ok: false, error: NO_ANSWER }, { status: 502 });
       }
 
-      // ── Recorded once: the order's line in the books and its Stripe fee, with the claim marked charged ──
-      const charge: any = intent?.latest_charge;
-      let feeCents = Number(charge?.balance_transaction?.fee) || 0;
-      let chargeId: string | null = typeof charge === 'string' ? charge : (charge?.id || null);
-      if (!feeCents) { const f = await stripeFeeFor(intent.id); feeCents = f.feeCents; chargeId = chargeId || f.chargeId; }
-      const txnRef = db.doc(`tenants/${tenantId}/transactions/concierge_${orderId}`);
-      const feeRef = db.doc(`tenants/${tenantId}/transactions/conciergefee_${orderId}`);
-      const at = new Date().toISOString();
-      await db.runTransaction(async (tx: any) => {
-        const c: any = (await tx.get(claimRef)).data() || {};
-        if (c.status === 'charged') return;
-        tx.set(txnRef, {
-          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
-          amount: cents / 100, category: 'Hospitality Revenue',
-          description: `${c.description || what} — charged to ${payer.boothName}${payer.kind === 'station' ? ` (${payer.name})` : ''}`,
-          clientOrVendor: payer.name, date: at, paymentMethod: 'Card on file (Stripe)',
-          hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId, sourceId: payer.id,
-          ...(payer.kind === 'station' ? { renterId: payer.id } : {}), conciergeOrderId: orderId, tenantId, createdAt: at,
-        });
-        if (feeCents > 0) tx.set(feeRef, {
-          id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-          amount: feeCents / 100, category: 'Processing Fees',
-          description: `Stripe fee — concierge charge — ${payer.boothName} (${payer.name})`,
-          clientOrVendor: 'Stripe', date: at, paymentMethod: 'Deducted from payout',
-          hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
-          sourceId: payer.id, ...(payer.kind === 'station' ? { renterId: payer.id } : {}), relatedTxnId: txnRef.id, tenantId, createdAt: at,
-        });
-        tx.set(claimRef, { status: 'charged', chargedAt: at, paymentIntentId: intent.id, claimAt: null }, { merge: true });
-      });
+      // ── Recorded once (lib/kiosk-charges): the order's line in the books and its Stripe fee, with the claim marked charged ──
+      await recordKioskCharge(db, String(tenantId), orderId, intent, cents, payer, what, { stripe });
       return NextResponse.json({ ok: true, chargedCents: cents, boothName: payer.boothName, orderId });
     }
 

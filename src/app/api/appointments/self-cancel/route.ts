@@ -339,7 +339,7 @@ export async function POST(req: NextRequest) {
   if (pv && chargeFee && hasCard) {
     const cr = await internalPost(internalOrigin(tenant, req.nextUrl.origin), '/api/stripe/charge-card', {
       tenantId, clientId: appt.clientId, amountCents: Math.round(feeAmount * 100), description: 'Late-cancellation fee', category: 'Cancellation Fees',
-      appointmentId, reason: 'Client cancelled inside the window', mode: 'auto', kind: 'deposit' }, { retries: 0 });
+      appointmentId, reason: 'Client cancelled inside the window', mode: 'auto', kind: 'deposit', onLost: 'refund' }, { retries: 0 });
     if (cr.ok && cr.data?.ok && cr.data?.paymentIntentId) chargedIntentId = cr.data.paymentIntentId;
     // No answer (from Stripe, or from the charge itself): the fee may have gone through, so it isn't added to what they
     // owe as well. Nothing is saved yet; asking again in a couple of minutes finds the same charge (one key per booking).

@@ -245,6 +245,7 @@ export async function POST(req: NextRequest) {
             // client owes us money.
             kind: 'deposit',
             mode: 'auto',
+            onLost: 'deposit',   // a charge whose answer was lost is recorded as this booking's deposit (lib/lost-charges)
           },
         );
         const cd = cr.data || {};

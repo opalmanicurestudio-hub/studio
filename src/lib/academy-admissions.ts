@@ -40,6 +40,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { appendAudit } from '@/lib/academy-compliance';
 import { enrollInProgram } from '@/lib/academy-school';
+import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 
 export const STAGES = ['inquiry', 'tour', 'applied', 'documents', 'review', 'offer', 'accepted', 'waitlist', 'agreement', 'enrolled', 'declined', 'withdrawn'] as const;
 export type Stage = typeof STAGES[number];
@@ -245,7 +246,7 @@ export async function completeDownPayment(tenantId: string, session: any) {
   return { planId, already: false };
 }
 
-const refusedByStripe = (e: any) => ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
+const refusedByStripe = (e: any) => saidNo(e);
 
 /** Charge one plan's next instalment now (autopay, or right after a card update) — once, however often it's asked:
  *  the instalment is claimed on the plan first (the daily run and a card update at the same moment send one charge),

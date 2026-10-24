@@ -35,6 +35,7 @@
 import Stripe from 'stripe';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from './audit';
+import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 
 type Db = any;
 
@@ -53,7 +54,7 @@ const CLAIM_MS = 2 * 60000;
 const freshClaim = (at: any) => !!at && Date.now() - (Date.parse(String(at)) || 0) < CLAIM_MS;
 const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
 // Stripe said no (nothing moved) — as against no answer at all (it may have gone through).
-const stripeRefused = (e: any) => ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
+const stripeRefused = (e: any) => saidNo(e);
 
 // Self-contained fee resolver for an off-session charge. Off-session charges
 // settle in the same request, so the balance-transaction fee may not be

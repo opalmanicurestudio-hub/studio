@@ -73,6 +73,7 @@ function clampWeekToLease(week: any, lease: any): any {
 import { dueAtFor, respondByFor, ticketAcknowledged, responseCommitments, TICKET_STATUS_LABELS } from '@/lib/maintenance';
 import { uploadTicketPhotoFromDataUrl, uploadPortalImageFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
 import { searchFields } from '@/lib/client-search';
+import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -3366,7 +3367,7 @@ export async function POST(req: NextRequest) {
             intent = await stripe.paymentIntents.create({ amount: p.cents, currency: 'usd', customer: p.customer, payment_method: p.pm, off_session: true, confirm: true,
               description: p.desc, metadata: { tenantId, renterId: String(session.renterId), campaignId: cRef.id, kind: 'renter_campaign_texts', purchase: p.name } }, { idempotencyKey: p.key });
           } catch (err: any) {
-            if (['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(err?.type || ''))) {
+            if (saidNo(err)) {
               await release();
               return NextResponse.json({ ok: false, error: `Card charge failed: ${err?.raw?.message || err?.message || 'declined'}. Nothing was sent.`, quote }, { status: 402 });
             }

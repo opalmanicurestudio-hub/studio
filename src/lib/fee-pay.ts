@@ -17,6 +17,7 @@
 // them alone meanwhile, and it's closed when they're paid another way.
 import crypto from 'crypto';
 import Stripe from 'stripe';
+import { stripeRefused } from '@/lib/stripe-said-no';
 
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const stripeFor = () => new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any }) as any;
@@ -29,12 +30,9 @@ const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 /** How long one payment's claim keeps every other way of paying from its fees. Older: it's checked with Stripe. */
 export const FEE_CLAIM_MS = 2 * 60000;
 export const NO_ANSWER = 'Stripe didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.';
-/** Stripe said no: nothing moved. Anything else (no connection, Stripe's own error, a key still in use) may have gone through. */
-export function stripeRefused(e: any): boolean {
-  const code = String(e?.code || e?.raw?.code || '');
-  if (code === 'idempotency_key_in_use' || String(e?.type || '') === 'StripeIdempotencyError') return false;
-  return ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
-}
+/** Stripe said no: nothing moved. Anything else (no connection, Stripe's own error, a key still in use) may have gone
+ *  through (lib/stripe-said-no). */
+export { stripeRefused } from '@/lib/stripe-said-no';
 const claimedAt = (f: any) => Date.parse(String(f?.collectingAt || ''));
 export const claimFresh = (f: any, now = Date.now()) => Number.isFinite(claimedAt(f)) && now - claimedAt(f) < FEE_CLAIM_MS;
 export const claimStale = (f: any, now = Date.now()) => Number.isFinite(claimedAt(f)) && now - claimedAt(f) >= FEE_CLAIM_MS;
@@ -249,9 +247,27 @@ async function refundPaidTwice(db: any, tenantId: string, paymentIntentId: strin
   const inRef = db.doc(`${T}/transactions/feepay_twice_${pi}`);
   await inRef.set({ id: inRef.id, tenantId, date: now, description: 'Fees paid twice — refunded', clientOrVendor: c.name || 'Client', clientId: p.clientId, type: 'income', context: 'Business', category: 'Fees', taxBucket: 'revenue',
     amount: cents / 100, paymentMethod: 'Card (Stripe)', stripePaymentIntentId: paymentIntentId, feeIds: p.goneFeeIds || [], hasReceipt: false, createdAt: now }, { merge: true });
+  // A refund Stripe already has for it (an earlier try whose answer was lost, even once Stripe has forgotten that try's
+  // key) is the refund: recorded, never sent again.
+  let existing: any = null;
+  try {
+    const l: any = await stripeFor().refunds.list({ payment_intent: paymentIntentId, limit: 100 }, { stripeAccount: acct });
+    // Its own (named so), or the same amount refunded another way since (from Money, or by hand in Stripe).
+    const since = Math.floor((Date.parse(String(p.at || '')) || Date.now()) / 1000) - 3600;
+    existing = (Array.isArray(l?.data) ? l.data : []).filter((x: any) => !['failed', 'canceled'].includes(String(x?.status || '')))
+      .find((x: any) => x?.metadata?.why === 'fees_already_paid' || (Math.round(Number(x?.amount) || 0) === cents && (Number(x?.created) || 0) >= since)) || null;
+  } catch { if (Date.now() - (Date.parse(String(p.at || '')) || Date.now()) > 20 * 3600e3) return; /* can't be checked, and its key may be forgotten: the next run */ }
   const { refundAmount } = await import('@/lib/stripe-refund');
-  const r = await refundAmount(acct, paymentIntentId, cents, `feepay_twice_${pi}`, { tenantId, clientId: String(p.clientId || ''), why: 'fees_already_paid' });
-  if (!r.ok) { await flagRef.set({ amountDollars: cents / 100, failReason: `${money(cents)} came in for fees already paid another way, and the refund didn't go through. Refund it to the card.` }, { merge: true }); return; }
+  const r: any = existing ? { ok: true, id: existing.id } : await refundAmount(acct, paymentIntentId, cents, `feepay_twice_${pi}`, { tenantId, clientId: String(p.clientId || ''), why: 'fees_already_paid' });
+  if (!r.ok) {
+    // Stripe said no: left for a manager to refund. No answer: still on its way, and the five-minute check sends it again
+    // under the same key (settleStuckPaidTwice), so nobody should refund it by hand meanwhile.
+    await flagRef.set({ amountDollars: cents / 100, failReason: r.unknown
+      ? `${money(cents)} came in for fees already paid another way. Stripe hasn't confirmed its refund yet; it will be checked again in a few minutes, so there's no need to refund it by hand.`
+      : `${money(cents)} came in for fees already paid another way, and the refund didn't go through. Refund it to the card.` }, { merge: true });
+    if (!r.unknown) await payRef.set({ status: 'refund_failed', refundError: String(r.error || '').slice(0, 200) }, { merge: true });
+    return;
+  }
   const outRef = db.doc(`${T}/transactions/feepay_twice_refund_${pi}`);
   await outRef.set({ id: outRef.id, tenantId, date: now, description: 'Refund — fees paid twice', clientOrVendor: c.name || 'Client', clientId: p.clientId, type: 'expense', context: 'Business', category: 'Refunds',
     taxBucket: 'refund', refundKind: 'fee', amount: cents / 100, paymentMethod: 'Card (Stripe refund)', reversalOf: inRef.id, stripeRefundId: r.id || null, stripePaymentIntentId: paymentIntentId, hasReceipt: false, createdAt: now }, { merge: true });
@@ -329,4 +345,73 @@ export async function feePayLink(db: any, stripe: any, tenantId: string, tenant:
 export function cardChargeRule(tenant: any) {
   const r: any = tenant?.cardOnFileCharge || {}; const mode = ['off', 'manager', 'limit'].includes(r.mode) ? r.mode : 'manager';
   return { mode, limitCents: Math.max(0, Math.round(num(r.limitCents))) } as { mode: 'off' | 'manager' | 'limit'; limitCents: number };
+}
+
+/** The five-minute check: a fee payment left 'charging' past its claim (a run cut off, or no answer from Stripe, and
+ *  nobody has touched that client's fees since) is settled the same way as when the desk asks again (resolveStaleFees):
+ *  a payment Stripe has for it is recorded, one it never got lets the fees go. A payment whose fees were taken off the
+ *  list meanwhile (waived, or paid another way) is still looked up: money that came in for it is recorded and sent back
+ *  (settleFeesPaid), never left unrecorded. */
+export async function settleStuckFeeClaims(db: any, tenantId: string, tenant: any, o: { stripe?: any; now?: number } = {}): Promise<{ checked: number; recorded: number; released: number; waiting: number }> {
+  const out = { checked: 0, recorded: 0, released: 0, waiting: 0 };
+  const acct = tenant?.stripeAccountId || null; if (!acct) return out;
+  const T = `tenants/${tenantId}`; const now = o.now ?? Date.now();
+  // Left for 15 minutes (a charge can stay in flight for a couple of minutes); the desk and a client's own payment settle
+  // a claim of theirs sooner, when they ask again.
+  const SWEEP_AFTER_MS = 15 * 60000;
+  const snap = await db.collection(`${T}/feeCharges`).where('status', '==', 'charging').limit(50).get().catch(() => ({ docs: [] as any[] }));
+  const stale = snap.docs.filter((d: any) => now - (Date.parse(String((d.data() || {}).at || '')) || now) >= SWEEP_AFTER_MS);
+  if (!stale.length) return out;
+  const stripe = o.stripe || stripeFor();
+  // Each client's claims together, as the desk would (only claims as old as these count as left behind).
+  for (const clientId of new Set<string>(stale.map((d: any) => String((d.data() || {}).clientId || '')).filter(Boolean)))
+    await resolveStaleFees(db, stripe, tenantId, tenant, clientId, now - (SWEEP_AFTER_MS - FEE_CLAIM_MS)).catch(() => null);
+  for (const d of stale) {
+    out.checked++;
+    const rec: any = (await d.ref.get()).data() || {};
+    if (rec.status === 'charged') { out.recorded++; continue; }
+    if (rec.status !== 'charging') { out.released++; continue; }
+    const c: any = rec.clientId ? (await db.doc(`${T}/clients/${rec.clientId}`).get()).data() || null : null;
+    const held = !!c && ((Array.isArray(c.unpaidFees) ? c.unpaidFees : []).some((f: any) => f?.collectingKey === d.id) || c.balancePaying?.key === d.id);
+    if (held) { out.waiting++; continue; }
+    // Its fees aren't on the list any more: what Stripe has under it decides.
+    if (!rec.customer) { await releaseFeeClaim(db, tenantId, { key: d.id, clientId: String(rec.clientId || '') }).catch(() => null); out.released++; continue; }
+    let found: any[] = [];
+    try {
+      const since = Math.floor(((Date.parse(String(rec.at || '')) || now) - 3600e3) / 1000);
+      const l: any = await stripe.paymentIntents.list({ customer: rec.customer, created: { gte: since }, limit: 100 }, { stripeAccount: acct });
+      found = (Array.isArray(l?.data) ? l.data : []).filter((p: any) => String(p?.metadata?.feeCharge || '') === d.id);
+    } catch { out.waiting++; continue; }
+    const paid = found.find((p: any) => p.status === 'succeeded');
+    if (paid) {
+      const lc: any = paid.latest_charge;
+      await settleFeesPaid(db, tenantId, { clientId: String(rec.clientId), feeIds: (rec.fees || []).map((f: any) => String(f.feeId)),
+        how: rec.source === 'balance' ? 'balance' : rec.source === 'collection' ? 'collection' : 'card_on_file', paymentIntentId: String(paid.id), by: rec.by || 'Card on file',
+        chargeKey: d.id, fees: rec.fees || null, paidCents: Math.round(Number(paid.amount_received ?? paid.amount) || 0) || rec.cents || null, chargeId: lc ? (typeof lc === 'string' ? lc : lc.id || null) : null });
+      out.recorded++; continue;
+    }
+    if (found.some((p: any) => ['processing', 'requires_capture'].includes(String(p.status)))) { out.waiting++; continue; }
+    await releaseFeeClaim(db, tenantId, { key: d.id, clientId: String(rec.clientId || '') }, { declined: found.length > 0 }).catch(() => null);
+    out.released++;
+  }
+  return out;
+}
+
+/** The five-minute check, for money that came in for fees already paid: its refund (refundPaidTwice) was cut off or
+ *  unanswered and nobody asked again. Sent again under the same key, so it is refunded once; one that can't go through
+ *  stays flagged for a manager. */
+export async function settleStuckPaidTwice(db: any, tenantId: string, tenant: any, o: { now?: number } = {}): Promise<{ checked: number; recorded: number; released: number; waiting: number }> {
+  const out = { checked: 0, recorded: 0, released: 0, waiting: 0 };
+  if (!tenant?.stripeAccountId) return out;
+  const now = o.now ?? Date.now();
+  const snap = await db.collection(`tenants/${tenantId}/feePayments`).where('status', '==', 'refunding').limit(20).get().catch(() => ({ docs: [] as any[] }));
+  for (const d of snap.docs) {
+    const p: any = d.data() || {};
+    if (!p.paymentIntentId || now - (Date.parse(String(p.at || '')) || now) < 15 * 60000) continue;
+    out.checked++;
+    await refundPaidTwice(db, tenantId, String(p.paymentIntentId)).catch(() => null);
+    const st = String(((await d.ref.get()).data() || {}).status || '');
+    if (st === 'refunded' || st === 'settled') out.recorded++; else out.waiting++;
+  }
+  return out;
 }

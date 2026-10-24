@@ -298,7 +298,8 @@ let chargeCard: any = null; let dropAnswers = 0;
   r = await settle(); const r4: any = await settle();
   check('…a decline ends the try: tapping again really tries the card again', r.body.ok === false && r4.body.ok && creates === 2 && pis.filter((x) => x.status === 'succeeded').length === 1, { r: r.body, r4: r4.body });
   const page = fs.readFileSync('src/app/(app)/clients/[id]/page.tsx', 'utf8');
-  check('the client page’s Settlement sends its own key, kept until the card processor answers', /idempotencyKey: attempt\.key/.test(page) && /settleAttempt\.current = null;   \/\/ an answer ends the attempt/.test(page) && /res\.status >= 500 \|\| !out \|\| out\.unknown/.test(page));
+  check('the client page’s Settlement pays through the whole-balance payment (one lock with every other way of paying a fee), and never clears the balance itself',
+    /fetch\('\/api\/portal\/pay-balance'/.test(page) && !/Dossier Settlement/.test(page) && !/outstandingBalance: 0,\s*unpaidFees: \[\]/.test(page) && /out\.code === 'unconfirmed'/.test(page));
   await fresh(); signedIn = false;
   r = await settle();
   check('no sign-in: refused, nothing charged', r.status === 401 && creates === 0, r.body);

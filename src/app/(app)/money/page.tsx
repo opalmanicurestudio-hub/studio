@@ -1107,19 +1107,41 @@ const LedgerTab = () => {
     }
     if (isCash && !activeTill) { toast({ variant: 'destructive', title: 'Till Required' }); return; }
     let refundTotal = data.amount + (data.refundTip ? (transactionToRefund.tipAmount || 0) : 0);
-    // Card sales go back to the card first; the books only change once the card refund went through.
+    // Card sales go back to the card first; the books only change once the card refund went through. The server writes
+    // the refund line for a card refund itself (with the reason and anything taken back), so it's never left out if this
+    // screen doesn't hear back.
     let toCard: { card: boolean; cents?: number } = { card: false };
+    const record = { reason: data.reason || null, refundTip: !!data.refundTip, tipStrategy: data.tipStrategy || null,
+      payReversals: data.takeBack ? reversalsFor(transactionToRefund, data.amount, staff || [], services || []) : [] };
+    const afterwards = (cardCents: number | null) => {
+      if (data.logIncident && transactionToRefund.clientId) {
+        const incident: Incident = { id: nanoid(), date: new Date().toISOString(), type: 'Refund Incident', severity: 'Moderate', description: `Auto-incident filed during refund. Original: ${transactionToRefund.id}. Reason: ${data.reason}`, actionsTaken: `Reversed: $${(cardCents != null ? cardCents / 100 : refundTotal).toFixed(2)} via ${transactionToRefund.paymentMethod}.` };
+        const b = writeBatch(firestore); b.update(doc(firestore, `tenants/${tenantId}/clients`, transactionToRefund.clientId), { 'intel.incidents': arrayUnion(incident), 'intel.hasIncidents': true }); b.commit().catch(() => {});
+      }
+      const authorizer = (staff || []).find(s => s.id === data.authorizerId);
+      writeAudit(firestore, tenantId, {
+        action: 'transaction.refund', targetType: 'transaction', targetId: transactionToRefund.id,
+        summary: `Refund authorized for "${transactionToRefund.description}" — reason: ${data.reason}`,
+        amount: cardCents != null ? cardCents / 100 : refundTotal,
+        actor: authorizer ? { type: 'user', id: authorizer.id, name: authorizer.name, role: (authorizer as any).role, via: 'manager-pin' } : auditActor,
+      });
+    };
     // A booking's deposit is closed on the server whichever way it was paid (so it can't also come off the next bill).
     const depositLine = ['retainers', 'deposits', 'deposit'].includes(String(transactionToRefund.category || '').trim().toLowerCase()) && String(transactionToRefund.type || 'income').toLowerCase() === 'income';
     if (!isCash || depositLine) {
       try {
         const tk = await getAuth().currentUser?.getIdToken().catch(() => '');
-        const r = await fetch('/api/money/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, transactionId: transactionToRefund.id, amountCents: Math.round(refundTotal * 100) }) }).then((x) => x.json());
-        if (!r?.ok) { toast({ variant: 'destructive', title: 'Card refund didn’t go through', description: r?.error || 'Nothing was changed. Try again.' }); return; }
+        const r = await fetch('/api/money/refund', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, transactionId: transactionToRefund.id, amountCents: Math.round(refundTotal * 100), record }) }).then((x) => x.json());
+        if (!r?.ok) { toast({ variant: 'destructive', title: r?.unknown ? 'Stripe didn’t answer' : 'Card refund didn’t go through', description: r?.error || 'Nothing was changed. Try again.' }); return; }
         // A booking's deposit: refunded and recorded as a deposit on the server (its credit closed, the return in the books).
         if (r.deposit) { toast({ title: r.already ? 'Already refunded' : 'Deposit refunded', description: `$${(Number(r.refundedCents) / 100).toFixed(2)} ${r.already ? 'went' : 'is going'} back to the card. The deposit is closed, so it won’t come off their next bill.` }); setTransactionToRefund(null); return; }
         if (r.card) { toCard = { card: true, cents: r.refundedCents }; if (r.shortCents > 0) refundTotal = Math.round(r.refundedCents) / 100; }
-      } catch { toast({ variant: 'destructive', title: 'Card refund didn’t go through', description: 'Nothing was changed. Try again.' }); return; }
+        if (r.card && r.recorded) {
+          afterwards(Math.round(Number(r.refundedCents) || 0));
+          toast({ title: r.already ? 'Already refunded' : 'Refund Authorized', description: `$${(Number(r.refundedCents) / 100).toFixed(2)} ${r.already ? 'went' : 'sent'} back to the card${r.shortCents > 0 ? ` ($${(Number(r.shortCents) / 100).toFixed(2)} couldn’t go back to a card)` : ''}. It shows on their statement in 5–10 days.` });
+          setTransactionToRefund(null); return;
+        }
+      } catch { toast({ variant: 'destructive', title: 'We didn’t hear back', description: 'The card may or may not have been refunded. Try again in a couple of minutes: it won’t refund twice.' }); return; }
     }
     // Written once, in one step that first checks the sale isn't refunded already: a double tap or a retry can't record
     // the refund twice or take it out of the till twice. The refund line is named after the sale.

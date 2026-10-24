@@ -256,16 +256,27 @@ export async function actOnCase(db: any, tenantId: string, actor: RequestActor, 
       if (c.fix?.kind !== 'refund' || !(c.fix.amountCents > 0)) return { ok: false as const, error: 'Choose a refund first.' };
       if (c.fix.refundedAt) return { ok: false as const, error: 'This refund was already sent.' };
       const { refundSaleToCard, saleForVisit } = await import('@/lib/money-refund');
-      const sale: any = await saleForVisit(db, tenantId, c.visit?.appointmentId || c.appointmentId || '');
+      // The sale this case's refund goes back against is chosen once and kept on the case, so asking again (after an
+      // answer that went missing) refunds that same sale under its same key, never another of the visit's lines.
+      const T1 = `tenants/${tenantId}`;
+      const kept: any = c.fix.saleId ? ((await db.doc(`${T1}/transactions/${String(c.fix.saleId)}`).get()).data() || null) : null;
+      if (kept?.refundedAt) {
+        // Already refunded, for this case: done (the check recorded it); refunded another way: refund the rest from Money.
+        const ln: any = kept.refundTransactionId ? ((await db.doc(`${T1}/transactions/${String(kept.refundTransactionId)}`).get()).data() || null) : null;
+        if (ln?.caseId === c.id) return { ok: true as const, refundedCents: Math.round((Number(ln.amount) || 0) * 100), already: true };
+        return { ok: false as const, error: 'This visit’s payment was already refunded another way. Refund the rest from Money.' };
+      }
+      const sale: any = kept ? { id: c.fix.saleId, ...kept } : await saleForVisit(db, tenantId, c.visit?.appointmentId || c.appointmentId || '');
       if (!sale) return { ok: false as const, error: 'We couldn’t find the payment for this visit. Refund it from Money.' };
-      const r = await refundSaleToCard(db, tenantId, tenant, sale.id, c.fix.amountCents, actor.name);
+      if (!kept) await ref.set({ fix: { ...c.fix, saleId: sale.id } }, { merge: true });
+      // The refund line is written with the card refund (named after the sale, with this case on it), so it's in the
+      // books even if this step is cut off.
+      const r = await refundSaleToCard(db, tenantId, tenant, sale.id, c.fix.amountCents, actor.name, { notes: `Making it right ${c.number || ''}`.trim(), caseId: c.id });
       if (!r.ok) return { ok: false as const, error: r.error };
       if (!r.card) return { ok: false as const, error: 'This visit wasn’t paid by card here. Refund it from Money.' };
-      const cents = r.refundedCents; const at = now(); const T0 = `tenants/${tenantId}`;
-      const rev = db.collection(`${T0}/transactions`).doc();
-      await rev.set({ id: rev.id, date: at, description: `Refund for: ${sale.description || 'visit'}`, clientOrVendor: sale.clientOrVendor || c.clientName || null, clientId: sale.clientId || c.clientId || null, type: 'reversal', context: sale.context || null, category: 'Refunds', amount: cents / 100, paymentMethod: sale.paymentMethod || 'card', reversalOf: sale.id, appointmentId: sale.appointmentId || null, hasReceipt: false, notes: `Making it right ${c.number || ''}`.trim(), refundedToCard: true, caseId: c.id, by: actor.name });
-      await db.doc(`${T0}/transactions/${sale.id}`).set({ refundedAt: at, refundTransactionId: rev.id }, { merge: true });
-      await push({ fix: { refundedAt: at, refundedCents: cents, todo: null } }, `Refunded ${money(cents)} to the card${r.shortCents > 0 ? ` (${money(r.shortCents)} couldn’t go back — refund the rest from Money)` : ''}`);
+      const cents = r.refundedCents; const at = now();
+      // (Recorded with the sale already, which closed the case's refund; the note says what's left, if anything.)
+      await push({ fix: { ...c.fix, saleId: sale.id, refundedAt: at, refundedCents: cents, todo: null } }, `Refunded ${money(cents)} to the card${r.shortCents > 0 ? ` (${money(r.shortCents)} couldn’t go back — refund the rest from Money)` : ''}`);
       if (b.tell !== false) await textClient(db, tenantId, tenant, c, `${hiOf(c)}we have refunded ${money(cents)} to your card. Please allow 5 to 10 business days for it to appear on your statement.`);
       return { ok: true as const, refundedCents: cents }; }
     case 'redo_set': {   // a renter books the fix in their own planner and records it here

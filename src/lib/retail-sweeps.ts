@@ -533,7 +533,7 @@ export async function sweepUnpaidAccepted(
                 amountCents: Number(apt.depositAmountCents) || 0,
                 description: 'Deposit (retry)', category: 'Deposits',
                 appointmentId: d.id, reason: apt.serviceName || 'Appointment deposit',
-                kind: 'deposit', mode: 'auto',
+                kind: 'deposit', mode: 'auto', onLost: 'deposit',
                 // Its own key: the first attempt's key would only replay that decline.
                 idempotencyKey: `dep_retry_${d.id}_${attempts + 1}`,
               });

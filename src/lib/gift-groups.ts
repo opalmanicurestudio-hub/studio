@@ -132,7 +132,8 @@ ${lines.map((l) => `<p style="font-size:15px;line-height:1.55;margin:0 0 12px">$
 export async function groupView(db: any, tenantId: string, id: string, role: 'org' | 'share') {
   const g: any = (await db.doc(`${T(tenantId)}/giftGroups/${id}`).get()).data(); if (!g) return null;
   const base = { id, role, status: g.status, design: g.design, line: g.line, recipientName: g.recipientName, organizerName: g.organizerName, via: g.via, sendAt: g.sendAt, totalCents: g.totalCents || 0,
-    goalCents: g.goalCents || null, count: g.count || 0, names: (g.names || []).map((n: string) => String(n).split(' ')[0]), sentAt: g.sentAt || null };
+    goalCents: g.goalCents || null, count: g.count || 0, names: (g.names || []).map((n: string) => String(n).split(' ')[0]), sentAt: g.sentAt || null,
+    refundsLeft: g.status === 'cancelling' || !!g.refundStuck };
   if (role !== 'org') return base;
   const chips = (await db.collection(`${T(tenantId)}/giftOrders`).where('groupId', '==', id).get()).docs.map((d: any) => d.data()).filter((c: any) => c.status === 'paid' || c.status === 'refunded')
     .map((c: any) => ({ name: c.buyerName, cents: c.amountCents, message: c.message || null, status: c.status, organizer: !!c.organizer }));
@@ -168,22 +169,77 @@ export async function finishGroup(db: any, tenantId: string, id: string, by = 'O
   return { ok: true as const, cardId: r.card.id, totalCents: total, sent };
 }
 
-/** The organizer cancels before it's sent: every share goes back to the card it came from. */
+/** The organizer cancels before it's sent: every share goes back to the card it came from. The gift is held
+ *  ('cancelling') while its shares go back, so it can't be sent meanwhile; a share whose refund Stripe didn't answer
+ *  stays on its way ('refunding') and the five-minute check sends it again under the same key (settleCancellingGroups),
+ *  never sending the gift with money that went back. */
 export async function cancelGroup(db: any, tenantId: string, id: string) {
   const gref = db.doc(`${T(tenantId)}/giftGroups/${id}`);
-  const ok = await db.runTransaction(async (tx: any) => { const x = (await tx.get(gref)).data(); if (!x || x.status !== 'collecting') return false; tx.update(gref, { status: 'cancelling' }); return true; });
+  const ok = await db.runTransaction(async (tx: any) => { const x = (await tx.get(gref)).data(); if (!x || x.status !== 'collecting') return false; tx.update(gref, { status: 'cancelling', cancellingAt: now() }); return true; });
   if (!ok) return { ok: false as const, error: 'It can’t be cancelled now — it’s been sent or already cancelled.' };
+  const r = await refundShares(db, tenantId, id);
+  if (r.waiting) return { ok: false as const, error: `${r.waiting} share${r.waiting === 1 ? ' is' : 's are'} still being refunded. It will finish on its own in a few minutes.` };
+  if (r.stuck) return { ok: false as const, error: `The gift is cancelled. ${r.stuck} share${r.stuck === 1 ? '' : 's'} couldn’t be refunded automatically, so the studio will refund ${r.stuck === 1 ? 'it' : 'them'}.` };
+  return { ok: true as const, refundedCents: r.back };
+}
+
+/** Every paid share of a cancelled gift back to its card, each once (one key per share, and its record written in the
+ *  same step as the share is marked refunded), then the gift's state from where they all got to. A cancelled gift is
+ *  never sent: a share Stripe won't refund is kept apart ('refund_failed') for the studio to refund, and the managers
+ *  are told once. */
+async function refundShares(db: any, tenantId: string, id: string) {
+  const gref = db.doc(`${T(tenantId)}/giftGroups/${id}`);
   const t: any = (await db.doc(T(tenantId)).get()).data() || {}; const { refundAmount } = await import('@/lib/stripe-refund');
-  const snap = await db.collection(`${T(tenantId)}/giftOrders`).where('groupId', '==', id).get(); let back = 0, stuck = 0;
-  for (const d of snap.docs) { const c: any = d.data(); if (c.status !== 'paid') { if (c.status === 'pending') await d.ref.set({ status: 'cancelled' }, { merge: true }); continue; }
-    const pi = c.paymentIntentId || null; const r = pi ? await refundAmount(c.stripeAccountId || t.stripeAccountId, pi, c.amountCents, `group-refund-${d.id}`) : { ok: false };
-    if (r.ok) { back += c.amountCents; await d.ref.set({ status: 'refunded', refundedAt: now() }, { merge: true });
-      const txRef = db.collection(`${T(tenantId)}/transactions`).doc();
-      await txRef.set({ id: txRef.id, date: now(), description: `Gift card share refunded: ${money(c.amountCents)} to ${c.buyerName} (the gift was cancelled)`, clientOrVendor: c.buyerName, type: 'income', context: 'Business', category: 'Gift Card Sales', taxBucket: 'transfer', amount: -(c.amountCents / 100), paymentMethod: 'Online Checkout', hasReceipt: true, giftGroupId: id, giftOrderId: d.id, tenantId });
-    } else stuck++; }
-  await gref.set({ status: stuck ? 'collecting' : 'cancelled', cancelledAt: stuck ? null : now(), refundedCents: back, refundStuck: stuck || null }, { merge: true });
-  if (stuck) return { ok: false as const, error: `${stuck} share${stuck === 1 ? '' : 's'} couldn’t be refunded automatically — the business will sort it out. Nothing else changed.` };
-  return { ok: true as const, refundedCents: back };
+  const snap = await db.collection(`${T(tenantId)}/giftOrders`).where('groupId', '==', id).get(); let back = 0, stuck = 0, waiting = 0;
+  for (const d of snap.docs) { const c: any = d.data();
+    if (c.status === 'pending') { await d.ref.set({ status: 'cancelled' }, { merge: true }); continue; }
+    if (c.status === 'refunded') { back += Number(c.amountCents) || 0; continue; }
+    if (c.status === 'refund_failed') { stuck++; continue; }
+    if (c.status !== 'paid' && c.status !== 'refunding') continue;
+    const pi = c.paymentIntentId || null; const r: any = pi ? await refundAmount(c.stripeAccountId || t.stripeAccountId, pi, c.amountCents, `group-refund-${d.id}`) : { ok: false };
+    if (r.ok || r.code === 'charge_already_refunded') {
+      back += c.amountCents;
+      const lineRef = db.doc(`${T(tenantId)}/transactions/giftgroup_refund_${String(d.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120)}`);
+      await db.runTransaction(async (tx: any) => {
+        const cur: any = (await tx.get(d.ref)).data() || {}; const line = await tx.get(lineRef);
+        if (cur.status === 'refunded' || line.exists) return;
+        tx.set(d.ref, { status: 'refunded', refundedAt: now(), refundingAt: null }, { merge: true });
+        tx.set(lineRef, { id: lineRef.id, date: now(), description: `Gift card share refunded: ${money(c.amountCents)} to ${c.buyerName} (the gift was cancelled)`, clientOrVendor: c.buyerName, type: 'income', context: 'Business', category: 'Gift Card Sales', taxBucket: 'transfer', amount: -(c.amountCents / 100), paymentMethod: 'Online Checkout', hasReceipt: true, giftGroupId: id, giftOrderId: d.id, tenantId });
+      });
+    } else if (r.unknown) { waiting++; if (c.status !== 'refunding') await d.ref.set({ status: 'refunding', refundingAt: now() }, { merge: true }); }
+    else { stuck++; await d.ref.set({ status: 'refund_failed', refundingAt: null, refundError: String(r.error || 'The refund didn’t go through.').slice(0, 200) }, { merge: true }); } }
+  const g: any = (await gref.get()).data() || {};
+  await gref.set(waiting ? { status: 'cancelling', refundedCents: back, refundWaiting: waiting, refundStuck: stuck || null }
+    : { status: 'cancelled', cancelledAt: g.cancelledAt || now(), refundedCents: back, refundStuck: stuck || null, refundWaiting: null }, { merge: true });
+  if (!waiting && stuck && !g.refundStuckToldAt) {
+    await gref.set({ refundStuckToldAt: now() }, { merge: true });
+    const { alertManagers } = await import('@/lib/gift-cards');
+    await alertManagers(db, tenantId, `${g.organizerName || 'An organizer'} cancelled the group gift for ${g.recipientName || 'someone'}, and ${stuck} share${stuck === 1 ? '' : 's'} couldn’t be refunded automatically. Refund ${stuck === 1 ? 'it' : 'them'} in Stripe; the gift won’t be sent.`, '/gift-cards', null).catch(() => {});
+  }
+  return { back, stuck, waiting };
+}
+
+/** The five-minute check: a cancelled gift still held more than 15 minutes (a share's refund unanswered, or the cancel
+ *  cut off part way) has its shares sent back again under the same keys, each refunded once. */
+export async function settleCancellingGroups(db: any, tenantId: string, _tenant: any, o: { now?: number } = {}): Promise<{ checked: number; recorded: number; released: number; waiting: number }> {
+  const out = { checked: 0, recorded: 0, released: 0, waiting: 0 };
+  const at = o.now ?? Date.now(); const iso = new Date(at).toISOString();
+  const snap = await db.collection(`${T(tenantId)}/giftGroups`).where('status', '==', 'cancelling').limit(20).get().catch(() => ({ docs: [] as any[] }));
+  for (const d of snap.docs) {
+    const g0: any = d.data() || {};
+    if (at - (Date.parse(String(g0.cancellingAt || '')) || 0) < 15 * 60000) continue;
+    const mine = await db.runTransaction(async (tx: any) => {
+      const g: any = (await tx.get(d.ref)).data() || {};
+      if (g.status !== 'cancelling' || (g.settlingAt && at - (Date.parse(String(g.settlingAt)) || 0) < 5 * 60000)) return false;
+      tx.set(d.ref, { settlingAt: iso }, { merge: true }); return true;
+    }).catch(() => false);
+    if (!mine) continue;
+    out.checked++;
+    const r = await refundShares(db, tenantId, d.id).catch(() => null);
+    await d.ref.set({ settlingAt: null }, { merge: true }).catch(() => {});
+    if (!r || r.waiting) out.waiting++; else if (r.stuck) out.released++; else out.recorded++;
+  }
+  return out;
 }
 
 /** Change the day it's sent (organizer). */

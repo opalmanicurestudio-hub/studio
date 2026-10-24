@@ -332,6 +332,7 @@ export async function createBooking(
           mode: 'auto',
           kind: 'deposit',
           idempotencyKey: depositKey,
+          onLost: 'deposit',
         }),
       });
       return { status: chargeRes.status, data: await chargeRes.json().catch(() => ({ ok: false, unknown: true })) as any };

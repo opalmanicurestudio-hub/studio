@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { daysOf, recordStationBooking, releaseStationBooking, stationSlotPath } from '@/lib/station-booking';
 import Stripe from 'stripe';
 import { createHash } from 'crypto';
+import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 
 // ─── /api/stripe/book-station/route.ts ─────────────────────────────────────
 // Path A of the hourly/daily day-use feature: an EXISTING renter with a
@@ -26,9 +28,10 @@ import { createHash } from 'crypto';
 //     on the list is read too, so one cancelled since doesn't keep the time.
 //   - The charge has one key, named after the booking, its amount and card. Stripe
 //     saying no frees the time; no answer keeps it held (the charge may have gone
-//     through), and the same attempt asked again finishes it.
+//     through), and the same attempt asked again finishes it. A booking nobody
+//     asks about again is settled by the five-minute check (lib/station-booking).
 //   - The booking's lines in the books are named after it and written with its
-//     confirmation, in one step.
+//     confirmation, in one step (lib/station-booking).
 //
 // UTILIZATION NOTE: the response includes the booth's fresh occupancy
 // numbers post-booking. Nothing else in this route computes them — do not
@@ -64,10 +67,6 @@ function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
 }
 
-function resolveChargeId(intent: Stripe.PaymentIntent): string | null {
-  return typeof intent.latest_charge === 'string' ? intent.latest_charge : (intent.latest_charge as any)?.id || null;
-}
-
 // True if two [start,end) ranges overlap with an optional buffer around b.
 function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string, bufferMinutes = 0) {
   const bufMs = bufferMinutes * 60_000;
@@ -79,21 +78,12 @@ const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice
 const CLAIM_MS = 2 * 60_000;
 const freshClaim = (at: any) => !!at && Date.now() - (Date.parse(String(at)) || 0) < CLAIM_MS;
 // Stripe said no (nothing moved) — as against no answer at all (it may have gone through).
-const stripeRefused = (e: any) => ['StripeCardError', 'StripeInvalidRequestError', 'StripePermissionError', 'StripeAuthenticationError'].includes(String(e?.type || ''));
+const stripeRefused = (e: any) => saidNo(e);
 
 // A booking keeps its time while it's confirmed, while its charge is going through (or Stripe didn't answer, so it may
 // have gone through), and while it waits on the renter's bank for the hold window.
 const holdsTime = (b: any, nowIso: string) => ['confirmed', 'checked_in'].includes(String(b?.status || ''))
   || (b?.status === 'held' && (!!b.chargeClaimAt || (!!b.holdExpiresAt && String(b.holdExpiresAt) > nowIso)));
-
-// The days a booking touches, start day to end day, for the station's day lists.
-function daysOf(startAt: string, endAt: string): string[] {
-  const first = String(startAt).slice(0, 10), last = String(endAt).slice(0, 10);
-  const out: string[] = []; let t = Date.parse(`${first}T00:00:00Z`);
-  if (!Number.isFinite(t)) return out;
-  for (let i = 0; i < 32; i++) { const d = new Date(t).toISOString().slice(0, 10); out.push(d); if (d >= last) break; t += 86_400_000; }
-  return out;
-}
 
 export async function POST(req: NextRequest) {
   let parsed: any = {};
@@ -132,7 +122,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'endAt must be after startAt' }, { status: 400 });
   }
 
-  const { db, FieldValue } = getAdmin();
+  const { db } = getAdmin();
 
   try {
     // ── Load booth, renter, tenant in parallel ───────────────────────────
@@ -179,7 +169,7 @@ export async function POST(req: NextRequest) {
     const attempt = safeKey(parsed.attemptKey).slice(0, 80)
       || createHash('sha256').update(`${boothId}|${renterId}|${startAt}|${endAt}|${rateType}`).digest('hex').slice(0, 32);
     const bookingRef = db.doc(`tenants/${tenantId}/bookings/sb_${attempt}`);
-    const slotRef = (bId: string, day: string) => db.doc(`tenants/${tenantId}/stationSlots/${safeKey(bId)}_${day}`);
+    const slotRef = (bId: string, day: string) => db.doc(stationSlotPath(String(tenantId), bId, day));
     const nowISO = new Date().toISOString();
     const leasesQ = db.collection(`tenants/${tenantId}/leases`).where('boothId', '==', boothId).where('status', 'in', ['active', 'on_leave', 'pending_signature']);
     const bookingsQ = db.collection(`tenants/${tenantId}/bookings`).where('boothId', '==', boothId);
@@ -252,6 +242,7 @@ export async function POST(req: NextRequest) {
         chargeCents: totalCents,
         chargePm: String(renter.defaultPaymentMethodId),
         chargeCustomer: String(renter.stripeCustomerId),
+        chargeAccount: String(stripeAccountId),
         chargeMode: mode === 'auto' ? 'auto' : 'pos',
         chargeDescription: `Day-use booking — ${booth.name}`,
         renterName: `${renter.firstName} ${renter.lastName}`,
@@ -279,16 +270,9 @@ export async function POST(req: NextRequest) {
     const b: any = claim.b;
     const cents = Number(b.chargeCents) || 0;
     const stripe = getStripe();
-    // Stripe said no: the booking ends and its time is free again.
+    // Stripe said no: the booking ends and its time is free again (lib/station-booking).
     const release = async (why: string, message: string) => {
-      const dayRefs = daysOf(b.startAt, b.endAt).map((d) => slotRef(b.boothId, d));
-      const at = new Date().toISOString();
-      await db.runTransaction(async (tx: any) => {
-        const cur: any = (await tx.get(bookingRef)).data() || {};
-        if (cur.status !== 'held') return;
-        tx.set(bookingRef, { status: 'cancelled', cancelledAt: at, cancellationReason: why, cancellationMessage: message, chargeClaimAt: null, holdExpiresAt: null, updatedAt: at }, { merge: true });
-        for (const r of dayRefs) tx.set(r, { holds: { [bookingRef.id]: FieldValue.delete() } }, { merge: true });
-      }).catch(() => {});
+      await releaseStationBooking(db, String(tenantId), bookingRef.id, why, message).catch(() => false);
     };
 
     // ── The charge: one key for this booking, amount and card ──────────────
@@ -359,61 +343,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, reason: 'The payment is still going through. Try again in a couple of minutes: it won’t charge twice.', code: 'processing' }, { status: 502 });
     }
 
-    // ── The records, once: both ledgers (named after the booking) and the confirmation, in one step ──
-    const chargeId = resolveChargeId(intent);
-    const txnRef = db.doc(`tenants/${tenantId}/transactions/station_booking_${bookingRef.id}`);
-    const ledgerRef = db.doc(`tenants/${tenantId}/rentLedger/station_booking_${bookingRef.id}`);
-    const bHours = (new Date(b.endAt).getTime() - new Date(b.startAt).getTime()) / 3_600_000;
-    const at = new Date().toISOString();
-    await db.runTransaction(async (tx: any) => {
-      const cur: any = (await tx.get(bookingRef)).data() || {};
-      const line = await tx.get(txnRef);
-      if (line.exists || cur.paymentStatus === 'paid') return;
-      tx.set(txnRef, {
-        id: txnRef.id,
-        date: at,
-        description: String(b.chargeDescription || 'Day-use booking'),
-        clientOrVendor: b.renterName || `${renter.firstName} ${renter.lastName}`,
-        type: 'income',
-        context: 'Business',
-        category: 'Day-Use Booking Revenue',
-        taxBucket: 'revenue',
-        amount: cents / 100,
-        paymentMethod: 'Card on file (Stripe)',
-        stripePaymentIntentId: intent.id,
-        stripeChargeId: chargeId,
-        bookingId: bookingRef.id,
-        hasReceipt: true,
-        tenantId, locationId: b.locationId || locationId,
-      });
-      tx.set(ledgerRef, {
-        id: ledgerRef.id,
-        locationId: b.locationId || locationId,
-        leaseId: null,
-        bookingId: bookingRef.id,
-        renterId: b.renterId || renterId,
-        boothId: b.boothId || boothId,
-        type: 'rent_charge',
-        amountCents: cents,
-        status: 'paid',
-        dueDate: at,
-        paidAt: at,
-        description: `Day-use booking — ${b.rateType === 'daily' ? 'full day' : `${bHours}h`}`,
-        method: 'card',
-        createdAt: at,
-        updatedAt: at,
-      });
-      tx.set(bookingRef, {
-        status: 'confirmed',
-        paymentStatus: 'paid',
-        stripePaymentIntentId: intent.id,
-        stripeChargeId: chargeId,
-        transactionId: txnRef.id,
-        ledgerEntryId: ledgerRef.id,
-        holdExpiresAt: null,
-        chargeClaimAt: null,
-        updatedAt: at,
-      }, { merge: true });
+    // ── The records, once: both ledgers (named after the booking) and the confirmation, in one step (lib/station-booking) ──
+    await recordStationBooking(db, String(tenantId), bookingRef.id, b, intent, {
+      fallback: { renterName: `${renter.firstName} ${renter.lastName}`, locationId, renterId, boothId },
     });
 
     return NextResponse.json({

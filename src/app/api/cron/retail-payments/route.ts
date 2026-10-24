@@ -1,7 +1,9 @@
 // src/app/api/cron/retail-payments/route.ts — EVERY 5 MIN (Vercel Cron + CRON_SECRET): every shop order still 'placed'
 // (older than 90 s, so Stripe's own notification gets first go) is checked with Stripe — paid ones complete and appear
 // on the orders board; abandoned ones close. Unanswered swap questions past their time become refunds; pickup reminders and back-in-stock emails go out. Nothing depends on the customer keeping their page open.
-// Card reader payments at the desk that never got their answer are settled too (lib/reader-sale).
+// Card reader payments at the desk that never got their answer are settled too (lib/reader-sale), and so is every other
+// payment or refund whose answer from Stripe was lost: recorded when it went through, let go when it didn't
+// (lib/money-sweep).
 import { getRetailSecrets } from '@/lib/retail-secrets';
 import { heartbeat } from '@/lib/account-health';
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,18 +17,23 @@ import { sweepReaderPayments } from '@/lib/reader-sale';
 import { sweepAddressPays } from '@/lib/address-pay';
 import { finishPaidOrder } from '@/lib/retail-webhook';
 import { shareOrderTip } from '@/lib/order-tips';
+import { sweepMoneyOnTheWay } from '@/lib/money-sweep';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false }, { status: 401 });
-  const db = getAdminDb(); const counts: Record<string, number> = { paid: 0, expired: 0, waiting: 0, skipped: 0, failed: 0, swapsRefunded: 0, restockEmails: 0, pickupReminders: 0, readerChecked: 0, readerCaptured: 0, readerReleased: 0, addressPays: 0, finished: 0, tipsShared: 0 };
+  const db = getAdminDb(); const counts: Record<string, number> = { paid: 0, expired: 0, waiting: 0, skipped: 0, failed: 0, swapsRefunded: 0, restockEmails: 0, pickupReminders: 0, readerChecked: 0, readerCaptured: 0, readerReleased: 0, addressPays: 0, finished: 0, tipsShared: 0,
+    moneyChecked: 0, moneyRecorded: 0, moneyReleased: 0, moneyWaiting: 0, moneyFailed: 0 };
   // Several businesses at once, within the time limit, resuming where the last run stopped (lib/cron-fanout).
   const run = await forEachTenant(db, 'retail-payments', async (t) => {
     const tenant: any = t.data;
     // Shippo key and wholesale code off the public business record (lib/retail-secrets; a no-op once moved).
     try { const rsx = tenant.retailSettings || {}; if ('shippoApiKey' in rsx || 'wholesaleAccessCode' in rsx) await getRetailSecrets(db, t.id, tenant); } catch { /* next run */ }
-    if (!tenant.stripeAccountId && !tenant.stripeConnectAccountId) return;
+    // Payments and refunds whose answer was lost: after the shop's own work below, and for a business without its own
+    // payments account too (booth rent and extras go through the platform's).
+    const money = async () => { try { const m = await sweepMoneyOnTheWay(db, t.id, tenant); counts.moneyChecked += m.checked; counts.moneyRecorded += m.recorded; counts.moneyReleased += m.released; counts.moneyWaiting += m.waiting; counts.moneyFailed += m.failed.length; } catch { /* next run */ } };
+    if (!tenant.stripeAccountId && !tenant.stripeConnectAccountId) { await money(); return; }
     // Payments for a new address nobody came back from: the change goes on, or the payment page closes (lib/address-pay).
     try { counts.addressPays = (counts.addressPays || 0) + await sweepAddressPays(db, t.id, tenant); } catch { /* next run */ }
     // Card reader payments the desk never heard back about: captured, recorded or released (lib/reader-sale).
@@ -66,6 +73,7 @@ export async function GET(req: NextRequest) {
         try { const r = await shareOrderTip(db, t.id, d.id); if (r === 'shared' || r === 'unassigned') counts.tipsShared++; } catch (e: any) { console.error('[cron/retail-payments] tip', t.id, d.id, String(e?.message || e).slice(0, 160)); }
       }
     } catch { /* next run */ }
+    await money();
   });
   await heartbeat(db, 'retail-payments');   // HQ's account check uses this to spot a stopped task
   return NextResponse.json({ ok: true, ...counts, businesses: run.done, of: run.total, resumesAt: run.ranOut ? run.nextStart : null });

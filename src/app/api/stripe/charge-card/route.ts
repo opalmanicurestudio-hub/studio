@@ -171,7 +171,12 @@ export async function POST(req: NextRequest) {
     feeId: askedFeeId = null,       // auto mode: the name a fee that can't be charged is owed under (see "Owed once")
     replay = false,                 // auto mode: an attempt asked again long after its answer went missing (see "Keys")
     taxBucket: askedBucket = null,  // 'revenue' (default) or 'adjustment'
+    // What the five-minute check does with a charge that went through after its answer was lost and nobody asked again
+    // (lib/lost-charges): 'deposit' records it as the booking's deposit when the booking is still waiting on one;
+    // 'refund' says the screen saved nothing on a lost answer (a cancellation, a move); anything else records it.
+    onLost: askedOnLost = null,
   } = parsed;
+  const onLost = ['deposit', 'refund'].includes(String(askedOnLost || '')) ? String(askedOnLost) : 'record';
   const forTicket = safeId(pendingId);
   // The caller's key when it gives one (letters, digits, - and _ only).
   const callerKey = typeof askedKey === 'string' ? askedKey.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200) : '';
@@ -387,14 +392,17 @@ export async function POST(req: NextRequest) {
         const replay = !!cur?.key && (cur.done ? Number.isFinite(done) && startedAt - done < DONE_REPLAY_MS : true);
         if (cur && !cur.done && !cur.unknown && Number.isFinite(held) && startedAt - held < ATTEMPT_MS) return { busy: true };
         const key = callerKey || (replay ? String(cur.key) : `pos_${forTicket || 'none'}_${clientId}_${what}_${amountCents}_${startedAt}`);
-        tx.set(attemptRef, { key, at: new Date(startedAt).toISOString(), clientId, amountCents, ticket: forTicket || null, unknown: false, done: false, doneAt: null });
+        // What the five-minute check needs if this one's answer is lost and nobody asks again (lib/lost-charges).
+        tx.set(attemptRef, { key, at: new Date(startedAt).toISOString(), clientId, amountCents, ticket: forTicket || null, unknown: false, done: false, doneAt: null,
+          mode: 'pos', customer: card.customerId, account: stripeAccountId, description: String(description || ''), category: String(category || ''), appointmentId: appointmentId || null,
+          surchargeCents: Math.round(surchargeDollars * 100), noLedger: noLedger === true, onLost, taxBucket: bucket });
         return { key };
       });
       if (attempt.busy) return NextResponse.json({ ok: false, code: 'in_progress', reason: 'This card payment is going through already. Give it a moment, then check the sale.', error: 'This card payment is going through already. Give it a moment, then check the sale.' }, { status: 409 });
       const idempotencyKey: string = attempt.key;
       const ended = () => attemptRef.delete().catch(() => {});
       const charged = () => attemptRef.set({ done: true, doneAt: new Date().toISOString() }, { merge: true }).catch(() => {});
-      const unanswered = async () => { await attemptRef.set({ unknown: true }, { merge: true }).catch(() => {}); return NextResponse.json({ ok: false, unknown: true, code: 'unconfirmed', reason: NO_ANSWER, error: NO_ANSWER }, { status: 502 }); };
+      const unanswered = async () => { await attemptRef.set({ unknown: true, unknownAt: new Date().toISOString() }, { merge: true }).catch(() => {}); return NextResponse.json({ ok: false, unknown: true, code: 'unconfirmed', reason: NO_ANSWER, error: NO_ANSWER }, { status: 502 }); };
 
       let intent: Stripe.PaymentIntent;
       asked = true;
@@ -425,6 +433,7 @@ export async function POST(req: NextRequest) {
               // match that the ledger write below never satisfied either —
               // so the processing fee silently never attached.
               checkoutSessionId: checkoutSessionId || '',
+              chargeKey: idempotencyKey,   // so a charge whose answer went missing can be found again (lib/lost-charges)
               ...(forTicket ? { pendingId: forTicket, ...(share === true ? { split: '1', shareLabel: String(shareLabel || '').slice(0, 60) } : {}) } : {}),
             },
           },
@@ -500,7 +509,15 @@ export async function POST(req: NextRequest) {
     // OR a front-desk deposit charge per `kind: 'deposit'` — see header note)
     // ══════════════════════════════════════════════════════════════════════════
     const idempotencyKey = callerKey || `fee_${appointmentId || clientId}_${amountCents}_${purpose}`;
-    const unanswered = () => NextResponse.json({ ok: false, unknown: true, flagged: false, parkedAsBalance: false, code: 'unconfirmed', reason: NO_ANSWER, error: NO_ANSWER }, { status: 502 });
+    // The attempt, written before the card is charged and closed with its answer. One whose answer is lost and that
+    // nobody asks again is settled by the five-minute check (lib/lost-charges): found at Stripe by its key and recorded,
+    // so no payment is ever left unrecorded.
+    const autoRef = db.doc(`tenants/${tenantId}/cardAttempts/auto_${hash(idempotencyKey, 32)}`);
+    const settleAs = (status: string, more: Record<string, any> = {}) => autoRef.set({ status, endedAt: new Date().toISOString(), ...more }, { merge: true }).catch(() => {});
+    await autoRef.set({ mode: 'auto', key: idempotencyKey, at: nowISO, status: 'sending', clientId, amountCents, appointmentId: appointmentId || null,
+      category: String(category || ''), description: String(description || ''), reason: String(reason || ''), kind: String(kind || ''), onLost, taxBucket: bucket,
+      surchargeCents: Math.round(surchargeDollars * 100), checkoutSessionId: checkoutSessionId || null, customer: card.customerId, account: stripeAccountId }, { merge: true });
+    const unanswered = () => { void settleAs('unknown', { wasUnknown: true }); return NextResponse.json({ ok: false, unknown: true, flagged: false, parkedAsBalance: false, code: 'unconfirmed', reason: NO_ANSWER, error: NO_ANSWER }, { status: 502 }); };
 
     let intent: Stripe.PaymentIntent | null = null;
     // Asked again long after its answer went missing: Stripe may have forgotten the key by then, so the payment made
@@ -548,6 +565,7 @@ export async function POST(req: NextRequest) {
         || stripeErr?.payment_intent?.last_payment_error?.decline_code
         || null;
       const parked = isArrearsKind ? await flagAndPark('stripe_error', declineCode || code) : false;
+      await settleAs('declined', { code });
       return NextResponse.json({
         ok:              false,
         flagged:         isArrearsKind,
@@ -563,6 +581,7 @@ export async function POST(req: NextRequest) {
     if (intent.status === 'processing') return unanswered();
     if (intent.status !== 'succeeded') {
       const parked = isArrearsKind ? await flagAndPark('not_succeeded', intent.status) : false;
+      await settleAs('declined', { code: intent.status });
       return NextResponse.json({
         ok:              false,
         flagged:         isArrearsKind,
@@ -576,6 +595,9 @@ export async function POST(req: NextRequest) {
     // The one line in the books for this charge (named after the payment, so a retry finds it). Callers record their
     // own side of it (the membership, the package, the cancellation) — never a second income line for it.
     await writeLedger(`card_charge__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
+    // A booking's deposit, or a fee for a change the asking step saves only once it hears back: checked 20 minutes on by
+    // the five-minute check, in case that answer is the one that went missing (lib/lost-charges).
+    await settleAs('charged', { pi: intent.id, ...(appointmentId && onLost !== 'record' ? { unapplied: true } : {}) });
 
     return NextResponse.json({ ok: true, paymentIntentId: intent.id, chargeId: resolveChargeId(intent), amount: amountDollars });
 

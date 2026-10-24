@@ -750,6 +750,7 @@ function ConciergeKioskContent() {
                             mode: 'pos',
                             // The same order sent again is the same charge, never a second one.
                             idempotencyKey: `lounge-${orderKey}`,
+                            onLost: 'refund',   // no order is placed on a lost answer
                         }),
                     }).catch(() => null);
                     const chargeData = chargeRes ? await chargeRes.json().catch(() => ({ ok: false })) : { ok: false, unknown: true };

@@ -1016,7 +1016,7 @@ function PlannerPageContent() {
     if (data.chargeFee && data.feeAmount > 0 && data.paymentMethod === 'card_on_file') {
       let r: any = null; let status = 0;
       try { const res = await fetch('/api/stripe/charge-card', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, clientId: selectedAppointment.clientId, amountCents: Math.round(Number(data.feeAmount) * 100),
-        description: `${who === 'no_show' ? 'Missed-appointment' : 'Late-cancellation'} fee`, category: who === 'no_show' ? 'No-Show Revenue' : 'Cancellation Fee', appointmentId: selectedAppointment.id, reason: data.reason, mode: 'auto', kind: 'deposit' }) });
+        description: `${who === 'no_show' ? 'Missed-appointment' : 'Late-cancellation'} fee`, category: who === 'no_show' ? 'No-Show Revenue' : 'Cancellation Fee', appointmentId: selectedAppointment.id, reason: data.reason, mode: 'auto', kind: 'deposit', onLost: 'refund' }) });
         status = res.status; r = await res.json().catch(() => null); } catch { r = null; }
       if (status < 500 && r?.ok && r.paymentIntentId) intentId = r.paymentIntentId;
       else if (!r || status >= 500 || r.unknown) { toast({ variant: 'destructive', title: 'The charge wasn’t confirmed', description: 'Stripe didn’t answer, so the charge may or may not have gone through. Nothing was saved. Try again in a couple of minutes: it won’t charge twice.' }); return; }

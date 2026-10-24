@@ -99,7 +99,7 @@ export default function ChipInPage() {
               <p className="text-center text-[12.5px]" style={{ color: MUTED }}>{isOrg ? 'Your share is private.' : `Your amount stays private. ${first(g.recipientName)} sees your name${note ? ' and note' : ''} when it’s sent.`}</p>
             </div> : isOrg && !thanks ? <button type="button" onClick={() => setOpen(true)} className="w-full text-[14px] font-semibold underline underline-offset-4">Add more yourself</button> : null)}
           {isOrg && g.status === 'collecting' && ask === '' && <button type="button" onClick={() => setAsk('cancel')} className="w-full text-[13.5px] underline underline-offset-4" style={{ color: MUTED }}>Cancel the gift and refund everyone</button>}
-          {!isOrg && g.status !== 'collecting' && <p className="text-center text-[15px]" style={{ color: MUTED }}>{g.status === 'sent' ? `This gift has been sent — thank you to everyone who chipped in.` : 'This gift was cancelled, and everyone was refunded.'}</p>}
+          {!isOrg && g.status !== 'collecting' && <p className="text-center text-[15px]" style={{ color: MUTED }}>{g.status === 'sent' ? `This gift has been sent — thank you to everyone who chipped in.` : g.refundsLeft ? 'This gift was cancelled. Everyone’s share is being refunded.' : 'This gift was cancelled, and everyone was refunded.'}</p>}
         </>}
       </div>
     </div>);

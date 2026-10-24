@@ -433,10 +433,11 @@ export default function ClientDetailPage() {
     return { total: totalUsage, pending: pendingQty, db: redemptionsInCycle.length + deliveredQty };
   };
 
-  // One settlement attempt keeps its key and its amount until the card processor gives an answer, so tapping again
-  // after an answer went missing asks for that same charge, never a second one.
-  const settleAttempt = React.useRef<{ key: string; cents: number; clientId: string } | null>(null);
-
+  // The whole balance is paid through the same place a client's own balance payment goes (api/portal/pay-balance):
+  // the balance and its fees are claimed first, through the one lock every way of paying a fee uses, so automatic
+  // collection or another screen can't take the same fees at the same moment; Stripe gets one key for this balance; and
+  // the balance clears on the server only once Stripe confirms, by what was paid. An answer that goes missing is found
+  // there on the next tap, or by the five-minute check, and never charged twice.
   const handleQuickSettle = async () => {
     if (!client || !firestore || !tenantId) return;
     const hasCard = !!hasRealCard(client);
@@ -444,62 +445,33 @@ export default function ClientDetailPage() {
         toast({ variant: 'destructive', title: "No Card on File", description: "Save a card for them first, then settle the balance." });
         return;
     }
-    if (safeNumber(client.outstandingBalance) <= 0 && !settleAttempt.current) return;
-    const attempt = settleAttempt.current?.clientId === client.id ? settleAttempt.current
-      : { key: `settle_${client.id}_${nanoid(12)}`, cents: Math.round(safeNumber(client.outstandingBalance) * 100), clientId: client.id };
-    settleAttempt.current = attempt;
-    const amount = attempt.cents / 100;
+    if (safeNumber(client.outstandingBalance) <= 0) return;
 
     setIsSettleProcessing(true);
     try {
-        // This previously never called Stripe at all — it wrote a fake
-        // 'income' transaction and zeroed the balance unconditionally,
-        // regardless of whether any money actually moved. Now it genuinely
-        // charges the card via the same route every other card-on-file charge
-        // in this app uses (POS checkout, cancellation fees). That route
-        // owns its own ledger write, and the real Stripe processing fee gets
-        // captured the same way it does for every other charge — via the
-        // charge.succeeded webhook, not anything written here.
-        const res = await fetch('/api/stripe/charge-card', {
+        const res = await fetch('/api/portal/pay-balance', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
-            body: JSON.stringify({
-                tenantId,
-                clientId: client.id,
-                amountCents: attempt.cents,
-                description: 'Dossier Settlement — Outstanding Balance',
-                category: 'Fee Recovery',
-                taxBucket: 'adjustment',
-                idempotencyKey: attempt.key,
-            }),
+            body: JSON.stringify({ tenantId, clientId: client.id }),
         });
         const out = await res.json().catch(() => null);
-
-        // No answer from the card processor: the attempt (its key and amount) is kept for the next tap.
-        if (res.status >= 500 || !out || out.unknown || out.code === 'in_progress') {
-            toast({ variant: 'destructive', title: "Charge Not Confirmed", description: out?.reason || 'The card processor didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' });
+        // No answer from the card processor, or a payment for these fees still going through: nothing is cleared here,
+        // and asking again in a couple of minutes finds that payment rather than charging again.
+        if (!out || res.status >= 500 || out.code === 'unconfirmed' || out.code === 'in_progress') {
+            toast({ variant: 'destructive', title: "Charge Not Confirmed", description: out?.code === 'in_progress' ? 'A payment for this balance is going through right now. Check again in a couple of minutes.' : 'The card processor didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' });
             return;
         }
-        settleAttempt.current = null;   // an answer ends the attempt: the next tap is a new one
-        if (!out?.ok) {
-            toast({ variant: 'destructive', title: "Charge Failed", description: out?.reason || 'Card was declined or could not be processed. Balance has not been cleared.' });
+        if (!out.ok) {
+            toast({ variant: 'destructive', title: "Charge Failed", description: out.code === 'no_card' ? 'There’s no card saved that can be charged.' : res.status === 402 ? 'The card was declined. The balance hasn’t been cleared.' : 'The payment didn’t go through. The balance hasn’t been cleared.' });
             return;
         }
-
-        // Charge succeeded — clear the debt. lifetimeValue increments here
-        // because unpaid fees are tracked separately from lifetimeValue when
-        // incurred (see wherever unpaidFees first get added) and only count
-        // once actually collected.
-        await updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), {
-            outstandingBalance: 0,
-            unpaidFees: [],
-            lifetimeValue: increment(amount),
-        });
-        toast({ title: "Account Reconciled", description: `Successfully charged ${client.cardOnFile?.brand} for $${amount.toFixed(2)}.` });
+        const paid = Number(out.paidDollars) || 0;
+        // The balance itself was cleared on the server, by what was paid. Lifetime value counts what was collected.
+        if (paid > 0) await updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), { lifetimeValue: increment(paid) });
+        toast({ title: "Account Reconciled", description: paid > 0 ? `Successfully charged ${client.cardOnFile?.brand || 'their card'} for $${paid.toFixed(2)}.` : 'Nothing is owed on this account.' });
         setIsQuickSettleOpen(false);
     } catch (e: any) {
         console.error(e);
-        // The request may have reached the card processor: the attempt is kept, so trying again is the same charge.
         toast({ variant: 'destructive', title: "Charge Not Confirmed", description: 'The connection dropped, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.' });
     } finally {
         setIsSettleProcessing(false);
