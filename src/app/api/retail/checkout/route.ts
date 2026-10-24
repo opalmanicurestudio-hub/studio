@@ -640,6 +640,7 @@ async function handleCheckout(req: NextRequest) {
     method,
     priceTier,
     wholesaleAccountId: wsAccount?.id || null,
+    ...(priceTier === 'wholesale' ? { wholesaleDiscountPct: wsDiscount } : {}),
     businessName: priceTier === 'wholesale'
       ? (String(body.business?.name || '').trim() || wsAccount?.businessName || '')
       : '',

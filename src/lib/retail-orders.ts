@@ -259,9 +259,10 @@ export function listingPriceCents(
   item: Pick<SellableItem, 'msrp' | 'wholesalePriceDollars'>,
   tier: PriceTier = 'retail'
 ): number {
+  // A wholesale price of 0 (or none) isn't a price: the retail one stands.
   const dollars = tier === 'wholesale'
-    ? item.wholesalePriceDollars ?? item.msrp ?? 0
-    : item.msrp ?? 0;
+    ? (Number(item.wholesalePriceDollars) > 0 ? Number(item.wholesalePriceDollars) : Number(item.msrp) || 0)
+    : Number(item.msrp) || 0;
   return Math.round(dollars * 100);
 }
 
@@ -934,6 +935,7 @@ export interface RetailOrder {
   priceTier: PriceTier;        // 'retail' | 'wholesale'
   businessName?: string;       // B2B/wholesale orders
   wholesaleAccountId?: string; // set when a per-account code was used
+  wholesaleDiscountPct?: number; // the account's extra discount when the order was placed (a swap is priced the same way)
   poNumber?: string;           // buyer's purchase-order reference
   lines: OrderLine[];
 

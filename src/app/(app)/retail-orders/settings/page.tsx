@@ -392,7 +392,7 @@ export default function RetailSettingsPage() {
         return name && /^https?:\/\//i.test(url) ? { name, url } : null;
       }).filter(Boolean).slice(0, 20);
       await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory`, it.id), {
-        wholesalePriceDollars: d.wholesale.trim() === '' ? null : Number(d.wholesale) || 0,
+        wholesalePriceDollars: Number(d.wholesale) > 0 ? Number(d.wholesale) : null,
         weightOz: Math.max(0, Number(d.weight) || 0),
         wholesaleMinQty: d.minQty.trim() === '' ? null : Math.max(0, Math.floor(Number(d.minQty) || 0)),
         onlineDescription: d.desc.trim(),

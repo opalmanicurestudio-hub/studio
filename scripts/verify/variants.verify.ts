@@ -49,8 +49,8 @@ const url = (path: string, q: Record<string, string>) => ({ nextUrl: { searchPar
   check('each variant knows its listing; a listing is never a variant', listings.get('blush') === oil && listings.get('gold') === oil && !listings.has('oil'));
   check('variants are never listed on their own; the listing is', !V.listedInShop({ ...blush, showOnline: true, msrp: 24 }, listings) && V.listedInShop(oil, listings));
   check('a variant’s own price when it has one, otherwise the listing’s', V.variantPriceCents(gold, oil) === 2800 && V.variantPriceCents(blush, oil) === 2400 && V.variantPriceCents(clear, oil) === 2400);
-  check('…wholesale: its own wholesale price, else the listing’s wholesale price (a wholesale account never pays a variant’s retail price), else its retail price by the rule',
-    V.variantPriceCents({ ...gold, wholesalePriceDollars: 15 }, oil, 'wholesale') === 1500 && V.variantPriceCents(gold, oil, 'wholesale') === 1200 && V.variantPriceCents(blush, oil, 'wholesale') === 1200
+  check('…wholesale: its own wholesale price, else the listing’s wholesale discount off its own price ($28 at the listing’s 50% off is $14), else its retail price by the rule',
+    V.variantPriceCents({ ...gold, wholesalePriceDollars: 15 }, oil, 'wholesale') === 1500 && V.variantPriceCents(gold, oil, 'wholesale') === 1400 && V.variantPriceCents(blush, oil, 'wholesale') === 1200
     && V.variantPriceCents(gold, { ...oil, wholesalePriceDollars: null }, 'wholesale') === 2800 && V.variantPriceCents(blush, { ...oil, wholesalePriceDollars: null }, 'wholesale') === 2400);
   const sale = V.choiceSale(oil, { g0: 'a', g1: 'w' });
   check('choices: the variant sold, and only gift wrap adds (an extra cost on a variant’s choice never applies)', sale.variantId === 'blush' && sale.extraCents === 250 && sale.label === 'Blush · Gift wrap' && sale.choices.g0 === 'a' && sale.choices.g1 === 'w' && !sale.unknown.length, sale);

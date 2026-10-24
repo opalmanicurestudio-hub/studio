@@ -80,12 +80,18 @@ export const ownPrice = (variant: any, tier: PriceTier = 'retail') =>
   Number(variant?.msrp) > 0 || (tier === 'wholesale' && Number(variant?.wholesalePriceDollars) > 0);
 
 /** A variant's price in cents: its own when it has one, otherwise the listing's. Wholesale: its own wholesale price,
- *  else the listing's wholesale price, else its retail price by the same rule (a wholesale account never pays a
- *  variant's retail price while the listing has a wholesale one). */
+ *  else the listing's wholesale discount off its own retail price ($60 at the listing's 50% off is $30), else the
+ *  listing's wholesale price (a variant with no price of its own), else its retail price by the same rule. */
 export function variantPriceCents(variant: any, listing: any, tier: PriceTier = 'retail'): number {
   if (tier === 'wholesale') {
     if (Number(variant?.wholesalePriceDollars) > 0) return Math.round(Number(variant.wholesalePriceDollars) * 100);
-    if (listing && Number(listing.wholesalePriceDollars) > 0) return Math.round(Number(listing.wholesalePriceDollars) * 100);
+    // No wholesale price of its own: the listing's wholesale discount on the variant's own price ($60 at the listing's
+    // 50% off is $30), or the listing's wholesale price when the variant has no price of its own.
+    if (listing && Number(listing.wholesalePriceDollars) > 0) {
+      const lr = Number(listing.msrp) || 0; const lw = Number(listing.wholesalePriceDollars); const vr = Number(variant?.msrp) || 0;
+      if (vr > 0 && lr > 0) return lw < lr ? Math.round(vr * 100 * (lw / lr)) : Math.round(vr * 100);   // no discount: its own price
+      return Math.round(lw * 100);
+    }
   }
   if (Number(variant?.msrp) > 0) return Math.round(Number(variant.msrp) * 100);
   return listing ? listingPriceCents(listing, 'retail') : 0;

@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
       const childRef = col.doc();
       tx.set(childRef, JSON.parse(JSON.stringify({
         id: childRef.id, tenantId, orderNumber: o.orderNumber ?? null,
-        stage: 'paid', method: 'ship', priceTier: o.priceTier || 'retail',
+        stage: 'paid', method: 'ship', priceTier: o.priceTier || 'retail', ...(o.priceTier === 'wholesale' ? { wholesaleAccountId: o.wholesaleAccountId || null, ...(o.wholesaleDiscountPct != null ? { wholesaleDiscountPct: o.wholesaleDiscountPct } : {}) } : {}),
         // Sent from the shelf like any order: nothing scanned or packed yet, and never a pre-order (that run shipped).
         // Each unit keeps the price paid for it, and the order the tax figures it was paid with, so a refund on the
         // replacement is what was paid (lib/order-family).

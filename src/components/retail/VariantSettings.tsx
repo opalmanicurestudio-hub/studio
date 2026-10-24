@@ -8,7 +8,7 @@ import * as React from 'react';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { choiceFor, variantIdsOf } from '@/lib/variants';
+import { choiceFor, variantIdsOf, variantPriceCents } from '@/lib/variants';
 
 type Draft = { wholesale: string; weight: string };
 const draftOf = (v: any): Draft => ({
@@ -40,7 +40,7 @@ export function VariantSettings({ firestore, tenantId, listing, byId, onToast }:
     <div className="space-y-2 rounded-xl border-2 border-dashed p-2.5">
       <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">How each variant sells</p>
       <p className="text-[11px] font-bold text-muted-foreground">
-        Each variant sells the way this listing is set above (pre-order, a download, made to order, its weight). Give one a wholesale price or a weight of its own here; left blank, it uses the listing’s. A wholesale minimum counts all the variants together.
+        Each variant sells the way this listing is set above (pre-order, a download, made to order, its weight). Give one a wholesale price or a weight of its own here. Left blank, a variant’s wholesale price is the listing’s wholesale discount off its own price, and its weight is the listing’s. A wholesale minimum counts all the variants together.
       </p>
       {vids.map((id) => {
         const v = byId.get(id); if (!v) return null;
@@ -56,7 +56,7 @@ export function VariantSettings({ firestore, tenantId, listing, byId, onToast }:
             <div className="grid grid-cols-2 gap-x-1.5 gap-y-0.5">
               <span className="text-[10px] font-bold text-muted-foreground">Wholesale $</span>
               <span className="text-[10px] font-bold text-muted-foreground">Weight (oz)</span>
-              <Input aria-label={`Wholesale price for ${label}`} placeholder={listingWholesale ? `Listing’s ${listingWholesale}` : 'Wholesale $'} inputMode="decimal" value={d.wholesale}
+              <Input aria-label={`Wholesale price for ${label}`} placeholder={listingWholesale ? money(variantPriceCents({ ...v, wholesalePriceDollars: null }, listing, 'wholesale') / 100) : 'Wholesale $'} inputMode="decimal" value={d.wholesale}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [id]: { ...d, wholesale: e.target.value.replace(/[^\d.]/g, '').slice(0, 9) } })}
                 className="h-9 rounded-xl border-2 font-mono text-xs font-bold" />
               <Input aria-label={`Weight in ounces for ${label}`} placeholder={Number(listing.weightOz) > 0 ? `Listing’s ${listing.weightOz} oz` : 'Weight oz'} inputMode="decimal" value={d.weight}

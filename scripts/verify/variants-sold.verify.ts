@@ -1,7 +1,7 @@
 // Checks that a variant sells the same way everywhere (the independent review of Phase A, round 3): what a listing sets
 // for how it's sold (pre-order, a download, made to order, weight, final sale, who it's sold for) applies to each of its
-// variants that doesn't set it itself, in the shop, at checkout and in the shipping quote; a wholesale account never
-// pays a variant's retail price while the listing has a wholesale one; a variant's order line is named as its listing
+// variants that doesn't set it itself, in the shop, at checkout and in the shipping quote; a wholesale account pays
+// the listing's wholesale discount off a variant's own price unless the variant has a wholesale price; a variant's order line is named as its listing
 // and the variant; a variant's reviews show on its listing; a code made for a variant applies in the checkout preview;
 // only a retail product is a listing; a choice that picks something else gets a new id; old variants are pointed at
 // their listing the first time anything asks; the print catalog prints a listing once; the codes check lists choices
@@ -59,9 +59,22 @@ const order = (x: any) => ({ tenantId: 't1', method: 'counter', customer: { name
     && plain.allowBackorder === true && plain.weightOz === 6 && plain.finalSale === true && plain.soldFor?.renterId === 'r1' && plain.shipGroundOnly === true && plain.name === 'Gel kit', plain);
   const own = V.asSold({ ...listing, preorder: false, digital: false }, { id: 'v', type: 'retail', preorder: true, preorderEtaAt: '2027-01-02', digital: true, digitalUrl: 'https://x/own', weightOz: 2, leadDays: { min: 1, max: 2 }, soldFor: { renterId: 'r2', renterName: 'Ivy' } });
   check('…and its own setting wins', own.preorderEtaAt === '2027-01-02' && own.digitalUrl === 'https://x/own' && own.weightOz === 2 && own.leadDays.max === 2 && own.soldFor.renterId === 'r2', own);
-  check('a wholesale account pays a variant’s own wholesale price, else the listing’s, never the variant’s retail price while the listing has a wholesale one',
-    V.variantPriceCents({ msrp: 28 }, { msrp: 24, wholesalePriceDollars: 12 }, 'wholesale') === 1200 && V.variantPriceCents({ msrp: 28, wholesalePriceDollars: 14 }, { msrp: 24, wholesalePriceDollars: 12 }, 'wholesale') === 1400
+  check('a wholesale account pays a variant’s own wholesale price, else the listing’s wholesale discount off the variant’s own price ($60 at 50% off is $30), else the listing’s wholesale price',
+    V.variantPriceCents({ msrp: 60 }, { msrp: 24, wholesalePriceDollars: 12 }, 'wholesale') === 3000 && V.variantPriceCents({}, { msrp: 24, wholesalePriceDollars: 12 }, 'wholesale') === 1200 && V.variantPriceCents({ msrp: 28, wholesalePriceDollars: 14 }, { msrp: 24, wholesalePriceDollars: 12 }, 'wholesale') === 1400
     && V.variantPriceCents({ msrp: 28 }, { msrp: 24 }, 'wholesale') === 2800);
+  check('…a listing with no wholesale discount gives a variant its own price, and a wholesale price of 0 is no price at all',
+    V.variantPriceCents({ msrp: 10 }, { msrp: 20, wholesalePriceDollars: 20 }, 'wholesale') === 1000 && (await import('../../src/lib/retail-orders')).listingPriceCents({ msrp: 24, wholesalePriceDollars: 0 } as any, 'wholesale') === 2400);
+  {
+    fresh();
+    await put('l', { name: 'Kit', msrp: 50, wholesalePriceDollars: 25, optionGroups: g([{ id: 'a', label: 'A', variantProductId: 'va' }, { id: 'b', label: 'B', variantProductId: 'vb' }]) });
+    await put('va', { name: 'A', msrp: 60, parentId: 'l' }); await put('vb', { name: 'B', msrp: 40, parentId: 'l' });
+    await db.doc(`${T}/wholesaleAccounts/w1`).set({ extraDiscountPercent: 10 });
+    const sw = await import('../../src/lib/retail-swap-server');
+    const ws = await sw.catalogItem(db, 't1', 'vb', { priceTier: 'wholesale', wholesaleDiscountPct: 10 });
+    const old = await sw.catalogItem(db, 't1', 'vb', { priceTier: 'wholesale', wholesaleAccountId: 'w1' });
+    const rt = await sw.catalogItem(db, 't1', 'vb', { priceTier: 'retail' });
+    check('a swap on a wholesale order is priced as checkout would charge it: wholesale, less the account’s discount (it used to be retail)', ws?.unitPriceCents === 1800 && old?.unitPriceCents === 1800 && rt?.unitPriceCents === 4000, { ws, old, rt });
+  }
   check('only a retail product is a listing: an equipment item’s choices sell nothing',
     V.variantIdsOf({ id: 'e', type: 'equipment', optionGroups: g([{ id: 'a', label: 'A', variantProductId: 'p' }]) }).length === 0 && V.variantIdsOf({ id: 'r', optionGroups: g([{ id: 'a', label: 'A', variantProductId: 'p' }]) }).join() === 'p');
   const two = { id: 'l2', type: 'retail', optionGroups: g([{ id: 'a', label: '15 ml', variantProductId: 's' }], [{ id: 'g1', name: 'Size', choices: [{ id: 'b', label: '30 ml', variantProductId: 't' }, { id: 'w', label: 'Gift wrap', deltaCents: 250 }] }]) };

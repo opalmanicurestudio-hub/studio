@@ -3,6 +3,7 @@
 // and the money move together, and two answers can't both win. The swap arithmetic itself is lib/retail-swap.
 import { shrinkStock } from './retail-orders';
 import { choiceFor, variantPriceCents } from './variants';
+import { discountedCents } from './retail-wholesale';
 import { ensureCodeIndex } from './code-index';
 import { nanoid } from 'nanoid';
 import { taxShareCents } from './restocking';
@@ -17,8 +18,9 @@ const last10 = (p: string) => String(p || '').replace(/\D/g, '').slice(-10);
 const orderRef = (db: any, t: string, id: string) => db.collection(`tenants/${t}/retailOrders`).doc(id);
 const OPEN_STAGES = ['paid', 'picking'];
 
-/** The replacement as the shop sells it today, read from the catalog, never from the caller. */
-export async function catalogItem(db: any, t: string, productId: string): Promise<SwapItem | null> {
+/** The replacement as the shop sells it today, read from the catalog, never from the caller: at the order's price (a
+ *  wholesale order's wholesale price, less its account's discount, as checkout charged it). */
+export async function catalogItem(db: any, t: string, productId: string, order?: any): Promise<SwapItem | null> {
   // Each variant points at its listing first (variants saved before that are pointed the first time anything asks).
   await ensureCodeIndex(db, t).catch(() => {});
   const s = await db.collection(`tenants/${t}/inventory`).doc(productId).get();
@@ -26,7 +28,16 @@ export async function catalogItem(db: any, t: string, productId: string): Promis
   // A variant sells as its listing and choice, for its own price or the listing's (lib/variants).
   let listing: any = null;
   if (i.parentId && i.parentId !== productId) { const ls = await db.collection(`tenants/${t}/inventory`).doc(String(i.parentId)).get(); const l = ls.exists ? { ...(ls.data() as any), id: ls.id } : null; if (l && choiceFor(l, productId)) listing = l; }
-  const price = listing ? variantPriceCents(i, listing) : Math.round((Number(i.msrp) || 0) * 100); if (price <= 0) return null;
+  const wholesale = order?.priceTier === 'wholesale';
+  let pct = 0;
+  if (wholesale) {
+    pct = Number(order.wholesaleDiscountPct);
+    if (!Number.isFinite(pct) && order.wholesaleAccountId) { const a = await db.collection(`tenants/${t}/wholesaleAccounts`).doc(String(order.wholesaleAccountId)).get().catch(() => null); pct = Number(a?.exists ? a.data()?.extraDiscountPercent : 0); }
+    pct = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
+  }
+  const base = listing ? variantPriceCents(i, listing, wholesale ? 'wholesale' : 'retail')
+    : wholesale && Number(i.wholesalePriceDollars) > 0 ? Math.round(Number(i.wholesalePriceDollars) * 100) : Math.round((Number(i.msrp) || 0) * 100);
+  const price = wholesale ? discountedCents(base, pct) : base; if (price <= 0) return null;
   const c = listing ? choiceFor(listing, productId) : null;
   // Named as its listing and choice ("Rose cuticle oil · Clear"), the way the customer's messages and the order show it.
   return { productId, name: c ? `${listing.name || i.name || 'Item'} \u00b7 ${c.choice.label}` : String(i.name || 'Item'), ...(c ? { listingId: String(listing.id) } : {}), unitPriceCents: price, sku: i.sku || '', barcode: i.barcode || '', imageUrl: (Array.isArray(i.imageUrls) && i.imageUrls[0]) || i.imageUrl || (listing && Array.isArray(listing.imageUrls) && listing.imageUrls[0]) || '' };
@@ -111,9 +122,9 @@ async function tell(db: any, t: string, o: any, origin: string, sms: string, sub
 /** Staff found an item missing and picked a replacement. "Similar" customers get it straight away; everyone else is
  *  asked first, by text and email, and has SWAP_ANSWER_HOURS to answer. */
 export async function offerSwap(db: any, t: string, orderId: string, lineId: string, productId: string, actor: Actor, origin: string, forceAsk = false): Promise<{ ok: boolean; message: string; asked?: boolean }> {
-  const sub = await catalogItem(db, t, productId); if (!sub) return { ok: false, message: 'That item isn’t for sale right now.' };
   const snap = await orderRef(db, t, orderId).get(); if (!snap.exists) return { ok: false, message: 'Order not found.' };
   const o = { ...(snap.data() as any), id: orderId };
+  const sub = await catalogItem(db, t, productId, o); if (!sub) return { ok: false, message: 'That item isn’t for sale right now.' };
   const line = (o.lines || []).find((l: any) => l.lineId === lineId); if (!line) return { ok: false, message: 'That item isn’t on this order.' };
   const first = String(o.customerName || '').split(' ')[0] || 'there';
   const pref = normaliseIfUnavailable(o.ifUnavailable);

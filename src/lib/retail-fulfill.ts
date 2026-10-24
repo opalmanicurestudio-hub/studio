@@ -514,7 +514,7 @@ export async function resolveShortLine(
         const child = {
           id: childRef.id, tenantId,
           orderNumber: order.orderNumber, // shares the customer-facing number
-          stage: 'paid', method: order.method, priceTier: order.priceTier || 'retail',
+          stage: 'paid', method: order.method, priceTier: order.priceTier || 'retail', ...(order.priceTier === 'wholesale' ? { wholesaleAccountId: order.wholesaleAccountId || null, ...(order.wholesaleDiscountPct != null ? { wholesaleDiscountPct: order.wholesaleDiscountPct } : {}) } : {}),
           businessName: order.businessName || '', poNumber: order.poNumber || '',
           // Each unit keeps the price paid for it, and the order the tax figures it was paid with (lib/order-family).
           lines: [{
@@ -1173,7 +1173,7 @@ export async function splitReadyFromWaiting(
       const child = {
         id: childRef.id, tenantId,
         orderNumber: order.orderNumber,
-        stage: 'paid', method: order.method, priceTier: order.priceTier || 'retail',
+        stage: 'paid', method: order.method, priceTier: order.priceTier || 'retail', ...(order.priceTier === 'wholesale' ? { wholesaleAccountId: order.wholesaleAccountId || null, ...(order.wholesaleDiscountPct != null ? { wholesaleDiscountPct: order.wholesaleDiscountPct } : {}) } : {}),
         businessName: order.businessName || '', poNumber: order.poNumber || '',
         lines: waiting.map((l: any) => ({
           ...l, lineId: `line-${nanoid(8)}`, qtyScanned: 0, qtyPacked: 0, status: 'pending',

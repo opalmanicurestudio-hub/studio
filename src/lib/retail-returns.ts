@@ -390,7 +390,7 @@ export async function resolveReturn(
           });
         txn.set(childRef, JSON.parse(JSON.stringify({
           id: childRef.id, tenantId, orderNumber: order.orderNumber,
-          stage: 'paid', method: order.method, priceTier: order.priceTier || 'retail',
+          stage: 'paid', method: order.method, priceTier: order.priceTier || 'retail', ...(order.priceTier === 'wholesale' ? { wholesaleAccountId: order.wholesaleAccountId || null, ...(order.wholesaleDiscountPct != null ? { wholesaleDiscountPct: order.wholesaleDiscountPct } : {}) } : {}),
           businessName: order.businessName || '', poNumber: order.poNumber || '',
           lines: replLines,
           subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0,
