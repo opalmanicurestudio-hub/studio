@@ -213,7 +213,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
 
       <div className="mt-5" role="tabpanel" aria-label={uniqTabs.find((t) => t[0] === tab)?.[1] || ''}>
         {tab === 'pack' && <PackPane fs={fs} tenantId={tenantId} order={order} all={all} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor} batch={batch} mode={packMode} wide={!phone}
-          canManage={isManager} onMissing={(l) => setMissing(l)} onFinished={(m) => { onToast(m); onDone?.(m); }} onPutDown={() => { onToast('Put back in the queue.'); if (phone) onClose(); }} onBoxSizes={() => setBoxSizes(true)} onToast={onToast} />}
+          canManage={isManager} onMissing={(l) => setMissing(l)} onFinished={(m) => { onToast(m); onDone?.(m); }} onPutDown={() => { onToast('Put back in the queue.'); if (phone) onClose(); }} onBoxSizes={() => setBoxSizes(true)} onToast={onToast} inventory={inventory} />}
         {tab === 'ship' && (ship
           ? <ShipPane fs={fs} tenantId={tenantId} order={order} inventory={inventory} rs={rs} actor={actor} recs={recs} canShip={perms.canShip} addressBeside={layout === 'three'} onToast={onToast} />
           : <PickupPane fs={fs} tenantId={tenantId} order={order} actor={actor} shopZone={shopZone} rs={rs} onHandover={() => setHanding(true)} onToast={onToast} />)}

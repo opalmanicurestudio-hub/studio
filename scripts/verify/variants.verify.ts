@@ -202,7 +202,7 @@ const url = (path: string, q: Record<string, string>) => ({ nextUrl: { searchPar
   // ── The screens that write choices ──
   const tab = src('src/components/inventory/OnlineListingTab.tsx'); const settings = src('src/app/(app)/retail-orders/settings/page.tsx');
   check('the product’s shop tab saves choices through the server, offers only products no other listing sells, and shows what a variant sells for',
-    /const r = await onSaveChoices\(groups\)/.test(tab) && /!listings\.has\(String\(i\.id\)\) \|\| String\(listings\.get\(String\(i\.id\)\)\?\.id\) === String\(product\.id\)/.test(tab) && /sellsFor\(c\.variantProductId\)/.test(tab)
+    /const r = await onSaveChoices\(groups, groupsBase\)/.test(tab) && /!listings\.has\(String\(i\.id\)\) \|\| String\(listings\.get\(String\(i\.id\)\)\?\.id\) === String\(product\.id\)/.test(tab) && /sellsFor\(c\.variantProductId\)/.test(tab)
     && /onSaveChoices=\{handleChoicesSave\}/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')));
   check('…a variant’s own tab says which listing sells it, and how', /A variant of \{sellsMe\.name \|\| 'a listing'\}/.test(tab));
   check('Shop settings no longer edits choices as text (it rewrote their ids), and lists listings, not variants', !/parseOptionGroups/.test(settings) && !/optionGroups:/.test(settings) && /!listings\.has\(String\(i\.id\)\)/.test(settings) && !/📷|🎬/.test(settings));

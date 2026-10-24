@@ -28,8 +28,6 @@ import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'fire
 
 import { listingsOf, variantGroup, variantIdsOf } from '@/lib/variants';
 import { sellableStock } from '@/lib/retail-orders';
-import { changedCodes } from '@/lib/code-form';
-import { saveCodes } from '@/lib/codes-api';
 import { cn } from '@/lib/utils';
 import { openPrint } from '@/lib/open-print';
 import { VariantSettings } from '@/components/retail/VariantSettings';
@@ -164,9 +162,8 @@ export default function RetailSettingsPage() {
 
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; kit: string; casePack: string; caseBarcode: string; palletPack: string; palletBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
+    howToUse: string; specs: string; docs: string; kit: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
     made: boolean; leadMin: string; leadMax: string;
-    codesBase?: { casePack: any; palletPack: any; palletBarcode: any; caseBarcode: any };
   }>>({});
   const [fileBusy, setFileBusy] = useState<string | null>(null);
   const [runBusy, setRunBusy] = useState<string | null>(null);
@@ -359,12 +356,6 @@ export default function RetailSettingsPage() {
     digitalAccessDays: it.digitalAccessDays ? String(it.digitalAccessDays) : '',
     digitalFilePath: it.digitalFilePath || '',
     digitalFileName: it.digitalFileName || '',
-    casePack: it.casePack ? String(it.casePack) : '',
-    palletPack: it.palletPack ? String(it.palletPack) : '',
-    palletBarcode: it.palletBarcode || '',
-    caseBarcode: it.caseBarcode || '',
-    // The case and pallet codes as this draft started from, so only what was changed here is saved.
-    codesBase: { casePack: it.casePack ?? null, palletPack: it.palletPack ?? null, palletBarcode: it.palletBarcode ?? '', caseBarcode: it.caseBarcode ?? '' },
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
     docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
     video: it.videoUrl || '',
@@ -400,20 +391,6 @@ export default function RetailSettingsPage() {
         const url = line.slice(idx + 1).trim();
         return name && /^https?:\/\//i.test(url) ? { name, url } : null;
       }).filter(Boolean).slice(0, 20);
-      // The case and pallet codes are saved by the server, which refuses a code another product has
-      // (lib/codes-client); nothing else is saved then, so the reason can be put right first.
-      // Compared with the codes the draft started from, so a code changed elsewhere since isn't put back.
-      const codes = changedCodes(d.codesBase || it, {
-        casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null,
-        palletPack: Math.max(0, Math.floor(Number(d.palletPack) || 0)) || null,
-        palletBarcode: d.palletBarcode.trim(),
-        caseBarcode: d.caseBarcode.trim(),
-        ...(d.codesBase ? {} : { sku: it.sku, barcode: it.barcode, barcodes: it.barcodes, upc: it.upc, gtin: it.gtin, ean: it.ean, tagIds: it.tagIds }),
-      });
-      if (codes) {
-        const r = await saveCodes(tenantId, it.id, codes);
-        if (!r.ok) { toast({ variant: 'destructive', title: 'Not saved', description: r.error }); return; }
-      }
       await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory`, it.id), {
         wholesalePriceDollars: d.wholesale.trim() === '' ? null : Number(d.wholesale) || 0,
         weightOz: Math.max(0, Number(d.weight) || 0),
@@ -443,10 +420,6 @@ export default function RetailSettingsPage() {
         documents: JSON.parse(JSON.stringify(documents)),
         videoUrl: (d.video || '').trim(),
       });
-      // What's saved is what the draft starts from now.
-      setDrafts((prev) => (prev[it.id] ? { ...prev, [it.id]: { ...prev[it.id], codesBase: {
-        casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null, palletPack: Math.max(0, Math.floor(Number(d.palletPack) || 0)) || null,
-        palletBarcode: d.palletBarcode.trim(), caseBarcode: d.caseBarcode.trim() } } } : prev));
       toast({ title: `${it.name} updated` });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Update failed', description: e?.message });
@@ -1525,18 +1498,15 @@ export default function RetailSettingsPage() {
                 <Globe className="w-4 h-4 text-primary shrink-0" />
                 <p className="text-[10px] font-black uppercase tracking-widest truncate">Online catalog — {retailItems.length} item(s)</p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={liveCount === 0}
-                onClick={() => {
-                  const ids = retailItems.filter((i: any) => i.showOnline === true).map((i: any) => i.id).slice(0, 60);
-                  window.open(`/print/product-labels/${tenantId}?ids=${ids.join(',')}`, '_blank');
-                }}
-                className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest shrink-0"
-              >
-                <Printer className="mr-1.5 h-3.5 w-3.5" /> Print all live
-              </Button>
+              {liveCount === 0 ? (
+                <Button variant="outline" size="sm" disabled className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest shrink-0">
+                  <Printer className="mr-1.5 h-3.5 w-3.5" /> Labels for all live
+                </Button>
+              ) : (
+                <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest shrink-0">
+                  <Link href={`/inventory/labels?ids=${retailItems.filter((i: any) => i.showOnline === true).map((i: any) => encodeURIComponent(i.id)).slice(0, 200).join(',')}`}><Printer className="mr-1.5 h-3.5 w-3.5" /> Labels for all live</Link>
+                </Button>
+              )}
             </div>
             {retailItems.length === 0 && (
               <div className="rounded-2xl border-2 border-dashed py-10 text-center space-y-2">
@@ -1562,13 +1532,8 @@ export default function RetailSettingsPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 rounded-lg text-muted-foreground"
-                          onClick={() => window.open(`/print/product-labels/${tenantId}?ids=${it.id}`, '_blank')}
-                        >
-                          <Printer className="h-3.5 w-3.5" />
+                        <Button asChild variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground">
+                          <Link href={`/inventory/labels?ids=${encodeURIComponent(it.id)}`} aria-label={`Print labels for ${it.name}`}><Printer className="h-3.5 w-3.5" /></Link>
                         </Button>
                         <span className={cn('text-[8px] font-black uppercase tracking-widest', live ? 'text-primary' : 'text-muted-foreground/50')}>
                           {live ? 'Live' : 'Hidden'}
@@ -1814,35 +1779,17 @@ export default function RetailSettingsPage() {
                             </p>
                           </div>
                         )}
-                        <div className="grid grid-cols-2 gap-2">
-                          <Input placeholder="Units per case (wholesale)" inputMode="numeric" aria-label="Units per sealed case"
-                            value={d.casePack}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, casePack: e.target.value } })}
-                            className="h-10 rounded-xl border-2 font-bold text-xs" />
-                          <Input placeholder="Case barcode (on the carton)" aria-label="Case barcode"
-                            value={d.caseBarcode}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, caseBarcode: e.target.value } })}
-                            className="h-10 rounded-xl border-2 font-bold text-xs" />
+                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed px-3 py-2.5">
+                          <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
+                            {Number(it.casePack) > 1
+                              ? `Case of ${Math.floor(Number(it.casePack))}${it.caseBarcode ? ` (${it.caseBarcode})` : ', no case code yet'}${Number(it.palletPack) > 1 ? ` · pallet of ${Math.floor(Number(it.palletPack))} cases${it.palletBarcode ? ` (${it.palletBarcode})` : ''}` : ''}. `
+                              : 'No case or pallet code. '}
+                            Its codes are set on its page, under Codes and variants.
+                          </p>
+                          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                            <Link href={`/inventory/product/${encodeURIComponent(it.id)}?tab=codes`}>Codes</Link>
+                          </Button>
                         </div>
-                        {Number(d.casePack) > 1 && (
-                          <div className="space-y-1.5">
-                            <div className="grid grid-cols-2 gap-2">
-                              <Input placeholder="Cases per pallet" inputMode="numeric" aria-label="Cases per pallet"
-                                value={d.palletPack}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, palletPack: e.target.value } })}
-                                className="h-10 rounded-xl border-2 font-bold text-xs" />
-                              <Input placeholder="Pallet label code" aria-label="Pallet or master-carton barcode"
-                                value={d.palletBarcode}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, palletBarcode: e.target.value } })}
-                                className="h-10 rounded-xl border-2 font-bold text-xs" />
-                            </div>
-                            {Number(d.palletPack) > 1 && (
-                              <p className="text-[10px] font-bold text-muted-foreground">
-                                One pallet scan counts {Number(d.casePack) * Number(d.palletPack)} units ({d.palletPack} cases of {d.casePack}) — never more than the job still owes.
-                              </p>
-                            )}
-                          </div>
-                        )}
                         <Textarea placeholder={'Kit or collection? List what\u2019s inside — one piece per line. Customers reporting a problem then pick the exact piece.'} value={d.kit}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, kit: e.target.value } })}
                           className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
@@ -1856,10 +1803,10 @@ export default function RetailSettingsPage() {
                           <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
                             {(it.optionGroups || []).length
                               ? `Choices: ${(it.optionGroups || []).map((g: any) => (g === variantGroup(it) ? `${g.name} (${variantIdsOf(it).length} variant${variantIdsOf(it).length === 1 ? '' : 's'})` : g.name)).join(' · ')}`
-                              : 'Choices and variants are set on the product’s page, under Online listing.'}
+                              : 'Variants are added on the product’s page, under Codes and variants, and other choices under In the shop.'}
                           </p>
                           <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-                            <Link href={`/inventory/${it.id}`}>{(it.optionGroups || []).length ? 'Edit choices' : 'Add choices'}</Link>
+                            <Link href={`/inventory/product/${encodeURIComponent(it.id)}?tab=${variantIdsOf(it).length ? 'codes' : 'online'}`}>{(it.optionGroups || []).length ? 'Edit choices' : 'Add choices'}</Link>
                           </Button>
                         </div>
                         <VariantSettings firestore={(firestore as Firestore) || null} tenantId={String(tenantId || '')} listing={it} byId={invById as Map<string, any>}

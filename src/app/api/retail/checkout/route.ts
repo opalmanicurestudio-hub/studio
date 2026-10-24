@@ -34,6 +34,7 @@ import {
   checkWholesaleMinimums,
   isStorefrontVisible,
   onlineSellable,
+  preorderState,
   type FulfillmentMethod,
   type OrderLine,
   type PriceTier,
@@ -304,6 +305,7 @@ async function handleCheckout(req: NextRequest) {
   const lines: OrderLine[] = [];
   let groundOnly = false;   // any item that can't fly makes the parcel ground only (lib/ground-only)
   const neededByItem = new Map<string, number>();   // two lines can draw on the same shelf item
+  const neededByRun = new Map<string, number>();    // …and on the same pre-order run
   for (let i = 0; i < productIds.length; i++) {
     const snap = itemSnaps[i];
     const qty = cartEntries[i].qty;
@@ -349,6 +351,17 @@ async function handleCheckout(req: NextRequest) {
     // promise they carry is what makes it legitimate, and it's enforced by
     // the clock below rather than by pretending the shelf is full.
     const needed = (neededByItem.get(item.id) || 0) + qty; neededByItem.set(item.id, needed);
+    // A pre-order run that has closed or has no places left takes no more (a listing's run counts the places of all
+    // its variants together, so two variants in one cart share it).
+    if (item.preorder === true && item.digital !== true) {
+      const runKey = String((item as any).preorderRunId || item.id);
+      const want = (neededByRun.get(runKey) || 0) + qty; neededByRun.set(runKey, want);
+      const pre = preorderState(item as any, tenantTimeZone(tenant));
+      if (!pre.open || (pre.remaining !== null && pre.remaining < want)) {
+        const what = `${listing.name || 'That item'}${sale.variantChoice ? ` in ${sale.variantChoice.label}` : ''}`;
+        return NextResponse.json({ error: !pre.open && pre.reason === 'closed' ? `Pre-orders for ${what} have closed.` : pre.remaining ? `Only ${pre.remaining} pre-order ${pre.remaining === 1 ? 'place is' : 'places are'} left for ${what}.` : `Pre-orders for ${what} are full.`, productId: listing.id }, { status: 409 });
+      }
+    }
     if (item.digital !== true && item.preorder !== true && onlineSellable(item) < needed && item.allowBackorder !== true) {
       return NextResponse.json(
         { error: `Only ${Math.max(0, onlineSellable(item))} of ${item.name}${sale.variantId && sale.variantChoice ? ` in ${sale.variantChoice.label}` : ''} left`, productId: listing.id },
@@ -364,6 +377,7 @@ async function handleCheckout(req: NextRequest) {
     line.unitPriceCents = saleUnitCents(listing, variant, sale, priceTier, priceTier === 'wholesale' ? wsDiscount : 0);
     // Which listing and which choices it was bought as, so an exchange, a reorder or a report can tell.
     if (variant) (line as any).listingId = listing.id;
+    if (line.preorder === true && (item as any).preorderRunId) (line as any).preorderRunId = String((item as any).preorderRunId);
     if (Object.keys(sale.choices).length) (line as any).choices = sale.choices;
     // WHETHER IT CAN COME BACK, DECIDED NOW AND WRITTEN DOWN. Evaluated
     // against the item AS IT IS AT PURCHASE and stamped onto the line, so a

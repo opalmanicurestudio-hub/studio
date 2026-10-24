@@ -39,7 +39,7 @@ interface Props {
   onSave: (patch: Record<string, any>) => Promise<void> | void;
   /** The listing's choices, saved by the server (it points each variant at the listing and refuses a product another
    *  listing sells): what it saved, or not ok with the reason already shown. */
-  onSaveChoices?: (groups: OptionGroup[]) => Promise<{ ok: boolean; optionGroups?: OptionGroup[] }>;
+  onSaveChoices?: (groups: OptionGroup[], was?: OptionGroup[]) => Promise<{ ok: boolean; optionGroups?: OptionGroup[] }>;
 }
 
 const money = (cents: number) => `$${(Math.max(0, cents) / 100).toFixed(2)}`;
@@ -156,6 +156,10 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
   const [seoT, setSeoT] = useState<string>(product.seoTitle || '');
   const [seoD, setSeoD] = useState<string>(product.seoDescription || '');
   const [groups, setGroups] = useState<OptionGroup[]>(
+    Array.isArray(product.optionGroups) ? product.optionGroups : [],
+  );
+  // The choices these edits started from: the server refuses the save when they've changed since.
+  const [groupsBase, setGroupsBase] = useState<OptionGroup[]>(
     Array.isArray(product.optionGroups) ? product.optionGroups : [],
   );
 
@@ -362,7 +366,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
         dirty={dirty.options}
         onSave={async () => {
           // Saved by the server, which points each variant at this listing (and says why when it can't).
-          if (onSaveChoices) { const r = await onSaveChoices(groups); if (!r.ok) return; if (r.optionGroups) setGroups(r.optionGroups); flash('options'); return; }
+          if (onSaveChoices) { const r = await onSaveChoices(groups, groupsBase); if (!r.ok) return; if (r.optionGroups) { setGroups(r.optionGroups); setGroupsBase(r.optionGroups); } flash('options'); return; }
           await onSave({ optionGroups: groups }); flash('options');
         }}
       >

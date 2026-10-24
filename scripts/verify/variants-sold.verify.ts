@@ -149,8 +149,10 @@ const order = (x: any) => ({ tenantId: 't1', method: 'counter', customer: { name
   await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
   await put('oil', { name: 'Rose oil', msrp: 24, showOnline: true, optionGroups: g([{ id: 'a', label: 'Blush', variantProductId: 'blush' }]) });
   await put('blush', { name: 'Blush oil', totalStock: 5, msrp: 22, showOnline: true });
+  // The nightly job (and checkout) points it; a visitor's page load only reads.
+  await (await import('../../src/lib/code-index')).ensureCodeIndex(db, 't1');
   let pr: any = await prod(url('/api/retail/product', { tenantId: 't1', productId: 'blush' }));
-  check('a variant saved before variants knew their listing is pointed at it the first time its page is asked for, and opens the listing', pr.status === 404 && pr.body.listing?.id === 'oil' && (await get(`${T}/inventory/blush`)).parentId === 'oil', pr.body);
+  check('a variant saved before variants knew their listing is pointed at it by the nightly job, and then opens the listing', pr.status === 404 && pr.body.listing?.id === 'oil' && (await get(`${T}/inventory/blush`)).parentId === 'oil', pr.body);
   fresh();
   await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
   await put('oil', { name: 'Rose oil', msrp: 24, showOnline: true, optionGroups: g([{ id: 'a', label: 'Blush', variantProductId: 'blush' }]) });
@@ -255,6 +257,39 @@ const order = (x: any) => ({ tenantId: 't1', method: 'counter', customer: { name
   check('the sitemap leaves out only a variant a listing still sells (one whose listing was deleted has a page of its own)', /listedInShop\(item, listings\) \|\| soldInside\(item\)/.test(src('src/app/sitemap.ts')));
   check('Shop settings shows how each variant sells under its listing (its own wholesale price and weight, and a setting of its own put back to the listing’s)',
     /<VariantSettings firestore=/.test(src('src/app/(app)/retail-orders/settings/page.tsx')) && /Use the listing’s/.test(src('src/components/retail/VariantSettings.tsx')));
+
+  // ── E. A listing's pre-order run, shared by its variants (second review) ──
+  fresh();
+  await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
+  await put('kit', { name: 'Gel kit', msrp: 40, showOnline: true, status: 'active', totalStock: 0, preorder: true, preorderEtaAt: '2099-12-15', preorderLimit: 3, preorderSold: 1, optionGroups: g([{ id: 'a', label: 'Pink', variantProductId: 'pink' }, { id: 'b', label: 'Nude', variantProductId: 'nude' }, { id: 'c', label: 'Red', variantProductId: 'red' }]) });
+  await put('pink', { name: 'Pink', status: 'active', totalStock: 12, parentId: 'kit' });
+  await put('nude', { name: 'Nude', status: 'active', totalStock: 0, parentId: 'kit' });
+  await put('red', { name: 'Red', status: 'active', totalStock: 0, parentId: 'kit' });
+  c = await cat(url('/api/retail/catalog', { tenantId: 't1' }));
+  const pinkLine = lineFor(c, 'kit', { g0: 'a' }); const nudeLine = lineFor(c, 'kit', { g0: 'b' });
+  check('a listing on pre-order: a variant with stock on the shelf sells from the shelf, not as a pre-order', !pinkLine.preorder?.isPreorder && pinkLine.inStock === true && nudeLine.preorder?.open === true, { pinkLine, nudeLine });
+  r = await co(post(order({ items: [{ productId: 'kit', qty: 2, selections: { g0: 'a' } }] })));
+  o = r.body?.orderId ? await get(`${T}/retailOrders/${r.body.orderId}`) : null;
+  check('…and checkout takes it as a shelf sale (no pre-order tick, no ship-by date)', r.status === 200 && o?.lines?.[0]?.preorder !== true, r.body);
+  check('the run’s places are the listing’s, counted across its variants: 2 left of 3 for each of them', nudeLine.qtyAvailable === 2 && lineFor(c, 'kit', { g0: 'c' }).qtyAvailable === 2, nudeLine);
+  r = await co(post(order({ items: [{ productId: 'kit', qty: 2, selections: { g0: 'b' } }, { productId: 'kit', qty: 1, selections: { g0: 'c' } }], preorderAck: true })));
+  check('…two variants in one cart share them: 3 places asked for when 2 are left is refused, saying how many are left', r.status === 409 && /Only 2 pre-order places are left/.test(r.body.error), r.body);
+  r = await co(post(order({ items: [{ productId: 'kit', qty: 1, selections: { g0: 'b' } }, { productId: 'kit', qty: 1, selections: { g0: 'c' } }], preorderAck: true })));
+  o = r.body?.orderId ? await get(`${T}/retailOrders/${r.body.orderId}`) : null;
+  check('…2 of them are taken, each line marked with its listing’s run', r.status === 200 && o?.lines?.every((x: any) => x.preorder === true && x.preorderRunId === 'kit'), o?.lines);
+  const { payOrder } = await import('../../src/lib/order-paid');
+  const paid: any = r.body?.orderId ? await payOrder(db, 't1', r.body.orderId, { via: 'card', session: { id: 'cs_9', payment_intent: 'pi_9', amount_total: o.totalCents, payment_status: 'paid', total_details: { amount_tax: 0 }, metadata: { retailOrderId: r.body.orderId } }, chargeId: 'ch_9', connAcct: 'acct_1', clientId: 'c1', risk: null } as any) : null;
+  const kitNow = await get(`${T}/inventory/kit`);
+  check('…and paid, they’re counted on the listing’s run, not on each variant', paid?.won === true && kitNow.preorderSold === 3 && !(await get(`${T}/inventory/nude`)).preorderSold && !(await get(`${T}/inventory/red`)).preorderSold, { paid, sold: kitNow.preorderSold });
+  c = await cat(url('/api/retail/catalog', { tenantId: 't1' }));
+  r = await co(post(order({ items: [{ productId: 'kit', qty: 1, selections: { g0: 'b' } }], preorderAck: true })));
+  check('…then the run is full for every variant', r.status === 409 && /are full/.test(r.body.error) && lineFor(c, 'kit', { g0: 'c' }).inStock === false && lineFor(c, 'kit', { g0: 'c' }).variantChoice?.preorder?.reason === 'sold_out', { body: r.body, red: lineFor(c, 'kit', { g0: 'c' }), raw: c.body.products.find((p: any) => p.id === 'kit')?.optionGroups?.[0]?.choices?.[2] });
+  await put('closed', { name: 'Old run', msrp: 10, showOnline: true, status: 'active', totalStock: 0, preorder: true, preorderEtaAt: '2099-12-15', preorderClosesAt: '2020-01-01' });
+  r = await co(post(order({ items: [{ productId: 'closed', qty: 1 }], preorderAck: true })));
+  check('a pre-order run that has closed takes no more orders (checkout used to take them)', r.status === 409 && /have closed/.test(r.body.error), r.body);
+  const before = (db as any).dump ? Object.keys((db as any).dump()).length : null;
+  const ghost: any = await prod(url('/api/retail/product', { tenantId: 'no-such-shop', productId: 'x' }));
+  check('a product page for a shop that doesn’t exist writes nothing', ghost.status === 404 && !(await db.doc('tenants/no-such-shop/private/codeIndex').get()).exists && !/ensureCodeIndex/.test(src('src/app/api/retail/product/route.ts')), before);
 
   // Wording: variants, never shades; no emojis.
   const files = ['src/lib/variants.ts', 'src/components/retail/VariantSettings.tsx', 'src/app/print/catalog/[tenantId]/page.tsx', 'src/app/(app)/inventory/codes/page.tsx', 'src/app/shop/[tenantId]/checkout/page.tsx'].map(src).join('\n');

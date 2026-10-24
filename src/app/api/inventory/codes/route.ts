@@ -8,15 +8,17 @@
 //   { action: 'keep',  tenantId, code, productId }        → a code on more than one product stays on this one only
 //   { action: 'reindex', tenantId, productIds }            → products brought back from the archive hold their codes again
 //   { action: 'check', tenantId }                          → the codes and listings check, with the index brought up to date
-//   { action: 'variants', tenantId, productId, optionGroups } → a listing's choices, each variant pointed at it (refused
+//   { action: 'variants', tenantId, productId, optionGroups, was? } → a listing's choices, each variant pointed at it (refused
 //                                                           with why: a product another listing sells, say)
+//   { action: 'addVariant', tenantId, productId, variant: { label, barcode?, sku?, price?, stock?, group? } }
+//                                                         → a new product, added to the listing's variants
 // Booth renters run their own business and can't change the shop's products. Tags are paired one at a time ('tag'),
 // so a tag a kit or a linen bundle has is never given to a product.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { moduleEnabled } from '@/lib/modules';
-import { codesCheck, ensureCodeIndex, keepCodeOn, learnCode, pairTag, reindexProducts, saveListingChoices, setProductCodes } from '@/lib/code-index';
+import { addVariant, codesCheck, ensureCodeIndex, keepCodeOn, learnCode, pairTag, reindexProducts, saveListingChoices, setProductCodes } from '@/lib/code-index';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -40,11 +42,15 @@ export async function POST(req: NextRequest) {
       await ensureCodeIndex(db, tenantId);
       return NextResponse.json({ ok: true, products: await reindexProducts(db, tenantId, ids, by) });
     }
-    if (!['set', 'learn', 'tag', 'keep', 'variants'].includes(action)) return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+    if (!['set', 'learn', 'tag', 'keep', 'variants', 'addVariant'].includes(action)) return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     if (!productId) return NextResponse.json({ ok: false, error: 'Which product?' }, { status: 400 });
     await ensureCodeIndex(db, tenantId);
+    if (action === 'addVariant') {
+      const r = await addVariant(db, tenantId, productId, b.variant, by);
+      return r.ok ? NextResponse.json({ ok: true, productId: r.productId, optionGroups: r.groups }) : NextResponse.json({ ok: false, error: r.error, clashes: r.clashes || [] }, { status: r.status });
+    }
     if (action === 'variants') {
-      const r = await saveListingChoices(db, tenantId, productId, b.optionGroups, by);
+      const r = await saveListingChoices(db, tenantId, productId, b.optionGroups, by, Array.isArray(b.was) ? b.was : undefined);
       return r.ok ? NextResponse.json({ ok: true, optionGroups: r.groups }) : NextResponse.json({ ok: false, error: r.error }, { status: r.status });
     }
     if (action === 'set') {

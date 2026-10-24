@@ -74,6 +74,8 @@ import { format, parseISO, isPast } from 'date-fns';
 import { cn, safeNumber } from '@/lib/utils';
 import { reconcile } from '@/lib/stock-ledger';
 import { OnlineListingTab } from '@/components/inventory/OnlineListingTab';
+import { CodesTab } from '@/components/inventory/CodesTab';
+import QRCode from 'qrcode';
 import { syncPublicFields } from '@/lib/product-public';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
@@ -141,9 +143,19 @@ export default function ProductDetailPage() {
     const [isVerifyingVault, setIsVerifyingVault] = useState(false);
     
     const product = useMemo(() => inventory.find((p) => p.id === id), [inventory, id]);
+    // The tab a link asks for (?tab=online, say), else Codes and variants, or the ledger for what has no codes
+    // (equipment, an overhead cost). Worked out again for each product, so one product's tab never leaves the next
+    // on a tab it doesn't have.
+    const [tab, setTab] = useState('codes');
+    const productType = String((product as any)?.type || '');
+    React.useEffect(() => {
+        const has = (t: string) => t === 'codes' ? productType !== 'equipment' && productType !== 'overhead' : t === 'online' ? productType === 'retail' : ['history', 'manufacturing', 'batches'].includes(t);
+        const asked = new URLSearchParams(window.location.search).get('tab') || '';
+        setTab(asked && has(asked) ? asked : has('codes') ? 'codes' : 'history');
+    }, [id, productType]);
 
     /**
-     * Section saves from the Online listing tab.
+     * Section saves from the In the shop tab.
      *
      * A PATCH, not a whole product: two sections saved seconds apart must not
      * overwrite each other, and a page holding a stale copy of a field it
@@ -158,9 +170,9 @@ export default function ProductDetailPage() {
 
     // A listing's choices are saved by the server, which points each variant at the listing and refuses a product
     // another listing already sells (lib/code-index saveListingChoices): the reason is shown, and nothing is saved.
-    const handleChoicesSave = async (groups: any[]): Promise<{ ok: boolean; optionGroups?: any[] }> => {
+    const handleChoicesSave = async (groups: any[], was?: any[]): Promise<{ ok: boolean; optionGroups?: any[] }> => {
         if (!tenantId || !product) return { ok: false };
-        const r: any = await saveChoices(tenantId, product.id, groups);
+        const r: any = await saveChoices(tenantId, product.id, groups, was);
         if (!r.ok) { toast({ variant: 'destructive', title: 'Not saved', description: r.error }); return { ok: false }; }
         toast({ title: 'Saved', description: 'Your shop is updated.' });
         return { ok: true, optionGroups: r.optionGroups };
@@ -384,15 +396,17 @@ export default function ProductDetailPage() {
                             )}
                             
                             <div className="flex flex-wrap justify-center sm:justify-start gap-4 pt-4">
-                                <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm" onClick={() => {
-                                    setQrModalContent({
-                                        url: `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`,
-                                        alt: `QR code for ${product.name}`,
-                                        title: 'Internal Asset Code'
-                                    });
+                                <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm" onClick={async () => {
+                                    // Made here: the shop's own label for the product, which every scanner reads as it.
+                                    const url = await QRCode.toDataURL(`clarityflow://product/${product.id}`, { width: 512, margin: 1, errorCorrectionLevel: 'M' }).catch(() => '');
+                                    if (!url) return;
+                                    setQrModalContent({ url, alt: `QR code for ${product.name}`, title: 'Its QR code' });
                                     setIsQrModalOpen(true);
                                 }}>
                                     <QrCode className="mr-2 h-3.5 w-3.5" /> QR code
+                                </Button>
+                                <Button variant="outline" size="sm" asChild className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm">
+                                    <Link href={`/inventory/labels?items=${encodeURIComponent(product.id)}:1`}><Printer className="mr-2 h-3.5 w-3.5" /> Print labels</Link>
                                 </Button>
                                 {product.supplierUrl && (
                                     <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm" onClick={() => window.open(product.supplierUrl, '_blank')}>
@@ -430,11 +444,14 @@ export default function ProductDetailPage() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10">
                     <div className="lg:col-span-2 xl:col-span-3 space-y-10 min-w-0 order-2 lg:order-1 text-left">
-                        <Tabs defaultValue="history" className="w-full">
+                        <Tabs value={tab} onValueChange={setTab} className="w-full">
                             <ScrollArea className="w-full">
                                 <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-max">
+                                    {product.type !== 'equipment' && product.type !== 'overhead' && (
+                                        <TabsTrigger value="codes" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Codes and variants</TabsTrigger>
+                                    )}
                                     {product.type === 'retail' && (
-                                        <TabsTrigger value="online" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Online listing</TabsTrigger>
+                                        <TabsTrigger value="online" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">In the shop</TabsTrigger>
                                     )}
                                     <TabsTrigger value="history" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Audit Ledger</TabsTrigger>
                                     <TabsTrigger value="manufacturing" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Manufacturing Archive</TabsTrigger>
@@ -443,6 +460,12 @@ export default function ProductDetailPage() {
                                 <ScrollBar orientation="horizontal" className="hidden" />
                             </ScrollArea>
                             
+                            {product.type !== 'equipment' && product.type !== 'overhead' && (
+                                <TabsContent value="codes" className="m-0 animate-in fade-in duration-500 text-left">
+                                    <CodesTab product={product} inventory={inventory} tenantId={String(tenantId || '')} />
+                                </TabsContent>
+                            )}
+
                             {product.type === 'retail' && (
                                 <TabsContent value="online" className="m-0 space-y-6 animate-in fade-in duration-500 text-left">
                                     <OnlineListingTab
@@ -664,7 +687,7 @@ export default function ProductDetailPage() {
                                                             <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Master asset for print production.</p>
                                                         </div>
                                                         <Button variant="outline" size="sm" asChild className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card">
-                                                            <Link href={`/inventory/labels?product=${product.id}`}>
+                                                            <Link href={`/inventory/labels?product=${encodeURIComponent(product.id)}&design=1`}>
                                                                 <Printer className="w-3.5 h-3.5 mr-2" />
                                                                 Print Custom Label
                                                             </Link>
@@ -831,9 +854,9 @@ export default function ProductDetailPage() {
                     </DialogHeader>
                     <div className="flex flex-col items-center justify-center p-12 space-y-8 text-left">
                         <div className="p-6 bg-card rounded-[2.5rem] shadow-2xl border-4 border-primary/10">
-                            <Image src={qrModalContent.url} alt={qrModalContent.alt} width={220} height={220} className="rounded-xl" />
+                            {qrModalContent.url && <img src={qrModalContent.url} alt={qrModalContent.alt} width={220} height={220} className="rounded-xl" />}
                         </div>
-                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest text-center max-w-[240px] opacity-60">System generated asset token. Authorized studio use only.</p>
+                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest text-center max-w-[240px] opacity-60">Every scanner in the shop reads it as this product.</p>
                     </div>
                     <DialogFooter className="p-8 pt-0">
                         <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl" onClick={() => window.print()}>

@@ -42,6 +42,7 @@ import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
 import { LogUseDialog } from '@/components/inventory/LogUseDialog';
 import { Locations } from '@/components/inventory/Locations';
 import Link from 'next/link';
+import { ToastAction } from '@/components/ui/toast';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { isPast, parseISO, differenceInMonths } from 'date-fns';
@@ -590,9 +591,12 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
       }
 
       batch.commit().then(async () => {
+          // Labels for what came in, each product as many as were received (lib/product-labels).
+          const got = receivedItems.filter((it) => it.quantityReceived > 0).map((it) => `${encodeURIComponent(it.productId)}:${Math.min(999, it.quantityReceived)}`);
           toast({
-              title: "Stock Updated!",
-              description: "Inventory has been updated with the received items.",
+              title: "Stock updated",
+              description: "Inventory has the items you received.",
+              ...(got.length ? { action: <ToastAction altText="Print labels for this delivery" asChild><Link href={`/inventory/labels?from=delivery&items=${got.slice(0, 200).join(',')}`}>Print labels</Link></ToastAction> } : {}),
           });
           setOrderToReceive(null);
           try {
@@ -697,6 +701,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
                 onOpenChange={() => setOrderToReceive(null)}
                 order={orderToReceive}
                 onConfirm={handleReceiveStock}
+                inventory={inventory || []}
             />
             <AlertDialog open={!!orderToCancel} onOpenChange={() => setOrderToCancel(null)}>
                 <AlertDialogContent>
@@ -1676,6 +1681,7 @@ export default function InventoryPage() {
                                         ) : (
                                             <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
                                         )}
+                                        {!showArchived && <Button variant="outline" size="sm" asChild><Link href={`/inventory/labels?ids=${[...selectedItems].slice(0, 200).map((x) => encodeURIComponent(String(x))).join(',')}`}>Print labels</Link></Button>}
                                         <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
                                     </div>
                                 </div>

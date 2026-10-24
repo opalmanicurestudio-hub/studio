@@ -66,7 +66,8 @@ export async function GET(req: NextRequest) {
       col.where('listingId', '==', productId).where('status', '==', 'published').limit(100).get(),
       ...[0, 30].filter((k) => vids.length > k).map((k) => col.where('productId', 'in', vids.slice(k, k + 30)).where('status', '==', 'published').limit(100).get()),
     ];
-    const docs = [...new Map((await Promise.all(asks)).flatMap((x: any) => x.docs).map((d: any) => [d.id, d])).values()];
+    // One query failing (a missing index, say) leaves the others' reviews showing.
+    const docs = [...new Map((await Promise.all(asks.map((a: any) => Promise.resolve(a).catch(() => ({ docs: [] }))))).flatMap((x: any) => x.docs).map((d: any) => [d.id, d])).values()];
 
     const reviews = docs
       .map((d: any) => {

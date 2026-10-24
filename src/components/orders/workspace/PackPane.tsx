@@ -29,13 +29,14 @@ import { compareBins } from '@/lib/bins';
 import { useWedgeScanner } from '@/lib/use-wedge-scanner';
 import { MAX_PACK_BOXES, boxFrom, packBoxesOf, presetsOf, type PackBox } from '@/lib/ship-run';
 import { learnCode } from '@/lib/scan-resolve';
+import { UnknownCodePanel } from '@/components/inventory/UnknownCodePanel';
 import { lineProductId } from '@/lib/product-codes';
 import { BottomBar, Btn, C, Thumb, UndoBar, feel, muted, Ic } from '../ui';
 
 export type PackMode = 'active' | 'preview' | 'review';
 
-export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfFor, batch, mode, wide, canManage, onMissing, onFinished, onPutDown, onBoxSizes, onToast }: {
-  fs: Firestore; tenantId: string; order: any; all: any[]; actor: Actor; rs: any; photoFor: Map<string, string>; shelfFor: Map<string, string>; batch: any | null;
+export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfFor, batch, mode, wide, canManage, onMissing, onFinished, onPutDown, onBoxSizes, onToast, inventory = [] }: {
+  fs: Firestore; tenantId: string; order: any; all: any[]; actor: Actor; rs: any; photoFor: Map<string, string>; shelfFor: Map<string, string>; batch: any | null; inventory?: any[];
   mode: PackMode; wide: boolean; canManage: boolean;
   onMissing: (line: any) => void; onFinished: (message: string) => void; onPutDown: () => void; onBoxSizes?: () => void; onToast: (m: string) => void;
 }) {
@@ -47,7 +48,6 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   const [typed, setTyped] = React.useState('');
   // A code no product has yet: the packer can say which item it is, and it's added to that product.
   const [learn, setLearn] = React.useState<string | null>(null);
-  const [learnBusy, setLearnBusy] = React.useState('');
   const [photoBusy, setPhotoBusy] = React.useState<number | null>(null);
   // What the next photo of each box shows (open with its contents first, then sealed).
   const [photoKind, setPhotoKind] = React.useState<Record<number, PackPhotoKind>>({});
@@ -130,15 +130,16 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   };
   // The items a new code can be added to: still waiting, and a real product (a test item stands for one).
   const teachable = lines.filter((l: any) => !['shorted', 'refunded', 'backordered'].includes(l.status) && l.qtyScanned < l.qtyOrdered && !lineProductId(l).startsWith('test-'));
-  // "It's this one": the code is added to that item's product, then counted.
-  const teach = async (l: any) => {
-    if (!learn) return;
-    setLearnBusy(l.lineId);
-    const r = await learnCode(fs, tenantId, lineProductId(l), learn);
-    setLearnBusy('');
-    if (!r.ok) { feel(false); setErr(r.message); return; }
+  // "It's this one": the code is saved to that product (by the server, which never gives a code to two products), then
+  // counted when it's on this order.
+  const teach = async (productId: string, name: string): Promise<{ ok: boolean; message: string }> => {
+    if (!learn) return { ok: false, message: 'Scan the code again.' };
+    const r = await learnCode(fs, tenantId, productId, learn);
+    if (!r.ok) { feel(false); return r; }
     const code = learn; setLearn(null); setErr('');
-    await scan(code);
+    if ((order.lines || []).some((l: any) => lineProductId(l) === productId)) await scan(code);
+    else { feel(true); onToast(`Saved to ${name}. It isn’t on this order, so nothing was counted.`); }
+    return { ok: true, message: '' };
   };
   // The photo is made a small JPEG here (an iPhone's HEIC included) and saved by the server with the order and its box.
   const addPhoto = async (box: number, file?: File | null) => {
@@ -338,18 +339,12 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
       {shelfWaiting > 0 && <p className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.soft }}><b className="font-semibold">{shelfWaiting === 1 ? '1 item was' : `${shelfWaiting} items were`} picked at the shelf. </b>Scan {shelfWaiting === 1 ? 'it' : 'each one'} again as it goes into the box.</p>}
       {mode === 'review' && order.stage === 'picking' && order.claimedByName && <p className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.soft }}><b className="font-semibold">{firstName(order.claimedByName)} is packing this order. </b>Take it over to scan and finish it here.</p>}
       {active && camera && <div className="mt-3 overflow-hidden rounded-2xl"><ScanGate onScan={(v) => void scan(v)} label="Point at the item’s barcode" /></div>}
-      {err && <p role="alert" className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>{err}</p>}
-      {active && learn && teachable.length > 0 && (
-        <div className="mt-2.5 rounded-2xl px-4 py-3" style={{ background: C.soft }}>
-          <p className="m-0 text-[14px] font-semibold">Which item has the code {learn.slice(0, 40)}?</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {teachable.map((l: any) => (
-              <button key={l.lineId} type="button" onClick={() => void teach(l)} disabled={!!learnBusy} className="cf-press h-10 rounded-full px-4 text-[14px] font-semibold" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
-                {learnBusy === l.lineId ? 'Adding…' : `Add to ${l.name}`}
-              </button>))}
-            <button type="button" onClick={() => setLearn(null)} className="h-10 px-2 text-[14px] font-semibold" style={muted}>Not now</button>
-          </div>
-          <p className="m-0 mt-2 text-[13px]" style={muted}>It’s added to that product, so it scans here, at the register and when stock comes in.</p>
+      {err && !(active && learn) && <p role="alert" className="m-0 mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: C.warnSoft, color: C.warn }}>{err}</p>}
+      {active && learn && (
+        <div className="mt-3">
+          <UnknownCodePanel code={learn} where="In this order" inventory={inventory}
+            options={teachable.map((l: any) => ({ productId: lineProductId(l), name: [l.name, l.optionsLabel].filter(Boolean).join(' · ') }))}
+            onSave={teach} onCancel={() => { setLearn(null); setErr(''); }} />
         </div>)}
 
       <div className={`mt-4 ${wide && (showBoxes || photosBlock) ? 'grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-6' : ''}`}>

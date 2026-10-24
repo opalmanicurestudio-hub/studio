@@ -15,11 +15,12 @@
 //   • saveListingChoices saves a listing's choices, and points each variant at its listing (parentId), in one step: a
 //     product already a variant of another listing, a listing, an archived product or equipment is refused, with why.
 //     The build points every variant at the listing whose choices sell it, and clears a pointer no listing backs.
+//   • addVariant makes a new product for a listing's new variant and adds it to the listing's variants.
 // Browsers can read the index (the packing bench looks codes up there) but never write it, and a product's code
 // fields, its choices and its listing pointer can't be changed from a browser at all (firestore.rules).
 import { CODE_FIELDS, cleanCodePatch, codeDocId, codeForm, codesOf, digitsKey, holdsCodes, readCode, type CodeKind, type CodePatch } from '@/lib/code-form';
 import { onlineSellable, type OptionGroup } from '@/lib/retail-orders';
-import { choiceFor, choicesProblem, cleanChoices, listedInShop, listingStock, listingsOf, strayLinks, variantIdsOf } from '@/lib/variants';
+import { choiceFor, choicesProblem, cleanChoices, listedInShop, listingStock, listingsOf, strayLinks, variantGroup, variantIdsOf } from '@/lib/variants';
 import { looksLikeTag, normTag } from '@/lib/tags';
 
 export const indexCol = (t: string) => `tenants/${t}/codeIndex`;
@@ -356,18 +357,31 @@ function renewMovedIds(listing: any, groups: OptionGroup[]) {
  *  the variants group picks a product of its own that no other listing sells, and that isn't a listing itself, archived
  *  or equipment; the other groups only change the price. A product no longer picked stops pointing here. The choices'
  *  ids are kept, so what's already in a customer's cart still matches. */
-export async function saveListingChoices(db: any, tenantId: string, listingId: string, input: any, by: string): Promise<{ ok: true; groups: OptionGroup[]; changed: string[] } | { ok: false; error: string; status: number }> {
+/** A listing's choices in a form two copies can be compared by: what each group and choice is and picks. */
+function choicesKey(groups: any): string {
+  return JSON.stringify((Array.isArray(groups) ? groups : []).map((g: any) => [String(g?.id ?? ''), String(g?.name ?? ''), (Array.isArray(g?.choices) ? g.choices : []).map((c: any) => [String(c?.id ?? ''), String(c?.label ?? ''), Math.round(Number(c?.deltaCents) || 0), String(c?.variantProductId || '')])]));
+}
+
+export async function saveListingChoices(db: any, tenantId: string, listingId: string, input: any | ((listing: any) => any), by: string, was?: any[]): Promise<{ ok: true; groups: OptionGroup[]; changed: string[] } | { ok: false; error: string; status: number }> {
   const lid = safeId(listingId);
   const gone = { ok: false as const, error: 'That product isn’t in your inventory.', status: 404 };
   if (!lid) return gone;
-  const clean = cleanChoices(input);
-  if (clean.problem) return { ok: false, error: clean.problem, status: 400 };
-  const groups: OptionGroup[] = JSON.parse(JSON.stringify(clean.groups));
+  // The choices as sent, or worked out from the listing as it is at that moment (a variant added to what it has now).
+  const sent = typeof input === 'function' ? null : cleanChoices(input);
+  if (sent?.problem) return { ok: false, error: sent.problem, status: 400 };
   const lRef = db.doc(invPath(tenantId, lid));
   const r: any = await db.runTransaction(async (tx: any) => {
     const ls = await tx.get(lRef);
     if (!ls.exists) return gone;
     const listing: any = { ...(ls.data() || {}), id: lid };
+    // Sent from a screen that started from other choices than the listing has now (a variant added meanwhile, say):
+    // refused, so what was added isn't taken off again.
+    if (Array.isArray(was) && choicesKey(was) !== choicesKey(listing.optionGroups)) return { ok: false, error: 'These choices were changed since you opened them. Reload the page to see them, then make your change again.', status: 409 };
+    const asked = typeof input === 'function' ? input(listing) : null;
+    if (asked && typeof asked.refuse === 'string') return { ok: false, error: asked.refuse, status: asked.status || 409 };
+    const clean = sent || cleanChoices(asked);
+    if (clean.problem) return { ok: false, error: clean.problem, status: 400 };
+    const groups: OptionGroup[] = JSON.parse(JSON.stringify(clean.groups));
     renewMovedIds(listing, groups);
     const next = { ...listing, optionGroups: groups };
     const before = variantIdsOf(listing); const after = variantIdsOf(next);
@@ -394,6 +408,94 @@ export async function saveListingChoices(db: any, tenantId: string, listingId: s
   // Their codes' entries name the listing they're sold in now.
   if (r.ok && r.changed.length) await reindexProducts(db, tenantId, r.changed, by).catch(() => 0);
   return r;
+}
+
+const MAX_GROUPS = 6; const MAX_CHOICES = 40;   // lib/variants cleanChoices keeps this many
+const VARIANT_COPY = ['category', 'supplier', 'supplierUrl', 'costPerUnit', 'costingMethod', 'size', 'unit', 'estimatedUses', 'reorderPoint', 'primaryLocationId', 'restockingMarkup', 'manufacturerName', 'moq', 'leadTimeDays'] as const;
+const rid = () => String((globalThis as any).crypto?.randomUUID?.() || `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`).replace(/-/g, '').slice(0, 10);
+
+/** A new variant for a listing (the product's Codes and variants tab): a product of its own, named "Listing · Variant",
+ *  with the listing's details, its own codes, its own price when it has one (otherwise it sells for the listing's) and
+ *  what's on hand now, added to the listing's variants (a group of variants is started when it has none). A code
+ *  another product has, or a listing that can't take it, is refused with nothing added; the product made for it is
+ *  taken away again if the listing turns it down after all (it changed meanwhile). */
+export async function addVariant(db: any, tenantId: string, listingId: string, input: any, by: string): Promise<{ ok: true; productId: string; groups: OptionGroup[] } | { ok: false; error: string; status: number; clashes?: Clash[] }> {
+  const lid = safeId(listingId);
+  if (!lid) return { ok: false, error: 'That product isn’t in your inventory.', status: 404 };
+  const label = String(input?.label ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (!label) return { ok: false, error: 'Name the variant, like Blush or 30 ml.', status: 400 };
+  const priceText = String(input?.price ?? '').trim().replace(/^\$/, '');
+  const price = priceText === '' ? null : Number(priceText);
+  if (price !== null && (!Number.isFinite(price) || price < 0 || price > 100000)) return { ok: false, error: 'That price doesn’t look right.', status: 400 };
+  const stock = Math.max(0, Math.min(100000, Math.floor(Number(input?.stock) || 0)));
+  const groupName = String(input?.group ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Variant';
+  const ls = await db.doc(invPath(tenantId, lid)).get();
+  if (!ls.exists) return { ok: false, error: 'That product isn’t in your inventory.', status: 404 };
+  const listing: any = { ...(ls.data() || {}), id: lid };
+  if (listing.status === 'archived') return { ok: false, error: `${listing.name || 'This product'} is archived. Bring it back first.`, status: 409 };
+  if (listing.type !== 'retail') return { ok: false, error: 'Only retail products have variants.', status: 409 };
+  const vg = variantGroup(listing);
+  if (vg && vg.choices.some((c) => String(c.label || '').trim().toLowerCase() === label.toLowerCase())) return { ok: false, error: `${listing.name || 'This product'} already has a variant called ${label}.`, status: 409 };
+  // What a listing can hold (lib/variants cleanChoices): refused here rather than quietly left off.
+  const full = (cur: any) => { const g = variantGroup(cur); const n = Array.isArray(cur.optionGroups) ? cur.optionGroups.length : 0; return g ? g.choices.length >= MAX_CHOICES : n >= MAX_GROUPS; };
+  const fullWords = `${listing.name || 'This product'} has as many variants as a listing can hold (${MAX_CHOICES}). Archive one it doesn’t sell any more first.`;
+  if (full(listing)) return { ok: false, error: fullWords, status: 409 };
+  // The new choice: added to the variants group, or a group of its own when there's none.
+  const withNew = (cur: any) => {
+    const groups: OptionGroup[] = JSON.parse(JSON.stringify(Array.isArray(cur.optionGroups) ? cur.optionGroups : []));
+    const g = variantGroup({ ...cur, optionGroups: groups });
+    const choice = { id: `v${rid()}`, label, deltaCents: 0, variantProductId: '' };
+    if (g) g.choices.push(choice); else groups.push({ id: `g${rid()}`, name: groupName, choices: [choice] });
+    return { groups, choice };
+  };
+  // Checked before anything is made, with a stand-in for the new product (a variant of another listing, a group with a
+  // choice that picks nothing, say).
+  const trial = withNew(listing); trial.choice.variantProductId = '__new__';
+  const seller = safeId(listing.parentId) ? dataOf(await db.doc(invPath(tenantId, listing.parentId)).get()) : null;
+  const sellsMe = seller && variantIdsOf({ ...seller, id: listing.parentId }).includes(lid) ? { ...seller, id: listing.parentId } : null;
+  const known = new Map<string, any>(); for (const id of variantIdsOf(listing)) { const s = dataOf(await db.doc(invPath(tenantId, id)).get()); if (s) known.set(id, { ...s, id }); }
+  const problem = choicesProblem({ ...listing, optionGroups: trial.groups }, trial.groups,
+    (id) => (id === '__new__' ? { id, type: 'retail', status: 'active', name: label } : known.get(id) || null),
+    (id) => (id === lid ? sellsMe : String(known.get(id)?.parentId || '') === lid ? listing : null));
+  if (problem) return { ok: false, error: problem, status: 409 };
+  // The product, with its codes (refused when another product has one).
+  const pid = `prod-${rid()}`; const at = nowIso();
+  const create: any = { name: `${listing.name || 'Product'} · ${label}`, type: 'retail', status: 'active', totalStock: stock,
+    batches: [{ id: `batch-${rid()}`, stock, costPerUnit: Number(listing.costPerUnit) || 0, receivedDate: at }], createdAt: at, createdBy: by };
+  for (const k of VARIANT_COPY) if (listing[k] !== undefined && listing[k] !== null) create[k] = listing[k];
+  if (price !== null) create.msrp = Math.round(price * 100) / 100;
+  const codes: CodePatch = {};
+  if (String(input?.barcode ?? '').trim()) codes.barcode = String(input.barcode).trim().slice(0, 64);
+  if (String(input?.sku ?? '').trim()) codes.sku = String(input.sku).trim().slice(0, 80);
+  const made = await setProductCodes(db, tenantId, pid, codes, { by, create });
+  if (!made.ok) return { ok: false, error: made.error, status: made.status, ...(made.clashes ? { clashes: made.clashes } : {}) };
+  // Into the listing, worked out from it as it is now.
+  // Into the listing, worked out from it as it is now (archived or changed meanwhile, say).
+  let saved: Awaited<ReturnType<typeof saveListingChoices>>;
+  try {
+    saved = await saveListingChoices(db, tenantId, lid, (cur: any) => {
+      if (cur.status === 'archived') return { refuse: `${cur.name || 'This product'} is archived. Bring it back first.` };
+      if (cur.type !== 'retail') return { refuse: 'Only retail products have variants.' };
+      if (full(cur)) return { refuse: fullWords };
+      if (variantGroup(cur)?.choices.some((c) => String(c.label || '').trim().toLowerCase() === label.toLowerCase())) return { refuse: `${cur.name || 'This product'} already has a variant called ${label}.` };
+      const n = withNew(cur); n.choice.variantProductId = pid; return n.groups;
+    }, by);
+  } catch (e: any) {
+    // It may have been saved even so (the answer lost on the way back): the listing as it is now decides.
+    const now = dataOf(await db.doc(invPath(tenantId, lid)).get().catch(() => null));
+    const groups: OptionGroup[] = Array.isArray(now?.optionGroups) ? now.optionGroups : [];
+    saved = groups.some((g: any) => (g?.choices || []).some((c: any) => String(c?.variantProductId || '') === pid))
+      ? { ok: true, groups, changed: [] }
+      : { ok: false, error: 'The variant wasn’t added. Try again.', status: 500 };
+  }
+  // In the listing as saved, or not added at all: the product made for it goes again, codes and all.
+  const inIt = saved.ok && saved.groups.some((g) => g.choices.some((c) => String(c.variantProductId || '') === pid));
+  if (!saved.ok || !inIt) {
+    await setProductCodes(db, tenantId, pid, { sku: '', barcode: '', barcodes: [] }, { by }).catch(() => null);
+    await db.doc(invPath(tenantId, pid)).delete().catch(() => null);
+    return saved.ok ? { ok: false, error: fullWords, status: 409 } : { ok: false, error: saved.error, status: saved.status };
+  }
+  return { ok: true, productId: pid, groups: saved.groups };
 }
 
 /** What the shop gets wrong today, by its own rules (lib/variants listedInShop and listingStock): listings that show

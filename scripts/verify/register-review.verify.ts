@@ -310,8 +310,17 @@ const stock = async (id: string) => (await get(`${T}/inventory/${id}`)).totalSto
   check('…and the desk saves the ticket first for cash, so it finds that sale before taking the money', /paymentMethod !== 'split'\) \{\s*await prepareNow\(paymentData\)/.test(engine));
   await fresh({});
   paidPi('pi_old', 4500, { description: 'Studio Services — POS Checkout — Studio Services', metadata: { kind: 'pos_cof', clientId: 'c1' } });
-  r = await pay({ payment: { method: 'card_on_file', stripePaymentIntentId: 'pi_old' } });
+  // As on the day payments started naming their ticket (lib/reader-sale LEGACY_DESK_BEFORE): a payment taken an hour
+  // before, offered an hour after.
+  const cutoff = Date.parse('2026-10-24T12:00:00Z'); const realNow = Date.now;
+  pis.pi_old.created = Math.floor(cutoff / 1000) - 3600; Date.now = () => cutoff + 3600000;
+  r = await pay({ payment: { method: 'card_on_file', stripePaymentIntentId: 'pi_old' } }).finally(() => { Date.now = realNow; });
   check('a saved-card payment from a desk screen opened before payments named their ticket still saves its sale', r.status === 200 && (await all(`${T}/receipts`))[0]?.stripePaymentIntentId === 'pi_old', r.body);
+  await fresh({});
+  paidPi('pi_new', 4500, { description: 'Studio Services — POS Checkout — Studio Services', metadata: { kind: 'pos_cof', clientId: 'c1' } });
+  pis.pi_new.created = Math.floor(cutoff / 1000) + 600; Date.now = () => cutoff + 3600000;
+  r = await pay({ payment: { method: 'card_on_file', stripePaymentIntentId: 'pi_new' } }).finally(() => { Date.now = realNow; });
+  check('…but one taken after payments started naming their ticket, without its ticket, isn’t', r.status !== 200 && (await all(`${T}/receipts`)).length === 0, r.body);
   await fresh({});
   paidPi('pi_old2', 4500, { description: 'Studio Services — POS Checkout — Studio Services', metadata: { kind: 'pos_cof', clientId: 'c1' } }); pis.pi_old2.created = nowS() - 3 * 86400;
   r = await pay({ payment: { method: 'card_on_file', stripePaymentIntentId: 'pi_old2' } });

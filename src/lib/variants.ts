@@ -101,7 +101,9 @@ export function asSold(listing: any, variant: any): any {
   if (!listing) return variant;
   const v = variant; const l = listing;
   const out: any = { ...v, name: String(l.name || v.name || 'Item'), optionGroups: l.optionGroups, showOnline: l.showOnline, status: l.status, type: l.type };
-  if (v.preorder !== true && l.preorder === true) Object.assign(out, { preorder: true, preorderEtaAt: l.preorderEtaAt ?? null, preorderClosesAt: l.preorderClosesAt ?? null, preorderLimit: l.preorderLimit ?? null });
+  // The listing's pre-order is for a variant with nothing on the shelf: one in stock sells from the shelf. Its places
+  // are the listing's run, counted across all its variants (preorderRunId: where order-paid counts them).
+  if (v.preorder !== true && l.preorder === true && onlineSellable(v) <= 0) Object.assign(out, { preorder: true, preorderEtaAt: l.preorderEtaAt ?? null, preorderClosesAt: l.preorderClosesAt ?? null, preorderLimit: l.preorderLimit ?? null, preorderSold: l.preorderSold ?? 0, preorderRunId: String(l.id || '') || null });
   if (v.digital !== true && l.digital === true) Object.assign(out, { digital: true, digitalUrl: l.digitalUrl ?? null, digitalFilePath: l.digitalFilePath ?? null, digitalFileName: l.digitalFileName ?? null, digitalAccessDays: l.digitalAccessDays ?? null });
   if (!(Number(v.leadDays?.max ?? v.leadDays?.min) > 0)) out.leadDays = l.leadDays ?? null;
   if (v.allowBackorder !== true && l.allowBackorder === true) out.allowBackorder = true;

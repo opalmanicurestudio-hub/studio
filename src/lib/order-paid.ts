@@ -49,7 +49,11 @@ export async function payOrder(db: any, tenantId: string, orderId: string, pay: 
     if (o.stage !== 'placed') return { won: false };
     const lines: any[] = Array.isArray(o.lines) ? o.lines : [];
     const itemRefs = lines.map((l: any) => db.doc(`${T}/inventory/${String(l.productId)}`));
-    const [counterSnap, itemSnaps] = await Promise.all([tx.get(counterRef), Promise.all(itemRefs.map((r: any) => tx.get(r)))]);
+    // A variant pre-ordered in its listing's run takes a place in the listing's count (lib/variants asSold).
+    const runIds = [...new Set(lines.filter((l: any) => l.preorder === true && l.digital !== true && l.preorderRunId).map((l: any) => String(l.preorderRunId)))].filter((id) => id && !id.includes('/'));
+    const runRefs = new Map<string, any>(runIds.map((id) => [id, db.doc(`${T}/inventory/${id}`)]));
+    const [counterSnap, itemSnaps, runSnaps] = await Promise.all([tx.get(counterRef), Promise.all(itemRefs.map((r: any) => tx.get(r))), Promise.all([...runRefs.values()].map((r: any) => tx.get(r)))]);
+    const runSold = new Map<string, number>(runIds.map((id, k) => [id, runSnaps[k]?.exists ? Math.max(0, Math.floor(Number((runSnaps[k].data() || {}).preorderSold) || 0)) : -1]));
 
     // Store credit to take: what the checkout applied (a card payment), or the whole order (paid with credit).
     const creditWant = pay.via === 'store_credit' ? c0(pay.cents) : pay.via === 'card' ? c0(o.storeCreditRequestedCents) : 0;
@@ -98,6 +102,10 @@ export async function payOrder(db: any, tenantId: string, orderId: string, pay: 
       // A pre-order takes a place in its run, not shelf stock that doesn't exist yet (claimed here, so two people
       // paying at once can't both take the last place).
       if (l.preorder === true) {
+        const rid = String(l.preorderRunId || '');
+        // The listing's run, whether the line is a variant on it or the listing itself: counted once, written once.
+        const runKey = rid && (runSold.get(rid) ?? -1) >= 0 ? rid : (runSold.get(pid) ?? -1) >= 0 ? pid : '';
+        if (runKey) { runSold.set(runKey, (runSold.get(runKey) || 0) + q); return; }
         const sold = Math.max(0, Math.floor(Number(item.preorderSold) || 0)) + (run.get(pid) || 0);
         tx.update(itemRefs[i], { preorderSold: sold + q }); run.set(pid, (run.get(pid) || 0) + q); return;
       }
@@ -109,6 +117,8 @@ export async function payOrder(db: any, tenantId: string, orderId: string, pay: 
         reason: `Held for online order #${number}`, actorId: 'system', actorName: 'Checkout', ref: { kind: 'order', id: orderId }, balanceAfter: cur + q,
       }));
     });
+
+    for (const [rid, sold] of runSold) if (sold >= 0) tx.update(runRefs.get(rid), { preorderSold: sold });
 
     // ── Store credit: from what's left, oldest first ──────────────────────────
     for (const t of plan.takes) {
