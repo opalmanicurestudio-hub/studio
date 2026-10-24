@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { addToCart, readCart, readWholesaleCode } from '@/lib/shop-cart';
 import { cn } from '@/lib/utils';
+import { firstChoices, shopLine } from '@/lib/variants';
 import {
   busyLineFor, countdownFor, dayLabel, leadSentence, minutesLabel, normalizeSchedule, processingSentence, productPromise, shortRange,
   type ShipSchedule,
@@ -42,7 +43,9 @@ interface ProductDetail {
   inStock: boolean;
   qtyAvailable: number;
   lowStock: boolean;
-  optionGroups?: { id: string; name: string; choices: { id: string; label: string; deltaCents: number }[] }[];
+  // The variants group's choices carry what each variant sells for and whether it can be bought; the other choices
+  // what they add (lib/variants shopOptionGroups).
+  optionGroups?: { id: string; name: string; variants?: boolean; choices: { id: string; label: string; deltaCents?: number; priceCents?: number; wholesalePriceCents?: number | null; inStock?: boolean; qtyAvailable?: number; lowStock?: boolean }[] }[];
 }
 
 const fmt = (cents: number) =>
@@ -110,7 +113,15 @@ export default function ProductPage() {
     fetch(`/api/retail/product?${qs.toString()}`)
       .then(async (res) => {
         const data = await res.json();
+        // A variant's own link: it's sold inside its listing, so the listing opens with it picked.
+        if (!res.ok && data.listing?.id) { window.location.replace(`/shop/${encodeURIComponent(tenantId)}/product/${encodeURIComponent(data.listing.id)}?choice=${encodeURIComponent(data.listing.choice || '')}`); return; }
         if (!res.ok) throw new Error(data.error || 'Product not found');
+        // The choices shown picked first: a variant that can be bought (or the one a link named).
+        const picked = firstChoices(data.product.optionGroups || []);
+        const named = new URLSearchParams(window.location.search).get('choice');
+        const vg = (data.product.optionGroups || []).find((g: any) => g.variants);
+        if (named && vg && vg.choices.some((c: any) => c.id === named)) picked[vg.id] = named;
+        setSelections(picked);
         setProduct(data.product);
         setShopName(data.shop.name);
         setWholesale(data.shop.wholesaleUnlocked === true);
@@ -130,22 +141,19 @@ export default function ProductPage() {
       .catch((e: any) => setLoadError(e?.message || 'Could not load this product'));
   }, [tenantId, productId]);
 
-  const price = useMemo(() => {
-    if (!product) return 0;
-    return wholesale && product.wholesalePriceCents != null ? product.wholesalePriceCents : product.priceCents;
-  }, [product, wholesale]);
-
-  const showStrike = !!product && wholesale && product.wholesalePriceCents != null &&
-    product.wholesalePriceCents < product.priceCents;
-
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [related, setRelated] = useState<any[]>([]);
   const [showBar, setShowBar] = useState(false);
 
-  const optionDeltaCents = (product?.optionGroups || []).reduce((sum: number, g: any) => {
-    const choice = g.choices.find((c: any) => c.id === selections[g.id]) || g.choices[0];
-    return sum + (choice?.deltaCents || 0);
-  }, 0);
+  // What the choices picked sell for, the same sums checkout makes (lib/variants): a variant's own price when it has
+  // one, otherwise the listing's, plus what the other choices add.
+  const line = useMemo(() => (product ? shopLine(product, selections, wholesale) : null), [product, selections, wholesale]);
+  const retailLine = useMemo(() => (product ? shopLine(product, selections, false) : null), [product, selections]);
+  const price = line?.baseCents ?? 0;
+  const unitCents = line?.unitCents ?? 0;
+  const canBuy = !!product && (line?.variantChoice ? line.inStock : product.inStock);
+  const lowNow = !!product && (line?.variantChoice ? line.variantChoice.lowStock === true : product.lowStock);
+  const showStrike = !!product && wholesale && !!retailLine && price < retailLine.baseCents;
 
   const add = () => {
     if (!product) return;
@@ -210,7 +218,7 @@ export default function ProductPage() {
 
   const stepQty = (d: number) => {
     const min = wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1;
-    setQty((q) => Math.max(min, Math.min(product.qtyAvailable || 99, q + d)));
+    setQty((q) => Math.max(min, Math.min(line?.qtyAvailable || product.qtyAvailable || 99, q + d)));
   };
 
   return (
@@ -255,12 +263,12 @@ export default function ProductPage() {
                 <Package className="w-14 h-14 opacity-10" />
               </div>
             )}
-            {product.lowStock && product.inStock && (
+            {lowNow && canBuy && (
               <Badge className="absolute top-4 left-4 bg-amber-50 text-amber-700 border-2 border-amber-100 font-black text-[8px] uppercase tracking-widest">
                 Almost gone
               </Badge>
             )}
-            {!product.inStock && (
+            {!canBuy && (
               <Badge className="absolute top-4 left-4 bg-slate-100 text-slate-600 border-2 border-slate-200 font-black text-[8px] uppercase tracking-widest">
                 Sold out
               </Badge>
@@ -311,7 +319,7 @@ export default function ProductPage() {
             )}
             <div className="flex items-baseline gap-2">
               <p className="font-black text-3xl text-primary">{fmt(price)}</p>
-              {showStrike && <p className="text-sm font-bold text-muted-foreground line-through">{fmt(product.priceCents)}</p>}
+              {showStrike && <p className="text-sm font-bold text-muted-foreground line-through">{fmt(retailLine!.baseCents)}</p>}
             </div>
             {wholesale && (product.wholesaleMinQty || 0) > 0 && (
               <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
@@ -331,6 +339,9 @@ export default function ProductPage() {
                   <div className="flex flex-wrap gap-1.5">
                     {(g.choices || []).map((c) => {
                       const active = (selections[g.id] || g.choices[0]?.id) === c.id;
+                      // A variant shows its price when the variants cost different amounts, and says when it's sold out.
+                      const varies = !!g.variants && new Set(g.choices.map((x) => x.priceCents)).size > 1;
+                      const own = wholesale && c.wholesalePriceCents != null ? c.wholesalePriceCents : c.priceCents;
                       return (
                         <button
                           key={c.id}
@@ -338,9 +349,12 @@ export default function ProductPage() {
                           aria-pressed={active}
                           onClick={() => setSelections({ ...selections, [g.id]: c.id })}
                           className={cn('h-10 px-3.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
-                            active ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}
+                            active ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40',
+                            g.variants && c.inStock === false && !active && 'text-muted-foreground')}
                         >
-                          {c.label}{c.deltaCents ? ` +$${(c.deltaCents / 100).toFixed(2)}` : ''}
+                          {c.label}
+                          {g.variants ? (varies && own != null ? ` \u00b7 ${fmt(own)}` : '') : c.deltaCents ? ` +$${(c.deltaCents / 100).toFixed(2)}` : ''}
+                          {g.variants && c.inStock === false ? ' \u00b7 sold out' : ''}
                         </button>
                       );
                     })}
@@ -360,12 +374,12 @@ export default function ProductPage() {
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             </div>
-            <Button disabled={!product.inStock || paused} onClick={add}
+            <Button disabled={!canBuy || paused} onClick={add}
               className="flex-1 h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20">
               {paused
                 ? 'Shop briefly paused'
-                : product.inStock
-                ? `${(product as any).preorder?.isPreorder ? 'Pre-order' : (product as any).digital ? 'Buy now' : 'Add to cart'} \u00b7 ${fmt((price + optionDeltaCents) * qty)}`
+                : canBuy
+                ? `${(product as any).preorder?.isPreorder ? 'Pre-order' : (product as any).digital ? 'Buy now' : 'Add to cart'} \u00b7 ${fmt(unitCents * qty)}`
                 : (product as any).preorder?.isPreorder
                 ? ((product as any).preorder.reason === 'closed' ? 'Pre-orders closed' : 'Run sold out')
                 : 'Sold out'}
@@ -376,23 +390,23 @@ export default function ProductPage() {
             <span
               className={cn(
                 'inline-flex items-center gap-1.5 text-[11px] font-bold',
-                product.inStock ? 'text-foreground' : 'text-muted-foreground'
+                canBuy ? 'text-foreground' : 'text-muted-foreground'
               )}
             >
-              <span className={cn('h-2 w-2 rounded-full', product.inStock ? 'bg-emerald-600' : 'bg-muted-foreground/40')} aria-hidden="true" />
+              <span className={cn('h-2 w-2 rounded-full', canBuy ? 'bg-emerald-600' : 'bg-muted-foreground/40')} aria-hidden="true" />
               {(product as any).preorder?.isPreorder
                 ? ((product as any).preorder.open
                     ? `Pre-order${(product as any).preorder.etaAt ? ` \u00b7 ships by ${new Date(`${(product as any).preorder.etaAt}T12:00:00`).toLocaleDateString()}` : ''}`
                     : (product as any).preorder.reason === 'closed' ? 'Pre-orders closed' : 'This run sold out')
                 : (product as any).digital
                 ? 'Instant access \u2014 nothing ships'
-                : product.inStock
-                ? (product.lowStock ? `Only ${product.qtyAvailable} left` : 'In stock')
+                : canBuy
+                ? (lowNow ? `Only ${line?.qtyAvailable ?? product.qtyAvailable} left` : 'In stock')
                 : 'Sold out'}
             </span>
           </div>
 
-          {shipping && fulfil.offersShipping && product.inStock && !paused && !(product as any).digital && (() => {
+          {shipping && fulfil.offersShipping && canBuy && !paused && !(product as any).digital && (() => {
             const line = {
               preorder: (product as any).preorder?.isPreorder === true && (product as any).preorder?.open === true,
               preorderEtaAt: (product as any).preorder?.etaAt || null,
@@ -414,8 +428,9 @@ export default function ProductPage() {
               </div>);
           })()}
 
-          {!product.inStock && !paused && !(product as any).preorder?.isPreorder && !(product as any).digital && (
-            <RestockAlert tenantId={tenantId} productId={(product as any).id || productId} productName={product.name} />
+          {!canBuy && !paused && !(product as any).preorder?.isPreorder && !(product as any).digital && (
+            <RestockAlert key={line?.variantChoice?.id || 'all'} tenantId={tenantId} productId={(product as any).id || productId}
+              productName={line?.variantChoice ? `${product.name} · ${line.variantChoice.label}` : product.name} choiceId={line?.variantChoice?.id} />
           )}
 
           {cfg.showTrust && (
@@ -591,12 +606,12 @@ export default function ProductPage() {
 
         </main>
 
-      {showBar && product.inStock && !paused && (
+      {showBar && canBuy && !paused && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t-2 bg-white/95 px-4 py-3 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center gap-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-[11px] font-black uppercase tracking-tight">{product.name}</p>
-              <p className="font-mono text-sm font-bold">{fmt((price + optionDeltaCents) * qty)}</p>
+              <p className="font-mono text-sm font-bold">{fmt(unitCents * qty)}</p>
             </div>
             <Button onClick={add} className="h-12 shrink-0 rounded-2xl px-6 font-black uppercase text-xs tracking-widest">
               Add to cart

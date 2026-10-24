@@ -28,6 +28,7 @@ import { Stations } from '@/components/pos/desk/Stations';
 import { Kits } from '@/components/pos/desk/Kits';
 import { findKit, kitKey, secondsLeft } from '@/lib/kits';
 import { identifyPosScan } from '@/lib/pos-scan';
+import { choiceFor, deskPrice, listingsOf } from '@/lib/variants';
 import { machineCode } from '@/lib/scan-route';
 import { findBundle } from '@/lib/linens';
 import { Linens } from '@/components/pos/desk/Linens';
@@ -258,6 +259,8 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const selectedGuest = sel ? guests.find((g) => g.key === sel) || null : null;
   // K7: who's here and what's outstanding — checked-in guests not yet started + people at the front door, one list.
   const scanner = useScanSheet(false);   // one scanner for kits, bundles, sterilisers and stations
+  // Which listing sells each variant, for the price a variant sells for (lib/variants).
+  const deskListings = useMemo(() => listingsOf(e.inventory || []), [e.inventory]);
   // A USB or Bluetooth scanner at the desk does one thing per scan: a product, an online order or one of today's
   // tickets goes to the desk; a kit's, bundle's, steriliser's or station's code opens the scanner sheet; anything else
   // is looked up as a ticket.
@@ -794,7 +797,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
       <Drawer accent={accent} open={!!e.variantChoice} onClose={() => e.setVariantChoice?.(null)} title={e.variantChoice?.clash ? 'Which product is it?' : `Which ${e.variantChoice?.parent?.name || 'one'}?`}>
         {e.variantChoice?.clash && <p className="mb-3 text-[14px]" style={{ color: 'var(--muted)' }}>This code is on more than one product. Choose which keeps it in Inventory, Codes and listings.</p>}
         <div className="grid grid-cols-2 gap-2">{(e.variantChoice?.variants || []).map((v: any) => <button key={v.id} type="button" onClick={() => { e.addProductChecked?.(v); e.setVariantChoice?.(null); }} className="rounded-2xl p-4 text-left" style={{ background: 'var(--card)', border: '1px solid var(--line)' }}>
-          <span className="block text-[15px] font-semibold">{v.name}</span><span className="block text-[14px] tabular-nums">${Number(v.msrp || v.costPerUnit || 0).toFixed(2)}</span>
+          <span className="block text-[15px] font-semibold">{(!e.variantChoice?.clash && choiceFor(e.variantChoice?.parent, String(v.id))?.choice.label) || v.name}</span><span className="block text-[14px] tabular-nums">{deskPrice(v, deskListings) > 0 ? `$${deskPrice(v, deskListings).toFixed(2)}` : 'No price yet'}</span>
           <span className="block text-[12px]" style={{ color: 'var(--muted)' }}>{Math.max(0, (Number(v.totalStock) || 0) - (Number(v.stockReserved) || 0))} on the shelf</span></button>)}</div>
       </Drawer>
       <Drawer accent={accent} open={!!e.packChoice} onClose={() => e.setPackChoice?.(null)} title={e.packChoice ? `${e.packChoice.packKind === 'pallet' ? 'A pallet' : 'A case'} of ${e.packChoice.pack}` : ''}>

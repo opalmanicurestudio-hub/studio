@@ -17,6 +17,7 @@ import { addOnIdsOf } from '@/lib/prep-checkout';
 import { rateFor, payForService } from '@/lib/commission';
 import { openVisit } from '@/lib/visit-client';
 import { identifyPosScan, onHand } from '@/lib/pos-scan';
+import { deskPrice, listingsOf, saleName } from '@/lib/variants';
 import { heldCovered, heldShortfall, type HeldShort } from '@/lib/held-stock';
 import { momentsFor, bestMomentReward, prebookMoment } from '@/lib/moments';
 import { groupDiscountFor, groupDiscountAmount } from '@/lib/team-discount';
@@ -650,19 +651,29 @@ export function usePosEngine() {
     setRetailItems(prev => [...prev.filter((i: any) => !(i.type === 'tuition' && i.planId === x.planId)), { id: `tuition:${x.planId}`, planId: x.planId, name: `Tuition — ${x.name} · ${x.program}`, quantity: 1, price: x.amount, type: 'tuition' as any, tuitionApply: x.apply === 'paydown' ? 'paydown' : 'ahead' } as any]);
   }, []);
 
-  const handleAddToCart = useCallback((item: any, qty = 1) => {
+  // A product sells for the shop's price for it (lib/variants): a variant's own price when it has one, otherwise its
+  // listing's. One with no price yet isn't added (it used to sell at cost).
+  const deskListings = useMemo(() => listingsOf(inventory || []), [inventory]);
+  const deskListingsRef = useRef(deskListings); deskListingsRef.current = deskListings;
+  const handleAddToCart = useCallback((item: any, qty = 1): boolean => {
     const n = Math.max(1, Math.round(Number(qty) || 1));
+    let price = 0; let type: 'product' | 'service' | 'membership' | 'package' = 'product'; let name = String(item?.name || 'Item'); let listingId: string | null = null;
+    if ('duration' in item) { price = safeNumber(item.price); type = 'service'; }
+    else if ('interval' in item) { price = safeNumber(item.price); type = 'membership'; }
+    else if ('sessions' in item) { price = safeNumber(item.price); type = 'package'; }
+    else {
+      const listings = deskListingsRef.current;
+      price = deskPrice(item, listings);
+      if (!(price > 0)) { toast({ variant: 'destructive', title: 'No price yet', description: `${saleName(item, listings)} has no price. Give it one in Inventory, then add it.` }); return false; }
+      name = saleName(item, listings); listingId = listings.get(String(item.id))?.id || null;
+    }
     setRetailItems(prev => {
       const existing = prev.find(i => i.id === item.id);
       if (existing) return prev.map(i => i.id === item.id ? { ...i, quantity: i.quantity + n } : i);
-      let price = 0; let type: 'product' | 'service' | 'membership' | 'package' = 'product';
-      if ('msrp' in item) { price = safeNumber(item.msrp || item.costPerUnit); type = 'product'; }
-      else if ('duration' in item) { price = safeNumber(item.price); type = 'service'; }
-      else if ('interval' in item) { price = safeNumber(item.price); type = 'membership'; }
-      else if ('sessions' in item) { price = safeNumber(item.price); type = 'package'; }
-      return [...prev, { id: item.id, name: item.name, quantity: n, price, type, imageUrl: item.imageUrl, stock: item.totalStock }];
+      return [...prev, { id: item.id, name, quantity: n, price, type, imageUrl: item.imageUrl, stock: item.totalStock, ...(listingId ? { listingId } : {}) } as any];
     });
-  }, []);
+    return true;
+  }, [toast]);
 
   /**
    * "Start service" — the single most load-bearing write in the walk-in flow,
@@ -1618,7 +1629,7 @@ export function usePosEngine() {
     const inCart = (retailItems || []).find((i: any) => i.id === item.id)?.quantity || 0;
     const left = onHand(item) - inCart;
     const heldN = Math.max(0, Math.round(Number(item.stockReserved) || 0));
-    handleAddToCart(item, n);
+    if (handleAddToCart(item, n) === false) return;
     const added = n > 1 ? `${n} × ${item.name} added` : `${item.name} added`;
     if (item.type === 'retail' || item.msrp) {
       if (left <= 0 && heldN > 0 && (Number(item.totalStock) || 0) > inCart) toast({ variant: 'destructive', title: added, description: `The ${heldN === 1 ? 'one' : heldN} left on the shelf ${heldN === 1 ? 'is' : 'are'} held for paid online orders. A manager approves selling ${heldN === 1 ? 'it' : 'them'} at checkout.` });

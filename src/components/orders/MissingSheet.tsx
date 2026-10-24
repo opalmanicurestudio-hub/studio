@@ -11,6 +11,7 @@ import { firstName, money } from '@/lib/orders-view';
 import { IF_UNAVAILABLE, effectiveUnitCents, normaliseIfUnavailable, similarItems, SWAP_ANSWER_HOURS } from '@/lib/retail-swap';
 import { taxShareCents } from '@/lib/restocking';
 import { staffAuthHeader } from '@/lib/staff-fetch';
+import { soldAs } from '@/lib/variants';
 import type { Actor } from '@/lib/retail-fulfill';
 import { Btn, C, Sheet, Thumb, muted } from './ui';
 
@@ -19,7 +20,8 @@ type How = 'swap' | 'refund' | 'backorder' | 'look';
 export function MissingSheet({ fs, tenantId, order, line, shelf, inventory = [], actor, autoBelow = 0, onClose, onDone }: { fs: Firestore; tenantId: string; order: any; line: any; shelf?: string; inventory?: any[]; actor: Actor; autoBelow?: number; onClose: () => void; onDone: (msg: string) => void }) {
   const owed = Math.max(0, (Number(line.qtyOrdered) || 0) - (Number(line.qtyScanned) || 0) - (Number(line.qtyShorted) || 0));
   const pref = normaliseIfUnavailable(order.ifUnavailable);
-  const options = React.useMemo(() => similarItems(inventory, line), [inventory, line]);
+  // As the shop sells them: another variant of the same listing is often the best swap (lib/variants).
+  const options = React.useMemo(() => similarItems(soldAs(inventory), line), [inventory, line]);
   const [how, setHow] = React.useState<How>(pref !== 'refund' && options.length ? 'swap' : 'refund');
   const [pick, setPick] = React.useState<string>(options[0]?.productId || '');
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');

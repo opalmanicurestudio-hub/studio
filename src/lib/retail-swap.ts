@@ -19,7 +19,7 @@ export const normaliseIfUnavailable = (v: unknown): IfUnavailable => (v === 'sim
 /** How long a customer has to answer before it falls back to a refund. */
 export const SWAP_ANSWER_HOURS = 2;
 
-export interface SwapItem { productId: string; name: string; unitPriceCents: number; sku?: string; barcode?: string; optionsLabel?: string; imageUrl?: string }
+export interface SwapItem { productId: string; name: string; unitPriceCents: number; sku?: string; barcode?: string; optionsLabel?: string; imageUrl?: string; listingId?: string }
 
 export function swapLines(order: { lines: any[]; subtotalCents?: number; taxCents?: number }, lineId: string, sub: SwapItem, newLineId: string): { lines: any[]; qty: number; refundCents: number; newLine: any } {
   const idx = order.lines.findIndex((l) => l.lineId === lineId);
@@ -31,7 +31,7 @@ export function swapLines(order: { lines: any[]; subtotalCents?: number; taxCent
   const orig = effectiveUnitCents(line); const price = Math.max(0, Math.round(Number(sub.unitPriceCents) || 0));
   const closed = { ...line, qtyShorted: (Number(line.qtyShorted) || 0) + qty, status: 'refunded', shortReason: 'Swapped', swappedToLineId: newLineId, swappedToName: sub.name };
   const newLine = {
-    lineId: newLineId, productId: sub.productId, sku: sub.sku || '', barcode: sub.barcode || '', name: sub.name, optionsLabel: sub.optionsLabel || '',
+    lineId: newLineId, productId: sub.productId, sku: sub.sku || '', barcode: sub.barcode || '', name: sub.name, optionsLabel: sub.optionsLabel || '', ...(sub.listingId ? { listingId: sub.listingId } : {}),
     unitPriceCents: price, qtyOrdered: qty, qtyScanned: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending',
     swapForLineId: lineId, swapForName: line.name, lineDiscountCents: Math.max(0, price - orig) * qty,
   };
@@ -42,7 +42,7 @@ export function swapLines(order: { lines: any[]; subtotalCents?: number; taxCent
 
 
 /** Close matches for a missing item: in stock, same category if it has one, nearest price first, not dearer than
- *  half again. */
+ *  half again. `inventory` as the shop sells it (lib/variants soldAs): a listing's variants in its place. */
 export function similarItems(inventory: any[], line: { productId: string; unitPriceCents?: number }, max = 6): SwapItem[] {
   const me = inventory.find((i) => i.id === line.productId) || {};
   const price = Number(line.unitPriceCents) || 0;
@@ -54,7 +54,7 @@ export function similarItems(inventory: any[], line: { productId: string; unitPr
     .filter((i) => !price || priceOf(i) <= price * 1.5)
     .sort((a, b) => Math.abs(priceOf(a) - price) - Math.abs(priceOf(b) - price))
     .slice(0, max)
-    .map((i) => ({ productId: i.id, name: String(i.name || 'Item'), unitPriceCents: priceOf(i), sku: i.sku || '', barcode: i.barcode || '', imageUrl: (Array.isArray(i.imageUrls) && i.imageUrls[0]) || i.imageUrl || '' }));
+    .map((i) => ({ productId: i.id, name: String(i.name || 'Item'), unitPriceCents: priceOf(i), sku: i.sku || '', barcode: i.barcode || '', imageUrl: (Array.isArray(i.imageUrls) && i.imageUrls[0]) || i.imageUrl || '', ...(i.listingId ? { listingId: String(i.listingId) } : {}) }));
 }
 
 /** A YES/NO text reply about a swap. */

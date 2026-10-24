@@ -1,15 +1,15 @@
 'use client';
-// src/components/shop/RestockAlert.tsx — "TELL ME WHEN IT'S BACK". Shown on a sold-out product. One email field; we
-// send one email when it's back online, and nothing else.
+// src/components/shop/RestockAlert.tsx — "TELL ME WHEN IT'S BACK". Shown on a sold-out product, or a sold-out variant
+// of one (`choiceId`). One email field; we send one email when it's back online, and nothing else.
 import * as React from 'react';
 
-export function RestockAlert({ tenantId, productId, productName }: { tenantId: string; productId: string; productName: string }) {
+export function RestockAlert({ tenantId, productId, productName, choiceId }: { tenantId: string; productId: string; productName: string; choiceId?: string }) {
   const [email, setEmail] = React.useState(''); const [state, setState] = React.useState<'idle' | 'busy' | 'done' | 'error'>('idle'); const [msg, setMsg] = React.useState('');
   const send = async () => {
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) { setState('error'); setMsg('Enter an email address.'); return; }
     setState('busy');
     try {
-      const r = await fetch('/api/retail/restock-alert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, productId, email: email.trim() }) });
+      const r = await fetch('/api/retail/restock-alert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, productId, ...(choiceId ? { choiceId } : {}), email: email.trim() }) });
       const d = await r.json().catch(() => ({}));
       if (r.ok) { setState('done'); setMsg(d.message || `We’ll email you once when ${productName} is back.`); } else { setState('error'); setMsg(d.error || 'That didn’t go through. Try again.'); }
     } catch { setState('error'); setMsg('That didn’t go through. Check your connection.'); }

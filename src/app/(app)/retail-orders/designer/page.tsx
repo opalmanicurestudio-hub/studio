@@ -27,6 +27,7 @@ import {
   type ShopTheme,
 } from '@/lib/shop-theme';
 import { cn } from '@/lib/utils';
+import { listedInShop, listingBuyable, listingsOf, variantIdsOf, variantPriceCents } from '@/lib/variants';
 
 // ─── Shop Designer ────────────────────────────────────────────────────────────
 // The sales-landing builder for the storefront — the shop's version of the
@@ -71,18 +72,23 @@ export default function ShopDesignerPage() {
     setLoaded(true);
   }, [selectedTenant, loaded]);
 
-  const liveProducts: ShopSectionProduct[] = useMemo(
-    () => (inventory || [])
-      .filter((i: any) => i.type === 'retail' && i.status !== 'archived' && i.showOnline === true && (i.msrp ?? 0) > 0)
-      .map((i: any) => ({
-        id: i.id,
-        name: i.name,
-        priceCents: Math.round((i.msrp || 0) * 100),
-        imageUrls: Array.isArray(i.imageUrls) ? i.imageUrls : [],
-        inStock: (i.totalStock - (i.stockReserved || 0)) > 0 || i.allowBackorder === true,
-      })),
-    [inventory]
-  );
+  // What the shop lists, by its own rules (lib/variants): listings, never their variants, in stock while any variant
+  // is, at their lowest price.
+  const liveProducts: ShopSectionProduct[] = useMemo(() => {
+    const all = inventory || []; const listings = listingsOf(all); const byId = new Map(all.map((i: any) => [String(i.id), i]));
+    return all
+      .filter((i: any) => i.status !== 'archived' && listedInShop(i, listings))
+      .map((i: any) => {
+        const prices = variantIdsOf(i).map((id) => byId.get(id)).filter((v: any) => v && v.status !== 'archived').map((v: any) => variantPriceCents(v, i));
+        return {
+          id: i.id,
+          name: i.name,
+          priceCents: prices.length ? Math.min(...prices) : Math.round((i.msrp || 0) * 100),
+          imageUrls: Array.isArray(i.imageUrls) ? i.imageUrls : [],
+          inStock: listingBuyable(i, byId),
+        };
+      });
+  }, [inventory]);
 
   const selected = config.sections.find((s) => s.id === selectedId) || null;
 

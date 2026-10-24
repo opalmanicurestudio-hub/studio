@@ -121,10 +121,17 @@ service cloud.firestore {
       allow get, list: if true;
     }
     // INVENTORY. The team reads and writes products as before, except a product's codes (its SKU, barcodes, case and
-    // pallet codes and tags): those are saved only by the server (lib/code-index), which keeps each code on one
-    // product. Equipment and overhead items aren't scanned and keep theirs like any other field.
+    // pallet codes and tags), its choices and the listing it's a variant of: those are saved only by the server
+    // (lib/code-index), which keeps each code on one product and each variant in one listing. Equipment and overhead
+    // items aren't scanned or sold, and keep theirs like any other field.
     function productCodeKeys() {
       return ['sku', 'barcode', 'barcodes', 'upc', 'gtin', 'ean', 'caseBarcode', 'casePack', 'palletBarcode', 'palletPack', 'tagIds', 'codesUpdatedAt'];
+    }
+    function productLinkKeys() {
+      return ['optionGroups', 'parentId'];
+    }
+    function noLinks(d) {
+      return (d.get('optionGroups', null) == null || d.optionGroups.size() == 0) && d.get('parentId', null) == null;
     }
     function codesFree(d) {
       return d.get('type', '') in ['equipment', 'overhead'];
@@ -143,12 +150,13 @@ service cloud.firestore {
     }
     match /tenants/{tenantId}/inventory/{itemId} {
       allow read: if isTeam(tenantId);
-      allow create: if isTeam(tenantId) && (codesFree(request.resource.data) || noCodes(request.resource.data));
-      // Equipment stays free; a product's codes don't change here; equipment turned into a product carries no codes.
+      allow create: if isTeam(tenantId) && (codesFree(request.resource.data) || (noCodes(request.resource.data) && noLinks(request.resource.data)));
+      // Equipment stays free; a product's codes, choices and listing don't change here; equipment turned into a
+      // product carries none.
       allow update: if isTeam(tenantId) && (
         (codesFree(resource.data) && codesFree(request.resource.data))
-        || (!codesFree(resource.data) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(productCodeKeys()))
-        || (codesFree(resource.data) && !codesFree(request.resource.data) && noCodes(request.resource.data)));
+        || (!codesFree(resource.data) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(productCodeKeys().concat(productLinkKeys())))
+        || (codesFree(resource.data) && !codesFree(request.resource.data) && noCodes(request.resource.data) && noLinks(request.resource.data)));
       allow delete: if isTeam(tenantId);
     }
     // ONE INDEX OF EVERY CODE (lib/code-index): the team's screens read it; only the server writes it.

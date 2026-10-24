@@ -11,11 +11,15 @@
 //     while it runs is never undone. It lists the codes found on more than one product. Such a code belongs to none of
 //     them until someone chooses: its entry names them all, so no other product can take it either.
 //   • keepCodeOn settles one: the chosen product keeps the code, and it comes off the others.
-//   • codesCheck counts what stops a scan or a sale from working, using the shop's own rules (lib/retail-orders).
-// Browsers can read the index (the packing bench looks codes up there) but never write it, and the code fields of a
-// product can't be changed from a browser at all (firestore.rules).
+//   • codesCheck counts what stops a scan or a sale from working, using the shop's own rules (lib/variants).
+//   • saveListingChoices saves a listing's choices, and points each variant at its listing (parentId), in one step: a
+//     product already a variant of another listing, a listing, an archived product or equipment is refused, with why.
+//     The build points every variant at the listing whose choices sell it, and clears a pointer no listing backs.
+// Browsers can read the index (the packing bench looks codes up there) but never write it, and a product's code
+// fields, its choices and its listing pointer can't be changed from a browser at all (firestore.rules).
 import { CODE_FIELDS, cleanCodePatch, codeDocId, codeForm, codesOf, digitsKey, holdsCodes, readCode, type CodeKind, type CodePatch } from '@/lib/code-form';
-import { listedInShop, listingStock, onlineSellable } from '@/lib/retail-orders';
+import { onlineSellable, type OptionGroup } from '@/lib/retail-orders';
+import { choiceFor, choicesProblem, cleanChoices, listedInShop, listingStock, listingsOf, variantIdsOf } from '@/lib/variants';
 import { looksLikeTag, normTag } from '@/lib/tags';
 
 export const indexCol = (t: string) => `tenants/${t}/codeIndex`;
@@ -42,6 +46,7 @@ function cleanCreate(c: any): Record<string, any> | null {
   let s = ''; try { s = JSON.stringify(c); } catch { return null; }
   if (s.length > 400000) return null;
   const o = JSON.parse(s); for (const k of CODE_FIELDS) delete o[k]; delete o.codesUpdatedAt;
+  delete o.optionGroups; delete o.parentId;   // a new product has no choices yet, and belongs to no listing yet
   return o;
 }
 
@@ -245,9 +250,12 @@ async function settleEntries(db: any, tenantId: string, part: { id: string; code
 /** Bring the index up to date with the codes on every product. Only entries that differ from what the products say
  *  are touched, each settled from the products as they are at that moment (settleEntries, a hundred at a time). A
  *  code found on more than one product is given to none of them, and listed for the codes check. */
-export async function buildCodeIndex(db: any, tenantId: string, o: { by?: string } = {}): Promise<{ products: number; codes: number; clashes: number; written: number; items: any[] }> {
+export async function buildCodeIndex(db: any, tenantId: string, o: { by?: string } = {}): Promise<{ products: number; codes: number; clashes: number; written: number; items: any[]; linked: number }> {
   const col = indexCol(tenantId); const by = o.by || 'Codes check';
   const { items, complete } = await allInventory(db, tenantId);
+  // Each variant points at its listing first, so its entries name the listing too.
+  const linked = await settleLinks(db, tenantId, items, complete);
+  for (const it of items) if (linked.has(String(it.id))) it.parentId = linked.get(String(it.id)) || null;
   const byId = new Map(items.map((it) => [String(it.id), it]));
   const held = new Map<string, { id: string; item: any }[]>();
   for (const it of items) for (const c of claims(it)) held.set(c.code, [...(held.get(c.code) || []), { id: String(it.id), item: it }]);
@@ -273,8 +281,44 @@ export async function buildCodeIndex(db: any, tenantId: string, o: { by?: string
   for (const xs of byDigits.values()) { if (lookalikes.length >= 3) break;
     const two = xs.find((x) => x.productId !== xs[0].productId);
     if (two) lookalikes.push({ a: xs[0].raw, b: two.raw, aName: xs[0].name, bName: two.name }); }
-  await db.doc(statePath(tenantId)).set({ builtAt: nowIso(), products: items.length, codes: held.size, complete, clashes: clashes.slice(0, 200), clashCount: clashes.length, lookalikes }, { merge: true });
-  return { products: items.length, codes: held.size, clashes: clashes.length, written, items };
+  await db.doc(statePath(tenantId)).set({ builtAt: nowIso(), version: INDEX_VERSION, products: items.length, codes: held.size, complete, clashes: clashes.slice(0, 200), clashCount: clashes.length, lookalikes }, { merge: true });
+  return { products: items.length, codes: held.size, clashes: clashes.length, written, items, linked: linked.size };
+}
+
+/** What the index holds: 2 adds each variant's pointer to its listing. An index built before is built again. */
+const INDEX_VERSION = 2;
+
+/** Every variant points at the listing whose choices sell it (lib/variants listingsOf), and no product points at a
+ *  listing that doesn't sell it: set where missing or out of date, cleared where no listing backs it (not when the
+ *  shop has more products than one check reads: a listing that wasn't read may sell it). Each is settled from the
+ *  documents as they are at that moment, a hundred at a time. Gives the products changed, with their new pointer. */
+async function settleLinks(db: any, tenantId: string, items: any[], complete: boolean): Promise<Map<string, string>> {
+  const listings = listingsOf(items);
+  const diffs = items.map((it) => ({ id: String(it.id), want: String(listings.get(String(it.id))?.id || ''), now: String(it.parentId || '') }))
+    .filter((d) => d.want !== d.now && (d.want || complete) && safeId(d.id));
+  const changed = new Map<string, string>();
+  for (let i = 0; i < diffs.length; i += 100) {
+    const part = diffs.slice(i, i + 100);
+    const done = await db.runTransaction(async (tx: any) => {
+      const refs = part.map((d) => db.doc(invPath(tenantId, d.id)));
+      const cur: any[] = (await readAll(tx, refs)).map(dataOf);
+      const lids = [...new Set(part.flatMap((d, k) => [d.want, String(cur[k]?.parentId || '')]).filter((x) => safeId(x)))];
+      const ls = new Map<string, any>(); (await readAll(tx, lids.map((id) => db.doc(invPath(tenantId, id))))).forEach((snap, k) => ls.set(lids[k], dataOf(snap)));
+      const sells = (lid: string, id: string) => { const l = ls.get(lid); return !!l && variantIdsOf({ ...l, id: lid }).includes(id); };
+      const out = new Map<string, string>();
+      part.forEach((d, k) => {
+        const c = cur[k]; if (!c) return;
+        const now = String(c.parentId || '');
+        let next = now;
+        if (d.want && sells(d.want, d.id)) next = d.want;
+        else if (now && !sells(now, d.id)) next = '';
+        if (next !== now) { tx.set(refs[k], { parentId: next || null }, { merge: true }); out.set(d.id, next); }
+      });
+      return out;
+    });
+    for (const [k, v] of done) changed.set(k, v);
+  }
+  return changed;
 }
 
 /** Index these products again from what they carry now (after they're brought back from the archive, say): a code
@@ -288,45 +332,75 @@ export async function reindexProducts(db: any, tenantId: string, ids: string[], 
 /** The index is built the first time a code is saved (so a code already on a product is never given to another). */
 export async function ensureCodeIndex(db: any, tenantId: string): Promise<void> {
   const st: any = (await db.doc(statePath(tenantId)).get()).data();
-  if (!st?.builtAt) await buildCodeIndex(db, tenantId, { by: 'First use' });
+  if (!st?.builtAt || (Number(st.version) || 1) < INDEX_VERSION) await buildCodeIndex(db, tenantId, { by: 'First use' });
 }
 
-/** The variant products a listing's options hold their stock in. */
-export function variantIdsOf(listing: any): string[] {
-  const ids = new Set<string>();
-  for (const g of Array.isArray(listing?.optionGroups) ? listing.optionGroups : []) for (const c of Array.isArray(g?.choices) ? g.choices : []) if (c?.variantProductId) ids.add(String(c.variantProductId));
-  return [...ids];
+/** A listing's choices, saved with each variant's pointer to its listing in one step (lib/variants): every choice of
+ *  the variants group picks a product of its own that no other listing sells, and that isn't a listing itself, archived
+ *  or equipment; the other groups only change the price. A product no longer picked stops pointing here. The choices'
+ *  ids are kept, so what's already in a customer's cart still matches. */
+export async function saveListingChoices(db: any, tenantId: string, listingId: string, input: any, by: string): Promise<{ ok: true; groups: OptionGroup[]; changed: string[] } | { ok: false; error: string; status: number }> {
+  const lid = safeId(listingId);
+  const gone = { ok: false as const, error: 'That product isn’t in your inventory.', status: 404 };
+  if (!lid) return gone;
+  const clean = cleanChoices(input);
+  if (clean.problem) return { ok: false, error: clean.problem, status: 400 };
+  const groups = clean.groups;
+  const lRef = db.doc(invPath(tenantId, lid));
+  const r: any = await db.runTransaction(async (tx: any) => {
+    const ls = await tx.get(lRef);
+    if (!ls.exists) return gone;
+    const listing: any = { ...(ls.data() || {}), id: lid };
+    const next = { ...listing, optionGroups: groups };
+    const before = variantIdsOf(listing); const after = variantIdsOf(next);
+    const ids = [...new Set([...before, ...after])].filter((x) => safeId(x) && x !== lid);
+    const docs = new Map<string, any>(); (await readAll(tx, ids.map((id) => db.doc(invPath(tenantId, id))))).forEach((snap, k) => docs.set(ids[k], dataOf(snap)));
+    // The listings the picked products (and this one) point at now, read to check they still sell them.
+    const pointers = [...new Set([...after.map((id) => String(docs.get(id)?.parentId || '')), String(listing.parentId || '')].filter((x) => x && x !== lid && safeId(x)))];
+    const others = new Map<string, any>(); (await readAll(tx, pointers.map((id) => db.doc(invPath(tenantId, id))))).forEach((snap, k) => others.set(pointers[k], dataOf(snap)));
+    const sellerOf = (id: string) => {
+      const p = String((id === lid ? listing.parentId : docs.get(id)?.parentId) || '');
+      if (!p) return null;
+      if (p === lid) return listing;
+      const l = others.get(p);
+      return l && variantIdsOf({ ...l, id: p }).includes(id) ? { ...l, id: p } : null;
+    };
+    const problem = choicesProblem(next, groups, (id) => (docs.get(id) ? { ...docs.get(id), id } : null), sellerOf);
+    if (problem) return { ok: false, error: problem, status: 409 };
+    tx.set(lRef, { optionGroups: groups }, { merge: true });
+    const changed: string[] = [];
+    for (const id of after) if (String(docs.get(id)?.parentId || '') !== lid) { tx.set(db.doc(invPath(tenantId, id)), { parentId: lid }, { merge: true }); changed.push(id); }
+    for (const id of before) if (!after.includes(id) && docs.get(id) && String(docs.get(id).parentId || '') === lid) { tx.set(db.doc(invPath(tenantId, id)), { parentId: null }, { merge: true }); changed.push(id); }
+    return { ok: true, groups, changed };
+  });
+  // Their codes' entries name the listing they're sold in now.
+  if (r.ok && r.changed.length) await reindexProducts(db, tenantId, r.changed, by).catch(() => 0);
+  return r;
 }
-const choiceLabel = (listing: any, variantId: string) => {
-  for (const g of Array.isArray(listing?.optionGroups) ? listing.optionGroups : []) for (const c of Array.isArray(g?.choices) ? g.choices : []) if (c?.variantProductId === variantId) return String(c.label || '');
-  return '';
-};
 
-/** What the shop gets wrong today, by its own rules (lib/retail-orders listedInShop and listingStock): listings that
- *  show sold out while their variants have stock, things in the shop that nothing can scan, and variants that show
- *  as listings of their own. */
+/** What the shop gets wrong today, by its own rules (lib/variants listedInShop and listingStock): listings that show
+ *  sold out while their variants have stock, things in the shop that nothing can scan, and variants that show as
+ *  listings of their own. */
 export function shopGaps(items: any[]) {
   const byId = new Map(items.map((x) => [String(x.id), x]));
   const live = (x: any) => !!x && x.status !== 'archived';
-  const listingOf = new Map<string, any>();
-  for (const it of items) if (live(it)) for (const v of variantIdsOf(it)) if (!listingOf.has(v) && v !== it.id) listingOf.set(v, it);
-  const variantIds = new Set(listingOf.keys());
+  const listings = listingsOf(items);
   const name = (x: any) => String(x?.name || 'Product');
-  const listed = items.filter((it) => live(it) && listedInShop(it, variantIds));
+  const listed = items.filter((it) => live(it) && listedInShop(it, listings));
   const stocked = (id: string) => { const v = byId.get(id); return live(v) && onlineSellable(v) > 0; };
-  const soldOut = listed.filter((it) => !variantIds.has(it.id) && variantIdsOf(it).some(stocked) && listingStock(it, byId) <= 0
+  const soldOut = listed.filter((it) => variantIdsOf(it).some(stocked) && listingStock(it, byId) <= 0
       && it.allowBackorder !== true && it.digital !== true && it.preorder !== true)
     .map((it) => ({ productId: it.id, name: name(it), withStock: variantIdsOf(it).filter(stocked).length }));
   const noCode: { productId: string; name: string; listingId?: string }[] = [];
   for (const it of listed) {
-    if (variantIds.has(it.id) || it.digital === true) continue;   // a download has nothing to scan
+    if (it.digital === true) continue;   // a download has nothing to scan
     const own = codesOf(it).length > 0; const vs = variantIdsOf(it).map((v) => byId.get(v)).filter(live);
     if (!vs.length) { if (!own) noCode.push({ productId: it.id, name: name(it) }); continue; }
     if (own) continue;   // the listing's own code asks which variant
-    for (const v of vs) if (!codesOf(v).length) noCode.push({ productId: v.id, name: `${name(it)} · ${choiceLabel(it, v.id) || name(v)}`, listingId: it.id });
+    for (const v of vs) if (!codesOf(v).length) noCode.push({ productId: v.id, name: `${name(it)} · ${choiceFor(it, v.id)?.choice.label || name(v)}`, listingId: it.id });
   }
-  const variantsListed = listed.filter((it) => variantIds.has(it.id))
-    .map((it) => ({ productId: it.id, name: name(it), listingId: String(listingOf.get(it.id)?.id || ''), listingName: name(listingOf.get(it.id)) }));
+  const variantsListed = listed.filter((it) => listings.has(String(it.id)))
+    .map((it) => ({ productId: it.id, name: name(it), listingId: String(listings.get(String(it.id))?.id || ''), listingName: name(listings.get(String(it.id))) }));
   return { soldOut, noCode, variantsListed };
 }
 

@@ -2,7 +2,8 @@ import { jsonLd } from '@/lib/json-ld';
 import type { Metadata } from 'next';
 import React from 'react';
 
-import { listingPriceCents, onlineSellable, isStorefrontVisible, type SellableItem } from '@/lib/retail-orders';
+import { listingPriceCents, isStorefrontVisible, type SellableItem } from '@/lib/retail-orders';
+import { buyable, choiceFor, listingBuyable, variantIdsOf, variantPriceCents } from '@/lib/variants';
 import { publicDescription } from '@/lib/product-public';
 import { productJsonLd, seoDescription, seoTitle } from '@/lib/shop-seo';
 import { faqJsonLd } from '@/lib/shop-seo';
@@ -46,16 +47,30 @@ async function load(tenantId: string, productId: string) {
     ]);
     const tenant: any = tSnap.exists ? tSnap.data() : {};
     const item: any = pSnap.exists ? { id: pSnap.id, ...(pSnap.data() as any) } : null;
+    // A variant is sold inside its listing: its page isn't one of its own (lib/variants).
+    let listing: any = null;
+    if (item?.parentId && item.parentId !== item.id) {
+      const ls = await db.collection(`tenants/${tenantId}/inventory`).doc(String(item.parentId)).get();
+      const l: any = ls.exists ? { id: ls.id, ...(ls.data() as any) } : null;
+      if (l && choiceFor(l, item.id)) listing = l;
+    }
+    // A listing's variants, for whether it's in stock and what it sells for.
+    const variants = new Map<string, any>();
+    if (item && !listing) {
+      const ids = variantIdsOf(item);
+      const snaps = ids.length ? await Promise.all(ids.map((id) => db.collection(`tenants/${tenantId}/inventory`).doc(id).get())) : [];
+      for (const v of snaps) if (v.exists) variants.set(v.id, { id: v.id, ...(v.data() as any) });
+    }
     return {
       shopName: String(tenant?.businessName || tenant?.name || '').trim(),
-      item,
+      item, listing, variants,
       // The shop's product-page FAQ — already written, already shown to
       // customers, just not machine-readable until now.
       faq: Array.isArray(tenant?.retailSettings?.pdpFaq) ? tenant.retailSettings.pdpFaq : [],
       showFaq: tenant?.retailSettings?.pdpShowFaq !== false,
     };
   } catch {
-    return { shopName: '', item: null, faq: [], showFaq: false };
+    return { shopName: '', item: null, listing: null, variants: new Map<string, any>(), faq: [], showFaq: false };
   }
 }
 
@@ -63,10 +78,12 @@ export async function generateMetadata(
   { params }: { params: Promise<{ tenantId: string; productId: string }> },
 ): Promise<Metadata> {
   const { tenantId, productId } = await params;
-  const { shopName, item } = await load(tenantId, productId);
+  const { shopName, item, listing } = await load(tenantId, productId);
   if (!item) return { title: shopName || 'Shop' };
 
   const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+  // A variant's own address is never indexed: its listing is the page (the shop opens it with the variant picked).
+  if (listing) return { title: seoTitle({ shopName, productName: String(listing.name || ''), seoTitle: String(listing.seoTitle || '') }), robots: { index: false, follow: true }, ...(origin ? { alternates: { canonical: `${origin}/shop/${tenantId}/product/${listing.id}` } } : {}) };
   const url = origin ? `${origin}/shop/${tenantId}/product/${productId}` : undefined;
   const images = Array.isArray(item.imageUrls) && item.imageUrls.length
     ? item.imageUrls
@@ -118,9 +135,12 @@ export default async function ProductSeoLayout({
   params: Promise<{ tenantId: string; productId: string }>;
 }) {
   const { tenantId, productId } = await params;
-  const { shopName, item, faq, showFaq } = await load(tenantId, productId);
+  const { shopName, item, listing, variants, faq, showFaq } = await load(tenantId, productId);
 
-  if (!item || !isStorefrontVisible(item as SellableItem)) return <>{children}</>;
+  if (!item || listing || !isStorefrontVisible(item as SellableItem)) return <>{children}</>;
+  // A listing with variants: in stock while any of them is, at its lowest price.
+  const vids = variantIdsOf(item);
+  const vPrices = vids.map((id) => variants.get(id)).filter((v: any) => v && buyable(v)).map((v: any) => variantPriceCents(v, item));
 
   const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
   const images = Array.isArray(item.imageUrls) && item.imageUrls.length
@@ -132,8 +152,8 @@ export default async function ProductSeoLayout({
     productName: String(item.name || ''),
     description: publicDescription(item),
     images,
-    priceCents: listingPriceCents(item as SellableItem),
-    inStock: item.digital === true || item.preorder === true || onlineSellable(item as SellableItem) > 0 || item.allowBackorder === true,
+    priceCents: vPrices.length ? Math.min(...vPrices) : listingPriceCents(item as SellableItem),
+    inStock: vids.length ? listingBuyable(item, variants) : buyable(item),
     sku: String(item.sku || ''),
     url: origin ? `${origin}/shop/${tenantId}/product/${productId}` : undefined,
     seoDescription: String(item.seoDescription || ''),

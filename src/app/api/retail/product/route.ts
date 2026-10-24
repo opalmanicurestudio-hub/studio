@@ -2,8 +2,9 @@ import { getRetailSecrets } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
-  listedInShop, listingPriceCents, listingStock, type SellableItem,
+  isStorefrontVisible, listingPriceCents, type SellableItem,
 } from '@/lib/retail-orders';
+import { choiceFor, listingBuyable, listingStock, shopOptionGroups, variantIdsOf } from '@/lib/variants';
 import { publicFields } from '@/lib/product-public';
 import { preorderState } from '@/lib/retail-orders';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
@@ -63,9 +64,23 @@ export async function GET(req: NextRequest) {
   // shows up complete online.
   const pub = publicFields(item);
 
-  if (!listedInShop(item)) {
+  // A variant is sold inside its listing: its link opens the listing with it picked (lib/variants).
+  const parentId = String((item as any).parentId || '');
+  if (parentId && parentId !== item.id) {
+    const ps = await db.collection(`tenants/${tenantId}/inventory`).doc(parentId).get();
+    const parent: any = ps.exists ? { id: ps.id, ...ps.data() } : null;
+    const ch = parent ? choiceFor(parent, item.id) : null;
+    if (parent && ch) {
+      return NextResponse.json({ error: 'Product not available', ...(isStorefrontVisible(parent) ? { listing: { id: parent.id, group: ch.group.id, choice: ch.choice.id } } : {}) }, { status: 404 });
+    }
+  }
+  if (!isStorefrontVisible(item)) {
     return NextResponse.json({ error: 'Product not available' }, { status: 404 });
   }
+  // Its variants, which hold its stock and may have prices of their own.
+  const vids = variantIdsOf(item);
+  const vsnaps = vids.length ? await Promise.all(vids.map((id) => db.collection(`tenants/${tenantId}/inventory`).doc(id).get())) : [];
+  const byId = new Map<string, any>(vsnaps.filter((x: any) => x.exists).map((x: any) => [String(x.id), { id: x.id, ...x.data() }]));
 
   const wsAccess = await resolveWholesaleAccess(db, tenantId, wholesaleCode ? { ...rs, wholesaleAccessCode: (await getRetailSecrets(db, tenantId)).wholesaleAccessCode } : rs, wholesaleCode);
   if (wholesaleCode && !wsAccess.unlocked) {
@@ -74,7 +89,7 @@ export async function GET(req: NextRequest) {
   const wholesaleUnlocked = wsAccess.unlocked;
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
 
-  const available = listingStock(item);
+  const available = listingStock(item, byId);
   // Pre-order runs close at the end of their day on the shop's clock, not the server's.
   const shopZone = tenantTimeZone(tenant);
   const pre = preorderState(item as any, shopZone);
@@ -128,7 +143,8 @@ export async function GET(req: NextRequest) {
       specs,
       documents,
       imageUrls: pub.images.slice(0, 10),
-      optionGroups: Array.isArray(item.optionGroups) ? item.optionGroups : [],
+      // Each variant with the price it sells for and whether it can be bought (the other choices with what they add).
+      optionGroups: shopOptionGroups(item, byId, { wholesale: wholesaleUnlocked, discountPct: wsDiscount, zone: shopZone, maxShown: MAX_SHOWN_QTY }),
       videoUrl: pub.videoUrl,
       priceCents: listingPriceCents(item, 'retail'),
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
@@ -138,7 +154,7 @@ export async function GET(req: NextRequest) {
       leadDays: item.digital === true ? null : leadOf(item.leadDays),
       // A digital item can never be out of stock — the storefront must not
       // grey out a course because a stock number nobody maintains hit zero.
-      inStock: item.digital === true
+      inStock: vids.length ? listingBuyable(item, byId, shopZone) : item.digital === true
         || (item.preorder === true ? pre.open : false)
         || available > 0 || item.allowBackorder === true,
       qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),

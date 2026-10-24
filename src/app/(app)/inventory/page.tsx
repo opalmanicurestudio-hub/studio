@@ -100,6 +100,8 @@ import { collection, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { reasonLabel, recordManualException } from '@/lib/inventory-exceptions';
 import { addProduct, saveProduct } from '@/lib/codes-client';
 import { codeBook, lookupCode, variantsIn } from '@/lib/code-lookup';
+import { listingsOf, priceCentsOf, variantIdsOf } from '@/lib/variants';
+import { isStorefrontVisible } from '@/lib/retail-orders';
 import { codeForm, codesOf } from '@/lib/code-form';
 import { ScanGate } from '@/components/retail/ScanGate';
 import { reindexCodes } from '@/lib/codes-api';
@@ -1387,17 +1389,30 @@ export default function InventoryPage() {
   // The three things that actually cost money if nobody notices: stock about
   // to run out, a retail product with no price, and one that never reached
   // the shop. Everything else on this page can wait.
+  // How the shop sells each product (lib/variants): a listing's stock is its variants', a variant sells for its own
+  // price or its listing's, and is in the shop inside its listing.
+  const listings = useMemo(() => listingsOf(inventory || []), [inventory]);
+  const invById = useMemo(() => new Map((inventory || []).map((i: any) => [String(i.id), i])), [inventory]);
+  const needs = useMemo(() => ({
+    low: (i: any) => !variantIdsOf(i).length && Math.max(0, (Number(i.totalStock) || 0) - (Number(i.stockReserved) || 0)) <= (Number(i.lowStockThreshold) || 0),
+    noPrice: (i: any) => i.type === 'retail' && !(priceCentsOf(i, listings) > 0),
+    offline: (i: any) => i.type === 'retail' && !listings.has(String(i.id)) && (i.msrp ?? 0) > 0 && i.showOnline !== true,
+  }), [listings]);
+  const soldOf = (i: any) => {
+    const l = listings.get(String(i.id));
+    if (l) return { listing: { name: String(l.name || 'a listing'), live: l.status !== 'archived' && isStorefrontVisible(l) } };
+    const vs = variantIdsOf(i);
+    if (vs.length) return { variants: { count: vs.length, stock: vs.reduce((n, v) => n + Math.max(0, Number(invById.get(v)?.totalStock) || 0), 0) } };
+    return undefined;
+  };
   const attention = useMemo(() => {
     const live = (inventory || []).filter((i: any) => i.status !== 'archived') as any[];
     return {
-      lowStock: live.filter((i) => {
-        const available = Math.max(0, (Number(i.totalStock) || 0) - (Number(i.stockReserved) || 0));
-        return available <= (Number(i.lowStockThreshold) || 0);
-      }).length,
-      noPrice: live.filter((i) => i.type === 'retail' && !((i.msrp ?? 0) > 0)).length,
-      notOnline: live.filter((i) => i.type === 'retail' && (i.msrp ?? 0) > 0 && i.showOnline !== true).length,
+      lowStock: live.filter(needs.low).length,
+      noPrice: live.filter(needs.noPrice).length,
+      notOnline: live.filter(needs.offline).length,
     };
-  }, [inventory]);
+  }, [inventory, needs]);
 
   const filteredInventory = useMemo(() => {
     if (!inventory) return [];
@@ -1425,14 +1440,11 @@ export default function InventoryPage() {
     // Tapping a "needs attention" chip narrows to exactly those items, so the
     // count is a door rather than a statistic.
     if (attentionFilter === 'low') {
-        items = items.filter((item: any) => {
-            const available = Math.max(0, (Number(item.totalStock) || 0) - (Number(item.stockReserved) || 0));
-            return available <= (Number(item.lowStockThreshold) || 0);
-        });
+        items = items.filter(needs.low);
     } else if (attentionFilter === 'noprice') {
-        items = items.filter((item: any) => item.type === 'retail' && !((item.msrp ?? 0) > 0));
+        items = items.filter(needs.noPrice);
     } else if (attentionFilter === 'offline') {
-        items = items.filter((item: any) => item.type === 'retail' && item.showOnline !== true);
+        items = items.filter(needs.offline);
     }
 
     // Sorted last, so ordering never changes WHICH items you see — only the
@@ -1447,7 +1459,7 @@ export default function InventoryPage() {
     else sorted.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
     return sorted;
-  }, [inventory, activeFilter, searchTerm, showArchived, attentionFilter, sortBy]);
+  }, [inventory, activeFilter, searchTerm, showArchived, attentionFilter, sortBy, needs]);
   
   const totalPages = Math.ceil(filteredInventory.length / ITEMS_PER_PAGE);
   const paginatedItems = useMemo(() => {
@@ -1685,6 +1697,7 @@ export default function InventoryPage() {
                                             isSelected={selectedItems.has(item.id)}
                                             onSelect={() => handleItemSelect(item.id)}
                                             isOrdered={orderedProductIds.has(item.id)}
+                                            sold={soldOf(item)}
                                         />
                                     )) : (
                                         <p className="text-muted-foreground col-span-full text-center py-10">No items match your filters.</p>

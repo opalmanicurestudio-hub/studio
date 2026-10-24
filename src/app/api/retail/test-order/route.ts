@@ -8,7 +8,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { makeQrToken } from '@/lib/retail-webhook';
-import { buildOrderLine, isStorefrontVisible } from '@/lib/retail-orders';
+import { buildOrderLine } from '@/lib/retail-orders';
+import { choiceFor, listedInShop, listingsOf, variantIdsOf, variantPriceCents } from '@/lib/variants';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,15 @@ export async function POST(req: NextRequest) {
   if (!auth.actor.isManager) return NextResponse.json({ error: 'Only a manager can place a test order.' }, { status: 403 });
   const db = getAdminDb();
   const inv = await db.collection(`tenants/${tenantId}/inventory`).where('type', '==', 'retail').limit(60).get();
-  const live = inv.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter((i: any) => isStorefrontVisible(i)).slice(0, 2);
+  // What the shop lists, by its own rules (lib/variants): a listing with variants is practised as one of its variants,
+  // as a customer buys it.
+  const all = inv.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+  const listings = listingsOf(all); const byId = new Map<string, any>(all.map((i: any) => [String(i.id), i]));
+  const live = all.filter((i: any) => listedInShop(i, listings)).slice(0, 2).map((l: any) => {
+    const vid = variantIdsOf(l).find((id) => byId.has(id)); if (!vid) return l;
+    const v = byId.get(vid); const c = choiceFor(l, vid);
+    return { ...v, name: `${l.name || v.name}${c ? ` \u00b7 ${c.choice.label}` : ''}`, msrp: variantPriceCents(v, l) / 100 };
+  });
   const picks = live.length ? live : [{ id: 'sample', name: 'Sample item', msrp: 10 }];
   const ref = db.collection(`tenants/${tenantId}/retailOrders`).doc();
   const now = new Date().toISOString();

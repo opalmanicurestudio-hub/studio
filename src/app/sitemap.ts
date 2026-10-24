@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 
-import { isStorefrontVisible, type SellableItem } from '@/lib/retail-orders';
+import { listedInShop, listingsOf } from '@/lib/variants';
 
 // ─── /sitemap.xml ────────────────────────────────────────────────────────────
 // The list of pages worth looking at. robots.txt already points here, so
@@ -85,11 +85,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
           .limit(MAX_PRODUCTS_PER_TENANT)
           .get();
 
+        // A variant is sold inside its listing, so only the listing has a page (lib/variants).
+        const shown = itemsSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+        const listings = listingsOf(shown);
         for (const iDoc of itemsSnap.docs) {
           const item: any = { id: iDoc.id, ...(iDoc.data() as any) };
           // The storefront's own rules decide, so a sitemap entry can never
           // promise a page the shop would refuse to sell from.
-          if (!isStorefrontVisible(item as SellableItem)) continue;
+          if (!listedInShop(item, listings) || item.parentId) continue;
           entries.push({
             url: `${origin}/shop/${tenantId}/product/${iDoc.id}`,
             lastModified: when(item.updatedAt || item.lastModified),

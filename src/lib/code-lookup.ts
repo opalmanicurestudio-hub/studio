@@ -14,6 +14,7 @@
 // two codes with letters are never mixed up (NP-000123 and AB-000123 stay two codes, and HC-50 is not HC50).
 import { codeForm, codesOf, holdsCodes, readCode, type CodeKind } from './code-form';
 import { looksLikeTag, normTag } from './tags';
+import { variantIdsOf } from './variants';
 
 export type CodeHit = { item: any; kind: CodeKind; pack: number; raw: string };
 export type CodeBook = {
@@ -64,16 +65,12 @@ export function codeBook(items: any[], o: { equipment?: boolean; only?: (item: a
   return { byCode, others, byNumber, byId, takes };
 }
 
-/** The variant products a listing's options hold its stock in (the ids). */
-export function variantIdsOf(listing: any): string[] {
-  const ids = new Set<string>();
-  for (const g of Array.isArray(listing?.optionGroups) ? listing.optionGroups : []) for (const c of Array.isArray(g?.choices) ? g.choices : []) if (c?.variantProductId) ids.add(String(c.variantProductId));
-  return [...ids];
-}
+/** The products a listing sells as its variants (lib/variants, the one rule). */
+export { variantIdsOf };
 
 /** A listing's variants that this scanner takes. */
 export function variantsIn(book: CodeBook, listing: any): any[] {
-  return variantIdsOf(listing).filter((id) => id !== String(listing?.id) && book.takes.has(id)).map((id) => book.byId.get(id)).filter(Boolean);
+  return variantIdsOf(listing).filter((id) => book.takes.has(id)).map((id) => book.byId.get(id)).filter(Boolean);
 }
 
 /** What a scan or a typed code is. `variants: false` gives a listing itself rather than asking which variant (a
@@ -85,7 +82,7 @@ export function lookupCode(book: CodeBook, raw: any, o: { variants?: boolean } =
   const notHere = (code: string, item: any): Found => ({ kind: 'none', code, owner: item, why: item?.status === 'archived' ? 'archived' : 'elsewhere' });
   const product = (item: any, pack: number, via: CodeKind | 'label' | 'id', code: string): Found => {
     if (!book.takes.has(String(item.id))) return notHere(code, item);
-    if (o.variants !== false && pack === 1 && variantIdsOf(item).some((id) => id !== String(item.id))) {
+    if (o.variants !== false && pack === 1 && variantIdsOf(item).length) {
       const vs = variantsIn(book, item);
       if (vs.length) return { kind: 'choose', listing: item, variants: vs };
       return { kind: 'none', code, owner: item, why: 'no_variants' };

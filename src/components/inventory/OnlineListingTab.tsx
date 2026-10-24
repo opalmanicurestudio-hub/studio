@@ -16,6 +16,7 @@
 
 import { SoldForSection } from './SoldForSection';
 import { Check, ChevronDown, Loader, Plus, Trash2 } from 'lucide-react';
+import Link from 'next/link';
 import React, { useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +25,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { storefrontBlockers, parseOptionGroups, optionGroupsToText, type OptionGroup } from '@/lib/retail-orders';
+import { storefrontBlockers, optionGroupsToText, type OptionGroup } from '@/lib/retail-orders';
+import { choiceFor, listingsOf, ownPrice, variantIdsOf, variantPriceCents } from '@/lib/variants';
 import { seoTitle, seoDescription, SEO_TITLE_MAX, SEO_DESC_MAX } from '@/lib/shop-seo';
 import { cn } from '@/lib/utils';
 
@@ -32,10 +34,15 @@ type Item = any;
 
 interface Props {
   product: Item;
-  /** Every retail item, for the variant picker. */
+  /** Every item in inventory, for the variant picker. */
   inventory: Item[];
   onSave: (patch: Record<string, any>) => Promise<void> | void;
+  /** The listing's choices, saved by the server (it points each variant at the listing and refuses a product another
+   *  listing sells): what it saved, or not ok with the reason already shown. */
+  onSaveChoices?: (groups: OptionGroup[]) => Promise<{ ok: boolean; optionGroups?: OptionGroup[] }>;
 }
+
+const money = (cents: number) => `$${(Math.max(0, cents) / 100).toFixed(2)}`;
 
 /** One collapsible section with its own save — the unit of work. */
 function Section({
@@ -127,7 +134,7 @@ function RowList({
   );
 }
 
-export function OnlineListingTab({ product, inventory, onSave }: Props) {
+export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: Props) {
   // Draft state per section, seeded from the product. Sections are saved
   // independently, so an unfinished one can't hold another hostage.
   const [desc, setDesc] = useState<string>(product.onlineDescription || '');
@@ -162,14 +169,24 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
     [product, showOnline],
   );
 
-  // Candidates for a variant link: retail items that aren't this product and
-  // aren't themselves parents — variants must never nest.
+  // Which listing sells each variant (lib/variants): a variant belongs to one listing, and a listing is never a variant.
+  const listings = useMemo(() => listingsOf(inventory || []), [inventory]);
+  const byId = useMemo(() => new Map((inventory || []).map((i: any) => [String(i.id), i])), [inventory]);
+  const sellsMe = listings.get(String(product.id)) || null;
+  const myChoice = sellsMe ? choiceFor(sellsMe, String(product.id)) : null;
+  const hasVariants = variantIdsOf(product).length > 0;
+  // Candidates for a variant: retail products that aren't archived, aren't this product, aren't listings themselves
+  // (variants never nest), and aren't already a variant of another listing.
   const variantCandidates = useMemo(
     () => (inventory || [])
-      .filter((i) => i.type === 'retail' && i.id !== product.id && !(Array.isArray(i.optionGroups) && i.optionGroups.some((g: any) => g.choices?.some((c: any) => c.variantProductId))))
+      .filter((i) => i.type === 'retail' && i.status !== 'archived' && i.id !== product.id && !variantIdsOf(i).length
+        && (!listings.has(String(i.id)) || String(listings.get(String(i.id))?.id) === String(product.id)))
       .sort((a, b) => String(a.name).localeCompare(String(b.name))),
-    [inventory, product.id],
+    [inventory, product.id, listings],
   );
+  /** What a variant sells for, in words: its own price when it has one, otherwise this listing's. */
+  const sellsFor = (id: string) => { const v = byId.get(String(id)); if (!v) return 'Not in Inventory any more';
+    return `Sells for ${money(variantPriceCents(v, product))} \u00b7 ${ownPrice(v) ? 'its own price' : 'this listing’s price'}`; };
 
   const dirty = {
     copy: desc !== (product.onlineDescription || '') || howTo !== (product.howToUse || ''),
@@ -189,6 +206,66 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
   // than a missing chore.
   const previewTitle = seoTitle({ shopName: '', productName: product.name, seoTitle: seoT });
   const previewDesc = seoDescription({ shopName: '', productName: product.name, description: desc, seoDescription: seoD });
+
+  const stockSection = (
+    <Section
+      title="Stock and shipping"
+      hint="Keep some for the shop counter, get told when it's running low, and keep items that can't fly on the ground."
+      dirty={dirty.stock}
+      onSave={async () => { await onSave(hasVariants ? { shipGroundOnly: ground } : { storeHoldback: Math.max(0, Math.floor(Number(holdback) || 0)), lowStockThreshold: Math.max(0, Math.floor(Number(lowAt) || 0)), shipGroundOnly: ground }); flash('stock'); }}
+    >
+      {hasVariants ? (
+        <p className="text-[11px] font-bold text-muted-foreground">
+          Its variants hold its stock, so each keeps some for the store and warns when it runs low on its own page. Ships by ground only applies to every variant.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Keep for the store</Label>
+            <Input aria-label="Units kept back for in-store customers" inputMode="numeric" value={holdback} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHoldback(e.target.value.replace(/\D/g, ''))} className="h-11 rounded-xl border-2 text-center font-mono font-bold" />
+            <p className="text-[10px] font-bold text-muted-foreground">The online shop stops selling when only this many are left.</p>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Running low at</Label>
+            <Input aria-label="Tell me when online stock drops to" inputMode="numeric" value={lowAt} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLowAt(e.target.value.replace(/\D/g, ''))} className="h-11 rounded-xl border-2 text-center font-mono font-bold" />
+            <p className="text-[10px] font-bold text-muted-foreground">You get an alert when online stock drops to this. 0 means off.</p>
+          </div>
+        </div>
+      )}
+      <div className="flex items-start justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-tight">Ships by ground only</p>
+          <p className="text-[11px] font-bold text-muted-foreground">For things that can't fly: nail polish, acetone, aerosols, perfume, lithium batteries. Orders with this item only get ground services.</p>
+        </div>
+        <Switch aria-label="Ships by ground only" checked={ground} onCheckedChange={(v: boolean) => setGround(v)} />
+      </div>
+    </Section>
+  );
+
+  // A variant is sold inside its listing: its words, photos and choices are the listing's, so only its own stock and
+  // shipping, and who it's sold for, are set here.
+  if (sellsMe) {
+    return (
+      <div className="space-y-4 text-left">
+        <div className="rounded-[1.5rem] border-2 border-emerald-200 bg-emerald-50/60 p-5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">A variant of {sellsMe.name || 'a listing'}</p>
+          <p className="mt-1 text-xs font-bold text-muted-foreground">
+            Sold inside that listing as “{myChoice?.choice.label || product.name}”, for {money(variantPriceCents(product, sellsMe))} ({ownPrice(product) ? 'its own price' : 'the listing’s price'}). Its words, photos and choices are the listing’s, and it’s never listed on its own.
+          </p>
+          <Button asChild variant="outline" className="mt-3 h-11 w-full rounded-xl font-black uppercase text-[10px] tracking-widest">
+            <Link href={`/inventory/${sellsMe.id}`}>Open {sellsMe.name || 'the listing'}</Link>
+          </Button>
+        </div>
+        <SoldForSection product={product} onSave={onSave} />
+        {stockSection}
+        {savedFlash && (
+          <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-emerald-700">
+            <Check className="h-3.5 w-3.5" aria-hidden="true" /> Saved
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 text-left">
@@ -224,32 +301,7 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
 
       <SoldForSection product={product} onSave={onSave} />
 
-      <Section
-        title="Stock and shipping"
-        hint="Keep some for the shop counter, get told when it's running low, and keep items that can't fly on the ground."
-        dirty={dirty.stock}
-        onSave={async () => { await onSave({ storeHoldback: Math.max(0, Math.floor(Number(holdback) || 0)), lowStockThreshold: Math.max(0, Math.floor(Number(lowAt) || 0)), shipGroundOnly: ground }); flash('stock'); }}
-      >
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Keep for the store</Label>
-            <Input aria-label="Units kept back for in-store customers" inputMode="numeric" value={holdback} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setHoldback(e.target.value.replace(/\D/g, ''))} className="h-11 rounded-xl border-2 text-center font-mono font-bold" />
-            <p className="text-[10px] font-bold text-muted-foreground">The online shop stops selling when only this many are left.</p>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Running low at</Label>
-            <Input aria-label="Tell me when online stock drops to" inputMode="numeric" value={lowAt} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLowAt(e.target.value.replace(/\D/g, ''))} className="h-11 rounded-xl border-2 text-center font-mono font-bold" />
-            <p className="text-[10px] font-bold text-muted-foreground">You get an alert when online stock drops to this. 0 means off.</p>
-          </div>
-        </div>
-        <div className="flex items-start justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
-          <div className="min-w-0">
-            <p className="text-xs font-black uppercase tracking-tight">Ships by ground only</p>
-            <p className="text-[11px] font-bold text-muted-foreground">For things that can't fly: nail polish, acetone, aerosols, perfume, lithium batteries. Orders with this item only get ground services.</p>
-          </div>
-          <Switch aria-label="Ships by ground only" checked={ground} onCheckedChange={(v: boolean) => setGround(v)} />
-        </div>
-      </Section>
+      {stockSection}
 
       <Section
         title="What customers read"
@@ -305,7 +357,11 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
         title="Choices &amp; variants"
         hint="Variants that hold their own stock, or extras that only change the price."
         dirty={dirty.options}
-        onSave={async () => { await onSave({ optionGroups: groups }); flash('options'); }}
+        onSave={async () => {
+          // Saved by the server, which points each variant at this listing (and says why when it can't).
+          if (onSaveChoices) { const r = await onSaveChoices(groups); if (!r.ok) return; if (r.optionGroups) setGroups(r.optionGroups); flash('options'); return; }
+          await onSave({ optionGroups: groups }); flash('options');
+        }}
       >
         {groups.length === 0 && (
           <p className="text-[11px] font-bold text-muted-foreground">
@@ -351,20 +407,26 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
                   }}
                   className="h-11 rounded-xl border-2 font-bold text-xs"
                 />
-                <Input
-                  value={c.deltaCents ? (c.deltaCents / 100).toFixed(2) : ''}
-                  aria-label={`Choice ${ci + 1} extra cost`}
-                  inputMode="decimal"
-                  placeholder="+$0.00"
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                    const next = [...groups];
-                    const choices = [...g.choices];
-                    choices[ci] = { ...c, deltaCents: Math.round((Number(e.target.value) || 0) * 100) };
-                    next[gi] = { ...g, choices };
-                    setGroups(next);
-                  }}
-                  className="h-11 rounded-xl border-2 font-bold text-xs"
-                />
+                {c.variantProductId ? (
+                  <p className="flex h-11 items-center rounded-xl border-2 border-dashed px-3 text-[11px] font-bold text-muted-foreground">
+                    {sellsFor(c.variantProductId)}
+                  </p>
+                ) : (
+                  <Input
+                    value={c.deltaCents ? (c.deltaCents / 100).toFixed(2) : ''}
+                    aria-label={`Choice ${ci + 1} extra cost`}
+                    inputMode="decimal"
+                    placeholder="+$0.00"
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const next = [...groups];
+                      const choices = [...g.choices];
+                      choices[ci] = { ...c, deltaCents: Math.round((Number(e.target.value) || 0) * 100) };
+                      next[gi] = { ...g, choices };
+                      setGroups(next);
+                    }}
+                    className="h-11 rounded-xl border-2 font-bold text-xs"
+                  />
+                )}
                 <select
                   aria-label={`Which product is choice ${ci + 1}`}
                   value={c.variantProductId || ''}
@@ -372,18 +434,22 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
                     const next = [...groups];
                     const choices = [...g.choices];
                     const v = e.target.value;
-                    choices[ci] = v ? { ...c, variantProductId: v } : { id: c.id, label: c.label, deltaCents: c.deltaCents };
+                    // A variant sells for its own price (or the listing's), so it has no extra cost of its own.
+                    choices[ci] = v ? { id: c.id, label: c.label, deltaCents: 0, variantProductId: v } : { id: c.id, label: c.label, deltaCents: 0 };
                     next[gi] = { ...g, choices };
                     setGroups(next);
                   }}
                   className="h-11 rounded-xl border-2 bg-card px-2 text-xs font-bold sm:col-span-2"
                 >
                   <option value="">Just changes the price (no stock of its own)</option>
-                  {variantCandidates.map((v) => (
+                  {variantCandidates.filter((v) => v.id === c.variantProductId || !g.choices.some((x, xi) => xi !== ci && x.variantProductId === v.id)).map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name} — {Math.max(0, Number(v.totalStock) || 0)} in stock
                     </option>
                   ))}
+                  {c.variantProductId && !variantCandidates.some((v) => v.id === c.variantProductId) && (
+                    <option value={c.variantProductId}>{byId.get(String(c.variantProductId))?.name || 'A product no longer in Inventory'}</option>
+                  )}
                 </select>
                 <Button
                   variant="ghost"
@@ -420,7 +486,7 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
           <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" /> Add a choice group
         </Button>
         <p className="text-[10px] font-bold text-muted-foreground">
-          A choice that picks a product keeps its own stock and sells out on its own. A choice with no product just adds to the price.
+          A choice that picks a product is a variant: it keeps its own stock and codes, sells out on its own, and sells for its own price when it has one, otherwise this listing’s. Variants go in one group, and a product can be a variant of one listing. A choice with no product just adds to the price.
         </p>
       </Section>
 

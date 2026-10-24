@@ -45,7 +45,8 @@ export const ProductCard = ({
     onLogSale, 
     isSelected, 
     onSelect, 
-    isOrdered 
+    isOrdered,
+    sold,
 }: { 
     item: InventoryItem, 
     onEdit: (item: InventoryItem) => void, 
@@ -56,27 +57,35 @@ export const ProductCard = ({
     onLogSale: (item: InventoryItem) => void,
     isSelected: boolean, 
     onSelect: () => void, 
-    isOrdered: boolean 
+    isOrdered: boolean,
+    /** How the shop sells it (lib/variants): a variant inside its listing, or a listing whose variants hold its stock. */
+    sold?: { listing?: { name: string; live: boolean } | null; variants?: { count: number; stock: number } | null },
 }) => {
     const [imageFailed, setImageFailed] = useState(false);
 
     const stockStatus = useMemo(() => {
+        // A listing's stock is its variants'.
+        if (sold?.variants) return sold.variants.stock > 0
+            ? { label: `${sold.variants.stock} ACROSS ${sold.variants.count} VARIANT${sold.variants.count === 1 ? '' : 'S'}`, className: 'bg-primary/10 text-primary border-primary/20' }
+            : { label: 'OUT OF STOCK', className: 'bg-foreground text-background border-none' };
         const batches = item.batches ?? [];
         const hasExpiredBatch = batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
         if (hasExpiredBatch) return { label: 'EXPIRED', className: 'bg-destructive text-white border-none animate-pulse' };
         if (safeNumber(item.totalStock) <= 0 && safeNumber(item.partialContainerUses) <= 0 && safeNumber(item.partialContainerSize) <= 0 ) return { label: 'OUT OF STOCK', className: 'bg-foreground text-background border-none' };
         if (item.reorderPoint && safeNumber(item.totalStock) <= item.reorderPoint) return { label: 'LOW STOCK', className: 'bg-amber-500 text-white border-none' };
         return { label: 'IN STOCK', className: 'bg-primary/10 text-primary border-primary/20' };
-    }, [item]);
+    }, [item, sold?.variants]);
 
     // Only retail products can be in the shop at all, so only they get the
     // answer. Everything else (equipment, supplies) stays visually quiet.
     const shopStatus = useMemo(() => {
         if ((item as any).type !== 'retail') return null;
+        // A variant is sold inside its listing, never on its own.
+        if (sold?.listing) return { live: sold.listing.live, label: sold.listing.live ? 'IN THE SHOP' : 'NOT ONLINE', detail: `A variant of ${sold.listing.name}${sold.listing.live ? '' : ', which isn’t in the shop yet'}` };
         const blockers = storefrontBlockers(item as any);
         if (blockers.length === 0) return { live: true, label: 'LIVE IN SHOP', detail: '' };
         return { live: false, label: 'NOT ONLINE', detail: blockers.join(' · ') };
-    }, [item]);
+    }, [item, sold?.listing]);
 
     const detailHref = `/inventory/${item.id}`;
 
@@ -174,8 +183,8 @@ export const ProductCard = ({
                                     </Badge>
                                 )}
                             </div>
-                            {shopStatus && !shopStatus.live && (
-                                <p className="mt-1 text-left text-[9px] font-black uppercase tracking-widest text-amber-700">
+                            {shopStatus && shopStatus.detail && (!shopStatus.live || !!sold?.listing) && (
+                                <p className={cn('mt-1 text-left text-[9px] font-black uppercase tracking-widest', shopStatus.live ? 'text-muted-foreground' : 'text-amber-700')}>
                                     {shopStatus.detail}
                                 </p>
                             )}

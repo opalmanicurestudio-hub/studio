@@ -3,8 +3,8 @@
 // Photo tiles with price and on-shelf stock, variants shown inline, members-only and "already in this sale" badges,
 // search that also takes a scanned code (Enter adds it), departments for the tools you use, and category chips.
 import * as React from 'react';
-import { hasStockVariants } from '@/lib/retail-orders';
 import { isSellable, onHand, variantsOf } from '@/lib/pos-scan';
+import { choiceFor, deskPrice, listingsOf, variantIdsOf } from '@/lib/variants';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 type Dept = 'products' | 'services' | 'memberships' | 'packages';
@@ -13,7 +13,10 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   inventory: any[]; services?: any[]; memberships?: any[]; packages?: any[]; cart?: any[];
   onAdd: (item: any) => void; onScan?: (code: string) => void; compact?: boolean;
 }) {
-  const products = React.useMemo(() => (inventory || []).filter(isSellable).filter((i) => !(inventory || []).some((p: any) => (p.optionGroups || []).some((g: any) => (g.choices || []).some((c: any) => c.variantProductId === i.id)))), [inventory]);   // variants appear under their parent
+  // Variants appear inside their listing, priced as the shop prices them (lib/variants).
+  const listings = React.useMemo(() => listingsOf(inventory || []), [inventory]);
+  const products = React.useMemo(() => (inventory || []).filter(isSellable).filter((i) => !listings.has(String(i.id))), [inventory, listings]);
+  const isListing = (i: any) => dept === 'products' && variantIdsOf(i).length > 0;
   const depts = ([['products', 'Products', products.length], ['services', 'Services', (services || []).length], ['memberships', 'Memberships', (memberships || []).filter((m: any) => !m.isPrivate).length], ['packages', 'Packages', (packages || []).filter((p: any) => !p.isPrivate).length]] as [Dept, string, number][]).filter(([, , n]) => n > 0);
   const [dept, setDept] = React.useState<Dept>('products'); const [cat, setCat] = React.useState('All'); const [q, setQ] = React.useState(''); const [openParent, setOpenParent] = React.useState<string | null>(null);
   const [limit, setLimit] = React.useState(compact ? 24 : 60);
@@ -25,7 +28,8 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   const shown = base.filter((i: any) => (cat === 'All' || String(i.category || '') === cat) && (!t || String(i.name || '').toLowerCase().includes(t) || String(i.sku || '').toLowerCase().includes(t) || String(i.barcode || '').toLowerCase().includes(t)))
     .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
   const inCart = (id: string) => (cart || []).find((c: any) => c.id === id)?.quantity || 0;
-  const priceOf = (i: any) => (dept === 'products' ? Number(i.msrp || i.costPerUnit || 0) : Number(i.price || 0));
+  const priceOf = (i: any) => (dept === 'products' ? deskPrice(i, listings) : Number(i.price || 0));
+  const priceText = (i: any) => { const p = priceOf(i); return dept === 'products' && !(p > 0) ? 'No price yet' : money(p); };
   const stockPill = (i: any) => { const n = onHand(i); const low = Number(i.reorderPoint) > 0 ? n <= Number(i.reorderPoint) : n <= 2;
     return n <= 0 ? <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn) 14%, transparent)', color: 'var(--warn)' }}>Out of stock</span>
       : low ? <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn) 10%, transparent)', color: 'var(--warn)' }}>Only {n} left</span>
@@ -33,7 +37,7 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
   const submit = () => { const v = q.trim(); if (!v) return;
     const exact = base.filter((i: any) => [i.sku, i.barcode].some((c) => c && String(c).toLowerCase() === v.toLowerCase()));
     if (onScan && (exact.length || /^[A-Za-z0-9:/._-]{6,}$/.test(v) && !shown.length)) { onScan(v); setQ(''); return; }
-    if (shown.length === 1) { const only = shown[0]; if (dept === 'products' && hasStockVariants(only.optionGroups)) setOpenParent(only.id); else { onAdd(only); setQ(''); } } };
+    if (shown.length === 1) { const only = shown[0]; if (isListing(only)) setOpenParent(only.id); else { onAdd(only); setQ(''); } } };
   const tile = 'relative flex flex-col overflow-hidden rounded-2xl text-left transition active:scale-[.98]';
   return (
     <div className="space-y-3">
@@ -52,18 +56,18 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
       {!shown.length ? <p className="py-6 text-center text-[14px]" style={{ color: 'var(--muted)' }}>{t ? `Nothing matches “${q}”.` : 'Nothing here yet.'}</p>
         : <div className={`grid gap-2 ${compact ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'}`}>
           {shown.slice(0, limit).map((i: any) => {
-            const parent = dept === 'products' && hasStockVariants(i.optionGroups); const vs = parent ? variantsOf(i, inventory) : [];
+            const parent = isListing(i); const vs = parent ? variantsOf(i, inventory) : [];
             const img = i.imageUrl || (Array.isArray(i.imageUrls) ? i.imageUrls[0] : null); const n = inCart(i.id) + vs.reduce((s: number, v: any) => s + inCart(v.id), 0);
             const opened = openParent === i.id;
             return <div key={i.id} className={opened ? 'col-span-full' : ''}>
-              <button type="button" onClick={() => (parent ? setOpenParent(opened ? null : i.id) : onAdd(i))} className={`${tile} w-full`} style={{ background: 'var(--card)', border: `1px solid ${n ? 'var(--accent)' : 'var(--line)'}` }} aria-label={`${parent ? 'Choose a size of' : 'Add'} ${i.name}`}>
+              <button type="button" onClick={() => (parent ? setOpenParent(opened ? null : i.id) : onAdd(i))} className={`${tile} w-full`} style={{ background: 'var(--card)', border: `1px solid ${n ? 'var(--accent)' : 'var(--line)'}` }} aria-label={`${parent ? 'Choose a variant of' : 'Add'} ${i.name}`}>
                 {!compact && <div className="flex aspect-[4/3] w-full items-center justify-center overflow-hidden" style={{ background: 'var(--soft)' }}>
                   {img ? <img src={img} alt="" loading="lazy" className="h-full w-full object-cover" /> : <span className="text-[28px] font-semibold" style={{ color: 'var(--muted)' }}>{String(i.name || '?').slice(0, 1).toUpperCase()}</span>}</div>}
                 <div className="space-y-0.5 p-2.5">
                   <p className="line-clamp-2 text-[14px] font-semibold leading-snug">{i.name}</p>
-                  <p className="text-[14px] tabular-nums">{parent && vs.length ? `from ${money(Math.min(...vs.map((v: any) => Number(v.msrp || v.costPerUnit || 0))))}` : money(priceOf(i))}{dept === 'memberships' && i.interval ? <span style={{ color: 'var(--muted)' }}> / {i.interval === 'monthly' ? 'month' : 'year'}</span> : null}{dept === 'packages' && i.sessions ? <span style={{ color: 'var(--muted)' }}> · {i.sessions} visits</span> : null}</p>
+                  <p className="text-[14px] tabular-nums">{parent && vs.length ? (() => { const ps = vs.map((v: any) => priceOf(v)).filter((x: number) => x > 0); return ps.length ? `${new Set(ps).size > 1 ? 'from ' : ''}${money(Math.min(...ps))}` : 'No price yet'; })() : priceText(i)}{dept === 'memberships' && i.interval ? <span style={{ color: 'var(--muted)' }}> / {i.interval === 'monthly' ? 'month' : 'year'}</span> : null}{dept === 'packages' && i.sessions ? <span style={{ color: 'var(--muted)' }}> · {i.sessions} visits</span> : null}</p>
                   <div className="flex flex-wrap items-center gap-1">
-                    {dept === 'products' && (parent ? <span className="text-[11px] font-semibold">{vs.length} {vs.length === 1 ? 'option' : 'options'}</span> : stockPill(i))}
+                    {dept === 'products' && (parent ? <span className="text-[11px] font-semibold">{vs.length} {vs.length === 1 ? 'variant' : 'variants'}</span> : stockPill(i))}
                     {i.isMembersOnly && <span className="rounded-full px-2 py-0.5 text-[11px]" style={{ background: 'var(--soft)' }}>Members</span>}
                   </div>
                 </div>
@@ -71,8 +75,8 @@ export function PosCatalog({ inventory, services, memberships, packages, cart, o
               </button>
               {opened && <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {vs.map((v: any) => <button key={v.id} type="button" onClick={() => onAdd(v)} className="rounded-2xl p-3 text-left" style={{ background: 'var(--soft)', border: inCart(v.id) ? '1px solid var(--accent)' : '1px solid transparent' }}>
-                  <span className="block text-[14px] font-semibold">{String(v.name || '').replace(String(i.name || ''), '').replace(/^[\s—–-]+/, '') || v.name}</span>
-                  <span className="block text-[13px] tabular-nums">{money(v.msrp || v.costPerUnit)}</span>{stockPill(v)}{inCart(v.id) ? <span className="block text-[12px] font-semibold">{inCart(v.id)} in this sale</span> : null}
+                  <span className="block text-[14px] font-semibold">{choiceFor(i, String(v.id))?.choice.label || v.name}</span>
+                  <span className="block text-[13px] tabular-nums">{priceText(v)}</span>{stockPill(v)}{inCart(v.id) ? <span className="block text-[12px] font-semibold">{inCart(v.id)} in this sale</span> : null}
                 </button>)}
               </div>}
             </div>;

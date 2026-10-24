@@ -25,6 +25,7 @@ import {
   cartExpiresAt, clearCart, parseCartKey, readCart, readWholesaleCode,
   touchCartExpiry, writeCart, writeWholesaleCode,
 } from '@/lib/shop-cart';
+import { shopLine } from '@/lib/variants';
 import { formatPromiseDay, preorderNotice } from '@/lib/preorder-terms';
 import {
   arrivalLabel, busyLineFor, dayLabel, leadSentence, normalizeSchedule, orderPromise, processingSentence, type PromiseLine,
@@ -241,8 +242,6 @@ export default function CheckoutPage() {
 
   const byId = useMemo(() => new Map(products.map((p: any) => [p.id, p])), [products]);
 
-  const unitPrice = (p: any) =>
-    wholesale && p.wholesalePriceCents != null ? p.wholesalePriceCents : p.priceCents;
 
   const cartEntries = Object.entries(cart).filter(([key, q]) => q > 0 && byId.has(parseCartKey(key).productId));
   const cartCount = cartEntries.reduce((a, [, q]) => a + q, 0);
@@ -308,26 +307,13 @@ export default function CheckoutPage() {
     setPreorderAgreed(false);
   }, [preorderKey]);
 
-  const optionDelta = (key: string) => {
-    const { productId, selections } = parseCartKey(key);
-    const prod: any = byId.get(productId);
-    if (!prod?.optionGroups?.length) return { deltaCents: 0, label: '' };
-    let delta = 0;
-    const parts: string[] = [];
-    for (const g of prod.optionGroups) {
-      const choice = g.choices.find((c: any) => c.id === selections[g.id]) || g.choices[0];
-      if (!choice) continue;
-      delta += choice.deltaCents || 0;
-      parts.push(choice.label);
-    }
-    return { deltaCents: delta, label: parts.join(' \u00b7 ') };
-  };
+  // What each cart line sells for, the same sums the server makes when the order is placed (lib/variants): a variant's
+  // own price when it has one, otherwise the listing's, plus what the other choices add.
+  const lineOf = (key: string) => { const { productId, selections } = parseCartKey(key); const p: any = byId.get(productId); return p ? shopLine(p, selections, wholesale) : null; };
 
-  const subtotalCents = cartEntries.reduce(
-    (a, [key, q]) => a + (unitPrice(byId.get(parseCartKey(key).productId)!) + optionDelta(key).deltaCents) * q, 0
-  );
+  const subtotalCents = cartEntries.reduce((a, [key, q]) => a + (lineOf(key)?.unitCents || 0) * q, 0);
   const tipCents = shop?.tipsEnabled && tipPct > 0 ? Math.round((subtotalCents * tipPct) / 100) : 0;
-  const promoLines = () => cartEntries.map(([key, q]) => { const k = parseCartKey(key); return { productId: k.productId, qty: q, unitPriceCents: unitPrice(byId.get(k.productId)!) + optionDelta(key).deltaCents }; });
+  const promoLines = () => cartEntries.map(([key, q]) => { const k = parseCartKey(key); return { productId: k.productId, qty: q, unitPriceCents: lineOf(key)?.unitCents || 0 }; });
   const applyPromo = async (code: string) => {
     const c = code.trim(); if (!c) return;
     setPromoBusy(true); setPromoErr(null);
@@ -417,7 +403,7 @@ export default function CheckoutPage() {
   }, [method, shop, subtotalCents, selectedQuote, freeQualified]);
 
   const setQty = (p: any, qty: number, cartKey?: string) => {
-    const clamped = Math.max(0, Math.min(qty, p.qtyAvailable));
+    const clamped = Math.max(0, Math.min(qty, cartKey ? lineOf(cartKey)?.qtyAvailable ?? p.qtyAvailable : p.qtyAvailable));
     const key = cartKey || p.id;
     setCart((c) => {
       const next = { ...c, [key]: clamped };
@@ -426,10 +412,11 @@ export default function CheckoutPage() {
     });
   };
 
+  // Per product, as the server counts them: a listing's variants count together toward its minimum.
   const minIssues = wholesale
-    ? (cartEntries
-        .map(([id, q]) => {
-          const p = byId.get(parseCartKey(id).productId)!;
+    ? ([...cartEntries.reduce((m, [id, q]) => { const pid = parseCartKey(id).productId; m.set(pid, (m.get(pid) || 0) + q); return m; }, new Map<string, number>())]
+        .map(([pid, q]) => {
+          const p = byId.get(pid)!;
           return p.wholesaleMinQty && q < p.wholesaleMinQty
             ? `${p.name}: minimum ${p.wholesaleMinQty}`
             : null;
@@ -582,7 +569,7 @@ export default function CheckoutPage() {
           <div className="space-y-3">
             {cartEntries.map(([id, qty]) => {
               const parsedKey = parseCartKey(id);
-              const optInfo = optionDelta(id);
+              const optInfo = lineOf(id) || { label: '', unitCents: 0, stale: false };
               const p = byId.get(parsedKey.productId)!;
               return (
                 <div key={id} className="flex items-center gap-3 rounded-2xl border-2 p-3">
@@ -591,12 +578,15 @@ export default function CheckoutPage() {
                     {optInfo.label && (
                       <p className="text-[8px] font-black uppercase tracking-widest text-primary truncate">{optInfo.label}</p>
                     )}
+                    {optInfo.stale && (
+                      <p className="text-[10px] font-bold text-amber-700">That choice isn’t offered any more. Remove it and choose again on its page.</p>
+                    )}
                     {p?.preorder?.open === true && (
                       <p className="text-[8px] font-black uppercase tracking-widest text-amber-700">
                         {`Pre-order${p.preorder.etaAt ? ` \u00b7 ships by ${formatPromiseDay(p.preorder.etaAt)}` : ''}`}
                       </p>
                     )}
-                    <p className="text-[10px] font-bold text-primary">{fmt(unitPrice(p))} each</p>
+                    <p className="text-[10px] font-bold text-primary">{fmt(optInfo.unitCents)} each</p>
                     {wholesale && p.wholesaleMinQty ? (
                       <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
                         Min {p.wholesaleMinQty} wholesale

@@ -8,7 +8,7 @@ import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
-import { isStorefrontVisible } from '@/lib/retail-orders';
+import { listedInShop, listingsOf } from '@/lib/variants';
 import { setupSteps, showGuided, type SetupStep } from '@/lib/shop-setup';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
@@ -78,7 +78,7 @@ export function SetupScreen() {
   const rs = (selectedTenant as any)?.retailSettings || {};
   const paused = rs.storePaused === true;
   const tenantId = String(selectedTenant?.id || '');
-  const liveCount = React.useMemo(() => (inventory || []).filter((i: any) => isStorefrontVisible(i)).length, [inventory]);
+  const liveCount = React.useMemo(() => { const listings = listingsOf(inventory || []); return (inventory || []).filter((i: any) => listedInShop(i, listings)).length; }, [inventory]);
   const guided = showGuided(selectedTenant, liveCount);
   const steps = setupSteps(selectedTenant, liveCount);
   const [busy, setBusy] = React.useState(''); const [toast, setToast] = React.useState('');

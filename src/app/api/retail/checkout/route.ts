@@ -16,7 +16,7 @@ import { createHash } from 'crypto';
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { nanoid } from 'nanoid';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
-import { resolveVariantProductId } from '@/lib/retail-orders';
+import { choiceSale, saleUnitCents, variantIdsOf } from '@/lib/variants';
 import { shipPromiseAt } from '@/lib/retail-orders';
 import { preorderAckSnapshot } from '@/lib/preorder-terms';
 import { finalSaleFor } from '@/lib/return-eligibility';
@@ -24,7 +24,7 @@ import { dayKey, formatDay, tenantTimeZone } from '@/lib/tenant-time';
 import { verifyQuote, verifyRateFacts } from '@/lib/shipping-quote';
 import { dayLabel, isCalendarDay, orderPromise, scheduleFrom } from '@/lib/ship-promise';
 
-import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
+import { resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import {
   FULFILLMENT_METHODS,
   PRICE_TIERS,
@@ -32,7 +32,6 @@ import {
   buildOrderLine,
   checkWholesaleMinimums,
   isStorefrontVisible,
-  resolveOptions,
   onlineSellable,
   type FulfillmentMethod,
   type OrderLine,
@@ -308,52 +307,67 @@ async function handleCheckout(req: NextRequest) {
       return NextResponse.json({ error: `Item ${productIds[i]} is no longer available` }, { status: 409 });
     }
     let item = { id: snap.id, ...snap.data() } as SellableItem;
+    const listing: any = item;
+    // A variant is sold inside its listing, never on its own (a cart from before can still hold one).
+    if ((listing as any).parentId && (listing as any).parentId !== listing.id) {
+      const ps = await db.collection(`tenants/${tenantId}/inventory`).doc(String((listing as any).parentId)).get();
+      const sells = ps.exists && variantIdsOf({ ...(ps.data() as any), id: ps.id }).includes(listing.id);
+      if (sells) return NextResponse.json({ error: `${listing.name || 'An item'} is no longer available on its own. Choose it on its listing.`, productId: listing.id }, { status: 409 });
+    }
+    if (!isStorefrontVisible(listing)) {
+      return NextResponse.json({ error: `${listing.name || 'An item'} is no longer available`, productId: listing.id }, { status: 409 });
+    }
 
-    // ── VARIANTS. When the chosen option IS a product (15ml vs 30ml), the
-    // sale belongs to THAT item: its stock is what must be available, its
-    // shelf is what gets decremented, its SKU is what the picker scans. The
-    // parent supplies the name and the photos and nothing else. Resolving it
-    // HERE means every check below — stock, reservation, pre-order, digital —
-    // applies to the thing actually being sold.
-    const variantId = resolveVariantProductId(item.optionGroups, cartEntries[i].selections);
-    if (variantId && variantId !== item.id) {
-      const vSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(variantId).get();
-      if (!vSnap.exists) {
-        return NextResponse.json({ error: `${item.name || 'That option'} is no longer available` }, { status: 409 });
+    // ── VARIANTS (lib/variants). When the choice in the listing's variants group picks a product (15 ml vs 30 ml),
+    // the sale belongs to THAT product: its stock is what must be available, its shelf is what gets decremented, its
+    // codes are what the picker scans. The listing supplies the name, the photos and the shop's words. A variant costs
+    // its own price when it has one, otherwise the listing's; the other choices add what they add. A choice the
+    // listing doesn't offer any more is refused, never swapped for another.
+    const sale = choiceSale(listing, cartEntries[i].selections);
+    if (sale.unknown.length) {
+      return NextResponse.json({ error: `${listing.name || 'An item'}: the ${sale.unknown[0].toLowerCase()} you chose isn’t offered any more. Choose again.`, productId: listing.id }, { status: 409 });
+    }
+    let variant: any = null;
+    if (sale.variantId) {
+      const vSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(sale.variantId).get();
+      variant = vSnap.exists ? { id: vSnap.id, ...vSnap.data() } : null;
+      if (!variant || variant.status === 'archived' || variant.type !== 'retail') {
+        return NextResponse.json({ error: `${listing.name || 'That item'} in ${sale.variantChoice?.label || 'that choice'} is no longer available`, productId: listing.id }, { status: 409 });
       }
-      const variant = { id: vSnap.id, ...vSnap.data() } as SellableItem;
-      // Keep the parent's shop identity, take the variant's physical one —
-      // the customer bought "Gel #127 · 30ml", not a differently-named item.
+      // Keep the listing's shop identity, take the variant's physical one.
       item = {
         ...variant,
-        name: `${item.name}${variant.name && variant.name !== item.name ? ` \u00b7 ${variant.name}` : ''}`,
-        optionGroups: item.optionGroups,
-        showOnline: item.showOnline,
-        status: item.status,
-        type: item.type,
-        // Made to order is the product's, the same time its page and this checkout showed.
-        leadDays: (item as any).leadDays ?? null,
+        name: String(listing.name || variant.name || 'Item'),
+        optionGroups: listing.optionGroups,
+        showOnline: listing.showOnline,
+        status: listing.status,
+        type: listing.type,
+        // Made to order is the listing's, the same time its page and this checkout showed.
+        leadDays: (listing as any).leadDays ?? null,
+        // A listing that can't fly keeps all its variants on the ground.
+        shipGroundOnly: (variant as any).shipGroundOnly === true || (listing as any).shipGroundOnly === true,
+        // Its documents (SDS, guides) are the variant's own, else the listing's.
+        documents: Array.isArray((variant as any).documents) && (variant as any).documents.length ? (variant as any).documents : (listing as any).documents,
       } as SellableItem;
     }
 
-    if (!isStorefrontVisible(item)) {
-      return NextResponse.json({ error: `${item.name || 'An item'} is no longer available` }, { status: 409 });
-    }
     // Pre-order items are SOLD before stock exists — that's the point. The
     // promise they carry is what makes it legitimate, and it's enforced by
     // the clock below rather than by pretending the shelf is full.
     const needed = (neededByItem.get(item.id) || 0) + qty; neededByItem.set(item.id, needed);
     if (item.digital !== true && item.preorder !== true && onlineSellable(item) < needed && item.allowBackorder !== true) {
       return NextResponse.json(
-        { error: `Only ${Math.max(0, onlineSellable(item))} of ${item.name} left`, productId: item.id },
+        { error: `Only ${Math.max(0, onlineSellable(item))} of ${item.name}${sale.variantId && sale.variantChoice ? ` in ${sale.variantChoice.label}` : ''} left`, productId: listing.id },
         { status: 409 }
       );
     }
-    const opts = resolveOptions(item.optionGroups, cartEntries[i].selections);
-    const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier, opts);
-    if (priceTier === 'wholesale' && wsDiscount > 0) {
-      line.unitPriceCents = discountedCents(line.unitPriceCents, wsDiscount);
-    }
+    const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier, { deltaCents: 0, label: sale.label });
+    // The price shown is the price charged (lib/variants saleUnitCents): a wholesale account's discount comes off the
+    // product's price, then the choices that change the price add theirs.
+    line.unitPriceCents = saleUnitCents(listing, variant, sale, priceTier, priceTier === 'wholesale' ? wsDiscount : 0);
+    // Which listing and which choices it was bought as, so an exchange, a reorder or a report can tell.
+    if (variant) (line as any).listingId = listing.id;
+    if (Object.keys(sale.choices).length) (line as any).choices = sale.choices;
     // WHETHER IT CAN COME BACK, DECIDED NOW AND WRITTEN DOWN. Evaluated
     // against the item AS IT IS AT PURCHASE and stamped onto the line, so a
     // shop marking something final sale next spring cannot retroactively
@@ -431,7 +445,7 @@ async function handleCheckout(req: NextRequest) {
   if (body.promoCode && String(body.promoCode).trim() && priceTier !== 'wholesale') {
     const { checkPromo } = await import('@/lib/promo-codes-server');
     const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'shop';
-    const r = await checkPromo(db, tenantId, String(body.promoCode), lines.map((l: any) => ({ id: l.id || l.lineId, productId: l.productId, unitPriceCents: l.unitPriceCents, qtyOrdered: l.qtyOrdered })), { email: customerEmail, who: ip });
+    const r = await checkPromo(db, tenantId, String(body.promoCode), lines.map((l: any) => ({ id: l.id || l.lineId, productId: l.productId, ...(l.listingId ? { listingId: l.listingId } : {}), unitPriceCents: l.unitPriceCents, qtyOrdered: l.qtyOrdered })), { email: customerEmail, who: ip });
     if (!r.ok) return NextResponse.json({ error: r.error || 'That code can’t be used.', promoError: true }, { status: 400 });
     promo = r;
   }

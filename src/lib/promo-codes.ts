@@ -7,7 +7,7 @@
 // (api/retail/checkout), so what they saw is what they get, and a code can't be stretched past its rules.
 
 export type PromoWhere = 'services' | 'shop' | 'both';
-export interface PromoLine { id: string; productId: string; unitPriceCents: number; qtyOrdered: number }
+export interface PromoLine { id: string; productId: string; unitPriceCents: number; qtyOrdered: number; listingId?: string }
 export interface PromoResult {
   ok: boolean;
   error?: string;
@@ -42,7 +42,8 @@ export function evaluatePromo(d: any, lines: PromoLine[], o: { email?: string; n
   if (d.limitOnePerCustomer && email && Array.isArray(d.usedByEmails) && d.usedByEmails.includes(email)) return { ...none, error: 'You’ve already used this code.' };
 
   const only: string[] = Array.isArray(d.applicableProductIds) ? d.applicableProductIds.map(String) : [];
-  const eligible = lines.filter((l) => !only.length || only.includes(String(l.productId)));
+  // A code for a listing covers its variants (a line sold as a variant names its listing).
+  const eligible = lines.filter((l) => !only.length || only.includes(String(l.productId)) || (!!l.listingId && only.includes(String(l.listingId))));
   if (!eligible.length) return { ...none, error: 'This code doesn’t cover the items in your cart.' };
   const base = eligible.reduce((s, l) => s + l.unitPriceCents * l.qtyOrdered, 0);
   const min = Math.max(0, Math.round(Number(d.minOrderCents) || 0));

@@ -78,9 +78,5 @@ export const lineProductId = (line: any): string => {
   return pid.startsWith('test-') ? pid.slice(5) : pid;
 };
 
-/** The variant products a parent's options hold their stock in. */
-export function variantIdsOf(parent: any): string[] {
-  const ids = new Set<string>();
-  for (const g of parent?.optionGroups || []) for (const c of g?.choices || []) if (c?.variantProductId) ids.add(String(c.variantProductId));
-  return [...ids];
-}
+/** The products a listing sells as its variants (lib/variants, the one rule). */
+export { variantIdsOf } from './variants';

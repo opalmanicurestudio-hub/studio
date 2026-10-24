@@ -9,6 +9,7 @@
 import { parseOrderQr } from '@/lib/retail-orders';
 import { parseScan } from '@/lib/scan-codes';
 import { codeBook, lookupCode, notHereWords, type CodeBook } from '@/lib/code-lookup';
+import { variantIdsOf } from '@/lib/variants';
 
 export type ScanHit =
   | { kind: 'product'; item: any; pack: number; packKind?: 'case' | 'pallet' }   // pack > 1: a case's or pallet's code
@@ -24,9 +25,10 @@ export type ScanHit =
 export const isSellable = (i: any) => !!i && i.status !== 'archived' && (i.type === 'retail' || Number(i.msrp) > 0);
 /** On-shelf stock (reserved online orders excluded). */
 export const onHand = (i: any) => Math.max(0, (Number(i?.totalStock) || 0) - (Number(i?.stockReserved) || 0));
+/** A listing's variants that the desk can sell, in the order its choices show them (lib/variants). */
 export function variantsOf(parent: any, inventory: any[]) {
-  const ids = new Set<string>(); for (const g of parent?.optionGroups || []) for (const c of g.choices || []) if (c.variantProductId) ids.add(c.variantProductId);
-  return (inventory || []).filter((i) => ids.has(i.id));
+  const byId = new Map((inventory || []).map((i: any) => [String(i.id), i]));
+  return variantIdsOf(parent).map((id) => byId.get(id)).filter((v: any) => !!v && isSellable(v));
 }
 
 /** The desk's products, ready to look up (lib/code-lookup): what it can sell, knowing every other item's codes too. */

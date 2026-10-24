@@ -26,7 +26,8 @@ import { useToast } from '@/hooks/use-toast';
 import { uploadPrivateFile } from '@/lib/upload-image';
 import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 
-import { optionGroupsToText, parseOptionGroups } from '@/lib/retail-orders';
+import { listingsOf, variantGroup, variantIdsOf } from '@/lib/variants';
+import { sellableStock } from '@/lib/retail-orders';
 import { changedCodes } from '@/lib/code-form';
 import { saveCodes } from '@/lib/codes-api';
 import { cn } from '@/lib/utils';
@@ -161,7 +162,7 @@ export default function RetailSettingsPage() {
 
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; palletPack: string; palletBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
+    howToUse: string; specs: string; docs: string; kit: string; casePack: string; caseBarcode: string; palletPack: string; palletBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
     made: boolean; leadMin: string; leadMax: string;
     codesBase?: { casePack: any; palletPack: any; palletBarcode: any; caseBarcode: any };
   }>>({});
@@ -228,10 +229,13 @@ export default function RetailSettingsPage() {
     if (tenant) setLoaded(true);
   }, [tenant, loaded]);
 
+  // A product that comes in variants is one listing here, as in the shop: its variants are sold inside it (lib/variants).
+  const listings = useMemo(() => listingsOf(inventory || []), [inventory]);
   const retailItems = useMemo(
-    () => (inventory || []).filter((i: any) => i.type === 'retail' && i.status !== 'archived'),
-    [inventory]
+    () => (inventory || []).filter((i: any) => i.type === 'retail' && i.status !== 'archived' && !listings.has(String(i.id))),
+    [inventory, listings]
   );
+  const invById = useMemo(() => new Map((inventory || []).map((i: any) => [String(i.id), i])), [inventory]);
   const liveCount = retailItems.filter((i: any) => i.showOnline === true && (i.msrp ?? 0) > 0).length;
 
   /*
@@ -361,7 +365,6 @@ export default function RetailSettingsPage() {
     codesBase: { casePack: it.casePack ?? null, palletPack: it.palletPack ?? null, palletBarcode: it.palletBarcode ?? '', caseBarcode: it.caseBarcode ?? '' },
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
     docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
-    options: optionGroupsToText(it.optionGroups),
     video: it.videoUrl || '',
   };
 
@@ -436,7 +439,6 @@ export default function RetailSettingsPage() {
         imageUrls,
         specs: JSON.parse(JSON.stringify(specs)),
         documents: JSON.parse(JSON.stringify(documents)),
-        optionGroups: JSON.parse(JSON.stringify(parseOptionGroups(d.options))),
         videoUrl: (d.video || '').trim(),
       });
       // What's saved is what the draft starts from now.
@@ -1552,7 +1554,9 @@ export default function RetailSettingsPage() {
                       <div className="min-w-0">
                         <p className="font-black uppercase tracking-tight text-xs truncate">{it.name}</p>
                         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                          {it.sku ? `${it.sku} · ` : ''}MSRP ${Number(it.msrp || 0).toFixed(2)} · {it.totalStock - (it.stockReserved || 0)} sellable
+                          {it.sku ? `${it.sku} · ` : ''}MSRP ${Number(it.msrp || 0).toFixed(2)} · {variantIdsOf(it).length
+                            ? `${variantIdsOf(it).reduce((n: number, v: string) => n + Math.max(0, sellableStock((invById.get(v) as any) || { totalStock: 0 })), 0)} sellable across ${variantIdsOf(it).length} variant${variantIdsOf(it).length === 1 ? '' : 's'}`
+                            : `${it.totalStock - (it.stockReserved || 0)} sellable`}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -1585,18 +1589,18 @@ export default function RetailSettingsPage() {
                         </div>
                         <div className="flex gap-2">
                           <label className={cn('flex-1 h-10 rounded-xl border-2 border-dashed flex items-center justify-center text-[9px] font-black uppercase tracking-widest cursor-pointer hover:border-primary/50 transition-all', uploading === `image-${it.id}` && 'opacity-50 pointer-events-none')}>
-                            {uploading === `image-${it.id}` ? 'Uploading…' : '📷 Upload images'}
+                            {uploading === `image-${it.id}` ? 'Uploading…' : 'Upload images'}
                             <input type="file" accept="image/*" multiple aria-label={`Upload images for ${it.name}`} className="hidden"
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => { uploadMedia(it, e.target.files, 'image'); e.target.value = ''; }} />
                           </label>
                           <label className={cn('flex-1 h-10 rounded-xl border-2 border-dashed flex items-center justify-center text-[9px] font-black uppercase tracking-widest cursor-pointer hover:border-primary/50 transition-all', uploading === `video-${it.id}` && 'opacity-50 pointer-events-none')}>
-                            {uploading === `video-${it.id}` ? 'Uploading…' : '🎬 Upload video'}
+                            {uploading === `video-${it.id}` ? 'Uploading…' : 'Upload a video'}
                             <input type="file" accept="video/*" aria-label={`Upload a video for ${it.name}`} className="hidden"
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => { uploadMedia(it, e.target.files, 'video'); e.target.value = ''; }} />
                           </label>
                         </div>
                         {d.video && (
-                          <p className="text-[8px] font-black uppercase tracking-widest text-primary truncate">Video attached ✓ — saves with the item</p>
+                          <p className="text-[8px] font-black uppercase tracking-widest text-primary truncate">Video attached. It saves with the item.</p>
                         )}
                         <Textarea aria-label="Storefront description" placeholder={'Image URLs — one per line (first is the cover)'} value={d.img}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, img: e.target.value } })}
@@ -1846,9 +1850,16 @@ export default function RetailSettingsPage() {
                         <Textarea placeholder={'Documents — one per line as Name | https://link (e.g. MSDS | https://…)'} value={d.docs}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, docs: e.target.value } })}
                           className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
-                        <Textarea placeholder={'Options — one group per line as Name | Choice:price, Choice:price (e.g. Size | Small:0, Large:1.50)'} value={d.options}
-                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, options: e.target.value } })}
-                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
+                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed px-3 py-2.5">
+                          <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
+                            {(it.optionGroups || []).length
+                              ? `Choices: ${(it.optionGroups || []).map((g: any) => (g === variantGroup(it) ? `${g.name} (${variantIdsOf(it).length} variant${variantIdsOf(it).length === 1 ? '' : 's'})` : g.name)).join(' · ')}`
+                              : 'Choices and variants are set on the product’s page, under Online listing.'}
+                          </p>
+                          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                            <Link href={`/inventory/${it.id}`}>{(it.optionGroups || []).length ? 'Edit choices' : 'Add choices'}</Link>
+                          </Button>
+                        </div>
                         <Button disabled={itemBusy === it.id} onClick={() => saveItem(it)}
                           variant="outline" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
                           {itemBusy === it.id ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Save item'}

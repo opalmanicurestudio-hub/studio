@@ -86,6 +86,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { saveProduct } from '@/lib/codes-client';
+import { saveChoices } from '@/lib/codes-api';
 import { doc } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStockChangesFor } from '@/hooks/use-stock';
@@ -153,6 +154,16 @@ export default function ProductDetailPage() {
         const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', product.id);
         updateDocumentNonBlocking(itemRef, syncPublicFields({ ...patch }));
         toast({ title: 'Saved', description: 'Your shop is updated.' });
+    };
+
+    // A listing's choices are saved by the server, which points each variant at the listing and refuses a product
+    // another listing already sells (lib/code-index saveListingChoices): the reason is shown, and nothing is saved.
+    const handleChoicesSave = async (groups: any[]): Promise<{ ok: boolean; optionGroups?: any[] }> => {
+        if (!tenantId || !product) return { ok: false };
+        const r: any = await saveChoices(tenantId, product.id, groups);
+        if (!r.ok) { toast({ variant: 'destructive', title: 'Not saved', description: r.error }); return { ok: false }; }
+        toast({ title: 'Saved', description: 'Your shop is updated.' });
+        return { ok: true, optionGroups: r.optionGroups };
     };
 
     // A product's codes are saved by the server, which refuses one another product has (lib/codes-client): the form
@@ -438,6 +449,7 @@ export default function ProductDetailPage() {
                                         product={product}
                                         inventory={inventory}
                                         onSave={handleOnlineSave}
+                                        onSaveChoices={handleChoicesSave}
                                     />
                                 </TabsContent>
                             )}

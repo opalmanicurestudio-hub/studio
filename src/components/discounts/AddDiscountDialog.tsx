@@ -40,6 +40,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { SelectServicesDialog } from '../services/SelectServicesDialog';
 import { Card, CardContent, CardFooter } from '../ui/card';
 import { cn } from '@/lib/utils';
+import { listingsOf } from '@/lib/variants';
 import { Separator } from '../ui/separator';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
@@ -267,7 +268,8 @@ export const AddDiscountDialog: React.FC<{
     });
     const appliesTo = watch('appliesTo');
     const selectedProductIds = watch('applicableProductIds') || [];
-    const shopProducts = useMemo(() => (inventory || []).filter((i: any) => i.showOnline === true && i.status !== 'archived'), [inventory]);
+    // The shop's listings (a code for a listing covers its variants, lib/variants).
+    const shopProducts = useMemo(() => { const listings = listingsOf(inventory || []); return (inventory || []).filter((i: any) => i.showOnline === true && i.status !== 'archived' && !listings.has(String(i.id))); }, [inventory]);
 
     const discountType = watch('type');
     const discountValue = watch('value');

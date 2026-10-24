@@ -1,7 +1,8 @@
 import { getRetailSecrets } from '@/lib/retail-secrets';
 import { NextRequest, NextResponse } from 'next/server';
 
-import { listedInShop, listingPriceCents, listingStock, preorderState, type SellableItem } from '@/lib/retail-orders';
+import { listingPriceCents, preorderState, type SellableItem } from '@/lib/retail-orders';
+import { listedInShop, listingBuyable, listingsOf, listingStock, shopOptionGroups, variantIdsOf } from '@/lib/variants';
 import { publicDescription, collectImages } from '@/lib/product-public';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { sanitizeShopConfig } from '@/lib/shop-config';
@@ -66,14 +67,23 @@ export async function GET(req: NextRequest) {
   const invSnap = await db.collection(`tenants/${tenantId}/inventory`)
     .where('type', '==', 'retail').get();
 
-  const products = invSnap.docs
-    .map((d: any) => ({ id: d.id, ...d.data() } as SellableItem))
-    .filter((item: SellableItem) => listedInShop(item))
+  // A product that comes in variants is one listing, in stock while any of its variants is; its variants are sold
+  // inside it, never listed on their own (lib/variants).
+  const all = invSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as SellableItem));
+  const byId = new Map<string, any>(all.map((i: any) => [String(i.id), i]));
+  const listings = listingsOf(all);
+  const products = all
+    .filter((item: SellableItem) => listedInShop(item, listings))
     .flatMap((item: SellableItem) => {
       // One malformed inventory doc must never take the whole shop down:
       // anything that throws here is skipped (and logged), not fatal.
       try {
-        const available = listingStock(item);
+        const available = listingStock(item, byId);
+        // Each variant with the price it sells for and whether it can be bought; the listing shows its lowest price.
+        const optionGroups = shopOptionGroups(item, byId, { wholesale: wholesaleUnlocked, discountPct: wsDiscount, zone: shopZone, maxShown: MAX_SHOWN_QTY });
+        const vg: any = optionGroups.find((g: any) => g.variants);
+        const pick = (k: 'priceCents' | 'wholesalePriceCents') => { const cs = vg ? vg.choices.filter((c: any) => c.inStock) : []; const xs = (cs.length ? cs : vg?.choices || []).map((c: any) => c[k]).filter((x: any) => x != null); return xs.length ? Math.min(...xs) : null; };
+        const hasVariants = variantIdsOf(item).length > 0;
         // Pre-orders sell BEFORE stock exists — that is the whole point — so a
         // grid that decides availability from the shelf alone marks an open
         // pre-order sold out, and the customer never reaches the
@@ -88,12 +98,16 @@ export async function GET(req: NextRequest) {
         category: String(item.category || '') || 'General',
         description: publicDescription(item).slice(0, 300),
         imageUrls: collectImages(item),
-        optionGroups: Array.isArray(item.optionGroups) ? item.optionGroups : [],
-        priceCents: listingPriceCents(item, 'retail'),
-        wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
+        optionGroups,
+        priceCents: (vg && pick('priceCents')) ?? listingPriceCents(item, 'retail'),
+        // Variants at different prices: the grid says "from".
+        priceVaries: !!vg && new Set(vg.choices.map((c: any) => c.priceCents)).size > 1,
+        wholesalePriceCents: wholesaleUnlocked ? ((vg && pick('wholesalePriceCents')) ?? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount)) : null,
         wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
-        inStock: available > 0 || item.allowBackorder === true || preOpen,
-        qtyAvailable: item.allowBackorder === true
+        inStock: hasVariants ? listingBuyable(item, byId, shopZone) : available > 0 || item.allowBackorder === true || preOpen || item.digital === true,
+        qtyAvailable: hasVariants
+          ? Math.min(MAX_SHOWN_QTY, vg ? vg.choices.reduce((n: number, c: any) => n + (Number(c.qtyAvailable) || 0), 0) : available)
+          : item.allowBackorder === true || item.digital === true
           ? MAX_SHOWN_QTY
           : preOpen
             ? Math.min(Math.max(available, preCap), MAX_SHOWN_QTY)

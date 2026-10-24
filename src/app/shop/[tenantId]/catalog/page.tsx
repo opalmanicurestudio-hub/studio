@@ -24,6 +24,7 @@ interface Product {
   description: string;
   imageUrls: string[];
   priceCents: number;
+  priceVaries?: boolean;
   inStock: boolean;
   qtyAvailable: number;
   lowStock: boolean;
@@ -243,7 +244,7 @@ export default function CatalogPage() {
               </div>
               <div className="p-3">
                 <p className="line-clamp-2 text-sm font-black uppercase leading-tight tracking-tight">{p.name}</p>
-                <p className="mt-1.5 font-mono text-base font-bold">{fmt(p.priceCents)}</p>
+                <p className="mt-1.5 font-mono text-base font-bold">{p.priceVaries ? 'From ' : ''}{fmt(p.priceCents)}</p>
               </div>
             </Link>
           ))}

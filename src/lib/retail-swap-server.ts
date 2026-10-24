@@ -2,6 +2,7 @@
 // the customer's answer (from their order page or a YES/NO text) all run here in transactions, so the stock, the order
 // and the money move together, and two answers can't both win. The swap arithmetic itself is lib/retail-swap.
 import { shrinkStock } from './retail-orders';
+import { choiceFor, variantPriceCents } from './variants';
 import { nanoid } from 'nanoid';
 import { taxShareCents } from './restocking';
 import { SWAP_ANSWER_HOURS, normaliseIfUnavailable, swapLines, type SwapItem } from './retail-swap';
@@ -18,9 +19,14 @@ const OPEN_STAGES = ['paid', 'picking'];
 /** The replacement as the shop sells it today, read from the catalog, never from the caller. */
 export async function catalogItem(db: any, t: string, productId: string): Promise<SwapItem | null> {
   const s = await db.collection(`tenants/${t}/inventory`).doc(productId).get();
-  if (!s.exists) return null; const i = s.data() as any;
-  const price = Math.round((Number(i.msrp) || 0) * 100); if (price <= 0) return null;
-  return { productId, name: String(i.name || 'Item'), unitPriceCents: price, sku: i.sku || '', barcode: i.barcode || '', imageUrl: (Array.isArray(i.imageUrls) && i.imageUrls[0]) || i.imageUrl || '' };
+  if (!s.exists) return null; const i = { ...(s.data() as any), id: productId };
+  // A variant sells as its listing and choice, for its own price or the listing's (lib/variants).
+  let listing: any = null;
+  if (i.parentId && i.parentId !== productId) { const ls = await db.collection(`tenants/${t}/inventory`).doc(String(i.parentId)).get(); const l = ls.exists ? { ...(ls.data() as any), id: ls.id } : null; if (l && choiceFor(l, productId)) listing = l; }
+  const price = listing ? variantPriceCents(i, listing) : Math.round((Number(i.msrp) || 0) * 100); if (price <= 0) return null;
+  const c = listing ? choiceFor(listing, productId) : null;
+  // Named as its listing and choice ("Rose cuticle oil · Clear"), the way the customer's messages and the order show it.
+  return { productId, name: c ? `${listing.name || i.name || 'Item'} \u00b7 ${c.choice.label}` : String(i.name || 'Item'), ...(c ? { listingId: String(listing.id) } : {}), unitPriceCents: price, sku: i.sku || '', barcode: i.barcode || '', imageUrl: (Array.isArray(i.imageUrls) && i.imageUrls[0]) || i.imageUrl || (listing && Array.isArray(listing.imageUrls) && listing.imageUrls[0]) || '' };
 }
 
 function correction(productId: string, change: number, reason: string, orderId: string, actor: Actor) {

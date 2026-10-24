@@ -34,6 +34,7 @@ import { isCreditExpired } from '@/lib/deposit-policy';
 import { accountOf, addShareToTicket, checkDeskPayment, clearExtraOnReceipt, clearRefundedPayment, deskPaymentOf, DISCARD_HOLD_MS, keepApartPayment, liveShares, markSalePaid, onAnyReceipt, outcomeRef, paidPayloadOf, promoteKeptApart, readerStripe, safeId, settleTicketReader, ticketPayment, viaWords } from '@/lib/reader-sale';
 import { closeScreenPaymentsFor } from '@/lib/screen-pay';
 import { methodOfVia } from '@/lib/pay-via';
+import { deskPrice, listingsOf, saleName } from '@/lib/variants';
 
 export const dynamic = 'force-dynamic';
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -627,6 +628,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (!client) return json({ ok: false, error: 'That client wasn’t found.' }, 404);
   const rows = (s: any) => s.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
   const staff = await withPay(db, tenantId, rows(stSnap)), services = rows(svSnap), inventory = rows(invSnap), memberships = rows(mSnap), packages = rows(pSnap), allDiscounts = rows(dSnap);
+  const deskListings = listingsOf(inventory);   // which listing sells each variant (lib/variants)
   const svc = (id: string) => services.find((s: any) => s.id === id);
   const visits: any[] = [];
   for (const id of apptIds) {
@@ -640,7 +642,12 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   for (const it of reqItems) {
     const qty = ['rent', 'tuition'].includes(String(it.type)) ? 1 : Math.max(1, Math.min(99, Math.round(num(it.quantity) || 1))); const type = String(it.type || 'product'); const id = String(it.id || '');
     let price = num(it.price), name = String(it.name || 'Item'), stock: number | null = null;
-    if (type === 'product') { const p = inventory.find((x: any) => x.id === id); if (!p) return json({ ok: false, error: `${name} isn’t in your inventory any more.` }, 400); price = num(p.msrp || p.costPerUnit); name = p.name || name; stock = num(p.totalStock); }
+    // A product sells for the shop's price for it (lib/variants): a variant's own price when it has one, otherwise its
+    // listing's. One with no price isn't sold (it used to sell at cost).
+    if (type === 'product') { const p = inventory.find((x: any) => x.id === id); if (!p) return json({ ok: false, error: `${name} isn’t in your inventory any more.` }, 400);
+      price = deskPrice(p, deskListings); name = saleName(p, deskListings); stock = num(p.totalStock);
+      if (!(price > 0)) return json({ ok: false, error: `${name} has no price yet. Give it one in Inventory, then take it off this sale and add it again.` }, 400);
+      const lid = deskListings.get(String(p.id))?.id; if (lid) (it as any).__listingId = String(lid); }
     else if (type === 'service') { const s = svc(id); if (s) { price = num(s.price); name = s.name || name; } }
     else if (type === 'tuition') { const acct: any = await tuitionAccount(db, tenantId, String(it.planId || '')); if (!acct) return json({ ok: false, error: 'That tuition plan wasn’t found.' }, 400);
       if (!acct.open) return json({ ok: false, error: 'That student isn’t enrolled yet — their down payment is taken on their application link.' }, 400);
@@ -656,7 +663,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
       price = cents / 100; const g = it.gift || {}; name = `Gift card${g.recipientName ? ` for ${String(g.recipientName).slice(0, 60)}` : ''}`;
       (it as any).__gift = { cents, recipientName: g.recipientName ? String(g.recipientName).slice(0, 80) : null, recipientId: g.recipientId ? String(g.recipientId) : null, recipientPhone: g.recipientPhone ? String(g.recipientPhone).slice(0, 30) : null, recipientEmail: g.recipientEmail ? String(g.recipientEmail).slice(0, 120) : null, message: g.message ? String(g.message).slice(0, 400) : null, design: typeof g.design === 'string' && /^[a-z0-9-]{2,30}$/.test(g.design) ? g.design : null, line: g.line ? String(g.line).slice(0, 30) : null, service: g.service && typeof g.service.id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(g.service.id) ? { id: g.service.id, name: String(g.service.name || '').slice(0, 80) } : null, sendVia: ['text', 'email', 'print', 'code'].includes(g.sendVia) ? g.sendVia : 'code', sendAt: g.sendAt && Date.parse(g.sendAt) > Date.now() + 60000 ? new Date(g.sendAt).toISOString() : null }; }
     else if (type === 'deposit' && it.depositForAppointmentId) { const ap: any = (await db.doc(`${T}/appointments/${String(it.depositForAppointmentId)}`).get()).data() || {}; const max = num(ap.depositAmountCents) / 100; if (max > 0) price = Math.min(price || max, max); }
-    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}), ...((it as any).__gift ? { __gift: (it as any).__gift } : {}) });   // rent carries its renter's account to the payment step
+    items.push({ id, type, quantity: qty, price: Math.max(0, price), name, stock, reservationId: it.reservationId || null, depositForAppointmentId: it.depositForAppointmentId || null, ...((it as any).__listingId ? { listingId: (it as any).__listingId } : {}), ...((it as any).__acct ? { __acct: (it as any).__acct } : {}), ...((it as any).__tacct ? { __tacct: (it as any).__tacct } : {}), ...((it as any).__gift ? { __gift: (it as any).__gift } : {}) });   // rent carries its renter's account to the payment step
   }
   // Everyone on the ticket: the payer, and whoever had each visit (a friend, partner or parent may be paying).
   const people: Record<string, any> = { [clientId]: client };
@@ -920,7 +927,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const value = it.price * it.quantity;
     const category = it.type === 'giftcard' ? 'Gift Card Sales' : it.type === 'deposit' ? 'Retainers' : it.type === 'service' ? 'Service Revenue' : it.type === 'membership' ? 'Membership Sales' : it.type === 'package' ? 'Package Sales' : it.type === 'rental' ? 'Space Rental' : it.type === 'rent' ? 'Booth Rent' : it.type === 'tuition' ? 'Tuition' : 'Retail';
     const description = it.type === 'giftcard' ? `Gift card sold: ${it.name}` : it.type === 'deposit' ? `Deposit: ${it.name}` : it.type === 'service' ? `Service (POS): ${it.quantity}x ${it.name}` : it.type === 'membership' ? `Membership: ${it.name}` : it.type === 'package' ? `Package: ${it.name}` : it.type === 'rental' ? `Space rental: ${it.name}` : it.type === 'rent' ? `Booth rent: ${it.name}` : it.type === 'tuition' ? `Tuition: ${it.name}` : `Retail Product: ${it.quantity}x ${it.name}`;
-    txn({ description, type: 'income', context: 'Business', category, ...(it.type === 'giftcard' ? { taxBucket: 'transfer' } : {}), amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
+    txn({ description, type: 'income', context: 'Business', category, ...(it.type === 'giftcard' ? { taxBucket: 'transfer' } : {}), amount: value, paymentMethod: method, hasReceipt: true, itemId: it.id, itemType: it.type, quantity: it.quantity, ...(it.listingId ? { listingId: it.listingId } : {}), ...(it.type === 'product' && soldBy ? { staffId: soldBy, soldBy } : {}), ...((it.type === 'membership' || it.type === 'package') && soldBy ? { soldBy } : {}) });
     if (it.type === 'product') {
       // The batches move too (soonest-expiring first, lib/retail-orders), so lots and expiry stay true for in-store sales.
       let batchPatch: any = {};

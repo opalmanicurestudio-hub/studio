@@ -556,66 +556,8 @@ export interface OptionChoice {
 }
 export interface OptionGroup { id: string; name: string; choices: OptionChoice[]; }
 
-/**
- * Which inventory item a set of selections actually resolves to.
- *
- * A product with stock-bearing variants is a PARENT: it holds the name, the
- * photos and the shop copy, but never the stock. Its variants hold the units.
- * This is the one place that mapping is made, so the storefront, the checkout
- * and the bench can never disagree about which shelf a sale came from.
- */
-export function resolveVariantProductId(
-  groups: OptionGroup[] | undefined,
-  selections: Record<string, string> | undefined,
-): string | null {
-  if (!groups || groups.length === 0) return null;
-  for (const g of groups) {
-    const choiceId = selections?.[g.id];
-    const choice = g.choices.find((c) => c.id === choiceId) || g.choices[0];
-    if (choice?.variantProductId) return choice.variantProductId;
-  }
-  return null;
-}
-
-/** True when any choice carries its own stock — the product is a parent. */
-export function hasStockVariants(groups: OptionGroup[] | undefined): boolean {
-  return !!groups?.some((g) => g.choices.some((c) => !!c.variantProductId));
-}
-
-/**
- * Stock for a product whose variants hold the units: the sum of what its
- * variants can sell. A parent showing its own (zero) stock would read as
- * "sold out" while three sizes sit on the shelf.
- */
-export function variantAwareStock(
-  item: SellableItem,
-  variantsById: Map<string, SellableItem>,
-): number {
-  if (!hasStockVariants(item.optionGroups)) return sellableStock(item);
-  const ids = new Set<string>();
-  for (const g of item.optionGroups || []) {
-    for (const c of g.choices) if (c.variantProductId) ids.add(c.variantProductId);
-  }
-  let total = 0;
-  for (const id of ids) {
-    const v = variantsById.get(id);
-    if (v) total += sellableStock(v);
-  }
-  return total;
-}
-
-/** Does a product show in the shop as a listing of its own (the shop's grid, its product page, its sitemap)? The one
- *  rule the shop and the codes check (lib/code-index) both use. `variantIds`: the products listings sell as their
- *  variants. */
-export function listedInShop(item: SellableItem, _variantIds?: Set<string>): boolean {
-  return isStorefrontVisible(item);
-}
-
-/** How many of a listing the shop offers. The one rule the shop and the codes check both use. `variantsById`: the
- *  shop's products, for a listing whose variants hold the stock. */
-export function listingStock(item: SellableItem, _variantsById?: Map<string, any>): number {
-  return Math.max(0, onlineSellable(item) || 0);
-}
+/* Which product a set of choices sells, what it costs and how many a listing has, and which products the shop lists on
+ * their own, are worked out in one place for the shop, checkout, the desk and the codes check: lib/variants. */
 
 /** Parse editor lines like "Size | Small:0, Medium:0.50, Large:1" */
 export function parseOptionGroups(text: string): OptionGroup[] {
@@ -692,6 +634,8 @@ export interface OrderLine {
   palletBarcode?: string;      // the pallet label's own code (snapshot)
   codes?: string[];            // the product's other unit codes at checkout: UPC / GTIN / EAN / extra barcodes (snapshot)
   testOfProductId?: string;    // a test order's line: the real product it stands for (its codes scan; no stock moves)
+  listingId?: string;          // sold as a variant: the listing it was chosen on (productId is the variant, lib/variants)
+  choices?: Record<string, string>; // the choice taken in each of the listing's groups, by group id (optionsLabel has their words)
   qtyPacked?: number;          // second-scan count at the box (pack verification)
   digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
   digitalUrl?: string;         // snapshot of the delivery link at purchase time

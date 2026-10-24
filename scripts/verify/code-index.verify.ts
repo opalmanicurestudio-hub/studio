@@ -239,12 +239,17 @@ const put = (id: string, x: any) => db.doc(`${T}/inventory/${id}`).set({ id, typ
   await put('hidden', { name: 'Hidden', totalStock: 0, showOnline: false });
   await listing('course', { name: 'Online course', digital: true, totalStock: 0 });
   const chk: any = await ci.codesCheck(db, 't1');
-  check('a listing that shows sold out while a variant has stock is counted', chk.counts.soldOut === 2 && chk.soldOut.some((x: any) => x.productId === 'oil' && x.withStock === 1), chk.soldOut);
+  // The shop's rules (lib/variants): a listing is in stock while a variant is, and a variant is never listed on its own,
+  // so those two counts are at zero; the codes check still counts them from the same rules the shop uses.
+  check('no listing shows sold out while a variant has stock (it’s in stock while any variant is)', chk.counts.soldOut === 0 && chk.soldOut.length === 0, chk.soldOut);
   check('in the shop with nothing to scan: a listing with no code, and each variant with none under a listing with none', chk.noCode.map((x: any) => x.name).sort().join('|') === 'Cedar candle|Rose cuticle oil · Sheer gold', chk.noCode);
-  check('a variant shown as a listing of its own is counted, with its listing', chk.counts.variantsListed === 1 && chk.variantsListed[0].productId === 'gold' && chk.variantsListed[0].listingName === 'Rose cuticle oil', chk.variantsListed);
-  check('the counts come from the shop’s own rules (the shop’s grid and product page use the same two)',
-    /listedInShop\(item\)/.test(fs.readFileSync('src/app/api/retail/catalog/route.ts', 'utf8')) && /listingStock\(item\)/.test(fs.readFileSync('src/app/api/retail/catalog/route.ts', 'utf8'))
-    && /listedInShop\(item\)/.test(fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8')) && /listingStock\(item\)/.test(fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8')));
+  check('no variant shows as a listing of its own (it’s sold inside its listing)', chk.counts.variantsListed === 0, chk.variantsListed);
+  check('the counts come from the shop’s own rules (the shop’s grid and product page use the same ones)',
+    /listedInShop\(item, listings\)/.test(fs.readFileSync('src/app/api/retail/catalog/route.ts', 'utf8')) && /listingStock\(item, byId\)/.test(fs.readFileSync('src/app/api/retail/catalog/route.ts', 'utf8'))
+    && /choiceFor\(parent, item\.id\)/.test(fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8')) && /listingStock\(item, byId\)/.test(fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8')));
+  check('the check points each variant at its listing, and its codes’ entries name the listing',
+    (await get(`${T}/inventory/blush`)).parentId === 'oil' && (await get(`${T}/inventory/gold`)).parentId === 'oil' && (await get(`${T}/inventory/small`)).parentId === 'mask'
+    && !(await get(`${T}/inventory/candle`)).parentId && (await get(`${T}/codeIndex/0084501330131`))?.parentId === 'oil', [(await get(`${T}/inventory/blush`)).parentId, await get(`${T}/codeIndex/0084501330131`)]);
 
   // ── The route ──
   await fresh();
@@ -345,9 +350,10 @@ const put = (id: string, x: any) => db.doc(`${T}/inventory/${id}`).set({ id, typ
   // ── The database rules ──
   const rules = src('firestore.rules');
   const invRule = rules.slice(rules.indexOf('match /tenants/{tenantId}/inventory/{itemId}'), rules.indexOf('match /tenants/{tenantId}/codeIndex/{codeId}'));
-  check('a browser can’t change a product’s code fields (equipment and overhead keep theirs, and carry none when turned into a product), nor add a product with codes',
-    /allow update: if isTeam\(tenantId\) && \(\s*\(codesFree\(resource\.data\) && codesFree\(request\.resource\.data\)\)\s*\|\| \(!codesFree\(resource\.data\) && !request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasAny\(productCodeKeys\(\)\)\)\s*\|\| \(codesFree\(resource\.data\) && !codesFree\(request\.resource\.data\) && noCodes\(request\.resource\.data\)\)\);/.test(invRule)
-    && /allow create: if isTeam\(tenantId\) && \(codesFree\(request\.resource\.data\) \|\| noCodes\(request\.resource\.data\)\)/.test(invRule)
+  check('a browser can’t change a product’s code fields, its choices or its listing (equipment and overhead keep theirs, and carry none when turned into a product), nor add a product with any of them',
+    /allow update: if isTeam\(tenantId\) && \(\s*\(codesFree\(resource\.data\) && codesFree\(request\.resource\.data\)\)\s*\|\| \(!codesFree\(resource\.data\) && !request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasAny\(productCodeKeys\(\)\.concat\(productLinkKeys\(\)\)\)\)\s*\|\| \(codesFree\(resource\.data\) && !codesFree\(request\.resource\.data\) && noCodes\(request\.resource\.data\) && noLinks\(request\.resource\.data\)\)\);/.test(invRule)
+    && /allow create: if isTeam\(tenantId\) && \(codesFree\(request\.resource\.data\) \|\| \(noCodes\(request\.resource\.data\) && noLinks\(request\.resource\.data\)\)\)/.test(invRule)
+    && /function productLinkKeys\(\) \{\s*return \['optionGroups', 'parentId'\];/.test(rules)
     && ['sku', 'barcode', 'barcodes', 'upc', 'gtin', 'ean', 'caseBarcode', 'casePack', 'palletBarcode', 'palletPack', 'tagIds', 'codesUpdatedAt'].every((f) => new RegExp(`'${f}'`).test(rules.slice(rules.indexOf('function productCodeKeys'), rules.indexOf('function codesFree')))), invRule.slice(0, 400));
   check('the index is read by the team and written only by the server', /match \/tenants\/\{tenantId\}\/codeIndex\/\{codeId\} \{\s*allow read: if isTeam\(tenantId\);\s*allow write: if false;/.test(rules));
   const catchAll = rules.slice(rules.indexOf('match /tenants/{tenantId}/{collection}/{rest=**}'));

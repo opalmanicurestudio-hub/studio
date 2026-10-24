@@ -1,5 +1,6 @@
-// src/lib/codes-api.ts — A PRODUCT'S CODES, ASKED OF THE SERVER (/api/inventory/codes, lib/code-index), which keeps
-// each code on one product and says which product has one already. For screens; lib/codes-client saves whole products.
+// src/lib/codes-api.ts — A PRODUCT'S CODES AND VARIANTS, ASKED OF THE SERVER (/api/inventory/codes, lib/code-index),
+// which keeps each code on one product and says which product has one already, and each variant on one listing. For
+// screens; lib/codes-client saves whole products.
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import type { CodePatch } from '@/lib/code-form';
 
@@ -22,3 +23,6 @@ export const pairProductTag = (tenantId: string, productId: string, tag: string,
 export const keepCode = (tenantId: string, code: string, productId: string) => codesApi({ action: 'keep', tenantId, code, productId });
 export const checkCodes = (tenantId: string) => codesApi({ action: 'check', tenantId });
 export const reindexCodes = (tenantId: string, productIds: string[]) => codesApi({ action: 'reindex', tenantId, productIds });
+/** A listing's choices, saved by the server, which points each variant at the listing and refuses a product another
+ *  listing sells (lib/code-index saveListingChoices). */
+export const saveChoices = (tenantId: string, productId: string, optionGroups: any[]) => codesApi({ action: 'variants', tenantId, productId, optionGroups });

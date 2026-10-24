@@ -80,7 +80,7 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   // ── The test order ──
   await fresh();
   await db.doc(T).set({ name: 'Opal' });
-  await db.doc(`${T}/inventory/gel`).set({ ...gel, type: 'retail', status: 'active', msrp: 15, totalStock: 4, showInShop: true, publishedOnline: true, isPublic: true });
+  await db.doc(`${T}/inventory/gel`).set({ ...gel, type: 'retail', status: 'active', msrp: 15, totalStock: 4, showOnline: true, showInShop: true, publishedOnline: true, isPublic: true });
   const Mod: any = Module as any; const prevLoad = Mod._load;
   Mod._load = function (request: string, ...rest: any[]) {
     if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };

@@ -50,8 +50,19 @@ export default async function AftercarePage({ params, searchParams }: { params: 
   let takeHome: { name: string; price: number; href: string; image?: string | null }[] = [];
   if (!isRenterVisit && svc && Array.isArray(svc.products) && svc.products.length) { try { const { moduleEnabled } = await import('@/lib/modules'); if (moduleEnabled(tenant, 'retail')) {
     const { isStorefrontVisible } = await import('@/lib/retail-orders');
-    const items = (await Promise.all(svc.products.slice(0, 12).map((p: any) => (p?.id ? db.doc(`tenants/${tenantId}/inventory/${p.id}`).get() : null)))).filter((d: any) => d?.exists).map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
-    takeHome = items.filter((it: any) => it.type === 'retail' && isStorefrontVisible(it as any)).slice(0, 4).map((it: any) => ({ name: String(it.name || 'Product'), price: Number(it.price || it.retailPrice) || 0, href: `/shop/${tenantId}/product/${it.id}`, image: it.imageUrl || it.image || null })); } } catch { takeHome = []; } }
+    const { choiceFor, variantPriceCents } = await import('@/lib/variants');
+    const read = async (id: string) => { const d = await db.doc(`tenants/${tenantId}/inventory/${id}`).get(); return d.exists ? { id: d.id, ...(d.data() || {}) } as any : null; };
+    const items = (await Promise.all(svc.products.slice(0, 12).map((p: any) => (p?.id ? read(String(p.id)) : null)))).filter(Boolean);
+    // A variant (the exact one this service used, say) is offered inside its listing, with it picked, at the price it sells
+    // for (lib/variants); anything else the shop sells on its own, at its price.
+    const offers = await Promise.all(items.map(async (it: any) => {
+      if (it.type !== 'retail' || it.status === 'archived') return null;
+      const parent = it.parentId && it.parentId !== it.id ? await read(String(it.parentId)) : null;
+      const c = parent ? choiceFor(parent, it.id) : null;
+      if (parent && c) return isStorefrontVisible(parent) ? { name: `${String(parent.name || 'Product')} \u00b7 ${c.choice.label}`, price: variantPriceCents(it, parent) / 100, href: `/shop/${tenantId}/product/${parent.id}?choice=${encodeURIComponent(c.choice.id)}`, image: it.imageUrl || (Array.isArray(it.imageUrls) && it.imageUrls[0]) || parent.imageUrl || (Array.isArray(parent.imageUrls) && parent.imageUrls[0]) || null } : null;
+      return isStorefrontVisible(it) ? { name: String(it.name || 'Product'), price: Number(it.msrp) || 0, href: `/shop/${tenantId}/product/${it.id}`, image: it.imageUrl || (Array.isArray(it.imageUrls) && it.imageUrls[0]) || it.image || null } : null;
+    }));
+    takeHome = offers.filter(Boolean).slice(0, 4) as any; } } catch { takeHome = []; } }
   const photo = (Array.isArray(a.afterPhotoUrls) ? a.afterPhotoUrls : []).find((u: any) => typeof u === 'string' && /^https:\/\//.test(u)) || null;
   const checkIn = sp.c === '1' || a.checkInSentAt ? { tenantId, appointmentId, k: sp.k, t: sp.t, answered: a.aftercareCheckIn?.answer || null,
     reportHref: mir ? `/how/${tenantId}/${appointmentId}?${visitQ}&start=report` : '' } : null;

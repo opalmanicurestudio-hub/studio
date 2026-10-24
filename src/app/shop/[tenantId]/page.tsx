@@ -21,6 +21,7 @@ import {
   addToCart, cartExpiresAt, cartKeyFor, clearCart, parseCartKey, readCart,
   readWholesaleCode, touchCartExpiry, writeCart, writeWholesaleCode,
 } from '@/lib/shop-cart';
+import { shopLine } from '@/lib/variants';
 import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
 import { ShopMenu } from '@/components/shop/ShopMenu';
 import { cn } from '@/lib/utils';
@@ -44,6 +45,7 @@ interface ShopProduct {
   description: string;
   imageUrls: string[];
   priceCents: number;
+  priceVaries?: boolean;          // variants at different prices: the lowest is shown, as "From"
   wholesalePriceCents: number | null;
   wholesaleMinQty: number | null;
   inStock: boolean;
@@ -258,26 +260,15 @@ export default function ShopPage() {
 
   const cartEntries = Object.entries(cart).filter(([key, q]) => q > 0 && byId.has(parseCartKey(key).productId));
   const cartCount = cartEntries.reduce((a, [, q]) => a + q, 0);
-  const optionDelta = (key: string) => {
-    const { productId, selections } = parseCartKey(key);
-    const prod: any = byId.get(productId);
-    if (!prod?.optionGroups?.length) return { deltaCents: 0, label: '' };
-    let delta = 0;
-    const parts: string[] = [];
-    for (const g of prod.optionGroups) {
-      const choice = g.choices.find((c: any) => c.id === selections[g.id]) || g.choices[0];
-      if (!choice) continue;
-      delta += choice.deltaCents || 0;
-      parts.push(choice.label);
-    }
-    return { deltaCents: delta, label: parts.join(' \u00b7 ') };
-  };
-  const subtotalCents = cartEntries.reduce((a, [key, q]) => a + (unitPrice(byId.get(parseCartKey(key).productId)!) + optionDelta(key).deltaCents) * q, 0);
+  // What each cart line sells for, the same sums checkout makes (lib/variants): a variant's own price when it has one,
+  // otherwise the listing's, plus what the other choices add.
+  const lineOf = (key: string) => { const { productId, selections } = parseCartKey(key); const p: any = byId.get(productId); return p ? shopLine(p, selections, wholesale) : null; };
+  const subtotalCents = cartEntries.reduce((a, [key, q]) => a + (lineOf(key)?.unitCents || 0) * q, 0);
 
 
 
   const setQty = (p: ShopProduct, qty: number, cartKey?: string) => {
-    const clamped = Math.max(0, Math.min(qty, p.qtyAvailable));
+    const clamped = Math.max(0, Math.min(qty, cartKey ? lineOf(cartKey)?.qtyAvailable ?? p.qtyAvailable : p.qtyAvailable));
     const key = cartKey || p.id;
     setCart((c) => {
       const next = { ...c, [key]: clamped };
@@ -498,7 +489,7 @@ export default function ShopPage() {
                     <p className="font-black uppercase tracking-tight text-xs leading-tight">{p.name}</p>
                     {p.description && <p className="text-[10px] font-bold text-muted-foreground line-clamp-1">{p.description}</p>}
                     <div className="flex items-baseline gap-1.5">
-                      <p className="font-black text-sm text-primary">{fmt(price)}</p>
+                      <p className="font-black text-sm text-primary">{p.priceVaries ? 'From ' : ''}{fmt(price)}</p>
                       {showStrike && <p className="text-[9px] font-bold text-muted-foreground line-through">{fmt(p.priceCents)}</p>}
                       {p.lowStock && p.inStock && <span className="text-[8px] font-black uppercase tracking-widest text-amber-600">Almost gone</span>}
                       {!p.inStock && <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Sold out</span>}
@@ -551,7 +542,7 @@ export default function ShopPage() {
                     <p className="text-[10px] font-bold text-muted-foreground line-clamp-2">{p.description}</p>
                   )}
                   <div className="flex items-baseline gap-1.5">
-                    <p className="font-black text-base text-primary">{fmt(price)}</p>
+                    <p className="font-black text-base text-primary">{p.priceVaries ? 'From ' : ''}{fmt(price)}</p>
                     {showStrike && <p className="text-[10px] font-bold text-muted-foreground line-through">{fmt(p.priceCents)}</p>}
                   </div>
                   {wholesale && p.wholesaleMinQty ? (
