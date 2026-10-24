@@ -26,6 +26,7 @@ import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
 import { ShopMenu } from '@/components/shop/ShopMenu';
 import { cn } from '@/lib/utils';
 import { GiftCardFace } from '@/components/gift/GiftCardFace';
+import { OfferStrip, type ShopOffer } from '@/components/shop/offers';
 import { designsSync } from '@/lib/gift-designs';
 
 // ─── /shop/[tenantId]/page.tsx ────────────────────────────────────────────────
@@ -115,6 +116,7 @@ export default function ShopPage() {
 
   const [shop, setShop] = useState<ShopInfo | null>(null);
   const [products, setProducts] = useState<ShopProduct[]>([]);
+  const [offers, setOffers] = useState<ShopOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [category, setCategory] = useState('all');
@@ -197,6 +199,7 @@ export default function ShopPage() {
       if (!res.ok) throw new Error(data.error || 'Could not load the shop');
       setShop(data.shop);
       setProducts(data.products);
+      setOffers(Array.isArray(data.offers) ? data.offers : []);
       return true;
     } catch (e: any) {
       if (code) {
@@ -438,6 +441,8 @@ export default function ShopPage() {
         tenantId={tenantId}
         onShopNow={() => document.getElementById('shop-catalog')?.scrollIntoView({ behavior: 'smooth' })}
       />
+
+      <OfferStrip tenantId={tenantId} offers={offers} products={products} />
 
       <div id="shop-catalog" className="max-w-5xl mx-auto px-4 pt-6 pb-2 flex gap-2 overflow-x-auto scroll-mt-24">
         {(gift ? [...categories.slice(0, 1), '__gift', ...categories.slice(1)] : categories).map((c) => (

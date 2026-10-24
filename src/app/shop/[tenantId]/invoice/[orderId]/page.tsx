@@ -172,6 +172,7 @@ export default function InvoicePage({ params }: { params: Promise<{ tenantId: st
         <div className="totals">
           <div className="line"><span className="muted">Subtotal</span><span>{fmt(o.subtotalCents)}</span></div>
           {(o.promo?.cents || 0) > 0 && <div className="line ok"><span>{String(o.promo.label || o.promo.code)}</span><span>−{fmt(o.promo.cents)}</span></div>}
+          {(o.offerSavings?.cents || 0) > 0 && <div className="line ok"><span>{String(o.offerSavings.label)}</span><span>−{fmt(o.offerSavings.cents)}</span></div>}
           {(o.shippingCents || 0) > 0 && <div className="line"><span className="muted">Shipping</span><span>{fmt(o.shippingCents)}</span></div>}
           {(o.taxCents || 0) > 0 && <div className="line"><span className="muted">Tax</span><span>{fmt(o.taxCents)}</span></div>}
           {(o.tipCents || 0) > 0 && <div className="line"><span className="muted">Tip</span><span>{fmt(o.tipCents)}</span></div>}

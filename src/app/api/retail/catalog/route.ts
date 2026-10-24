@@ -8,6 +8,8 @@ import { tenantTimeZone } from '@/lib/tenant-time';
 import { sanitizeShopConfig } from '@/lib/shop-config';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import { busyBanner, leadOf, publicSchedule, scheduleFrom } from '@/lib/ship-promise';
+import { publicOffer } from '@/lib/retail-offers';
+import { boughtTogether, liveOffers } from '@/lib/retail-offers-server';
 
 // ─── /api/retail/catalog/route.ts ─────────────────────────────────────────────
 // GET ?tenantId=...&wholesaleCode=...
@@ -136,6 +138,14 @@ export async function GET(req: NextRequest) {
     })
     .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
 
+  // Bundles, kits, boxes, looks and bought-together picks (lib/retail-offers). Only offers whose products are all on
+  // sale online right now are sent. Wholesale prices don't take bundle savings, so a wholesale buyer is sent none.
+  const shownMap = new Map<string, any>(products.map((p: any) => [String(p.id), p]));
+  const [offerList, pairs] = wholesaleUnlocked ? [[], {}] : await Promise.all([liveOffers(db, tenantId), boughtTogether(db, tenantId)]);
+  const offers = (offerList as any[]).map((o) => publicOffer(o, shownMap)).filter(Boolean).sort((a: any, b: any) => a.order - b.order || String(a.name).localeCompare(String(b.name)));
+  const shownPairs: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(pairs as Record<string, string[]>)) { if (!shownMap.has(k)) continue; const ids = v.filter((x) => shownMap.has(x)); if (ids.length) shownPairs[k] = ids; }
+
   return NextResponse.json({
     shop: {
       tenantId,
@@ -174,6 +184,8 @@ export async function GET(req: NextRequest) {
       serverNow: new Date().toISOString(),
     },
     products,
+    offers,
+    pairs: shownPairs,
   });
   } catch (e: any) {
     console.error('[retail-catalog] fatal:', e?.message);

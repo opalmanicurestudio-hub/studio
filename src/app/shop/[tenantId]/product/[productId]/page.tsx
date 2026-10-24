@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { addToCart, readCart, readWholesaleCode } from '@/lib/shop-cart';
+import { BuyTogether, type ShopOffer } from '@/components/shop/offers';
 import { cn } from '@/lib/utils';
 import { firstChoices, shopLine } from '@/lib/variants';
 import {
@@ -143,6 +144,8 @@ export default function ProductPage() {
 
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [related, setRelated] = useState<any[]>([]);
+  // The whole catalog with its bundles and bought-together pairs, for "Buy it together" (components/shop/offers).
+  const [together, setTogether] = useState<{ products: any[]; offers: ShopOffer[]; pairs: Record<string, string[]> } | null>(null);
   const [showBar, setShowBar] = useState(false);
 
   // What the choices picked sell for, the same sums checkout makes (lib/variants): a variant's own price when it has
@@ -181,6 +184,7 @@ export default function ProductPage() {
         const res = await fetch(`/api/retail/catalog?tenantId=${encodeURIComponent(tenantId)}`);
         const data = await res.json();
         if (!alive || !res.ok) return;
+        setTogether({ products: data.products || [], offers: Array.isArray(data.offers) ? data.offers : [], pairs: data.pairs || {} });
         const all = (data.products || []).filter((p: any) => p.id !== product.id && p.inStock);
         const sameCat = all.filter((p: any) => p.category === product.category);
         setRelated([...sameCat, ...all.filter((p: any) => p.category !== product.category)].slice(0, 6));
@@ -525,6 +529,10 @@ export default function ProductPage() {
             </Card>
           )}
         </div>
+          {together && !wholesale && product && (
+            <BuyTogether tenantId={tenantId} product={product} selections={selections} products={together.products} offers={together.offers} pairs={together.pairs}
+              onAdded={(n) => { setCartCount(n); toast({ title: 'Added to your bag', description: 'Each item is in your cart at its own price; the saving shows at checkout.' }); }} />
+          )}
           {cfg.showRelated && related.length > 0 && (
             <section aria-labelledby="related-heading" className="space-y-3 pt-2">
               <h2 id="related-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">

@@ -333,6 +333,8 @@ export async function GET(req: NextRequest) {
       hasPhone: !!order.customerPhone,
       subtotalCents: order.subtotalCents || 0,
       promo: order.promo ? { code: String(order.promo.code || ''), label: String(order.promo.label || order.promo.code || ''), cents: Number(order.promo.cents) || 0, freeShipping: !!order.promo.freeShipping } : null,
+      // Bundle savings (lib/retail-offers): one line, named for the offer when there is one.
+      offerSavings: (Number(order.offerCents) || 0) > 0 ? { label: String(order.offerLabel || 'Bundle savings'), cents: Number(order.offerCents) || 0 } : null,
       taxCents: order.taxCents || 0,
       shippingCents: order.shippingCents || 0,
       refundedCents: order.refundedCents || 0,

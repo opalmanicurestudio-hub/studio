@@ -757,6 +757,18 @@ service cloud.firestore {
     match /tenants/{tenantId}/wholesaleAccounts/{accountId} {
       allow read, write: if isManager(tenantId);
     }
+    // SHOP OFFERS: bundles, kits, build-your-own boxes, shoppable looks and bought-together picks (lib/retail-offers).
+    // A saving is money off, so only managers make or change them; the team can see them. Checkout and the shop read
+    // them on the server and work every saving out again from the cart, so nothing here sets a price.
+    match /tenants/{tenantId}/retailOffers/{offerId} {
+      allow read: if isTeam(tenantId);
+      allow write: if isManager(tenantId);
+    }
+    // What customers buy together, worked out by the server from paid orders (lib/retail-offers-server).
+    match /tenants/{tenantId}/shopCache/{docId} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
     // RENT LEDGER. Managers record rent payments and credits; online-shop sale credits for renters are written only by
     // the server (lib/renter-sales-server), so nobody can add one from a browser.
     match /tenants/{tenantId}/rentLedger/{entryId} {
@@ -777,7 +789,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache',
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',

@@ -62,7 +62,7 @@ interface StatusOrder {
   pickupAt?: string; tipCents?: number;
   businessName: string; poNumber: string; customerName: string;
   lines: StatusLine[];
-  subtotalCents: number; taxCents: number; shippingCents: number; promo?: { code: string; label: string; cents: number; freeShipping: boolean } | null;
+  subtotalCents: number; taxCents: number; shippingCents: number; promo?: { code: string; label: string; cents: number; freeShipping: boolean } | null; offerSavings?: { label: string; cents: number } | null;
   refundedCents: number; totalCents: number;
   timestamps: Record<string, string | null>;
   pickupPin?: string | null; collector?: string | null; collectorEditable?: boolean;
@@ -1432,6 +1432,7 @@ export default function OrderStatusPage() {
             <div className="space-y-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
               <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{fmt(order.subtotalCents)}</span></div>
               {order.promo && order.promo.cents > 0 && <div className="flex justify-between" style={{ color: '#1f7a4d' }}><span>{order.promo.label}</span><span className="font-mono">−{fmt(order.promo.cents)}</span></div>}
+              {order.offerSavings && order.offerSavings.cents > 0 && <div className="flex justify-between" style={{ color: '#1f7a4d' }}><span>{order.offerSavings.label}</span><span className="font-mono">−{fmt(order.offerSavings.cents)}</span></div>}
               {order.promo?.freeShipping && <div className="flex justify-between" style={{ color: '#1f7a4d' }}><span>{order.promo.code}: free shipping</span></div>}
               {order.taxCents > 0 && <div className="flex justify-between"><span>Tax</span><span className="font-mono">{fmt(order.taxCents)}</span></div>}
               {order.shippingCents > 0 && <div className="flex justify-between"><span>Shipping</span><span className="font-mono">{fmt(order.shippingCents)}</span></div>}

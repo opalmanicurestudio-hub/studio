@@ -22,7 +22,8 @@ export type Tenders = { cardCents: number; creditCents: number; giftCents: numbe
 
 /** What the order was sold for, by part. `taxCents` is the final tax (Stripe's own figure for Stripe Tax orders). */
 export function orderParts(o: any): { itemsCents: number; promoCents: number; shippingCents: number; taxCents: number; tipCents: number; totalCents: number } {
-  const promoCents = Math.min(c0(o?.subtotalCents), c0(o?.promo?.cents ?? o?.discountCents));
+  // Everything off the items: a promo code and bundle savings (discountCents holds both; older orders have promo only).
+  const promoCents = Math.min(c0(o?.subtotalCents), c0(o?.discountCents ?? o?.promo?.cents));
   const itemsCents = Math.max(0, c0(o?.subtotalCents) - promoCents);
   const shippingCents = c0(o?.shippingCents); const taxCents = c0(o?.taxCents); const tipCents = c0(o?.tipCents);
   return { itemsCents, promoCents, shippingCents, taxCents, tipCents, totalCents: itemsCents + shippingCents + taxCents + tipCents };

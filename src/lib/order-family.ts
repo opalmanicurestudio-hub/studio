@@ -51,6 +51,7 @@ export function lineFor(l: any, qty: number): any {
   if (qty === q0) return out;
   if (l?.promoCents != null) out.promoCents = Math.round(n(l.promoCents) / q0) * qty;
   if (l?.lineDiscountCents != null) out.lineDiscountCents = Math.round(n(l.lineDiscountCents) / q0) * qty;
+  if (l?.offerCents != null) out.offerCents = Math.round(n(l.offerCents) / q0) * qty;
   return out;
 }
 

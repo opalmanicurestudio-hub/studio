@@ -24,6 +24,8 @@ import { finalSaleFor } from '@/lib/return-eligibility';
 import { dayKey, formatDay, tenantTimeZone } from '@/lib/tenant-time';
 import { verifyQuote, verifyRateFacts } from '@/lib/shipping-quote';
 import { dayLabel, isCalendarDay, orderPromise, scheduleFrom } from '@/lib/ship-promise';
+import { capSavings, matchOffers, savingsLabel, type MatchResult } from '@/lib/retail-offers';
+import { liveOffers } from '@/lib/retail-offers-server';
 
 import { resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import {
@@ -450,15 +452,42 @@ async function handleCheckout(req: NextRequest) {
   // ── Server-side pricing ───────────────────────────────────────────────────
   const subtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qtyOrdered, 0);
 
+  // ── Bundles, kits, boxes, looks and bought-together savings (lib/retail-offers), worked out from what is in this cart
+  // with the shop's live offers: never from anything the browser says. Item prices stay as they are; the saving is its
+  // own line, shared across the items it covers. Wholesale prices don't take them.
+  let offers: MatchResult = { applied: [], byLine: {}, cents: 0, offersByLine: {}, unitsByLine: {} };
+  if (priceTier !== 'wholesale') {
+    const list = await liveOffers(db, tenantId);
+    if (list.length) offers = matchOffers((lines as any[]).map((l) => ({ id: String(l.id || l.lineId), productId: String(l.productId), ...(l.listingId ? { listingId: String(l.listingId) } : {}), unitPriceCents: l.unitPriceCents, qty: l.qtyOrdered })), list);
+  }
+  // A line only partly in an offer (3 of an item, 1 of them in a kit) is split in two, so the saving sits only on the
+  // units it covers: a refund of the others gives back their full price, and a promo code can still apply to them.
+  for (const l of [...lines] as any[]) {
+    const id = String(l.id || l.lineId); const covered = offers.unitsByLine[id] || 0;
+    if (!covered || covered >= l.qtyOrdered) continue;
+    const rest = JSON.parse(JSON.stringify(l)); rest.lineId = `line-${nanoid(8)}`; delete rest.id; rest.qtyOrdered = l.qtyOrdered - covered;
+    l.qtyOrdered = covered;
+    lines.splice(lines.indexOf(l) + 1, 0, rest);
+  }
+  // The pre-order record names every unit sold, so it follows the split.
+  preorderLines.splice(0, preorderLines.length, ...(lines as any[]).filter((l) => l.preorder === true));
+  const offerLineIds = new Set(Object.keys(offers.byLine));
+
   // ── A promo code: checked again here, against the priced cart (lib/promo-codes). It comes off as its own line;
   // each covered line records its share so a refund gives back what was paid for it.
   let promo: import('@/lib/promo-codes').PromoResult | null = null;
   if (body.promoCode && String(body.promoCode).trim() && priceTier !== 'wholesale') {
     const { checkPromo } = await import('@/lib/promo-codes-server');
     const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || 'shop';
-    const r = await checkPromo(db, tenantId, String(body.promoCode), lines.map((l: any) => ({ id: l.id || l.lineId, productId: l.productId, ...(l.listingId ? { listingId: l.listingId } : {}), unitPriceCents: l.unitPriceCents, qtyOrdered: l.qtyOrdered })), { email: customerEmail, who: ip });
+    // A code doesn't take money off items a bundle already takes money off (the checkout page says so). A cart that is
+    // all bundle is checked as a whole, so a free-shipping code still works; any other code is refused.
+    const open = (lines as any[]).filter((l) => !offerLineIds.has(String(l.id || l.lineId)));
+    const promoLines = open.length ? open : (lines as any[]);
+    const r = await checkPromo(db, tenantId, String(body.promoCode), promoLines.map((l: any) => ({ id: l.id || l.lineId, productId: l.productId, ...(l.listingId ? { listingId: l.listingId } : {}), unitPriceCents: l.unitPriceCents, qtyOrdered: l.qtyOrdered })), { email: customerEmail, who: ip });
+    if (r.ok && !open.length && !r.freeShipping) return NextResponse.json({ error: 'This code can’t be used on items that are already in a bundle.', promoError: true }, { status: 400 });
     if (!r.ok) return NextResponse.json({ error: r.error || 'That code can’t be used.', promoError: true }, { status: 400 });
-    promo = r;
+    // On a cart that is all bundle, only the code's free shipping is kept: its money off never lands on bundle items.
+    promo = open.length ? r : { ...r, cents: 0, byLine: {} };
   }
 
   const rs = tenant.retailSettings || {};
@@ -516,17 +545,27 @@ async function handleCheckout(req: NextRequest) {
     Math.max(0, Math.floor(Number(body.tipCents) || 0)),
     Math.max(subtotalCents, 50_000)
   );
-  // The card always has at least the processor's 50¢ to collect.
+  // Bundle savings, then a code, are lowered so the card keeps the processor's 50¢.
+  if (offers.cents > 0) offers = capSavings(offers, subtotalCents + shippingCents + tipCents - 50);
+  const offerCents = offers.cents;
   if (promo && promoCents > 0) {
     const { capForMinimum } = await import('@/lib/promo-codes');
-    const capped = capForMinimum(promo, subtotalCents + shippingCents + tipCents);
+    const capped = capForMinimum(promo, subtotalCents - offerCents + shippingCents + tipCents);
     if (!capped.ok) return NextResponse.json({ error: capped.error, promoError: true }, { status: 400 });
     promo = capped; promoCents = capped.cents;
   }
-  const taxCents = taxCents0(subtotalCents - promoCents);
-  for (const l of lines as any[]) { const off = promo?.byLine?.[l.id || l.lineId]; if (off) l.promoCents = off; }
+  // Everything that comes off the items: a promo code and bundle savings. Each line carries its share of both as
+  // promoCents (what refunds and returns read), and its bundle share again as offerCents, so either can be told apart.
+  const discountAll = promoCents + offerCents;
+  const taxCents = taxCents0(subtotalCents - discountAll);
+  for (const l of lines as any[]) {
+    const id = String(l.id || l.lineId);
+    const off = (promo?.byLine?.[id] || 0) + (offers.byLine[id] || 0);
+    if (off) l.promoCents = off;
+    if (offers.byLine[id]) { l.offerCents = offers.byLine[id]; l.offerIds = offers.offersByLine[id] || []; }
+  }
   const pickupAt = String(body.pickupAt || '').slice(0, 40);
-  const totalCents = subtotalCents - promoCents + taxCents + shippingCents + tipCents;
+  const totalCents = subtotalCents - discountAll + taxCents + shippingCents + tipCents;
   if (totalCents <= 0) return NextResponse.json({ error: 'Order total must be positive' }, { status: 400 });
 
   // ── Check the address, and snapshot the policy ────────────────────────────
@@ -647,7 +686,10 @@ async function handleCheckout(req: NextRequest) {
     poNumber: priceTier === 'wholesale' ? String(body.business?.poNumber || '').trim() : '',
     lines,
     subtotalCents,
-    ...(promo ? { promo: { code: promo.code, discountId: promo.discountId, label: promo.label, cents: promoCents, freeShipping: promo.freeShipping, shippingSavedCents }, discountCents: promoCents } : {}),
+    ...(promo ? { promo: { code: promo.code, discountId: promo.discountId, label: promo.label, cents: promoCents, freeShipping: promo.freeShipping, shippingSavedCents } } : {}),
+    // Bundle savings, by offer, and everything off the items together (what the books, refunds and tax read).
+    ...(offerCents > 0 ? { offers: offers.applied.map((a) => ({ offerId: a.offerId, name: a.name, kind: a.kind, cents: a.cents, groups: a.groups, ...(a.pct ? { pct: a.pct } : {}) })), offerCents, offerLabel: savingsLabel(offers.applied) } : {}),
+    ...(discountAll > 0 ? { discountCents: discountAll } : {}),
     taxCents,
     taxMode: stripeTax ? 'stripe' : 'flat',
     shippingCents,
@@ -829,7 +871,7 @@ async function handleCheckout(req: NextRequest) {
       const capRaw = Number(body.storeCreditCapCents);
       const cap = Number.isFinite(capRaw) && capRaw > 0 ? Math.floor(capRaw) : null;
       const available = cap !== null ? Math.min(rawAvailable, cap) : rawAvailable;
-      const chargeable = subtotalCents - promoCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
+      const chargeable = subtotalCents - discountAll + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
 
       // ── FULL-CREDIT, ZERO-CHARGE PATH ────────────────────────────────────
       // When credit covers the ENTIRE total, Stripe has nothing to collect — its 50¢ minimum made full redemption
@@ -883,7 +925,7 @@ async function handleCheckout(req: NextRequest) {
       if (g.promo) return NextResponse.json({ error: 'Bonus cards can be used during your visit, but they cannot be used in the online shop.' }, { status: 400 });
       if (g.limits && tenant?.giftCardSettings?.advancedLimits === true) { const { giftCap } = await import('@/lib/gift-limits');
         const lim = giftCap(g, { channel: 'shop', lines: [{ kind: 'product', cents: subtotalCents }] }, true); if (lim.error) return NextResponse.json({ error: lim.error }, { status: 400 }); }
-      const chargeable = subtotalCents - promoCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
+      const chargeable = subtotalCents - discountAll + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
       // ── The gift card covers the WHOLE order: nothing for the card processor to collect, so skip it (its 50¢
       // minimum would otherwise leave 50¢ to pay). Any store credit is left untouched for next time. Same atomic
       // finish as the store-credit path above; flat/no-tax only, because with automatic tax the total isn't known yet.
@@ -937,18 +979,18 @@ async function handleCheckout(req: NextRequest) {
         shippingCents, address: body.shippingAddress || null,
       });
     } catch (e: any) { console.error(`[checkout] Stripe Tax couldn’t work out the tax for tenant ${tenantId} — using the flat rate:`, String(e?.raw?.message || e?.message || e).slice(0, 200)); }
-    taxLineCents = calc ? calc.cents : Math.round((subtotalCents - promoCents) * ((Number(rs.taxRatePercent) || 0) / 100));
+    taxLineCents = calc ? calc.cents : Math.round((subtotalCents - discountAll) * ((Number(rs.taxRatePercent) || 0) / 100));
     await orderRef.set({
       taxMode: calc ? 'stripe_calc' : 'flat_fallback', ...(calc ? { taxCalculationId: calc.id } : {}),
-      taxCents: taxLineCents, totalCents: subtotalCents - promoCents + taxLineCents + shippingCents + tipCents,
+      taxCents: taxLineCents, totalCents: subtotalCents - discountAll + taxLineCents + shippingCents + tipCents,
     }, { merge: true });
   }
 
-  // ONE Stripe discount for everything that comes off: the promo code, store credit and a gift card.
+  // ONE Stripe discount for everything that comes off: bundle savings, the promo code, store credit and a gift card.
   {
-    const offCents = promoCents + creditAppliedCents + giftHeldCents;
+    const offCents = discountAll + creditAppliedCents + giftHeldCents;
     if (offCents > 0) {
-      const name = [promo?.code ? promo.code : '', creditAppliedCents ? 'Store credit' : '', giftHeldCents ? giftLabel : ''].filter(Boolean).join(' + ').slice(0, 40) || 'Discount';
+      const name = [offerCents ? 'Bundle savings' : '', promo?.code ? promo.code : '', creditAppliedCents ? 'Store credit' : '', giftHeldCents ? giftLabel : ''].filter(Boolean).join(' + ').slice(0, 40) || 'Discount';
       try {
         const coupon = await stripe.coupons.create({ amount_off: offCents, currency: 'usd', duration: 'once', name }, { stripeAccount: stripeAccountId });
         creditCoupon = coupon.id;
@@ -981,11 +1023,11 @@ async function handleCheckout(req: NextRequest) {
         `[checkout] Stripe Tax session failed for tenant ${tenantId} — falling back to flat rate:`,
         String(taxErr?.raw?.message || taxErr?.message || taxErr)
       );
-      const fbTaxCents = Math.round((subtotalCents - promoCents) * ((Number(rs.taxRatePercent) || 0) / 100));
+      const fbTaxCents = Math.round((subtotalCents - discountAll) * ((Number(rs.taxRatePercent) || 0) / 100));
       await orderRef.set({
         taxMode: 'flat_fallback',
         taxCents: fbTaxCents,
-        totalCents: subtotalCents - promoCents + fbTaxCents + shippingCents + tipCents,
+        totalCents: subtotalCents - discountAll + fbTaxCents + shippingCents + tipCents,
       }, { merge: true });
       session = await createCheckoutSession(stripe, 
         { ...sessionParams(buildLineItems(false, fbTaxCents), false), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) },

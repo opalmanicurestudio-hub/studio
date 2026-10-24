@@ -170,6 +170,7 @@ export async function SlipSheet({ tenantId, orderId, order, tenant, origin }: { 
         <div className="totals">
           <p className="line"><span>Subtotal</span><span>{money(order.subtotalCents || 0)}</span></p>
           {(order.promo?.cents || 0) > 0 ? <p className="line"><span>{String(order.promo.label || order.promo.code)}</span><span>−{money(order.promo.cents)}</span></p> : null}
+          {(order.offerCents || 0) > 0 ? <p className="line"><span>{String(order.offerLabel || 'Bundle savings')}</span><span>−{money(order.offerCents)}</span></p> : null}
           {order.taxCents > 0 ? <p className="line"><span>Tax</span><span>{money(order.taxCents)}</span></p> : null}
           {order.shippingCents > 0 ? <p className="line"><span>{order.method === 'ship' ? 'Shipping' : 'Delivery'}</span><span>{money(order.shippingCents)}</span></p> : null}
           {order.tipCents > 0 ? <p className="line"><span>Tip</span><span>{money(order.tipCents)}</span></p> : null}

@@ -25,6 +25,7 @@ import {
   cartExpiresAt, clearCart, parseCartKey, readCart, readWholesaleCode,
   touchCartExpiry, writeCart, writeWholesaleCode,
 } from '@/lib/shop-cart';
+import { matchOffers, savingsLabel } from '@/lib/retail-offers';
 import { shopLine } from '@/lib/variants';
 import { formatPromiseDay, preorderNotice } from '@/lib/preorder-terms';
 import {
@@ -48,6 +49,8 @@ export default function CheckoutPage() {
 
   const [shop, setShop] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
+  // The shop's live bundles, kits, boxes and looks (lib/retail-offers): their savings are shown here as checkout will take them.
+  const [offers, setOffers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [wholesaleCode, setWholesaleCode] = useState('');
@@ -220,6 +223,7 @@ export default function CheckoutPage() {
         // ship-by date the order isn't stored with.
         { const t = Date.parse(String(data.shop?.serverNow || '')); setClockOffset(Number.isFinite(t) ? t - Date.now() : 0); }
         setProducts(data.products);
+        setOffers(Array.isArray(data.offers) ? data.offers : []);
         if (code) setWholesaleCode(code);
         return true;
       } catch (e: any) {
@@ -321,6 +325,10 @@ export default function CheckoutPage() {
   }, [preorderKey]);
 
   const subtotalCents = cartEntries.reduce((a, [key, q]) => a + (lineOf(key)?.unitCents || 0) * q, 0);
+  // Bundle savings, worked out from the bag the same way checkout works them out (it checks again before charging).
+  const offerMatch = useMemo(() => (wholesale || !offers.length) ? null : matchOffers(cartEntries.map(([key, q]) => ({ id: key, productId: parseCartKey(key).productId, unitPriceCents: lineOf(key)?.unitCents || 0, qty: q })), offers),
+    [offers, wholesale, cartEntries.map(([k, q]) => `${k}:${q}`).join('|'), products]); // eslint-disable-line react-hooks/exhaustive-deps
+  const offerCents = offerMatch?.cents || 0;
   const tipCents = shop?.tipsEnabled && tipPct > 0 ? Math.round((subtotalCents * tipPct) / 100) : 0;
   // With the choices, so the server knows which variant each line is (a code made for one variant still applies).
   const promoLines = () => cartEntries.map(([key, q]) => { const k = parseCartKey(key); return { productId: k.productId, selections: k.selections, qty: q, unitPriceCents: lineOf(key)?.unitCents || 0 }; });
@@ -804,6 +812,11 @@ export default function CheckoutPage() {
             <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
               <span>Subtotal</span><span className="font-mono">{fmt(subtotalCents)}</span>
             </div>
+            {offerCents > 0 && offerMatch && (
+              <div className="flex justify-between text-xs font-bold tracking-widest" style={{ color: '#1f7a4d' }}>
+                <span>{savingsLabel(offerMatch.applied)}</span><span className="font-mono">−{fmt(offerCents)}</span>
+              </div>
+            )}
             {promo && promoCents > 0 && (
               <div className="flex justify-between text-xs font-bold tracking-widest" style={{ color: '#1f7a4d' }}>
                 <span>{promo.label}</span><span className="font-mono">−{fmt(promoCents)}</span>
@@ -932,6 +945,7 @@ export default function CheckoutPage() {
             )}
             {!wholesale && (
             <div className={cn('rounded-2xl border-2 p-3 transition-all', promo && 'border-foreground/60 bg-muted/20')}>
+              {offerCents > 0 && <p className="mb-2 text-[12px] text-muted-foreground">Codes don’t take money off items already in a bundle.</p>}
               {!promoOpen && !promo ? <button type="button" onClick={() => setPromoOpen(true)} className="text-[11px] font-black uppercase tracking-widest underline underline-offset-4">Have a promo code?</button> : promo ? (
                 <div className="flex items-center gap-3">
                   <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[13px] text-white" style={{ background: '#1f7a4d' }}>✓</span>
@@ -991,7 +1005,7 @@ export default function CheckoutPage() {
               onClick={() => void pay()}
               className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20"
             >
-              {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - promoCents) + (promo?.freeShipping ? 0 : shippingCents) + tipCents)} + tax`}
+              {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - offerCents - promoCents) + (promo?.freeShipping ? 0 : shippingCents) + tipCents)} + tax`}
             </Button>)}
             <p className="text-[9px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
               {method === 'ship' && !digitalOnlyCart ? 'Secure payment · Tracking on your order page' : digitalOnlyCart ? 'Secure payment · Opens the moment you pay' : <>Secure payment &middot; You&apos;ll get a pickup QR code</>}

@@ -279,6 +279,7 @@ export async function sendOrderConfirmation(
     <table style="width:100%;border-collapse:collapse">
       <tr><td style="font-size:13px;color:#64748b">Subtotal</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.subtotalCents)}</td></tr>
       ${(order.promo?.cents || 0) > 0 ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.promo.label || order.promo.code || 'Promo code'))}</td><td style="font-size:13px;text-align:right;color:#1f7a4d">\u2212${money(order.promo.cents)}</td></tr>` : ''}
+      ${(order.offerCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.offerLabel || 'Bundle savings'))}</td><td style="font-size:13px;text-align:right;color:#1f7a4d">\u2212${money(order.offerCents)}</td></tr>` : ''}
       ${order.promo?.freeShipping ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.promo.code || 'Promo code'))}: free shipping</td><td style="font-size:13px;text-align:right;color:#1f7a4d">${(order.promo.shippingSavedCents || 0) > 0 ? `\u2212${money(order.promo.shippingSavedCents)}` : ''}</td></tr>` : ''}
       ${(order.shippingCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Shipping</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.shippingCents)}</td></tr>` : ''}
       ${(order.taxCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Sales tax</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.taxCents)}</td></tr>` : ''}
