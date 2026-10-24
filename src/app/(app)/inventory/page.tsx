@@ -1470,6 +1470,12 @@ export default function InventoryPage() {
     const book = codeBook(inventory || [], { equipment: true });
     const found = lookupCode(book, data, { variants: false });
     setIsScannerOpen(false);
+    if (found.kind === 'none' && found.owner) {
+      // An archived product's code: it's shown in the archive.
+      setActiveFilter('all'); setAttentionFilter(null); setShowArchived(true); setSearchTerm(String(found.owner.id));
+      toast({ title: 'Product found in the archive', description: `That’s ${found.owner.name || 'an archived product'}. Bring it back to use it again.` });
+      return;
+    }
     if (found.kind === 'none') {
       toast({ variant: 'destructive', title: 'No product has this code', description: 'Open the product and add it (Barcode), so it scans everywhere.' });
       return;
@@ -1482,7 +1488,8 @@ export default function InventoryPage() {
       toast({ title: 'Product found', description: vs.length ? `${found.item.name}, which comes in ${vs.length} variants: ${vs.slice(0, 4).map((v: any) => v.name).join(', ')}${vs.length > 4 ? ' and more' : ''}.` : `Showing ${found.item.name}.` });
       return;
     }
-    setSearchTerm(String(data).trim());
+    // The code as the products keep it (a tag's reader may have typed colons between its bytes).
+    setSearchTerm(found.kind === 'clash' ? found.code : String(data).trim());
     toast({ variant: 'destructive', title: `That code is on ${found.kind === 'clash' ? found.items.length : 2} products`, description: 'They’re shown below. Choose which keeps it in Inventory, Codes and listings.' });
   }, [inventory, toast]);
   

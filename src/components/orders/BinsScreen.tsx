@@ -10,15 +10,17 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { binOf, compareBins, normalizeBin } from '@/lib/bins';
-import { codeBook, lookupCode } from '@/lib/code-lookup';
+import { codeBook, lookupCode, notHereWords } from '@/lib/code-lookup';
 import { printShelfLabels, printToteTags } from '@/lib/shelf-labels-client';
 import { parseTote } from '@/lib/totes';
 import { Btn, C, Group, LargeTitle, UndoBar, muted, Ic } from './ui';
 
+/** The shop's products a shelf can be labelled for. */
+const shelfProduct = (i: any) => i.type === 'retail' && i.archived !== true;
 /** The product a scan is, by any code it carries (lib/code-lookup, as every scanner reads it): a listing itself, since
- *  it's the shelf being labelled. A code two products share finds neither. */
+ *  it's the shelf being labelled. A code two products share finds neither. `items`: every item in inventory. */
 export function findProduct(items: any[], raw: string): any | null {
-  const found = lookupCode(codeBook(items), raw, { variants: false });
+  const found = lookupCode(codeBook(items, { only: shelfProduct }), raw, { variants: false });
   return found.kind === 'product' ? found.item : null;
 }
 
@@ -27,7 +29,8 @@ export function BinsScreen() {
   const { selectedTenant } = useTenant() as any;
   const { inventory } = useInventory() as any;
   const tenantId = String(selectedTenant?.id || '');
-  const products = React.useMemo(() => (inventory || []).filter((i: any) => i.type === 'retail' && i.archived !== true), [inventory]);
+  const products = React.useMemo(() => (inventory || []).filter(shelfProduct), [inventory]);
+  const book = React.useMemo(() => codeBook(inventory || [], { only: shelfProduct }), [inventory]);
   const noBin = React.useMemo(() => products.filter((i: any) => !binOf(i)).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))), [products]);
   const withBin = React.useMemo(() => products.filter((i: any) => binOf(i)).sort((a: any, b: any) => compareBins(binOf(a), binOf(b))), [products]);
   const [current, setCurrent] = React.useState<any | null>(null);
@@ -54,10 +57,11 @@ export function BinsScreen() {
   };
   const onScan = (raw: string) => {
     if (current) { void save(raw); return; }
-    const found = lookupCode(codeBook(products), raw, { variants: false });
+    const found = lookupCode(book, raw, { variants: false });
     if (found.kind === 'product') { scanFeedback(true); pick(found.item); return; }
     scanFeedback(false);
-    setMsg({ ok: false, text: found.kind === 'clash' ? `That code is on ${found.items.length} products. Choose which keeps it in Inventory, Codes and listings.` : 'No product has that code. Check its barcode or SKU on the product.' });
+    setMsg({ ok: false, text: found.kind === 'clash' ? `That code is on ${found.items.length} products. Choose which keeps it in Inventory, Codes and listings.`
+      : notHereWords(found, 'isn’t one of the shop’s products', 'shelve') || 'No product has that code. Check its barcode or SKU on the product.' });
   };
   const print = (rows: { bin: string; name: string }[]) => { if (!rows.length) return; if (!printShelfLabels(rows)) setToast('Allow pop-ups to print labels.'); };
 

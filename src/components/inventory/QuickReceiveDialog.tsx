@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { codeBook, lookupCode, packWords } from '@/lib/code-lookup';
+import { codeBook, lookupCode, notHereWords, packWords } from '@/lib/code-lookup';
 import { cn } from '@/lib/utils';
 
 // ─── QuickReceiveDialog v2 ────────────────────────────────────────────────────
@@ -57,6 +57,8 @@ export function QuickReceiveDialog({
       .sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''))),
     [inventory]
   );
+  // Every item's codes (archived ones too, so their codes are never taken for another product's).
+  const book = useMemo(() => codeBook(inventory || [], { equipment: true }), [inventory]);
 
   const visible = useMemo(() => {
     const t = term.trim().toLowerCase();
@@ -79,7 +81,7 @@ export function QuickReceiveDialog({
   const onScan = (value: string) => {
     const raw = value.trim();
     // Any code the product carries, as every scanner reads it (lib/code-lookup); a case's code counts the whole case.
-    const found = lookupCode(codeBook(items, { equipment: true }), raw);
+    const found = lookupCode(book, raw);
     if (found.kind === 'product') {
       addItem(found.item, true, found.pack);
       if (found.pack > 1) toast({ title: `${found.item.name}: ${packWords(found)}`, description: `Counted ${found.pack}. Change the number in the list if the case wasn’t full.` });
@@ -88,6 +90,8 @@ export function QuickReceiveDialog({
     scanFeedback(false);
     if (found.kind === 'choose') { toast({ variant: 'destructive', title: `That’s ${found.listing.name}’s own code`, description: `Tap the variant you received in the list: ${found.variants.map((v: any) => v.name).slice(0, 4).join(', ')}.` }); return; }
     if (found.kind === 'clash') { toast({ variant: 'destructive', title: `That code is on ${found.items.length} products`, description: 'Tap the right one in the list. Choose which keeps the code in Inventory, Codes and listings.' }); return; }
+    const why = notHereWords(found, 'can’t be received', 'receive');
+    if (why) { toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: why }); return; }
     toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: 'No product has this code yet. Close the scanner and tap the item in the list, then add the code to it (edit the product, Barcode) so it scans next time.' });
   };
 

@@ -1634,6 +1634,7 @@ export function usePosEngine() {
     if (hit.kind === 'product') { if (hit.pack > 1) { setPackChoice({ item: hit.item, pack: hit.pack, packKind: hit.packKind || 'case' }); return; } addProductChecked(hit.item); return; }
     if (hit.kind === 'choose') { setVariantChoice({ parent: hit.parent, variants: hit.variants }); return; }
     if (hit.kind === 'clash') { setVariantChoice({ parent: { name: 'product' }, variants: hit.items, clash: true }); return; }
+    if (hit.kind === 'unsold') { toast({ variant: 'destructive', title: 'Not added', description: hit.text }); return; }
     if (hit.kind === 'ticket') {
       const r: any = hit.record;
       const ready = !hit.walkIn && (readyForCheckoutAppointments || []).some((a: any) => a.id === r.id);

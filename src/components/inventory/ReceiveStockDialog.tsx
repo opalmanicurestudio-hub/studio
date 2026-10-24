@@ -25,7 +25,8 @@ import { ScrollArea } from '../ui/scroll-area';
 import { type InventoryItem, type Order } from '@/lib/data';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { unitsPerPallet } from '@/lib/retail-orders';
-import { codeBook, lookupCode, pickFor } from '@/lib/code-lookup';
+import { askWhich, codeBook, lookupCode, notHereWords, pickFor } from '@/lib/code-lookup';
+import { codeForm } from '@/lib/code-form';
 import { Truck, Sparkles, CheckCircle2, AlertTriangle, Calendar as CalendarIcon, PackageOpen, ArrowRight, Package, Check, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -61,27 +62,35 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   const [receivedItems, setReceivedItems] = useState<ReceivedItem[]>([]);
   const [scanOpen, setScanOpen] = useState(false);
 
+  const [scanNote, setScanNote] = useState('');
+  // Every item's codes, tools and supplies included: a delivery can hold anything in inventory.
+  const book = React.useMemo(() => codeBook(inventory as any[], { equipment: true }), [inventory]);
   const onReceiveScan = (value: string) => {
     const raw = value.trim();
     // The product the scan is: any code it carries, as every scanner reads it (lib/code-lookup). A listing's own code is
-    // its one variant on this delivery; a case's or pallet's code counts the whole case or pallet.
-    const found = lookupCode(codeBook(inventory as any[]), raw);
+    // its one variant on this delivery (with two of them here, it asks which); a case's or pallet's code counts the
+    // whole case or pallet. Typed in, a product's name finds its line too.
+    const found = lookupCode(book, raw);
     const pack = found.kind === 'product' ? found.pack : 1;
-    setReceivedItems((prev) => {
-      const picked = pickFor(found, prev, (ri) => ri.productId).pick;
-      const idx = picked ? prev.indexOf(picked) : prev.findIndex((ri) => ri.productId === raw || ri.productId.toLowerCase() === raw.toLowerCase());
-      if (idx === -1) {
-        scanFeedback(false);
-        return prev;
-      }
-      scanFeedback(true);
-      return prev.map((ri, i) => {
-        if (i !== idx) return ri;
-        const remaining = Math.max(0, ri.quantityOrdered - ri.quantityReceived);
-        const step = pack > 1 ? (remaining > 0 ? Math.min(pack, remaining) : pack) : 1;
-        return { ...ri, quantityReceived: ri.quantityReceived + step };
-      });
-    });
+    const picked = pickFor(found, receivedItems, (ri) => ri.productId);
+    const ask = askWhich(found, picked, (ri) => ri.productId, (ri) => ri.productName, 'this delivery');
+    if (ask) { scanFeedback(false); setScanNote(ask); return; }
+    const lower = raw.toLowerCase(); const name = codeForm(raw);
+    const hit = picked.pick || receivedItems.find((ri) => ri.productId === raw || ri.productId.toLowerCase() === lower)
+      || (name ? receivedItems.find((ri) => codeForm(ri.productName) === name) : undefined) || null;
+    if (!hit) {
+      scanFeedback(false);
+      setScanNote(found.kind === 'product' ? `That’s ${found.item.name || 'another product'}, which isn’t on this delivery.`
+        : notHereWords(found, 'isn’t on this delivery', 'receive') || 'Nothing on this delivery has that code. Count it in the list below.');
+      return;
+    }
+    scanFeedback(true); setScanNote('');
+    setReceivedItems((prev) => prev.map((ri) => {
+      if (ri.productId !== hit.productId) return ri;
+      const remaining = Math.max(0, ri.quantityOrdered - ri.quantityReceived);
+      const step = pack > 1 ? (remaining > 0 ? Math.min(pack, remaining) : pack) : 1;
+      return { ...ri, quantityReceived: ri.quantityReceived + step };
+    }));
   };
 
   useEffect(() => {
@@ -249,6 +258,7 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
               label="Scan each unit as you unbox. A case’s code counts the whole case."
             />
           )}
+          {scanOpen && scanNote && <p role="status" className="text-[13px] text-muted-foreground">{scanNote}</p>}
         </div>
         <ScrollArea className="flex-1">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>

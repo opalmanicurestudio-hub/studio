@@ -86,12 +86,36 @@ M._load = function (request: string, ...rest: any[]) {
   check('…a shared code asks which product', h.kind === 'clash' && h.items.length === 2);
   h = ps.identifyPosScan('XQ12ZZ', { inventory: inv, appointments: [{ id: 'ap', shortCode: 'XQ12ZZ' }], walkIns: [] });
   check('…anything else is a ticket, as before', h.kind === 'ticket' && h.record.id === 'ap');
+  // A code that's exactly an item the desk doesn't sell is that item: never a product with a similar number or a code
+  // that differs by a dash.
+  const shelf = [
+    { id: 'A', type: 'retail', name: 'Retail cream', sku: '000123456', msrp: 20 },
+    { id: 'B', type: 'professional', name: 'Backbar cream', barcode: '123456' },
+    { id: 'X', type: 'retail', status: 'archived', name: 'Old toner', barcode: '7654321', msrp: 9 },
+    { id: 'Y', type: 'retail', name: 'New toner', sku: '0007654321', msrp: 12 },
+    { id: 'H', type: 'retail', name: 'Hand cream 50', sku: 'HC50', msrp: 15 },
+    { id: 'G', type: 'professional', name: 'Nitrile gloves', barcode: 'HC-50' },
+    { id: 'L', type: 'retail', name: 'Rose oil', sku: 'ROSE', msrp: 20, optionGroups: [{ id: 'g', name: 'Size', choices: [{ id: 'a', label: '15 ml', variantProductId: 'V1' }] }] },
+    { id: 'V1', type: 'retail', status: 'archived', name: 'Rose oil 15 ml', barcode: 'R15' },
+  ];
+  const at = (code: string) => ps.identifyPosScan(code, { inventory: shelf, appointments: [], walkIns: [] }) as any;
+  check('…a backbar product’s barcode says what it is (it used to add the retail product whose SKU has the same digits)', at('123456').kind === 'unsold' && /That’s Backbar cream, which isn’t sold at the desk/.test(at('123456').text), at('123456'));
+  check('…an archived product’s barcode says it’s archived (it used to add a different, active one)', at('7654321').kind === 'unsold' && /Old toner, which is archived/.test(at('7654321').text), at('7654321'));
+  check('…gloves’ barcode HC-50 is the gloves, never the hand cream HC50', at('HC-50').kind === 'unsold' && /Nitrile gloves/.test(at('HC-50').text) && (L.lookupCode(L.codeBook(shelf.filter((i) => i.id !== 'G')), 'HC-50').kind === 'none'), at('HC-50'));
+  check('…a listing with no variants to sell says so (it used to be added as itself)', at('ROSE').kind === 'unsold' && /Rose oil has no variants to sell yet/.test(at('ROSE').text), at('ROSE'));
+  check('…and the same digits written another way never guess between an item it sells and one it doesn’t', at('0123456').kind === 'lookup', at('0123456'));
+  const digits = L.codeBook([{ id: 'A', type: 'retail', name: 'Retail cream', sku: '000123456' }]);
+  check('…(a number with its leading zeros dropped, when it’s the only item with that number)', (L.lookupCode(digits, '123456') as any).item?.id === 'A');
+  check('a product’s id in other capitals finds it, when only one product has it (a scanner set to capitals)', (L.lookupCode(book, 'GOLD') as any).item?.id === 'gold' && (L.lookupCode(book, 'clarityflow://product/CANDLE') as any).item?.id === 'candle');
+  const shared: any = L.lookupCode(L.codeBook([{ id: 't1', type: 'retail', name: 'One', tagIds: ['04A2B3C4D5'] }, { id: 't2', type: 'retail', name: 'Two', tagIds: ['04A2B3C4D5'] }]), '04:a2:b3:c4:d5');
+  check('a shared tag read with colons gives the code as products keep it (Inventory searches for that)', shared.kind === 'clash' && shared.code === '04A2B3C4D5', shared);
+  check('Inventory’s scan button searches a shared code as products keep it, and shows an archived product in the archive', /setSearchTerm\(found\.kind === 'clash' \? found\.code : String\(data\)\.trim\(\)\)/.test(fs.readFileSync('src/app/(app)/inventory/page.tsx', 'utf8')) && /setShowArchived\(true\); setSearchTerm\(String\(found\.owner\.id\)\)/.test(fs.readFileSync('src/app/(app)/inventory/page.tsx', 'utf8')));
   const engine = fs.readFileSync('src/components/pos/usePosEngine.tsx', 'utf8'); const desk = fs.readFileSync('src/components/pos/desk/DeskPOS.tsx', 'utf8');
   check('…the desk asks “Add 12” or “Just one” for a case, and which product for a shared code', /if \(hit\.pack > 1\) \{ setPackChoice\(/.test(engine) && /hit\.kind === 'clash'\) \{ setVariantChoice\(\{ parent: \{ name: 'product' \}, variants: hit\.items, clash: true \}\)/.test(engine)
     && /Add \{e\.packChoice\.pack\}/.test(desk) && />Just one</.test(desk) && /Which product is it\?/.test(desk));
   check('…and adds that many at once', /const handleAddToCart = useCallback\(\(item: any, qty = 1\)/.test(engine) && /e\.addProductChecked\?\.\(c\.item, c\.pack\)/.test(desk));
   check('…one scan does one thing at the desk: the desk’s products and tickets, or the kit scanner for a kit, bundle, steriliser or station (it used to do both)',
-    /const scanner = useScanSheet\(false\);/.test(desk) && /if \(hit\.kind !== 'lookup' && hit\.kind !== 'empty'\) \{ e\.handlePosScan\?\.\(code\); return; \}/.test(desk) && /scanner\.openWith\(code\); return; \}/.test(desk)
+    /const scanner = useScanSheet\(false\);/.test(desk) && /if \(hit\.kind !== 'lookup' && hit\.kind !== 'empty' && hit\.kind !== 'unsold'\) \{ e\.handlePosScan\?\.\(code\); return; \}/.test(desk) && /scanner\.openWith\(code\); return; \}/.test(desk)
     && /useWedge\(openWith, listen && !open\);/.test(fs.readFileSync('src/components/pos/desk/ScanSheet.tsx', 'utf8')));
   const cat = fs.readFileSync('src/components/pos/PosCatalog.tsx', 'utf8');
   check('a handheld scanner typing into the desk’s search adds the item once (the desk’s listener already heard it)', /const heard = e\.nativeEvent\.defaultPrevented; e\.preventDefault\(\); if \(heard\) \{ setQ\(''\); return; \} submit\(\);/.test(cat));
@@ -110,26 +134,35 @@ M._load = function (request: string, ...rest: any[]) {
 
   // ── Picking waves ──
   const W = await import('../../src/lib/waves');
-  const rows: any[] = [{ productId: 'blush', name: 'Blush', location: 'A1', totalQty: 15, totes: [{ tote: 1, qty: 10 }, { tote: 2, qty: 5 }] }, { productId: 'candle', name: 'Cedar candle', location: 'B2', totalQty: 1, totes: [{ tote: 2, qty: 1 }] }];
+  const rows: any[] = [{ productId: 'blush', name: 'Blush', location: 'A1', totalQty: 17, totes: [{ tote: 1, qty: 12 }, { tote: 2, qty: 5 }] }, { productId: 'candle', name: 'Cedar candle', location: 'B2', totalQty: 1, totes: [{ tote: 2, qty: 1 }] }];
   let m: any = W.matchWaveItem(rows, '10845013301301', book);
   check('a wave: a case’s code finds its row, worth the case', m?.productId === 'blush' && m.units === 12, m);
   m = W.matchWaveItem(rows, 'ROSE-OIL', book);
   check('…a listing’s code finds its one variant on the list', m?.productId === 'blush' && m.units === 1);
   let put: any = W.wavePut(rows, {}, 1, '10845013301301', book);
-  check('…a case put in a tote counts the case, never more than the tote still needs', put.ok && put.units === 10 && put.putInTote === 10 && put.toteDone === true, put);
+  check('…a case put in a tote that needs it all counts the case', put.ok && put.units === 12 && put.putInTote === 12 && put.toteDone === true, put);
+  put = W.wavePut(rows, {}, 2, '10845013301301', book);
+  check('…a case is never put in a tote that needs fewer than it holds (it says how many to put in)', !put.ok && put.reason === 'case_too_big' && /case of 12, and tote 2 needs 5 more Blush/.test(put.message), put);
   put = W.wavePut(rows, { '1': { blush: 4 } }, 1, '084501330131', book);
   check('…one unit is one', put.ok && put.units === 1 && put.putInTote === 5);
+  const both: any[] = [{ productId: 'blush', name: 'Blush', location: 'A1', totalQty: 1, totes: [{ tote: 1, qty: 1 }] }, { productId: 'gold', name: 'Sheer gold', location: 'A2', totalQty: 1, totes: [{ tote: 2, qty: 1 }] }];
+  put = W.wavePut(both, {}, 1, 'ROSE-OIL', book);
+  check('…a listing’s own code with two of its variants on the list asks which (it used to say “not on this list”)', !put.ok && put.reason === 'which_one' && /Rose cuticle oil’s own code, and this pick list has 2 of its variants: Blush and Sheer gold/.test(put.message), put);
   db = makeDb(); await db.doc('tenants/t1/waves/w1').set({ scannedByTote: { '1': { blush: 4 } }, scanned: { blush: 4 }, pickedBy: {} });
   await W.recordWavePut({} as any, 't1', 'w1', 1, 'blush', 10, 15, { id: 'k', name: 'Kai' }, 12);
   const wave: any = (await db.doc('tenants/t1/waves/w1').get()).data();
-  check('…and the record counts the units, capped at what the tote needs', wave.scannedByTote['1'].blush === 10 && wave.scanned.blush === 10 && wave.pickedBy.k.items === 6, wave);
+  check('…and the record counts the units, capped at what the tote needs (two pickers at once)', wave.scannedByTote['1'].blush === 10 && wave.scanned.blush === 10 && wave.pickedBy.k.items === 6, wave);
 
   // ── Every other scanner asks the same lookup ──
   const src = (p: string) => fs.readFileSync(p, 'utf8');
-  check('returns: the codes the line was sold with, then the products’ codes now (a listing’s code is its variant on the return)', /lineMatchesScan\(x\.orig, raw\)/.test(src('src/app/(app)/retail-orders/returns/page.tsx')) && /pickFor\(lookupCode\(codeBook\(inventory \|\| \[\]\), raw\), open, \(x\) => lineProductId\(x\.orig\)\)/.test(src('src/app/(app)/retail-orders/returns/page.tsx')));
-  check('receiving: the one lookup, a case counts the case, a listing’s code is its variant on the delivery', /const found = lookupCode\(codeBook\(inventory as any\[\]\), raw\);/.test(src('src/components/inventory/ReceiveStockDialog.tsx')) && /pickFor\(found, prev, \(ri\) => ri\.productId\)/.test(src('src/components/inventory/ReceiveStockDialog.tsx')) && !/codesMatch\(ri\.productName/.test(src('src/components/inventory/ReceiveStockDialog.tsx')));
+  const returnsPage = src('src/app/(app)/retail-orders/returns/page.tsx'); const receive = src('src/components/inventory/ReceiveStockDialog.tsx');
+  check('returns: the codes the line was sold with, then the products’ codes now (a listing’s code is its variant on the return; with two of them, it asks which)', /lineMatchesScan\(x\.orig, raw\)/.test(returnsPage) && /const picked = pickFor\(found, open, \(x\) => lineProductId\(x\.orig\)\);/.test(returnsPage) && /askWhich\(found, picked, \(x\) => lineProductId\(x\.orig\)/.test(returnsPage) && /'this return'\);/.test(returnsPage));
+  check('receiving: the one lookup with tools and supplies too, a case counts the case, a listing’s code is its variant on the delivery (with two, it asks), a name typed in finds its line',
+    /codeBook\(inventory as any\[\], \{ equipment: true \}\)/.test(receive) && /const picked = pickFor\(found, receivedItems, \(ri\) => ri\.productId\);/.test(receive) && /'this delivery'\);/.test(receive) && /codeForm\(ri\.productName\) === name/.test(receive) && /role="status"/.test(receive));
   check('quick receive: a case counts the case, a listing’s code names its variants', /addItem\(found\.item, true, found\.pack\)/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /Tap the variant you received in the list/.test(src('src/components/inventory/QuickReceiveDialog.tsx')));
-  check('bins and distribution: the one lookup, saying when a code is shared', /lookupCode\(codeBook\(products\), raw, \{ variants: false \}\)/.test(src('src/components/orders/BinsScreen.tsx')) && /lookupCode\(codeBook\(trackable\), raw, \{ variants: false \}\)/.test(src('src/app/(app)/inventory/distribution/page.tsx')) && /distribute\(firestore as Firestore, tenantId, item\.id, holder, found\.pack, actor\)/.test(src('src/app/(app)/inventory/distribution/page.tsx')));
+  check('bins and distribution: the one lookup, knowing every item’s codes, saying when a code is shared or is another item’s',
+    /codeBook\(inventory \|\| \[\], \{ only: shelfProduct \}\)/.test(src('src/components/orders/BinsScreen.tsx')) && /lookupCode\(book, raw, \{ variants: false \}\)/.test(src('src/components/orders/BinsScreen.tsx'))
+    && /lookupCode\(trackableBook, raw, \{ variants: false \}\)/.test(src('src/app/(app)/inventory/distribution/page.tsx')) && /distribute\(firestore as Firestore, tenantId, item\.id, holder, found\.pack, actor\)/.test(src('src/app/(app)/inventory/distribution/page.tsx')));
   check('the orders board: a listing’s code finds its variants on waiting orders', /found\.kind === 'choose' \? found\.variants\.map/.test(src('src/components/orders/OrdersApp.tsx')));
   check('the staff app: a waiting order is found by every code its lines carry', /\(o\.lines \|\| \[\]\)\.some\(\(l: any\) => lineMatchesScan\(l, raw\)\)/.test(src('src/components/fulfilment/FulfilmentPanel.tsx')));
   const invPage = src('src/app/(app)/inventory/page.tsx');

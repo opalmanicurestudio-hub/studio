@@ -6,7 +6,7 @@ import {
 import { nanoid } from 'nanoid';
 
 import { buildEvent } from '@/lib/retail-orders';
-import { lookupCode, pickFor, type CodeBook } from '@/lib/code-lookup';
+import { askWhich, lookupCode, pickFor, type CodeBook } from '@/lib/code-lookup';
 
 // ─── src/lib/waves.ts ─────────────────────────────────────────────────────────
 // Wave picking: pick everything at once by product, then sort into orders at a
@@ -266,14 +266,14 @@ export interface TotePutHit {
   productId: string;
   name: string;
   putInTote: number;   // units of this product now in this tote
-  units: number;       // units this scan put in (a case's code puts the case, never more than the tote still needs)
+  units: number;       // units this scan put in (a case's code puts the case, only into a tote that needs it all)
   toteNeed: number;    // units of this product this tote wants in total
   toteDone: boolean;   // this tote has everything it needs
   rowComplete: boolean; // this product is fully picked across all totes
 }
 export interface TotePutMiss {
   ok: false;
-  reason: 'no_match' | 'not_needed_in_tote' | 'row_complete';
+  reason: 'no_match' | 'not_needed_in_tote' | 'row_complete' | 'which_one' | 'case_too_big';
   message: string;
   /** For not_needed_in_tote: the totes that DO still need this item. */
   totesNeedingIt?: number[];
@@ -338,11 +338,20 @@ export function matchWaveItem(
   value: string,
   book: CodeBook,
 ): (PickRow & { units: number }) | null {
+  return waveItem(rows, value, book).row;
+}
+
+/** The row a scan is for, with how many units it's worth, or the sentence that asks which when it could be two of the
+ *  list's rows (a listing's own code with two of its variants on the list, a code two products share). */
+function waveItem(rows: PickRow[], value: string, book: CodeBook): { row: (PickRow & { units: number }) | null; ask: string } {
   const raw = String(value || '').trim();
-  if (!raw) return null;
+  if (!raw) return { row: null, ask: '' };
   const found = lookupCode(book, raw);
-  const row = pickFor(found, rows, (r) => r.productId).pick || rows.find((r) => r.productId === raw) || null;
-  return row ? { ...row, units: found.kind === 'product' ? Math.max(1, found.pack) : 1 } : null;
+  const picked = pickFor(found, rows, (r) => r.productId);
+  const ask = askWhich(found, picked, (r) => r.productId, (r) => r.name, 'this pick list');
+  if (ask) return { row: null, ask };
+  const row = picked.pick || rows.find((r) => r.productId === raw) || null;
+  return { row: row ? { ...row, units: found.kind === 'product' ? Math.max(1, found.pack) : 1 } : null, ask: '' };
 }
 
 /** One put, validated: does THIS tote still need THIS item? */
@@ -353,7 +362,8 @@ export function wavePut(
   itemValue: string,
   book: CodeBook,
 ): TotePutHit | TotePutMiss {
-  const row = matchWaveItem(rows, itemValue, book);
+  const { row, ask } = waveItem(rows, itemValue, book);
+  if (ask) return { ok: false, reason: 'which_one', message: ask };
   if (!row) {
     return { ok: false, reason: 'no_match', message: 'Not on this pick list — put it back.' };
   }
@@ -377,8 +387,15 @@ export function wavePut(
     };
   }
 
+  // A case's code puts the whole case: never into a tote that needs fewer than the case holds.
+  if (row.units > needHere) {
+    return {
+      ok: false, reason: 'case_too_big',
+      message: `That’s a case of ${row.units}, and tote ${tote} needs ${needHere} more ${row.name}. Open the case and scan ${needHere === 1 ? 'one' : `the ${needHere}`} you put in.`,
+    };
+  }
   const toteRow = row.totes.find((t) => t.tote === tote)!;
-  const units = Math.min(row.units, needHere);
+  const units = row.units;
   const inToteNow = Math.max(0, Number(scannedByTote[String(tote)]?.[row.productId]) || 0) + units;
 
   const resAfter = { ...res, [tote]: { ...res[tote], [row.productId]: needHere - units } };

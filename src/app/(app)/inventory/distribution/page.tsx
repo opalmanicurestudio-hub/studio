@@ -20,7 +20,7 @@ import {
   allocationList, distribute, holderKey, itemAllocations, markUsed, parDeficits,
   poolQty, returnToStock, setPar, type Actor, type Holder,
 } from '@/lib/inventory-allocation';
-import { codeBook, lookupCode } from '@/lib/code-lookup';
+import { codeBook, lookupCode, notHereWords } from '@/lib/code-lookup';
 import { cn } from '@/lib/utils';
 
 // ─── Distribution ─────────────────────────────────────────────────────────────
@@ -62,6 +62,8 @@ export default function DistributionPage() {
     () => (inventory || []).filter((i: any) => i.status !== 'archived' && ['professional', 'retail', 'refreshment'].includes(i.type)),
     [inventory]
   );
+  // Every item's codes, so a code that's exactly another item's names it rather than finding something else.
+  const trackableBook = useMemo(() => codeBook(inventory || [], { only: (i: any) => ['professional', 'retail', 'refreshment'].includes(i.type) }), [inventory]);
 
   const held = useMemo(() => {
     if (!holder) return [];
@@ -93,10 +95,11 @@ export default function DistributionPage() {
     if (!firestore || !tenantId || !holder) return;
     const raw = value.trim();
     // Any code the item carries, as every scanner reads it (lib/code-lookup); a case's code moves the whole case.
-    const found = lookupCode(codeBook(trackable), raw, { variants: false });
+    const found = lookupCode(trackableBook, raw, { variants: false });
     if (found.kind !== 'product') {
       scanFeedback(false);
-      toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: found.kind === 'clash' ? `That code is on ${found.items.length} products. Choose which keeps it in Inventory, Codes and listings.` : 'No item matches this code.' });
+      toast({ variant: 'destructive', title: `Scanned: ${raw.slice(0, 40)}`, description: found.kind === 'clash' ? `That code is on ${found.items.length} products. Choose which keeps it in Inventory, Codes and listings.`
+        : notHereWords(found, 'isn’t handed out to stations or providers', 'hand out') || 'No item matches this code.' });
       return;
     }
     const item = found.item;

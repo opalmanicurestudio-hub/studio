@@ -263,7 +263,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   // is looked up as a ticket.
   useBarcodeScanner((code) => {
     const hit = identifyPosScan(code, { inventory: e.inventory || [], appointments: e.appointmentsFromInventory || [], walkIns: (e.walkIns as any[]) || [] });
-    if (hit.kind !== 'lookup' && hit.kind !== 'empty') { e.handlePosScan?.(code); return; }
+    if (hit.kind !== 'lookup' && hit.kind !== 'empty' && hit.kind !== 'unsold') { e.handlePosScan?.(code); return; }
     const t = String(code).trim().toUpperCase().split(/[/=#]/).pop() || '';
     const sterilisers: string[] = Array.isArray(e.selectedTenant?.ops?.sterilisers) && e.selectedTenant.ops.sterilisers.length ? e.selectedTenant.ops.sterilisers : ['Autoclave'];
     if (/^[KL][A-Z0-9]{4}$/.test(t) || sterilisers.some((m) => machineCode(m) === t) || /(?:^|[/=#])S:[A-Za-z0-9_-]{3,}$/.test(String(code).trim()) || !!findKit(kits || [], code) || !!findBundle(bundles || [], code)) { scanner.openWith(code); return; }

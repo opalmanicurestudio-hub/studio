@@ -262,7 +262,9 @@ export default function WavesPage() {
       toast({
         variant: 'destructive',
         title: res.reason === 'row_complete' ? 'Already picked'
-          : res.reason === 'not_needed_in_tote' ? 'Wrong tote' : 'Wrong item',
+          : res.reason === 'not_needed_in_tote' ? 'Wrong tote'
+          : res.reason === 'which_one' ? 'Which one is it?'
+          : res.reason === 'case_too_big' ? 'More than this tote needs' : 'Wrong item',
         description: res.message,
       });
       return;

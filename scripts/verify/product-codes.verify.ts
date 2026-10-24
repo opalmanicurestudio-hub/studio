@@ -121,8 +121,8 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   check('the parent product’s barcode, and the order has one of its shades: that shade', res.kind === 'line' && res.hint.lineId === 'R' && res.via === 'parent', res);
   const coral = line({ lineId: 'C', productId: 'lip-coral', sku: '', barcode: '', name: 'Lip tint', optionsLabel: 'Coral', qtyOrdered: 1 });
   res = await resolveOrderScan(web as any, 't1', [rose, coral] as any, '7700001');
-  check('…two shades on the order: it asks for the shade’s own code instead of guessing',
-    res.kind === 'choose' && /comes in options, and this order has 2 of them/.test(scanMissMessage(res, '7700001', [rose, coral] as any)), res);
+  check('…two variants on the order: it asks for the variant’s own code instead of guessing',
+    res.kind === 'choose' && /comes in variants, and this order has 2 of them\. Scan the variant’s own code/.test(scanMissMessage(res, '7700001', [rose, coral] as any)), res);
 
   // A label printed from a duplicate of the product.
   await fresh();
@@ -163,6 +163,12 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   check('packing: a number without the leading zeros its record has still finds the one line with it', near.kind === 'line' && near.hint.lineId === 'N', near);
   near = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' }), line({ lineId: 'M', productId: 'n2', sku: '', barcode: '0555111' })] as any, '555111');
   check('…two lines with that number: no guess', near.kind !== 'line', near);
+  await db.doc(`${T}/inventory/bb`).set({ id: 'bb', type: 'professional', name: 'Backbar cream', barcode: '555111' });
+  near = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
+  check('…but a product that has exactly that code is that product: not on this order (it never counts the other line)', near.kind === 'elsewhere' && near.productName === 'Backbar cream', near);
+  await db.doc(`${T}/inventory/bb`).set({ id: 'bb', type: 'retail', status: 'archived', name: 'Old cream', barcode: '555111' });
+  near = await resolveOrderScan(web as any, 't1', [line({ lineId: 'N', productId: 'n1', sku: '', barcode: '000555111' })] as any, '555111');
+  check('…an archived product’s code too', near.kind === 'elsewhere' && near.productName === 'Old cream', near);
 
   // ── The register uses the same codes ──
   const hit: any = identifyPosScan('00012345678912', { inventory: [{ ...gel, type: 'retail', msrp: 15 }], appointments: [], walkIns: [] });
@@ -175,7 +181,7 @@ const fresh = async () => { db = makeDb(); auto = 0; };
   check('the product forms refuse a code another product already has', [add, src('src/components/inventory/EditProductDialog.tsx')].every((s) => /formClashes\(/.test(s) && /That code belongs to another product/.test(s)));
   const pack = src('src/components/orders/workspace/PackPane.tsx');
   check('the packing screen names what was scanned from the answer, and offers to add a new code to an item', /setUndo\(\{ text: `\$\{r\.name \|\| 'Item'\} /.test(pack) && /learnCode\(fs, tenantId, lineProductId\(l\), learn\)/.test(pack) && /Which item has the code/.test(pack));
-  check('receiving, scan routing and waves read the same codes (the one lookup, lib/code-lookup)', /lookupCode\(codeBook\(/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /lookupCode\(codeBook\(/.test(src('src/components/inventory/ReceiveStockDialog.tsx'))
+  check('receiving, scan routing and waves read the same codes (the one lookup, lib/code-lookup)', /lookupCode\(book, raw\)/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /codeBook\(inventory \|\| \[\], \{ equipment: true \}\)/.test(src('src/components/inventory/QuickReceiveDialog.tsx')) && /lookupCode\(book, raw\)/.test(src('src/components/inventory/ReceiveStockDialog.tsx'))
     && /lookupCode\(codeBook\(/.test(src('src/lib/scan-route.ts')) && /codeBook\(inventory \|\| \[\]\)/.test(src('src/app/(app)/retail-orders/waves/page.tsx')));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');

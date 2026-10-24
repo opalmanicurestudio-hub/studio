@@ -16,7 +16,7 @@ import { codesMatch } from './retail-orders';
 export type ScanResolution =
   | { kind: 'snapshot' }                                                   // the line's own codes match: nothing to work out
   | { kind: 'line'; hint: ScanHint; via: 'product' | 'parent' | 'duplicate' }
-  | { kind: 'choose'; productName: string; lineNames: string[] }           // a parent's code, and the order has several of its options
+  | { kind: 'choose'; productName: string; lineNames: string[] }           // a listing's code, and the order has several of its variants
   | { kind: 'elsewhere'; productName: string }                             // a product in inventory, not on this order
   | { kind: 'unknown' };                                                   // no product has this code
 
@@ -34,8 +34,9 @@ const identityOf = (item: any) => ({
 });
 
 /** Products in inventory with this code: the code index first (lib/code-index, every code in its one form), then the
- *  records themselves (as typed, and its other forms), for codes saved before the index was built. */
-export async function productsWithCode(fs: Firestore, tenantId: string, raw: string): Promise<any[]> {
+ *  records themselves (as typed, and its other forms), for codes saved before the index was built. `archived`: archived
+ *  products too (their codes are still theirs: never counted as another product's). */
+export async function productsWithCode(fs: Firestore, tenantId: string, raw: string, o: { archived?: boolean } = {}): Promise<any[]> {
   const forms = lookupForms(raw);
   if (!forms.length) return [];
   const inv = collection(fs, `tenants/${tenantId}/inventory`);
@@ -55,7 +56,7 @@ export async function productsWithCode(fs: Firestore, tenantId: string, raw: str
   const snaps = await Promise.all(asks.map((q) => getDocs(q).catch(() => null)));
   for (const s of snaps) for (const d of s?.docs || []) found.set(d.id, { id: d.id, ...(d.data() as any) });
   // Only what really matches (the forms are generous).
-  return [...found.values()].filter((i) => i.status !== 'archived' && productMatch(i, raw));
+  return [...found.values()].filter((i) => (o.archived || i.status !== 'archived') && productMatch(i, raw));
 }
 
 /** Works out which line of the order a scan is for. `packCheck` is the second scan at the box; 'box' is a scan at the
@@ -74,21 +75,24 @@ export async function resolveOrderScan(fs: Firestore, tenantId: string, lines: O
   for (const [id, item] of items) {
     if (productMatch(item, t, id)) { const l = lineFor(id); if (l) return { kind: 'line', hint: { lineId: l.lineId, identity: identityOf(item) }, via: 'product' }; }
   }
-  // The same number written another way (leading zeros a spreadsheet dropped, dashes), when only one item on the order
-  // has it: by the codes the line was sold with, or its product's codes now (lib/code-lookup numberKey).
-  const n = numberKey(t);
+  // Which product the scan is (the shop's label names it; otherwise its code), archived ones included: a code that's
+  // exactly another product's is that product, never a line for something else.
+  let owners: any[] = [];
+  const qr = parseProductQr(t);
+  if (qr !== null) {
+    try { const s = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, qr)); if (s.exists()) owners = [{ id: qr, ...(s.data() as any) }]; } catch { /* none */ }
+  } else owners = await productsWithCode(fs, tenantId, t, { archived: true });
+  const scanned = owners.filter((p) => p.status !== 'archived');
+
+  // The same number written another way (leading zeros a spreadsheet dropped), when no product has exactly this code
+  // and only one item on the order has that number: by the codes the line was sold with, or its product's codes now
+  // (lib/code-lookup numberKey).
+  const n = owners.length ? '' : numberKey(t);
   if (n) {
     const near = [...new Set(lines.filter((l) => [l.barcode, l.sku, l.caseBarcode, l.palletBarcode, ...(Array.isArray(l.codes) ? l.codes : [])].some((c) => numberKey(c) === n)
       || codesOf(items.get(lineProductId(l))).some((c) => numberKey(c.raw) === n)).map(lineProductId))];
     if (near.length === 1) { const l = lineFor(near[0]); if (l) return { kind: 'line', hint: { lineId: l.lineId, identity: identityOf(items.get(near[0])) }, via: 'product' }; }
   }
-
-  // Which product the scan is (the shop's label names it; otherwise its code).
-  let scanned: any[] = [];
-  const qr = parseProductQr(t);
-  if (qr !== null) {
-    try { const s = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, qr)); if (s.exists()) scanned = [{ id: qr, ...(s.data() as any) }]; } catch { /* none */ }
-  } else scanned = await productsWithCode(fs, tenantId, t);
 
   for (const p of scanned) {
     // A listing's code (the name on the shelf), with the order holding one of its variants.
@@ -106,7 +110,7 @@ export async function resolveOrderScan(fs: Firestore, tenantId: string, lines: O
       || (!!name && String(l.name || '').replace(/\s*\(test\)$/i, '').trim().toLowerCase() === name)));
     if (same) return { kind: 'line', hint: { lineId: same.lineId, identity: identityOf(items.get(lineProductId(same))) }, via: 'duplicate' };
   }
-  if (scanned.length) return { kind: 'elsewhere', productName: String(scanned[0].name || 'Another product') };
+  if (owners.length) return { kind: 'elsewhere', productName: String((scanned[0] || owners[0]).name || 'Another product') };
   return { kind: 'unknown' };
 }
 
@@ -115,7 +119,7 @@ export function scanMissMessage(r: ScanResolution, raw: string, lines: OrderLine
   const code = String(raw || '').trim().slice(0, 40);
   const open = lines.filter((l) => !CLOSED.includes(l.status)).map((l) => l.name);
   const needs = open.length ? ` This order needs ${open.slice(0, 3).join(', ')}${open.length > 3 ? ` and ${open.length - 3} more` : ''}.` : '';
-  if (r.kind === 'choose') return `${r.productName} comes in options, and this order has ${r.lineNames.length} of them. Scan the option’s own code, or tap it below.`;
+  if (r.kind === 'choose') return `${r.productName} comes in variants, and this order has ${r.lineNames.length} of them. Scan the variant’s own code, or tap it below.`;
   if (r.kind === 'elsewhere') return `That’s ${r.productName}, which isn’t on this order.${needs}`;
   return `No product has the code ${code} yet. If it’s one of these items, tap it below to count it, or add the code to it so it scans next time.`;
 }

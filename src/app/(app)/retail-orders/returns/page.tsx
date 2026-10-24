@@ -22,7 +22,7 @@ import {
   RETURN_REASONS, lineMatchesScan, type OrderLine, type RetailOrder, type RetailReturn,
   type ReturnReason, type ReturnResolution,
 } from '@/lib/retail-orders';
-import { codeBook, lookupCode, pickFor } from '@/lib/code-lookup';
+import { askWhich, codeBook, lookupCode, pickFor } from '@/lib/code-lookup';
 import { lineProductId } from '@/lib/product-codes';
 import { useInventory } from '@/context/InventoryContext';
 import {
@@ -161,11 +161,18 @@ export default function RetailReturnsPage() {
     // The codes the line was sold with first, then the products' codes now (one added since, a listing's own code),
     // as every scanner reads them (lib/code-lookup).
     let match = open.find((x) => lineMatchesScan(x.orig, raw))?.rl;
-    if (!match) match = pickFor(lookupCode(codeBook(inventory || []), raw), open, (x) => lineProductId(x.orig)).pick?.rl;
     if (!match) {
-      scanFeedback(false);
-      toast({ variant: 'destructive', title: 'Not on this return', description: 'That code does not match an unverified line.' });
-      return;
+      // With two lines it could be (a listing's own code with two of its variants coming back), it asks which.
+      const found = lookupCode(codeBook(inventory || []), raw);
+      const picked = pickFor(found, open, (x) => lineProductId(x.orig));
+      const ask = askWhich(found, picked, (x) => lineProductId(x.orig), (x) => [x.orig.name, x.orig.optionsLabel].filter(Boolean).join(' · '), 'this return');
+      if (ask) { scanFeedback(false); toast({ variant: 'destructive', title: 'Which one is it?', description: ask }); return; }
+      match = picked.pick?.rl;
+      if (!match) {
+        scanFeedback(false);
+        toast({ variant: 'destructive', title: 'Not on this return', description: found.kind === 'product' ? `That’s ${found.item.name || 'another product'}, which isn’t waiting to be checked on this return.` : 'That code doesn’t match a line still to check.' });
+        return;
+      }
     }
     scanFeedback(true);
     setVerifiedLineId(match.lineId);

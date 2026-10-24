@@ -5,7 +5,7 @@
 // After a machine label, kits scanned within a few minutes go into that steriliser load instead of their usual next step.
 import { findKit, type Kit } from '@/lib/kits';
 import { findBundle, type LinenBundle } from '@/lib/linens';
-import { codeBook, lookupCode } from '@/lib/code-lookup';
+import { codeBook, lookupCode, notHereWords } from '@/lib/code-lookup';
 
 export type ScanTarget = 'kit' | 'bundle' | 'machine' | 'station' | 'product' | 'unknown';
 export interface ScanRoute { target: ScanTarget; code: string; id: string | null; label: string }
@@ -27,6 +27,7 @@ export function routeScan(raw: string, d: { kits?: Kit[]; bundles?: LinenBundle[
   const found = lookupCode(codeBook(d.inventory || [], { equipment: true }), code, { variants: false });
   if (found.kind === 'product') return { target: 'product', code, id: String(found.item.id), label: String(found.item.name || 'Product') };
   if (found.kind === 'clash') return { target: 'unknown', code, id: null, label: `This code is on ${found.items.length} products. Choose which keeps it in Inventory, Codes and listings` };
+  if (found.kind === 'none' && found.owner) return { target: 'unknown', code, id: null, label: notHereWords(found, 'isn’t used here', 'use').replace(/\.$/, '') };
   return { target: 'unknown', code, id: null, label: /^K[A-Z0-9]{4}$/.test(t) ? 'No kit with that code' : /^L[A-Z0-9]{4}$/.test(t) ? 'No bundle with that code' : 'Not recognised' };
 }
 

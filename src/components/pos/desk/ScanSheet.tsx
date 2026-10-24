@@ -48,7 +48,8 @@ export function ScanSheet({ open, onClose, tenantId, tenant, appts, services, st
   // A scan that opened the sheet (USB scanner on the desk, or a tap elsewhere) is handled as soon as the data is here.
   const lastPending = React.useRef(0);
   React.useEffect(() => { if (open && pending && pending.n !== lastPending.current && kits && bundles && resources) { lastPending.current = pending.n; scan(pending.code); } }, [open, pending, kits, bundles, resources, scan]);
-  useWedge(scan, open);
+  // A USB or Bluetooth scanner: the camera's scan box hears it while the camera is shown, this when it's hidden.
+  useWedge(scan, open && !cam);
   const nfc = useNfc((id) => scan(id));
   React.useEffect(() => { if (!open) { setMode(null); setNote(null); setIncoming(null); nfc.end?.(); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { if (!open) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [open, onClose]);
