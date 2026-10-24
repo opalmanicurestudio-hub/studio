@@ -2,7 +2,9 @@ import { restoreNonCardPayment } from '@/lib/cancel-restore';
 import { refundWords, type AutoRefund } from '@/lib/auto-refund';
 import { cancelWithFollowUps, followUpCancelCents, followUpsOf, heldUnits, isFollowUp } from '@/lib/order-family';
 import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
+import { syncTracking } from '@/lib/order-tracking';
+import { getAdminDb as getAdminDbForTracking } from '@/lib/firebase-admin';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
 import { delayNotified, isPromiseLate, returnRefundCents } from '@/lib/retail-orders';
@@ -93,7 +95,19 @@ function paidWaitingWords(r: any): string {
   return `Your paid change${to ? ` to ${to}` : ''} is waiting for the shop. Send them a message on this page if it needs to be different.`;
 }
 
+// The customer's order page shows what this changed as it happens (lib/order-tracking).
 export async function POST(req: NextRequest) {
+  const peek: any = typeof (req as any).clone === 'function' ? await (req as any).clone().json().catch(() => ({})) : {};
+  const res: any = await handle(req);
+  const t = String(peek?.tenantId || '').trim(); const id = String(peek?.orderId || '').trim();
+  if (t && id && !id.includes('/') && Number(res?.status || 200) < 400) {
+    const job = async () => { await syncTracking(getAdminDbForTracking(), t, id); };
+    try { after(job); } catch { void job(); }
+  }
+  return res;
+}
+
+async function handle(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 

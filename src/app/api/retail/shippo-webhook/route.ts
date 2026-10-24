@@ -1,4 +1,6 @@
 import { shippoKeyFor } from '@/lib/retail-secrets';
+import { eventIdFor } from '@/lib/order-events';
+import { syncTracking } from '@/lib/order-tracking';
 import { NextRequest, NextResponse } from 'next/server';
 
 import {
@@ -320,14 +322,15 @@ export async function POST(req: NextRequest) {
       }
       if (status !== 'DELIVERED' || order.stage !== 'shipped') continue;
 
-      const evRef = d.ref.collection('events').doc();
+      // The order's last step, as the customer sees it ("Delivered"), recorded once however often the carrier repeats it.
+      const evRef = d.ref.collection('events').doc(eventIdFor('completed', 'delivered'));
       const batch = db.batch();
       batch.set(d.ref, {
         stage: 'completed',
         deliveredAt: update.statusAt,
       }, { merge: true });
       batch.set(evRef, {
-        id: evRef.id, type: 'note', at: new Date().toISOString(),
+        id: evRef.id, type: 'completed', at: new Date().toISOString(),
         actorId: 'shippo', actorName: 'Carrier',
         meta: {
           kind: 'carrier_delivered',
@@ -341,6 +344,8 @@ export async function POST(req: NextRequest) {
       await batch.commit();
       advanced += 1;
     }
+    // The customers' order pages show each scan and the delivery as they happen (lib/order-tracking).
+    for (const d of snap.docs) await syncTracking(db, tenantId, d.id);
     return NextResponse.json({ ok: true, advanced, notified });
   } catch (e: any) {
     console.error('[shippo-webhook]', e?.message);

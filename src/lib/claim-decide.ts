@@ -2,7 +2,7 @@
 // (api/retail/fulfil, for a manager or someone who can refund). Approving queues the refund on the order and marks the
 // units it settles, so they can't be returned or claimed again; one item is refunded once. Declining keeps the reason
 // the customer's email quotes. Both in one transaction with the order, so two devices can't both decide.
-export type ClaimDecision = { ok: boolean; message: string; cents?: number };
+export type ClaimDecision = { ok: boolean; message: string; cents?: number; orderId?: string };
 
 export async function decideClaim(db: any, tenantId: string, claimId: string, approve: boolean, o: { cents: number | null; declineWhy: string }): Promise<ClaimDecision> {
   const claimRef = db.doc(`tenants/${tenantId}/retailClaims/${claimId}`);
@@ -18,7 +18,7 @@ export async function decideClaim(db: any, tenantId: string, claimId: string, ap
     const now = new Date().toISOString();
     if (!approve) {
       tx.update(claimRef, { status: 'declined', resolution: 'declined', decidedAt: now, decidedBy: 'staff', declineReason: String(o.declineWhy).trim().slice(0, 400) });
-      return { ok: true, message: 'Declined' };
+      return { ok: true, message: 'Declined', orderId };
     }
     // The shop's photo rule, stamped on the report when it came in: approving without the photo would make it a lie.
     if (cur.photosRequired && !(Array.isArray(cur.photoUrls) && cur.photoUrls.length)) return { ok: false, message: 'Your policy asks for a photo first. Ask the customer for one, or decline if it doesn’t hold up.' };
@@ -45,6 +45,6 @@ export async function decideClaim(db: any, tenantId: string, claimId: string, ap
         : { ...l, qtyClaimed: Math.max(n(l.qtyClaimed), open(l)) }));
       tx.update(orderRef, { pendingRefundCents: n(order.pendingRefundCents) + cents, lines: JSON.parse(JSON.stringify(lines)) });
     }
-    return { ok: true, message: 'Approved', cents };
+    return { ok: true, message: 'Approved', cents, orderId };
   });
 }

@@ -53,7 +53,7 @@ import { formatDay } from '@/lib/tenant-time';
 // "@types/qrcode": "^1.5.5" in devDependencies to package.json.
 
 interface StatusLine {
-  lineId?: string; productId?: string; name: string; qtyOrdered: number; qtyShorted: number; qtyReturned?: number; qtyClaimed?: number;
+  lineId?: string; productId?: string; name: string; qtyOrdered: number; qtyShorted: number; qtyCollected?: number; qtyReturned?: number; qtyClaimed?: number;
   unitPriceCents: number; status: string;
 }
 interface StatusOrder {
@@ -76,10 +76,23 @@ interface StatusOrder {
   dates?: CustomerDates | null; busyNote?: string; timeZone?: string; delayNotified?: boolean; labelStuck?: boolean;
 }
 
+/** When a step happened, in the shop's time: the time today, else the day and time. */
+function stepTime(iso: string, tz?: string): string {
+  const d = new Date(iso); if (!Number.isFinite(d.getTime())) return '';
+  const zone = tz || undefined; const opts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', timeZone: zone };
+  const day = (x: Date) => x.toLocaleDateString('en-US', { timeZone: zone });
+  return day(d) === day(new Date()) ? d.toLocaleTimeString('en-US', opts) : `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: zone })}, ${d.toLocaleTimeString('en-US', opts)}`;
+}
+
 const fmt = (cents: number) =>
   (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-const ACTIVE_POLL_MS = 4000;
+// The page listens to the order's live view (lib/order-tracking), so it changes as each step happens; it also asks for
+// the whole order now and then, in case the live view can't be reached (slower when listening works).
+const LISTEN_POLL_MS = 60000;
+const ACTIVE_POLL_MS = 10000;
+type TrackStep = { type: string; at: string; text: string };
+type TrackView = { key: string; sig?: string; steps: TrackStep[]; items: { collected: number; total: number; lines: { lineId: string; collected: number; ordered: number; missing: number; status: string }[] }; bringingOut: { name: string; photo: string | null; at: string } | null };
 
 // What a payment for a new address came to, as the toast's title (the message says the rest).
 const RESULT_TITLES: Record<string, string> = { applied: 'Address updated', requested: 'Sent to the shop', refunded: 'Payment refunded', refund_failed: 'Payment received', pending: 'Payment received', expired: 'Address not changed', cancelled: 'Address not changed' };
@@ -183,6 +196,10 @@ export default function OrderStatusPage() {
   const [appealNote, setAppealNote] = useState('');
   const [appealSending, setAppealSending] = useState(false);
   const activeRef = useRef(true);
+  const [track, setTrack] = useState<TrackView | null>(null);
+  const [listening, setListening] = useState(false);
+  // The live view's fingerprint as last heard (from the order, then the listener), so only a real change is news.
+  const sigRef = useRef('');
   // THE CUSTOMER'S PASS (lib/order-pass): kept on this device for 30 days. It shows their full address and email and
   // lets them change their details; without it the page shows the order and the town it ships to. The device that paid
   // (Stripe's session on the way back) or their shop account gets one by itself; otherwise a code to the email or mobile.
@@ -211,6 +228,7 @@ export default function OrderStatusPage() {
       if (data.expired) { setExpired(data); activeRef.current = false; setLoadError(''); return; }
       setExpired(null);
       setOrder(data.order);
+      if (data.track && typeof data.track.key === 'string') { setTrack(data.track); if (data.track.sig) sigRef.current = String(data.track.sig); }
       if (data.help) setHelpElig(data.help);
       const thread = Array.isArray(data.support) ? data.support : data.order?.support;
       if (Array.isArray(thread)) setSupportThread(thread);
@@ -241,15 +259,45 @@ export default function OrderStatusPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, orderId]);
 
-  // Poll while active; pause when the tab is hidden.
+  // Ask for the whole order once, then while it's active and the tab is showing: now and then while the live view is
+  // heard, more often when it isn't.
+  useEffect(() => { if (tenantId && orderId) void load(); }, [tenantId, orderId, load]);
   useEffect(() => {
     if (!tenantId || !orderId) return;
-    load();
     const t = setInterval(() => {
       if (activeRef.current && document.visibilityState === 'visible') load();
-    }, ACTIVE_POLL_MS);
+    }, listening ? LISTEN_POLL_MS : ACTIVE_POLL_MS);
     return () => clearInterval(t);
-  }, [tenantId, orderId, load]);
+  }, [tenantId, orderId, load, listening]);
+
+  // The live view: when a step happens, the counts change at once and the rest of the order is asked for (only while
+  // the order is still going and the page is showing; a copy kept on the phone from before is never taken as news).
+  const trackKey = track?.key || '';
+  useEffect(() => {
+    if (!trackKey) return;
+    let stop: (() => void) | null = null; let cancelled = false;
+    void (async () => {
+      try {
+        const { initializeFirebase } = await import('@/firebase/init');
+        const { doc, onSnapshot } = await import('firebase/firestore');
+        const fs = initializeFirebase().firestore; if (!fs || cancelled) return;
+        stop = onSnapshot(doc(fs, 'orderTracking', trackKey), (snap) => {
+          // Heard (a copy kept on the phone counts: the server's changes still arrive), but a kept copy is never news.
+          setListening(true);
+          if (snap.metadata.fromCache) return;
+          const d: any = snap.data(); if (!d) return;
+          const sig = String(d.sig || ''); const changed = sig !== sigRef.current; sigRef.current = sig;
+          setTrack((cur) => (cur ? { ...cur, steps: Array.isArray(d.steps) ? d.steps : cur.steps, items: d.items || cur.items, bringingOut: d.bringingOut ?? null } : cur));
+          if (changed && activeRef.current && document.visibilityState === 'visible') void load();
+        }, () => setListening(false));
+        // Back on the page after a while away: the order as it is now.
+        const onShow = () => { if (document.visibilityState === 'visible' && activeRef.current) void load(); };
+        document.addEventListener('visibilitychange', onShow);
+        const unlisten = stop; stop = () => { if (unlisten) unlisten(); document.removeEventListener('visibilitychange', onShow); };
+      } catch { setListening(false); }
+    })();
+    return () => { cancelled = true; if (stop) stop(); setListening(false); };
+  }, [trackKey, load]);
 
   // Render the QR whenever the value changes.
   useEffect(() => {
@@ -972,6 +1020,31 @@ export default function OrderStatusPage() {
                 })}
               </div>
 
+              {track && ['paid', 'picking', 'packed'].includes(order.stage) && track.items.total > 0 && track.items.collected > 0 && (
+                <div className="mt-5" aria-live="polite">
+                  <div className="flex items-baseline justify-between gap-3 text-sm">
+                    <span className="font-semibold text-foreground">{track.items.collected >= track.items.total ? (track.items.lines.some((x) => x.missing > 0) ? 'Everything we have is collected' : 'Everything is collected') : 'Collecting your items'}</span>
+                    <span className="tabular-nums text-muted-foreground">{track.items.collected} of {track.items.total}</span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={track.items.total} aria-valuenow={track.items.collected} aria-label="Items collected">
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(100, Math.round((track.items.collected / Math.max(1, track.items.total)) * 100))}%` }} />
+                  </div>
+                </div>
+              )}
+              {track && track.steps.length > 0 && (
+                <div className="mt-5 border-t pt-4">
+                  <p className="mb-2 text-xs font-semibold text-muted-foreground">So far</p>
+                  <ol className="m-0 list-none space-y-2 p-0">
+                    {track.steps.slice(-8).map((st, i) => (
+                      <li key={`${st.type}-${st.at}-${i}`} className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="text-foreground">{st.text}</span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">{stepTime(st.at, order.timeZone)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
               {order.stage === 'paid' && queuePosition != null && (
                 <p className="text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-4">
                   {queuePosition === 1 ? "You're next in line" : `#${queuePosition} in the queue`}
@@ -1310,6 +1383,14 @@ export default function OrderStatusPage() {
                     {(l as any).swapForName && (
                       <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">In place of {(l as any).swapForName}</p>
                     )}
+                    {(() => {
+                      if (!['paid', 'picking'].includes(order.stage) || (l as any).digital === true) return null;
+                      const tl = track?.items.lines.find((x) => x.lineId === l.lineId);
+                      const want = tl ? tl.ordered - tl.missing : l.qtyOrdered - l.qtyShorted;
+                      const got = tl ? tl.collected : Number((l as any).qtyCollected) || 0;
+                      if (want <= 0 || (got === 0 && order.stage === 'paid')) return null;
+                      return <p className="mt-0.5 text-xs text-muted-foreground">{got >= want ? 'Collected' : `${got} of ${want} collected`}</p>;
+                    })()}
                     {Array.isArray((l as any).documents) && (l as any).documents.length > 0 && (
                       <p className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
                         {(l as any).documents.map((d: { name: string; url: string }, k: number) => (

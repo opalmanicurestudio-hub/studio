@@ -5,7 +5,9 @@ import { ensureNonCardRecord } from '@/lib/non-card-record';
 import { returnCreditGiven } from '@/lib/return-credit';
 import { backSoFarCents, refundTaxPart, refundTipPart, splitTax } from '@/lib/refund-tax';
 import { partRefundAsk, partRefundApply, partRefundSent, type PartRefund } from '@/lib/part-refund';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
+import { syncTracking } from '@/lib/order-tracking';
+import { getAdminDb as getAdminDbForTracking } from '@/lib/firebase-admin';
 import Stripe from 'stripe';
 
 import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
@@ -72,7 +74,19 @@ export const maxDuration = 60;
 const listed = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
 
+// The customer's order page shows what this changed as it happens (lib/order-tracking).
 export async function POST(req: NextRequest) {
+  const peek: any = typeof (req as any).clone === 'function' ? await (req as any).clone().json().catch(() => ({})) : {};
+  const res: any = await handle(req);
+  const t = String(peek?.tenantId || '').trim(); const id = String(peek?.orderId || '').trim();
+  if (t && id && !id.includes('/') && Number(res?.status || 200) < 400) {
+    const job = async () => { await syncTracking(getAdminDbForTracking(), t, id); };
+    try { after(job); } catch { void job(); }
+  }
+  return res;
+}
+
+async function handle(req: NextRequest) {
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 

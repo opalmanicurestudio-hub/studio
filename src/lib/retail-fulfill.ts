@@ -784,7 +784,7 @@ export async function markBringingOut(
 
 export async function handoffByScan(
   fs: Firestore, tenantId: string, scannedValue: string, actor: Actor
-): Promise<{ ok: boolean; message: string; orderNumber?: number }> {
+): Promise<{ ok: boolean; message: string; orderNumber?: number; orderId?: string }> {
   const token = parseOrderQr(scannedValue) ?? scannedValue.trim();
   const match = await getDocs(query(orderCol(fs, tenantId), where('qrToken', '==', token), limit(1)));
   if (match.empty) return { ok: false, message: 'Not a valid pickup code for this shop.' };
@@ -810,7 +810,7 @@ export async function handoffByScan(
       txn.update(oRef, { stage: 'completed', completedAt: now });
       txn.set(doc(collection(oRef, 'events')), evPayload('handoff_scanned', actor));
       txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor));
-      return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, order };
+      return { ok: true, message: `Order #${order.orderNumber} — ${order.customerName}`, orderNumber: order.orderNumber, orderId, order };
     });
     // Renters' shares of what just went out go onto their rent accounts (lib/renter-sales).
     if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }

@@ -8,12 +8,14 @@
 //   · returns never sent back closed (lib/return-close)
 //   · stock about to expire (lib/expiry-alerts), and anyone left showing as outside at curbside
 //   · parcels that stopped moving, claim windows closing, resolved cases nobody touched (lib/retail-sweeps)
+//   · order pages' live views past their time removed (lib/order-tracking), once a night for every shop
 // Each check is marker-guarded, so running one twice sends nothing twice.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { refuseCron } from '@/lib/cron-auth';
 import { retailNightlyForShop } from '@/lib/retail-nightly';
+import { sweepTracking } from '@/lib/order-tracking';
 
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
@@ -49,7 +51,9 @@ export async function GET(req: NextRequest) {
     if (Object.keys(r).length) results[ids[i]] = r;
     last = ids[i]; reached++;
   }
+  // Live views of orders whose link has expired (lib/order-tracking): one sweep for every shop at once.
+  let trackingRemoved = 0; if (!cutOff) { try { trackingRemoved = await sweepTracking(db); } catch (e: any) { console.warn('[cron/retail-nightly] tracking sweep', String(e?.message || e).slice(0, 160)); } }
   await curRef.set({ day: today, cycleStart, after: last, done: !cutOff, at: new Date().toISOString(), reached }, { merge: true });
   console.log('[cron/retail-nightly]', { shops: reached, cutOff, changed: Object.keys(results).length });
-  return NextResponse.json({ ok: true, shops: reached, cutOff, results });
+  return NextResponse.json({ ok: true, shops: reached, cutOff, trackingRemoved, results });
 }

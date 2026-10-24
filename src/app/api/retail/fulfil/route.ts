@@ -16,6 +16,7 @@ import { syncRenterCreditsForOrder } from '@/lib/renter-sales-server';
 import { shareOrderTip } from '@/lib/order-tips';
 import { resolveCreditReturn } from '@/lib/return-credit';
 import { decideClaim } from '@/lib/claim-decide';
+import { syncTracking } from '@/lib/order-tracking';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
 async function run(req: NextRequest, b: any, tenantId: string, action: string, actor: { id: string; name: string }, a: any, perms: any, boss: boolean, db: any) {
   const orderId = safeId(b.orderId); const lineId = safeId(b.lineId);
   const need1 = (v: string, what: string) => (v ? null : NextResponse.json({ ok: false, message: `Which ${what}?` }, { status: 400 }));
+  const touchedIds: string[] = [];
   try {
     let out: any;
     switch (action) {
@@ -121,7 +123,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         const batch: any = { ...(snap.data() || {}), id };
         // Someone else's batch is put back only by a manager.
         if (batch.assignedTo && batch.assignedTo !== actor.id && batch.assignedTo !== String(a.authUid || '') && !perms.canManage && !boss) return NextResponse.json({ ok: false, message: 'Someone else is packing that. A manager can put it back.' }, { status: 403 });
-        await F.releaseBatch(db, tenantId, batch, 'manual', actor); out = { ok: true, message: 'Put back in the queue' }; break;
+        await F.releaseBatch(db, tenantId, batch, 'manual', actor); touchedIds.push(...(batch.orderIds || [])); out = { ok: true, message: 'Put back in the queue' }; break;
       }
       case 'sweepStale': out = { ok: true, released: await F.sweepStaleClaims(db, tenantId) }; break;
       case 'scanItem': { const m = need1(orderId, 'order'); if (m) return m; out = await F.recordItemScan(db, tenantId, orderId, s(b.value, 200), actor); break; }
@@ -157,7 +159,9 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         const id = safeId(b.waveId); const m = need1(id, 'wave'); if (m) return m;
         const st = ['picking', 'packing', 'done', 'cancelled'].includes(b.status) ? b.status : '';
         if (!st) return NextResponse.json({ ok: false, message: 'Which way should the wave go?' }, { status: 400 });
-        await setWaveStatus(db, tenantId, id, st, actor); out = { ok: true }; break;
+        await setWaveStatus(db, tenantId, id, st, actor);
+        { const w = (await db.doc(`tenants/${tenantId}/waves/${id}`).get()).data() || {}; touchedIds.push(...(Array.isArray(w.orders) ? w.orders.map((x: any) => String(x?.orderId || '')) : [])); }
+        out = { ok: true }; break;
       }
       case 'markShipped': {
         const m = need1(orderId, 'order'); if (m) return m;
@@ -172,6 +176,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         const snap = await db.doc(`tenants/${tenantId}/retailReturns/${id}`).get();
         if (!snap.exists) return NextResponse.json({ ok: false, message: 'That return isn’t there any more.' }, { status: 404 });
         const ret: any = { ...(snap.data() || {}), id };
+        touchedIds.push(String(ret.orderId || ''));
         if (action === 'resolveReturn') { out = await R.resolveReturn(db, tenantId, ret, actor); break; }
         const disp = ['restock', 'open_box', 'quarantine', 'damaged', 'dispose', 'write_off'].includes(b.disposition) ? b.disposition : 'restock';
         const lm = need1(lineId, 'item'); if (lm) return lm;
@@ -181,6 +186,11 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         const id = safeId(b.claimId); const m = need1(id, 'report'); if (m) return m;
         out = await decideClaim(db, tenantId, id, b.approve === true, { cents: Number.isFinite(Number(b.cents)) ? Number(b.cents) : null, declineWhy: s(b.declineWhy, 400) }); break;
       }
+    }
+    // The customer's order page changes as the step happens (lib/order-tracking): every order the step touched.
+    if (out && out.ok !== false) {
+      const touched = new Set<string>([orderId, out.orderId, out.childOrderId, ...(Array.isArray(out.orderIds) ? out.orderIds : []), ...(Array.isArray(out.released) ? out.released.map((x: any) => x?.orderId) : []), ...(Array.isArray(touchedIds) ? touchedIds : [])].map((x) => safeId(x)).filter(Boolean));
+      for (const id of touched) after(async () => { await syncTracking(db, tenantId, id); });
     }
     return NextResponse.json(out ?? { ok: false, message: 'That didn’t go through. Try again.' });
   } catch (e: any) {

@@ -21,7 +21,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   item_scanned: { customer: true, words: (m, by) => ({ text: `${m.via === 'tap' ? 'Ticked' : 'Scanned'} into the box (${m.qtyScanned}/${m.qtyOrdered})${by}`, tone: 'plain' }) },
   scan_mismatch: { customer: false, words: (_m, by) => ({ text: `Wrong item scanned${by}`, tone: 'warn' }) },
   line_shorted: { customer: true, words: (m, by) => ({ text: `Marked missing${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
-  line_reopened: { customer: false, words: (_m, by) => ({ text: `Missing item found after all${by}`, tone: 'ok' }) },
+  line_reopened: { customer: true, words: (_m, by) => ({ text: `Missing item found after all${by}`, tone: 'ok' }) },
   pick_complete: { customer: true, words: () => ({ text: 'Everything is in', tone: 'ok' }) },
   packed: { customer: true, words: (_m, by) => ({ text: `Packed${by}`, tone: 'ok' }) },
   label_generated: { customer: false, words: (m) => ({ text: `${m.carrier ? `${m.carrier} ` : ''}label${m.trackingNumber ? ` · ${m.trackingNumber}` : ''}`, tone: 'plain' }) },
@@ -31,7 +31,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
   handoff_scanned: { customer: true, words: (_m, by) => ({ text: `Pickup code scanned${by}`, tone: 'ok' }) },
   shipped: { customer: true, words: (m, by) => ({ text: `Shipped${m.carrier ? ` with ${m.carrier}` : ''}${m.trackingNumber ? ` · ${m.trackingNumber}` : ''}${by}`, tone: 'ok' }) },
   manifested: { customer: false, words: (_m, by) => ({ text: `On the day’s USPS form${by}`, tone: 'plain' }) },
-  completed: { customer: true, words: (_m, by) => ({ text: `Completed${by}`, tone: 'ok' }) },
+  completed: { customer: true, words: (m, by) => ({ text: m.text ? String(m.text) : `Completed${by}`, tone: 'ok' }) },
   cancelled: { customer: true, words: (m, by) => ({ text: `Canceled${m.reason ? `: ${m.reason}` : ''}${by}`, tone: 'warn' }) },
   refund_issued: { customer: true, words: (m, by) => ({ text: `Refund of ${money(m.amountCents)} sent${by}`, tone: 'ok' }) },
   return_opened: { customer: true, words: (_m, by) => ({ text: `Return started${by}`, tone: 'plain' }) },
@@ -46,7 +46,7 @@ export const EVENT_INFO: Record<OrderEventType, Info> = {
 };
 
 /** Names older events were written with, read as the one name they mean now. */
-const OLD_NAMES: Record<string, OrderEventType> = { paid: 'payment_confirmed', order_cancelled: 'cancelled', ready: 'marked_ready', arrived: 'customer_arrived' };
+export const OLD_NAMES: Record<string, OrderEventType> = { paid: 'payment_confirmed', order_cancelled: 'cancelled', ready: 'marked_ready', arrived: 'customer_arrived' };
 
 export const eventTypeOf = (t: any): OrderEventType | null => {
   const s = String(t || ''); return (EVENT_INFO as any)[s] ? (s as OrderEventType) : OLD_NAMES[s] || null;

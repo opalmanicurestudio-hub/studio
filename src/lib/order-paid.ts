@@ -196,5 +196,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, pay: 
 
     return { won: true, orderNumber: number, creditTaken, creditShortfall, giftSpent, giftShortfall, giftCardId: giftId || null, order: { ...o, ...paid, id: orderId } };
   });
+  // The customer's order page shows it paid as it happens (lib/order-tracking). Best effort.
+  if (out?.won) { try { const { syncTracking } = await import('./order-tracking'); await syncTracking(db, tenantId, orderId); } catch { /* the page asks again */ } }
   return out;
 }

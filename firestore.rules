@@ -991,6 +991,13 @@ service cloud.firestore {
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['desk', 'client'])));
       allow delete: if isSignedIn() && request.auth.uid == resource.data.host;
     }
+    // AN ORDER'S LIVE VIEW (lib/order-tracking): what the customer's order page listens to, so it changes as each step
+    // happens. Read one at a time by its key (signed by the server from the order, and given only to the order page);
+    // never listed, and only the server writes it. It holds the steps and item counts, never a name, contact or address.
+    match /orderTracking/{key} {
+      allow get: if true;
+      allow list, write: if false;
+    }
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }

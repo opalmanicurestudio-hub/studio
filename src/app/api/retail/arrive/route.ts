@@ -1,5 +1,6 @@
 import { eventIdFor } from '@/lib/order-events';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { syncTracking } from '@/lib/order-tracking';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { buildEvent, canAdvance, type RetailOrder } from '@/lib/retail-orders';
@@ -97,6 +98,7 @@ export async function POST(req: NextRequest) {
       return { stage: o.stage };
     });
     if (r.refused) return NextResponse.json({ error: 'This order isn’t waiting for you any more.', stage: r.stage }, { status: 409 });
+    await syncTracking(db, tenantId, orderId);
     return NextResponse.json({ ok: true, onWay: true, stage: r.stage, etaMinutes });
   }
 
@@ -133,5 +135,7 @@ export async function POST(req: NextRequest) {
     return { onTime, stage: o.stage };
   });
   if (r.refused) return NextResponse.json({ error: r.refused }, { status: r.status });
+  // The order page (and its live view) shows the check-in as it happens.
+  await syncTracking(db, tenantId, orderId);
   return NextResponse.json({ ok: true, stage: r.onTime ? 'arrived' : r.stage, early: !r.onTime });
 }

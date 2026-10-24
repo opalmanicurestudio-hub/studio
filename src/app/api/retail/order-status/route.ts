@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { putTracking, trackingKey } from '@/lib/order-tracking';
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
 import { changeMode, changePolicy } from '@/lib/address-flow';
 import { busyLineFor, customerDates, scheduleFrom } from '@/lib/ship-promise';
@@ -93,6 +94,8 @@ export async function GET(req: NextRequest) {
   const linkUntil = linkExpiresAt(order, rs);
   // Past the link's window: only enough to ask for a code (lib/order-pass).
   if (!passOk && !linkOpen(order, rs)) {
+    // Its live view goes too: nothing about the order is readable with the old link's key any more.
+    { const k = trackingKey(tenantId, orderId); if (k) await db.doc(`orderTracking/${k}`).delete().catch(() => {}); }
     const t: any = tenantSnap.exists ? tenantSnap.data() : {};
     return NextResponse.json({
       expired: true, linkExpiresAt: linkUntil, verify,
@@ -258,8 +261,15 @@ export async function GET(req: NextRequest) {
     const others: string[] = order.shippedWithOrderId ? [String(order.shippedWithOrderId)] : Array.isArray(order.shippedWithOrderIds) ? order.shippedWithOrderIds.map(String).slice(0, 9) : [];
     if (others.length) shippedWith = (await Promise.all(others.map((id) => db.doc(`tenants/${tenantId}/retailOrders/${id}`).get()))).filter((d: any) => d.exists).map((d: any) => `#${String((d.data() as any)?.orderNumber ?? '').padStart(4, '0')}`);
   } catch { /* cosmetic */ }
+  // The live view the page listens to (lib/order-tracking): brought up to date here too, so a step written by any route
+  // shows within one ask even if that route didn't update it. Written only when something in it changed.
+  let track: any = null;
+  try {
+    const built = await putTracking(db, tenantId, orderId, { ...order, id: orderId }, rs);
+    if (built) track = { key: trackingKey(tenantId, orderId), sig: built.sig, steps: built.steps, items: built.items, bringingOut: built.bringingOut };
+  } catch (e: any) { console.warn('[order-status] tracking', String(e?.message || e).slice(0, 160)); }
   const body: any = {
-    help, verify, linkExpiresAt: linkUntil, ...(newPass ? { newPass } : {}),
+    help, verify, linkExpiresAt: linkUntil, ...(newPass ? { newPass } : {}), track,
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
     // Where the shop physically is, so the customer's phone can answer "am I
     // there yet?" locally. Sent to the browser deliberately: the alternative
@@ -289,6 +299,8 @@ export async function GET(req: NextRequest) {
         documents: Array.isArray(l.documents) ? l.documents.slice(0, 6) : [],
         qtyOrdered: l.qtyOrdered,
         qtyShorted: l.qtyShorted || 0,
+        // Collected so far, for the item-by-item progress (never more than what's still coming).
+        qtyCollected: Math.min(Math.max(0, (Number(l.qtyOrdered) || 0) - (Number(l.qtyShorted) || 0)), Math.max(0, Number(l.qtyScanned) || 0)),
         unitPriceCents: l.unitPriceCents,
         status: l.status === 'returned' && (l.qtyGiftReturned || 0) > 0 && (l.qtyReturned || 0) - (l.qtyGiftReturned || 0) < (l.qtyOrdered || 0) - (l.qtyShorted || 0) ? 'picked' : l.status,
         digital: l.digital === true,
