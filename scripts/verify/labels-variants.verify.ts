@@ -6,7 +6,7 @@
 //     out, label designs fetched only from the app's own file storage;
 //   - adding a variant: a product of its own, in the listing's variants, its codes refused when another product has one
 //     (with nothing left behind), a second variant of the same name refused, the listing's price used when it has none;
-//   - the screens: the product page opens on Codes and variants, the labels page prints what it previews, receiving and
+//   - the screens: the product page opens on its overview (codes a tab away), the labels page prints what it previews, receiving and
 //     packing say what to do with a code no product has, and the words are the app's (variants, never shades).
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/labels-variants.verify.ts
 import Module from 'module';
@@ -207,7 +207,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('receiving: a scan while a count box has the cursor puts the box back as it was and counts the scan (it used to type the code in as the count)', /data-scan-field="" data-count-of=\{item\.productId\}/.test(rcv) && /undoScanTyping\(\);/.test(rcv) && /el\.blur\(\);/.test(rcv));
   check('…a damaged count alone doesn’t count the line, so a scan after it starts from zero', /if \(field === 'quantityReceived'\) markCounted\(\[productId\]\);/.test(rcv));
   check('…and a question still open (a case, which variant, which product) is answered before the next scan counts', /if \(askRef\.current\) \{ scanFeedback\(false\); setNote\(\{ text: 'Finish this one first, then scan again\.' \}\); return; \}/.test(rcv));
-  check('the product page opens on Codes and variants, or the ledger for what has no codes, worked out again for each product', /setTab\(asked && has\(asked\) \? asked : has\('codes'\) \? 'codes' : 'history'\);/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')));
+  check('the product page opens on its overview, or the tab its link names when the product has it, worked out again for each product (never again mid-task)', /setTab\(asked && has\(asked\) \? asked : 'overview'\);/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')) && /\}, \[id, productType\]\);/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')));
 
   // ── The screens ──
   const productPage = src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx');
@@ -215,7 +215,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   const labelsPage = src('src/app/(app)/inventory/labels/page.tsx');
   const receive = src('src/components/inventory/ReceiveStockDialog.tsx');
   const unknown = src('src/components/inventory/UnknownCodePanel.tsx');
-  check('the product page opens on Codes and variants, or the tab its link names', /Codes and variants/.test(productPage) && /get\('tab'\)/.test(productPage));
+  check('the product page has its codes a tab away, and opens on the tab its link names', /Codes and labels/.test(productPage) && /get\('tab'\)/.test(productPage));
   check('…adds variants through the server, saves codes through the server', /addVariant\(tenantId/.test(codesTab) && /saveCodes\(tenantId/.test(codesTab));
   check('the labels page prints what it previews, and downloads the same as a PDF', /drawLabel\(/.test(labelsPage) && /LabelMarks/.test(labelsPage) && /\/api\/inventory\/labels/.test(labelsPage) && /Download a PDF/.test(labelsPage));
   check('the old label print page sends people to the labels page', /redirect\(/.test(src('src/app/print/product-labels/[tenantId]/page.tsx')) && /\/inventory\/labels/.test(src('src/app/print/product-labels/[tenantId]/page.tsx')));

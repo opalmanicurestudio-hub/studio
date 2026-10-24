@@ -1,6 +1,10 @@
 'use client';
 
 import { KitsManager } from '@/components/pos/desk/Kits';
+import { ProductsList, shopStatus, type ProductFilter } from '@/components/products/ProductsList';
+import { AddProductSheet } from '@/components/products/AddProductSheet';
+import { QuickReceiveDialog } from '@/components/inventory/QuickReceiveDialog';
+import { Btn, C, muted } from '@/components/orders/ui';
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -770,6 +774,11 @@ export default function InventoryPage() {
   const [sortBy, setSortBy] = useState<SortKey>('name');
   const [searchTerm, setSearchTerm] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  const [productFilter, setProductFilter] = useState<ProductFilter>('all');
+  const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
+  const [isQuickReceiveOpen, setIsQuickReceiveOpen] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  useEffect(() => { if (!addMenuOpen) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setAddMenuOpen(false); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [addMenuOpen]);
   
   const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
   const [addProductDialogType, setAddProductDialogType] = useState<'professional' | 'retail'>('professional');
@@ -1511,258 +1520,91 @@ export default function InventoryPage() {
   }, [inventory, toast]);
   
   const hasInventory = inventory && inventory.length > 0;
+  // "48 products · 31 in the shop · 4 running low": the page's one line of numbers.
+  const productSummary = useMemo(() => {
+    const live = (inventory || []).filter((i: any) => i.status !== 'archived' && !['equipment', 'overhead'].includes(String(i.type)) && !listings.has(String(i.id)));
+    const inShop = live.filter((i: any) => shopStatus(i, listings)?.tone === 'ok').length;
+    const lowN = (inventory || []).filter((i: any) => i.status !== 'archived' && needs.low(i) && !['equipment', 'overhead'].includes(String(i.type)) && (Number(i.lowStockThreshold) || 0) > 0).length;
+    const worth = (inventory || []).filter((i: any) => i.status !== 'archived' && !['equipment', 'overhead'].includes(String(i.type))).reduce((a: number, i: any) => a + Math.max(0, Number(i.totalStock) || 0) * (Number(i.costPerUnit) || 0), 0);
+    return [`${live.length} product${live.length === 1 ? '' : 's'}`, inShop ? `${inShop} in the shop` : '', lowN ? `${lowN} running low` : '', worth > 0 ? `$${Math.round(worth).toLocaleString('en-US')} on the shelf at cost` : ''].filter(Boolean).join(' · ');
+  }, [inventory, listings, needs]);
   const hasFilteredInventory = filteredInventory.length > 0;
 
   return (
     <ClientOnly>
-    <div className="flex h-screen w-full flex-col">
-      <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-8">
-        
-        <div className="grid lg:grid-cols-4 gap-8 items-start">
-            <div className="hidden lg:block lg:col-span-1">
-                <InventorySidebar
-                  inventory={inventory || []}
-                  stockCorrections={[]}
-                  onLogOverheadUse={handleOpenLogUse} 
-                />
+    <div className="flex min-h-screen w-full flex-col" style={{ background: C.paper, color: C.ink }}>
+      <AppHeader title="Products" />
+      <main className="mx-auto flex w-full max-w-[1280px] flex-1 flex-col gap-5 px-4 pb-12 pt-6 md:px-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="m-0 text-[34px] font-light tracking-[-0.02em]">Products</h1>
+            <p className="m-0 mt-1 text-[15px]" style={muted}>{productSummary}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Btn kind="soft" onClick={() => setIsQuickReceiveOpen(true)}>Receive stock</Btn>
+            <Btn kind="primary" onClick={() => setIsAddSheetOpen(true)}>Add a product</Btn>
+            <div className="relative">
+            <Btn kind="soft" aria-expanded={addMenuOpen} aria-haspopup="menu" onClick={() => setAddMenuOpen(!addMenuOpen)}>Add something else</Btn>
+            {addMenuOpen && <div className="fixed inset-0 z-20" aria-hidden="true" onClick={() => setAddMenuOpen(false)} />}
+            {addMenuOpen && (
+              <div role="menu" className="absolute right-0 top-full z-30 mt-2 min-w-[240px] overflow-hidden rounded-2xl shadow-lg" style={{ background: C.paper, border: `1px solid ${C.line}` }}>
+                {[['A product, every detail', () => handleOpenAddProductDialog('retail')], ['Equipment', () => setIsAddEquipmentDialogOpen(true)], ['A running cost', () => setIsAddOverheadDialogOpen(true)], ['Stock report', () => { window.location.href = '/inventory/report'; }]].map(([label, run]: any) => (
+                  <button key={label} type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); run(); }} className="block h-11 w-full px-4 text-left text-[15px]" style={{ color: C.ink }}>{label}</button>
+                ))}
+              </div>
+            )}
             </div>
-
-            <div className="lg:col-span-3">
-                 <div className="lg:hidden mb-6">
-                    <Sheet>
-                        <SheetTrigger asChild>
-                            <Button variant="outline" className="w-full">
-                                <SlidersHorizontal className="mr-2 h-4 w-4" />
-                                View Stats & Actions
-                            </Button>
-                        </SheetTrigger>
-                        <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0">
-                             <SheetHeader className="p-4 border-b">
-                                <SheetTitle>Inventory Overview</SheetTitle>
-                                <SheetDescription>Key metrics and actions for your inventory.</SheetDescription>
-                            </SheetHeader>
-                            <ScrollArea className="flex-1">
-                                <div className="p-4">
-                                     <InventorySidebar
-                                      inventory={inventory || []}
-                                      stockCorrections={[]}
-                                      onLogOverheadUse={handleOpenLogUse}
-                                     />
-                                </div>
-                            </ScrollArea>
-                        </SheetContent>
-                    </Sheet>
-                </div>
-                <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
-                    <TabsTrigger value="products">Products</TabsTrigger>
-                    <TabsTrigger value="orders">Orders</TabsTrigger>
-                    <TabsTrigger value="locations">Locations</TabsTrigger>
-                    <TabsTrigger value="kits">Kits & linens</TabsTrigger>
-                </TabsList>
-                <TabsContent value="products" className="mt-6">
-                    <Card>
-                        <CardHeader>
-                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                                <div>
-                                    <CardTitle>All Inventory</CardTitle>
-                                    <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Button variant="outline" asChild>
-                                        <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" />View Report</Link>
-                                    </Button>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button><PlusCircle className="mr-2" /> New Item</Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" />Product (Professional)</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')}><Store className="mr-2" />Product (Retail)</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)}><Hammer className="mr-2" />Equipment</DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)}><Recycle className="mr-2" />Overhead</DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="mb-4 space-y-4">
-                                <div className="flex flex-col sm:flex-row items-center gap-4">
-                                    <div className="relative flex-1 w-full">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                        <Input 
-                                            placeholder="Search by name..." 
-                                            className="pl-9"
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                        />
-                                    </div>
-                                    <Button variant="outline" size="icon" aria-label="Scan a barcode" onClick={() => setIsScannerOpen(true)} className="shrink-0">
-                                        <QrCode className="h-4 w-4" />
-                                    </Button>
-                                </div>
-
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <select
-                                        aria-label="Filter by type"
-                                        value={activeFilter}
-                                        onChange={(e) => setActiveFilter(e.target.value)}
-                                        className="h-9 rounded-xl border-2 bg-card px-2 text-[11px] font-black uppercase tracking-widest"
-                                    >
-                                        {FILTER_CHIPS.map((chip) => (
-                                            <option key={chip.id} value={chip.id}>
-                                                {chip.label} ({typeCounts[chip.id] ?? 0})
-                                            </option>
-                                        ))}
-                                    </select>
-
-                                    <select
-                                        aria-label="Sort products"
-                                        value={sortBy}
-                                        onChange={(e) => setSortBy(e.target.value as SortKey)}
-                                        className="h-9 rounded-xl border-2 bg-card px-2 text-[11px] font-black uppercase tracking-widest"
-                                    >
-                                        <option value="name">A – Z</option>
-                                        <option value="stock_low">Least stock first</option>
-                                        <option value="recent">Recently updated</option>
-                                        <option value="value">Highest value</option>
-                                    </select>
-
-                                    {ATTENTION_CHIPS.map((chip) => {
-                                        const count = attention[chip.key];
-                                        if (count === 0) return null;
-                                        const on = attentionFilter === chip.id;
-                                        return (
-                                            <button
-                                                key={chip.id}
-                                                type="button"
-                                                onClick={() => {
-                                                    setAttentionFilter(on ? null : chip.id);
-                                                    if (!on && chip.forceType) setActiveFilter(chip.forceType);
-                                                }}
-                                                aria-pressed={on}
-                                                className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest transition-colors',
-                                                    on ? chip.onClass : chip.offClass)}
-                                            >
-                                                {count} {chip.label}
-                                            </button>
-                                        );
-                                    })}
-
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowArchived(!showArchived)}
-                                        aria-pressed={showArchived}
-                                        className={cn('ml-auto h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest transition-colors',
-                                            showArchived ? 'border-slate-800 bg-slate-800 text-white' : 'bg-card text-muted-foreground hover:border-primary/30')}
-                                    >
-                                        Archived
-                                    </button>
-
-                                    {(activeFilter !== 'all' || attentionFilter || searchTerm || showArchived) && (
-                                        <button
-                                            type="button"
-                                            onClick={() => { setActiveFilter('all'); setAttentionFilter(null); setSearchTerm(''); setShowArchived(false); }}
-                                            className="h-9 rounded-xl px-3 text-[11px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                                        >
-                                            Clear
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                             {selectedItems.size > 0 && (
-                                <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
-                                    <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
-                                    <div className="flex gap-2">
-                                        {showArchived ? (
-                                            <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
-                                        ) : (
-                                            <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
-                                        )}
-                                        {!showArchived && <Button variant="outline" size="sm" asChild><Link href={`/inventory/labels?ids=${[...selectedItems].slice(0, 200).map((x) => encodeURIComponent(String(x))).join(',')}`}>Print labels</Link></Button>}
-                                        <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
-                                    </div>
-                                </div>
-                            )}
-                            {!hasInventory ? (
-                                <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
-                                    {hasFilteredInventory ? paginatedItems.map(item => (
-                                        <ProductCard 
-                                            key={item.id}
-                                            item={item} 
-                                            onEdit={handleEditItem} 
-                                            onToggleExperiment={handleToggleExperiment} 
-                                            onEndExperiment={handleEndExperiment} 
-                                            onLogUse={handleOpenLogUse}
-                                            onWriteOff={handleOpenWriteOff}
-                                            onLogSale={handleOpenLogSale}
-                                            isSelected={selectedItems.has(item.id)}
-                                            onSelect={() => handleItemSelect(item.id)}
-                                            isOrdered={orderedProductIds.has(item.id)}
-                                            sold={soldOf(item)}
-                                        />
-                                    )) : (
-                                        <p className="text-muted-foreground col-span-full text-center py-10">No items match your filters.</p>
-                                    )}
-                                </div>
-                            )}
-                        </CardContent>
-                        {totalPages > 1 && (
-                            <CardFooter>
-                                <div className="flex items-center justify-between w-full">
-                                    <span className="text-sm text-muted-foreground">
-                                        Page {currentPage} of {totalPages}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={handlePrevPage}
-                                            disabled={currentPage === 1}
-                                        >
-                                            Previous
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={handleNextPage}
-                                            disabled={currentPage === totalPages}
-                                        >
-                                            Next
-                                        </Button>
-                                    </div>
-                                </div>
-                            </CardFooter>
-                        )}
-                    </Card>
-                </TabsContent>
-                <TabsContent value="orders" className="mt-6">
-                    <OrdersTab 
-                        inventory={inventory || []}
-                    />
-                </TabsContent>
-                <TabsContent value="kits" className="mt-6">
-                    {tenantId && <div className="mx-auto max-w-2xl"><KitsManager tenantId={tenantId} services={(services as any) || []} inventory={(inventory as any) || []} manager={['owner', 'admin', 'manager'].includes(String((useTenantRole as any) || ''))} /></div>}
-                </TabsContent>
-                <TabsContent value="locations" className="mt-6">
-                        <Locations 
-                            locations={locations || []}
-                            locationTypes={locationTypes || []}
-                            inventory={inventory || []}
-                            setLocations={() => {}}
-                            onAddLocation={handleOpenAddLocation}
-                            onEditLocation={handleOpenEditLocation}
-                        />
-                </TabsContent>
-                </Tabs>
-            </div>
+          </div>
         </div>
+
+        <div className="inline-flex flex-wrap gap-0.5 self-start rounded-full p-1" style={{ background: C.soft }} role="tablist" aria-label="Products sections">
+          {[['products', 'Products'], ['orders', 'Purchase orders'], ['locations', 'Locations'], ['kits', 'Kits and linens']].map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={activeView === id} onClick={() => setActiveView(id)} className="h-11 rounded-full px-4 text-[15px] font-medium"
+              style={activeView === id ? { background: C.paper, color: C.ink, boxShadow: '0 1px 2px rgba(22, 23, 26, 0.08)' } : { color: C.muted }}>{label}</button>
+          ))}
+        </div>
+
+        {activeView === 'products' && (
+          !hasInventory ? <EmptyState onAddFirstItem={() => setIsAddSheetOpen(true)} /> : (
+            <ProductsList
+              inventory={inventory || []}
+              listings={listings}
+              orderedIds={orderedProductIds as any}
+              search={searchTerm}
+              onSearch={setSearchTerm}
+              filter={productFilter}
+              onFilter={(f) => { setProductFilter(f); setShowArchived(f === 'archived'); }}
+              selected={selectedItems}
+              onSelect={handleItemSelect}
+              onClearSelection={() => setSelectedItems(new Set())}
+              onScan={() => setIsScannerOpen(true)}
+              bulk={{ archive: handleBulkArchive, unarchive: handleBulkUnarchive, remove: handleBulkDeleteClick, labelsHref: `/inventory/labels?ids=${[...selectedItems].slice(0, 200).map((x) => encodeURIComponent(String(x))).join(',')}` }}
+              menuFor={(item: any) => [
+                ...(item.type === 'equipment' || item.type === 'professional' || item.type === 'retail' ? [{ label: 'Edit details', run: () => handleEditItem(item) }] : []),
+                ...(item.type === 'professional' || item.type === 'overhead' ? [{ label: 'Log a use', run: () => handleOpenLogUse(item) }] : []),
+                ...(item.type === 'retail' ? [{ label: 'Log a sale', run: () => handleOpenLogSale(item) }] : []),
+                ...(item.type === 'professional' ? [item.isExperimentActive ? { label: 'End the cost-per-use test', run: () => handleEndExperiment(item) } : { label: 'Test its cost per use', run: () => handleToggleExperiment(item) }] : []),
+                ...(item.type !== 'equipment' && item.type !== 'overhead' ? [{ label: 'Write some off', run: () => handleOpenWriteOff(item), danger: true }] : []),
+              ]}
+            />
+          )
+        )}
+        {activeView === 'orders' && <OrdersTab inventory={inventory || []} />}
+        {activeView === 'kits' && tenantId && <div className="mx-auto w-full max-w-2xl"><KitsManager tenantId={tenantId} services={(services as any) || []} inventory={(inventory as any) || []} manager={['owner', 'admin', 'manager'].includes(String((useTenantRole as any) || ''))} /></div>}
+        {activeView === 'locations' && (
+          <Locations
+            locations={locations || []}
+            locationTypes={locationTypes || []}
+            inventory={inventory || []}
+            setLocations={() => {}}
+            onAddLocation={handleOpenAddLocation}
+            onEditLocation={handleOpenEditLocation}
+          />
+        )}
       </main>
-      
+      {isAddSheetOpen && firestore && tenantId && <AddProductSheet fs={firestore as any} tenantId={tenantId} inventory={inventory || []} onClose={() => setIsAddSheetOpen(false)} />}
+      {tenantId && <QuickReceiveDialog open={isQuickReceiveOpen} onOpenChange={setIsQuickReceiveOpen} tenantId={tenantId} inventory={inventory || []} />}
+
       <AddProductDialog
         open={isAddProductDialogOpen}
         onOpenChange={setIsAddProductDialogOpen}

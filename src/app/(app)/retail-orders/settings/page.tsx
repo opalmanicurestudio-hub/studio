@@ -1789,7 +1789,7 @@ export default function RetailSettingsPage() {
                             {Number(it.casePack) > 1
                               ? `Case of ${Math.floor(Number(it.casePack))}${it.caseBarcode ? ` (${it.caseBarcode})` : ', no case code yet'}${Number(it.palletPack) > 1 ? ` · pallet of ${Math.floor(Number(it.palletPack))} cases${it.palletBarcode ? ` (${it.palletBarcode})` : ''}` : ''}. `
                               : 'No case or pallet code. '}
-                            Its codes are set on its page, under Codes and variants.
+                            Its codes are set on its page, under Codes and labels.
                           </p>
                           <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                             <Link href={`/inventory/product/${encodeURIComponent(it.id)}?tab=codes`}>Codes</Link>
@@ -1808,7 +1808,7 @@ export default function RetailSettingsPage() {
                           <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
                             {(it.optionGroups || []).length
                               ? `Choices: ${(it.optionGroups || []).map((g: any) => (g === variantGroup(it) ? `${g.name} (${variantIdsOf(it).length} variant${variantIdsOf(it).length === 1 ? '' : 's'})` : g.name)).join(' · ')}`
-                              : 'Variants are added on the product’s page, under Codes and variants, and other choices under In the shop.'}
+                              : 'Variants are added on the product’s page, under Codes and labels, and other choices under In the shop.'}
                           </p>
                           <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                             <Link href={`/inventory/product/${encodeURIComponent(it.id)}?tab=${variantIdsOf(it).length ? 'codes' : 'online'}`}>{(it.optionGroups || []).length ? 'Edit choices' : 'Add choices'}</Link>

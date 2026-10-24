@@ -1,99 +1,36 @@
 'use client';
-
+// The product page: what it is, how much is on the shelf, how it sells, and everything else a tab away.
 import { LotOrders } from '@/components/inventory/LotOrders';
 import { costGap } from '@/lib/product-cost';
 import { verifyPin } from '@/lib/pin-client';
 import React, { useMemo, useState } from 'react';
 import { useParams, notFound } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardFooter
-} from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { 
-    ArrowLeft, 
-    Edit, 
-    DollarSign, 
-    Package, 
-    AlertCircle, 
-    ShoppingCart, 
-    BarChart, 
-    FileText, 
-    Clock, 
-    Database, 
-    Book, 
-    QrCode, 
-    Tag, 
-    Truck, 
-    TrendingUp, 
-    TrendingDown, 
-    RefreshCw, 
-    Percent, 
-    Search,
-    Sparkles,
-    Landmark,
-    Calculator,
-    ArrowRight,
-    Loader,
-    PackageOpen,
-    Target,
-    Printer,
-    Pipette,
-    Coffee,
-    Award,
-    ShieldCheck,
-    Building,
-    User,
-    Mail,
-    Phone,
-    Link as LinkIcon,
-    ImageIcon,
-    Lock,
-    Unlock,
-    KeyRound
-} from 'lucide-react';
 import Link from 'next/link';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
 import Image from 'next/image';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { format, parseISO, isPast } from 'date-fns';
-import { cn, safeNumber } from '@/lib/utils';
 import { reconcile } from '@/lib/stock-ledger';
 import { OnlineListingTab } from '@/components/inventory/OnlineListingTab';
 import { CodesTab } from '@/components/inventory/CodesTab';
-import QRCode from 'qrcode';
+import { QuickReceiveDialog } from '@/components/inventory/QuickReceiveDialog';
 import { syncPublicFields } from '@/lib/product-public';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { type InventoryItem } from '@/lib/data';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { useToast } from '@/hooks/use-toast';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { useFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { saveProduct } from '@/lib/codes-client';
 import { saveChoices } from '@/lib/codes-api';
 import { doc } from 'firebase/firestore';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useStockChangesFor } from '@/hooks/use-stock';
 import { useAppointmentWindow } from '@/hooks/use-appointments';
 import { useClientsByIds } from '@/hooks/use-clients';
+import { choiceFor, listingsOf, priceCentsOf, variantIdsOf } from '@/lib/variants';
+import { shopStatus } from '@/components/products/ProductsList';
+import { CountSheet } from '@/components/products/CountSheet';
+import { Btn, C, Sheet, muted } from '@/components/orders/ui';
+import QRCode from 'qrcode';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -103,19 +40,33 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const CorrectionIcon = ({ reason }: { reason: string }) => {
-    const r = reason.toLowerCase();
-    if (r.includes('appointment') || r.includes('service')) return <TrendingDown className="h-4 w-4 text-red-500" />;
-    if (r.includes('shipment')) return <TrendingUp className="h-4 w-4 text-green-500" />;
-    if (r.includes('amenity') || r.includes('refreshment') || r.includes('recipe')) return <Coffee className="h-4 w-4 text-indigo-500" />;
-    if (r.includes('manual use')) return <TrendingDown className="h-4 w-4 text-red-500" />;
-    if (r.includes('retail sale')) return <TrendingDown className="h-4 w-4 text-red-500" />;
-    return <RefreshCw className="h-4 w-4 text-muted-foreground" />;
-}
-
 // Gathers every image the product carries, primary first, junk-safe.
 const collectImages = (p: any): string[] =>
   [p?.imageUrl, ...(Array.isArray(p?.imageUrls) ? p.imageUrls : [])].filter(Boolean);
+
+// The page's building blocks. Kept outside the page so typing in a field inside one doesn't rebuild it.
+const card: React.CSSProperties = { background: C.paper, border: `1px solid ${C.line}` };
+const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
+function Tile({ label, value, note, tone }: { label: string; value: React.ReactNode; note?: React.ReactNode; tone?: string }) {
+    return (
+        <div className="rounded-2xl p-4" style={card}>
+            <p className="m-0 text-[13px]" style={muted}>{label}</p>
+            <p className="m-0 mt-1 text-[26px] font-light tabular-nums tracking-[-0.02em]" style={tone ? { color: tone } : undefined}>{value}</p>
+            {note ? <p className="m-0 mt-0.5 text-[13px]" style={muted}>{note}</p> : null}
+        </div>
+    );
+}
+function Panel({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+    return (
+        <section className="rounded-2xl p-5" style={card}>
+            <div className="mb-3 flex items-center justify-between gap-3"><h2 className="m-0 text-[17px] font-semibold">{title}</h2>{action}</div>
+            {children}
+        </section>
+    );
+}
+function Line({ k, v }: { k: React.ReactNode; v: React.ReactNode }) {
+    return <div className="flex items-baseline justify-between gap-4 border-t py-2.5 text-[15px] first:border-t-0" style={{ borderColor: C.line }}><span style={muted}>{k}</span><span className="text-right tabular-nums">{v}</span></div>;
+}
 
 export default function ProductDetailPage() {
     const { id } = useParams<{ id: string }>();
@@ -133,8 +84,10 @@ export default function ProductDetailPage() {
     const tenantId = selectedTenant?.id;
     const { toast } = useToast();
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-    const [isQrModalOpen, setIsQrModalOpen] = useState(false);
-    const [qrModalContent, setQrModalContent] = useState({ url: '', alt: '', title: '' });
+    const [isCountOpen, setIsCountOpen] = useState(false);
+    const [countTarget, setCountTarget] = useState<any>(null);
+    const [isReceiveOpen, setIsReceiveOpen] = useState(false);
+    const [qr, setQr] = useState('');
     const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
     
     // Vault State
@@ -143,16 +96,24 @@ export default function ProductDetailPage() {
     const [isVerifyingVault, setIsVerifyingVault] = useState(false);
     
     const product = useMemo(() => inventory.find((p) => p.id === id), [inventory, id]);
-    // The tab a link asks for (?tab=online, say), else Codes and variants, or the ledger for what has no codes
+    // The tab a link asks for (?tab=online, say), else the overview.
     // (equipment, an overhead cost). Worked out again for each product, so one product's tab never leaves the next
     // on a tab it doesn't have.
-    const [tab, setTab] = useState('codes');
+    const [tab, setTab] = useState('overview');
     const productType = String((product as any)?.type || '');
+    const listings = useMemo(() => listingsOf(inventory || []), [inventory]);
+    const hasVariants = variantIdsOf(product).length > 0;
     React.useEffect(() => {
-        const has = (t: string) => t === 'codes' ? productType !== 'equipment' && productType !== 'overhead' : t === 'online' ? productType === 'retail' : ['history', 'manufacturing', 'batches'].includes(t);
-        const asked = new URLSearchParams(window.location.search).get('tab') || '';
-        setTab(asked && has(asked) ? asked : has('codes') ? 'codes' : 'history');
+        const old: Record<string, string> = { manufacturing: 'stock', batches: 'stock', ledger: 'history' };
+        const has = (t: string) => t === 'codes' ? productType !== 'equipment' && productType !== 'overhead' : t === 'online' ? productType === 'retail' : t === 'variants' ? hasVariants : ['overview', 'stock', 'history'].includes(t);
+        const raw = new URLSearchParams(window.location.search).get('tab') || '';
+        const asked = old[raw] || raw;
+        setTab(asked && has(asked) ? asked : 'overview');
+        // Read once per product (when it opens, or when it loads): adding the first variant mustn't move anyone off their tab.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, productType]);
+    // The last variant removed while its tab is open: its codes are where variants are added back.
+    React.useEffect(() => { if (tab === 'variants' && !hasVariants && productType) setTab('codes'); }, [tab, hasVariants, productType]);
 
     /**
      * Section saves from the In the shop tab.
@@ -202,9 +163,9 @@ export default function ProductDetailPage() {
         if (authorized) {
             setIsVaultUnlocked(true);
             setVaultPin('');
-            toast({ title: "Vault Unlocked", description: "Proprietary protocols now visible." });
+            toast({ title: "Unlocked", description: "The maker details and recipe are showing." });
         } else {
-            toast({ variant: 'destructive', title: "Access Denied", description: "Invalid Manager PIN." });
+            toast({ variant: "destructive", title: "That PIN didn’t work", description: "It needs a manager’s PIN." });
             setVaultPin('');
         }
         setIsVerifyingVault(false);
@@ -303,19 +264,22 @@ export default function ProductDetailPage() {
     // Scoped to whole-unit products (the count IS the number). For uses/size
     // costing the ledger tracks partial containers, so a simple sum would
     // "find" drift that isn't there — we say nothing rather than cry wolf.
+    // A count is a fresh start: the record from the newest count on is what has to add up, so a count really does put
+    // a gap right (before, its own entry moved the record by just as much as the shelf, and the gap never closed).
     const stockDrift = useMemo(() => {
         if (!product) return null;
         if (product.costingMethod === 'uses' || product.costingMethod === 'size') return null;
-        const entries = stockCorrections.filter((sc: any) =>
-            sc.productId === product.id && (sc.field || 'totalStock') === 'totalStock');
-        if (entries.length === 0) return null;
-        const opening = entries
-            .map((e: any) => (typeof e.balanceAfter === 'number' ? e.balanceAfter - (Number(e.change) || 0) : null))
-            .find((v: number | null) => v !== null);
+        const all = stockCorrections.filter((sc: any) =>
+            sc.productId === product.id && (sc.field || 'totalStock') === 'totalStock')
+            .sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+        if (all.length === 0) return null;
+        const lastCount = [...all].reverse().find((e: any) => e.type === 'counted' && typeof e.balanceAfter === 'number');
+        const entries = lastCount ? all.filter((e: any) => String(e.date) > String(lastCount.date)) : all;
+        const opening = lastCount ? Number(lastCount.balanceAfter)
+            : all.map((e: any) => (typeof e.balanceAfter === 'number' ? e.balanceAfter - (Number(e.change) || 0) : null)).find((v: number | null) => v !== null);
         if (opening === null || opening === undefined) return null;
         const { expected, actual, drift } = reconcile(entries as any, Number(product.totalStock) || 0, opening);
-        const dated = [...entries].sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
-        return { expected, actual, drift, entries: entries.length, since: dated[0]?.date || null };
+        return { expected, actual, drift, entries: entries.length, since: (lastCount || all[0])?.date || null, fromCount: !!lastCount };
     }, [product, stockCorrections]);
 
     const filteredLedger = useMemo(() => {
@@ -325,547 +289,310 @@ export default function ProductDetailPage() {
         return ledgerWithRunningStock.filter(correction => correction.displayReason.toLowerCase().includes(lowercasedSearch));
     }, [ledgerWithRunningStock, ledgerSearchTerm]);
 
-    if (isInventoryLoading) return <div className="flex min-h-screen w-full flex-col bg-background justify-center items-center"><Loader className="w-8 h-8 animate-spin text-primary" /></div>;
+    if (isInventoryLoading) return <div className="flex min-h-screen w-full items-center justify-center" style={{ background: C.paper }}><p className="text-[15px]" style={muted}>Loading…</p></div>;
     if (!product) return notFound();
 
-    const stockValue = (product.totalStock || 0) * (product.costPerUnit || 0);
-
-    // FIX: product.batches was typed as required but has been observed missing on
-    // some Firestore docs (same root cause as the ProductCard crash) — guard here too.
-    const productBatches = product.batches ?? [];
+    const p: any = product;
+    const kindOf = String(p.type || '');
+    const countable = kindOf !== 'equipment' && kindOf !== 'overhead';
+    const productBatches: any[] = product.batches ?? [];
+    const shelf = Math.max(0, Number(p.totalStock) || 0);
+    const held = Math.max(0, Number(p.stockReserved) || 0);
+    const reorderAt = Number(p.lowStockThreshold) || Number(p.reorderPoint) || 0;
+    const priceCents = priceCentsOf(p, listings);
+    const cost = Number(p.costPerUnit) || 0;
+    const variantIds = variantIdsOf(p);
+    const variants = variantIds.map((v) => inventory.find((i: any) => String(i.id) === v)).filter(Boolean) as any[];
+    // A listing with variants holds nothing itself: its numbers are its variants'.
+    const sumOf = (k: string) => variants.reduce((a, v) => a + Math.max(0, Number(v[k]) || 0), 0);
+    const stockValue = variantIdsOf(p).length ? variants.reduce((a, v) => a + Math.max(0, Number(v.totalStock) || 0) * (Number(v.costPerUnit) || 0), 0) : shelf * cost;
+    const free = variantIdsOf(p).length ? variants.reduce((a, v) => a + Math.max(0, (Number(v.totalStock) || 0) - (Number(v.stockReserved) || 0)), 0) : shelf - held;
+    // Cost per use by how it's measured: per use, per ml (or its unit), or each.
+    const perUse = p.costingMethod === 'uses' ? Number(p.estimatedUses) || 1 : p.costingMethod === 'size' ? Number(p.size) || 1 : 1;
+    const useWord = p.costingMethod === 'uses' ? 'Cost per use' : p.costingMethod === 'size' ? `Cost per ${p.useUnit || p.unit || 'unit'}` : 'Cost each';
+    const wholesaleCents = priceCentsOf(p, listings, 'wholesale');
+    const status = shopStatus(p, listings);
+    const listing = listings.get(String(p.id));
+    const where = [p.primaryLocationId, ...(Array.isArray(p.secondaryLocationIds) ? p.secondaryLocationIds : [])].filter(Boolean)
+        .map((lid: string) => (locations || []).find((l: any) => String(l.id) === String(lid))?.name).filter(Boolean) as string[];
+    const photo = collectImages(p)[0];
+    const meta = [p.category, p.sku ? `SKU ${p.sku}` : '', p.supplier].filter(Boolean).join(' · ');
+    const tabs: { id: string; label: string }[] = [
+        { id: 'overview', label: 'Overview' },
+        ...(countable ? [{ id: 'stock', label: 'Stock' }] : [{ id: 'stock', label: 'Details' }]),
+        ...(kindOf === 'retail' ? [{ id: 'online', label: 'In the shop' }] : []),
+        ...(variantIds.length ? [{ id: 'variants', label: 'Variants' }] : []),
+        ...(countable ? [{ id: 'codes', label: 'Codes and labels' }] : []),
+        { id: 'history', label: 'History' },
+    ];
+    const ready = kindOf === 'retail' && !listing ? [
+        { done: priceCents > 0, label: 'A price', go: 'overview', fix: () => setIsEditDialogOpen(true) },
+        { done: !!photo, label: 'A photo', go: 'online' },
+        { done: String(p.publicDescription || p.description || '').trim().length >= 40, label: 'A few lines on what it is', go: 'online' },
+        { done: !!(p.barcode || p.gtin), label: 'Its barcode, so search engines can match it', go: 'codes' },
+        { done: free > 0 || !!p.preorder?.enabled, label: 'Some on the shelf', go: variantIds.length ? 'variants' : 'stock', fix: variantIds.length ? undefined : () => setIsCountOpen(true) },
+        { done: p.showOnline === true, label: 'Turned on for the shop', go: 'online' },
+    ] : [];
+    const readyDone = ready.filter((r) => r.done).length;
+    const recent = ledgerWithRunningStock.slice(0, 5);
+    const linkBtn = 'inline-flex h-12 items-center justify-center rounded-full px-5 text-[15px] font-semibold';
 
     return (
-        <div className="flex min-h-screen w-full flex-col bg-background overflow-x-hidden">
+        <div className="flex min-h-screen w-full flex-col overflow-x-hidden" style={{ background: C.paper, color: C.ink }}>
             <AppHeader title="Product" />
-            <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0 text-left">
-                
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-                    <div className="space-y-1 text-left">
-                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none text-left">Product</h1>
-                        <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Product details</p>
+            <main className="mx-auto flex w-full max-w-[1180px] flex-1 flex-col gap-5 px-4 pb-16 pt-5 md:px-6">
+                <Link href="/inventory" className="self-start text-[15px]" style={muted}>‹ Products</Link>
+
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex min-w-0 items-center gap-4">
+                        <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-2xl" style={{ background: C.soft }}>
+                            {photo ? <Image src={photo} alt={p.imageAlt || p.name} fill sizes="72px" className="object-cover" /> : null}
+                        </div>
+                        <div className="min-w-0">
+                            {status ? <span className="mb-1 inline-block rounded-full px-2.5 py-0.5 text-[12px] font-semibold" style={status.tone === 'ok' ? { background: C.okSoft, color: C.ok } : status.tone === 'warn' ? { background: C.warnSoft, color: C.warn } : { background: C.soft, color: C.muted }}>{status.label}</span> : null}
+                            <h1 className="m-0 truncate text-[28px] font-light leading-tight tracking-[-0.02em]">{p.name}</h1>
+                            {meta ? <p className="m-0 mt-0.5 truncate text-[14px]" style={muted}>{meta}</p> : null}
+                        </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                        <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-card/50 backdrop-blur-sm shadow-sm"><Link href="/inventory" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Back</Link></Button>
-                        <Button size="sm" className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20" onClick={() => setIsEditDialogOpen(true)}><Edit className="h-4 w-4 mr-2" />Edit</Button>
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                        <Btn kind="soft" onClick={() => setIsEditDialogOpen(true)}>Edit details</Btn>
+                        {countable && <Link href={`/inventory/labels?items=${encodeURIComponent(p.id)}:1`} className={linkBtn} style={{ background: C.soft, color: C.ink }}>Print labels</Link>}
+                        <Btn kind="soft" onClick={async () => { const url = await QRCode.toDataURL(`clarityflow://product/${p.id}`, { width: 512, margin: 1, errorCorrectionLevel: 'M' }).catch(() => ''); if (url) setQr(url); }}>QR code</Btn>
+                        {countable && !variantIds.length && <Btn kind="soft" onClick={() => setIsCountOpen(true)}>Count it</Btn>}
+                        {countable && !variantIds.length && <Btn kind="primary" onClick={() => setIsReceiveOpen(true)}>Receive stock</Btn>}
                     </div>
                 </div>
 
-                <Card className="border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-card/80 backdrop-blur-xl transition-all text-left">
-                    <CardContent className="p-6 md:p-12 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 md:gap-12">
-                        <div className="relative shrink-0">
-                            <div className="w-32 h-32 md:w-48 md:h-48 rounded-[2rem] md:rounded-[3rem] overflow-hidden border-4 border-white shadow-2xl bg-muted/20 relative flex items-center justify-center">
-                                {collectImages(product)[0] ? (
-                                    <Image src={collectImages(product)[0]} alt={product.name} fill className='object-cover transition-transform duration-700' />
+                <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+                    <div className="inline-flex gap-0.5 rounded-full p-1" style={{ background: C.soft }} role="tablist" aria-label="Product sections">
+                        {tabs.map((t) => (
+                            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} className="h-11 whitespace-nowrap rounded-full px-4 text-[15px] font-medium"
+                                style={tab === t.id ? { background: C.paper, color: C.ink, boxShadow: '0 1px 2px rgba(22, 23, 26, 0.08)' } : { color: C.muted }}>{t.label}</button>
+                        ))}
+                    </div>
+                </div>
+
+                {tab === 'overview' && (
+                    <div className="flex flex-col gap-5">
+                        {countable && (
+                            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                                <Tile label="On the shelf" value={variantIds.length ? sumOf('totalStock') : shelf} note={variantIds.length ? `across ${variants.length} variants` : reorderAt ? `reorder at ${reorderAt}` : undefined} tone={!variantIds.length && reorderAt && shelf - held <= reorderAt ? C.warn : undefined} />
+                                <Tile label="Held for orders" value={variantIds.length ? sumOf('stockReserved') : held} note="paid, not yet handed over" />
+                                <Tile label={kindOf === 'retail' ? 'Price' : useWord} value={kindOf === 'retail' ? (priceCents > 0 ? money(priceCents / 100) : 'None yet') : money(cost / perUse)} />
+                                <Tile label="Worth on the shelf" value={money(stockValue)} note="at what it cost" />
+                            </div>
+                        )}
+                        {countable && (() => { const gap = costGap(product); return (
+                            <p className="m-0 rounded-2xl px-4 py-3 text-[14px]" style={gap ? { background: C.warnSoft, color: C.warn } : { background: C.okSoft, color: C.ok }}>
+                                {gap ? `Services using this can’t count its cost yet: ${gap}. Add it in Edit details so the restocking fund and service margins include it.`
+                                    : `Counts toward the restocking fund and service margins${p.costingMethod === 'size' && p.size ? ` at $${(cost / p.size).toFixed(2)} per ${p.useUnit || 'unit'}` : p.costingMethod === 'uses' && p.estimatedUses ? ` at $${(cost / p.estimatedUses).toFixed(2)} per use` : ` at $${cost.toFixed(2)} each`}.`}
+                            </p>); })()}
+                        <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+                            <div className="flex min-w-0 flex-col gap-5">
+                                {(kindOf === 'retail' || kindOf === 'refreshment') ? (
+                                    <Panel title="Selling it">
+                                        <Line k="Price" v={priceCents > 0 ? money(priceCents / 100) : 'None yet'} />
+                                        <Line k="It cost" v={money(cost)} />
+                                        <Line k="Made on each" v={priceCents > 0 ? money(priceCents / 100 - cost) : '—'} />
+                                        <Line k="Margin" v={priceCents > 0 ? `${(((priceCents / 100 - cost) / (priceCents / 100)) * 100).toFixed(0)}%` : '—'} />
+                                        {wholesaleCents > 0 && wholesaleCents !== priceCents ? <Line k="Wholesale" v={money(wholesaleCents / 100)} /> : null}
+                                    </Panel>
+                                ) : countable ? (
+                                    <Panel title="Using it in services">
+                                        <Line k="Counted by" v={p.costingMethod === 'uses' ? 'Uses' : p.costingMethod === 'size' ? 'Amount used' : 'Each one'} />
+                                        <Line k="It cost" v={money(cost)} />
+                                        <Line k={useWord} v={money(cost / perUse)} />
+                                        <Line k="With the restocking markup" v={`${money((cost / perUse) * (1 + (Number(p.restockingMarkup) || 0) / 100))} (${Number(p.restockingMarkup) || 0}%)`} />
+                                    </Panel>
                                 ) : (
-                                    <Package className="w-16 h-16 md:w-24 md:h-24 text-muted-foreground/30" />
+                                    <Panel title="Details">
+                                        <Line k="It cost" v={money(cost)} />
+                                        {p.supplier ? <Line k="From" v={p.supplier} /> : null}
+                                    </Panel>
+                                )}
+                                {variantIds.length > 0 && (
+                                    <Panel title="Variants" action={<button type="button" className="-my-2 min-h-[44px] px-2 text-[15px] font-medium" style={{ color: C.ok }} onClick={() => setTab('variants')}>See them all</button>}>
+                                        {variants.slice(0, 4).map((v) => <Line key={v.id} k={choiceFor(p, String(v.id))?.choice.label || v.name} v={`${Number(v.totalStock) || 0} on the shelf`} />)}
+                                        {variants.length > 4 ? <p className="m-0 pt-2 text-[14px]" style={muted}>and {variants.length - 4} more</p> : null}
+                                    </Panel>
+                                )}
+                                {countable && (
+                                    <Panel title="Where it is">
+                                        <p className="m-0 text-[15px]">{where.length ? where.join(', ') : <span style={muted}>No place set yet. Add one in Edit details so anyone can find it.</span>}</p>
+                                        {p.lastCountedAt ? <p className="m-0 mt-2 text-[14px]" style={muted}>Last counted {format(safeDate(p.lastCountedAt), 'MMM d')}{p.lastCountedBy ? ` by ${p.lastCountedBy}` : ''}</p> : null}
+                                    </Panel>
+                                )}
+                                {p.description ? (
+                                    <Panel title="Notes">
+                                        <p className="m-0 whitespace-pre-wrap text-[15px]">{p.description}</p>
+                                    </Panel>
+                                ) : null}
+                                <Panel title="Lately" action={<button type="button" className="-my-2 min-h-[44px] px-2 text-[15px] font-medium" style={{ color: C.ok }} onClick={() => setTab('history')}>All of it</button>}>
+                                    {recent.length ? recent.map((c: any) => (
+                                        <div key={c.id} className="flex items-baseline justify-between gap-4 border-t py-2.5 first:border-t-0" style={{ borderColor: C.line }}>
+                                            <span className="min-w-0"><span className="block truncate text-[15px]">{c.displayReason}</span><span className="text-[13px]" style={muted}>{format(safeDate(c.date), 'MMM d, h:mm a')}</span></span>
+                                            <span className="shrink-0 tabular-nums text-[15px]" style={{ color: c.change > 0 ? C.ok : C.ink }}>{c.change > 0 ? '+' : ''}{c.change}</span>
+                                        </div>
+                                    )) : <p className="m-0 text-[15px]" style={muted}>Nothing has moved yet.</p>}
+                                </Panel>
+                            </div>
+                            <div className="flex min-w-0 flex-col gap-5">
+                                {ready.length > 0 && (
+                                    <Panel title="Ready for the shop" action={<span className="text-[14px] tabular-nums" style={muted}>{readyDone} of {ready.length}</span>}>
+                                        <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                                            {ready.map((r) => (
+                                                <li key={r.label}>
+                                                    <button type="button" onClick={() => (r.fix && !r.done ? r.fix() : setTab(r.go))} className="flex min-h-[44px] w-full items-center gap-3 text-left text-[15px]">
+                                                        <span aria-hidden className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-[12px]" style={r.done ? { background: C.ok, color: C.paper } : { border: `1.5px solid ${C.line}` }}>{r.done ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7" /></svg> : null}</span>
+                                                        <span style={r.done ? muted : undefined}>{r.label}</span>
+                                                        <span className="sr-only">{r.done ? 'done' : 'to do'}</span>
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </Panel>
+                                )}
+                                {kindOf === 'retail' && (
+                                    <Panel title="What customers see" action={tenantId && status?.tone === 'ok' ? <a href={`/shop/${tenantId}/product/${listing ? listing.id : p.id}`} target="_blank" rel="noopener noreferrer" className="text-[15px] font-medium" style={{ color: C.ok }}>Open it</a> : undefined}>
+                                        <div className="overflow-hidden rounded-2xl" style={{ border: `1px solid ${C.line}` }}>
+                                            <div className="relative aspect-square w-full" style={{ background: C.soft }}>
+                                                {photo ? <Image src={photo} alt={p.imageAlt || p.name} fill sizes="360px" className="object-cover" /> : <p className="absolute inset-0 m-0 grid place-items-center text-[14px]" style={muted}>No photo yet</p>}
+                                            </div>
+                                            <div className="p-4">
+                                                <p className="m-0 text-[16px] font-semibold">{listing ? listing.name : p.name}</p>
+                                                <p className="m-0 mt-0.5 text-[15px] tabular-nums">{priceCents > 0 ? money(priceCents / 100) : <span style={{ color: C.warn }}>No price yet</span>}</p>
+                                                <p className="m-0 mt-1 text-[13px]" style={muted}>{free > 0 ? 'In stock' : 'Sold out'}</p>
+                                            </div>
+                                        </div>
+                                    </Panel>
                                 )}
                             </div>
                         </div>
-                        <div className="space-y-4 flex-1 min-w-0 text-left">
-                            <div className="flex flex-col sm:flex-row items-center sm:items-baseline gap-3 md:gap-4 text-left">
-                                <h2 className="text-2xl md:text-5xl font-black uppercase tracking-tighter text-foreground truncate leading-none text-left">{product.name}</h2>
-                                <div className="flex gap-2">
-                                    <Badge variant="outline" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase tracking-widest border-2">{product.category}</Badge>
-                                    <Badge variant="secondary" className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase border-none bg-primary/10 text-primary">{product.type}</Badge>
-                                    {product.isMembersOnly && (
-                                        <Badge className="h-6 px-3 rounded-full font-black text-[8px] md:text-[9px] uppercase border-none bg-indigo-600 text-white shadow-lg">
-                                            <Award className="w-3 h-3 mr-1.5" /> Club Exclusive
-                                        </Badge>
-                                    )}
-                                </div>
-                            </div>
-                            
-                            <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2 text-left">
-                                <div className="space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">SKU</p>
-                                    <p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary text-left">{product.sku || product.id.slice(-6).toUpperCase()}</p>
-                                </div>
-                                <div className="space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Supplier</p>
-                                    <p className="text-base md:text-xl font-black uppercase tracking-tight text-foreground/80 text-left">{product.supplier || 'In-house'}</p>
-                                </div>
-                            </div>
+                    </div>
+                )}
 
-                            {product.description && (
-                                <div className="pt-4 space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Notes</p>
-                                    <p className="text-xs md:text-sm font-medium text-foreground/80 leading-relaxed italic border-l-4 border-primary/20 pl-4 text-left">
-                                        "{product.description}"
-                                    </p>
+                {tab === 'stock' && (
+                    <div className="flex flex-col gap-5">
+                        {countable && (
+                            <Panel title="Batches" action={!variantIds.length ? <Btn kind="soft" onClick={() => setIsReceiveOpen(true)}>Receive stock</Btn> : undefined}>
+                                {productBatches.length ? [...productBatches].sort((a, b) => safeDate(b.receivedDate).getTime() - safeDate(a.receivedDate).getTime()).map((b: any) => (
+                                    <div key={b.id} className="flex flex-wrap items-baseline justify-between gap-3 border-t py-3 first:border-t-0" style={{ borderColor: C.line }}>
+                                        <div className="min-w-0">
+                                            <p className="m-0 text-[15px]">Received {format(safeDate(b.receivedDate), 'MMM d, yyyy')}{b.note ? <span style={muted}> · {b.note}</span> : null}</p>
+                                            <p className="m-0 mt-0.5 text-[13px]" style={b.expirationDate && isPast(safeDate(b.expirationDate)) ? { color: C.warn } : muted}>
+                                                {[b.lot ? `Lot ${b.lot}` : '', b.expirationDate ? `${isPast(safeDate(b.expirationDate)) ? 'Expired' : 'Expires'} ${format(safeDate(b.expirationDate), 'MMM d, yyyy')}` : ''].filter(Boolean).join(' · ') || 'No lot or expiry'}
+                                            </p>
+                                            {b.lot ? <LotOrders tenantId={String(tenantId || '')} productId={String(p.id)} lot={String(b.lot)} /> : null}
+                                        </div>
+                                        <p className="m-0 shrink-0 text-[15px] tabular-nums">{Number(b.stock) || 0} left <span style={muted}>· {money(Number(b.costPerUnit) || 0)} each</span></p>
+                                    </div>
+                                )) : <p className="m-0 text-[15px]" style={muted}>No batches yet. Receiving stock adds one.</p>}
+                            </Panel>
+                        )}
+                        <Panel title="Where it comes from">
+                            <Line k="Supplier" v={p.supplier || 'Not set'} />
+                            <Line k="Lead time" v={p.leadTimeDays ? `${p.leadTimeDays} days` : 'Not set'} />
+                            <Line k="Smallest order" v={p.moq || 'Not set'} />
+                            {p.supplierUrl ? <div className="pt-3"><a href={p.supplierUrl} target="_blank" rel="noopener noreferrer" className={linkBtn} style={{ background: C.soft, color: C.ink }}>Reorder from the supplier</a></div> : null}
+                        </Panel>
+                        <Panel title="How it’s made" action={isVaultUnlocked ? <span className="text-[13px]" style={muted}>Unlocked</span> : undefined}>
+                            {!isVaultUnlocked ? (
+                                <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={(e) => { e.preventDefault(); if (vaultPin.length >= 4) void handleUnlockVault(); }}>
+                                    <div className="flex-1">
+                                        <label htmlFor="vault-pin" className="mb-1.5 block text-[13px]" style={muted}>The maker, recipe and label files are for managers. Enter a manager PIN to see them.</label>
+                                        <input id="vault-pin" type="password" inputMode="numeric" maxLength={8} value={vaultPin} onChange={(e) => setVaultPin(e.target.value.replace(/\D/g, ''))} className="h-12 w-full max-w-[200px] rounded-xl px-4 text-[18px] tracking-[0.3em] outline-none" style={{ border: `1px solid ${C.line}` }} />
+                                    </div>
+                                    <Btn kind="primary" type="submit" disabled={vaultPin.length < 4 || isVerifyingVault}>{isVerifyingVault ? 'Checking…' : 'Unlock'}</Btn>
+                                </form>
+                            ) : (
+                                <div className="flex flex-col gap-1">
+                                    <Line k="Maker" v={p.manufacturerName || 'Not set'} />
+                                    <Line k="Contact" v={p.manufacturerContactName || 'Not set'} />
+                                    {p.manufacturerEmail ? <Line k="Email" v={<a href={`mailto:${p.manufacturerEmail}`} style={{ color: C.ok }}>{p.manufacturerEmail}</a>} /> : null}
+                                    {p.manufacturerPhone ? <Line k="Phone" v={<a href={`tel:${p.manufacturerPhone}`} style={{ color: C.ok }}>{p.manufacturerPhone}</a>} /> : null}
+                                    {p.labelTemplateUrl ? <Line k="Label file" v={<a href={p.labelTemplateUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.ok }}>Open it</a>} /> : null}
+                                    {p.labelImageUrl ? (
+                                        <div className="mt-3 flex flex-col gap-2">
+                                            <div className="relative aspect-video w-full max-w-md overflow-hidden rounded-2xl" style={{ background: C.soft }}><Image src={p.labelImageUrl} alt={`Label for ${p.name}`} fill sizes="448px" className="object-contain p-3" /></div>
+                                            <Link href={`/inventory/labels?product=${encodeURIComponent(p.id)}&design=1`} className={`${linkBtn} self-start`} style={{ background: C.soft, color: C.ink }}>Print this label</Link>
+                                        </div>
+                                    ) : null}
+                                    <p className="m-0 mt-3 text-[13px] font-semibold" style={muted}>How it’s made</p>
+                                    <p className="m-0 whitespace-pre-wrap text-[15px]">{p.manufacturingSop || <span style={muted}>Nothing written yet.</span>}</p>
                                 </div>
                             )}
-                            
-                            <div className="flex flex-wrap justify-center sm:justify-start gap-4 pt-4">
-                                <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm" onClick={async () => {
-                                    // Made here: the shop's own label for the product, which every scanner reads as it.
-                                    const url = await QRCode.toDataURL(`clarityflow://product/${product.id}`, { width: 512, margin: 1, errorCorrectionLevel: 'M' }).catch(() => '');
-                                    if (!url) return;
-                                    setQrModalContent({ url, alt: `QR code for ${product.name}`, title: 'Its QR code' });
-                                    setIsQrModalOpen(true);
-                                }}>
-                                    <QrCode className="mr-2 h-3.5 w-3.5" /> QR code
-                                </Button>
-                                <Button variant="outline" size="sm" asChild className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm">
-                                    <Link href={`/inventory/labels?items=${encodeURIComponent(product.id)}:1`}><Printer className="mr-2 h-3.5 w-3.5" /> Print labels</Link>
-                                </Button>
-                                {product.supplierUrl && (
-                                    <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm" onClick={() => window.open(product.supplierUrl, '_blank')}>
-                                        <ShoppingCart className="mr-2 h-3.5 w-3.5" /> Shop Asset
-                                    </Button>
-                                )}
-                            </div>
+                        </Panel>
+                    </div>
+                )}
+
+                {tab === 'online' && kindOf === 'retail' && (
+                    <OnlineListingTab product={product} inventory={inventory} onSave={handleOnlineSave} onSaveChoices={handleChoicesSave} />
+                )}
+
+                {tab === 'variants' && variantIds.length > 0 && (
+                    <section className="overflow-hidden rounded-2xl" style={card}>
+                        <div className="hidden grid-cols-[1.4fr_1fr_.8fr_.8fr_.8fr_120px] gap-3 px-5 py-3 text-[13px] font-semibold md:grid" style={{ ...muted, background: C.soft }}>
+                            <span>Variant</span><span>On the shelf</span><span>Reorder at</span><span>Price</span><span>Wholesale</span><span />
                         </div>
-                    </CardContent>
-                </Card>
-
-                {product.type !== 'equipment' && product.type !== 'overhead' && (() => { const gap = costGap(product); return (
-                  <p className="rounded-2xl px-4 py-3 text-[14px]" style={gap ? { background: 'rgba(180,83,9,.1)', color: '#8a3f06' } : { background: 'rgba(21,128,61,.08)', color: 'var(--ok-ink)' }}>
-                    {gap ? `Services using this can’t count its cost yet — ${gap}. Add it below so the restocking fund and service margins include it.`
-                      : `Counts toward the restocking fund and service margins${product.costingMethod === 'size' && product.size ? ` at $${((product.costPerUnit || 0) / product.size).toFixed(2)} per ${product.useUnit || 'unit'}` : product.costingMethod === 'uses' && product.estimatedUses ? ` at $${((product.costPerUnit || 0) / product.estimatedUses).toFixed(2)} per use` : ` at $${(product.costPerUnit || 0).toFixed(2)} each`}.`}
-                  </p>); })()}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card text-left">
-                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Package className="w-3 h-3"/>Full Stock</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-foreground font-mono text-left">{product.totalStock}</p></CardContent>
-                    </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card text-left">
-                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><DollarSign className="w-3 h-3"/>Stock Value</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-foreground font-mono text-left">${stockValue.toFixed(2)}</p></CardContent>
-                    </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card text-left">
-                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><AlertCircle className="w-3 h-3"/>Threshold</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-foreground font-mono text-left">{product.reorderPoint || '—'}</p></CardContent>
-                    </Card>
-                    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card text-left">
-                        <CardHeader className="p-4 pb-1 text-left"><CardTitle className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 opacity-60"><Calculator className="w-3 h-3"/>Landed / Unit</CardTitle></CardHeader>
-                        <CardContent className="p-4 pt-0 text-left"><p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono text-left">${(product.costPerUnit || 0).toFixed(2)}</p></CardContent>
-                    </Card>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10">
-                    <div className="lg:col-span-2 xl:col-span-3 space-y-10 min-w-0 order-2 lg:order-1 text-left">
-                        <Tabs value={tab} onValueChange={setTab} className="w-full">
-                            <ScrollArea className="w-full">
-                                <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 w-max">
-                                    {product.type !== 'equipment' && product.type !== 'overhead' && (
-                                        <TabsTrigger value="codes" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Codes and variants</TabsTrigger>
-                                    )}
-                                    {product.type === 'retail' && (
-                                        <TabsTrigger value="online" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">In the shop</TabsTrigger>
-                                    )}
-                                    <TabsTrigger value="history" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Audit Ledger</TabsTrigger>
-                                    <TabsTrigger value="manufacturing" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Manufacturing Archive</TabsTrigger>
-                                    <TabsTrigger value="batches" className="px-6 md:px-8 h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-md">Logistics</TabsTrigger>
-                                </TabsList>
-                                <ScrollBar orientation="horizontal" className="hidden" />
-                            </ScrollArea>
-                            
-                            {product.type !== 'equipment' && product.type !== 'overhead' && (
-                                <TabsContent value="codes" className="m-0 animate-in fade-in duration-500 text-left">
-                                    <CodesTab product={product} inventory={inventory} tenantId={String(tenantId || '')} />
-                                </TabsContent>
-                            )}
-
-                            {product.type === 'retail' && (
-                                <TabsContent value="online" className="m-0 space-y-6 animate-in fade-in duration-500 text-left">
-                                    <OnlineListingTab
-                                        product={product}
-                                        inventory={inventory}
-                                        onSave={handleOnlineSave}
-                                        onSaveChoices={handleChoicesSave}
-                                    />
-                                </TabsContent>
-                            )}
-
-                            <TabsContent value="history" className="m-0 space-y-6 animate-in fade-in duration-500 text-left">
-                                <div className="relative text-left">
-                                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
-                                    <Input placeholder="SEARCH LEDGER BY GUEST OR TECH..." className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-card shadow-inner" value={ledgerSearchTerm} onChange={(e) => setLedgerSearchTerm(e.target.value)} />
+                        {variants.map((v) => {
+                            const vShelf = Number(v.totalStock) || 0; const vHeld = Number(v.stockReserved) || 0; const vAt = Number(v.lowStockThreshold) || Number(v.reorderPoint) || 0;
+                            const own = Number(v.msrp) > 0; const vp = priceCentsOf(v, listings); const wp = priceCentsOf(v, listings, 'wholesale');
+                            return (
+                                <div key={v.id} className="grid grid-cols-2 items-center gap-x-3 gap-y-1 border-t px-5 py-3 text-[15px] md:grid-cols-[1.4fr_1fr_.8fr_.8fr_.8fr_120px]" style={{ borderColor: C.line }}>
+                                    <Link href={`/inventory/product/${v.id}`} className="col-span-2 min-w-0 truncate font-medium md:col-span-1">{choiceFor(p, String(v.id))?.choice.label || v.name}</Link>
+                                    <span className="tabular-nums" style={vAt && vShelf - vHeld <= vAt ? { color: C.warn } : undefined}>{vShelf}<span className="md:hidden"> on the shelf</span>{vHeld ? <span style={muted}> · {vHeld} held</span> : null}</span>
+                                    <span className="tabular-nums" style={muted}><span className="md:hidden">reorder at </span>{vAt || '—'}</span>
+                                    <span className="tabular-nums">{vp > 0 ? money(vp / 100) : '—'}{vp > 0 && !own ? <span className="text-[13px]" style={muted}> listing’s</span> : null}</span>
+                                    <span className="tabular-nums" style={muted}><span className="md:hidden">wholesale </span>{wp > 0 && wp !== vp ? money(wp / 100) : '—'}</span>
+                                    <span className="col-span-2 flex justify-end md:col-span-1"><Btn kind="soft" onClick={() => setCountTarget(v)}>Count it</Btn></span>
                                 </div>
-                                {stockDrift && (
-                                    <div className={cn('rounded-[1.5rem] border-2 p-5 text-left',
-                                        stockDrift.drift === 0 ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60')}>
-                                        <p className={cn('text-[10px] font-black uppercase tracking-widest',
-                                            stockDrift.drift === 0 ? 'text-emerald-700' : 'text-amber-800')}>
-                                            {stockDrift.drift === 0 ? 'Every unit accounted for' : `Off by ${Math.abs(stockDrift.drift)}`}
-                                        </p>
-                                        <p className="mt-1 text-xs font-bold text-muted-foreground">
-                                            {stockDrift.drift === 0
-                                                ? `The ${stockDrift.entries} recorded movements add up to the ${stockDrift.actual} on the shelf.`
-                                                : `The record says ${stockDrift.expected}, the shelf says ${stockDrift.actual}. Something moved without being logged — the history below starts ${stockDrift.since ? format(parseISO(stockDrift.since), 'MMM d, yyyy') : 'here'}.`}
-                                        </p>
-                                    </div>
-                                )}
-                                <div className="space-y-3 text-left">
-                                    {filteredLedger.length > 0 ? filteredLedger.map((correction: any) => (
-                                        <div key={correction.id} className="flex flex-col sm:flex-row items-center justify-between p-5 rounded-[1.5rem] bg-card border-2 border-border/50 hover:border-primary/20 transition-all gap-4 text-left shadow-sm">
-                                            <div className="flex items-center gap-4 w-full sm:w-auto text-left">
-                                                <div className="p-3 bg-muted/30 rounded-2xl border shadow-inner shrink-0">
-                                                    <CorrectionIcon reason={correction.reason} />
-                                                </div>
-                                                <div className="min-w-0 text-left">
-                                                    <p className="font-black text-[11px] uppercase tracking-tight text-foreground truncate text-left">{correction.displayReason}</p>
-                                                    <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60 mt-0.5 text-left">{format(safeDate(correction.date), 'MMM d, yyyy @ h:mm a')}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-6 justify-between sm:justify-end w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-none border-dashed border-border/50 text-left">
-                                                <div className="text-right">
-                                                    <p className={cn("font-black font-mono text-sm tracking-tighter leading-none", correction.change > 0 ? "text-green-600" : "text-destructive")}>
-                                                        {correction.change > 0 ? '+' : ''}{correction.change} {correction.unit}
-                                                    </p>
-                                                    {correction.stockAfter !== correction.stockBefore && (
-                                                        <p className={cn("text-[8px] font-black uppercase mt-1", correction.stockAfter < correction.stockBefore ? "text-destructive/60" : "text-green-600/60")}>
-                                                            {correction.stockAfter < correction.stockBefore ? '-' : '+'}{Math.abs(correction.stockAfter - correction.stockBefore)} FULL UNIT
-                                                        </p>
-                                                    )}
-                                                </div>
-                                                <div className="text-right bg-primary/[0.03] p-2.5 rounded-xl border border-primary/5 shadow-inner text-left">
-                                                    <p className="font-black font-mono text-[11px] tracking-tighter text-primary leading-none text-right">
-                                                        {correction.stockAfter}u {product.costingMethod === 'uses' ? `+ ${correction.partialAfter}${product.useUnit || 'u'}` : product.costingMethod === 'size' ? `+ ${correction.partialAfter}${product.unit || 'ml'}` : ''}
-                                                    </p>
-                                                    <p className="text-[8px] font-black uppercase text-primary/40 mt-1 text-right">Net Stock</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )) : (
-                                        <div className="py-20 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
-                                            <Book className="w-12 h-12" />
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-center">No entries found</p>
-                                        </div>
-                                    )}
+                            );
+                        })}
+                        <p className="m-0 border-t px-5 py-3 text-[14px]" style={{ ...muted, borderColor: C.line }}>Add or rename variants in Codes and labels. Open one to change its own price or where it’s kept.</p>
+                    </section>
+                )}
+
+                {tab === 'codes' && countable && <CodesTab product={product} inventory={inventory} tenantId={String(tenantId || '')} />}
+
+                {tab === 'history' && (
+                    <div className="flex flex-col gap-4">
+                        {stockDrift && (
+                            <p className="m-0 rounded-2xl px-4 py-3 text-[15px]" style={stockDrift.drift === 0 ? { background: C.okSoft, color: C.ok } : { background: C.warnSoft, color: C.warn }}>
+                                {stockDrift.drift === 0
+                                    ? (stockDrift.fromCount && !stockDrift.entries ? `Every unit is accounted for: the shelf matches the last count.` : `Every unit is accounted for: the ${stockDrift.entries} recorded changes${stockDrift.fromCount ? ' since the last count' : ''} add up to the ${stockDrift.actual} on the shelf.`)
+                                    : `Off by ${Math.abs(stockDrift.drift)}. The record says ${stockDrift.expected}, the shelf says ${stockDrift.actual}, so something moved without being recorded since ${stockDrift.since ? format(parseISO(stockDrift.since), 'MMM d, yyyy') : 'the first entry'}. A count puts it right.`}
+                            </p>
+                        )}
+                        <input type="search" placeholder="Search by client, team member or reason" aria-label="Search the history" value={ledgerSearchTerm} onChange={(e) => setLedgerSearchTerm(e.target.value)}
+                            className="h-12 w-full rounded-xl px-4 text-[16px] outline-none" style={{ border: `1px solid ${C.line}`, background: C.paper }} />
+                        <section className="rounded-2xl px-5" style={card}>
+                            {filteredLedger.length ? filteredLedger.map((c: any) => (
+                                <div key={c.id} className="flex items-baseline justify-between gap-4 border-t py-3 first:border-t-0" style={{ borderColor: C.line }}>
+                                    <span className="min-w-0"><span className="block text-[15px]">{c.displayReason}</span><span className="text-[13px]" style={muted}>{format(safeDate(c.date), 'MMM d, yyyy, h:mm a')}</span></span>
+                                    <span className="shrink-0 text-right tabular-nums">
+                                        <span className="block text-[15px]" style={{ color: c.change > 0 ? C.ok : C.ink }}>{c.change > 0 ? '+' : ''}{c.change} {c.unit}</span>
+                                        <span className="block text-[13px]" style={muted}>{c.stockAfter} after{p.costingMethod === 'uses' ? ` + ${c.partialAfter} ${p.useUnit || 'uses'}` : p.costingMethod === 'size' ? ` + ${c.partialAfter} ${p.unit || 'ml'}` : ''}</span>
+                                    </span>
                                 </div>
-                            </TabsContent>
-
-                            <TabsContent value="manufacturing" className="m-0 space-y-10 animate-in fade-in duration-500 text-left">
-                                <AnimatePresence mode="wait">
-                                    {!isVaultUnlocked ? (
-                                        <motion.div 
-                                            key="lock-screen"
-                                            initial={{ opacity: 0, scale: 0.95 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            exit={{ opacity: 0, scale: 1.05 }}
-                                            className="py-20 flex flex-col items-center justify-center text-center space-y-8"
-                                        >
-                                            <div className="w-24 h-24 bg-primary/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6">
-                                                <Lock className="w-12 h-12 text-primary -rotate-6" />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <h3 className="text-2xl font-black uppercase tracking-tighter text-foreground">Technical Vault Locked</h3>
-                                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest opacity-60 max-w-sm mx-auto">Proprietary SOPs and manufacturing logistics require manager authorization.</p>
-                                            </div>
-                                            
-                                            <div className="flex flex-col items-center gap-4 w-full max-w-xs">
-                                                <div className="space-y-2 w-full">
-                                                    <Label className="text-[10px] font-black uppercase tracking-[0.3em] text-primary">Manager PIN</Label>
-                                                    <Input 
-                                                        type="password" 
-                                                        maxLength={4} 
-                                                        placeholder="••••"
-                                                        value={vaultPin}
-                                                        onChange={e => setVaultPin(e.target.value.replace(/\D/g, ''))}
-                                                        onKeyDown={e => e.key === 'Enter' && handleUnlockVault()}
-                                                        className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 focus-visible:ring-primary/20 shadow-inner bg-card"
-                                                    />
-                                                </div>
-                                                <Button 
-                                                    size="lg" 
-                                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/30"
-                                                    onClick={handleUnlockVault}
-                                                    disabled={vaultPin.length < 4 || isVerifyingVault}
-                                                >
-                                                    {isVerifyingVault ? <Loader className="animate-spin" /> : <>Authorize Access <ArrowRight className="ml-2 h-4 w-4"/></>}
-                                                </Button>
-                                            </div>
-                                        </motion.div>
-                                    ) : (
-                                        <motion.div 
-                                            key="vault-content"
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            className="space-y-10"
-                                        >
-                                            <div className="flex items-center justify-between px-1">
-                                                <div className="flex items-center gap-3 text-left">
-                                                    <ShieldCheck className="w-5 h-5 text-primary" />
-                                                    <h3 className="text-sm font-black uppercase tracking-[0.2em] text-foreground text-left">Institutional Knowledge Vault</h3>
-                                                </div>
-                                                <Badge className="bg-primary/10 text-primary border-none font-black text-[8px] uppercase tracking-widest h-6 px-3">
-                                                    <Unlock className="w-2.5 h-2.5 mr-1.5" /> Unlocked
-                                                </Badge>
-                                            </div>
-
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left">
-                                                <Card className="border-2 rounded-[2rem] overflow-hidden bg-card shadow-sm text-left">
-                                                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2"><Building className="w-4 h-4 opacity-40"/> Manufacturer Matrix</CardTitle></CardHeader>
-                                                    <CardContent className="p-6 space-y-6 text-left">
-                                                        <div className="space-y-4 text-left">
-                                                            <div className="space-y-1 text-left">
-                                                                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Company Identity</p>
-                                                                <p className="text-base font-black uppercase tracking-tight text-foreground text-left">{product.manufacturerName || 'Private Label Registry'}</p>
-                                                            </div>
-                                                            <div className="space-y-1 text-left">
-                                                                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Primary Account Contact</p>
-                                                                <p className="text-sm font-bold uppercase text-foreground/80 text-left">{product.manufacturerContactName || 'No contact on file'}</p>
-                                                            </div>
-                                                            <div className="pt-4 border-t border-dashed space-y-3 text-left">
-                                                                {product.manufacturerEmail && (
-                                                                    <a href={`mailto:${product.manufacturerEmail}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
-                                                                        <Mail className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
-                                                                        <span className="text-[10px] font-black uppercase tracking-widest text-foreground/80 truncate">{product.manufacturerEmail}</span>
-                                                                    </a>
-                                                                )}
-                                                                {product.manufacturerPhone && (
-                                                                    <a href={`tel:${product.manufacturerPhone}`} className="flex items-center gap-3 p-3 rounded-xl border-2 hover:bg-primary/5 hover:border-primary/20 transition-all group">
-                                                                        <Phone className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100" />
-                                                                        <span className="text-[10px] font-black uppercase tracking-widest text-foreground/80">{product.manufacturerPhone}</span>
-                                                                    </a>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-
-                                                <Card className="border-2 rounded-[2rem] overflow-hidden bg-card shadow-sm text-left">
-                                                    <CardHeader className="bg-muted/5 border-b p-6"><CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><Landmark className="w-4 h-4 opacity-40"/> Procurement Protocols</CardTitle></CardHeader>
-                                                    <CardContent className="p-6 space-y-6 text-left">
-                                                        <div className="grid grid-cols-2 gap-4 text-left">
-                                                            <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
-                                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1 text-left">Min. Order (MOQ)</p>
-                                                                <p className="text-xl font-black font-mono tracking-tighter text-foreground text-left">{product.moq || 'None'}</p>
-                                                            </div>
-                                                            <div className="p-4 rounded-xl bg-muted/20 border-2 text-left">
-                                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 mb-1 text-left">Lead Time</p>
-                                                                <p className="text-xl font-black font-mono tracking-tighter text-foreground text-left">{product.leadTimeDays || '—'} <span className='text-[10px]'>Days</span></p>
-                                                            </div>
-                                                        </div>
-                                                        <div className="pt-4 border-t border-dashed space-y-4 text-left">
-                                                            <div className="space-y-2 text-left">
-                                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Order Portal</p>
-                                                                {product.supplierUrl ? (
-                                                                    <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-card">
-                                                                        <a href={product.supplierUrl} target="_blank" rel="noopener noreferrer">
-                                                                            <ShoppingCart className="w-4 h-4 mr-2" />
-                                                                            Visit Shop & Reorder
-                                                                        </a>
-                                                                    </Button>
-                                                                ) : (
-                                                                    <div className="p-4 rounded-xl border-2 border-dashed opacity-40 text-center text-left">
-                                                                        <p className="text-[10px] font-bold uppercase tracking-widest">No shop URL archived</p>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            <div className="space-y-2 text-left">
-                                                                <p className="text-[8px] font-black uppercase text-muted-foreground opacity-60 text-left">Brand Assets</p>
-                                                                {product.labelTemplateUrl ? (
-                                                                    <a href={product.labelTemplateUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all group">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <FileText className="w-5 h-5 text-primary" />
-                                                                            <span className="text-[10px] font-black uppercase tracking-widest text-primary">Label Source (Canva/PDF)</span>
-                                                                        </div>
-                                                                        <LinkIcon className="w-4 h-4 text-primary opacity-40 group-hover:translate-x-1 transition-transform" />
-                                                                    </a>
-                                                                ) : (
-                                                                    <div className="p-4 rounded-2xl border-2 border-dashed border-border flex items-center gap-3 opacity-40 text-left">
-                                                                        <FileText className="w-5 h-5 text-muted-foreground" />
-                                                                        <span className="text-[10px] font-black uppercase tracking-widest">No labels archived</span>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            </div>
-
-                                            {product.labelImageUrl && (
-                                                <Card className="border-2 rounded-[2rem] overflow-hidden bg-card shadow-sm text-left">
-                                                    <CardHeader className="bg-muted/5 border-b p-6 md:p-8 flex flex-row items-center justify-between">
-                                                        <div className="space-y-1 text-left">
-                                                            <CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left">
-                                                                <ImageIcon className="w-4 h-4 text-primary opacity-40" />
-                                                                Product label
-                                                            </CardTitle>
-                                                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Master asset for print production.</p>
-                                                        </div>
-                                                        <Button variant="outline" size="sm" asChild className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card">
-                                                            <Link href={`/inventory/labels?product=${encodeURIComponent(product.id)}&design=1`}>
-                                                                <Printer className="w-3.5 h-3.5 mr-2" />
-                                                                Print Custom Label
-                                                            </Link>
-                                                        </Button>
-                                                    </CardHeader>
-                                                    <CardContent className="p-6 md:p-10 flex justify-center bg-muted/10">
-                                                        <div className="relative aspect-video w-full max-w-lg rounded-2xl overflow-hidden border-2 shadow-2xl bg-card">
-                                                            <Image src={product.labelImageUrl} alt="Product Label" fill className="object-contain p-4" />
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            )}
-
-                                            <Card className="border-2 rounded-[2rem] overflow-hidden bg-card shadow-sm text-left">
-                                                <CardHeader className="bg-muted/5 border-b p-6 md:p-8"><CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left"><Landmark className="w-4 h-4 text-primary opacity-40" /> Standard Operating Procedure (SOP)</CardTitle></CardHeader>
-                                                <CardContent className="p-6 md:p-10 text-left">
-                                                    {product.manufacturingSop ? (
-                                                        <div className="prose prose-sm max-w-none text-left">
-                                                            <p className="whitespace-pre-wrap font-medium text-foreground/80 leading-relaxed italic border-l-4 border-primary/20 pl-6 text-left">
-                                                                "{product.manufacturingSop}"
-                                                            </p>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
-                                                            <Book className="w-12 h-12" />
-                                                            <p className="text-[10px] font-black uppercase tracking-widest text-center px-10">No technical protocol established for this asset.</p>
-                                                        </div>
-                                                    )}
-                                                </CardContent>
-                                            </Card>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </TabsContent>
-
-                            <TabsContent value="batches" className="m-0 animate-in fade-in duration-500 text-left">
-                                <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-card text-left">
-                                    <CardContent className="p-0 overflow-x-auto text-left">
-                                        <Table>
-                                            <TableHeader className="bg-muted/10 border-b-2">
-                                                <TableRow>
-                                                    <TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-left">Intake Timestamp</TableHead>
-                                                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-left">Inventory Qty</TableHead>
-                                                    <TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10">Landed Cost</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {[...productBatches].sort((a,b) => safeDate(b.receivedDate).getTime() - safeDate(a.receivedDate).getTime()).map(batch => (
-                                                    <TableRow key={batch.id} className="group hover:bg-primary/[0.02]">
-                                                        <TableCell className="p-6 text-left">
-                                                            <p className="font-black uppercase tracking-tight text-xs text-foreground text-left">{format(safeDate(batch.receivedDate), 'MMMM d, yyyy')}</p>
-                                                            {batch.expirationDate && (
-                                                                <p className={cn("text-[9px] font-black uppercase tracking-widest mt-1 flex items-center gap-1.5 text-left", isPast(safeDate(batch.expirationDate)) ? "text-destructive" : "text-muted-foreground opacity-60")}>
-                                                                    <Clock className="w-2.5 h-2.5" /> Expiry: {format(safeDate(batch.expirationDate), 'MMM d, yyyy')}
-                                                                </p>
-                                                            )}
-                                                            {(batch as any).lot && (
-                                                                <>
-                                                                    <p className="text-[9px] font-black uppercase tracking-widest mt-1 text-muted-foreground">Lot {(batch as any).lot}</p>
-                                                                    <LotOrders tenantId={String(tenantId || '')} productId={String(product?.id || '')} lot={String((batch as any).lot)} />
-                                                                </>
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell className="text-left">
-                                                            <Badge variant="secondary" className="h-6 px-2.5 font-black font-mono bg-muted/50 border-none shadow-sm">{batch.stock} Units</Badge>
-                                                        </TableCell>
-                                                        <TableCell className="text-right pr-10">
-                                                            <span className="font-black font-mono text-base md:text-xl tracking-tighter text-foreground">${batch.costPerUnit.toFixed(2)}</span>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                                {productBatches.length === 0 && (
-                                                    <TableRow>
-                                                        <TableCell colSpan={3} className="py-16 text-center opacity-30 uppercase font-black tracking-widest text-xs">
-                                                            No logistics entries found
-                                                        </TableCell>
-                                                    </TableRow>
-                                                )}
-                                            </TableBody>
-                                        </Table>
-                                    </CardContent>
-                                </Card>
-                            </TabsContent>
-                        </Tabs>
+                            )) : <p className="m-0 py-6 text-center text-[15px]" style={muted}>{ledgerSearchTerm ? 'Nothing matches that.' : 'Nothing has moved yet.'}</p>}
+                        </section>
                     </div>
-
-                    <div className="lg:col-span-1 min-w-0 order-1 lg:order-2 space-y-8 text-left">
-                        <Card className="border-4 rounded-[2.5rem] shadow-2xl shadow-primary/5 overflow-hidden text-left">
-                            <CardHeader className="p-8 pb-4 border-b bg-muted/5">
-                                <CardTitle className="text-[10px] font-black uppercase tracking-[0.25em] text-primary flex items-center gap-2">
-                                    <Calculator className="w-3 h-3" />
-                                    Pricing Architecture
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="p-8 pt-4 space-y-8 text-left">
-                                <div className="space-y-4 text-left">
-                                    <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">
-                                        <span>Landed Cost</span>
-                                        <span className="font-mono text-foreground">${(product.costPerUnit || 0).toFixed(2)}</span>
-                                    </div>
-                                    <Separator className="border-dashed" />
-                                    
-                                    {(product.type === 'retail' || product.type === 'refreshment') ? (
-                                        <>
-                                            <div className="p-6 rounded-[2rem] bg-primary/5 border-2 border-primary/10 space-y-4 shadow-inner text-left">
-                                                <p className="text-[9px] font-black uppercase text-primary tracking-widest text-center">Price Strategy</p>
-                                                <div className="flex justify-between items-baseline text-left">
-                                                    <div className="flex flex-col text-left">
-                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Display Rate</span>
-                                                        <span className="text-2xl font-black tracking-tighter font-mono text-foreground">${(product.msrp || product.price || 0).toFixed(2)}</span>
-                                                    </div>
-                                                    <div className="text-right flex flex-col items-end text-left">
-                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-right">Unit Profit</span>
-                                                        <span className="text-3xl font-black tracking-tighter font-mono text-primary">${((product.msrp || product.price || 0) - (product.costPerUnit || 0)).toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="pt-4 border-t border-primary/10 flex justify-between items-center text-left">
-                                                    <span className="text-[10px] font-black uppercase text-foreground/80">Net Margin</span>
-                                                    <Badge className="bg-primary text-white border-none font-black text-xs font-mono">
-                                                        {((product.msrp || product.price || 0) > 0 ? (((product.msrp || product.price || 0) - (product.costPerUnit || 0)) / (product.msrp || product.price || 1)) * 100 : 0).toFixed(1)}%
-                                                    </Badge>
-                                                </div>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="p-6 rounded-[2rem] bg-indigo-500/5 border-2 border-indigo-500/10 space-y-4 shadow-inner text-left">
-                                                <p className="text-[9px] font-black uppercase tracking-widest text-indigo-600 text-center">Efficiency Model</p>
-                                                <div className="flex justify-between items-baseline text-left">
-                                                    <div className="flex flex-col text-left">
-                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Method</span>
-                                                        <span className="text-sm font-black uppercase tracking-tight text-foreground">By {product.costingMethod || 'Unit'}</span>
-                                                    </div>
-                                                    <div className="text-right flex flex-col items-end text-left">
-                                                        <span className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-right">Landed / Use</span>
-                                                        <span className="text-3xl font-black tracking-tighter font-mono text-indigo-600">${((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)).toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="pt-4 border-t border-indigo-500/10 space-y-2 text-left">
-                                                    <div className="flex justify-between items-center text-[10px] font-black uppercase text-foreground/80 text-left">
-                                                        <span>Markup (Reserve)</span>
-                                                        <span>{product.restockingMarkup || 0}%</span>
-                                                    </div>
-                                                    <div className="flex justify-between items-center text-sm font-black uppercase tracking-tight text-indigo-700 text-left">
-                                                        <span>Final Cost / Use</span>
-                                                        <span className="font-mono">${(((product.costPerUnit || 0) / (product.estimatedUses || product.size || 1)) * (1 + (product.restockingMarkup || 0) / 100)).toFixed(2)}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </div>
+                )}
             </main>
 
-            <Dialog open={isQrModalOpen} onOpenChange={setIsQrModalOpen}>
-                <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden text-left">
-                    <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-                        <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-left">{qrModalContent.title}</DialogTitle>
-                        <DialogDescription className="sr-only">Scanning asset token for hardware reordering and tracking.</DialogDescription>
-                    </DialogHeader>
-                    <div className="flex flex-col items-center justify-center p-12 space-y-8 text-left">
-                        <div className="p-6 bg-card rounded-[2.5rem] shadow-2xl border-4 border-primary/10">
-                            {qrModalContent.url && <img src={qrModalContent.url} alt={qrModalContent.alt} width={220} height={220} className="rounded-xl" />}
-                        </div>
-                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest text-center max-w-[240px] opacity-60">Every scanner in the shop reads it as this product.</p>
+            {(isCountOpen || countTarget) && tenantId && (
+                <CountSheet tenantId={tenantId} product={countTarget || product} onClose={() => { setIsCountOpen(false); setCountTarget(null); }}
+                    onCounted={(d) => toast({ title: d === 0 ? 'It matches' : 'Counted', description: d === 0 ? 'The shelf matches the record.' : `${d < 0 ? `${-d} fewer` : `${d} more`} than the record. It’s on the history.` })} />
+            )}
+            {qr && (
+                <Sheet title="Its QR code" sub="Every scanner in the shop reads it as this product." onClose={() => setQr('')} closeLabel="Done">
+                    <div className="mt-2 flex flex-col items-center gap-4">
+                        <img src={qr} alt={`QR code for ${p.name}`} width={220} height={220} className="rounded-xl" />
+                        <Btn kind="primary" className="w-full" onClick={() => window.print()}>Print it</Btn>
                     </div>
-                    <DialogFooter className="p-8 pt-0">
-                        <Button className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl" onClick={() => window.print()}>
-                            <Printer className="mr-2 h-4 w-4" /> Print Token
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
+                </Sheet>
+            )}
+            {tenantId && <QuickReceiveDialog open={isReceiveOpen} onOpenChange={setIsReceiveOpen} tenantId={tenantId} inventory={inventory as any} />}
             {product && (
                 <EditProductDialog
                     open={isEditDialogOpen}
