@@ -1,5 +1,6 @@
 'use client';
 
+import { unitCost } from '@/lib/product-cost';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -141,9 +142,7 @@ const RecoveryMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, staff }:
     const product = inventory.find(i => i.id === p.id);
     let cpu = 0;
     if (product) {
-      if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
-      else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
-      else cpu = product.costPerUnit || 0;
+      cpu = unitCost(product) ?? 0;
     }
     return acc + (cpu * (p.quantityUsed || 1));
   }, 0), [currentValues.products, inventory]);
@@ -565,9 +564,7 @@ export const EditServiceDialog: React.FC<any> = ({
       const product = inventory.find(i => i.id === p.id);
       let cpu = 0;
       if (product) {
-        if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
-        else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
-        else cpu = product.costPerUnit || 0;
+        cpu = unitCost(product) ?? 0;
       }
       return acc + (cpu * (p.quantityUsed || 1));
     }, 0);

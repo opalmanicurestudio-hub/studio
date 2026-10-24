@@ -2,6 +2,7 @@
 
 import { KitsManager } from '@/components/pos/desk/Kits';
 import { ProductsList, shopStatus, type ProductFilter } from '@/components/products/ProductsList';
+import { productFeatures } from '@/lib/product-features';
 import { AddProductSheet } from '@/components/products/AddProductSheet';
 import { QuickReceiveDialog } from '@/components/inventory/QuickReceiveDialog';
 import { Btn, C, muted } from '@/components/orders/ui';
@@ -767,6 +768,7 @@ export default function InventoryPage() {
   const { firestore, user } = useFirebase();
   const { selectedTenant, role: useTenantRole } = useTenant() as any;
   const tenantId = selectedTenant?.id;
+  const features = productFeatures(selectedTenant);
   
   const [activeView, setActiveView] = useState('products');
   const [activeFilter, setActiveFilter] = useState('all');
@@ -1522,12 +1524,12 @@ export default function InventoryPage() {
   const hasInventory = inventory && inventory.length > 0;
   // "48 products · 31 in the shop · 4 running low": the page's one line of numbers.
   const productSummary = useMemo(() => {
-    const live = (inventory || []).filter((i: any) => i.status !== 'archived' && !['equipment', 'overhead'].includes(String(i.type)) && !listings.has(String(i.id)));
-    const inShop = live.filter((i: any) => shopStatus(i, listings)?.tone === 'ok').length;
-    const lowN = (inventory || []).filter((i: any) => i.status !== 'archived' && needs.low(i) && !['equipment', 'overhead'].includes(String(i.type)) && (Number(i.lowStockThreshold) || 0) > 0).length;
-    const worth = (inventory || []).filter((i: any) => i.status !== 'archived' && !['equipment', 'overhead'].includes(String(i.type))).reduce((a: number, i: any) => a + Math.max(0, Number(i.totalStock) || 0) * (Number(i.costPerUnit) || 0), 0);
+    const live = (inventory || []).filter((i: any) => i.status !== 'archived' && String(i.type) !== 'equipment' && !listings.has(String(i.id)));
+    const inShop = features.online ? live.filter((i: any) => shopStatus(i, listings)?.tone === 'ok').length : 0;
+    const lowN = (inventory || []).filter((i: any) => i.status !== 'archived' && needs.low(i) && String(i.type) !== 'equipment' && (Number(i.lowStockThreshold) || 0) > 0).length;
+    const worth = (inventory || []).filter((i: any) => i.status !== 'archived' && String(i.type) !== 'equipment').reduce((a: number, i: any) => a + Math.max(0, Number(i.totalStock) || 0) * (Number(i.costPerUnit) || 0), 0);
     return [`${live.length} product${live.length === 1 ? '' : 's'}`, inShop ? `${inShop} in the shop` : '', lowN ? `${lowN} running low` : '', worth > 0 ? `$${Math.round(worth).toLocaleString('en-US')} on the shelf at cost` : ''].filter(Boolean).join(' · ');
-  }, [inventory, listings, needs]);
+  }, [inventory, listings, needs, features.online]);
   const hasFilteredInventory = filteredInventory.length > 0;
 
   return (
@@ -1570,6 +1572,7 @@ export default function InventoryPage() {
               inventory={inventory || []}
               listings={listings}
               orderedIds={orderedProductIds as any}
+              features={features}
               search={searchTerm}
               onSearch={setSearchTerm}
               filter={productFilter}
@@ -1580,9 +1583,9 @@ export default function InventoryPage() {
               onScan={() => setIsScannerOpen(true)}
               bulk={{ archive: handleBulkArchive, unarchive: handleBulkUnarchive, remove: handleBulkDeleteClick, labelsHref: `/inventory/labels?ids=${[...selectedItems].slice(0, 200).map((x) => encodeURIComponent(String(x))).join(',')}` }}
               menuFor={(item: any) => [
-                ...(item.type === 'equipment' || item.type === 'professional' || item.type === 'retail' ? [{ label: 'Edit details', run: () => handleEditItem(item) }] : []),
+                { label: 'Edit details', run: () => handleEditItem(item) },
                 ...(item.type === 'professional' || item.type === 'overhead' ? [{ label: 'Log a use', run: () => handleOpenLogUse(item) }] : []),
-                ...(item.type === 'retail' ? [{ label: 'Log a sale', run: () => handleOpenLogSale(item) }] : []),
+                ...(item.type === 'retail' && features.sell ? [{ label: 'Log a sale', run: () => handleOpenLogSale(item) }] : []),
                 ...(item.type === 'professional' ? [item.isExperimentActive ? { label: 'End the cost-per-use test', run: () => handleEndExperiment(item) } : { label: 'Test its cost per use', run: () => handleToggleExperiment(item) }] : []),
                 ...(item.type !== 'equipment' && item.type !== 'overhead' ? [{ label: 'Write some off', run: () => handleOpenWriteOff(item), danger: true }] : []),
               ]}
@@ -1602,7 +1605,7 @@ export default function InventoryPage() {
           />
         )}
       </main>
-      {isAddSheetOpen && firestore && tenantId && <AddProductSheet fs={firestore as any} tenantId={tenantId} inventory={inventory || []} onClose={() => setIsAddSheetOpen(false)} />}
+      {isAddSheetOpen && firestore && tenantId && <AddProductSheet fs={firestore as any} tenantId={tenantId} inventory={inventory || []} features={features} onClose={() => setIsAddSheetOpen(false)} />}
       {tenantId && <QuickReceiveDialog open={isQuickReceiveOpen} onOpenChange={setIsQuickReceiveOpen} tenantId={tenantId} inventory={inventory || []} />}
 
       <AddProductDialog

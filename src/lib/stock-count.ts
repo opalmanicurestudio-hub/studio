@@ -37,7 +37,7 @@ export async function recordCount(db: any, tenantId: string, productId: string, 
   return db.runTransaction(async (tx: any) => {
     const s = await tx.get(ref); if (!s.exists) return { ok: false, error: 'That product isn’t there any more.' };
     const item: any = s.data() || {};
-    if (['equipment', 'overhead'].includes(String(item.type))) return { ok: false, error: 'Equipment isn’t counted here.' };
+    if (String(item.type) === 'equipment') return { ok: false, error: 'Equipment isn’t counted here.' };
     if (variantIdsOf(item).length) return { ok: false, error: 'This one is counted by its variants. Count each variant instead.' };
     const held = Math.max(0, Number(item.stockReserved) || 0);
     if (n < held) return { ok: false, error: `${held} ${held === 1 ? 'is' : 'are'} held for paid orders, so the shelf can’t be fewer than that. Mark the missing ones on those orders first.` };

@@ -8,6 +8,7 @@
 // when they answer; no link in the first text (except a waitlist spot they asked for); urgency only when it's real; an easy way
 // out; never the same words twice to one client. Every playbook has several approved versions for that reason.
 
+import { unitCost } from './product-cost';
 import { nudgesFor } from '@/lib/checkout-nudges';
 import { moduleEnabled, type ModuleId } from '@/lib/modules';
 
@@ -595,7 +596,7 @@ export function bizCandidates(b: Biz, S: OppSettings, now: number, tz?: string):
       const k = `${u.staffId}|${l.productId}`; const r = agg.get(k) || { staffId: String(u.staffId), productId: String(l.productId), name: String(l.name || 'product'), unit: String(l.unit || ''), expected: 0, used: 0, visits: 0 }; r.expected += exp; r.used += used; r.visits++; agg.set(k, r); } }
     for (const r of agg.values()) { if (r.visits < 5 || r.used < r.expected * 1.25) continue; const p = (b.team || []).find((x: any) => String(x.id) === r.staffId); if (!p) continue;
       const over = Math.round((r.used - r.expected) * 10) / 10; const pct = Math.round((r.used / r.expected - 1) * 100); const prod = (b.products || []).find((x: any) => x.id === r.productId);
-      const cost = Number(prod?.costPerUnit) > 0 ? (prod.costingMethod === 'size' && Number(prod.size) > 0 ? Number(prod.costPerUnit) / Number(prod.size) : prod.costingMethod === 'uses' && Number(prod.estimatedUses) > 0 ? Number(prod.costPerUnit) / Number(prod.estimatedUses) : Number(prod.costPerUnit)) : 0;
+      const cost = unitCost(prod) ?? 0;
       push('supply_overuse', `${r.staffId}:${r.productId}`, { name: p.name, phone: p.phone }, `${p.name || 'A provider'} used ${pct}% more ${r.name} than the recipe over ${r.visits} visits (${over} ${r.unit} extra)`, { visits: String(r.visits), product: '', product_name: r.name, over: `${over} ${r.unit}`.trim() }, Math.round(cost * (r.used - r.expected) * 100), { staffId: r.staffId, productId: r.productId }); } }
   if (S.finders.applicant_waiting) { const met = new Map<string, any>(); for (const i of b.invites || []) if (i.status === 'accepted' && i.applicationId) met.set(String(i.applicationId), i);
     for (const a of b.applications || []) {

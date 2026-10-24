@@ -7,6 +7,7 @@
 //   linens & kits — a per-use handling cost the business sets (laundering one linen, cleaning one kit).
 // Every expense lands in exactly one of those buckets, so nothing is counted twice. Pure functions — the report and the
 // visit screen both use them.
+import { recipeCost, unitCost as sharedUnitCost } from './product-cost';
 import { rateFor, payForService } from '@/lib/commission';
 import { deriveTimings, phasesFromService, disposablesUsed } from '@/lib/blueprint';
 import { linensForVisit } from '@/lib/linens';
@@ -18,7 +19,9 @@ const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const ms = (v: any): number => { if (!v) return 0; if (typeof v === 'string') return Date.parse(v) || 0; if (v?.seconds) return v.seconds * 1000; if (v?.toDate) return v.toDate().getTime(); if (v instanceof Date) return v.getTime(); return Number(v) || 0; };
 const r2 = (x: number) => Math.round(x * 100) / 100;
 /** Cost of one unit of how the product is counted (one use, one ml, one piece). */
-export function unitCost(item: any): number { let c = n(item?.costPerUnit); if (item?.costingMethod === 'size' && n(item.size) > 0) c /= n(item.size); else if (item?.costingMethod === 'uses' && n(item.estimatedUses) > 0) c /= n(item.estimatedUses); return c; }
+// The shared rule (lib/product-cost); a product whose cost can't be spread yet counts as nothing here, never as a whole
+// container for each use.
+export function unitCost(item: any): number { return sharedUnitCost(item) ?? 0; }
 /** When hands-on work ended: the "ready to pay" moment if recorded, else the recorded end. (Paying later doesn't lengthen it.) */
 export function workEndedMs(visit: any): number { const tl = Array.isArray(visit?.timeline) ? visit.timeline : [];
   for (const e of tl) if (e?.kind === 'stage' && e.stage === 'ready_to_pay' && ms(e.at)) return ms(e.at);
@@ -44,7 +47,7 @@ export function actualVisitCost(input: { visit: any; service: any; addOns?: any[
   const lines: any[] = Array.isArray(input.usage?.lines) ? input.usage.lines : [];
   if (lines.length) { materialsBasis = 'actual'; for (const l of lines) materials += n(l.actual ?? l.deducted ?? l.expected) * unitCost(inv.find((i: any) => i.id === l.productId)); }
   else if (visit?.checkoutState?.formula?.length) { materialsBasis = 'formula'; for (const f of visit.checkoutState.formula) materials += n(f.quantity) * n(f.costPerUnit); }
-  else { for (const sv of [service, ...addOns]) for (const p of sv?.products || []) { const it = inv.find((i: any) => i.id === p.id); if (!it) continue; materials += (n(p.quantityUsed) || 1) * unitCost(it); materialsBasis = 'standard'; } }
+  else { for (const sv of [service, ...addOns]) { if (!(sv?.products || []).length) continue; const rc = recipeCost(sv.products, inv); materials += rc.total; if (rc.total > 0 || !rc.gaps.length) materialsBasis = 'standard'; } }
   if (materialsBasis !== 'actual') for (const d of disposablesUsed([service, ...addOns])) { const it = d.inventoryItemId ? inv.find((i: any) => i.id === d.inventoryItemId) : null; if (it) { materials += d.qty * unitCost(it); if (materialsBasis === 'none') materialsBasis = 'standard'; } }   // recorded usage already includes them
   // Linens and kits: a handling cost per use.
   const linenN = linensForVisit(visit, [service, ...addOns].filter(Boolean)).reduce((a, x) => a + x.qty, 0);

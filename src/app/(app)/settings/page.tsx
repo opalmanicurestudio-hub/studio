@@ -1,4 +1,6 @@
 'use client';
+import { C } from '@/components/orders/ui';
+import { recipeCost } from '@/lib/product-cost';
 import { READY_KEYS, READY_LABEL, READY_HELP, READY_DEFAULTS } from '@/lib/visit-readiness';
 import { US_STATES } from '@/lib/pay-extras';
 import { staffAuthHeader } from '@/lib/staff-fetch';
@@ -193,18 +195,10 @@ const ServicePolicyCard = ({ service, tmhr, inventory, isEditing, localPolicy, o
     const duration = safeNumber(service.duration);
     const totalDuration = (duration / 60) + ((service.padBefore || 0) + (service.padAfter || 0)) / 60;
     const timeCost = totalDuration * tmhr;
-    const matCost = (service.products || []).reduce((acc, p) => {
-      const item = inventory.find((i: any) => i.id === p.id);
-      let cpu = 0;
-      if (item) {
-        if (item.costingMethod === 'size' && item.size) cpu = (item.costPerUnit || 0) / item.size;
-        else if (item.costingMethod === 'uses' && item.estimatedUses) cpu = (item.costPerUnit || 0) / item.estimatedUses;
-        else cpu = item.costPerUnit || 0;
-      }
-      return acc + (cpu * (p.quantityUsed || 1));
-    }, 0);
-    return timeCost + matCost;
+    return timeCost + recipeCost(service.products || [], inventory).total;
   }, [service, tmhr, inventory]);
+  // Products the floor can't include yet (no cost, or no size / uses set): named, so the floor isn't trusted blind.
+  const floorGaps = useMemo(() => recipeCost(service.products || [], inventory).gaps, [service, inventory]);
 
   const policy = localPolicy || { mode: 'inherit', window: undefined, value: undefined };
 
@@ -262,6 +256,7 @@ const ServicePolicyCard = ({ service, tmhr, inventory, isEditing, localPolicy, o
                   <span className="font-black font-mono text-sm text-foreground">${floor.toFixed(2)}</span>
                 </div>
               </div>
+              {floorGaps.length > 0 && <p className="m-0 text-[13px]" style={{ color: C.warn }}>Leaves out {floorGaps.map((g) => `${g.name} (${g.gap})`).join(', ')}. Add it on the product’s page and the floor will include it.</p>}
             </CardContent>
           </motion.div>
         )}

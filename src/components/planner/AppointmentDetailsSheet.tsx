@@ -1,4 +1,5 @@
 'use client';
+import { unitCost } from '@/lib/product-cost';
 import { useVisitTransactions } from '@/hooks/use-transactions';
 import { ReadyCard, ChairCard, AfterCard, SendToClient } from '@/components/visit/VisitFlow';
 import { MidServiceAddOnSheet } from '@/components/visit/AddOnSheet';
@@ -1969,9 +1970,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         const product = (inventory || []).find((i) => i.id === p.id);
         if (!product) return acc;
         let costPerBaseUnit = 0;
-        if (product.costingMethod === 'size' && product.size) costPerBaseUnit = (product.costPerUnit || 0) / product.size;
-        else if (product.costingMethod === 'uses' && product.estimatedUses) costPerBaseUnit = (product.costPerUnit || 0) / product.estimatedUses;
-        else costPerBaseUnit = product.costPerUnit || 0;
+        costPerBaseUnit = unitCost(product) ?? 0;
         return acc + costPerBaseUnit * (p.quantityUsed || 1);
       }, 0);
 

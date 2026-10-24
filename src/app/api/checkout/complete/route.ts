@@ -1256,7 +1256,10 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   for (const v of visits) await syncVisitCopies(db, tenantId, { ...v.appointment, status: 'completed', stage: 'complete', timeline: [...(Array.isArray(v.appointment.timeline) ? v.appointment.timeline : []), { at: now, kind: 'stage', stage: 'complete', text: 'Paid' }] }, tenant).catch(() => {});
   // Products the services used come off stock (once per visit) — never blocks the sale; a problem becomes a warning.
   for (const v of visits) { try { const { expectedUsage, recordVisitUsage } = await import('@/lib/usage');
-      const r: any = await recordVisitUsage(db, tenantId, v.appointment, expectedUsage(v.service, v.addOnServices || [], inventory), { id: (auth as any)?.actor?.uid, name: (auth as any)?.actor?.name });
+      let r: any = await recordVisitUsage(db, tenantId, v.appointment, expectedUsage(v.service, v.addOnServices || [], inventory), { id: (auth as any)?.actor?.uid, name: (auth as any)?.actor?.name });
+      // Recorded already (the provider's hand-off took it off): what it couldn't take off is still worth saying.
+      if (r?.skipped === 'already recorded') r = { lines: ((await db.doc(`tenants/${tenantId}/usage/${v.appointment.id}`).get()).data() || {}).lines || [] };
+      if (r?.lines?.some((l: any) => l.notCounted)) warnings.push(`${r.lines.filter((l: any) => l.notCounted).map((l: any) => l.name).join(', ')} wasn’t taken off stock: set how many uses or how much one container holds on its product page.`);
       if (r?.lines?.some((l: any) => l.shortfall)) warnings.push(`${v.appointment.clientName || 'A visit'} used more of ${r.lines.filter((l: any) => l.shortfall).map((l: any) => l.name).join(', ')} than your stock shows — check the shelf.`);
     } catch (e: any) { console.error('[checkout] usage', e?.message); } }
   // WHAT THIS SALE DID — so the finished screen says the right thing for each kind of sale (a visit, rent, tuition,

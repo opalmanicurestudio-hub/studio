@@ -1,7 +1,7 @@
 'use client';
 // The product page: what it is, how much is on the shelf, how it sells, and everything else a tab away.
 import { LotOrders } from '@/components/inventory/LotOrders';
-import { costGap } from '@/lib/product-cost';
+import { costGap, lineCost, perContainer, recipeLines, restockMarkupPct, unitCost, unitLabel, usesLeft } from '@/lib/product-cost';
 import { verifyPin } from '@/lib/pin-client';
 import React, { useMemo, useState } from 'react';
 import { useParams, notFound } from 'next/navigation';
@@ -29,6 +29,7 @@ import { useClientsByIds } from '@/hooks/use-clients';
 import { choiceFor, listingsOf, priceCentsOf, variantIdsOf } from '@/lib/variants';
 import { shopStatus } from '@/components/products/ProductsList';
 import { CountSheet } from '@/components/products/CountSheet';
+import { productFeatures } from '@/lib/product-features';
 import { Btn, C, Sheet, muted } from '@/components/orders/ui';
 import QRCode from 'qrcode';
 
@@ -82,6 +83,7 @@ export default function ProductDetailPage() {
     // the moment anyone tried to edit a product from this page.
     const { selectedTenant } = useTenant();
     const tenantId = selectedTenant?.id;
+    const sellOn = productFeatures(selectedTenant).sell;
     const { toast } = useToast();
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [isCountOpen, setIsCountOpen] = useState(false);
@@ -105,13 +107,13 @@ export default function ProductDetailPage() {
     const hasVariants = variantIdsOf(product).length > 0;
     React.useEffect(() => {
         const old: Record<string, string> = { manufacturing: 'stock', batches: 'stock', ledger: 'history' };
-        const has = (t: string) => t === 'codes' ? productType !== 'equipment' && productType !== 'overhead' : t === 'online' ? productType === 'retail' : t === 'variants' ? hasVariants : ['overview', 'stock', 'history'].includes(t);
+        const has = (t: string) => t === 'codes' ? productType !== 'equipment' : t === 'online' ? productType === 'retail' && sellOn : t === 'variants' ? hasVariants : ['overview', 'stock', 'history'].includes(t);
         const raw = new URLSearchParams(window.location.search).get('tab') || '';
         const asked = old[raw] || raw;
         setTab(asked && has(asked) ? asked : 'overview');
         // Read once per product (when it opens, or when it loads): adding the first variant mustn't move anyone off their tab.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id, productType]);
+    }, [id, productType, sellOn]);
     // The last variant removed while its tab is open: its codes are where variants are added back.
     React.useEffect(() => { if (tab === 'variants' && !hasVariants && productType) setTab('codes'); }, [tab, hasVariants, productType]);
 
@@ -294,7 +296,8 @@ export default function ProductDetailPage() {
 
     const p: any = product;
     const kindOf = String(p.type || '');
-    const countable = kindOf !== 'equipment' && kindOf !== 'overhead';
+    // Everything with stock can be counted, running-cost items (towels, foils, cleaning supplies) too; equipment can't.
+    const countable = kindOf !== 'equipment';
     const productBatches: any[] = product.batches ?? [];
     const shelf = Math.max(0, Number(p.totalStock) || 0);
     const held = Math.max(0, Number(p.stockReserved) || 0);
@@ -305,13 +308,34 @@ export default function ProductDetailPage() {
     const variants = variantIds.map((v) => inventory.find((i: any) => String(i.id) === v)).filter(Boolean) as any[];
     // A listing with variants holds nothing itself: its numbers are its variants'.
     const sumOf = (k: string) => variants.reduce((a, v) => a + Math.max(0, Number(v[k]) || 0), 0);
-    const stockValue = variantIdsOf(p).length ? variants.reduce((a, v) => a + Math.max(0, Number(v.totalStock) || 0) * (Number(v.costPerUnit) || 0), 0) : shelf * cost;
+    const stockValue = variantIdsOf(p).length ? variants.reduce((a, v) => a + Math.max(0, Number(v.totalStock) || 0) * (Number(v.costPerUnit) || 0), 0)
+        : shelf * cost + (p.costingMethod === 'uses' ? Number(p.partialContainerUses) || 0 : p.costingMethod === 'size' ? Number(p.partialContainerSize) || 0 : 0) * (unitCost(p) ?? 0);
     const free = variantIdsOf(p).length ? variants.reduce((a, v) => a + Math.max(0, (Number(v.totalStock) || 0) - (Number(v.stockReserved) || 0)), 0) : shelf - held;
-    // Cost per use by how it's measured: per use, per ml (or its unit), or each.
-    const perUse = p.costingMethod === 'uses' ? Number(p.estimatedUses) || 1 : p.costingMethod === 'size' ? Number(p.size) || 1 : 1;
-    const useWord = p.costingMethod === 'uses' ? 'Cost per use' : p.costingMethod === 'size' ? `Cost per ${p.useUnit || p.unit || 'unit'}` : 'Cost each';
+    // Cost per use by the one rule every screen uses (lib/product-cost): per use, per ml / g, or each. Null when it can't
+    // be counted yet (no cost, or no uses / size set), and the page says why instead of showing a wrong number.
+    const unit = unitLabel(p);
+    const perUseCost = unitCost(p);
+    const gap = costGap(p);
+    const useWord = p.costingMethod === 'uses' ? 'Cost per use' : p.costingMethod === 'size' ? `Cost per ${unit}` : 'Cost each';   // per ml / g
+    const left = usesLeft(p);
+    const markup = restockMarkupPct(p, selectedTenant);
+    const ownMarkup = Number(p.restockingMarkup) > 0;
+    const fundOn = (selectedTenant as any)?.restocking?.enabled === true;
+    // The services whose recipe uses it, and what it costs each of them per visit.
+    const usedIn = ((services as any[]) || []).filter((sv: any) => sv?.status !== 'archived')
+        .map((sv: any) => ({ sv, line: recipeLines(sv.products || []).find((l) => l.productId === String(p.id)) }))
+        .filter((x) => !!x.line) as { sv: any; line: { productId: string; qty: number } }[];
+    const forServices = kindOf === 'professional' || kindOf === 'overhead' || usedIn.length > 0;
+    // "1 use", "10 wraps", "3 ml": the unit reads right for one and for many.
+    const one = unit === 'each' ? 'item' : unit === 'uses' ? 'use' : /^(ml|g|oz)$/i.test(unit) ? unit : unit.replace(/s$/, '');
+    const many = unit === 'each' ? 'items' : unit;
+    const fmtQty = (q: number) => { const r = Math.round(q * 100) / 100; return `${r} ${r === 1 ? one : many}`; };
     const wholesaleCents = priceCentsOf(p, listings, 'wholesale');
-    const status = shopStatus(p, listings);
+    // Not every business sells products, or sells them online: the page shows only what this one has.
+    const features = productFeatures(selectedTenant);
+    // Refreshments are priced for guests whether or not the business sells retail products.
+    const sells = (features.sell && kindOf === 'retail') || kindOf === 'refreshment';
+    const status = features.online ? shopStatus(p, listings) : null;
     const listing = listings.get(String(p.id));
     const where = [p.primaryLocationId, ...(Array.isArray(p.secondaryLocationIds) ? p.secondaryLocationIds : [])].filter(Boolean)
         .map((lid: string) => (locations || []).find((l: any) => String(l.id) === String(lid))?.name).filter(Boolean) as string[];
@@ -320,12 +344,12 @@ export default function ProductDetailPage() {
     const tabs: { id: string; label: string }[] = [
         { id: 'overview', label: 'Overview' },
         ...(countable ? [{ id: 'stock', label: 'Stock' }] : [{ id: 'stock', label: 'Details' }]),
-        ...(kindOf === 'retail' ? [{ id: 'online', label: 'In the shop' }] : []),
+        ...(kindOf === 'retail' && features.sell ? [{ id: 'online', label: features.online ? 'In the shop' : 'Online shop' }] : []),
         ...(variantIds.length ? [{ id: 'variants', label: 'Variants' }] : []),
         ...(countable ? [{ id: 'codes', label: 'Codes and labels' }] : []),
         { id: 'history', label: 'History' },
     ];
-    const ready = kindOf === 'retail' && !listing ? [
+    const ready = kindOf === 'retail' && features.online && !listing ? [
         { done: priceCents > 0, label: 'A price', go: 'overview', fix: () => setIsEditDialogOpen(true) },
         { done: !!photo, label: 'A photo', go: 'online' },
         { done: String(p.publicDescription || p.description || '').trim().length >= 40, label: 'A few lines on what it is', go: 'online' },
@@ -377,39 +401,51 @@ export default function ProductDetailPage() {
                         {countable && (
                             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                                 <Tile label="On the shelf" value={variantIds.length ? sumOf('totalStock') : shelf} note={variantIds.length ? `across ${variants.length} variants` : reorderAt ? `reorder at ${reorderAt}` : undefined} tone={!variantIds.length && reorderAt && shelf - held <= reorderAt ? C.warn : undefined} />
-                                <Tile label="Held for orders" value={variantIds.length ? sumOf('stockReserved') : held} note="paid, not yet handed over" />
-                                <Tile label={kindOf === 'retail' ? 'Price' : useWord} value={kindOf === 'retail' ? (priceCents > 0 ? money(priceCents / 100) : 'None yet') : money(cost / perUse)} />
+                                {sells ? <Tile label="Held for orders" value={variantIds.length ? sumOf('stockReserved') : held} note="paid, not yet handed over" />
+                                    : <Tile label="Left to use" value={left === null ? '—' : fmtQty(left)} note={p.costingMethod && left !== null ? 'with the open one' : left === null ? 'set its size or uses' : undefined} />}
+                                <Tile label={sells ? 'Price' : useWord} value={sells ? (priceCents > 0 ? money(priceCents / 100) : 'None yet') : perUseCost === null ? 'Can’t count yet' : money(perUseCost)} tone={!sells && perUseCost === null ? C.warn : undefined} />
                                 <Tile label="Worth on the shelf" value={money(stockValue)} note="at what it cost" />
                             </div>
                         )}
-                        {countable && (() => { const gap = costGap(product); return (
+                        {countable && forServices && (
                             <p className="m-0 rounded-2xl px-4 py-3 text-[14px]" style={gap ? { background: C.warnSoft, color: C.warn } : { background: C.okSoft, color: C.ok }}>
-                                {gap ? `Services using this can’t count its cost yet: ${gap}. Add it in Edit details so the restocking fund and service margins include it.`
-                                    : `Counts toward the restocking fund and service margins${p.costingMethod === 'size' && p.size ? ` at $${(cost / p.size).toFixed(2)} per ${p.useUnit || 'unit'}` : p.costingMethod === 'uses' && p.estimatedUses ? ` at $${(cost / p.estimatedUses).toFixed(2)} per use` : ` at $${cost.toFixed(2)} each`}.`}
-                            </p>); })()}
-                        <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+                                {gap ? `Its cost per use can’t be counted yet: ${gap}. Services using it leave it out of their margins and the restocking fund until it’s added in Edit details.`
+                                    : `Counts toward service margins${fundOn ? ' and the restocking fund' : ''} at ${money(perUseCost || 0)} ${unit === 'each' ? 'each' : `per ${one}`}.`}
+                            </p>
+                        )}
+                        <div className={`grid gap-5 ${kindOf === 'retail' && features.online ? 'lg:grid-cols-[1fr_360px]' : ''}`}>
                             <div className="flex min-w-0 flex-col gap-5">
-                                {(kindOf === 'retail' || kindOf === 'refreshment') ? (
+                                {sells ? (
                                     <Panel title="Selling it">
                                         <Line k="Price" v={priceCents > 0 ? money(priceCents / 100) : 'None yet'} />
                                         <Line k="It cost" v={money(cost)} />
                                         <Line k="Made on each" v={priceCents > 0 ? money(priceCents / 100 - cost) : '—'} />
                                         <Line k="Margin" v={priceCents > 0 ? `${(((priceCents / 100 - cost) / (priceCents / 100)) * 100).toFixed(0)}%` : '—'} />
-                                        {wholesaleCents > 0 && wholesaleCents !== priceCents ? <Line k="Wholesale" v={money(wholesaleCents / 100)} /> : null}
+                                        {features.online && wholesaleCents > 0 && wholesaleCents !== priceCents ? <Line k="Wholesale" v={money(wholesaleCents / 100)} /> : null}
                                     </Panel>
-                                ) : countable ? (
-                                    <Panel title="Using it in services">
-                                        <Line k="Counted by" v={p.costingMethod === 'uses' ? 'Uses' : p.costingMethod === 'size' ? 'Amount used' : 'Each one'} />
-                                        <Line k="It cost" v={money(cost)} />
-                                        <Line k={useWord} v={money(cost / perUse)} />
-                                        <Line k="With the restocking markup" v={`${money((cost / perUse) * (1 + (Number(p.restockingMarkup) || 0) / 100))} (${Number(p.restockingMarkup) || 0}%)`} />
+                                ) : null}
+                                {countable && (forServices || !sells) ? (
+                                    <Panel title={kindOf === 'overhead' ? 'What it costs to use' : 'Using it in services'}>
+                                        <Line k="Counted by" v={p.costingMethod === 'uses' ? 'Uses' : p.costingMethod === 'size' ? `Amount used (${unit})` : 'Each one'} />
+                                        <Line k={p.costingMethod ? 'One container cost' : 'One cost'} v={money(cost)} />
+                                        {p.costingMethod ? <Line k="One container holds" v={perContainer(p) ? fmtQty(perContainer(p) as number) : <span style={{ color: C.warn }}>Not set</span>} /> : null}
+                                        <Line k={useWord} v={perUseCost === null ? <span style={{ color: C.warn }}>Can’t count yet</span> : money(perUseCost)} />
+                                        {fundOn && perUseCost !== null ? <Line k={`Set aside for restocking (${markup}%${ownMarkup ? '' : ', the business’s'})`} v={money(perUseCost * (1 + markup / 100))} /> : null}
+                                        {usedIn.length > 0 && (
+                                            <div className="mt-3 border-t pt-3" style={{ borderColor: C.line }}>
+                                                <p className="m-0 mb-1 text-[13px] font-semibold" style={muted}>Used in {usedIn.length} service{usedIn.length === 1 ? '' : 's'}</p>
+                                                {usedIn.slice(0, 8).map(({ sv, line }) => { const c = lineCost(p, line.qty); return (
+                                                    <Line key={sv.id} k={<Link href={`/services/${encodeURIComponent(sv.id)}`} style={{ color: C.ink }}>{sv.name || 'A service'}</Link>} v={<span>{fmtQty(line.qty)} <span style={muted}>· {c === null ? 'can’t count' : `${money(c)} a visit`}</span></span>} />); })}
+                                                {usedIn.length > 8 ? <p className="m-0 pt-1 text-[13px]" style={muted}>and {usedIn.length - 8} more</p> : null}
+                                            </div>
+                                        )}
                                     </Panel>
-                                ) : (
+                                ) : !countable ? (
                                     <Panel title="Details">
                                         <Line k="It cost" v={money(cost)} />
                                         {p.supplier ? <Line k="From" v={p.supplier} /> : null}
                                     </Panel>
-                                )}
+                                ) : null}
                                 {variantIds.length > 0 && (
                                     <Panel title="Variants" action={<button type="button" className="-my-2 min-h-[44px] px-2 text-[15px] font-medium" style={{ color: C.ok }} onClick={() => setTab('variants')}>See them all</button>}>
                                         {variants.slice(0, 4).map((v) => <Line key={v.id} k={choiceFor(p, String(v.id))?.choice.label || v.name} v={`${Number(v.totalStock) || 0} on the shelf`} />)}
@@ -452,7 +488,7 @@ export default function ProductDetailPage() {
                                         </ul>
                                     </Panel>
                                 )}
-                                {kindOf === 'retail' && (
+                                {kindOf === 'retail' && features.online && (
                                     <Panel title="What customers see" action={tenantId && status?.tone === 'ok' ? <a href={`/shop/${tenantId}/product/${listing ? listing.id : p.id}`} target="_blank" rel="noopener noreferrer" className="text-[15px] font-medium" style={{ color: C.ok }}>Open it</a> : undefined}>
                                         <div className="overflow-hidden rounded-2xl" style={{ border: `1px solid ${C.line}` }}>
                                             <div className="relative aspect-square w-full" style={{ background: C.soft }}>
@@ -532,7 +568,7 @@ export default function ProductDetailPage() {
                 {tab === 'variants' && variantIds.length > 0 && (
                     <section className="overflow-hidden rounded-2xl" style={card}>
                         <div className="hidden grid-cols-[1.4fr_1fr_.8fr_.8fr_.8fr_120px] gap-3 px-5 py-3 text-[13px] font-semibold md:grid" style={{ ...muted, background: C.soft }}>
-                            <span>Variant</span><span>On the shelf</span><span>Reorder at</span><span>Price</span><span>Wholesale</span><span />
+                            <span>Variant</span><span>On the shelf</span><span>Reorder at</span><span>{features.sell ? 'Price' : ''}</span><span>{features.online ? 'Wholesale' : ''}</span><span />
                         </div>
                         {variants.map((v) => {
                             const vShelf = Number(v.totalStock) || 0; const vHeld = Number(v.stockReserved) || 0; const vAt = Number(v.lowStockThreshold) || Number(v.reorderPoint) || 0;
@@ -542,8 +578,8 @@ export default function ProductDetailPage() {
                                     <Link href={`/inventory/product/${v.id}`} className="col-span-2 min-w-0 truncate font-medium md:col-span-1">{choiceFor(p, String(v.id))?.choice.label || v.name}</Link>
                                     <span className="tabular-nums" style={vAt && vShelf - vHeld <= vAt ? { color: C.warn } : undefined}>{vShelf}<span className="md:hidden"> on the shelf</span>{vHeld ? <span style={muted}> · {vHeld} held</span> : null}</span>
                                     <span className="tabular-nums" style={muted}><span className="md:hidden">reorder at </span>{vAt || '—'}</span>
-                                    <span className="tabular-nums">{vp > 0 ? money(vp / 100) : '—'}{vp > 0 && !own ? <span className="text-[13px]" style={muted}> listing’s</span> : null}</span>
-                                    <span className="tabular-nums" style={muted}><span className="md:hidden">wholesale </span>{wp > 0 && wp !== vp ? money(wp / 100) : '—'}</span>
+                                    <span className="tabular-nums">{!features.sell ? '' : vp > 0 ? money(vp / 100) : '—'}{features.sell && vp > 0 && !own ? <span className="text-[13px]" style={muted}> listing’s</span> : null}</span>
+                                    <span className="tabular-nums" style={muted}>{features.online ? <><span className="md:hidden">wholesale </span>{wp > 0 && wp !== vp ? money(wp / 100) : '—'}</> : null}</span>
                                     <span className="col-span-2 flex justify-end md:col-span-1"><Btn kind="soft" onClick={() => setCountTarget(v)}>Count it</Btn></span>
                                 </div>
                             );

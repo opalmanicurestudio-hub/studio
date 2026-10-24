@@ -28,6 +28,7 @@
  * All state, handlers, and business logic below are unchanged from v1.
  */
 
+import { unitCost, recipeCost } from '@/lib/product-cost';
 import { handoffEntry } from '@/lib/handoff-log';
 import React, { useMemo, useState, useEffect } from 'react';
 import {
@@ -214,11 +215,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             const product = inventory.find(i => i.id === p.id);
             let baseCpu = product?.costPerUnit || 0;
             if (product) {
-                if (product.costingMethod === 'size' && product.size) {
-                    baseCpu = (product.costPerUnit || 0) / product.size;
-                } else if (product.costingMethod === 'uses' && product.estimatedUses) {
-                    baseCpu = (product.costPerUnit || 0) / product.estimatedUses;
-                }
+                baseCpu = unitCost(product) ?? 0;
             }
             return {
                 id: p.id,
@@ -328,8 +325,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const handleAddProduct = (products: InventoryItem[]) => {
       const newItems: EditableFormulaItem[] = products.map(p => {
         let baseCpu = p.costPerUnit || 0;
-        if (p.costingMethod === 'size' && p.size) baseCpu = (p.costPerUnit || 0) / p.size;
-        else if (p.costingMethod === 'uses' && p.estimatedUses) baseCpu = (p.costPerUnit || 0) / p.estimatedUses;
+        baseCpu = unitCost(p) ?? 0;
 
         return {
             id: p.id,
@@ -377,14 +373,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
     const timeOverage = agreedCharge + (timeOverageMinutes / 60) * tmhr;
     
     const currentCost = editableFormula.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
-    const standardCost = service.products?.reduce((acc, p) => {
-        const item = inventory.find(inv => inv.id === p.id);
-        if (!item) return acc;
-        let baseCpu = item.costPerUnit || 0;
-        if (item.costingMethod === 'size' && item.size) baseCpu = (item.costPerUnit || 0) / item.size;
-        else if (item.costingMethod === 'uses' && item.estimatedUses) baseCpu = (item.costPerUnit || 0) / item.estimatedUses;
-        return acc + (p.quantityUsed * baseCpu);
-    }, 0) || 0;
+    const standardCost = recipeCost(service.products || [], inventory).total;
     const materialOverage = Math.max(0, currentCost - standardCost);
 
     return {
@@ -403,8 +392,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
               const product = inventory.find(i => i.id === p.id);
               let baseCpu = product?.costPerUnit || 0;
               if (product) {
-                  if (product.costingMethod === 'size' && product.size) baseCpu = (product.costPerUnit || 0) / product.size;
-                  else if (product.costingMethod === 'uses' && product.estimatedUses) baseCpu = (product.costPerUnit || 0) / product.estimatedUses;
+                  baseCpu = unitCost(product) ?? 0;
               }
               return {
                 id: p.id,
@@ -425,8 +413,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
         const product = inventory.find(p => p.id === item.id);
         let baseCpu = product?.costPerUnit || 0;
         if (product) {
-            if (product.costingMethod === 'size' && product.size) baseCpu = (product.costPerUnit || 0) / product.size;
-            else if (product.costingMethod === 'uses' && product.estimatedUses) baseCpu = (product.costPerUnit || 0) / product.estimatedUses;
+            baseCpu = unitCost(product) ?? 0;
         }
         return {
             id: item.id, name: item.name, quantity: item.quantity, unit: item.unit, costPerUnit: baseCpu, note: item.note || ''

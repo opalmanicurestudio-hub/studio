@@ -1,5 +1,6 @@
 'use client';
 
+import { recipeCost } from '@/lib/product-cost';
 import { hasRealCard } from '@/lib/card-on-file';
 import { hoursToDeadline } from '@/lib/change-rules';
 import React, { useState, useMemo, useEffect } from 'react';
@@ -187,18 +188,8 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
     return sessionItems.map(s => {
       const duration = s.duration || 60;
       const houseOverhead = (duration / 60) * tmhr;
-      const materialCost = (s.products || []).reduce((acc, p) => {
-        const product = inventory.find(i => i.id === p.id);
-        let cpu = 0;
-        if (product) {
-          if (product.costingMethod === 'size' && product.size)
-            cpu = (product.costPerUnit || 0) / product.size;
-          else if (product.costingMethod === 'uses' && product.estimatedUses)
-            cpu = (product.costPerUnit || 0) / product.estimatedUses;
-          else cpu = product.costPerUnit || 0;
-        }
-        return acc + cpu * (p.quantityUsed || 1);
-      }, 0);
+      const rc = recipeCost(s.products || [], inventory);
+      const materialCost = rc.total;
 
       const proId =
         appointment.checkoutState?.serviceStaffOverrides?.[s.id] || appointment.staffId;
@@ -216,6 +207,7 @@ export function useCancelDialog(props: CancelAppointmentDialogProps) {
         id: s.id,
         name: s.name,
         houseFloor: houseOverhead + materialCost,
+        productGaps: rc.gaps,
         laborProtection: burdenedLabor,
         overrideFee: s.customCancellationFee || 0,
         window: s.cancellationWindowHours || tenant?.cancellationWindowHours || 24,
@@ -738,7 +730,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                       <div className="min-w-0">
                         <p className="text-[10px] font-bold uppercase tracking-tight text-foreground/80 truncate">{m.name}</p>
                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
-                          {m.overrideFee > 0 ? 'Fixed service override' : `Time + materials $${m.houseFloor.toFixed(2)} · Labor $${m.laborProtection.toFixed(2)}`}
+                          {m.overrideFee > 0 ? 'Fixed service override' : `Time + materials $${m.houseFloor.toFixed(2)} · Labor $${m.laborProtection.toFixed(2)}${m.productGaps?.length ? ` · leaves out ${m.productGaps.map((g: any) => g.name).join(', ')} (no cost per use yet)` : ''}`}
                         </p>
                       </div>
                       <span className="font-mono text-xs font-black text-foreground/80 shrink-0 ml-3">${lineTotal.toFixed(2)}</span>

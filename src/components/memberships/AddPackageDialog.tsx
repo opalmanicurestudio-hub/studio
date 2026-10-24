@@ -1,5 +1,6 @@
 'use client';
 
+import { recipeCost } from '@/lib/product-cost';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -44,15 +45,7 @@ const ProfitabilityAnalysis = ({ service, sessions, price, tmhr, taxBurden, staf
         if (!service) return { baseHouseFloor: 0 };
         const calculateServiceMaterialCost = (s: Service) => {
             if (!s.products) return 0;
-            return s.products.reduce((acc, p) => {
-                const invItem = inventory.find(i => i.id === p.id);
-                if (!invItem) return acc;
-                let costPerBaseUnit = 0;
-                if (invItem.costingMethod === 'size' && invItem.size) costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.size;
-                else if (invItem.costingMethod === 'uses' && invItem.estimatedUses) costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.estimatedUses;
-                else costPerBaseUnit = invItem.costPerUnit || 0;
-                return acc + (costPerBaseUnit * p.quantityUsed);
-            }, 0);
+            return recipeCost(s.products, inventory).total;
         };
         const materialCost = calculateServiceMaterialCost(service) * sessions;
         const totalServiceTime = ((service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0)) * sessions;

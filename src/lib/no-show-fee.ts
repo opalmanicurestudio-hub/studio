@@ -4,15 +4,14 @@
 // taxes), or nothing. One function for the desk's dialog and the provider's "Confirm no-show" button, so the two can
 // never charge different amounts.
 import { rateFor } from '@/lib/commission';
+import { recipeCost } from '@/lib/product-cost';
 
 export type FeeService = { id: string; price?: number; duration?: number; products?: { id: string; quantityUsed?: number }[]; serviceTiers?: { tierId: string; price: number }[] };
 export function costOf(services: FeeService[], o: { tenant: any; inventory?: any[]; staff?: any | null }): number {
   const tmhr = Number(o.tenant?.tmhr) || 50; const burden = Number(o.tenant?.employerTaxBurdenPct) || 10; const inv = o.inventory || []; const pro = o.staff || null;
   return services.reduce((sum, s) => {
     const minutes = Number(s.duration) || 60; const overhead = (minutes / 60) * tmhr;
-    const materials = (s.products || []).reduce((acc, p) => { const it = inv.find((i: any) => i.id === p.id); if (!it) return acc;
-      const cpu = it.costingMethod === 'size' && it.size ? (it.costPerUnit || 0) / it.size : it.costingMethod === 'uses' && it.estimatedUses ? (it.costPerUnit || 0) / it.estimatedUses : it.costPerUnit || 0;
-      return acc + cpu * (p.quantityUsed || 1); }, 0);
+    const materials = recipeCost(s.products || [], inv).total;
     const price = Number(s.serviceTiers?.find((t) => t.tierId === pro?.pricingTierId)?.price ?? s.price) || 0;
     const labor = pro?.payStructure === 'hourly' && pro.hourlyRate ? (minutes / 60) * pro.hourlyRate : price * (rateFor(pro, s, 40) / 100);
     return sum + overhead + materials + labor * (1 + burden / 100);

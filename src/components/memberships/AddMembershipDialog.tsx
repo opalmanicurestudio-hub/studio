@@ -1,5 +1,6 @@
 'use client';
 
+import { recipeCost } from '@/lib/product-cost';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -53,15 +54,7 @@ const ProfitabilityAnalysis = ({ perks, price, tmhr, taxBurden, staff }: { perks
         const calculateServiceMaterialCost = (svcId: string, perkQty: number) => {
             const s = services.find(svc => svc.id === svcId);
             if (!s || !s.products) return 0;
-            return s.products.reduce((acc, p) => {
-                const invItem = inventory.find(i => i.id === p.id);
-                if (!invItem) return acc;
-                let costPerBaseUnit = 0;
-                if (invItem.costingMethod === 'size' && invItem.size) costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.size;
-                else if (invItem.costingMethod === 'uses' && invItem.estimatedUses) costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.estimatedUses;
-                else costPerBaseUnit = invItem.costPerUnit || 0;
-                return acc + (costPerBaseUnit * p.quantityUsed * perkQty);
-            }, 0);
+            return recipeCost(s.products, inventory).total * perkQty;
         };
         const servicesCost = perks.services.reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);
         const addOnsCost = perks.addOns.reduce((acc, perk) => acc + calculateServiceMaterialCost(perk.id, perk.quantity), 0);

@@ -61,7 +61,7 @@ export function buildEntry(m: StockMovement): Record<string, unknown> {
     // ── existing shape: every current report reads these ──
     productId: m.productId,
     date: new Date().toISOString(),
-    change: Math.round(m.delta),
+    change: Math.round(m.delta * 1000) / 1000,   // to the thousandth: 0.4 ml is 0.4, not 0
     unit: m.unit || 'units',
     reason: m.reason,
     actorId: m.actorId || 'staff',

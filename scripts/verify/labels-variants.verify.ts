@@ -207,7 +207,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('receiving: a scan while a count box has the cursor puts the box back as it was and counts the scan (it used to type the code in as the count)', /data-scan-field="" data-count-of=\{item\.productId\}/.test(rcv) && /undoScanTyping\(\);/.test(rcv) && /el\.blur\(\);/.test(rcv));
   check('…a damaged count alone doesn’t count the line, so a scan after it starts from zero', /if \(field === 'quantityReceived'\) markCounted\(\[productId\]\);/.test(rcv));
   check('…and a question still open (a case, which variant, which product) is answered before the next scan counts', /if \(askRef\.current\) \{ scanFeedback\(false\); setNote\(\{ text: 'Finish this one first, then scan again\.' \}\); return; \}/.test(rcv));
-  check('the product page opens on its overview, or the tab its link names when the product has it, worked out again for each product (never again mid-task)', /setTab\(asked && has\(asked\) \? asked : 'overview'\);/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')) && /\}, \[id, productType\]\);/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')));
+  check('the product page opens on its overview, or the tab its link names when the product has it, worked out again for each product (never again mid-task)', /setTab\(asked && has\(asked\) \? asked : 'overview'\);/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')) && /\}, \[id, productType, sellOn\]\);/.test(src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx')));
 
   // ── The screens ──
   const productPage = src('src/app/(app)/inventory/(detail)/product/[id]/page.tsx');

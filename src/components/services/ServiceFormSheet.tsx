@@ -15,7 +15,7 @@
 
 import { rateFor, payForService } from '@/lib/commission';
 import { PayImpact } from '@/components/staff/PayImpact';
-import { costGap } from '@/lib/product-cost';
+import { costGap, restockMarkupPct, unitCost } from '@/lib/product-cost';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { type Phase, type PhaseKind, type Requirement, type RequirementKind, type RequirementMode, PHASE_LABEL, PHASE_HINT, REQ_LABEL, MODE_LABEL, CARE_LABEL, type ToolCare, phasesFromService, newPhase, newRequirement, deriveTimings, nextBlueprint } from '@/lib/blueprint';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -249,9 +249,7 @@ const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
     const prod = inventory.find(i => i.id === p.id);
     let cpu = 0;
     if (prod) {
-      if (prod.costingMethod === 'size' && prod.size) cpu = (prod.costPerUnit || 0) / prod.size;
-      else if (prod.costingMethod === 'uses' && prod.estimatedUses) cpu = (prod.costPerUnit || 0) / prod.estimatedUses;
-      else cpu = prod.costPerUnit || 0;
+      cpu = unitCost(prod) ?? 0;
     }
     return acc + (cpu * (p.quantityUsed || 1));
   }, 0), [values.products, inventory]);
@@ -382,9 +380,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         const prod = inventory.find(i => i.id === p.id);
         let cpu = 0;
         if (prod) {
-          if (prod.costingMethod === 'size' && prod.size) cpu = (prod.costPerUnit || 0) / prod.size;
-          else if (prod.costingMethod === 'uses' && prod.estimatedUses) cpu = (prod.costPerUnit || 0) / prod.estimatedUses;
-          else cpu = prod.costPerUnit || 0;
+          cpu = unitCost(prod) ?? 0;
         }
         return acc + cpu * (p.quantityUsed || 1);
       }, 0);
@@ -395,19 +391,15 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
   const breakEven = useMemo(() => {
     const total = (values.duration || 0) + (values.padBefore || 0) + (values.padAfter || 0);
+    // Product at cost, plus each product's restocking markup (its own, else the business's) when the fund is on.
+    const fundOn = (selectedTenant as any)?.restocking?.enabled === true;
     const mat = (values.products || []).reduce((acc: number, p: any) => {
       const prod = inventory.find(i => i.id === p.id);
-      let cpu = 0;
-      if (prod) {
-        if (prod.costingMethod === 'size' && prod.size) cpu = (prod.costPerUnit || 0) / prod.size;
-        else if (prod.costingMethod === 'uses' && prod.estimatedUses) cpu = (prod.costPerUnit || 0) / prod.estimatedUses;
-        else cpu = prod.costPerUnit || 0;
-      }
-      return acc + cpu * (p.quantityUsed || 1);
+      if (!prod) return acc;
+      return acc + (unitCost(prod) ?? 0) * (p.quantityUsed || 1) * (fundOn ? 1 + restockMarkupPct(prod, selectedTenant) / 100 : 1);
     }, 0);
-    const markup = (selectedTenant as any)?.restocking?.enabled === true ? (Number((selectedTenant as any)?.restocking?.markupPct) || 40) / 100 : 0;   // restocking fund markup on product
-    return (total / 60) * tmhr + mat * (1 + markup);
-  }, [values.duration, values.padBefore, values.padAfter, values.products, tmhr, inventory]);
+    return (total / 60) * tmhr + mat;
+  }, [values.duration, values.padBefore, values.padAfter, values.products, tmhr, inventory, selectedTenant]);
 
   const selectedProducts    = watch('products') || [];
   const selectedResourceIds = watch('requiredResourceIds') || [];
@@ -424,8 +416,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       setValue('products', selectedProducts.filter((p: any) => p.id !== id), { shouldDirty: true });
     } else {
       let cpu = prod.costPerUnit || 0;
-      if (prod.costingMethod === 'size' && prod.size) cpu = (prod.costPerUnit || 0) / prod.size;
-      else if (prod.costingMethod === 'uses' && prod.estimatedUses) cpu = (prod.costPerUnit || 0) / prod.estimatedUses;
+      cpu = unitCost(prod) ?? 0;
       setValue('products', [...selectedProducts, {
         id: prod.id, name: prod.name, costPerUnit: cpu, unit: prod.unit,
         useUnit: prod.useUnit, costingMethod: prod.costingMethod,
@@ -751,7 +742,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                         <div className="flex items-center gap-2 shrink-0">
                           <Input
                             type="number"
-                            value={product.quantityUsed || ''}
+                            value={product.quantityUsed || ''} placeholder="1"
                             onChange={e => {
                               const next = [...selectedProducts];
                               next[index] = { ...product, quantityUsed: parseFloat(e.target.value) || 0 };

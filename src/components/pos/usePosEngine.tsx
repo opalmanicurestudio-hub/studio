@@ -117,29 +117,8 @@ export const safeDate = (val: any): Date => {
   return new Date(val);
 };
 
-export const computeServiceCost = (service: any, apt: any, staffMember: any, inventory: any[], tmhr: number): { overhead: number; materials: number; labor: number; total: number } => {
-  if (!service) return { overhead: 0, materials: 0, labor: 0, total: 0 };
-  let materials = 0;
-  if (apt?.checkoutState?.formula?.length > 0) {
-    materials = apt.checkoutState.formula.reduce((acc: number, item: any) => acc + (item.quantity || 0) * (item.costPerUnit || 0), 0);
-  } else if (service.products?.length > 0) {
-    materials = service.products.reduce((acc: number, p: any) => {
-      const item = (inventory || []).find((i: any) => i.id === p.id);
-      if (!item) return acc;
-      let cpu = item.costPerUnit || 0;
-      if (item.costingMethod === 'size' && item.size) cpu /= item.size;
-      else if (item.costingMethod === 'uses' && item.estimatedUses) cpu /= item.estimatedUses;
-      return acc + (p.quantityUsed || 1) * cpu;
-    }, 0);
-  }
-  const duration = service.duration || 60;
-  const overhead = (duration / 60) * (tmhr || 0);
-  let labor = 0;
-  if (staffMember?.payStructure === 'commission') labor = (service.price || 0) * (rateFor(staffMember, service, 40) / 100);
-  else if (staffMember?.payStructure === 'per_service') labor = payForService(staffMember, service, duration);
-  else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) labor = (duration / 60) * staffMember.hourlyRate;
-  return { overhead, materials, labor, total: Number((overhead + materials + labor).toFixed(2)) };
-};
+// One formula for a service's cost, shared with every other screen (lib/service-cost).
+export { computeServiceCost } from '@/lib/service-cost';
 
 export const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card className="border-2 shadow-sm overflow-hidden bg-card/50 backdrop-blur-sm">

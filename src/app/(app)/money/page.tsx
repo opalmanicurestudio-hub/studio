@@ -1,5 +1,6 @@
 'use client';
 
+import { recipeCost } from '@/lib/product-cost';
 import { getAuth } from 'firebase/auth';
 import { payPost } from '@/components/pay/pay-client';
 import { PayStatement } from '@/components/staff/PayStatement';
@@ -486,14 +487,7 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
     if (apt.checkoutState?.formula?.length > 0) {
       materials = apt.checkoutState.formula.reduce((acc: number, item: any) => acc + item.quantity * item.costPerUnit, 0);
     } else if (svc.products?.length > 0) {
-      materials = svc.products.reduce((acc: number, p: any) => {
-        const item = inventory.find((i: any) => i.id === p.id);
-        if (!item) return acc;
-        let cpu = item.costPerUnit || 0;
-        if (item.costingMethod === 'size' && item.size) cpu /= item.size;
-        else if (item.costingMethod === 'uses' && item.estimatedUses) cpu /= item.estimatedUses;
-        return acc + p.quantityUsed * cpu;
-      }, 0);
+      materials = recipeCost(svc.products, inventory).total;
     }
     const actualDuration = apt.actualStartTime && apt.actualEndTime
       ? differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime))

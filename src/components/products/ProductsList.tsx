@@ -33,10 +33,13 @@ const TONE: Record<'ok' | 'warn' | 'off', React.CSSProperties> = {
   ok: { background: C.okSoft, color: C.ok }, warn: { background: C.warnSoft, color: C.warn }, off: { background: C.soft, color: C.muted },
 };
 
-export function ProductsList({ inventory, listings, orderedIds, search, onSearch, filter, onFilter, selected, onSelect, onClearSelection, onScan, bulk, menuFor }: {
+export function ProductsList({ inventory, listings, orderedIds, features = { sell: true, online: true }, search, onSearch, filter, onFilter, selected, onSelect, onClearSelection, onScan, bulk, menuFor }: {
   inventory: any[]; listings: Map<string, any>;
   /** Products on a purchase order that's placed or on its way. */
   orderedIds?: Set<string>;
+  /** What this business has: selling products at all (the Retail tool), and an online shop that's open. Without them the
+   *  list is just stock: no prices, holds, wholesale or shop status. */
+  features?: { sell: boolean; online: boolean };
   search: string; onSearch: (v: string) => void;
   filter: ProductFilter; onFilter: (f: ProductFilter) => void;
   selected: Set<string>; onSelect: (id: string) => void; onClearSelection: () => void;
@@ -66,7 +69,7 @@ export function ProductsList({ inventory, listings, orderedIds, search, onSearch
   const live = React.useMemo(() => inventory.filter((i: any) => i.status !== 'archived'), [inventory]);
   const stockOf = (i: any) => { const vs = variantIdsOf(i); return vs.length ? vs.reduce((n, v) => n + Math.max(0, Number(byId.get(v)?.totalStock) || 0), 0) : Math.max(0, Number(i.totalStock) || 0); };
   const heldOf = (i: any) => { const vs = variantIdsOf(i); return vs.length ? vs.reduce((n, v) => n + Math.max(0, Number(byId.get(v)?.stockReserved) || 0), 0) : Math.max(0, Number(i.stockReserved) || 0); };
-  const low = (i: any) => !['equipment', 'overhead'].includes(String(i.type)) && !variantIdsOf(i).length && free(i) <= (Number(i.lowStockThreshold) || 0) && (Number(i.lowStockThreshold) || 0) > 0;
+  const low = (i: any) => String(i.type) !== 'equipment' && !variantIdsOf(i).length && free(i) <= (Number(i.lowStockThreshold) || 0) && (Number(i.lowStockThreshold) || 0) > 0;
   // Variants are shown inside their listing (one row each listing), never on their own row.
   const isVariantRow = (i: any) => listings.has(String(i.id));
   const tests: Record<ProductFilter, (i: any) => boolean> = {
@@ -83,7 +86,9 @@ export function ProductsList({ inventory, listings, orderedIds, search, onSearch
   const worthOf = (i: any) => { const vs = variantIdsOf(i); return vs.length ? vs.reduce((n, v) => { const x = byId.get(v); return n + Math.max(0, Number(x?.totalStock) || 0) * (Number(x?.costPerUnit) || 0); }, 0) : Math.max(0, Number(i.totalStock) || 0) * (Number(i.costPerUnit) || 0); };
   const changedAt = (i: any) => String(i.updatedAt?.toDate ? i.updatedAt.toDate().toISOString() : i.updatedAt || i.lastCountedAt || i.createdAt || '');
   const counts = Object.fromEntries((Object.keys(tests) as ProductFilter[]).map((f) => [f, pool(f).filter(tests[f]).length])) as Record<ProductFilter, number>;
-  const almost = live.filter((i: any) => !isVariantRow(i) && i.type === 'retail' && i.showOnline === true && shopStatus(i, listings)?.tone === 'warn');
+  const almost = !features.online ? [] : live.filter((i: any) => !isVariantRow(i) && i.type === 'retail' && i.showOnline === true && shopStatus(i, listings)?.tone === 'warn');
+  const statusOf = (i: any) => (features.online ? shopStatus(i, listings) : null);
+  const cols = ['Product', 'On the shelf', ...(features.sell ? ['Held for orders', 'Price'] : []), ...(features.online ? ['Wholesale', 'Shop'] : features.sell ? ['For'] : [])];
 
   const rows = React.useMemo(() => {
     const q = search.trim().toLowerCase(); const asCode = codeForm(search);
@@ -116,7 +121,7 @@ export function ProductsList({ inventory, listings, orderedIds, search, onSearch
     return bits.join(' · ');
   };
   const stockCell = (i: any) => {
-    if (['equipment', 'overhead'].includes(String(i.type))) return <span style={muted}>—</span>;
+    if (String(i.type) === 'equipment') return <span style={muted}>—</span>;
     const n = stockOf(i);
     if (low(i)) return <span><span className="font-semibold" style={{ color: C.warn }}>{n}</span> <span className="text-[13px]" style={{ color: C.warn }}>· reorder at {Number(i.lowStockThreshold) || 0}</span></span>;
     if (n === 0 && i.preorder === true) return <span><span className="font-semibold" style={{ color: C.warn }}>0</span> <span className="text-[13px]" style={{ color: C.warn }}>· pre-order open</span></span>;
@@ -159,7 +164,7 @@ export function ProductsList({ inventory, listings, orderedIds, search, onSearch
         <button type="button" aria-pressed={picking} onClick={() => { if (picking) onClearSelection(); setPicking(!picking); }} className="h-11 rounded-full border px-4 text-[15px] font-medium md:hidden" style={chip(picking)}>{picking ? 'Done' : 'Select'}</button>
       </div>
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="group" aria-label="Show">
-        {chips.filter((c) => c.id === 'all' || c.id === filter || counts[c.id] > 0).map((c) => (
+        {chips.filter((c) => c.id === 'all' || c.id === filter || (counts[c.id] > 0 && (features.online || (c.id !== 'shop' && c.id !== 'notshop')))).map((c) => (
           <button key={c.id} type="button" aria-pressed={filter === c.id} onClick={() => { onFilter(c.id); setShown(60); onClearSelection(); }}
             className="h-11 shrink-0 rounded-full border px-4 text-[14px] font-medium" style={chip(filter === c.id)}>{c.label} <span className="tabular-nums" style={{ opacity: 0.7 }}>{counts[c.id]}</span></button>
         ))}
@@ -191,35 +196,36 @@ export function ProductsList({ inventory, listings, orderedIds, search, onSearch
       ) : (
         <>
           <div className="hidden overflow-x-auto rounded-2xl md:block" style={{ border: `1px solid ${C.line}` }}>
-            <table className="w-full border-collapse" style={{ minWidth: 880 }}>
+            <table className="w-full border-collapse" style={{ minWidth: features.online ? 880 : 640 }}>
               <thead><tr>
                 <th className="w-10 py-2.5 pl-4" style={{ borderBottom: `1px solid ${C.line}` }}><span className="sr-only">Select</span></th>
-                {['Product', 'On the shelf', 'Held for orders', 'Price', 'Wholesale', 'Shop'].map((h) => <th key={h} className="whitespace-nowrap px-3 py-2.5 text-left text-[13px] font-semibold" style={{ ...muted, borderBottom: `1px solid ${C.line}` }}>{h}</th>)}
+                {cols.map((h) => <th key={h} className="whitespace-nowrap px-3 py-2.5 text-left text-[13px] font-semibold" style={{ ...muted, borderBottom: `1px solid ${C.line}` }}>{h}</th>)}
                 <th style={{ borderBottom: `1px solid ${C.line}` }}><span className="sr-only">More</span></th>
               </tr></thead>
               <tbody>
-                {rows.slice(0, shown).map((i: any) => { const st = shopStatus(i, listings); const items = menuFor(i); return (
+                {rows.slice(0, shown).map((i: any) => { const st = statusOf(i); const items = menuFor(i); return (
                   <tr key={i.id} className="align-middle" style={{ borderBottom: `1px solid ${C.line}` }}>
                     <td className="py-1 pl-2"><label className="grid h-11 w-11 cursor-pointer place-items-center"><input type="checkbox" aria-label={`Select ${i.name}`} checked={selected.has(i.id)} onChange={() => onSelect(i.id)} className="h-5 w-5" /></label></td>
                     <td className="px-3 py-3"><Link href={`/inventory/product/${i.id}`} className="flex items-center gap-3" style={{ color: C.ink }}>{thumb(i, 44)}<span className="min-w-0"><span className="block truncate text-[15px] font-semibold">{i.name || 'Untitled'}</span><span className="block truncate text-[13px]" style={muted}>{sub(i)}</span></span></Link></td>
                     <td className="px-3 py-3 text-[15px]">{stockCell(i)}</td>
-                    <td className="px-3 py-3 text-[15px] tabular-nums" style={muted}>{['equipment', 'overhead'].includes(String(i.type)) ? '—' : heldOf(i)}</td>
-                    <td className="px-3 py-3 text-[15px] tabular-nums" style={priceCentsOf(i, listings) > 0 ? undefined : muted}>{price(i, 'retail')}</td>
-                    <td className="px-3 py-3 text-[15px] tabular-nums" style={muted}>{i.type === 'retail' && priceCentsOf(i, listings, 'wholesale' as any) !== priceCentsOf(i, listings) ? price(i, 'wholesale') : '—'}</td>
-                    <td className="px-3 py-3">{st ? <span className="inline-flex h-[26px] items-center whitespace-nowrap rounded-full px-2.5 text-[13px] font-semibold" style={TONE[st.tone]}>{st.label}</span> : <span className="text-[13px]" style={muted}>{i.type === 'professional' ? 'For services' : ''}</span>}</td>
+                    {features.sell && <td className="px-3 py-3 text-[15px] tabular-nums" style={muted}>{['equipment', 'overhead'].includes(String(i.type)) ? '—' : heldOf(i)}</td>}
+                    {features.sell && <td className="px-3 py-3 text-[15px] tabular-nums" style={priceCentsOf(i, listings) > 0 ? undefined : muted}>{price(i, 'retail')}</td>}
+                    {features.online && <td className="px-3 py-3 text-[15px] tabular-nums" style={muted}>{i.type === 'retail' && priceCentsOf(i, listings, 'wholesale' as any) !== priceCentsOf(i, listings) ? price(i, 'wholesale') : '—'}</td>}
+                    {features.sell && !features.online && <td className="px-3 py-3 text-[13px]" style={muted}>{i.type === 'retail' ? 'To sell' : i.type === 'professional' ? 'For services' : ''}</td>}
+                    {features.online && <td className="px-3 py-3">{st ? <span className="inline-flex h-[26px] items-center whitespace-nowrap rounded-full px-2.5 text-[13px] font-semibold" style={TONE[st.tone]}>{st.label}</span> : <span className="text-[13px]" style={muted}>{i.type === 'professional' ? 'For services' : ''}</span>}</td>}
                     <td className="px-3 py-3 text-right">{items.length > 0 && moreBtn(i)}</td>
                   </tr>); })}
               </tbody>
             </table>
           </div>
           <ul className="m-0 list-none p-0 md:hidden">
-            {rows.slice(0, shown).map((i: any) => { const st = shopStatus(i, listings); return (
+            {rows.slice(0, shown).map((i: any) => { const st = statusOf(i); return (
               <li key={i.id} className="flex items-center gap-1" style={{ borderBottom: `1px solid ${C.line}` }}>
                 {picking && <label className="grid h-11 w-11 shrink-0 cursor-pointer place-items-center"><input type="checkbox" aria-label={`Select ${i.name}`} checked={selected.has(i.id)} onChange={() => onSelect(i.id)} className="h-5 w-5" /></label>}
                 <Link href={`/inventory/product/${i.id}`} onClick={(e) => { if (picking) { e.preventDefault(); onSelect(i.id); } }} className="flex min-w-0 flex-1 items-center gap-3 py-3" style={{ color: C.ink }}>
                   {thumb(i, 48)}
                   <span className="min-w-0 flex-1"><span className="block truncate text-[15px] font-semibold">{i.name || 'Untitled'}</span>
-                    <span className="block truncate text-[13px]" style={low(i) ? { color: C.warn } : muted}>{['equipment', 'overhead'].includes(String(i.type)) ? sub(i) : `${stockOf(i)} on the shelf${low(i) ? ` · reorder at ${Number(i.lowStockThreshold) || 0}` : ''}${priceCentsOf(i, listings) > 0 ? ` · ${price(i, 'retail')}` : ''}`}</span></span>
+                    <span className="block truncate text-[13px]" style={low(i) ? { color: C.warn } : muted}>{String(i.type) === 'equipment' ? sub(i) : `${stockOf(i)} on the shelf${low(i) ? ` · reorder at ${Number(i.lowStockThreshold) || 0}` : ''}${features.sell && priceCentsOf(i, listings) > 0 ? ` · ${price(i, 'retail')}` : ''}`}</span></span>
                   {st && <span className="shrink-0 text-[13px] font-semibold" style={{ color: TONE[st.tone].color as string }}>{st.tone === 'ok' ? 'In shop' : st.label}</span>}
                 </Link>
                 {!picking && menuFor(i).length > 0 && moreBtn(i)}
@@ -228,7 +234,7 @@ export function ProductsList({ inventory, listings, orderedIds, search, onSearch
           {rows.length > shown && <button type="button" onClick={() => setShown(shown + 60)} className="h-11 self-center rounded-full border px-5 text-[15px] font-medium" style={{ borderColor: C.line, background: C.paper, color: C.ink }}>Show {Math.min(60, rows.length - shown)} more</button>}
         </>
       )}
-      <p className="m-0 hidden text-[13px] md:block" style={muted}>A dash under Wholesale means wholesale buyers pay the shop price.</p>
+      {features.online && <p className="m-0 hidden text-[13px] md:block" style={muted}>A dash under Wholesale means wholesale buyers pay the shop price.</p>}
     </div>
   );
 }

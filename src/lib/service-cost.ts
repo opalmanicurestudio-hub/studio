@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { rateFor, payForService } from '@/lib/commission';
+import { recipeCost } from '@/lib/product-cost';
 export interface ServiceCostBreakdown {
   overhead: number;
   materials: number;
@@ -55,14 +56,7 @@ export function computeServiceCost(
       0
     );
   } else if (service.products?.length > 0) {
-    materials = service.products.reduce((acc: number, p: any) => {
-      const item = (inventory || []).find((i: any) => i.id === p.id);
-      if (!item) return acc;
-      let cpu = item.costPerUnit || 0;
-      if (item.costingMethod === 'size' && item.size) cpu /= item.size;
-      else if (item.costingMethod === 'uses' && item.estimatedUses) cpu /= item.estimatedUses;
-      return acc + (p.quantityUsed || 1) * cpu;
-    }, 0);
+    materials = recipeCost(service.products, inventory).total;   // the shared rule (lib/product-cost)
   }
 
   const duration = service.duration || 60;

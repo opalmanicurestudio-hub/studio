@@ -1,5 +1,6 @@
 'use client';
 
+import { unitCost } from '@/lib/product-cost';
 import React, { useState, useEffect } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
@@ -90,8 +91,7 @@ export const AddFormulaDialog: React.FC<AddFormulaDialogProps> = ({ open, onOpen
         let unit = p.costingMethod === 'size' ? (p.unit || 'ml') : (p.useUnit || 'uses');
         
         let cpu = p.costPerUnit || 0;
-        if (p.costingMethod === 'size' && p.size) cpu = (p.costPerUnit || 0) / p.size;
-        else if (p.costingMethod === 'uses' && p.estimatedUses) cpu = (p.costPerUnit || 0) / p.estimatedUses;
+        cpu = unitCost(p) ?? 0;
 
         return {
             id: p.id,

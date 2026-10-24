@@ -98,14 +98,29 @@ const req = (body: any) => ({ json: async () => body, headers: new Map() }) as a
   check('one turned off is not in the shop', shopStatus({ id: 'a', type: 'retail', showOnline: false, msrp: 12, imageUrl: 'x' }, none)?.tone === 'off');
   check('a product for services has no shop status', shopStatus({ id: 'a', type: 'professional' }, none) === null);
 
+  // ── Not every business sells products, or sells online ──
+  const { productFeatures } = await import('../../src/lib/product-features');
+  const pf = (t: any) => JSON.stringify(productFeatures(t));
+  check('a business with the Retail tool and an open shop sees everything', pf({ retailSettings: { shopOpenedAt: '2026-01-01' } }) === '{"sell":true,"online":true}');
+  check('one that sells at the desk but hasn’t opened a shop sees prices and sales, no shop', pf({ retailSettings: {} }) === '{"sell":true,"online":false}');
+  check('one without the Retail tool sees stock only (even with an old shop date)', pf({ modules: { retail: false }, retailSettings: { shopOpenedAt: '2026-01-01' } }) === '{"sell":false,"online":false}');
+  const list = fs.readFileSync('src/components/products/ProductsList.tsx', 'utf8');
+  check('the list hides shop status, wholesale and the "almost ready" banner without an open shop, and prices and holds without selling',
+    /const almost = !features\.online \? \[\]/.test(list) && /features\.online \? shopStatus/.test(list) && /features\.sell \? \['Held for orders', 'Price'\]/.test(list) && /c\.id !== 'shop' && c\.id !== 'notshop'/.test(list));
+  const addSrc = fs.readFileSync('src/components/products/AddProductSheet.tsx', 'utf8');
+  check('quick add asks for a price only where products are sold, and offers the shop only where there is one', /features\.sell \? 'retail' : 'professional'/.test(addSrc) && /kind === 'retail' && features\.online &&/.test(addSrc) && /showOnline: features\.online && online/.test(addSrc));
+
   // ── The screens ──
   const inv = fs.readFileSync('src/app/(app)/inventory/page.tsx', 'utf8');
   const page = fs.readFileSync('src/app/(app)/inventory/(detail)/product/[id]/page.tsx', 'utf8');
   check('the products screen uses the new list, the quick add and receiving stock, and says what’s on order', /orderedIds=\{orderedProductIds/.test(inv) && /<ProductsList/.test(inv) && /<AddProductSheet/.test(inv) && /<QuickReceiveDialog/.test(inv) && !/<InventorySidebar/.test(inv));
   const body = page.slice(page.indexOf('export default function ProductDetailPage'));
   check('the product page defines no components inside itself (a field inside one would lose its place on each key)', !/const [A-Z]\w* = \(\{/.test(body));
+  check('the product page shows the shop, its checklist and the customer preview only to a business with an open shop, and selling only to one that sells',
+    /const status = features\.online \? shopStatus/.test(page) && /kindOf === 'retail' && features\.online && !listing/.test(page) && /\{sells \? \(/.test(page) && /productType === 'retail' && sellOn/.test(page) && /kindOf === 'retail' && features\.online && \(/.test(page));
+  check('the products screen offers logging a sale only where products are sold', /item\.type === 'retail' && features\.sell \? \[\{ label: 'Log a sale'/.test(inv) && /features=\{features\}/.test(inv));
   check('the product page counts through the server, never by writing the shelf from the browser', /<CountSheet/.test(page) && !/totalStock:\s/.test(body));
-  check('adding the first variant doesn’t move anyone off their tab (the tab is read once per product)', /\}, \[id, productType\]\);/.test(page));
+  check('adding the first variant doesn’t move anyone off their tab (the tab is read once per product)', /\}, \[id, productType, sellOn\]\);/.test(page));
   check('after a count, the history measures from the count, so a count closes a gap', /lastCount \? Number\(lastCount\.balanceAfter\)/.test(page));
   check('old links to its tabs still land somewhere', /manufacturing: 'stock'/.test(page) && /batches: 'stock'/.test(page));
   const all = [inv, page, fs.readFileSync('src/components/products/ProductsList.tsx', 'utf8'), fs.readFileSync('src/components/products/AddProductSheet.tsx', 'utf8'), fs.readFileSync('src/components/products/CountSheet.tsx', 'utf8')].join('\n');

@@ -1,5 +1,6 @@
 'use client';
 
+import { unitCost, recipeCost } from '@/lib/product-cost';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -35,14 +36,7 @@ const ProfitAnalysisCard = ({ service, tmhr, staff, pricingTiers, taxBurden }: {
   const { materialCost, timeCost } = useMemo(() => {
     const totalDuration = (service.duration || 0) + (service.padBefore || 0) + (service.padAfter || 0);
     const timeCost = (totalDuration / 60) * tmhr;
-    const materialCost = (service.products || []).reduce((acc, p) => {
-      const product = inventory.find(i => i.id === p.id);
-      if (!product) return acc;
-      let cpu = product.costPerUnit || 0;
-      if (product.costingMethod === 'size' && product.size) cpu = cpu / product.size;
-      else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = cpu / product.estimatedUses;
-      return acc + (cpu * p.quantityUsed);
-    }, 0);
+    const materialCost = recipeCost(service.products || [], inventory).total;
     return { materialCost, timeCost };
   }, [service, tmhr, inventory]);
 
@@ -130,8 +124,7 @@ const CostBreakdown = ({ service, tmhr }: { service: Service; tmhr: number }) =>
       let cost = 0;
       if (product) {
         let cpu = product.costPerUnit || 0;
-        if (product.costingMethod === 'size' && product.size) cpu = cpu / product.size;
-        else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = cpu / product.estimatedUses;
+        cpu = unitCost(product) ?? 0;
         cost = cpu * (p.quantityUsed || 1);
       }
       return { ...p, cost };

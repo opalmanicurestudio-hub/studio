@@ -7,6 +7,7 @@
 //   AddAsYouGo    — Now tab: note a product as it's used (adds to this visit's formula; the review opens with it)
 //   ThisVisit     — Service tab: this visit's formula so far / as recorded at the hand-off
 // Everything writes to appointment.checkoutState.formula — the same field the hand-off review reads and saves.
+import { unitCost, unitLabel } from '@/lib/product-cost';
 import * as React from 'react';
 
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -19,8 +20,8 @@ const qty = (i: FormulaItem) => `${Math.round(n(i.quantity) * 100) / 100} ${i.un
 /** The service recipe as formula items (what the review starts from when nothing's recorded yet). */
 export function recipeFormula(service: any, inventory: any[]): FormulaItem[] {
   return (service?.products || []).map((p: any) => { const it = inventory.find((x) => x.id === (p.id || p.productId)); let cpu = n(it?.costPerUnit);
-    if (it?.costingMethod === 'size' && n(it.size) > 0) cpu = n(it.costPerUnit) / n(it.size); else if (it?.costingMethod === 'uses' && n(it.estimatedUses) > 0) cpu = n(it.costPerUnit) / n(it.estimatedUses);
-    return { id: p.id || p.productId, name: p.name || it?.name || 'Product', quantity: n(p.quantityUsed) || 1, unit: it?.costingMethod === 'uses' ? (it.useUnit || 'uses') : (it?.useUnit || it?.unit || 'unit'), costPerUnit: cpu, note: '' }; });
+    cpu = it ? unitCost(it) ?? 0 : cpu;
+    return { id: p.id || p.productId, name: p.name || it?.name || 'Product', quantity: n(p.quantityUsed) || 1, unit: it ? unitLabel(it) : 'each', costPerUnit: cpu, note: '' }; });
 }
 export function lastFormulaFor(appointment: any, client: any, allAppointments: any[]): { items: FormulaItem[]; date: string | null; from: 'visit' | 'saved' } | null {
   const prev = (allAppointments || []).filter((a) => a.clientId === appointment.clientId && a.id !== appointment.id && a.status === 'completed' && Array.isArray(a.checkoutState?.formula) && a.checkoutState.formula.length)
@@ -69,7 +70,7 @@ export function AddAsYouGo({ inventory, onAdd }: { inventory: any[]; onAdd: (pro
         <div className="flex flex-wrap gap-2">{list.map((i) => <button key={i.id} type="button" onClick={() => setPick(i)} className="h-9 rounded-full px-3 text-[13px] font-semibold" style={{ background: 'hsl(var(--secondary))' }}>{i.name}</button>)}{!list.length && <span className="text-[13px]" style={muted}>No match.</span>}</div>
       </> : <div className="flex flex-wrap items-center gap-2 text-[14px]">
         <b>{pick.name}</b><input type="number" min={0} step={0.1} value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Amount" className="h-10 w-20 rounded-xl border px-2 text-right" style={{ borderColor: 'hsl(var(--border))' }} />
-        <span style={muted}>{pick.costingMethod === 'uses' ? (pick.useUnit || 'uses') : pick.useUnit || pick.unit || 'unit'}</span>
+        <span style={muted}>{unitLabel(pick)}</span>
         <button type="button" onClick={() => { const v = n(amount); if (v > 0) { onAdd(pick.id, v); setPick(null); setQ(''); setAmount('1'); setOpen(false); } }} className="h-10 rounded-full px-4 font-semibold" style={{ background: 'var(--ink)', color: '#fff' }}>Add</button>
         <button type="button" onClick={() => setPick(null)} className="h-10 rounded-full px-3" style={muted}>Back</button></div>}
       <button type="button" onClick={() => { setOpen(false); setPick(null); }} className="text-[13px] underline underline-offset-2" style={muted}>Close</button>
@@ -89,9 +90,9 @@ export function ThisVisitFormula({ appointment, onClear }: { appointment: any; o
 /** Add to a formula (same product → quantities add up). */
 export function addToFormula(base: FormulaItem[], item: any, quantity: number): FormulaItem[] {
   const out = base.map((x) => ({ ...x })); const i = out.findIndex((x) => x.id === item.id);
-  let cpu = n(item.costPerUnit); if (item.costingMethod === 'size' && n(item.size) > 0) cpu = n(item.costPerUnit) / n(item.size); else if (item.costingMethod === 'uses' && n(item.estimatedUses) > 0) cpu = n(item.costPerUnit) / n(item.estimatedUses);
+  const cpu = unitCost(item) ?? 0;
   if (i >= 0) out[i].quantity = Math.round((n(out[i].quantity) + quantity) * 100) / 100;
-  else out.push({ id: item.id, name: item.name || 'Product', quantity, unit: item.costingMethod === 'uses' ? (item.useUnit || 'uses') : (item.useUnit || item.unit || 'unit'), costPerUnit: cpu, note: 'added during the visit' });
+  else out.push({ id: item.id, name: item.name || 'Product', quantity, unit: unitLabel(item), costPerUnit: cpu, note: 'added during the visit' });
   return out;
 }
 

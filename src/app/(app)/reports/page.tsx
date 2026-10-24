@@ -1,5 +1,6 @@
 'use client';
 
+import { lineCost } from '@/lib/product-cost';
 import { periodPay } from '@/lib/pay-period';
 import { sessionsFrom, workedMinutes, clockPolicy } from '@/lib/timeclock';
 import { serviceCommission, perServicePay } from '@/lib/commission';
@@ -156,13 +157,8 @@ export default function ReportsPage() {
             if (service) {
                 const formula = apt.checkoutState?.formula || service.products || [];
                 formula.forEach((p: any) => {
-                    const item = inventory.find(i => i.id === p.id);
-                    if (item) {
-                        let cpu = item.costPerUnit || 0;
-                        if (item.costingMethod === 'size' && item.size) cpu = cpu / item.size;
-                        else if (item.costingMethod === 'uses' && item.estimatedUses) cpu = cpu / item.estimatedUses;
-                        totalMaterialCost += (p.quantityUsed || p.quantity || 1) * cpu;
-                    }
+                    const item = inventory.find(i => i.id === (p.id ?? p.productId));
+                    if (item) totalMaterialCost += lineCost(item, Number(p.quantityUsed || p.quantity) || 1) ?? 0;
                 });
                 if (apt.actualStartTime && apt.actualEndTime) {
                     const actualDuration = differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime));

@@ -8,7 +8,7 @@ type Row = any;
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 
 export function ServiceMenuBoard({ services, timingRows, bookings30, attention, costOf, selected, onToggleSelect, onEdit, onDuplicate, onAddIn, onSetPrice, onReorder, onShowOnline, onArchive, onFixLength, linkFor }: {
-  services: Row[]; timingRows: any[]; bookings30: (id: string) => number; attention: (s: Row) => string[]; costOf: (s: Row) => { product: number; time: number };
+  services: Row[]; timingRows: any[]; bookings30: (id: string) => number; attention: (s: Row) => string[]; costOf: (s: Row) => { product: number; time: number; incomplete?: string[] };
   selected: Set<string>; onToggleSelect: (id: string) => void; onEdit: (s: Row) => void; onDuplicate: (s: Row) => void; onAddIn: (category: string | null) => void;
   onSetPrice: (s: Row, price: number) => void; onReorder: (category: string, orderedIds: string[]) => void; onShowOnline: (s: Row, shown: boolean) => void; onArchive: (s: Row) => void; onFixLength: (s: Row, minutes: number) => void;
   linkFor?: (x: { serviceId?: string; category?: string }, src: string) => string;   // shareable booking links (see lib/share-links)
@@ -45,7 +45,7 @@ export function ServiceMenuBoard({ services, timingRows, bookings30, attention, 
                 <input type="checkbox" checked={selected.has(s.id)} onChange={() => onToggleSelect(s.id)} aria-label={`Select ${s.name}`} className="h-5 w-5" />
                 <div role="button" tabIndex={0} onClick={() => onEdit(s)} onKeyDown={(e) => { if (e.key === 'Enter') onEdit(s); }} className="min-w-0 cursor-pointer text-left" aria-label={`Edit ${s.name}`}>
                   <span className="block text-[15px] font-semibold leading-tight sm:truncate">{s.name}{hidden ? <span className="ml-2 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: 'var(--soft)', color: 'var(--muted)' }}>hidden online</span> : null}</span>
-                  <span className="block text-[13px] sm:truncate" style={muted}>{s.duration} min{cat !== '__addons' ? ` · ${bookings30(s.id)} this month` : ''}{left !== null ? <> · <span style={left < 30 ? { color: 'var(--warn)', fontWeight: 600 } : undefined}>{left < 0 ? 'below cost' : `${left}% left after cost`}</span></> : null}
+                  <span className="block text-[13px] sm:truncate" style={muted}>{s.duration} min{cat !== '__addons' ? ` · ${bookings30(s.id)} this month` : ''}{left !== null ? <> · <span style={left < 30 ? { color: 'var(--warn)', fontWeight: 600 } : undefined}>{left < 0 ? 'below cost' : `${left}% left after cost`}</span>{c.incomplete?.length ? <span style={{ color: 'var(--warn)' }}> (without {c.incomplete.join(', ')}: no cost per use yet)</span> : null}</> : null}
                     {t && t.suggest !== s.duration && cat !== '__addons' ? <> · typically {t.typical} min <button type="button" onClick={(e) => { e.stopPropagation(); onFixLength(s, t.suggest); }} className="font-semibold underline underline-offset-2" style={{ color: 'var(--accent)' }}>book at {t.suggest}?</button></> : null}</span>
                   {flags.length > 0 && <span className="mt-1 flex flex-wrap gap-1">{flags.map((f) => <span key={f} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn) 12%, transparent)', color: 'var(--warn)' }}>{f}</span>)}</span>}
                 </div>

@@ -12,20 +12,23 @@
 import { deductMainStock } from '@/lib/replenishment-system';
 import { buildEntry } from '@/lib/stock-ledger';
 import { disposablesUsed } from '@/lib/blueprint';
+import { costGap, perContainer, unitCost } from '@/lib/product-cost';
 
-export interface UsageLine { productId: string; name: string; unit: string; expected: number; actual?: number; deducted?: number; shortfall?: number }
+export interface UsageLine { productId: string; name: string; unit: string; expected: number; actual?: number; deducted?: number; shortfall?: number; notCounted?: string }
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const unitOf = (it: any) => (it?.costingMethod === 'uses' ? it.useUnit || 'uses' : it?.costingMethod === 'size' ? it.unit || 'ml' : it?.unit || 'units');
-export const containerSize = (it: any) => (it?.costingMethod === 'uses' ? n(it.estimatedUses) : it?.costingMethod === 'size' ? n(it.size) : 1);
+// 0 when it's counted by uses or by amount but the number isn't set (lib/product-cost perContainer).
+export const containerSize = (it: any) => perContainer(it) || 0;
 const partialKey = (it: any) => (it?.costingMethod === 'uses' ? 'partialContainerUses' : it?.costingMethod === 'size' ? 'partialContainerSize' : null);
 
 /** What a visit should have used: its service's products + each add-on's (quantities summed per product). */
 export function expectedUsage(service: any, addOns: any[], inventory: any[]): UsageLine[] {
   const m = new Map<string, UsageLine>(); const inv = new Map((inventory || []).map((i: any) => [i.id, i]));
   for (const s of [service, ...(addOns || [])]) for (const p of (s?.products || [])) {
-    const q = n(p?.quantityUsed); if (!p?.id || q <= 0) continue; const it: any = inv.get(p.id) || p;
-    const cur = m.get(p.id) || { productId: p.id, name: String(it.name || p.name || 'Product'), unit: unitOf(it), expected: 0 };
-    cur.expected = Math.round((cur.expected + q) * 1000) / 1000; m.set(p.id, cur);
+    // A recipe line with no amount counts as one use, as its cost does (lib/product-cost recipeLines).
+    const id = String(p?.id ?? p?.productId ?? ''); if (!id) continue; const q = n(p?.quantityUsed) > 0 ? n(p.quantityUsed) : 1; const it: any = inv.get(id) || p;
+    const cur = m.get(id) || { productId: id, name: String(it.name || p.name || 'Product'), unit: unitOf(it), expected: 0 };
+    cur.expected = Math.round((cur.expected + q) * 1000) / 1000; m.set(id, cur);
   }
   // Disposables on the service's blueprint that are linked to a stock item come off stock too (one client, then thrown away).
   for (const d of disposablesUsed([service, ...(addOns || [])])) {
@@ -36,9 +39,13 @@ export function expectedUsage(service: any, addOns: any[], inventory: any[]): Us
   return Array.from(m.values());
 }
 
-/** Take `qty` (in the product's own unit) off stock inside a transaction. Negative qty puts it back. */
-function moveStock(it: any, qty: number) {
+/** Take `qty` (in the product's own unit) off stock inside a transaction. Negative qty puts it back. Shared with the
+ *  provider's hand-off (lib/visit-handoff), so every path that uses product moves stock the same way. */
+export function moveStock(it: any, qty: number): { patch: Record<string, any>; moved: number; shortfall: number; notCounted?: string } {
   const pk = partialKey(it); const size = containerSize(it);
+  // Counted by uses or by amount with no number set: there's no telling how many containers this is, so the shelf is
+  // left as it is (it used to be set to zero) and the visit says why.
+  if (pk && !(size > 0)) return { patch: {}, moved: 0, shortfall: 0, notCounted: costGap(it) || 'no container size or uses' };
   if (qty > 0) {
     const r = deductMainStock(it, qty);
     if (r.success) return { patch: { totalStock: r.updatedTotalStock, ...(pk === 'partialContainerUses' ? { partialContainerUses: r.updatedPartialContainerUses ?? n(it.partialContainerUses) } : pk === 'partialContainerSize' ? { partialContainerSize: r.updatedPartialContainerSize ?? n(it.partialContainerSize) } : {}) }, moved: qty, shortfall: 0 };
@@ -61,7 +68,9 @@ export async function recordVisitUsage(db: any, tenantId: string, visit: any, li
     const snaps = await Promise.all(lines.map((l) => tx.get(db.doc(`${T}/inventory/${l.productId}`))));
     const out: UsageLine[] = [];
     snaps.forEach((s: any, i: number) => { const l = lines[i]; if (!s.exists) { out.push({ ...l, deducted: 0, shortfall: l.expected }); return; }
-      const it = s.data(); const r = moveStock(it, l.expected); tx.set(s.ref, r.patch, { merge: true });
+      const it = s.data(); const r = moveStock(it, l.expected);
+      if (r.notCounted) { out.push({ ...l, deducted: 0, notCounted: r.notCounted }); return; }
+      tx.set(s.ref, r.patch, { merge: true });
       tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: l.productId, type: 'used', delta: -l.expected, unit: l.unit, reason: `Used in service — ${visit.clientName || 'client'}${r.shortfall ? ` (short by ${r.shortfall} ${l.unit})` : ''}`, actorId: actor.id || 'system', actorName: actor.name || 'Checkout', ref: { kind: 'appointment', id: visit.id } } as any));
       out.push({ ...l, deducted: r.moved, ...(r.shortfall ? { shortfall: r.shortfall } : {}) }); });
     tx.set(ref, { visitId: visit.id, clientName: visit.clientName || null, staffId: visit.staffId || null, lines: out, recordedAt: now, updatedAt: now, shortfalls: out.filter((l) => l.shortfall).length });
@@ -74,11 +83,17 @@ export async function adjustVisitUsage(db: any, tenantId: string, visitId: strin
   return db.runTransaction(async (tx: any) => {
     const u: any = (await tx.get(ref)).data(); if (!u) throw new Error('No usage recorded for this visit yet.');
     const lines: UsageLine[] = u.lines || []; const changes: { l: UsageLine; diff: number }[] = [];
-    for (const l of lines) { if (actual[l.productId] === undefined) continue; const want = Math.max(0, Math.round(n(actual[l.productId]) * 1000) / 1000); const was = n(l.actual ?? l.expected); if (want !== was) changes.push({ l, diff: want - was }); }
+    // A line that couldn't be taken off (no size or uses set then) moved nothing: the difference is from nothing.
+    for (const l of lines) { if (actual[l.productId] === undefined) continue; const want = Math.max(0, Math.round(n(actual[l.productId]) * 1000) / 1000); const was = l.notCounted ? n(l.deducted) : n(l.actual ?? l.expected); if (want !== was) changes.push({ l, diff: want - was }); }
     const snaps = await Promise.all(changes.map((c) => tx.get(db.doc(`${T}/inventory/${c.l.productId}`))));
-    snaps.forEach((s: any, i: number) => { const { l, diff } = changes[i]; if (!s.exists) return; const r = moveStock(s.data(), diff); tx.set(s.ref, r.patch, { merge: true });
+    const movedIds = new Set<string>();
+    snaps.forEach((s: any, i: number) => { const { l, diff } = changes[i]; if (!s.exists) return; const r = moveStock(s.data(), diff); if (r.notCounted) return; tx.set(s.ref, r.patch, { merge: true }); movedIds.add(l.productId);
       tx.set(db.collection(`${T}/stockCorrections`).doc(), buildEntry({ productId: l.productId, type: 'used', delta: -diff, unit: l.unit, reason: `Actual usage ${diff > 0 ? 'more' : 'less'} than expected — ${u.clientName || 'client'}`, actorId: actor.id || 'staff', actorName: actor.name || 'Staff', ref: { kind: 'appointment', id: visitId } } as any)); });
-    const next = lines.map((l) => (actual[l.productId] !== undefined ? { ...l, actual: Math.max(0, Math.round(n(actual[l.productId]) * 1000) / 1000) } : l));
+    const next = lines.map((l) => { if (actual[l.productId] === undefined) return l;
+      const a = Math.max(0, Math.round(n(actual[l.productId]) * 1000) / 1000);
+      // Once stock really moves for a line that couldn't be counted before, it's counted from here on.
+      if (l.notCounted && movedIds.has(l.productId)) { const { notCounted: _gone, ...rest } = l; return { ...rest, actual: a, deducted: a }; }
+      return { ...l, actual: a }; });
     tx.set(ref, { lines: next, updatedAt: now, adjustedBy: actor.name || null }, { merge: true });
     return { ok: true, changed: changes.length };
   });
@@ -109,8 +124,10 @@ export async function extraProductFor(db: any, tenantId: string, visitId: string
   if (rule === 'off') return { items: [], total: 0, rule };
   const u: any = (await db.doc(`${T}/usage/${visitId}`).get()).data(); const lines: UsageLine[] = u?.lines || []; const items: { name: string; extra: number; unit: string; price: number }[] = [];
   for (const l of lines) { const extra = Math.round((n(l.actual) - n(l.expected)) * 1000) / 1000; if (!(l.actual !== undefined && extra > 0)) continue;
-    const it: any = (await db.doc(`${T}/inventory/${l.productId}`).get()).data() || {}; const size = containerSize(it) || 1;
-    const perUnit = rule === 'cost' ? n(it.costPerUnit) / size : n(it.msrp) > 0 ? n(it.msrp) / size : n(it.costPerUnit) / size;
+    const it: any = (await db.doc(`${T}/inventory/${l.productId}`).get()).data() || {}; const size = perContainer(it);
+    if (size === null) continue;   // no size or uses set: there's no telling what the extra is worth, so nothing is suggested
+    const cost = unitCost(it) ?? 0;
+    const perUnit = rule === 'cost' ? cost : n(it.msrp) > 0 ? n(it.msrp) / size : cost;
     const price = Math.round(extra * perUnit * 100) / 100; if (price > 0) items.push({ name: l.name || it.name || 'Product', extra, unit: l.unit || unitOf(it), price }); }
   return { items, total: Math.round(items.reduce((t, x) => t + x.price, 0) * 100) / 100, rule };
 }

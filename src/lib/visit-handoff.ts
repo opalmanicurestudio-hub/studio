@@ -3,6 +3,9 @@
 // status or the stock count directly). In one go: the visit becomes ready to pay with the checkout details and the
 // hand-off recorded, the check-in screen's copy follows, the formula and any amenities come off stock (with a stock
 // correction for each), and everyone who worked on the visit is free again.
+import { moveStock } from '@/lib/usage';
+import { unitLabel } from '@/lib/product-cost';
+import { buildEntry } from '@/lib/stock-ledger';
 import { FieldValue } from 'firebase-admin/firestore';
 import { handoffEntry } from '@/lib/handoff-log';
 import type { RequestActor } from '@/lib/request-actor';
@@ -33,24 +36,26 @@ export async function finishVisit(db: any, tenantId: string, actor: RequestActor
     batch.set(r, { id: r.id, productId, date: now, change, unit, reason, appointmentId: aptId, by: actor.staffId });
   };
   const used: any[] = [];
-  for (const item of formula) {
+  // One movement per product: the same product listed twice is added up first (two moves from one reading would leave
+  // the shelf with only the second).
+  const byProduct = new Map<string, any>();
+  for (const item of formula) { const id = String(item?.id || ''); const q = num(item?.quantity); if (!id || q <= 0) continue;
+    const cur = byProduct.get(id); byProduct.set(id, cur ? { ...cur, quantity: Math.round((num(cur.quantity) + q) * 1000) / 1000 } : { ...item, id, quantity: q }); }
+  for (const item of byProduct.values()) {
     const p = inv.get(String(item?.id)); const q = num(item?.quantity); if (!p || q <= 0) continue;
-    const ref = db.doc(`${T}/inventory/${item.id}`); let unit = p.unit || 'units';
-    if (p.costingMethod === 'uses') {
-      unit = p.useUnit || 'uses'; let uses = num(p.partialContainerUses) - q, stock = num(p.totalStock); const per = num(p.estimatedUses) || 1;
-      while (uses <= 0 && stock > 0) { stock -= 1; uses += per; }
-      batch.update(ref, { totalStock: stock, partialContainerUses: uses });
-    } else if (p.costingMethod === 'size' && p.size) {
-      unit = p.unit || 'ml'; let size = num(p.partialContainerSize) - q, stock = num(p.totalStock); const per = num(p.size);
-      while (size <= 0 && stock > 0) { stock -= 1; size += per; }
-      batch.update(ref, { totalStock: stock, partialContainerSize: size });
-    } else batch.update(ref, { totalStock: FieldValue.increment(-q) });
-    correction(item.id, -q, unit, `Service Formula: ${label}`);
-    used.push({ productId: String(item.id), name: String(p.name || item.name || 'Product'), unit, expected: q, deducted: q });
+    // The same stock move as checkout (lib/usage moveStock): a new container is opened only when the open one runs out,
+    // and a product counted by uses or by amount with no number set isn't touched (it used to lose whole containers).
+    const ref = db.doc(`${T}/inventory/${item.id}`); const unit = unitLabel(p) === 'each' ? (p.unit || 'units') : unitLabel(p);
+    const r = moveStock(p, q);
+    if (r.notCounted) { used.push({ productId: String(item.id), name: String(p.name || item.name || 'Product'), unit, expected: q, deducted: 0, notCounted: r.notCounted }); continue; }
+    if (p.costingMethod === 'uses' || p.costingMethod === 'size') batch.update(ref, r.patch); else batch.update(ref, { totalStock: FieldValue.increment(-q) });
+    const e = db.collection(`${T}/stockCorrections`).doc();
+    batch.set(e, { id: e.id, ...buildEntry({ productId: String(item.id), type: 'used', delta: -q, unit, reason: `Used in service: ${label}${r.shortfall ? ` (short by ${r.shortfall} ${unit})` : ''}`, actorId: String(actor.staffId || 'staff'), actorName: String(actor.name || 'Staff'), ref: { kind: 'appointment', id: aptId } } as any), appointmentId: aptId });
+    used.push({ productId: String(item.id), name: String(p.name || item.name || 'Product'), unit, expected: q, deducted: r.moved, ...(r.shortfall ? { shortfall: r.shortfall } : {}) });
   }
   // What the provider recorded is what the visit used: checkout's own usage step (lib/usage recordVisitUsage) then sees
   // this visit as already recorded and doesn't take the recipe off stock a second time.
-  if (used.length) batch.set(db.doc(`${T}/usage/${aptId}`), { visitId: aptId, clientName: apt.clientName || null, staffId: apt.staffId || null, lines: used, recordedAt: now, updatedAt: now, shortfalls: 0, source: 'review' });
+  if (used.length) batch.set(db.doc(`${T}/usage/${aptId}`), { visitId: aptId, clientName: apt.clientName || null, staffId: apt.staffId || null, lines: used, recordedAt: now, updatedAt: now, shortfalls: used.filter((l) => l.shortfall).length, source: 'review' });
   for (const a of amenities) {
     const p = inv.get(String(a?.id)); if (!p) continue;
     batch.update(db.doc(`${T}/inventory/${a.id}`), { totalStock: FieldValue.increment(-1) });

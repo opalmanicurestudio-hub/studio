@@ -1,6 +1,7 @@
 
 'use client';
 
+import { recipeCost } from '@/lib/product-cost';
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -50,21 +51,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({ pack, services, client
     
     const calculateServiceMaterialCost = (s: Service) => {
         if (!s.products) return 0;
-        return s.products.reduce((acc, p) => {
-            const invItem = inventory.find(i => i.id === p.id);
-            if (!invItem) return acc;
-            
-            let costPerBaseUnit = 0;
-            if (invItem.costingMethod === 'size' && invItem.size) {
-                costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.size;
-            } else if (invItem.costingMethod === 'uses' && invItem.estimatedUses) {
-                costPerBaseUnit = (invItem.costPerUnit || 0) / invItem.estimatedUses;
-            } else {
-                costPerBaseUnit = invItem.costPerUnit || 0;
-            }
-            
-            return acc + (costPerBaseUnit * p.quantityUsed);
-        }, 0);
+        return recipeCost(s.products, inventory).total;
     };
 
     const materials = calculateServiceMaterialCost(primaryService) * pack.sessions;
