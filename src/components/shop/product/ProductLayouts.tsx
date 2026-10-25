@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Minus, Package, Plus, Star } from 'lucide-react';
 import type { SiteLayout } from '@/lib/shop-site';
 import { cn } from '@/lib/utils';
+import { accessWords, downloadWords, sizeWords, type PublicDigital } from '@/lib/digital-product';
 
 export type ViewChoice = { id: string; label: string; deltaCents?: number; priceCents?: number; wholesalePriceCents?: number | null; inStock?: boolean; lowStock?: boolean };
 export type ViewGroup = { id: string; name: string; variants?: boolean; choices: ViewChoice[] };
@@ -20,6 +21,8 @@ export type ViewProduct = {
   id: string; name: string; category: string; sku: string; description: string; howToUse: string;
   specs: { label: string; value: string }[]; documents: { name: string; url: string }[]; imageUrls: string[];
   videoUrl?: string; optionGroups?: ViewGroup[]; wholesaleMinQty: number | null;
+  /** A download's files, delivery, access and license (lib/digital-product publicDigital). */
+  digitalInfo?: PublicDigital | null;
 };
 export type ViewRelated = { id: string; name: string; priceCents: number; priceVaries?: boolean; imageUrls?: string[] };
 export type ViewReview = { id: string; rating: number; title: string; body: string; author: string; at: string };
@@ -259,8 +262,36 @@ function folds(v: ProductViewProps, withDescription: boolean, withDelivery = tru
   if (p.howToUse) out.push({ id: 'use', title: 'How to use', body: <p className="whitespace-pre-line">{p.howToUse}</p> });
   if (p.specs.length) out.push({ id: 'specs', title: 'Specifications', body: <SpecTable v={v} /> });
   if (p.documents.length) out.push({ id: 'docs', title: 'Documents and downloads', body: <Docs v={v} /> });
+  if (p.digitalInfo) out.push({ id: 'inside', title: 'What’s inside', body: <Inside d={p.digitalInfo} /> });
+  if (p.digitalInfo) out.push({ id: 'license', title: 'License', body: <p><span className="font-semibold" style={{ color: 'var(--shop-ink)' }}>{p.digitalInfo.license.name}.</span> {p.digitalInfo.license.terms}</p> });
   if (withDelivery && v.trust?.length) out.push({ id: 'delivery', title: v.digital ? 'Access and delivery' : 'Delivery and returns', body: <ul className="space-y-2">{v.trust.map((t) => <li key={t.title}><span className="font-semibold" style={{ color: 'var(--shop-ink)' }}>{t.title}.</span> {t.sub}</li>)}</ul> });
   return out;
+}
+
+/** What's inside a download and its license, for the layouts that lay details out in full. */
+function DigitalBlock({ d }: { d: PublicDigital }) {
+  return (
+    <div className="space-y-3 text-[15px] leading-relaxed" style={muted}>
+      <Inside d={d} />
+      <p><span className="font-semibold" style={{ color: 'var(--shop-ink)' }}>{d.license.name}.</span> {d.license.terms}</p>
+    </div>);
+}
+
+/** A download's files by name, type and size, and what else comes with it. */
+function Inside({ d }: { d: PublicDigital }) {
+  return (
+    <div className="space-y-3">
+      {d.files.length > 0 && (
+        <ul className="divide-y" style={line}>
+          {d.files.map((f, i) => (
+            <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-4 py-2.5" style={line}>
+              <span className="min-w-0 truncate" style={{ color: 'var(--shop-ink)' }}>{f.name}</span>
+              <span className="shrink-0 text-sm" style={muted}>{[f.type, sizeWords(f.size)].filter(Boolean).join(' · ')}</span>
+            </li>))}
+        </ul>)}
+      {d.hasLink && <p>Plus online content, opened from your library.</p>}
+      <p className="text-sm" style={muted}>{[d.formatLabel, d.how, accessWords(d), downloadWords(d)].filter(Boolean).join(' · ')}</p>
+    </div>);
 }
 
 function Folds({ v, items }: { v: ProductViewProps; items: Fold[] }) {
@@ -415,11 +446,12 @@ export function ProductView(v: ProductViewProps) {
                 </Link></li>))}</ul>
             </section>)}
         </div>
-        {(p.description && steps.length > 0) || p.specs.length > 0 || p.documents.length > 0 || v.trust?.length ? (
+        {(p.description && steps.length > 0) || p.specs.length > 0 || p.documents.length > 0 || p.digitalInfo || v.trust?.length ? (
           <div className="grid gap-3 md:grid-cols-2 md:items-start">
-            {(p.description && steps.length > 0) || p.specs.length || p.documents.length ? (
+            {(p.description && steps.length > 0) || p.specs.length || p.documents.length || p.digitalInfo ? (
               <section aria-labelledby="details-heading" className="space-y-4 p-6" style={tile()}>
                 <h2 id="details-heading" className="text-xl" style={head}>Details</h2>
+                {p.digitalInfo && <div className="space-y-2"><h3 className="font-semibold">What’s inside</h3><DigitalBlock d={p.digitalInfo} /></div>}
                 {p.description && steps.length > 0 && <p className="whitespace-pre-line text-[15px] leading-relaxed" style={muted}>{p.description}</p>}
                 {p.specs.length > 0 && <SpecTable v={v} />}
                 {p.documents.length > 0 && <Docs v={v} />}
@@ -460,7 +492,7 @@ export function ProductView(v: ProductViewProps) {
           </div>
         </div>
         <div className="grid gap-10 lg:grid-cols-2">
-          {(p.specs.length > 0 || p.sku || p.documents.length > 0 || p.howToUse || v.trust?.length) && <section aria-labelledby="details-heading" className="space-y-4"><h2 id="details-heading" className="text-2xl" style={head}>Details</h2>{(p.specs.length > 0 || p.sku) && <SpecTable v={v} />}{p.documents.length > 0 && <Docs v={v} />}{p.howToUse && <div className="space-y-1 pt-2"><h3 className="font-semibold">How to use</h3><p className="whitespace-pre-line text-[15px] leading-relaxed" style={muted}>{p.howToUse}</p></div>}{v.trust?.length ? <div className="pt-2"><TrustChips v={v} /></div> : null}</section>}
+          {(p.specs.length > 0 || p.sku || p.documents.length > 0 || p.howToUse || p.digitalInfo || v.trust?.length) && <section aria-labelledby="details-heading" className="space-y-4"><h2 id="details-heading" className="text-2xl" style={head}>Details</h2>{p.digitalInfo && <div className="space-y-2"><h3 className="font-semibold">What’s inside</h3><DigitalBlock d={p.digitalInfo} /></div>}{(p.specs.length > 0 || p.sku) && <SpecTable v={v} />}{p.documents.length > 0 && <Docs v={v} />}{p.howToUse && <div className="space-y-1 pt-2"><h3 className="font-semibold">How to use</h3><p className="whitespace-pre-line text-[15px] leading-relaxed" style={muted}>{p.howToUse}</p></div>}{v.trust?.length ? <div className="pt-2"><TrustChips v={v} /></div> : null}</section>}
           <Questions v={v} />
         </div>
         <Reviews v={v} />

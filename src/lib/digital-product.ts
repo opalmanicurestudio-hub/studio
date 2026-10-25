@@ -122,3 +122,52 @@ export function legacyFileFields(files: DigitalFile[]): { digitalFilePath: strin
   const f = files[0];
   return { digitalFilePath: f ? f.path : null, digitalFileName: f ? f.name : null };
 }
+
+/**
+ * What a shopper may see of a download before buying (no paths, no link): its format, its files by name, type and
+ * size, whether it comes with online content, how it opens, the access window, the download limit and the license.
+ * Read by the product route; the license comes from the shop's licenses (lib/licenses). A variant with a download of
+ * its own is shown with its listing's (variants share their listing's download).
+ */
+export function publicDigital(item: any, license: { name: string; terms: string }) {
+  if (item?.digital !== true) return null;
+  const files = filesOf(item);
+  const fmt = FORMATS.find((f) => f.id === String(item?.digitalFormat || ''));
+  const days = Math.max(0, Math.floor(Number(item?.digitalAccessDays) || 0));
+  const d = deliveryOf(item);
+  // Read online when the shop allows it and a file can be shown; saved when it can't, or the shop only gives copies.
+  const reads = files.length > 0 && d !== 'download' && files.some((f) => viewable(f.name));
+  const saves = files.length > 0 && d !== 'view' && (d === 'download' || files.some((f) => !viewable(f.name)) || d === 'both');
+  const how = !files.length ? 'Opened from your library' : reads && saves ? 'Read online, or save a copy' : reads ? 'Read online in your library' : 'Saved to your device';
+  return {
+    formatLabel: fmt && fmt.id !== 'other' ? fmt.label : 'Digital download',
+    files: files.map((f) => ({ name: f.name, type: f.name.includes('.') ? (f.name.split('.').pop() || '').toUpperCase().slice(0, 6) : '', size: f.size || 0 })),
+    hasLink: !!String(item?.digitalUrl || '').trim(),
+    delivery: d, reads, saves, how,
+    accessDays: days || null,
+    /** null = no limit; 0 = nothing to save (view only, or only online content). */
+    downloadLimit: saves ? downloadLimitOf(item) : 0,
+    license: { name: String(license.name || 'License'), terms: String(license.terms || '') },
+  };
+}
+export type PublicDigital = NonNullable<ReturnType<typeof publicDigital>>;
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** "30 days of access", "Yours to keep". */
+export const accessWords = (d: Pick<PublicDigital, 'accessDays'>) => (d.accessDays ? `${plural(d.accessDays, 'day')} of access` : 'Yours to keep');
+/** "5 downloads", "Unlimited downloads", or nothing when there's nothing to save. */
+export const downloadWords = (d: Pick<PublicDigital, 'downloadLimit'>) => (d.downloadLimit === null ? 'Unlimited downloads' : d.downloadLimit > 0 ? plural(d.downloadLimit, 'download') : '');
+
+/** The questions shoppers ask about a download, answered from its own settings. */
+export function digitalFaq(d: PublicDigital): { q: string; a: string }[] {
+  const where = d.saves && !d.reads ? 'save it from there' : 'open it there';
+  const out = [{ q: 'How do I get it?', a: `The moment you pay, it’s in your library: ${where}. Your receipt links to it, and so does your account. On a new device you confirm it’s you with a code first.` }];
+  if (d.files.length) {
+    if (!d.saves) out.push({ q: 'Can I download it?', a: 'This one is read online in your library, on any phone, tablet or computer, as often as you like.' });
+    else if (!d.reads) out.push({ q: 'How many times can I download it?', a: d.downloadLimit === null ? 'Each time you open it a copy is saved, with no limit.' : `Each time you open it a copy is saved, and counts as one of your ${plural(d.downloadLimit as number, 'download')}. If you need more, message the shop.` });
+    else out.push({ q: 'How many times can I download it?', a: d.downloadLimit === null ? 'As often as you need. Reading it online in your library never counts.' : `You can save ${plural(d.downloadLimit as number, 'copy', 'copies')}. Reading it online in your library never counts. If you need more, message the shop.` });
+  }
+  out.push({ q: 'How long do I have it?', a: d.accessDays ? `For ${plural(d.accessDays, 'day')} from the day you buy it.` : 'For good. It stays in your library.' });
+  out.push({ q: 'Can I share it?', a: d.license.terms.trim() ? `${d.license.terms.trim()} (${d.license.name})` : `${d.license.name}.` });
+  return out;
+}

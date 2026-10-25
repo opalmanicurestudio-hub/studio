@@ -7,6 +7,8 @@ import {
 import { choiceFor, listingBuyable, listingStock, shopOptionGroups, variantIdsOf } from '@/lib/variants';
 import { publicFields } from '@/lib/product-public';
 import { preorderState } from '@/lib/retail-orders';
+import { publicDigital } from '@/lib/digital-product';
+import { licenseFor } from '@/lib/licenses';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import { leadOf, publicSchedule } from '@/lib/ship-promise';
 import { tenantTimeZone } from '@/lib/tenant-time';
@@ -152,6 +154,8 @@ export async function GET(req: NextRequest) {
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
       wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
       digital: item.digital === true,
+      // What's in a download and how it arrives, without its files' whereabouts (lib/digital-product).
+      digitalInfo: item.digital === true ? publicDigital(item, licenseFor(tenant, item)) : null,
       preorder: pre,
       leadDays: item.digital === true ? null : leadOf(item.leadDays),
       // A digital item can never be out of stock — the storefront must not

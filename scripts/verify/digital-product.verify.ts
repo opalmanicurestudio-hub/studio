@@ -2,7 +2,7 @@
 // older single-file shape), how it's delivered, the problems the product page shows, and that the file route, the
 // buyer's library and the shop all read them. Run: npx tsx --tsconfig tsconfig.json scripts/verify/digital-product.verify.ts
 import fs from 'fs';
-import { ownPath, filesOf, fileOf, deliveryOf, openMode, digitalProblems, downloadLimitOf, legacyFileFields, viewable, sizeWords, MAX_FILES } from '../../src/lib/digital-product';
+import { publicDigital, digitalFaq, ownPath, filesOf, fileOf, deliveryOf, openMode, digitalProblems, downloadLimitOf, legacyFileFields, viewable, sizeWords, MAX_FILES } from '../../src/lib/digital-product';
 import { storefrontBlockers, isStorefrontVisible } from '../../src/lib/retail-orders';
 import { asSold } from '../../src/lib/variants';
 
@@ -46,6 +46,25 @@ ok(isStorefrontVisible({ ...base, digital: true, digitalUrl: 'https://x.com' } a
 // ── a variant takes its listing's download
 const sold = asSold({ id: 'L', name: 'Guide', digital: true, digitalFiles: [pdf], digitalDelivery: 'view', digitalDownloadLimit: 2, license: { id: 'custom', name: 'Pro', terms: 'x' } }, { id: 'v', parentId: 'L' });
 ok(sold.digital === true && filesOf(sold).length === 1 && sold.digitalDelivery === 'view' && sold.digitalDownloadLimit === 2 && sold.license?.name === 'Pro', 'a variant sold inside its listing gets its files, delivery, limit and license');
+
+// ── what a shopper sees before buying
+const pd: any = publicDigital({ digital: true, digitalFormat: 'guide', digitalFiles: [f('a', 'Guide.pdf'), f('b', 'Cards.zip')], digitalUrl: 'https://secret.example/abc', digitalAccessDays: 30, digitalDownloadLimit: 3 }, { name: 'Professional use', terms: 'Use with clients.' });
+ok(pd.formatLabel === 'Guide or ebook' && pd.files.length === 2 && pd.files[0].type === 'PDF' && pd.hasLink === true && pd.accessDays === 30 && pd.downloadLimit === 3, 'format, files, link, access and limit');
+ok(!JSON.stringify(pd).includes('p/a') && !JSON.stringify(pd).includes('secret.example'), 'no file paths and no link address before buying');
+ok(publicDigital({ digital: true, digitalDelivery: 'view', digitalFiles: [f('a', 'A.pdf')] }, { name: 'x', terms: 'y' })!.downloadLimit === 0 && publicDigital({}, { name: 'x', terms: 'y' }) === null, 'view only has no downloads; not a download, nothing');
+const fq = digitalFaq(pd);
+ok(fq.length === 4 && /3 copies/.test(fq[1].a) && /30 days/.test(fq[2].a) && fq[3].a === 'Use with clients. (Professional use)', 'questions answered from its own settings', fq);
+const linkOnly: any = publicDigital({ digital: true, digitalUrl: 'https://x.example', digitalDelivery: 'download' }, { name: 'P', terms: 'T.' });
+ok(linkOnly.downloadLimit === 0 && linkOnly.how === 'Opened from your library' && digitalFaq(linkOnly).length === 3, 'online content only: no downloads, no download question');
+const saveOnly: any = publicDigital({ digital: true, digitalDelivery: 'download', digitalFiles: [f('a', 'A.pdf')], digitalDownloadLimit: 1, digitalAccessDays: 1 }, { name: 'P', terms: 'T.' });
+ok(saveOnly.how === 'Saved to your device' && /counts as one of your 1 download\./.test(digitalFaq(saveOnly)[1].a) && /For 1 day /.test(digitalFaq(saveOnly)[2].a), 'save only: every open saves; one day, one download in the singular');
+const zipOnly: any = publicDigital({ digital: true, digitalFiles: [f('a', 'A.zip')], digitalDownloadLimit: 0 }, { name: 'P', terms: 'T.' });
+ok(zipOnly.how === 'Saved to your device' && zipOnly.downloadLimit === null && /no limit/.test(digitalFaq(zipOnly)[1].a), 'a zip can’t be read online; no limit says so');
+ok(publicDigital({ digital: true, digitalFiles: [f('a', 'README')] }, { name: 'P', terms: 'T.' })!.files[0].type === '', 'a file with no extension has no type');
+const pr = fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8');
+ok(pr.includes('digitalInfo: item.digital === true ? publicDigital(item, licenseFor(tenant, item)) : null,'), 'the product route sends what’s inside, never where it is');
+const lay = fs.readFileSync('src/components/shop/product/ProductLayouts.tsx', 'utf8');
+ok(lay.includes("id: 'inside', title: 'What’s inside'") && (lay.match(/<DigitalBlock d=\{p\.digitalInfo\} \/>/g) || []).length === 2, 'every layout shows what’s inside and the license');
 
 // ── wiring
 const route = fs.readFileSync('src/app/api/retail/digital-access/route.ts', 'utf8');

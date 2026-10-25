@@ -1,5 +1,6 @@
 'use client';
 
+import { accessWords, digitalFaq, type PublicDigital } from '@/lib/digital-product';
 import { RestockAlert } from '@/components/shop/RestockAlert';
 import { Loader, Package } from 'lucide-react';
 import Link from 'next/link';
@@ -278,6 +279,8 @@ export default function ProductPage() {
       onAdded={(n) => { setCartCount(n); toast({ title: 'Added to your bag', description: 'Each item is in your cart at its own price; the saving shows at checkout.' }); }} />
   ) : null;
 
+  // A download's own settings (lib/digital-product), for its promises and questions.
+  const dInfo: PublicDigital | null = sold.digital ? ((product as any)?.digitalInfo || null) : null;
   const trust = cfg.showTrust ? [
     sold.preorder?.isPreorder
       ? {
@@ -287,17 +290,17 @@ export default function ProductPage() {
             : 'Charged today, shipped when it lands — cancel any time before it ships',
         }
       : sold.digital
-      ? { title: 'Instant access', sub: 'Opens in your library the moment you pay' }
+      ? { title: 'Instant access', sub: dInfo && dInfo.saves && !dInfo.reads ? 'Ready to save the moment you pay' : 'Opens in your library the moment you pay' }
       : fulfil.offersPickup
       ? { title: 'Fast local pickup', sub: 'Ready same day when in stock' }
       : { title: 'Ships to you', sub: 'Live carrier rates at checkout' },
     sold.digital
-      ? { title: 'Yours to keep', sub: 'Personal use — please don’t reshare' }
+      ? { title: dInfo ? accessWords(dInfo) : 'Yours to keep', sub: dInfo ? `${dInfo.license.name}, please don’t reshare it` : 'Personal use, please don’t reshare it' }
       : { title: 'Easy returns', sub: 'Start one from your order page' },
     { title: 'Secure checkout', sub: 'Card details never touch us' },
   ] : null;
 
-  const faq = cfg.showFaq ? (cfg.faq && cfg.faq.length > 0 ? cfg.faq : [
+  const faq = cfg.showFaq ? (cfg.faq && cfg.faq.length > 0 ? cfg.faq : dInfo ? digitalFaq(dInfo) : [
     fulfil.offersPickup
       ? { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' }
       : { q: 'How fast do you ship?', a: shipping ? `${processingSentence(shipping.schedule, new Date(Date.now() + shipping.offset), shipping.timeZone)} Tracking shows on your order page, with a text or email to let you know, as soon as it ships.` : 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
