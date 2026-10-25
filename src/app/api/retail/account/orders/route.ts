@@ -1,5 +1,6 @@
 import { digitalLineAccess } from '@/lib/digital-access';
 import { makePass } from '@/lib/order-pass';
+import { entitlementId, publicEntitlement } from '@/lib/entitlements';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
@@ -101,33 +102,52 @@ export async function GET(req: NextRequest) {
   // buying the same guide twice doesn't read as two entitlements. Each entry
   // carries the order it came from, because access is checked against that
   // order — the shelf is a directory, never a second door.
-  const library: any[] = [];
-  const seenProducts = new Set<string>();
+  // Every paid digital line first, then each one's access record (lib/entitlements) so the shop's own changes count:
+  // a revoked item leaves the shelf, an extension moves the end date, the downloads left show. Then one entry per
+  // product, the newest copy that still opens (a revoked or refunded older copy never hides a newer one).
+  const lines: { o: any; l: any }[] = [];
   [...seen.values()]
     .sort((a, b) => String(b.paidAt || b.placedAt || '').localeCompare(String(a.paidAt || a.placedAt || '')))
     .forEach((o: any) => {
       if (['placed', 'cancelled'].includes(String(o.stage))) return;
-      (o.lines || []).forEach((l: any) => {
-        if (l.digital !== true) return;
-        // One rule for who may open what (lib/digital-access): refunded, returned or charged back drops off the shelf;
-        // an ended window stays, marked, so they can ask for more time.
-        const a = digitalLineAccess(o, l);
-        if (!a.open && a.reason !== 'expired') return;
-        if (seenProducts.has(l.productId)) return;
-        seenProducts.add(l.productId);
-        library.push({
-          productId: l.productId,
-          name: l.name,
-          orderId: o.id,
-          orderNumber: o.orderNumber ?? null,
-          boughtAt: o.paidAt || o.placedAt || '',
-          endsAt: a.endsAt,
-          expired: a.reason === 'expired',
-          // Signed in to their account is proof it's them: the library opens without asking for a code.
-          pass: o.qrToken ? makePass(tenantId, String(o.qrToken)) : null,
-        });
-      });
+      (o.lines || []).forEach((l: any) => { if (l.digital === true) lines.push({ o, l }); });
     });
+  let ents: any[] = lines.map(() => null);
+  try {
+    if (lines.length) {
+      const refs = lines.map(({ o, l }) => db.doc(`tenants/${tenantId}/entitlements/${entitlementId(o.id, l.lineId || l.productId)}`));
+      const snaps: any[] = [];
+      for (let i = 0; i < refs.length; i += 100) snaps.push(...(await db.getAll(...refs.slice(i, i + 100))));
+      ents = lines.map((_, i) => (snaps[i]?.exists ? snaps[i].data() : null));
+    }
+  } catch { /* the shelf still shows what was bought */ }
+  const library: any[] = [];
+  const byProduct = new Map<string, number>();
+  lines.forEach(({ o, l }, i) => {
+    // One rule for who may open what (lib/digital-access): refunded, returned, charged back or revoked drops off the
+    // shelf; an ended window stays, marked, so they can ask for more time.
+    const a = digitalLineAccess(o, l, Date.now(), ents[i]);
+    if (!a.open && a.reason !== 'expired') return;
+    const at = byProduct.get(l.productId);
+    if (at !== undefined && (library[at].expired === false || a.reason === 'expired')) return;
+    const pub = publicEntitlement(ents[i]);
+    const entry = {
+      lineId: String(l.lineId || l.productId),
+      productId: l.productId,
+      name: l.name,
+      orderId: o.id,
+      orderNumber: o.orderNumber ?? null,
+      boughtAt: o.paidAt || o.placedAt || '',
+      endsAt: a.endsAt,
+      expired: a.reason === 'expired',
+      downloadsLeft: pub?.downloadsLeft ?? null,
+      license: pub?.license || null,
+      // Signed in to their account is proof it's them: the library opens without asking for a code.
+      pass: o.qrToken ? makePass(tenantId, String(o.qrToken)) : null,
+    };
+    if (at !== undefined) library[at] = entry;
+    else { byProduct.set(l.productId, library.length); library.push(entry); }
+  });
 
   /* THE PROFILE'S MESSAGE HISTORY. Every support conversation across every
    * order, under the proven email — so "where was that reply?" has one

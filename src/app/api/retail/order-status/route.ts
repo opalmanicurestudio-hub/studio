@@ -13,6 +13,7 @@ import { windowOpen } from '@/lib/order-windows';
 import { checkPass, linkExpiresAt, linkOpen, makePass, maskAddress, paidHere, passUntil } from '@/lib/order-pass';
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { digitalLineAccess } from '@/lib/digital-access';
+import { entitlementId, publicEntitlement } from '@/lib/entitlements';
 import { maskEmail } from '@/lib/contact-change';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
@@ -94,6 +95,15 @@ export async function GET(req: NextRequest) {
     canText: !!String(order.customerPhone || '').trim() && order.textsOff !== true,
     until: passValid ? passUntil(passIn) : newPass ? passUntil(newPass) : null,
   };
+  // Each download's access record (lib/entitlements): the shop's extension or revoke, downloads left and the license.
+  const entMap: Record<string, any> = {};
+  try {
+    const dl = (order.lines || []).filter((l: any) => l?.digital === true);
+    if (dl.length && !['placed', 'cancelled'].includes(String(order.stage))) {
+      const snaps = await db.getAll(...dl.map((l: any) => db.doc(`tenants/${tenantId}/entitlements/${entitlementId(orderId, l.lineId || l.productId)}`)));
+      snaps.forEach((sn: any, i: number) => { if (sn.exists) entMap[String(dl[i].lineId || dl[i].productId)] = sn.data(); });
+    }
+  } catch { /* the order still shows; opening an item reads its record again */ }
   const linkUntil = linkExpiresAt(order, rs);
   // Past the link's window: only enough to ask for a code (lib/order-pass).
   if (!passOk && !linkOpen(order, rs)) {
@@ -312,7 +322,10 @@ export async function GET(req: NextRequest) {
         digitalAccessDays: l.digital === true ? Math.max(0, Number(l.digitalAccessDays) || 0) : 0,
         // Whether it can be opened, by the one rule (lib/digital-access): refunds, returns and chargebacks close it.
         // A chargeback is said only to the buyer (with a pass); the link alone just sees it isn't available.
-        ...(l.digital === true ? { access: (({ open, reason, endsAt }) => ({ open, reason: reason === 'disputed' && !passOk ? null : reason, endsAt }))(digitalLineAccess(order, l)) } : {}),
+        ...(l.digital === true ? {
+          access: (({ open, reason, endsAt }) => ({ open, reason: (reason === 'disputed' || reason === 'revoked') && !passOk ? null : reason, endsAt }))(digitalLineAccess(order, l, Date.now(), entMap[String(l.lineId || l.productId)] || null)),
+          entitlement: passOk ? publicEntitlement(entMap[String(l.lineId || l.productId)] || null) : null,
+        } : {}),
         optionsLabel: l.optionsLabel || '',
         swappedToName: l.swappedToName || '',
         swapForName: l.swapForName || '',

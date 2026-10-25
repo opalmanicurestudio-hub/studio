@@ -730,6 +730,13 @@ service cloud.firestore {
         allow write: if false;
       }
     }
+    // ACCESS TO PURCHASED DOWNLOADS (lib/entitlements): one record per buyer per item, with the license and window sold
+    // and the downloads used. The team reads them; only the server writes them (payment, the library, the owner's
+    // extend and revoke), so no browser can add downloads, extend access or reopen a revoked item.
+    match /tenants/{tenantId}/entitlements/{entId} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
     // MESSAGE CASES from shop customers: the team reads them and moves them along (resolve, reply), but who the customer
     // is, and so where a reply goes, is changed only through the server (api/retail/customer-contact). Cases and reports
     // are opened by the customer, through the server.
@@ -790,7 +797,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache', 'entitlements',
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',

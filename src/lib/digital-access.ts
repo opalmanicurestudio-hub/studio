@@ -11,7 +11,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { digitalAccessEndsAt } from '@/lib/retail-orders';
 
-export type ClosedReason = 'inactive' | 'refunded' | 'disputed' | 'expired';
+export type ClosedReason = 'inactive' | 'refunded' | 'disputed' | 'expired' | 'revoked';
 
 const c0 = (v: any) => Math.max(0, Math.round(Number(v) || 0));
 
@@ -32,9 +32,14 @@ export function disputeHolds(o: any): boolean {
   return Object.values(o?.digitalHolds || {}).some((h: any) => ['open', 'lost'].includes(String(h?.status || '')));
 }
 
-/** Whether a digital line can be opened, and if not why. `endsAt` is the end of the window sold (null = for good). */
-export function digitalLineAccess(o: any, line: any, now = Date.now()): { open: boolean; reason: ClosedReason | null; endsAt: string | null } {
-  const endsAt = line ? digitalAccessEndsAt(line, o?.paidAt, o?.placedAt) : null;
+/**
+ * Whether a digital line can be opened, and if not why. `endsAt` is the end of the window sold (null = for good), moved
+ * later when the shop extended it on the buyer's access record (lib/entitlements); a record the shop revoked is closed.
+ */
+export function digitalLineAccess(o: any, line: any, now = Date.now(), ent?: { status?: string; access?: { endsAt?: string | null; extendedUntil?: string | null } } | null): { open: boolean; reason: ClosedReason | null; endsAt: string | null } {
+  const sold = line ? digitalAccessEndsAt(line, o?.paidAt, o?.placedAt) : null;
+  const ext = ent?.access?.extendedUntil ? Date.parse(ent.access.extendedUntil) : NaN;
+  const endsAt = sold && Number.isFinite(ext) && ext > Date.parse(sold) ? new Date(ext).toISOString() : sold;
   const shut = (reason: ClosedReason) => ({ open: false, reason, endsAt });
   if (!o || !line || line.digital !== true) return shut('inactive');
   if (['placed', 'cancelled'].includes(String(o.stage))) return shut('inactive');
@@ -43,6 +48,7 @@ export function digitalLineAccess(o: any, line: any, now = Date.now()): { open: 
   if (ordered > 0 && c0(line.qtyRefunded) + c0(line.qtyReturned) >= ordered) return shut('refunded');
   if (fullyRefunded(o)) return shut('refunded');
   if (disputeHolds(o)) return shut('disputed');
+  if (ent?.status === 'revoked') return shut('revoked');
   if (endsAt && Date.parse(endsAt) < now) return shut('expired');
   return { open: true, reason: null, endsAt };
 }
@@ -51,6 +57,7 @@ export function digitalLineAccess(o: any, line: any, now = Date.now()): { open: 
 export function closedMessage(reason: ClosedReason | null, endsAt: string | null): string {
   if (reason === 'expired' && endsAt) return `Your access to this ended on ${new Date(endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Send the shop a message from your order page and they can extend it.`;
   if (reason === 'refunded') return 'This item was refunded, so it can’t be opened anymore.';
+  if (reason === 'revoked') return 'The shop has closed access to this item. Send them a message from your order page if you think this is a mistake.';
   if (reason === 'disputed') return 'This item is paused while a question about the payment is looked into. Send the shop a message from your order page if you think this is a mistake.';
   return 'This order isn’t active.';
 }
@@ -59,19 +66,27 @@ export function closedMessage(reason: ClosedReason | null, endsAt: string | null
 
 export const STREAM_MINUTES = 10;
 const secret = () => String(process.env.ORDER_PASS_SECRET || process.env.CRON_SECRET || process.env.FIREBASE_ADMIN_PRIVATE_KEY || 'order-pass');
-const sign = (tenantId: string, orderId: string, productId: string, exp: number) =>
-  createHmac('sha256', secret()).update(`stream:${tenantId}:${orderId}:${productId}:${exp}`).digest('base64url').slice(0, 32);
+// A link is for viewing in the page (never counted against downloads) or for saving a copy (counted). The kind is
+// signed into the link, so a view link can't be turned into a download.
+export type StreamMode = 'view' | 'download';
+const sign = (tenantId: string, orderId: string, productId: string, exp: number, mode: StreamMode) =>
+  createHmac('sha256', secret()).update(`stream:${tenantId}:${orderId}:${productId}:${exp}${mode === 'download' ? ':download' : ''}`).digest('base64url').slice(0, 32);
 
-export function makeStreamToken(tenantId: string, orderId: string, productId: string, now = Date.now()): string {
+export function makeStreamToken(tenantId: string, orderId: string, productId: string, now = Date.now(), mode: StreamMode = 'view'): string {
   const exp = now + STREAM_MINUTES * 60_000;
-  return `${exp}.${sign(tenantId, orderId, productId, exp)}`;
+  return `${exp}.${mode === 'download' ? 'd' : 'v'}.${sign(tenantId, orderId, productId, exp, mode)}`;
+}
+
+/** Which kind of link a token is (it says nothing about whether it's valid: check that first). */
+export function streamTokenMode(token: unknown): StreamMode {
+  return String(token || '').split('.')[1] === 'd' ? 'download' : 'view';
 }
 
 export function checkStreamToken(tenantId: string, orderId: string, productId: string, token: unknown, now = Date.now()): boolean {
-  const [e, s] = String(token || '').split('.');
+  const [e, m, s] = String(token || '').split('.');
   const exp = Number(e);
-  if (!Number.isFinite(exp) || exp < now || !s) return false;
-  const want = Buffer.from(sign(tenantId, orderId, productId, exp)); const got = Buffer.from(s);
+  if (!Number.isFinite(exp) || exp < now || !s || !['v', 'd'].includes(m)) return false;
+  const want = Buffer.from(sign(tenantId, orderId, productId, exp, m === 'd' ? 'download' : 'view')); const got = Buffer.from(s);
   return want.length === got.length && timingSafeEqual(want, got);
 }
 

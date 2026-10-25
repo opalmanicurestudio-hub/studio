@@ -161,6 +161,11 @@ export async function finishPaidOrder(db: any, tenantId: string, orderId: string
       } else ok = false;
     } catch (e: any) { ok = false; console.error('[retail-webhook] Stripe Tax record', String(e?.raw?.message || e?.message || e).slice(0, 200)); }
   }
+  // Downloads: one access record per buyer per item (lib/entitlements), once; tried again by the five-minute check.
+  if ((order.lines || []).some((l: any) => l?.digital === true)) {
+    try { const { grantEntitlements } = await import('@/lib/entitlements'); await grantEntitlements(db, tenantId, orderId); }
+    catch (e) { ok = false; console.error('[retail-webhook] download access', e); }
+  }
   // A promo code on the order: one more use, counted once (lib/promo-codes-server).
   if (order?.promo?.discountId) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch (e) { ok = false; console.error('[retail-webhook] promo use', e); } }
   // The receipt the customer expects within seconds of paying, claimed on the order first so it goes once. A send that
