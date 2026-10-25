@@ -89,7 +89,13 @@ export async function grantEntitlements(db: any, tenantId: string, orderId: stri
   let made = 0;
   for (const line of (order.lines || []).filter((l: any) => l?.digital === true)) {
     const itemSnap = await db.doc(`tenants/${tenantId}/inventory/${line.productId}`).get();
-    const e = buildEntitlement(tenantId, order, line, itemSnap.exists ? itemSnap.data() : {});
+    let item: any = itemSnap.exists ? itemSnap.data() : {};
+    // A variant sold inside its listing takes the listing's limit and license unless it has its own download.
+    if (item?.parentId && item.digital !== true) {
+      const ls = await db.doc(`tenants/${tenantId}/inventory/${item.parentId}`).get();
+      if (ls.exists) { const { asSold } = await import('./variants'); item = asSold({ id: String(item.parentId), ...ls.data() }, { id: line.productId, ...item }); }
+    }
+    const e = buildEntitlement(tenantId, order, line, item);
     try { await ref(db, tenantId, e.id).create(e); made++; }
     catch (err: any) { if (!/ALREADY_EXISTS|already exists/i.test(String(err?.message || ''))) throw err; }
   }

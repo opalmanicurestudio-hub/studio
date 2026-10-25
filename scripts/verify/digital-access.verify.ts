@@ -68,8 +68,8 @@ ok(!checkStreamToken('t1', 'o1', 'p1', 'garbage', now) && !checkStreamToken('t1'
 const route = fs.readFileSync('src/app/api/retail/digital-access/route.ts', 'utf8');
 ok(route.includes("checkPass(tenantId, String(order.qrToken || ''), pass)") && route.includes('needsPass: true'), 'opening needs the order pass, not just the link');
 ok(!/String\(order\.qrToken\) !== qrToken/.test(route) && !route.includes("q.get('t')"), 'the order link token no longer opens files');
-ok(route.includes('checkStreamToken(tenantId, orderId, streamKey(productId, lineId), sig)') && route.includes('makeStreamToken(tenantId, orderId, streamKey(productId, lid), Date.now(), mode)'), 'files stream only through signed ten-minute links');
-ok(route.includes("await logOpen(ref, order, line, productId, filePath ? 'file' : 'link');") && route.indexOf('await logOpen(') < route.indexOf('if (filePath) {\n      // What can'), 'file opens are counted, not only link opens');
+ok(route.includes('checkStreamToken(tenantId, orderId, streamKey(productId, lineId, fid), sig)') && route.includes('makeStreamToken(tenantId, orderId, streamKey(productId, lid, fk), Date.now(), mode)'), 'files stream only through signed ten-minute links');
+ok(route.includes("await logOpen(ref, order, line, productId, filePath ? 'file' : 'link');") && route.indexOf('await logOpen(') < route.indexOf('if (file) {\n      // How the shop'), 'file opens are counted, not only link opens');
 ok(route.includes('digital_ip_') && route.includes('digital_order_') && (route.match(/tooMany\(req, tenantId, orderId, 'visitor'\)/g) || []).length === 2, 'both doors are rate limited per visitor');
 ok(route.indexOf("tooMany(req, tenantId, orderId, 'order')", route.indexOf('export async function POST')) > route.indexOf('needsPass: true'), 'the order’s daily allowance is counted only after the pass, so the link alone can’t use it up');
 ok(route.includes('showsInPage(') && route.includes("'attachment'"), 'files other than PDFs and pictures are saved, not shown blank in the page');

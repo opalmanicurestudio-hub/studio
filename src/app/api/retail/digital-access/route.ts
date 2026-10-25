@@ -5,6 +5,7 @@ import { checkPass } from '@/lib/order-pass';
 import { checkStreamToken, closedMessage, digitalLineAccess, makeStreamToken, streamTokenMode, STREAM_MINUTES } from '@/lib/digital-access';
 import { countUse, downloadsLeft, ensureEntitlement, type Entitlement } from '@/lib/entitlements';
 import { watermarkPdf, looksLikePdf } from '@/lib/pdf-watermark';
+import { fileOf, filesOf, openMode, ownPath } from '@/lib/digital-product';
 
 // ─── /api/retail/digital-access ──────────────────────────────────────────────
 // The private door to a purchased file. Honest framing first: NOTHING can
@@ -61,7 +62,12 @@ async function authorize(db: any, tenantId: string, orderId: string, productId: 
   const mine = (order.lines || []).filter((l: any) => l.productId === productId && l.digital === true);
   if (!mine.length) return { error: 'That isn\u2019t on this order.', status: 404 };
   const itemSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(productId).get();
-  const item = itemSnap.exists ? (itemSnap.data() as any) : {};
+  let item = itemSnap.exists ? (itemSnap.data() as any) : {};
+  // A variant sold inside its listing gets the listing's download unless it has its own (lib/variants asSold).
+  if (item.parentId && item.digital !== true) {
+    const ls = await db.collection(`tenants/${tenantId}/inventory`).doc(String(item.parentId)).get();
+    if (ls.exists) { const { asSold } = await import('@/lib/variants'); item = asSold({ id: ls.id, ...(ls.data() as any) }, { id: productId, ...item }); }
+  }
   const paid = !['placed', 'cancelled'].includes(String(order.stage));
   // The buyer's access record (lib/entitlements): made now for an order paid before records existed. With no line
   // named, the first line that opens counting the shop's own changes on each record.
@@ -103,7 +109,7 @@ const showsInPage = (name: string) => ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp
 
 const USED_UP = 'All the downloads for this have been used. You can still view it here, or send the shop a message from your order page for more.';
 /** What a stream link is signed for: the product, and the line when the order has one (the same product can be on two). */
-const streamKey = (productId: string, lineId: string) => (lineId ? `${productId}|${lineId}` : productId);
+const streamKey = (productId: string, lineId: string, fileId = '') => `${productId}${lineId ? `|${lineId}` : ''}${fileId && fileId !== 'main' ? `#${fileId}` : ''}`;
 
 const SLOW = { error: 'That\u2019s a lot of opens in a short time. Please wait a little and try again.' };
 const label = (o: any) => `${o.customerName || 'Customer'} \u00b7 ${o.customerEmail || ''} \u00b7 #${String(o.orderNumber ?? '').padStart(4, '0')}`;
@@ -153,11 +159,12 @@ export async function GET(req: NextRequest) {
     const orderId = String(q.get('orderId') || '').trim();
     const productId = String(q.get('productId') || '').trim();
     const lineId = String(q.get('lineId') || '').trim();
+    const fid = String(q.get('fileId') || '').trim();
     const sig = String(q.get('s') || '').trim();
     if (!tenantId || !orderId || !productId || !sig) {
       return NextResponse.json({ error: 'Missing details' }, { status: 400 });
     }
-    if (!checkStreamToken(tenantId, orderId, streamKey(productId, lineId), sig)) {
+    if (!checkStreamToken(tenantId, orderId, streamKey(productId, lineId, fid), sig)) {
       return NextResponse.json({ error: 'This link has expired. Open the item again from your library.' }, { status: 403 });
     }
     if (await tooMany(req, tenantId, orderId, 'visitor') || await tooMany(req, tenantId, orderId, 'order')) return NextResponse.json(SLOW, { status: 429 });
@@ -165,14 +172,19 @@ export async function GET(req: NextRequest) {
     const auth = await authorize(db, tenantId, orderId, productId, lineId);
     if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-    const filePath = String(auth.item.digitalFilePath || '');
-    if (!filePath) return NextResponse.json({ error: 'Nothing attached to this yet.' }, { status: 409 });
+    // The file the link was made for (lib/digital-product): a replaced file serves its newest version.
+    const file = fileOf(auth.item, fid || null);
+    if (!file) return NextResponse.json({ error: 'That file isn\u2019t on this item any more. Open it again from your library.' }, { status: 409 });
+    const filePath = file.path;
+    if (!ownPath(tenantId, filePath)) return NextResponse.json({ error: 'This file can\u2019t be opened. Send the shop a message from your order page.' }, { status: 409 });
+    // How the shop delivers it now wins over the link: a link made before the shop switched to view only can't save.
+    if (openMode(auth.item, file, streamTokenMode(sig)) !== streamTokenMode(sig)) return NextResponse.json({ error: 'The shop changed how this item opens. Open it again from your library.' }, { status: 403 });
 
     // A saved copy uses one of the downloads (lib/entitlements), refused once they're used. Checked before the file is
     // fetched, counted only once it's ready to send, and once per link however often it's fetched. Views were counted
     // when the link was made, so a PDF viewer's several requests are one view.
     const mode = streamTokenMode(sig);
-    const name = String(auth.item.digitalFileName || filePath.split('/').pop() || 'file');
+    const name = file.name;
     const saving = mode === 'download' || !showsInPage(name);
     const leftNow = downloadsLeft(auth.ent);
     if (saving && leftNow !== null && leftNow <= 0 && !((auth.ent.downloads as any)?.seen || []).some((x: any) => x?.id === sig.slice(-32))) return NextResponse.json({ error: USED_UP }, { status: 403 });
@@ -219,6 +231,8 @@ export async function POST(req: NextRequest) {
     const lineId = String(body.lineId || '').trim().slice(0, 80);
     const pass = String(body.pass || '').trim();
     const asked: 'view' | 'download' = body.mode === 'download' ? 'download' : 'view';
+    const askedFile = String(body.fileId || '').trim().slice(0, 40);
+    const wantsLink = body.link === true;
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(tenantId) || !/^[A-Za-z0-9_-]{1,80}$/.test(orderId) || !productId) {
       return NextResponse.json({ error: 'Missing details' }, { status: 400 });
     }
@@ -235,8 +249,13 @@ export async function POST(req: NextRequest) {
     }
     if (await tooMany(req, tenantId, orderId, 'order')) return NextResponse.json(SLOW, { status: 429 });
 
-    const filePath = String(item.digitalFilePath || '');
+    // One of the item's files (lib/digital-product), or its link. Nothing named = the first file, else the link.
+    const files = filesOf(item);
     const linkUrl = String(item.digitalUrl || line.digitalUrl || '');
+    const file = wantsLink ? null : askedFile ? fileOf(item, askedFile) : files[0] || null;
+    if (askedFile && !file) return NextResponse.json({ error: 'That file isn\u2019t on this item any more. Reload your library.' }, { status: 409 });
+    if (file && !ownPath(tenantId, file.path)) return NextResponse.json({ error: 'This file can\u2019t be opened. Send the shop a message from your order page.' }, { status: 409 });
+    const filePath = file ? file.path : '';
     if (!filePath && !linkUrl) {
       return NextResponse.json({ error: 'This file hasn\u2019t been attached yet. Send the shop a message from your order page and they\u2019ll sort it out.' }, { status: 409 });
     }
@@ -245,19 +264,22 @@ export async function POST(req: NextRequest) {
 
     const left = downloadsLeft(ent);
     const lid = String(line.lineId || '');
-    if (filePath) {
-      // What can't be shown in the page (a zip, audio, video) is always a saved copy, whatever was asked for.
-      const inPage = showsInPage(String(item.digitalFileName || filePath));
-      const mode: 'view' | 'download' = inPage ? asked : 'download';
+    if (file) {
+      // How the shop delivers it decides (lib/digital-product): what can't be shown in the page (a zip, audio, video) is
+      // always a saved copy, view-only never saves, save-only always does.
+      const inPage = showsInPage(file.name);
+      const mode = openMode(item, file, asked);
+      if (!mode) return NextResponse.json({ error: 'This file can\u2019t be shown here, and the shop doesn\u2019t offer copies of it. Send the shop a message from your order page.' }, { status: 409 });
       // A copy to save, once the downloads are used, is refused here (and again when the file is fetched).
       if (mode === 'download' && left !== null && left <= 0) {
         return NextResponse.json({ error: USED_UP, downloadsLeft: 0 }, { status: 403 });
       }
       if (mode === 'view') await countUse(db, tenantId, ent.id, 'view');
       // Stored files stream through our own GET so the watermark is baked in; the link lasts ten minutes.
-      const s = makeStreamToken(tenantId, orderId, streamKey(productId, lid), Date.now(), mode);
-      const url = `/api/retail/digital-access?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&productId=${encodeURIComponent(productId)}${lid ? `&lineId=${encodeURIComponent(lid)}` : ''}&s=${encodeURIComponent(s)}`;
-      return NextResponse.json({ ok: true, url, kind: 'file', mode, inPage, name: line.name, endsAt, watermark: label(order), expiresInMinutes: STREAM_MINUTES, downloadsLeft: left, license: ent.license });
+      const fk = file.id === 'main' ? '' : file.id;
+      const s = makeStreamToken(tenantId, orderId, streamKey(productId, lid, fk), Date.now(), mode);
+      const url = `/api/retail/digital-access?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&productId=${encodeURIComponent(productId)}${lid ? `&lineId=${encodeURIComponent(lid)}` : ''}${fk ? `&fileId=${encodeURIComponent(fk)}` : ''}&s=${encodeURIComponent(s)}`;
+      return NextResponse.json({ ok: true, url, kind: 'file', mode, inPage: mode === 'view', canSave: openMode(item, file, 'download') === 'download', fileName: file.name, name: line.name, endsAt, watermark: label(order), expiresInMinutes: STREAM_MINUTES, downloadsLeft: left, license: ent.license });
     }
     await countUse(db, tenantId, ent.id, 'view');
     return NextResponse.json({ ok: true, url: linkUrl, kind: 'link', name: line.name, endsAt, watermark: label(order), expiresInMinutes: 0, downloadsLeft: null, license: ent.license });

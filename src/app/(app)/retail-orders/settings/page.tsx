@@ -23,7 +23,6 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { uploadPrivateFile } from '@/lib/upload-image';
 import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 
 import { listingsOf, variantGroup, variantIdsOf } from '@/lib/variants';
@@ -165,7 +164,6 @@ export default function RetailSettingsPage() {
     howToUse: string; specs: string; docs: string; kit: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
     made: boolean; leadMin: string; leadMax: string;
   }>>({});
-  const [fileBusy, setFileBusy] = useState<string | null>(null);
   const [runBusy, setRunBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -403,8 +401,6 @@ export default function RetailSettingsPage() {
         onlineDescription: d.desc.trim(),
         howToUse: d.howToUse.trim(),
         kitContents: d.kit.split('\n').map((p: string) => p.trim()).filter(Boolean).slice(0, 40),
-        digital: d.digital === true,
-        digitalUrl: d.digital === true ? (d.digitalUrl.trim() || null) : null,
         preorder: d.preorder === true,
         preorderEtaAt: d.preorder === true ? (d.preorderEtaAt || null) : null,
         preorderClosesAt: d.preorder === true ? (d.preorderClosesAt || null) : null,
@@ -417,9 +413,6 @@ export default function RetailSettingsPage() {
           const min = Math.min(max, Math.max(1, Math.floor(Number(d.leadMin) || max)));
           return { min, max };
         })(),
-        digitalAccessDays: d.digital === true ? (Math.max(0, Math.floor(Number(d.digitalAccessDays) || 0)) || null) : null,
-        digitalFilePath: d.digital === true ? (d.digitalFilePath || null) : null,
-        digitalFileName: d.digital === true ? (d.digitalFileName || null) : null,
         imageUrls,
         specs: JSON.parse(JSON.stringify(specs)),
         documents: JSON.parse(JSON.stringify(documents)),
@@ -1730,60 +1723,14 @@ export default function RetailSettingsPage() {
                             </p>
                           </div>
                         )}
-                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
-                          <div>
-                            <Label className="text-[11px] font-black uppercase tracking-widest">Digital item</Label>
-                            <p className="text-[11px] font-bold text-muted-foreground">No stock, no shipping — the link below is emailed the moment they pay.</p>
-                          </div>
-                          <Switch aria-label="Digital item"
-                            checked={d.digital === true}
-                            onCheckedChange={(v: boolean) => setDrafts({ ...drafts, [it.id]: { ...d, digital: v } })}
-                          />
+                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed px-3 py-2.5">
+                          <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
+                            {it.digital === true ? 'Sold as a download. Its files, delivery, download limit and license are set on its page, under In the shop.' : 'Selling it as a download? That’s set on its page, under In the shop.'}
+                          </p>
+                          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                            <Link href={`/inventory/product/${encodeURIComponent(it.id)}?tab=online`}>Download</Link>
+                          </Button>
                         </div>
-                        {d.digital === true && (
-                          <div className="space-y-2">
-                            <label className="flex h-10 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest hover:bg-muted">
-                              <input
-                                type="file"
-                                className="sr-only"
-                                aria-label="Upload the file customers receive"
-                                disabled={fileBusy === it.id}
-                                onChange={async (e: React.ChangeEvent<HTMLInputElement>) => {
-                                  const f = e.target.files?.[0];
-                                  e.target.value = '';
-                                  if (!f || !tenantId) return;
-                                  if (f.size > 40 * 1024 * 1024) {
-                                    toast({ variant: 'destructive', title: 'File too large', description: 'Keep files under 40 MB \u2014 host video elsewhere and paste the link instead.' });
-                                    return;
-                                  }
-                                  setFileBusy(it.id);
-                                  try {
-                                    const path = `tenants/${tenantId}/digital/${it.id}/${Date.now()}-${f.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-                                    await uploadPrivateFile(path, f);
-                                    setDrafts({ ...drafts, [it.id]: { ...d, digitalFilePath: path, digitalFileName: f.name } });
-                                    toast({ title: 'File attached', description: 'Save the item to publish it to buyers.' });
-                                  } catch {
-                                    toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again, or paste a link instead.' });
-                                  } finally {
-                                    setFileBusy(null);
-                                  }
-                                }}
-                              />
-                              {fileBusy === it.id ? 'Uploading\u2026' : d.digitalFileName ? `File: ${d.digitalFileName}` : 'Upload the file (PDF, zip, image)'}
-                            </label>
-                            <Input placeholder="…or paste a link (course, video, download page)" aria-label="Digital delivery link"
-                              value={d.digitalUrl}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalUrl: e.target.value } })}
-                              className="h-10 rounded-xl border-2 font-bold text-xs" />
-                            <Input placeholder="Access days (blank = theirs to keep)" inputMode="numeric" aria-label="Days of access after purchase"
-                              value={d.digitalAccessDays}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalAccessDays: e.target.value } })}
-                              className="h-10 rounded-xl border-2 font-bold text-xs" />
-                            <p className="text-[10px] font-bold text-muted-foreground">
-                              Uploaded files open inside the app, watermarked with the buyer&apos;s name — never a public URL. Leave access days blank for lifetime access; a window only limits NEW sales, never someone who already bought.
-                            </p>
-                          </div>
-                        )}
                         <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed px-3 py-2.5">
                           <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
                             {Number(it.casePack) > 1

@@ -48,7 +48,7 @@ export function VariantSettings({ firestore, tenantId, listing, byId, onToast }:
         const label = choiceFor(listing, id)?.choice.label || v.name || 'Variant';
         const own: { text: string; patch: Record<string, any> }[] = [];
         if (v.preorder === true) own.push({ text: `On a pre-order run of its own${v.preorderEtaAt ? `, ships by ${day(v.preorderEtaAt)}` : ''}.`, patch: { preorder: false, preorderEtaAt: null, preorderClosesAt: null, preorderLimit: null } });
-        if (v.digital === true) own.push({ text: 'A download of its own.', patch: { digital: false, digitalUrl: null, digitalFilePath: null, digitalFileName: null, digitalAccessDays: null } });
+        if (v.digital === true) own.push({ text: 'A download of its own.', patch: { digital: false, digitalUrl: null, digitalFilePath: null, digitalFileName: null, digitalAccessDays: null, digitalFiles: null, digitalFormat: null, digitalDelivery: null, digitalDownloadLimit: null } });
         if (Number(v.leadDays?.max ?? v.leadDays?.min) > 0) own.push({ text: `Made to order on its own, ${v.leadDays?.min || v.leadDays?.max} to ${v.leadDays?.max || v.leadDays?.min} business days.`, patch: { leadDays: null } });
         return (
           <div key={id} className="space-y-1.5 rounded-xl border-2 p-2">

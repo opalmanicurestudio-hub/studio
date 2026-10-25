@@ -15,6 +15,7 @@
 // that rings mid-edit shouldn't cost you the work you already did.
 
 import { SoldForSection } from './SoldForSection';
+import { DigitalSection } from './DigitalSection';
 import { Check, ChevronDown, Loader, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useMemo, useState } from 'react';
@@ -308,7 +309,9 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
 
       <SoldForSection product={product} onSave={onSave} />
 
-      {stockSection}
+      <DigitalSection product={product} onSave={onSave} />
+
+      {product.digital !== true && stockSection}
 
       <Section
         title="What customers read"

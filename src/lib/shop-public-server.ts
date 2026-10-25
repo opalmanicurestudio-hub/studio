@@ -28,7 +28,7 @@ async function readRows(db: any, tenantId: string) {
 }
 
 function cachedRows(db: any, tenantId: string): Promise<{ rows: any[]; offers: any[] }> {
-  try { return unstable_cache(() => readRows(db, tenantId), ['public-shop-rows', tenantId], { revalidate: 300, tags: [`shop:${tenantId}`] })().catch(() => readRows(db, tenantId)); }
+  try { return unstable_cache(() => readRows(db, tenantId), ['public-shop-rows-v2', tenantId], { revalidate: 300, tags: [`shop:${tenantId}`] })().catch(() => readRows(db, tenantId)); }
   catch { return readRows(db, tenantId); }   // outside a request (scripts): read directly
 }
 

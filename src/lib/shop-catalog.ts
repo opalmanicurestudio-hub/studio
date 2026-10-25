@@ -2,6 +2,7 @@
 // product list (prices, variants, stock shown, pre-orders, made to order), used by the shop's catalog, its product feed
 // for Google and its guide for assistants, so all three always agree. Never exposes cost, batches, suppliers or exact
 // large stock counts.
+import { filesOf } from './digital-product';
 import { listingPriceCents, preorderState, type SellableItem } from '@/lib/retail-orders';
 import { listedInShop, listingBuyable, listingStock, shopOptionGroups, variantIdsOf } from '@/lib/variants';
 import { publicDescription, collectImages } from '@/lib/product-public';
@@ -22,6 +23,8 @@ export function publicRow(item: any): any {
   // Units handed out to stations or booths aren't for sale (lib/retail-orders allocatedUnits): only each one's count.
   if (out.allocations && typeof out.allocations === 'object') out.allocations = Object.fromEntries(Object.entries(out.allocations).map(([k, v]: [string, any]) => [k, { qty: v?.qty }]));
   if (Array.isArray(out.batches)) out.batches = out.batches.map((b: any) => ({ stock: b?.stock, expirationDate: b?.expirationDate, expiryDate: b?.expiryDate }));
+  // A download's files and link stay private: the cache only says whether it has something to give (lib/retail-orders).
+  if (item?.digital === true) out.digitalReady = filesOf(item).length > 0 || !!String(item?.digitalUrl || '').trim();
   return out;
 }
 

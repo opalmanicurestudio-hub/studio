@@ -12,7 +12,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ShopHeader } from '@/components/shop/ShopChrome';
 
 type Access = { open: boolean; reason: string | null; endsAt: string | null };
-type Item = { key: string; lineId: string; productId: string; name: string; access: Access; left: number | null; license: { name: string; terms: string } | null };
+type Contents = { files: { id: string; name: string; inPage: boolean; size: number }[]; link: boolean; delivery: 'both' | 'view' | 'download' };
+type Target = { fileId?: string; link?: boolean };
+type Item = { key: string; lineId: string; productId: string; name: string; access: Access; left: number | null; license: { name: string; terms: string } | null; contents: Contents | null };
 type Verify = { passOk: boolean; emailMasked: string | null; phoneEnding: string | null; canText: boolean };
 
 const card: React.CSSProperties = { borderRadius: 'var(--shop-radius-card)', background: 'var(--shop-card)', border: '1px solid var(--shop-line)' };
@@ -38,7 +40,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
   const [err, setErr] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<{ item: Item; url: string; name: string; watermark: string; inPage: boolean; left: number | null; license: { name: string; terms: string } | null } | null>(null);
+  const [viewing, setViewing] = useState<{ item: Item; target: Target; url: string; name: string; watermark: string; inPage: boolean; canSave: boolean; left: number | null; license: { name: string; terms: string } | null } | null>(null);
   const [code, setCode] = useState({ id: '', sentTo: '', value: '', sending: false, checking: false });
 
   // Kept in memory too, so a device that can't save it (private browsing) still opens things for this visit.
@@ -63,7 +65,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       setVerify(d.verify || null);
       if (d.expired) { setNeedCode(true); setItems([]); return; }
       const digital = (d.order?.lines || []).filter((l: any) => l.digital === true);
-      setItems(digital.map((l: any) => ({ key: String(l.lineId || l.productId), lineId: String(l.lineId || ''), productId: l.productId, name: l.name, access: l.access || { open: true, reason: null, endsAt: null }, left: l.entitlement?.downloadsLeft ?? null, license: l.entitlement?.license || null })));
+      setItems(digital.map((l: any) => ({ key: String(l.lineId || l.productId), lineId: String(l.lineId || ''), productId: l.productId, name: l.name, access: l.access || { open: true, reason: null, endsAt: null }, left: l.entitlement?.downloadsLeft ?? null, license: l.entitlement?.license || null, contents: l.contents || null })));
       if (!digital.length) setErr('There’s nothing digital on this order.');
       setNeedCode(!(d.verify?.passOk));
     } catch {
@@ -100,13 +102,13 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
 
   // View opens it here (never counted against downloads); download saves a copy (uses one). The server decides for
   // files that can't be shown in the page: those are always a saved copy.
-  const open = async (it: Item, mode: 'view' | 'download' = 'view') => {
+  const open = async (it: Item, mode: 'view' | 'download' = 'view', target: Target = {}) => {
     if (busy) return;
-    setBusy(it.key); setErr(null); setNote(null);
+    setBusy(`${it.key}${target.fileId || (target.link ? '~link' : '')}`); setErr(null); setNote(null);
     try {
       const res = await fetch('/api/retail/digital-access', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, orderId, productId: it.productId, lineId: it.lineId || undefined, pass: readPass(), mode }),
+        body: JSON.stringify({ tenantId, orderId, productId: it.productId, lineId: it.lineId || undefined, ...target, pass: readPass(), mode }),
       });
       const d = await res.json();
       if (d.needsPass) { setNeedCode(true); return; }
@@ -115,14 +117,15 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       if (d.mode === 'download') {
         window.location.href = d.url;
         const left = typeof d.downloadsLeft === 'number' ? Math.max(0, d.downloadsLeft - 1) : null;
-        setNote(left === null ? `Saving ${d.name}.` : `Saving ${d.name}. ${left} download${left === 1 ? '' : 's'} left.`);
+        const what = d.fileName || d.name;
+        setNote(left === null ? `Saving ${what}.` : `Saving ${what}. ${left} download${left === 1 ? '' : 's'} left.`);
         setItems((xs) => (xs || []).map((x) => (x.key === it.key ? { ...x, left } : x)));
         setViewing((v) => (v ? { ...v, left } : v));
         // The count is made when the file is fetched; check back so the number shown is the real one.
         window.setTimeout(() => { load(); }, 5000);
         return;
       }
-      setViewing({ item: it, url: d.url, name: d.name, watermark: d.watermark, inPage: true, left: typeof d.downloadsLeft === 'number' ? d.downloadsLeft : null, license: d.license || it.license });
+      setViewing({ item: it, target, url: d.url, name: d.fileName || d.name, watermark: d.watermark, inPage: true, canSave: d.canSave === true, left: typeof d.downloadsLeft === 'number' ? d.downloadsLeft : null, license: d.license || it.license });
     } catch {
       setErr('That couldn’t be opened. Try again.');
     } finally {
@@ -157,10 +160,12 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <a href={viewing.url} target="_blank" rel="noreferrer" className="inline-flex h-11 flex-1 items-center justify-center px-5 text-sm font-semibold" style={outline}>Open full screen</a>
-                  <button type="button" disabled={viewing.left === 0 || !!busy} onClick={() => open(viewing.item, 'download')} className="inline-flex h-11 flex-1 items-center justify-center px-5 text-sm font-semibold disabled:opacity-50" style={solid}>
-                    {viewing.left === null ? 'Save a copy' : viewing.left === 0 ? 'No downloads left' : `Save a copy (${viewing.left} left)`}
-                  </button>
+                  {viewing.canSave && <a href={viewing.url} target="_blank" rel="noreferrer" className="inline-flex h-11 flex-1 items-center justify-center px-5 text-sm font-semibold" style={outline}>Open full screen</a>}
+                  {viewing.canSave && (
+                    <button type="button" disabled={viewing.left === 0 || !!busy} onClick={() => open(viewing.item, 'download', viewing.target)} className="inline-flex h-11 flex-1 items-center justify-center px-5 text-sm font-semibold disabled:opacity-50" style={solid}>
+                      {viewing.left === null ? 'Save a copy' : viewing.left === 0 ? 'No downloads left' : `Save a copy (${viewing.left} left)`}
+                    </button>
+                  )}
                 </div>
               </>
             ) : (
@@ -169,7 +174,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
                 <a href={viewing.url} download className="inline-flex h-11 items-center px-5 text-sm font-semibold" style={solid}>Save the file</a>
               </div>
             )}
-            <p className="text-sm" style={muted}>{viewing.license ? `${viewing.license.name}: ${viewing.license.terms} ` : ''}Licensed to {viewing.watermark}, and your name is printed into this file. Viewing here is unlimited; saving a copy uses one of your downloads. This link works for ten minutes; open it again from here any time.</p>
+            <p className="text-sm" style={muted}>{viewing.license ? `${viewing.license.name}: ${viewing.license.terms} ` : ''}Licensed to {viewing.watermark}, and your name is printed into this file. Viewing here is unlimited{viewing.canSave ? '; saving a copy uses one of your downloads' : ''}. This link works for ten minutes; open it again from here any time.</p>
           </section>
         ) : needCode && verify ? (
           <section aria-labelledby="confirm-heading" className="space-y-4 p-5" style={card}>
@@ -197,7 +202,28 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
           <div role="status" className="flex justify-center py-10"><Loader className="h-5 w-5 animate-spin" aria-hidden="true" /><span className="sr-only">Loading your library</span></div>
         ) : items.length > 0 && (
           <ul className="space-y-2">
-            {items.map((it) => (
+            {items.map((it) => {
+              // An item with several files (or files and a link) lists each one to open (lib/digital-product).
+              const parts = it.contents ? [...it.contents.files.map((f) => ({ key: f.id, label: f.name, target: { fileId: f.id } as Target, action: f.inPage ? 'Open' : 'Save' })), ...(it.contents.link ? [{ key: '~link', label: 'Online content', target: { link: true } as Target, action: 'Open' }] : [])] : [];
+              if (parts.length > 1) return (
+                <li key={it.key} className="p-4" style={card}>
+                  <span className="block truncate text-[15px] font-semibold">{it.name}</span>
+                  <span className="block text-sm" style={muted}>{statusOf(it.access)}{it.access.open && it.left !== null ? ` · ${it.left} download${it.left === 1 ? '' : 's'} left` : ''}</span>
+                  <ul className="mt-3 divide-y" style={{ borderColor: 'var(--shop-line)' }}>
+                    {parts.map((p) => (
+                      <li key={p.key}>
+                        <button type="button" onClick={() => open(it, 'view', p.target)} disabled={!it.access.open || !!busy}
+                          className="flex min-h-11 w-full items-center justify-between gap-3 py-2 text-left text-sm disabled:cursor-not-allowed">
+                          <span className="min-w-0 truncate">{p.label}</span>
+                          <span className="shrink-0 font-semibold">{busy === `${it.key}${p.key === '~link' ? '~link' : p.key}` ? 'Opening…' : it.access.open ? p.action : ''}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  {!it.access.open && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
+                </li>
+              );
+              return (
               <li key={it.key}>
                 <button type="button" onClick={() => open(it)} disabled={!it.access.open || !!busy}
                   className="flex min-h-16 w-full items-center justify-between gap-3 p-4 text-left disabled:cursor-not-allowed" style={card}>
@@ -209,7 +235,8 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
                 </button>
                 {!it.access.open && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
               </li>
-            ))}
+              );
+            })}
           </ul>
         ))}
 

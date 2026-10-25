@@ -14,6 +14,7 @@ import { checkPass, linkExpiresAt, linkOpen, makePass, maskAddress, paidHere, pa
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { digitalLineAccess } from '@/lib/digital-access';
 import { entitlementId, publicEntitlement } from '@/lib/entitlements';
+import { deliveryOf, filesOf, viewable } from '@/lib/digital-product';
 import { maskEmail } from '@/lib/contact-change';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
@@ -104,6 +105,31 @@ export async function GET(req: NextRequest) {
       snaps.forEach((sn: any, i: number) => { if (sn.exists) entMap[String(dl[i].lineId || dl[i].productId)] = sn.data(); });
     }
   } catch { /* the order still shows; opening an item reads its record again */ }
+  // What each download holds, for its buyer's library (lib/digital-product): its files by name, whether it has a link,
+  // and how it's delivered. Read only with proof it's the buyer.
+  const itemMap: Record<string, any> = {};
+  try {
+    const ids = [...new Set((order.lines || []).filter((l: any) => l?.digital === true).map((l: any) => String(l.productId || '')).filter(Boolean))] as string[];
+    if (passOk && ids.length) {
+      const snaps = await db.getAll(...ids.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`)));
+      snaps.forEach((sn: any, i: number) => { if (sn.exists) itemMap[ids[i]] = sn.data(); });
+      // A variant sold inside its listing shows the listing's download unless it has its own (lib/variants asSold).
+      const parents = [...new Set(Object.values(itemMap).filter((it: any) => it.parentId && it.digital !== true).map((it: any) => String(it.parentId)))];
+      if (parents.length) {
+        const { asSold } = await import('@/lib/variants');
+        const ps = await db.getAll(...parents.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`)));
+        const pm: Record<string, any> = {}; ps.forEach((sn: any, i: number) => { if (sn.exists) pm[parents[i]] = { id: parents[i], ...sn.data() }; });
+        for (const [id, it] of Object.entries(itemMap)) if ((it as any).parentId && (it as any).digital !== true && pm[String((it as any).parentId)]) itemMap[id] = asSold(pm[String((it as any).parentId)], { id, ...(it as any) });
+      }
+    }
+  } catch { /* the library opens the first file, as before */ }
+  const contentsOf = (l: any) => {
+    const it = itemMap[String(l.productId || '')];
+    if (!it) return null;
+    const files = filesOf(it);
+    // A file that can't be opened the way the shop delivers it (a zip on a view-only item) isn't listed.
+    return { files: files.filter((f) => deliveryOf(it) !== 'view' || viewable(f.name)).map((f) => ({ id: f.id, name: f.name, inPage: viewable(f.name) && deliveryOf(it) !== 'download', size: f.size || 0 })), link: !!String(it.digitalUrl || l.digitalUrl || '').trim(), delivery: deliveryOf(it), format: String(it.digitalFormat || '') };
+  };
   const linkUntil = linkExpiresAt(order, rs);
   // Past the link's window: only enough to ask for a code (lib/order-pass).
   if (!passOk && !linkOpen(order, rs)) {
@@ -325,6 +351,7 @@ export async function GET(req: NextRequest) {
         ...(l.digital === true ? {
           access: (({ open, reason, endsAt }) => ({ open, reason: (reason === 'disputed' || reason === 'revoked') && !passOk ? null : reason, endsAt }))(digitalLineAccess(order, l, Date.now(), entMap[String(l.lineId || l.productId)] || null)),
           entitlement: passOk ? publicEntitlement(entMap[String(l.lineId || l.productId)] || null) : null,
+          contents: passOk ? contentsOf(l) : null,
         } : {}),
         optionsLabel: l.optionsLabel || '',
         swappedToName: l.swappedToName || '',

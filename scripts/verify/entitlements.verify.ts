@@ -71,7 +71,7 @@ function fakeDb(docs: Record<string, any>) {
   const route = fs.readFileSync('src/app/api/retail/digital-access/route.ts', 'utf8');
   ok(route.includes('ensureEntitlement(db, tenantId,') && route.includes('digitalLineAccess(order, line, Date.now(), ent)'), 'opening reads the record (made now for older orders) through the one rule');
   ok(route.includes("if (mode === 'view') await countUse(db, tenantId, ent.id, 'view');") && route.includes("countUse(db, tenantId, auth.ent.id, 'download', sig.slice(-32))") && route.includes("saving ? 'attachment' : 'inline'"), 'a view is counted once when its link is made; a download when the file is ready, and saved, not shown');
-  ok(route.includes("const mode: 'view' | 'download' = inPage ? asked : 'download';") && route.includes("const saving = mode === 'download' || !showsInPage(name);"), 'a file that can’t be shown in the page is always counted as a download');
+  ok(route.includes("const mode = openMode(item, file, asked);") && route.includes("const saving = mode === 'download' || !showsInPage(name);"), 'a file that can’t be shown in the page is always counted as a download');
   ok(route.indexOf("countUse(db, tenantId, auth.ent.id, 'download'") > route.indexOf('watermarkPdf(bytes'), 'a download that fails to load costs nothing');
   ok(route.includes("mode === 'download' && left !== null && left <= 0"), 'a download link isn’t even made once the downloads are used');
   const wh = fs.readFileSync('src/lib/retail-webhook.ts', 'utf8');
@@ -82,7 +82,7 @@ function fakeDb(docs: Record<string, any>) {
   ok(acct.includes('digitalLineAccess(o, l, Date.now(), ents[i])') && acct.includes('downloadsLeft: pub?.downloadsLeft') && acct.indexOf('db.getAll(') < acct.indexOf('byProduct.get('), 'the account shelf reads each record before choosing one copy per product, so a revoked copy never hides a newer one');
   ok(st.includes("(reason === 'disputed' || reason === 'revoked') && !passOk ? null : reason"), 'only the buyer is told the shop closed an item');
   const lib = fs.readFileSync('src/app/shop/[tenantId]/library/[orderId]/page.tsx', 'utf8');
-  ok(lib.includes("open(viewing.item, 'download')") && lib.includes('download${it.left === 1'), 'the library offers a saved copy with what’s left');
+  ok(lib.includes("open(viewing.item, 'download', viewing.target)") && lib.includes('download${it.left === 1'), 'the library offers a saved copy with what’s left');
   const fr = fs.readFileSync('firestore.rules', 'utf8');
   ok(/match \/tenants\/\{tenantId\}\/entitlements\/\{entId\} \{\s*allow read: if isTeam\(tenantId\);\s*allow write: if false;/.test(fr) && fr.includes("'shopCache', 'entitlements',"), 'only the server writes access records; the team reads them');
 

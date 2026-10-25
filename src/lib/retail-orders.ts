@@ -27,6 +27,7 @@
 import { codeForm, gtinValid } from './code-form';
 import { effectiveUnitCents } from './retail-swap';
 import { taxShareCents } from './restocking';
+import { filesOf } from './digital-product';
 import { deadlineAt } from './tenant-time';
 import { promiseCarrier, promiseFor, scheduleFrom, type ShipSchedule } from './ship-promise';
 
@@ -238,6 +239,7 @@ export function storefrontBlockers(item: Partial<SellableItem> & { type?: string
   if (item.status === 'archived') reasons.push('Archived');
   if (item.showOnline !== true) reasons.push('Show online is off');
   if (!((item.msrp ?? 0) > 0)) reasons.push('No price set');
+  if (!hasDigitalContent(item)) reasons.push('A download with no file or link yet');
   return reasons;
 }
 
@@ -246,8 +248,15 @@ export function isStorefrontVisible(item: SellableItem): boolean {
     item.type === 'retail' &&
     item.status !== 'archived' &&
     item.showOnline === true &&
-    (item.msrp ?? 0) > 0
+    (item.msrp ?? 0) > 0 &&
+    hasDigitalContent(item)
   );
+}
+
+/** A download has something to give its buyer: a file or a link (lib/digital-product). Anything else passes. */
+function hasDigitalContent(item: any): boolean {
+  if (item?.digital !== true || item?.digitalReady === true) return true;
+  return filesOf(item).length > 0 || !!String(item?.digitalUrl || '').trim();
 }
 
 /** Prices are stored in dollars; the engine works in cents (Stripe-safe). */
