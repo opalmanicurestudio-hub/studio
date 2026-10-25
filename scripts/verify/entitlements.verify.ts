@@ -19,7 +19,7 @@ ok(e.downloads.allowed === DEFAULT_DOWNLOADS && DEFAULT_DOWNLOADS === 5 && e.dow
 ok(buildEntitlement('t1', order, line, { digitalDownloadLimit: 0 }).downloads.allowed === null, 'a product set to no limit has none');
 ok(buildEntitlement('t1', order, line, { digitalDownloadLimit: 3 }).downloads.allowed === 3, 'a product’s own limit is used');
 ok(buildEntitlement('t1', order, { ...line, qtyOrdered: 2 }, { digitalDownloadLimit: 3 }).downloads.allowed === 6, 'two copies bought, twice the downloads');
-ok(e.license.id === PERSONAL_LICENSE.id && /personal use/i.test(e.license.terms), 'a personal license until the product has another');
+ok(e.license.id === PERSONAL_LICENSE.id && e.license.name === 'Personal use' && /resell/.test(e.license.terms), 'a personal license until the product has another');
 ok(buildEntitlement('t1', order, line, { license: { id: 'pro', name: 'Professional', terms: 'Use with clients.' } }).license.id === 'pro', 'the product’s license is copied at sale');
 ok(e.access.endsAt === null && accessEndsAt(e) === null, 'no window: access for good');
 const w = buildEntitlement('t1', order, { ...line, digitalAccessDays: 30 }, {});

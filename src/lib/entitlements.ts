@@ -8,6 +8,8 @@
 // Whether it can be opened right now is still the one rule in lib/digital-access, which reads this record for the
 // shop's own changes (revoked, extended) beside the order's refunds, chargebacks and window.
 
+import { BUILT_IN_LICENSES, copyOf, licenseFor } from './licenses';
+
 export const DEFAULT_DOWNLOADS = 5;
 const c0 = (v: any) => Math.max(0, Math.round(Number(v) || 0));
 
@@ -27,19 +29,20 @@ export type Entitlement = {
 /** The record's id: one per order line, so writing it twice (a retried payment notice) is still one record. */
 export const entitlementId = (orderId: string, lineId: string) => `${String(orderId).replace(/[^A-Za-z0-9_-]/g, '')}_${String(lineId || 'line').replace(/[^A-Za-z0-9_-]/g, '')}`.slice(0, 200);
 
-/** The personal license every product has until the shop gives it another (license policies come with the product). */
-export const PERSONAL_LICENSE = { id: 'personal', name: 'Personal use', terms: 'For your own personal use. Please don’t share, resell or repost it.' };
+/** The personal license every product has until the shop gives it another (lib/licenses). */
+export const PERSONAL_LICENSE = copyOf(BUILT_IN_LICENSES[0]);
 
 /**
  * What a paid digital line is entitled to, from the order and the product as sold. Download limit: the product's own
- * (0 = no limit), else 5. Pure.
+ * (0 = no limit), else 5. The license comes from the shop's licenses (`tenant`, lib/licenses). Pure.
  */
-export function buildEntitlement(tenantId: string, order: any, line: any, item: any, now = new Date().toISOString()): Entitlement {
+export function buildEntitlement(tenantId: string, order: any, line: any, item: any, now = new Date().toISOString(), tenant: any = null): Entitlement {
   const days = c0(line?.digitalAccessDays);
   const start = String(order?.paidAt || order?.placedAt || now);
   const limitRaw = item?.digitalDownloadLimit;
   const allowed = limitRaw === 0 || limitRaw === '0' ? null : c0(limitRaw) || DEFAULT_DOWNLOADS;
-  const lic = line?.license && line.license.id ? line.license : item?.license && item.license.id ? item.license : PERSONAL_LICENSE;
+  // The license as the product sells it now (the shop's reusable license, else its own words), copied at sale.
+  const lic = line?.license && line.license.id ? line.license : licenseFor(tenant, item);
   return {
     id: entitlementId(order?.id || '', line?.lineId || line?.productId || ''),
     tenantId, orderId: String(order?.id || ''), lineId: String(line?.lineId || ''), productId: String(line?.productId || ''),
@@ -86,6 +89,9 @@ export async function grantEntitlements(db: any, tenantId: string, orderId: stri
   const snap = await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get();
   const order: any = snap.exists ? { ...snap.data(), id: orderId } : null;
   if (!order || !order.paidAt || ['placed', 'cancelled'].includes(String(order.stage))) return 0;
+  // A failed read throws, so the after-payment step is tried again rather than recording the wrong license for good.
+  const tSnap = await db.doc(`tenants/${tenantId}`).get();
+  const tenant = tSnap?.exists ? tSnap.data() : null;
   let made = 0;
   for (const line of (order.lines || []).filter((l: any) => l?.digital === true)) {
     const itemSnap = await db.doc(`tenants/${tenantId}/inventory/${line.productId}`).get();
@@ -95,7 +101,7 @@ export async function grantEntitlements(db: any, tenantId: string, orderId: stri
       const ls = await db.doc(`tenants/${tenantId}/inventory/${item.parentId}`).get();
       if (ls.exists) { const { asSold } = await import('./variants'); item = asSold({ id: String(item.parentId), ...ls.data() }, { id: line.productId, ...item }); }
     }
-    const e = buildEntitlement(tenantId, order, line, item);
+    const e = buildEntitlement(tenantId, order, line, item, undefined, tenant);
     try { await ref(db, tenantId, e.id).create(e); made++; }
     catch (err: any) { if (!/ALREADY_EXISTS|already exists/i.test(String(err?.message || ''))) throw err; }
   }
@@ -108,7 +114,8 @@ export async function ensureEntitlement(db: any, tenantId: string, order: any, l
   const r = ref(db, tenantId, id);
   const s = await r.get();
   if (s.exists) return s.data() as Entitlement;
-  const e = buildEntitlement(tenantId, order, line, item);
+  const tSnap = await db.doc(`tenants/${tenantId}`).get();
+  const e = buildEntitlement(tenantId, order, line, item, undefined, tSnap?.exists ? tSnap.data() : null);
   try { await r.create(e); return e; }
   catch (err) {
     // Made at the same moment by another open: use that one. Anything else is a real failure.

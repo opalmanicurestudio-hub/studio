@@ -18,9 +18,18 @@ import {
   DELIVERIES, FORMATS, MAX_FILES, MAX_FILE_MB, deliveryOf, digitalProblems, downloadLimitOf, fileId, filesOf,
   legacyFileFields, sizeWords, viewable, type Delivery, type DigitalFile,
 } from '@/lib/digital-product';
-import { PERSONAL_LICENSE } from '@/lib/entitlements';
+import { licensesOf, termsOf } from '@/lib/licenses';
+import { LicenseManager } from './LicenseManager';
 
 const label = 'text-[10px] font-black uppercase tracking-widest text-muted-foreground';
+
+/** Which license a product starts on: its reusable license if the shop still has it, else its own words, else personal. */
+function licenseStart(product: any, tenant: any): string {
+  const id = String(product?.licenseId || product?.license?.id || '');
+  if (id && id !== 'custom' && licensesOf(tenant).some((l) => l.id === id)) return id;
+  if (product?.license?.id && String(product.license.terms || '').trim()) return 'custom';
+  return 'personal';
+}
 const hint = 'text-[10px] font-bold text-muted-foreground';
 
 export function DigitalSection({ product, onSave }: { product: any; onSave: (patch: Record<string, any>) => Promise<void> | void }) {
@@ -37,10 +46,13 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
     days: product.digitalAccessDays ? String(product.digitalAccessDays) : '',
     limitOn: downloadLimitOf(product) !== null,
     limit: String(downloadLimitOf(product) ?? 5),
-    licenseKind: product.license?.id && product.license.id !== PERSONAL_LICENSE.id ? 'custom' : 'personal',
-    licenseName: product.license?.id && product.license.id !== PERSONAL_LICENSE.id ? String(product.license.name || '') : '',
-    licenseTerms: product.license?.id && product.license.id !== PERSONAL_LICENSE.id ? String(product.license.terms || '') : '',
-  }), [product]);
+    // A license the shop reuses (lib/licenses), or words written for this product only ('custom').
+    licenseId: licenseStart(product, selectedTenant),
+    licenseName: licenseStart(product, selectedTenant) === 'custom' ? String(product.license?.name || '') : '',
+    licenseTerms: licenseStart(product, selectedTenant) === 'custom' ? String(product.license?.terms || '') : '',
+  }), [product, selectedTenant]);
+  const [managing, setManaging] = React.useState(false);
+  const policies = licensesOf(selectedTenant);
 
   const [d, setD] = React.useState(start);
   // The saved product changed (this section saved, or someone else did): follow it, unless there are edits here
@@ -54,16 +66,17 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
   const [busy, setBusy] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   // Compared as they'd be saved, so a limit typed and then switched off, or "007" days, doesn't keep the section unsaved.
-  const norm = (x: typeof d) => ({ ...x, link: x.link.trim(), days: String(Math.max(0, Math.floor(Number(x.days) || 0)) || ''), limit: x.limitOn ? String(Math.floor(Number(x.limit) || 0)) : '', licenseName: x.licenseKind === 'custom' ? x.licenseName.trim() : '', licenseTerms: x.licenseKind === 'custom' ? x.licenseTerms.trim() : '' });
+  const norm = (x: typeof d) => ({ ...x, link: x.link.trim(), days: String(Math.max(0, Math.floor(Number(x.days) || 0)) || ''), limit: x.limitOn ? String(Math.floor(Number(x.limit) || 0)) : '', licenseName: x.licenseId === 'custom' ? x.licenseName.trim() : '', licenseTerms: x.licenseId === 'custom' ? x.licenseTerms.trim() : '' });
   const dirty = JSON.stringify(norm(d)) !== JSON.stringify(norm(start));
 
   const set = (p: Partial<typeof d>) => setD((x) => ({ ...x, ...p }));
 
-  const license = d.licenseKind === 'custom'
+  const picked = policies.find((l) => l.id === d.licenseId) || policies[0];
+  const license = d.licenseId === 'custom'
     ? { id: 'custom', name: d.licenseName.trim() || 'License', terms: d.licenseTerms.trim() }
-    : PERSONAL_LICENSE;
+    : { id: picked.id, name: picked.name, terms: termsOf(picked) };
   const draftItem = { digital: d.digital, digitalFiles: d.files, digitalUrl: d.link.trim(), digitalDelivery: d.delivery, license, digitalDownloadLimit: d.limitOn && d.delivery !== 'view' ? (Number(d.limit) >= 1 ? Number(d.limit) : NaN) : 0 };
-  const problems = digitalProblems(draftItem);
+  const problems = [...digitalProblems(draftItem), ...(d.digital && d.licenseId !== 'custom' && !policies.some((l) => l.id === d.licenseId) ? ['Pick a license.'] : [])];
 
   /** Upload one file: a new one, or a new version of `replace`. */
   const upload = async (f: File, replace?: DigitalFile) => {
@@ -103,6 +116,7 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
         digitalAccessDays: days || null,
         digitalDownloadLimit: d.limitOn ? limit : 0,
         license,
+        licenseId: license.id,
         digitalProtection: 'standard',
       } : { digital: false });
     } finally { setSaving(false); }
@@ -193,22 +207,26 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
 
           <fieldset className="space-y-2">
             <legend className={label}>License</legend>
+            {policies.map((l) => (
+              <label key={l.id} className="flex cursor-pointer items-start gap-3 rounded-xl border-2 px-3 py-2.5">
+                <input type="radio" name="dg-license" checked={d.licenseId === l.id} onChange={() => set({ licenseId: l.id })} className="mt-1 h-4 w-4" />
+                <span><span className="block text-xs font-black">{l.name}</span><span className={hint}>{termsOf(l)}</span></span>
+              </label>
+            ))}
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border-2 px-3 py-2.5">
-              <input type="radio" name="dg-license" checked={d.licenseKind === 'personal'} onChange={() => set({ licenseKind: 'personal' })} className="mt-1 h-4 w-4" />
-              <span><span className="block text-xs font-black">{PERSONAL_LICENSE.name}</span><span className={hint}>{PERSONAL_LICENSE.terms}</span></span>
+              <input type="radio" name="dg-license" checked={d.licenseId === 'custom'} onChange={() => set({ licenseId: 'custom' })} className="mt-1 h-4 w-4" />
+              <span><span className="block text-xs font-black">Words for this product only</span><span className={hint}>Written here and not reused.</span></span>
             </label>
-            <label className="flex cursor-pointer items-start gap-3 rounded-xl border-2 px-3 py-2.5">
-              <input type="radio" name="dg-license" checked={d.licenseKind === 'custom'} onChange={() => set({ licenseKind: 'custom' })} className="mt-1 h-4 w-4" />
-              <span><span className="block text-xs font-black">Your own terms</span><span className={hint}>For example, use with your clients, or in a salon of up to three people.</span></span>
-            </label>
-            {d.licenseKind === 'custom' && (
+            {d.licenseId === 'custom' && (
               <div className="space-y-2">
                 <Input aria-label="License name" value={d.licenseName} placeholder="Name, for example Professional use" onChange={(e) => set({ licenseName: e.target.value.slice(0, 60) })} className="h-11 rounded-xl border-2 font-bold text-xs" />
                 <Textarea aria-label="License terms" value={d.licenseTerms} placeholder="What buyers may and may not do with it" onChange={(e) => set({ licenseTerms: e.target.value.slice(0, 800) })} className="min-h-[80px] rounded-xl border-2 font-bold text-xs" />
               </div>
             )}
             <p className={hint}>Buyers see it when they open the item, and it's kept with each sale as it was sold.</p>
+            <Button type="button" variant="outline" onClick={() => setManaging(true)} className="h-10 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Your licenses</Button>
           </fieldset>
+          {managing && <LicenseManager tenantId={tenantId} tenant={selectedTenant} onClose={() => setManaging(false)} onPicked={(id) => set({ licenseId: id })} />}
 
           <div className="rounded-xl border-2 border-dashed px-3 py-2.5">
             <p className="text-xs font-black">Protection: Standard</p>
