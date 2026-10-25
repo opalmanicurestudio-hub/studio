@@ -1,157 +1,203 @@
 'use client';
-
 // ─── /shop/[tenantId]/library/[orderId] ──────────────────────────────────────
-// The customer's private shelf for what they bought. Everything opens INSIDE
-// the app: the file is fetched through a short-lived signed link the page
-// requests per view, never a permanent address, and the buyer's name, email
-// and order number sit watermarked across the frame the whole time.
+// The customer's private shelf for what they bought on one order. Opening anything takes proof it's them (the order
+// pass, lib/order-pass): the device that paid and their signed-in shop account have it already; anyone else gets a
+// 6-digit code to the email or mobile on the order. A forwarded order email therefore opens nothing.
 //
-// The honest limit, stated to the customer as well as in code: a screen can
-// always be photographed. The watermark makes any leaked capture point back
-// at the account that made it, which is the deterrent that actually works
-// for a small shop. Everything else here — expiring links, no download
-// button, ownership re-checked on every open — raises the effort of casual
-// sharing rather than pretending piracy is solvable.
-
+// Files open inside the page through a stream link signed for ten minutes, with the buyer's name, email and order
+// number stamped into PDFs and laid over the viewer. The honest limit, said to the customer as well: a screen can
+// always be photographed. The name on every page is what makes a leaked copy point back to whoever shared it.
 import { Loader, Lock } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ShopHeader } from '@/components/shop/ShopChrome';
 
-type Item = { productId: string; name: string; endsAt?: string | null; expired?: boolean };
+type Access = { open: boolean; reason: string | null; endsAt: string | null };
+type Item = { productId: string; name: string; access: Access };
+type Verify = { passOk: boolean; emailMasked: string | null; phoneEnding: string | null; canText: boolean };
+
+const card: React.CSSProperties = { borderRadius: 'var(--shop-radius-card)', background: 'var(--shop-card)', border: '1px solid var(--shop-line)' };
+const muted: React.CSSProperties = { color: 'var(--shop-muted)' };
+const solid: React.CSSProperties = { borderRadius: 'var(--shop-radius-pill)', background: 'var(--shop-brand)', color: 'var(--shop-on-brand)' };
+const outline: React.CSSProperties = { borderRadius: 'var(--shop-radius-pill)', border: '1px solid var(--shop-ink)', color: 'var(--shop-ink)' };
+const day = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+function statusOf(a: Access): string {
+  if (a.open) return a.endsAt ? `Available until ${day(a.endsAt)}` : 'Yours to keep';
+  if (a.reason === 'expired' && a.endsAt) return `Access ended ${day(a.endsAt)}`;
+  if (a.reason === 'refunded') return 'Refunded';
+  if (a.reason === 'disputed') return 'Paused while a payment question is looked into';
+  return 'Not available';
+}
 
 export default function LibraryPage({ params }: { params: Promise<{ tenantId: string; orderId: string }> }) {
   const { tenantId, orderId } = React.use(params);
-  const [token, setToken] = useState('');
-  const [items, setItems] = useState<Item[]>([]);
+  const passKey = `cfshop-pass-${tenantId}-${orderId}`;
+  const [items, setItems] = useState<Item[] | null>(null);
+  const [verify, setVerify] = useState<Verify | null>(null);
+  const [needCode, setNeedCode] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<{ url: string; name: string; watermark: string; kind: string; productId: string } | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<{ url: string; name: string; watermark: string; inPage: boolean } | null>(null);
+  const [code, setCode] = useState({ id: '', sentTo: '', value: '', sending: false, checking: false });
 
-  useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get('t') || '';
-    if (!t) { setErr('This link is missing its key — open your library from your order page.'); return; }
-    setToken(t);
-    (async () => {
+  // Kept in memory too, so a device that can't save it (private browsing) still opens things for this visit.
+  const passMem = React.useRef('');
+  const readPass = () => { if (passMem.current) return passMem.current; try { return window.localStorage.getItem(passKey) || ''; } catch { return ''; } };
+  const keepPass = (p: string) => { passMem.current = p; try { window.localStorage.setItem(passKey, p); } catch { /* private browsing: kept for this visit */ } };
+
+  const load = useCallback(async () => {
+    try {
+      const qs = new URLSearchParams({ tenantId, orderId });
+      const pass = readPass(); if (pass) qs.set('pass', pass);
       try {
-        // The pass the order page keeps on this device (lib/order-pass) opens an order whose link has expired.
-        let pass = '';
-        try { pass = window.localStorage.getItem(`cfshop-pass-${tenantId}-${orderId}`) || ''; } catch { /* private browsing */ }
-        const res = await fetch(`/api/retail/order-status?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&t=${encodeURIComponent(t)}${pass ? `&pass=${encodeURIComponent(pass)}` : ''}`);
-        const d = await res.json();
-        if (!res.ok) { setErr(d.error || 'This library could not be loaded.'); return; }
-        if (d.expired) { setErr('This order’s link has expired. Open your order page and confirm it’s you to see it again.'); return; }
-        const digital = (d.order?.lines || []).filter((l: any) => l.digital === true);
-        if (digital.length === 0) setErr('There’s nothing digital on this order.');
-        const paid = d.order?.timestamps?.paidAt || d.order?.timestamps?.placedAt || '';
-        setItems(digital.map((l: any) => {
-          const days = Number(l.digitalAccessDays) || 0;
-          const ends = days > 0 && paid ? new Date(Date.parse(paid) + days * 86400000).toISOString() : null;
-          return { productId: l.productId, name: l.name, endsAt: ends, expired: !!ends && Date.parse(ends) < Date.now() };
-        }));
-      } catch {
-        setErr('This library could not be loaded — check your connection.');
-      }
-    })();
+        const here = new URLSearchParams(window.location.search);
+        if (here.get('session_id')) qs.set('session_id', String(here.get('session_id')));
+        const acct = JSON.parse(window.localStorage.getItem(`cfshop-acct-${tenantId}`) || 'null');
+        if (acct?.e && acct?.x && acct?.s && Date.now() < Number(acct.x)) { qs.set('ae', String(acct.e)); qs.set('ax', String(acct.x)); qs.set('as', String(acct.s)); }
+      } catch { /* the pass or a code still opens it */ }
+      const res = await fetch(`/api/retail/order-status?${qs.toString()}`, { cache: 'no-store' });
+      const d = await res.json();
+      if (!res.ok) { setErr(d.error || 'This library could not be loaded.'); return; }
+      if (d.newPass) keepPass(String(d.newPass));
+      setVerify(d.verify || null);
+      if (d.expired) { setNeedCode(true); setItems([]); return; }
+      const digital = (d.order?.lines || []).filter((l: any) => l.digital === true);
+      setItems(digital.map((l: any) => ({ productId: l.productId, name: l.name, access: l.access || { open: true, reason: null, endsAt: null } })));
+      if (!digital.length) setErr('There’s nothing digital on this order.');
+      setNeedCode(!(d.verify?.passOk));
+    } catch {
+      setErr('This library could not be loaded. Check your connection and try again.');
+    }
   }, [tenantId, orderId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const sendCode = async (via: 'email' | 'phone') => {
+    setCode((c) => ({ ...c, sending: true })); setErr(null);
+    try {
+      const res = await fetch('/api/retail/order-pass', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, orderId, action: 'send', via }) });
+      const d = await res.json();
+      if (!res.ok) { setErr(d.error || 'The code couldn’t be sent.'); return; }
+      setCode((c) => ({ ...c, id: String(d.verificationId || ''), sentTo: String(d.sentTo || '') }));
+    } catch { setErr('The code couldn’t be sent. Try again.'); }
+    finally { setCode((c) => ({ ...c, sending: false })); }
+  };
+
+  const confirmCode = async () => {
+    setCode((c) => ({ ...c, checking: true })); setErr(null);
+    try {
+      const res = await fetch('/api/retail/order-pass', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, orderId, action: 'confirm', verificationId: code.id, code: code.value.trim() }) });
+      const d = await res.json();
+      if (!res.ok || !d.pass) { setErr(d.error || 'That code didn’t match.'); return; }
+      keepPass(String(d.pass));
+      setCode({ id: '', sentTo: '', value: '', sending: false, checking: false });
+      setNeedCode(false);
+      await load();
+    } catch { setErr('That code couldn’t be checked. Try again.'); }
+    finally { setCode((c) => ({ ...c, checking: false })); }
+  };
 
   const open = async (it: Item) => {
     if (busy) return;
-    setBusy(it.productId);
+    setBusy(it.productId); setErr(null); setNote(null);
     try {
       const res = await fetch('/api/retail/digital-access', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, orderId, qrToken: token, productId: it.productId }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, productId: it.productId, pass: readPass() }),
       });
       const d = await res.json();
-      if (!res.ok) { setErr(d.error || 'Could not open that.'); return; }
-      if (d.kind === 'link') { window.open(d.url, '_blank', 'noopener,noreferrer'); return; }
-      setViewing({ url: d.url, name: d.name, watermark: d.watermark, kind: d.kind, productId: it.productId });
+      if (d.needsPass) { setNeedCode(true); return; }
+      if (!res.ok) { setErr(d.error || 'That couldn’t be opened.'); if (d.closed) load(); return; }
+      if (d.kind === 'link') { window.open(d.url, '_blank', 'noopener,noreferrer'); setNote(`${d.name} opened in a new tab.`); return; }
+      setViewing({ url: d.url, name: d.name, watermark: d.watermark, inPage: d.inPage !== false });
     } catch {
-      setErr('Could not open that — try again.');
+      setErr('That couldn’t be opened. Try again.');
     } finally {
       setBusy(null);
     }
   };
 
-  if (viewing) {
-    return (
-      <div className="mx-auto max-w-3xl p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <p className="text-[11px] font-black uppercase tracking-widest">{viewing.name}</p>
-          <button
-            onClick={() => setViewing(null)}
-            className="h-9 rounded-xl border-2 px-3 font-black uppercase text-[10px] tracking-widest hover:bg-muted"
-          >
-            Close
-          </button>
-        </div>
-        <div className="relative overflow-hidden rounded-2xl border-2">
-          <iframe src={viewing.url} title={viewing.name} className="h-[70vh] w-full bg-white" />
-          <div className="pointer-events-none absolute inset-0 flex flex-wrap items-center justify-center gap-10 opacity-[0.14]">
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <p key={i} className="rotate-[-24deg] text-xs font-black uppercase tracking-widest">{viewing.watermark}</p>
-            ))}
-          </div>
-        </div>
-        <a
-          href={viewing.url}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 flex h-10 w-full items-center justify-center rounded-xl border-2 font-black uppercase text-[10px] tracking-widest hover:bg-muted"
-        >
-          Open full screen
-        </a>
-        <p className="mt-3 text-[11px] font-bold text-muted-foreground">
-          Licensed to {viewing.watermark} — your name is printed into this file itself. Personal use only, please don’t share or repost it.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="mx-auto max-w-lg p-5">
-      <div className="mb-4 flex items-center gap-2">
-        <Lock className="h-4 w-4" aria-hidden="true" />
-        <h1 className="text-[11px] font-black uppercase tracking-widest">Your library</h1>
-      </div>
-
-      {err && <p className="mb-4 text-sm font-bold text-muted-foreground">{err}</p>}
-
-      {items.length === 0 && !err ? (
-        <div className="flex justify-center py-10">
-          <Loader className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Loading your library" />
+    <div className="min-h-dvh pb-24">
+      <ShopHeader active="account" />
+      <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
+        <div className="flex items-center gap-2">
+          <Lock className="h-4 w-4" aria-hidden="true" />
+          <h1 className="text-2xl" style={{ fontWeight: 'var(--shop-head-weight, 500)' as any, letterSpacing: 'var(--shop-head-track, -0.02em)' }}>Your library</h1>
         </div>
-      ) : (
-        <div className="space-y-2">
-          {items.map((it) => (
-            <button
-              key={it.productId}
-              onClick={() => open(it)}
-              disabled={busy === it.productId}
-              className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-4 text-left hover:bg-muted"
-            >
-              <span className="min-w-0">
-                <span className="block text-sm font-bold">{it.name}</span>
-                <span className={cn('block text-[10px] font-black uppercase tracking-widest', it.expired ? 'text-[#b45309]' : 'text-muted-foreground')}>
-                  {it.expired
-                    ? `Access ended ${new Date(it.endsAt as string).toLocaleDateString()}`
-                    : it.endsAt
-                    ? `Available until ${new Date(it.endsAt).toLocaleDateString()}`
-                    : 'Yours to keep'}
-                </span>
-              </span>
-              <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                {busy === it.productId ? 'Opening…' : 'Open'}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
 
-      <p className="mt-6 text-[11px] font-bold text-muted-foreground">
-        These live with your order, so you can come back from any device — sign in with your email on the shop’s account page and open the order again. Nothing to keep track of.
-      </p>
+        {err && <p role="alert" className="text-sm" style={muted}>{err}</p>}
+        {note && <p role="status" className="text-sm" style={muted}>{note}</p>}
+
+        {viewing ? (
+          <section aria-label={viewing.name} className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="truncate text-base font-semibold">{viewing.name}</p>
+              <button type="button" onClick={() => setViewing(null)} className="inline-flex h-11 shrink-0 items-center px-5 text-sm font-semibold" style={outline}>Close</button>
+            </div>
+            {viewing.inPage ? (
+              <>
+                <div className="relative overflow-hidden" style={card}>
+                  <iframe src={viewing.url} title={viewing.name} className="h-[70vh] w-full bg-white" />
+                  <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-wrap items-center justify-center gap-10 opacity-[0.14]">
+                    {[0, 1, 2, 3, 4, 5].map((i) => <p key={i} className="rotate-[-24deg] text-xs font-semibold" style={{ color: '#121212' }}>{viewing.watermark}</p>)}
+                  </div>
+                </div>
+                <a href={viewing.url} target="_blank" rel="noreferrer" className="inline-flex h-11 w-full items-center justify-center text-sm font-semibold" style={outline}>Open full screen</a>
+              </>
+            ) : (
+              <div className="space-y-3 p-5" style={card}>
+                <p className="text-sm" style={muted}>This file is saved to your device rather than shown here.</p>
+                <a href={viewing.url} download className="inline-flex h-11 items-center px-5 text-sm font-semibold" style={solid}>Save the file</a>
+              </div>
+            )}
+            <p className="text-sm" style={muted}>Licensed to {viewing.watermark}. Your name is printed into this file. It’s for your own use, so please don’t share or repost it. This link works for ten minutes; open it again from here any time.</p>
+          </section>
+        ) : needCode && verify ? (
+          <section aria-labelledby="confirm-heading" className="space-y-4 p-5" style={card}>
+            <h2 id="confirm-heading" className="text-lg font-semibold">Confirm it’s you</h2>
+            <p className="text-sm" style={muted}>Your downloads open on devices you’ve confirmed. We’ll send a 6-digit code to the {verify.emailMasked ? `email on this order (${verify.emailMasked})` : 'contact on this order'}. This device stays confirmed for 30 days.</p>
+            {!code.id ? (
+              <div className="flex flex-wrap gap-2">
+                {verify.emailMasked && <button type="button" disabled={code.sending} onClick={() => sendCode('email')} className="inline-flex h-11 items-center px-5 text-sm font-semibold disabled:opacity-50" style={solid}>{code.sending ? 'Sending…' : 'Email me a code'}</button>}
+                {verify.canText && <button type="button" disabled={code.sending} onClick={() => sendCode('phone')} className="inline-flex h-11 items-center px-5 text-sm font-semibold disabled:opacity-50" style={outline}>Text me a code{verify.phoneEnding ? ` (ends ${verify.phoneEnding})` : ''}</button>}
+              </div>
+            ) : (
+              <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); confirmCode(); }}>
+                <label className="flex flex-col gap-1.5 text-sm font-semibold">
+                  Code sent to {code.sentTo}
+                  <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code.value} onChange={(e) => setCode((c) => ({ ...c, value: e.target.value.replace(/\D/g, '') }))}
+                    className="cf-line h-11 w-40 px-3 text-base tracking-[0.3em]" style={{ borderRadius: 'var(--shop-radius-control)', background: 'var(--shop-surface)', color: 'var(--shop-ink)' }} />
+                </label>
+                <button type="submit" disabled={code.value.length !== 6 || code.checking} className="inline-flex h-11 items-center px-5 text-sm font-semibold disabled:opacity-50" style={solid}>{code.checking ? 'Checking…' : 'Confirm'}</button>
+              </form>
+            )}
+          </section>
+        ) : null}
+
+        {!viewing && (items === null ? (
+          <div role="status" className="flex justify-center py-10"><Loader className="h-5 w-5 animate-spin" aria-hidden="true" /><span className="sr-only">Loading your library</span></div>
+        ) : items.length > 0 && (
+          <ul className="space-y-2">
+            {items.map((it) => (
+              <li key={it.productId}>
+                <button type="button" onClick={() => open(it)} disabled={!it.access.open || !!busy}
+                  className="flex min-h-16 w-full items-center justify-between gap-3 p-4 text-left disabled:cursor-not-allowed" style={card}>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[15px] font-semibold">{it.name}</span>
+                    <span className="block text-sm" style={muted}>{statusOf(it.access)}</span>
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold">{busy === it.productId ? 'Opening…' : it.access.open ? 'Open' : ''}</span>
+                </button>
+                {!it.access.open && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
+              </li>
+            ))}
+          </ul>
+        ))}
+
+        {!viewing && <p className="text-sm" style={muted}>Files open here with your name printed on every page. No website can stop a screen being photographed; the name is what makes a shared copy point back to who shared it.</p>}
+      </main>
     </div>
   );
 }

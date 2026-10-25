@@ -245,7 +245,8 @@ function AccountInner() {
                 {library.map((d: any) => (
                   <Link
                     key={d.productId}
-                    href={`/shop/${tenantId}/order/${d.orderId}`}
+                    href={`/shop/${tenantId}/library/${d.orderId}`}
+                    onClick={() => { if (d.pass) { try { window.localStorage.setItem(`cfshop-pass-${tenantId}-${d.orderId}`, String(d.pass)); } catch { /* private browsing: the library asks for a code */ } } }}
                     className="flex items-center justify-between gap-3 rounded-2xl border-2 bg-white p-3.5 hover:border-primary/40"
                   >
                     <span className="min-w-0">

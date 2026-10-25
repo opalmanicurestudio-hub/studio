@@ -500,7 +500,12 @@ async function handleCheckout(req: NextRequest) {
   // takes over only for shipped orders; pickup and tax-exempt wholesale keep
   // the flat path untouched. In stripe mode the draft carries taxCents 0 —
   // Stripe computes the real figure at payment and the webhook writes it back.
-  const stripeTax = rs.stripeTaxEnabled === true && method === 'ship' && !taxExempt;
+  // A cart of downloads only is sold where the buyer is, not at the shop: Stripe Tax takes it too, from the billing
+  // address Stripe's page asks for, with the digital goods code (some states don't tax downloads at all). Not when
+  // store credit or a gift card pays part: that path works the tax out before the payment page, from a delivery
+  // address a download doesn't have, and a credit that covers everything must still finish without a card.
+  const paysWithOther = body.applyStoreCredit === true || !!String(body.giftCode || '').trim();
+  const stripeTax = rs.stripeTaxEnabled === true && (method === 'ship' || (digitalOnly && !paysWithOther)) && !taxExempt;
   // Tax is on what the items actually cost after the code (the shop's flat rate; Stripe Tax sees the discount itself).
   let promoCents = promo?.cents || 0;
   const taxCents0 = (base: number) => (stripeTax ? 0 : Math.round(base * (taxRatePercent / 100)));
@@ -821,6 +826,8 @@ async function handleCheckout(req: NextRequest) {
     // computed against. On a direct charge the CONNECTED account's tax
     // registrations and origin address apply — each tenant's own setup.
     ...(withAutoTax ? { automatic_tax: { enabled: true } } : {}),
+    // Downloads have no delivery address, so the rate comes from the billing address: always ask for it.
+    ...(withAutoTax && digitalOnly ? { billing_address_collection: 'required' } : {}),
     customer_email: customerEmail,
     metadata: { type: 'retail_order', retailOrderId: orderId, tenantId },
     payment_intent_data: {

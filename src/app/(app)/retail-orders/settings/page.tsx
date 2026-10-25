@@ -713,15 +713,15 @@ export default function RetailSettingsPage() {
             <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
               <div className="min-w-0">
                 <Label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                  Automatic sales tax on shipped orders
+                  Automatic sales tax on shipped orders and downloads
                 </Label>
                 <p className="text-[11px] text-muted-foreground mt-1">
                   {rs.stripeTaxEnabled === true
-                    ? 'Stripe Tax sets the rate from the delivery state on shipped orders. Pickup orders keep the flat rate above. Requires Stripe Tax activated, your registrations added, and an origin address in your Stripe dashboard — if that setup is missing, checkout quietly falls back to the flat rate so a customer is never blocked.'
+                    ? 'Stripe Tax sets the rate from the delivery state on shipped orders, and from the buyer\u2019s billing address on orders of downloads only. Pickup orders keep the flat rate above. Requires Stripe Tax activated, your registrations added, and an origin address in your Stripe dashboard — if that setup is missing, checkout quietly falls back to the flat rate so a customer is never blocked.'
                     : 'Off — every order uses the flat Tax % above. Right for pickup-only shops; a parcel crossing state lines should be taxed at its destination, which is what turning this on does.'}
                 </p>
               </div>
-              <Switch aria-label="Automatic sales tax on shipped orders" checked={rs.stripeTaxEnabled === true}
+              <Switch aria-label="Automatic sales tax on shipped orders and downloads" checked={rs.stripeTaxEnabled === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, stripeTaxEnabled: v })} />
             </div>
           </CardContent>

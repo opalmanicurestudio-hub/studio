@@ -1,3 +1,5 @@
+import { digitalLineAccess } from '@/lib/digital-access';
+import { makePass } from '@/lib/order-pass';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
@@ -107,20 +109,22 @@ export async function GET(req: NextRequest) {
       if (['placed', 'cancelled'].includes(String(o.stage))) return;
       (o.lines || []).forEach((l: any) => {
         if (l.digital !== true) return;
-        if (['refunded', 'backordered'].includes(String(l.status))) return;
+        // One rule for who may open what (lib/digital-access): refunded, returned or charged back drops off the shelf;
+        // an ended window stays, marked, so they can ask for more time.
+        const a = digitalLineAccess(o, l);
+        if (!a.open && a.reason !== 'expired') return;
         if (seenProducts.has(l.productId)) return;
         seenProducts.add(l.productId);
-        const days = Number(l.digitalAccessDays) || 0;
-        const start = Date.parse(String(o.paidAt || o.placedAt || '')) || 0;
-        const endsAt = days > 0 && start ? new Date(start + days * 86400000).toISOString() : null;
         library.push({
           productId: l.productId,
           name: l.name,
           orderId: o.id,
           orderNumber: o.orderNumber ?? null,
           boughtAt: o.paidAt || o.placedAt || '',
-          endsAt,
-          expired: !!endsAt && Date.parse(endsAt) < Date.now(),
+          endsAt: a.endsAt,
+          expired: a.reason === 'expired',
+          // Signed in to their account is proof it's them: the library opens without asking for a code.
+          pass: o.qrToken ? makePass(tenantId, String(o.qrToken)) : null,
         });
       });
     });

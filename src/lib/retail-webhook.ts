@@ -187,6 +187,9 @@ export async function finishPaidOrder(db: any, tenantId: string, orderId: string
  * order-page link that carries their QR; shipping orders get the same link,
  * which fills with tracking the moment a label is bought.
  */
+// The receipt shows names, never raw delivery links (those would skip the library's checks and never expire).
+const escHtml = (v: string) => v.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[ch]);
+
 export async function sendOrderConfirmation(
   db: any,
   tenantId: string,
@@ -285,12 +288,13 @@ export async function sendOrderConfirmation(
       <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">${creditCents > 0 ? 'Charged to card' : 'Total paid'}</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(chargedCents)}</td></tr>
       ${fullCredit ? `<tr><td colspan="2" style="font-size:12px;color:#0f766e;padding-top:2px">This order was paid in full with store credit. Nothing was charged to a card.</td></tr>` : ''}
     </table>
-    ${(order.lines || []).some((l: any) => l.digital === true && l.digitalUrl)
+    ${(order.lines || []).some((l: any) => l.digital === true)
       ? `<div style="border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0">
-           <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 8px">Available now</p>
-           ${(order.lines || []).filter((l: any) => l.digital === true && l.digitalUrl).map((l: any) =>
-             `<p style="font-size:13px;color:#0f172a;margin:0 0 6px"><a href="${l.digitalUrl}" style="color:#0f172a;font-weight:700">${l.name}</a></p>`).join('')}
-           <p style="font-size:11px;color:#94a3b8;margin:8px 0 0">These links are also available on your order page whenever you need them.</p>
+           <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 8px">Ready in your library</p>
+           ${(order.lines || []).filter((l: any) => l.digital === true).map((l: any) =>
+             `<p style="font-size:13px;color:#0f172a;margin:0 0 6px;font-weight:700">${escHtml(String(l.name || 'Your download'))}</p>`).join('')}
+           <p style="font-size:12px;color:#64748b;margin:8px 0 12px">Open it from your library on any device. The first time on a new device, we send a quick code to this email to confirm it’s you.</p>
+           ${emailButton(`${origin}/shop/${tenantId}/library/${orderId}`, 'Open my library', emailBrand)}
          </div>`
       : ''}
     ${emailButton(`${origin}/shop/${tenantId}/order/${orderId}`, 'View my order', emailBrand)}

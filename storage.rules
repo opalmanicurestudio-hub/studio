@@ -1,0 +1,89 @@
+rules_version = '2';
+
+// Cloud Storage rules. Kept in the repo so they're reviewed like firestore.rules; published from the Firebase console
+// (Storage, Rules). The server (firebase-admin) is not bound by these, so private files it serves (purchased
+// downloads, completions, academy documents, claim photos, call recordings) need no read rule here at all.
+//
+// What the browser does: it uploads a file and, for every folder except purchased downloads, asks for that file's
+// link straight away (getDownloadURL needs `get`). It never lists, deletes or reads anything else. So each folder
+// allows the people who upload there to write it and `get` it, nothing lists, and everything not named is closed.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── Who is asking ──────────────────────────────────────────────────────────────────────────────────────────────
+    // Storage rules may look up at most two database documents per request, so the checks that need none come first
+    // (the sign-in's own claims), then the business's owner (the business record), then an app login linked to this
+    // business (staffDirectory, which the server keeps for every team member with app access).
+    function signedIn() { return request.auth != null; }
+    function claim(k, d) { return request.auth.token.get(k, d); }
+    function isPortalMember(t) { return signedIn() && claim('portal', false) == true && claim('tenantId', '') == t; }
+    function isRenterSignIn() { return signedIn() && claim('isRenter', false) == true; }
+    function isOwnerOf(t) { return firestore.get(/databases/(default)/documents/tenants/$(t)).data.get('userId', '') == request.auth.uid; }
+    function inDirectory(t) { return firestore.get(/databases/(default)/documents/staffDirectory/$(request.auth.uid)).data.get('tenantId', '') == t; }
+    function hasDirectory() { return firestore.exists(/databases/(default)/documents/staffDirectory/$(request.auth.uid)); }
+    // The team: staff signed in to the PIN portal (claims only), the owner, and app logins linked to this business.
+    // Renters carry portal too, so they're never the team.
+    function isTeam(t) {
+      return signedIn() && !isRenterSignIn() && (isPortalMember(t) || isOwnerOf(t) || (hasDirectory() && inDirectory(t)));
+    }
+    // A renter, only for their own folder (claims only).
+    function isThisRenter(t, r) { return isPortalMember(t) && isRenterSignIn() && claim('renterId', '') == r; }
+
+    function underMb(n) { return request.resource.size < n * 1024 * 1024; }
+    function isImage() { return request.resource.contentType.matches('image/.*'); }
+    function isImageOrPdf() { return request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf'; }
+    // Public uploads ask for their own link straight after uploading; after that the browser has no reason to read.
+    function justUploaded() { return request.time < resource.timeCreated + duration.value(10, 'm'); }
+
+    match /tenants/{t} {
+
+      // ── Purchased downloads: private. The team uploads; nobody reads from the browser (buyers get them through
+      // the server's library, signed for ten minutes and stamped with their name).
+      match /digital/{item}/{file} {
+        allow write: if isTeam(t) && underMb(45);
+        allow read: if false;
+      }
+
+      // ── The team's own uploads: photos, documents, thread attachments, evidence, product media.
+      match /{folder}/{rest=**} {
+        allow get: if isTeam(t)
+          && folder in ['avatars', 'uploads', 'branding', 'floorplans', 'renters', 'leases', 'contacts', 'staffThreads',
+                        'evidence', 'products', 'shop-offers', 'creator-campaigns', 'referrals', 'circle', 'client-files',
+                        'dispute-evidence'];
+        allow write: if isTeam(t)
+          && folder in ['avatars', 'uploads', 'branding', 'floorplans', 'renters', 'leases', 'contacts', 'staffThreads',
+                        'evidence', 'products', 'shop-offers', 'creator-campaigns', 'referrals', 'circle', 'client-files',
+                        'dispute-evidence']
+          && underMb(folder == 'products' ? 110 : 30);
+      }
+
+      // ── A renter's own page photos (profile, cover, gallery, services), from the renter portal.
+      match /renters/{renterId}/{rest=**} {
+        allow get: if isThisRenter(t, renterId);
+        allow write: if isThisRenter(t, renterId) && isImage() && underMb(15);
+      }
+
+      // ── Public pages with no sign-in: inspiration photos on a booking, and documents sent with a booth
+      // reservation or application. New files only (no overwriting), pictures or PDFs, sized, never listed, and
+      // readable only for the ten minutes after upload when the page asks for the file's link. The team opens them
+      // later through the links saved with the booking or application.
+      match /booking-inspiration/{file} {
+        allow create: if isImage() && underMb(5);
+        allow get: if justUploaded();
+      }
+      match /reservation-docs/{file} {
+        allow create: if isImageOrPdf() && underMb(15);
+        allow get: if justUploaded();
+      }
+      match /applications/{file} {
+        allow create: if isImageOrPdf() && underMb(15);
+        allow get: if justUploaded();
+      }
+    }
+
+    // ── Everything else is closed.
+    match /{all=**} {
+      allow read, write: if false;
+    }
+  }
+}

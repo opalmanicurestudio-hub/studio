@@ -610,6 +610,11 @@ export async function handleConnectWebhook(req: NextRequest) {
             console.log(`[connect-webhook] Fee return $${feeReturn.toFixed(2)} for refund on charge ${charge.id}`);
           } catch { /* another notice wrote it a moment ago */ }
         }
+        // The card payment for a shop order refunded in full in the Stripe dashboard (not by the app, whose refunds carry
+        // the app's mark): its downloads close (lib/digital-access), whatever else paid for the order.
+        if (meta.type === 'retail_order' && charge.refunded === true && meta.retailOrderId && !refunds.some((rf: any) => rf?.metadata?.origin === 'app')) {
+          await db.doc(`tenants/${tenant.id}/retailOrders/${String(meta.retailOrderId)}`).set({ cardRefundedInFull: true }, { merge: true });
+        }
         break;
       }
 
@@ -741,6 +746,14 @@ export async function handleConnectWebhook(req: NextRequest) {
           tx.set(db.collection('tenants').doc(tenant.id), { openDisputeCount: FieldValue.increment(1) }, { merge: true });
           return true;
         });
+        // Downloads on the disputed order pause until it's decided (lib/digital-access). On every notice, before the
+        // "already recorded" stop, so a hold that failed once is tried again when Stripe resends. An inquiry (a
+        // warning, not a chargeback) pauses nothing.
+        if (!String(dispute.status || '').startsWith('warning')) {
+          const { holdDigitalForDispute } = await import('@/lib/digital-access');
+          const pi = typeof (dispute as any).payment_intent === 'string' ? (dispute as any).payment_intent : (dispute as any).payment_intent?.id || null;
+          if ((await holdDigitalForDispute(db, tenant.id, { retailOrderId, paymentIntentId: pi }, 'open', dispute.id)) === 'failed') throw new Error('download hold failed');
+        }
         if (!made) break;
 
         console.log(`[connect-webhook] Dispute ${dispute.id} recorded for tenant ${tenant.id} — client: ${clientName}`);
@@ -769,6 +782,14 @@ export async function handleConnectWebhook(req: NextRequest) {
         const lossRef = db.doc(`tenants/${tenant.id}/transactions/disputelost_${dKey}`);
         // The outcome and its line in the books in one step: the first notice to get here writes both; any other finds
         // them written. A failure answers Stripe with an error, so it sends the notice again.
+        // Downloads: open again when won (or closed without a chargeback), closed for good when lost (lib/digital-access).
+        // On every notice, before the "already claimed" stop, so a failure is tried again when Stripe resends.
+        {
+          const { holdDigitalForDispute } = await import('@/lib/digital-access');
+          const rec: any = found ? ((await found.get()).data() || {}) : {};
+          const pi = typeof (dispute as any).payment_intent === 'string' ? (dispute as any).payment_intent : (dispute as any).payment_intent?.id || null;
+          if ((await holdDigitalForDispute(db, tenant.id, { retailOrderId: rec.retailOrderId || null, paymentIntentId: pi }, outcome === 'lost' ? 'lost' : 'won', dispute.id)) === 'failed') throw new Error('download hold failed');
+        }
         const claimed = await db.runTransaction(async (tx: any) => {
           const ref = found || byId;
           const [snap, rs, ls] = await Promise.all([tx.get(ref), tx.get(revRef), tx.get(lossRef)]);
@@ -791,6 +812,8 @@ export async function handleConnectWebhook(req: NextRequest) {
         if (!claimed) break;
         const { FieldValue } = await import('firebase-admin/firestore');
         console.log(`[connect-webhook] Dispute ${outcome} for ${dispute.id}`);
+
+
 
         // The client's flag comes off when nothing else of theirs is open; the sidebar count comes down.
         if (claimed.clientId) {

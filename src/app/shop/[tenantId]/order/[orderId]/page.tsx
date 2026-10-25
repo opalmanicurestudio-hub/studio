@@ -1487,7 +1487,7 @@ export default function OrderStatusPage() {
               )}
               {order && selfToken && (order.lines || []).some((l: any) => l.digital === true) && order.stage !== 'placed' && order.stage !== 'cancelled' && (
                 <a
-                  href={`/shop/${tenantId}/library/${orderId}?t=${encodeURIComponent(selfToken)}`}
+                  href={`/shop/${tenantId}/library/${orderId}`}
                   className="flex w-full h-10 items-center justify-center rounded-xl border-2 font-black uppercase text-[10px] tracking-widest hover:bg-muted"
                 >
                   Open my library

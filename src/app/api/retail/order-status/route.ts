@@ -12,6 +12,7 @@ import { effectiveUnitCents, swapLines } from '@/lib/retail-swap';
 import { windowOpen } from '@/lib/order-windows';
 import { checkPass, linkExpiresAt, linkOpen, makePass, maskAddress, paidHere, passUntil } from '@/lib/order-pass';
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
+import { digitalLineAccess } from '@/lib/digital-access';
 import { maskEmail } from '@/lib/contact-change';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
@@ -309,6 +310,9 @@ export async function GET(req: NextRequest) {
         status: l.status === 'returned' && (l.qtyGiftReturned || 0) > 0 && (l.qtyReturned || 0) - (l.qtyGiftReturned || 0) < (l.qtyOrdered || 0) - (l.qtyShorted || 0) ? 'picked' : l.status,
         digital: l.digital === true,
         digitalAccessDays: l.digital === true ? Math.max(0, Number(l.digitalAccessDays) || 0) : 0,
+        // Whether it can be opened, by the one rule (lib/digital-access): refunds, returns and chargebacks close it.
+        // A chargeback is said only to the buyer (with a pass); the link alone just sees it isn't available.
+        ...(l.digital === true ? { access: (({ open, reason, endsAt }) => ({ open, reason: reason === 'disputed' && !passOk ? null : reason, endsAt }))(digitalLineAccess(order, l)) } : {}),
         optionsLabel: l.optionsLabel || '',
         swappedToName: l.swappedToName || '',
         swapForName: l.swapForName || '',

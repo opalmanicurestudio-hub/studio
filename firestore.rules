@@ -687,6 +687,7 @@ service cloud.firestore {
               'booksAt', 'afterPaidAt', 'receiptSentAt', 'receiptSending', 'receiptSkipped', 'giftUseNotifiedAt',
               'tipSharedAt', 'tipSharedWith', 'tipUnassigned', 'partRefunds', 'shippingRefundedCents',
               'taxMode', 'taxCalculationId', 'taxTransactionId', 'tenders', 'shipTogetherRefundCents', 'outsideRefunds',
+              'digitalHolds', 'digitalOpens', 'cardRefundedInFull',
               'collector', 'pinTries', 'collectedNotifiedAt', 'returnSeq'];
     }
     // What only the order steps change, on the server (api/retail/fulfil, with the person's role checked there): the
