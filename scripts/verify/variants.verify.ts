@@ -146,7 +146,7 @@ const url = (path: string, q: Record<string, string>) => ({ nextUrl: { searchPar
   check('a variant’s own link opens its listing, with it picked', pr.status === 404 && pr.body.listing?.id === 'oil' && pr.body.listing?.choice === 'a', pr.body);
   pr = await prod(url('/api/retail/product', { tenantId: 't1', productId: 'oil' }));
   check('the listing’s page is in stock and prices each variant', pr.status === 200 && pr.body.product.inStock === true && pr.body.product.optionGroups[0].choices.map((c: any) => c.priceCents).join() === '2400,2400,2800', pr.body.product?.optionGroups);
-  const page = src('src/app/shop/[tenantId]/product/[productId]/page.tsx');
+  const page = src('src/app/shop/[tenantId]/product/[productId]/page.tsx') + src('src/components/shop/product/ProductLayouts.tsx');
   check('the product page shows the picked variant’s price, stock and sold out, and the price it shows is the one charged (one shared sum)',
     /const line = useMemo\(\(\) => \(product \? shopLine\(product, selections, wholesale\) : null\)/.test(page) && /firstChoices\(data\.product\.optionGroups \|\| \[\]\)/.test(page) && / · sold out/.test(page.replace(/\\u00b7/g, '·')) && /window\.location\.replace\(/.test(page) && !/optionDeltaCents/.test(page));
   check('the cart and checkout pages price each line the same way', /shopLine\(p, selections, wholesale\)/.test(src('src/app/shop/[tenantId]/page.tsx')) && /shopLine\(p, selections, wholesale\)/.test(src('src/app/shop/[tenantId]/checkout/page.tsx')) && !/optionDelta\(/.test(src('src/app/shop/[tenantId]/checkout/page.tsx')));

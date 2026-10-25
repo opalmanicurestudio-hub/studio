@@ -432,6 +432,13 @@ body { background-image: none; }
   border-width: var(--shop-card-border);
   border-color: var(--shop-line);
 }
+/* Controls (choices, steppers, outlined buttons, fields) keep a hairline even when cards are flat. */
+.cf-line { border-width: 1px; border-style: solid; }
+[data-shop-theme] .cf-line {
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--shop-line);
+}
 
 [data-shop-theme] .rounded-\[2rem\],
 [data-shop-theme] .rounded-\[2\.5rem\],

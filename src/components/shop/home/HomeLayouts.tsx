@@ -61,14 +61,14 @@ function AddControl({ p, bag, look, full }: { p: HomeItem; bag: HomeBag; look: '
     return (
       <Link href={productHref(bag.tenantId, p)} aria-label={`Choose options for ${p.name}`}
         className={cn('inline-flex h-11 items-center justify-center px-4 text-sm font-semibold transition-colors', full && 'w-full',
-          look === 'text' ? 'px-0 underline underline-offset-4' : 'border')}
+          look === 'text' ? 'px-0 underline underline-offset-4' : 'cf-line')}
         style={look === 'text' ? undefined : { ...radius('pill'), borderColor: 'var(--shop-line)' }}>
         Choose options
       </Link>);
   }
   if (qty > 0) {
     return (
-      <div className={cn('inline-flex h-11 items-center justify-between gap-0.5 border', full && 'w-full')} style={{ ...radius('pill'), borderColor: 'var(--shop-line)' }}>
+      <div className={cn('inline-flex h-11 items-center justify-between gap-0.5 cf-line', full && 'w-full')} style={{ ...radius('pill'), borderColor: 'var(--shop-line)' }}>
         <button type="button" aria-label={`Decrease quantity of ${p.name}`} onClick={() => bag.onQty(p, qty - 1)} className="flex h-11 w-11 items-center justify-center" style={radius('pill')}><Minus className="h-4 w-4" aria-hidden="true" /></button>
         <span className="min-w-6 text-center text-sm font-semibold tabular-nums">{qty}</span>
         <button type="button" aria-label={`Increase quantity of ${p.name}`} disabled={qty >= p.qtyAvailable} onClick={() => bag.onQty(p, qty + 1)} className="flex h-11 w-11 items-center justify-center disabled:opacity-30" style={radius('pill')}><Plus className="h-4 w-4" aria-hidden="true" /></button>
@@ -84,7 +84,7 @@ function AddControl({ p, bag, look, full }: { p: HomeItem; bag: HomeBag; look: '
   return (
     <button type="button" onClick={() => bag.onAdd(p)} aria-label={`Add ${p.name} to bag`}
       className={cn('inline-flex h-11 items-center justify-center px-5 text-sm font-semibold transition-opacity hover:opacity-90', full && 'w-full',
-        look === 'text' && 'px-0 underline underline-offset-4', look === 'outline' && 'border')}
+        look === 'text' && 'px-0 underline underline-offset-4', look === 'outline' && 'cf-line')}
       style={look === 'solid' ? { ...radius('pill'), background: 'var(--shop-brand)', color: 'var(--shop-on-brand)' }
         : look === 'outline' ? { ...radius('pill'), borderColor: 'var(--shop-ink)' } : undefined}>
       Add to bag
@@ -123,7 +123,7 @@ function ProductCard({ p, bag, layout, style, dark, big, eager }: { p: HomeItem;
   const dim = !p.inStock ? 'opacity-60' : '';
   if (style === 'list') {
     return (
-      <article className={cn('flex items-center gap-4 border p-3', dim)} style={{ ...radius('card'), borderColor: 'var(--shop-line)', background: 'var(--shop-card)' }}>
+      <article className={cn('flex items-center gap-4 cf-line p-3', dim)} style={{ ...radius('card'), borderColor: 'var(--shop-line)', background: 'var(--shop-card)' }}>
         <Link href={href} className="group shrink-0" tabIndex={-1} aria-hidden="true"><Photo p={p} sizes="80px" className="h-20 w-20" /></Link>
         <div className="min-w-0 flex-1">
           <Link href={href} className="block text-sm font-semibold leading-snug line-clamp-2">{p.name}</Link>
@@ -151,7 +151,7 @@ function ProductCard({ p, bag, layout, style, dark, big, eager }: { p: HomeItem;
   }
   if (layout === 'index') {
     return (
-      <article className={cn('group flex flex-col border p-2', dim)} style={{ ...radius('card'), borderColor: 'var(--shop-line)', background: 'var(--shop-card)' }}>
+      <article className={cn('group flex flex-col cf-line p-2', dim)} style={{ ...radius('card'), borderColor: 'var(--shop-line)', background: 'var(--shop-card)' }}>
         <div className="relative">
           <Link href={href} tabIndex={-1} aria-hidden="true"><Photo p={p} sizes={sizes} priority={eager} className={cn('rounded-[var(--shop-radius-control)]', style === 'showcase' ? 'aspect-[4/3]' : 'aspect-square')} /></Link>
           {p.inStock && !hasOptions(p) && bag.qtyOf(p) === 0 && <div className="absolute bottom-2 right-2"><AddControl p={p} bag={bag} look="round" /></div>}
@@ -225,7 +225,7 @@ export function HomeIntro({ layout, name, tagline, products, categories, bag, da
             <p style={{ ...labelOf('maison'), opacity: 0.85 }}>{name}</p>
             <h2 id="home-welcome" className="mt-4 text-4xl leading-[1.05] sm:text-6xl" style={head}>{headline}</h2>
             <div className="mt-8">
-              <button type="button" onClick={onShop} className="inline-flex h-12 items-center border px-8 text-xs transition-colors"
+              <button type="button" onClick={onShop} className="inline-flex h-12 items-center cf-line px-8 text-xs transition-colors"
                 style={{ textTransform: 'uppercase', letterSpacing: 'var(--shop-label-track, .3em)', borderColor: photo ? 'rgba(255,255,255,.7)' : 'var(--shop-ink)' }}>Discover the collection</button>
             </div>
           </div>
@@ -246,7 +246,7 @@ export function HomeIntro({ layout, name, tagline, products, categories, bag, da
           <ul className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" aria-label="Shop by category">
             {cats.slice(0, 6).map((c) => (
               <li key={c}>
-                <button type="button" onClick={() => onPickCategory(c)} className="group flex w-full items-center gap-3 border p-2 text-left" style={{ ...radius('card'), borderColor: 'var(--shop-line)', background: 'var(--shop-card)' }}>
+                <button type="button" onClick={() => onPickCategory(c)} className="group flex w-full items-center gap-3 cf-line p-2 text-left" style={{ ...radius('card'), borderColor: 'var(--shop-line)', background: 'var(--shop-card)' }}>
                   <span className="relative h-12 w-12 shrink-0 overflow-hidden" style={{ ...radius('control'), background: 'var(--shop-tint)' }}>
                     {catPhoto(c) && <Image src={catPhoto(c)} alt="" fill sizes="48px" className="object-cover" />}
                   </span>
@@ -396,7 +396,7 @@ export function HomeCatalog({ layout, cardStyle, products, categories, category,
               }
               return (
                 <button key={c} type="button" aria-pressed={on} onClick={() => setCategory(c)}
-                  className="h-11 shrink-0 border px-4 text-sm font-medium transition-colors"
+                  className="h-11 shrink-0 cf-line px-4 text-sm font-medium transition-colors"
                   style={{ ...radius('pill'), borderColor: on ? 'var(--shop-ink)' : 'var(--shop-line)', background: on ? 'var(--shop-ink)' : layout === 'bento' ? 'var(--shop-card)' : 'transparent', color: on ? 'var(--shop-surface)' : 'var(--shop-ink)' }}>
                   {chipName(c)}
                 </button>);
@@ -412,7 +412,7 @@ export function HomeCatalog({ layout, cardStyle, products, categories, category,
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <span style={{ color: 'var(--shop-muted)' }}>Sort</span>
-                <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="h-11 border bg-transparent px-3 text-sm" style={{ ...radius('control'), borderColor: 'var(--shop-line)', color: 'var(--shop-ink)' }}>
+                <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="h-11 cf-line bg-transparent px-3 text-sm" style={{ ...radius('control'), borderColor: 'var(--shop-line)', color: 'var(--shop-ink)' }}>
                   <option value="featured">Featured</option>
                   <option value="price-asc">Price, low to high</option>
                   <option value="price-desc">Price, high to low</option>

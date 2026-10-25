@@ -1,20 +1,17 @@
 'use client';
 
 import { RestockAlert } from '@/components/shop/RestockAlert';
-import { BookOpen, CheckCircle2, ChevronRight, FileDown, ListChecks, Loader, Minus, Package, Plus, RotateCcw, ShieldCheck, Star, Truck } from 'lucide-react';
-import Image from 'next/image';
+import { Loader, Package } from 'lucide-react';
 import Link from 'next/link';
-import { ShopHeader } from '@/components/shop/ShopChrome';
+import { ShopHeader, useShopSite } from '@/components/shop/ShopChrome';
+import { ProductView } from '@/components/shop/product/ProductLayouts';
 import { useParams } from 'next/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { addToCart, readCart, readWholesaleCode } from '@/lib/shop-cart';
+import { addToCart, cartKeyFor, readCart, readWholesaleCode, writeCart } from '@/lib/shop-cart';
 import { BuyTogether, type ShopOffer } from '@/components/shop/offers';
-import { cn } from '@/lib/utils';
 import { firstChoices, shopLine } from '@/lib/variants';
 import {
   busyLineFor, countdownFor, dayLabel, leadSentence, minutesLabel, normalizeSchedule, processingSentence, productPromise, shortRange,
@@ -146,8 +143,9 @@ export default function ProductPage() {
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [related, setRelated] = useState<any[]>([]);
   // The whole catalog with its bundles and bought-together pairs, for "Buy it together" (components/shop/offers).
-  const [together, setTogether] = useState<{ products: any[]; offers: ShopOffer[]; pairs: Record<string, string[]> } | null>(null);
+  const [together0, setTogether] = useState<{ products: any[]; offers: ShopOffer[]; pairs: Record<string, string[]> } | null>(null);
   const [showBar, setShowBar] = useState(false);
+  const site = useShopSite();
 
   // What the choices picked sell for, the same sums checkout makes (lib/variants): a variant's own price when it has
   // one, otherwise the listing's, plus what the other choices add.
@@ -231,390 +229,156 @@ export default function ProductPage() {
     setQty((q) => Math.max(min, Math.min(line?.qtyAvailable || product.qtyAvailable || 99, q + d)));
   };
 
+  const buyLabel = paused
+    ? 'Shop briefly paused'
+    : canBuy
+    ? `${sold.preorder?.isPreorder ? 'Pre-order' : sold.digital ? 'Buy now' : 'Add to bag'} · ${fmt(unitCents * qty)}`
+    : sold.preorder?.isPreorder
+    ? (sold.preorder.reason === 'closed' ? 'Pre-orders closed' : 'Run sold out')
+    : 'Sold out';
+  const status = sold.preorder?.isPreorder
+    ? (sold.preorder.open
+        ? `Pre-order${sold.preorder.etaAt ? ` · ships by ${new Date(`${sold.preorder.etaAt}T12:00:00`).toLocaleDateString()}` : ''}`
+        : sold.preorder.reason === 'closed' ? 'Pre-orders closed' : 'This run sold out')
+    : sold.digital
+    ? 'Instant access — nothing ships'
+    : canBuy
+    ? (lowNow ? `Only ${line?.qtyAvailable ?? product.qtyAvailable} left` : 'In stock')
+    : 'Sold out';
+
+  const promise = shipping && fulfil.offersShipping && canBuy && !paused && !sold.digital ? (() => {
+    const pl = {
+      preorder: sold.preorder?.isPreorder === true && sold.preorder?.open === true,
+      preorderEtaAt: sold.preorder?.etaAt || null,
+      leadDays: sold.leadDays || null,
+    };
+    const p = productPromise(pl, now, shipping.timeZone, shipping.schedule);
+    const count = shipping.schedule.countdown ? countdownFor(pl, now, shipping.timeZone, shipping.schedule) : null;
+    const lead = leadSentence(sold.leadDays || null);
+    const busy = busyLineFor(p, shipping.schedule, 'product', shipping.timeZone);
+    return (
+      <div className="p-4 text-sm" style={{ borderRadius: 'var(--shop-radius-card)', background: 'var(--shop-tint)' }}>
+        <p className="font-semibold">Ships by {dayLabel(p.shipBy, shipping.timeZone)}</p>
+        <p className="mt-0.5" style={{ color: 'var(--shop-muted)' }}>
+          {count ? `Order in the next ${minutesLabel(count.minutesLeft)}. ` : ''}
+          {p.arriveFrom ? `Arrives ${shortRange(p.arriveFrom, p.arriveTo)} with standard shipping.` : ''}
+        </p>
+        {lead ? <p className="mt-0.5" style={{ color: 'var(--shop-muted)' }}>{lead}</p> : null}
+        {busy ? <p className="mt-0.5" style={{ color: 'var(--shop-muted)' }}>{busy}</p> : null}
+      </div>);
+  })() : null;
+
+  const restock = !canBuy && !paused && !sold.preorder?.isPreorder && !sold.digital ? (
+    <RestockAlert key={line?.variantChoice?.id || 'all'} tenantId={tenantId} productId={(product as any).id || productId}
+      productName={line?.variantChoice ? `${product.name} · ${line.variantChoice.label}` : product.name} choiceId={line?.variantChoice?.id} />
+  ) : null;
+
+  const together = together0 && !wholesale ? (
+    <BuyTogether tenantId={tenantId} product={product} selections={selections} products={together0.products} offers={together0.offers} pairs={together0.pairs}
+      onAdded={(n) => { setCartCount(n); toast({ title: 'Added to your bag', description: 'Each item is in your cart at its own price; the saving shows at checkout.' }); }} />
+  ) : null;
+
+  const trust = cfg.showTrust ? [
+    sold.preorder?.isPreorder
+      ? {
+          title: sold.preorder.etaAt ? `Ships by ${new Date(`${sold.preorder.etaAt}T12:00:00`).toLocaleDateString()}` : 'Made to order',
+          sub: sold.preorder.closesAt
+            ? `Pre-orders close ${new Date(`${sold.preorder.closesAt}T12:00:00`).toLocaleDateString()}${sold.preorder.remaining !== null ? ` · ${sold.preorder.remaining} left in this run` : ''}`
+            : 'Charged today, shipped when it lands — cancel any time before it ships',
+        }
+      : sold.digital
+      ? { title: 'Instant access', sub: 'Opens in your library the moment you pay' }
+      : fulfil.offersPickup
+      ? { title: 'Fast local pickup', sub: 'Ready same day when in stock' }
+      : { title: 'Ships to you', sub: 'Live carrier rates at checkout' },
+    sold.digital
+      ? { title: 'Yours to keep', sub: 'Personal use — please don’t reshare' }
+      : { title: 'Easy returns', sub: 'Start one from your order page' },
+    { title: 'Secure checkout', sub: 'Card details never touch us' },
+  ] : null;
+
+  const faq = cfg.showFaq ? (cfg.faq && cfg.faq.length > 0 ? cfg.faq : [
+    fulfil.offersPickup
+      ? { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' }
+      : { q: 'How fast do you ship?', a: shipping ? `${processingSentence(shipping.schedule, new Date(Date.now() + shipping.offset), shipping.timeZone)} Tracking shows on your order page, with a text or email to let you know, as soon as it ships.` : 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
+    { q: 'What is the return policy?', a: 'Start a return from your order page once it has been picked up or delivered — choose the items and a reason, and the shop takes it from there.' },
+    fulfil.offersShipping
+      ? { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' }
+      : { q: 'Is this pickup only?', a: 'Yes — orders are collected in person, and you get a QR code to show when you arrive.' },
+  ]) : null;
+
+  // Buy it now: this item at the chosen quantity (not on top of what is already in the bag), then checkout. If the
+  // bag can't be saved on this device (storage blocked), say so instead of opening an empty checkout.
+  const buyNow = () => {
+    const key = cartKeyFor(product.id, selections);
+    const cart = readCart(tenantId); cart[key] = qty; writeCart(tenantId, cart);
+    if (readCart(tenantId)[key] !== qty) { toast({ title: 'Your bag could not be saved', description: 'This browser is blocking storage. Allow it for this site, or try another browser.' }); return; }
+    window.location.href = `/shop/${encodeURIComponent(tenantId)}/checkout`;
+  };
+  const qtyMin = wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1;
+  const qtyMax = sold.digital ? 1 : Math.max(qtyMin, line?.qtyAvailable || product.qtyAvailable || 99);
+
   return (
-    <div className="min-h-dvh bg-muted/5 pb-32">
+    <div className="min-h-dvh pb-28">
       <ShopHeader active="product" />
-      <div>
-        {wholesale && (
-          <div className="bg-primary text-primary-foreground">
-            <div className="max-w-4xl mx-auto px-4 py-1.5 flex items-center gap-2">
-              <Badge className="bg-primary-foreground/15 text-primary-foreground border-0 font-black text-[9px] uppercase tracking-widest">B2B</Badge>
-              <p className="text-[10px] font-black uppercase tracking-widest">Wholesale pricing active</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <main className="max-w-4xl mx-auto px-4 py-6 grid md:grid-cols-2 gap-6">
-        <div className="space-y-3">
-          <div className="aspect-square rounded-[2rem] border-2 bg-white relative overflow-hidden">
-            {product.imageUrls[imgIdx] ? (
-              <Image src={product.imageUrls[imgIdx]} alt={product.name} fill className="object-cover" />
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Package className="w-14 h-14 opacity-10" />
-              </div>
-            )}
-            {lowNow && canBuy && (
-              <Badge className="absolute top-4 left-4 bg-amber-50 text-amber-700 border-2 border-amber-100 font-black text-[8px] uppercase tracking-widest">
-                Almost gone
-              </Badge>
-            )}
-            {!canBuy && (
-              <Badge className="absolute top-4 left-4 bg-slate-100 text-slate-600 border-2 border-slate-200 font-black text-[8px] uppercase tracking-widest">
-                Sold out
-              </Badge>
-            )}
-          </div>
-          {cfg.showVideo && product.videoUrl ? (
-            <video
-              src={product.videoUrl}
-              controls
-              playsInline
-              preload="metadata"
-              className="w-full rounded-[1.5rem] border-2 bg-black"
-            >
-              Your browser can&rsquo;t play this video.
-            </video>
-          ) : null}
-
-          {product.imageUrls.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto">
-              {product.imageUrls.map((url, i) => (
-                <button key={url + i} type="button" onClick={() => setImgIdx(i)}
-                  aria-label={`Photo ${i + 1} of ${product.imageUrls.length}`}
-                  aria-pressed={imgIdx === i}
-                  className={cn('w-16 h-16 rounded-xl border-2 relative overflow-hidden shrink-0 transition-all',
-                    imgIdx === i ? 'border-primary' : 'opacity-60 hover:opacity-100')}>
-                  <Image src={url} alt="" fill className="object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
+      {wholesale && (
+        <div style={{ background: 'var(--shop-brand)', color: 'var(--shop-on-brand)' }}>
+          <p className="mx-auto max-w-6xl px-4 py-2 text-sm font-semibold">Wholesale pricing active</p>
         </div>
+      )}
 
-        <div className="space-y-5">
-          <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground">
-            <Link href={`/shop/${tenantId}`} className="hover:text-foreground">Shop</Link>
-            <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <Link href={`/shop/${tenantId}/catalog?category=${encodeURIComponent(product.category || '')}`} className="hover:text-foreground truncate">
-              {product.category || 'All'}
-            </Link>
-            <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="truncate text-foreground">{product.name}</span>
-          </nav>
+      <ProductView
+        layout={site?.layout || 'atelier'}
+        dark={!!site?.dark}
+        tenantId={tenantId}
+        shopName={shopName}
+        product={product as any}
+        priceCents={price}
+        strikeCents={showStrike ? retailLine!.baseCents : null}
+        unitCents={unitCents}
+        wholesale={wholesale}
+        canBuy={canBuy}
+        paused={paused}
+        lowNow={lowNow}
+        leftNow={line?.qtyAvailable ?? product.qtyAvailable}
+        digital={sold.digital === true}
+        buyLabel={buyLabel}
+        status={status}
+        qty={qty}
+        qtyMin={qtyMin}
+        qtyMax={qtyMax}
+        buyNowLabel={!sold.digital && canBuy && !paused ? (sold.preorder?.isPreorder ? 'Pre-order now' : 'Buy it now') : null}
+        stepQty={stepQty}
+        onAdd={add}
+        onBuyNow={buyNow}
+        selections={selections}
+        onSelect={(g, c) => { setSelections({ ...selections, [g]: c }); setQty(wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1); }}
+        showVideo={cfg.showVideo !== false}
+        promise={promise}
+        restock={restock}
+        together={together}
+        trust={trust}
+        related={cfg.showRelated ? related : []}
+        reviews={reviews}
+        reviewAvg={reviewAvg}
+        reviewCount={reviewCount}
+        faq={faq}
+      />
 
-          <div className="space-y-2">
-            <h1 className="font-black uppercase tracking-tighter text-2xl leading-tight">{product.name}</h1>
-            {product.sku && (
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">SKU {product.sku}</p>
-            )}
-            <div className="flex items-baseline gap-2">
-              <p className="font-black text-3xl text-primary">{fmt(price)}</p>
-              {showStrike && <p className="text-sm font-bold text-muted-foreground line-through">{fmt(retailLine!.baseCents)}</p>}
-            </div>
-            {wholesale && (product.wholesaleMinQty || 0) > 0 && (
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                Wholesale minimum {product.wholesaleMinQty}
-              </p>
-            )}
-            {product.description && (
-              <p className="text-sm font-bold text-muted-foreground leading-relaxed whitespace-pre-line">{product.description}</p>
-            )}
-          </div>
-
-          {(product.optionGroups || []).length > 0 && (
-            <div className="space-y-3">
-              {(product.optionGroups || []).map((g) => (
-                <div key={g.id} className="space-y-1.5">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{g.name}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(g.choices || []).map((c) => {
-                      const active = (selections[g.id] || g.choices[0]?.id) === c.id;
-                      // A variant shows its price when the variants cost different amounts, and says when it's sold out.
-                      const varies = !!g.variants && new Set(g.choices.map((x) => x.priceCents)).size > 1;
-                      const own = wholesale && c.wholesalePriceCents != null ? c.wholesalePriceCents : c.priceCents;
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          aria-pressed={active}
-                          onClick={() => setSelections({ ...selections, [g.id]: c.id })}
-                          className={cn('h-10 px-3.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
-                            active ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40',
-                            g.variants && c.inStock === false && !active && 'text-muted-foreground')}
-                        >
-                          {c.label}
-                          {g.variants ? (varies && own != null ? ` \u00b7 ${fmt(own)}` : '') : c.deltaCents ? ` +$${(c.deltaCents / 100).toFixed(2)}` : ''}
-                          {g.variants && c.inStock === false ? ' \u00b7 sold out' : ''}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 rounded-2xl border-2 p-1.5 bg-white">
-              <Button variant="ghost" size="icon" aria-label="Decrease quantity" className="h-9 w-9 rounded-xl" onClick={() => stepQty(-1)}>
-                <Minus className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-              <span className="w-8 text-center font-black font-mono">{qty}</span>
-              <Button variant="ghost" size="icon" aria-label="Increase quantity" className="h-9 w-9 rounded-xl" onClick={() => stepQty(1)}>
-                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-            </div>
-            <Button disabled={!canBuy || paused} onClick={add}
-              className="flex-1 h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20">
-              {paused
-                ? 'Shop briefly paused'
-                : canBuy
-                ? `${sold.preorder?.isPreorder ? 'Pre-order' : sold.digital ? 'Buy now' : 'Add to cart'} \u00b7 ${fmt(unitCents * qty)}`
-                : sold.preorder?.isPreorder
-                ? (sold.preorder.reason === 'closed' ? 'Pre-orders closed' : 'Run sold out')
-                : 'Sold out'}
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 text-[11px] font-bold',
-                canBuy ? 'text-foreground' : 'text-muted-foreground'
-              )}
-            >
-              <span className={cn('h-2 w-2 rounded-full', canBuy ? 'bg-emerald-600' : 'bg-muted-foreground/40')} aria-hidden="true" />
-              {sold.preorder?.isPreorder
-                ? (sold.preorder.open
-                    ? `Pre-order${sold.preorder.etaAt ? ` \u00b7 ships by ${new Date(`${sold.preorder.etaAt}T12:00:00`).toLocaleDateString()}` : ''}`
-                    : sold.preorder.reason === 'closed' ? 'Pre-orders closed' : 'This run sold out')
-                : sold.digital
-                ? 'Instant access \u2014 nothing ships'
-                : canBuy
-                ? (lowNow ? `Only ${line?.qtyAvailable ?? product.qtyAvailable} left` : 'In stock')
-                : 'Sold out'}
-            </span>
-          </div>
-
-          {shipping && fulfil.offersShipping && canBuy && !paused && !sold.digital && (() => {
-            const line = {
-              preorder: sold.preorder?.isPreorder === true && sold.preorder?.open === true,
-              preorderEtaAt: sold.preorder?.etaAt || null,
-              leadDays: sold.leadDays || null,
-            };
-            const p = productPromise(line, now, shipping.timeZone, shipping.schedule);
-            const count = shipping.schedule.countdown ? countdownFor(line, now, shipping.timeZone, shipping.schedule) : null;
-            const lead = leadSentence(sold.leadDays || null);
-            const busy = busyLineFor(p, shipping.schedule, 'product', shipping.timeZone);
-            return (
-              <div className="rounded-2xl border-2 bg-white p-4" aria-live="polite">
-                <p className="text-sm font-black">Ships by {dayLabel(p.shipBy, shipping.timeZone)}</p>
-                <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">
-                  {count ? `Order in the next ${minutesLabel(count.minutesLeft)}. ` : ''}
-                  {p.arriveFrom ? `Arrives ${shortRange(p.arriveFrom, p.arriveTo)} with standard shipping.` : ''}
-                </p>
-                {lead ? <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">{lead}</p> : null}
-                {busy ? <p className="mt-0.5 text-[12px] font-bold text-muted-foreground">{busy}</p> : null}
-              </div>);
-          })()}
-
-          {!canBuy && !paused && !sold.preorder?.isPreorder && !sold.digital && (
-            <RestockAlert key={line?.variantChoice?.id || 'all'} tenantId={tenantId} productId={(product as any).id || productId}
-              productName={line?.variantChoice ? `${product.name} · ${line.variantChoice.label}` : product.name} choiceId={line?.variantChoice?.id} />
-          )}
-
-          {cfg.showTrust && (
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              sold.preorder?.isPreorder
-                ? {
-                    icon: Truck,
-                    title: sold.preorder.etaAt
-                      ? `Ships by ${new Date(`${sold.preorder.etaAt}T12:00:00`).toLocaleDateString()}`
-                      : 'Made to order',
-                    sub: sold.preorder.closesAt
-                      ? `Pre-orders close ${new Date(`${sold.preorder.closesAt}T12:00:00`).toLocaleDateString()}${sold.preorder.remaining !== null ? ` \u00b7 ${sold.preorder.remaining} left in this run` : ''}`
-                      : 'Charged today, shipped when it lands \u2014 cancel any time before it ships',
-                  }
-                : sold.digital
-                ? { icon: Truck, title: 'Instant access', sub: 'Opens in your library the moment you pay' }
-                : fulfil.offersPickup
-                ? { icon: Truck, title: 'Fast local pickup', sub: 'Ready same day when in stock' }
-                : { icon: Truck, title: 'Ships to you', sub: 'Live carrier rates at checkout' },
-              sold.digital
-                ? { icon: RotateCcw, title: 'Yours to keep', sub: 'Personal use \u2014 please don\u2019t reshare' }
-                : { icon: RotateCcw, title: 'Easy returns', sub: 'Start one from your order page' },
-              { icon: ShieldCheck, title: 'Secure checkout', sub: 'Card details never touch us' },
-            ].map((t) => (
-              <div key={t.title} className="rounded-2xl border-2 bg-white p-3 text-center">
-                <t.icon className="mx-auto h-4 w-4 text-primary" aria-hidden="true" />
-                <p className="mt-1.5 text-[11px] font-black uppercase tracking-tight leading-tight">{t.title}</p>
-                <p className="mt-0.5 text-[11px] font-bold text-muted-foreground leading-tight">{t.sub}</p>
-              </div>
-            ))}
-          </div>
-          )}
-
-          {product.howToUse && (
-            <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
-              <CardContent className="p-5 space-y-2">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-primary" />
-                  <p className="text-[10px] font-black uppercase tracking-widest">How to use</p>
-                </div>
-                <p className="text-sm font-bold text-muted-foreground leading-relaxed whitespace-pre-line">{product.howToUse}</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {product.specs.length > 0 && (
-            <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
-              <CardContent className="p-5 space-y-3">
-                <div className="flex items-center gap-2">
-                  <ListChecks className="w-4 h-4 text-primary" />
-                  <p className="text-[10px] font-black uppercase tracking-widest">Specifications</p>
-                </div>
-                <div>
-                  {product.specs.map((s, i) => (
-                    <div key={s.label + i}
-                      className={cn('flex items-start justify-between gap-4 py-2', i > 0 && 'border-t border-dashed')}>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground shrink-0">{s.label}</p>
-                      <p className="text-xs font-bold text-right">{s.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {product.documents.length > 0 && (
-            <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
-              <CardContent className="p-5 space-y-3">
-                <div className="flex items-center gap-2">
-                  <FileDown className="w-4 h-4 text-primary" />
-                  <p className="text-[10px] font-black uppercase tracking-widest">Documents &amp; downloads</p>
-                </div>
-                <div className="space-y-2">
-                  {product.documents.map((d, i) => (
-                    <a key={d.url + i} href={d.url} target="_blank" rel="noreferrer"
-                      className="flex items-center gap-3 rounded-2xl border-2 p-3 hover:border-primary/40 transition-all">
-                      <div className="w-9 h-9 rounded-xl border-2 bg-muted/10 flex items-center justify-center shrink-0">
-                        <FileDown className="w-4 h-4 text-primary" />
-                      </div>
-                      <p className="text-xs font-black uppercase tracking-tight flex-1 min-w-0 truncate">{d.name}</p>
-                      <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Open</span>
-                    </a>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-          {together && !wholesale && product && (
-            <BuyTogether tenantId={tenantId} product={product} selections={selections} products={together.products} offers={together.offers} pairs={together.pairs}
-              onAdded={(n) => { setCartCount(n); toast({ title: 'Added to your bag', description: 'Each item is in your cart at its own price; the saving shows at checkout.' }); }} />
-          )}
-          {cfg.showRelated && related.length > 0 && (
-            <section aria-labelledby="related-heading" className="space-y-3 pt-2">
-              <h2 id="related-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-                You may also like
-              </h2>
-              <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2">
-                {related.map((r) => (
-                  <Link
-                    key={r.id}
-                    href={`/shop/${tenantId}/product/${r.id}`}
-                    className="w-36 shrink-0 overflow-hidden rounded-[1.5rem] border-2 bg-white"
-                  >
-                    <div className="relative aspect-square bg-muted/20">
-                      {r.imageUrls?.[0] ? (
-                        <Image src={r.imageUrls[0]} alt={r.name} fill sizes="144px" className="object-cover" />
-                      ) : null}
-                    </div>
-                    <div className="p-2.5">
-                      <p className="line-clamp-2 text-[11px] font-black uppercase leading-tight tracking-tight">{r.name}</p>
-                      <p className="mt-1 font-mono text-sm font-bold">{fmt(r.priceCents)}</p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {reviewCount > 0 && (
-            <section aria-labelledby="reviews-heading" className="space-y-3 pt-2">
-              <div className="flex items-baseline justify-between gap-3">
-                <h2 id="reviews-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-                  Reviews
-                </h2>
-                <p className="flex items-center gap-1.5 text-xs font-black">
-                  <Star className="h-3.5 w-3.5 fill-current text-primary" aria-hidden="true" />
-                  <span>{reviewAvg.toFixed(1)}</span>
-                  <span className="font-bold text-muted-foreground">({reviewCount})</span>
-                </p>
-              </div>
-              <div className="space-y-3">
-                {reviews.slice(0, 6).map((r) => (
-                  <div key={r.id} className="rounded-2xl border-2 bg-white p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-0.5" role="img" aria-label={`${r.rating} out of 5 stars`}>
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <Star key={n} className={cn('h-3 w-3', n <= r.rating ? 'fill-current text-primary' : 'text-muted-foreground/25')} aria-hidden="true" />
-                        ))}
-                      </div>
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                        {r.author}{r.at ? ` · ${new Date(r.at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}
-                      </p>
-                    </div>
-                    {r.title && <p className="mt-2 text-xs font-black uppercase tracking-tight">{r.title}</p>}
-                    {r.body && <p className="mt-1 text-sm font-bold leading-relaxed text-muted-foreground">{r.body}</p>}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {cfg.showFaq && (
-          <section aria-labelledby="faq-heading" className="space-y-2 pt-2">
-            <h2 id="faq-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-              Good to know
-            </h2>
-            {(cfg.faq && cfg.faq.length > 0 ? cfg.faq : [
-              fulfil.offersPickup
-                ? { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' }
-                : { q: 'How fast do you ship?', a: shipping ? `${processingSentence(shipping.schedule, new Date(Date.now() + shipping.offset), shipping.timeZone)} Tracking shows on your order page, with a text or email to let you know, as soon as it ships.` : 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
-              { q: 'What is the return policy?', a: 'Start a return from your order page once it has been picked up or delivered — choose the items and a reason, and the shop takes it from there.' },
-              fulfil.offersShipping
-                ? { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' }
-                : { q: 'Is this pickup only?', a: 'Yes — orders are collected in person, and you get a QR code to show when you arrive.' },
-            ]).map((f: { q: string; a: string }) => (
-              <details key={f.q} className="rounded-2xl border-2 bg-white px-4 py-3">
-                <summary className="cursor-pointer list-none text-xs font-black uppercase tracking-tight">
-                  {f.q}
-                </summary>
-                <p className="mt-2 text-sm font-bold leading-relaxed text-muted-foreground">{f.a}</p>
-              </details>
-            ))}
-          </section>
-          )}
-
-        </main>
-
-      {showBar && canBuy && !paused && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t-2 bg-white/95 px-4 py-3 backdrop-blur">
+      {cfg.showStickyBar !== false && showBar && canBuy && !paused && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3 backdrop-blur lg:hidden" style={{ borderColor: 'var(--shop-line)', background: 'color-mix(in srgb, var(--shop-surface) 92%, transparent)' }}>
           <div className="mx-auto flex max-w-3xl items-center gap-3">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[11px] font-black uppercase tracking-tight">{product.name}</p>
-              <p className="font-mono text-sm font-bold">{fmt(unitCents * qty)}</p>
+              <p className="truncate text-sm font-semibold">{product.name}</p>
+              <p className="text-sm tabular-nums" style={{ color: 'var(--shop-muted)' }}>{fmt(unitCents * qty)}</p>
             </div>
-            <Button onClick={add} className="h-12 shrink-0 rounded-2xl px-6 font-black uppercase text-xs tracking-widest">
-              Add to cart
-            </Button>
+            <button type="button" onClick={add} className="inline-flex h-12 shrink-0 items-center px-6 text-sm font-semibold"
+              style={{ borderRadius: 'var(--shop-radius-pill)', background: 'var(--shop-brand)', color: 'var(--shop-on-brand)' }}>
+              {sold.preorder?.isPreorder ? 'Pre-order' : sold.digital ? 'Buy now' : 'Add to bag'}
+            </button>
           </div>
         </div>
       )}
-      </div>
-    );
+    </div>
+  );
 }
