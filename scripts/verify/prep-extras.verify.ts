@@ -51,5 +51,11 @@ const db: any = strictTransactions(makeDb());
   ok(accuracyOf(many, Date.parse('2026-10-01')).tips.some((t) => /2 of 6/.test(t)), 'a tip when answers often miss');
   ok(isSoloTeam([{ id: 'o', role: 'owner' }, { id: 'r', role: 'renter' }, { id: 'x', isActive: false }]), 'an owner with renters (and a past staff member) is a one-person business');
   ok(!isSoloTeam([{ id: 'o', role: 'owner' }, { id: 'm', role: 'stylist' }]), 'owner + one provider is a team');
+  {
+    const fs2 = await import('fs'); const sweep = fs2.readFileSync('src/lib/prep-check-server.ts', 'utf8');
+    ok(sweep.includes('if (email && !emailed) {') && !sweep.includes('if (!ok && email) ok = (await sendNotification('), 'Before the visit goes by email as well as text, not only when a text fails');
+    ok(sweep.includes("cta: { label: n === 1 ? 'Answer the question' : 'Answer the questions', url }") && sweep.includes("kind: 'prep_check', appointmentId: d.id, recipientType: 'client'"), 'the email has its own button, and the text is logged on the visit');
+    ok(sweep.includes("if (r.ok && r.via === 'email') emailed = true;"), 'a text that fell back to email isn’t emailed twice');
+  }
   console.log(bad ? `${bad} failed` : 'all passed'); process.exit(bad ? 1 : 0);
 })();

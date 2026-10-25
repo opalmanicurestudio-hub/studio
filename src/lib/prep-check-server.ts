@@ -159,9 +159,22 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
         : `Hi ${first(a.clientName) || 'there'}, this is a reminder to answer a few short questions before your ${String(a.serviceName || 'visit').toLowerCase()} on ${when}, so we can reserve the right amount of time. It takes about 20 seconds: ${url}`;
       let phone = a.clientPhone || a.phone || null, email = a.clientEmail || a.email || null;
       if ((!phone || !email) && a.clientId) { try { const c: any = (await db.doc(`${T(tenantId)}/clients/${a.clientId}`).get()).data() || {}; phone = phone || c.phone || null; email = email || c.email || null; } catch { /* none */ } }
-      let ok = false; const subject = `Before your ${String(a.serviceName || 'visit').toLowerCase()}`;
-      if (phone && smsConfigured()) ok = (await sendTenantSms(db, tenantId, phone, text, { email, subject })).ok;
-      if (!ok && email) ok = (await sendNotification(db, { tenantId, channel: 'email', to: email, subject, text, kind: 'prep_check', appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' } as any)).ok;
+      // Sent by text AND email, so it reaches them wherever they look first. A text that couldn't go (no texting set up,
+      // they opted out) already falls back to email, so the email isn't sent twice.
+      const subject = `Before your ${String(a.serviceName || 'visit').toLowerCase()}`;
+      let texted = false, emailed = false;
+      if (phone && smsConfigured()) { const r: any = await sendTenantSms(db, tenantId, phone, text, { email, subject }, { kind: 'prep_check', appointmentId: d.id, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null }); if (r.ok && r.via === 'email') emailed = true; else texted = !!r.ok; }
+      if (email && !emailed) {
+        // The email reads as an email: the questions behind a button, not a text's sentence ending in a link.
+        const intro = !a.prepSentAt
+          ? `Hi ${first(a.clientName) || 'there'}, your ${String(a.serviceName || 'visit').toLowerCase()} is on ${when}${a.staffName ? ` with ${first(a.staffName)}` : ''}. Please answer ${n === 1 ? 'one short question' : `${n} short questions`} so we can reserve the right amount of time.`
+          : `Hi ${first(a.clientName) || 'there'}, this is a reminder to answer a few short questions before your ${String(a.serviceName || 'visit').toLowerCase()} on ${when}, so we can reserve the right amount of time. It takes about 20 seconds.`;
+        let studioName = ''; try { studioName = String(tenant?.businessName || tenant?.name || ''); } catch { /* cosmetic */ }
+        const { brandedEmailHtml } = await import('@/lib/email-template');
+        const html = brandedEmailHtml({ studioName: studioName || 'Your studio', title: subject, bodyLines: [intro], cta: { label: n === 1 ? 'Answer the question' : 'Answer the questions', url } } as any);
+        emailed = (await sendNotification(db, { tenantId, channel: 'email', to: email, subject, text: `${intro}\n\n${url}`, html, kind: 'prep_check', appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' } as any)).ok;
+      }
+      const ok = texted || emailed;
       if (!ok) continue;
       const stamp = new Date(now).toISOString();
       // With the first send, note the no-answer suggestion (weeks since their last visit) for the provider's Prep.
