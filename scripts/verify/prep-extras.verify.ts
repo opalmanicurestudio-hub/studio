@@ -54,8 +54,11 @@ const db: any = strictTransactions(makeDb());
   {
     const fs2 = await import('fs'); const sweep = fs2.readFileSync('src/lib/prep-check-server.ts', 'utf8');
     ok(sweep.includes('if (email && !emailed) {') && !sweep.includes('if (!ok && email) ok = (await sendNotification('), 'Before the visit goes by email as well as text, not only when a text fails');
-    ok(sweep.includes("cta: { label: n === 1 ? 'Answer the question' : 'Answer the questions', url }") && sweep.includes("kind: 'prep_check', appointmentId: d.id, recipientType: 'client'"), 'the email has its own button, and the text is logged on the visit');
-    ok(sweep.includes("if (r.ok && r.via === 'email') emailed = true;"), 'a text that fell back to email isn’t emailed twice');
+    ok(sweep.includes("cta: { label: n === 1 ? 'Answer the question' : 'Answer the questions', url }") && sweep.includes("kind: 'prep_check', appointmentId: d.id, clientId: a.clientId || null"), 'the email has its own button, and the text is logged on the visit');
+    ok(sweep.includes("channel: 'sms', to: phone, text, kind: 'prep_check'") && !sweep.includes('sendTenantSms('), 'the text goes through the one message door: wrong numbers, discreet mode and quiet hours apply');
+    ok(sweep.includes("texted = r.ok || r.held === true || r.status === 'skipped_by_policy';"), 'a text held for quiet hours counts as sent, so it isn’t queued again next run');
+    const nt = fs2.readFileSync('src/lib/notify.ts', 'utf8');
+    ok(nt.includes("error: 'held until your quiet hours end', held: true") && nt.includes('result = queued'), 'a held text says so to the caller');
   }
   console.log(bad ? `${bad} failed` : 'all passed'); process.exit(bad ? 1 : 0);
 })();

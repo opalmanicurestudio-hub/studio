@@ -128,7 +128,7 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
   const rctx = new Map<string, any>(); const { renterCtx } = await import('@/lib/prep-ctx');
   const snap = await db.collection(`${T(tenantId)}/appointments`).where('startTime', '>=', new Date(now).toISOString()).where('startTime', '<=', new Date(now + 8 * 864e5).toISOString()).get();
   const renterIds = new Set((await db.collection(`${T(tenantId)}/staff`).where('role', '==', 'renter').get()).docs.map((d: any) => d.id));
-  const { smsConfigured, sendTenantSms } = await import('@/lib/sms'); const { sendNotification } = await import('@/lib/notify');
+  const { smsConfigured } = await import('@/lib/sms'); const { sendNotification } = await import('@/lib/notify');
   const tz = tenantTimeZone(tenant); let sent = 0, nudged = 0; const { soloBusiness } = await import('@/lib/solo'); const solo = await soloBusiness(db, tenantId);
   for (const d of snap.docs) {
     const a: any = d.data() || {};
@@ -159,11 +159,14 @@ export async function prepSweep(db: any, tenantId: string, tenant: any, now = Da
         : `Hi ${first(a.clientName) || 'there'}, this is a reminder to answer a few short questions before your ${String(a.serviceName || 'visit').toLowerCase()} on ${when}, so we can reserve the right amount of time. It takes about 20 seconds: ${url}`;
       let phone = a.clientPhone || a.phone || null, email = a.clientEmail || a.email || null;
       if ((!phone || !email) && a.clientId) { try { const c: any = (await db.doc(`${T(tenantId)}/clients/${a.clientId}`).get()).data() || {}; phone = phone || c.phone || null; email = email || c.email || null; } catch { /* none */ } }
-      // Sent by text AND email, so it reaches them wherever they look first. A text that couldn't go (no texting set up,
-      // they opted out) already falls back to email, so the email isn't sent twice.
+      // Sent by text AND email, so it reaches them wherever they look first. The text goes through the same door as every
+      // other client message (lib/notify): a number reported as wrong gets nothing, a discreet business sends only
+      // "you have an update" with the link, and a text due in the shop's quiet hours is held until they end (it still
+      // counts as sent, so it isn't queued again on the next run). A text the door turned away (a number reported as
+      // wrong) also counts as handled, so it isn't tried again every five minutes; the email still goes.
       const subject = `Before your ${String(a.serviceName || 'visit').toLowerCase()}`;
       let texted = false, emailed = false;
-      if (phone && smsConfigured()) { const r: any = await sendTenantSms(db, tenantId, phone, text, { email, subject }, { kind: 'prep_check', appointmentId: d.id, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null }); if (r.ok && r.via === 'email') emailed = true; else texted = !!r.ok; }
+      if (phone && smsConfigured()) { const r = await sendNotification(db, { tenantId, channel: 'sms', to: phone, text, kind: 'prep_check', appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client', recipientId: a.clientId || null, recipientName: a.clientName || null } as any); texted = r.ok || r.held === true || r.status === 'skipped_by_policy'; }
       if (email && !emailed) {
         // The email reads as an email: the questions behind a button, not a text's sentence ending in a link.
         const intro = !a.prepSentAt

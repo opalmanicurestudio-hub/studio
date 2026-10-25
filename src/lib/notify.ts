@@ -89,6 +89,8 @@ export type NotifyResult = {
   status: 'sent' | 'failed' | 'skipped_no_provider' | 'skipped_by_policy';
   providerId?: string | null;
   error?: string;
+  /** A text held for the shop's quiet hours: it goes out when they end, so the caller counts it as on its way. */
+  held?: boolean;
 };
 
 const mask = (to: string) => {
@@ -220,9 +222,10 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
    * service or treatment shows on a lock screen. lib/client-verify, lib/health-privacy. */
   let wrongNumber = false;
   const cid = (input as any).clientId || ((input as any).recipientType === 'client' ? input.recipientId : null);
-  if (cid && (input as any).recipientType !== 'staff') {
+  // A client with no record yet (a guest booking) still gets the discreet version; only the wrong-number check needs one.
+  if ((cid || (input as any).recipientType === 'client') && (input as any).recipientType !== 'staff') {
     try {
-      const c: any = (await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() || {};
+      const c: any = cid ? (await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() || {} : {};
       const d10 = (v: any) => String(v || '').replace(/\D/g, '').slice(-10);
       if (channel === 'sms' && c.phoneReportedWrongAt && d10(c.phone) === d10(to) && kind !== 'wrong_number_ack') wrongNumber = true;
       tenantDoc = tenantDoc || (await db.doc(`tenants/${tenantId}`).get()).data() || {};
@@ -252,8 +255,11 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     result = { ok: false, status: 'skipped_by_policy', error: `${kind} is switched off in message settings` };
   } else if (quietDeferred) {
     // Held, then sent when quiet hours end (releaseHeldTexts, every 5 minutes) — not dropped.
-    try { await db.collection(`tenants/${tenantId}/heldTexts`).add({ input: JSON.parse(JSON.stringify({ ...input, afterQuiet: true })), heldAt: new Date().toISOString() }); } catch { /* the log still shows it was held */ }
-    result = { ok: false, status: 'skipped_by_policy', error: 'held until your quiet hours end' };
+    let queued = false;
+    try { await db.collection(`tenants/${tenantId}/heldTexts`).add({ input: JSON.parse(JSON.stringify({ ...input, afterQuiet: true })), heldAt: new Date().toISOString() }); queued = true; } catch { /* the log still shows it wasn't held */ }
+    result = queued
+      ? { ok: false, status: 'skipped_by_policy', error: 'held until your quiet hours end', held: true }
+      : { ok: false, status: 'failed', error: 'could not be held for after quiet hours' };
   } else if (channel === 'email') {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
