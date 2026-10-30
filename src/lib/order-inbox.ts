@@ -16,7 +16,7 @@ export const ORDER_PAGE_KINDS = new Set([
   'order_confirmation', 'order_ready', 'order_shipped', 'order_delayed', 'delay_notice', 'carrier_delivered', 'order_short',
   'order_swap', 'order_id_check', 'preorder_eta', 'preorder_cancelled', 'refund_issued', 'return_label', 'return_received',
   'claim_info_request', 'support_reply', 'support_received', 'order_uncollected', 'address_confirm', 'address_reply',
-  'shop_message', 'order_collected', 'delivery_out', 'delivery_door', 'delivery_done', 'delivery_failed',
+  'shop_message', 'order_collected', 'delivery_out', 'delivery_door', 'delivery_done', 'delivery_failed', 'delivery_near',
 ]);
 /** Sent in full as well as posted: the receipt. */
 const FULL_TOO = new Set(['order_confirmation']);
@@ -52,6 +52,7 @@ export function nudgeLine(kind: string, num: string, shop: string, subject?: str
     case 'delivery_door': return `Your driver is at the door with order ${num}.`;
     case 'delivery_done': return `Your order ${num} was delivered.`;
     case 'delivery_failed': return `We couldn’t deliver your order ${num}. See what happens next.`;
+    case 'delivery_near': return `Your driver is a few minutes away with order ${num}.`;
     default: return subject ? String(subject) : `There’s an update on your order ${num}.`;
   }
 }

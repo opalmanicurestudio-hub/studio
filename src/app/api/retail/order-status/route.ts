@@ -6,6 +6,9 @@ import { deliveryFrom } from '@/lib/delivery-plan';
 import { canChoose, choiceWords, retryCents, retryPayOpen } from '@/lib/delivery-retry';
 import { cardRefundableCents } from '@/lib/retail-money';
 import { isFollowUp as isFollowUpOrder } from '@/lib/order-family';
+import { rangeWords } from '@/lib/delivery-live';
+import { liveFor, mapKey } from '@/lib/delivery-live-server';
+import { hasMapsKey } from '@/lib/geocode-server';
 
 import { putTracking, trackingKey } from '@/lib/order-tracking';
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
@@ -316,6 +319,9 @@ export async function GET(req: NextRequest) {
     const built = await putTracking(db, tenantId, orderId, { ...order, id: orderId }, rs);
     if (built) track = { key: trackingKey(tenantId, orderId), sig: built.sig, steps: built.steps, items: built.items, bringingOut: built.bringingOut };
   } catch (e: any) { console.warn('[order-status] tracking', String(e?.message || e).slice(0, 160)); }
+  // A delivery on its way (lib/delivery-live): its driver's route, arrival estimates and (when they share it) location.
+  const liveDoc: any = order.method === 'delivery' && order.delivery?.status === 'out' && /^[A-Za-z0-9_-]{1,128}$/.test(String(order.delivery?.driverId || ''))
+    ? await db.doc(`tenants/${tenantId}/driverLocations/${String(order.delivery.driverId)}`).get().then((x: any) => (x.exists ? x.data() : null)).catch(() => null) : null;
   const body: any = {
     help, verify, linkExpiresAt: linkUntil, ...(newPass ? { newPass } : {}), track,
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
@@ -455,6 +461,21 @@ export async function GET(req: NextRequest) {
           code: passOk && ['waiting', 'out', 'failed'].includes(String(d.status || 'waiting')) && !['placed', 'cancelled', 'completed'].includes(String(order.stage)) && Number(order.pinTries || 0) < PIN_TRIES
             && proofNeeded(order, deliveryFrom(tenantSnap.exists ? (tenantSnap.data() as any)?.retailSettings : null), false).pin ? pickupPin(tenantId, pinKeyOf(order, orderId)) || null : null,
           failed: d.status === 'failed' ? { why: passOk ? String(d.failReason || '') : '', customerSide: d.failCause === 'customer' } : null,
+          // On its way (mockup 1C): when it should arrive, the stops before theirs, who's bringing it in what, and a map
+          // drawn by the server while the driver shares where they are (lib/delivery-live). Whether the note can change.
+          live: d.status === 'out' ? (() => {
+            const lv = liveFor(orderId, liveDoc);
+            const plan = deliveryFrom(rs);
+            // The map pins their address, so it's for whoever has the customer's pass, like the address itself.
+            const mk = passOk && lv?.point && hasMapsKey() ? mapKey(tenantId, orderId) : null;
+            return {
+              eta: lv?.eta ? rangeWords(lv.eta, tz) : '', stopsBefore: lv ? lv.stopsBefore : null,
+              vehicle: plan.vehicles[String(d.driverId || '')] || '', shop: String((tenantSnap.exists ? (tenantSnap.data() as any)?.businessName || (tenantSnap.data() as any)?.name : '') || ''),
+              updatedAt: lv?.at || null,
+              map: mk ? `/api/retail/delivery-map?t=${encodeURIComponent(tenantId)}&o=${encodeURIComponent(orderId)}&e=${mk.exp}&k=${mk.key}&v=${lv?.point ? `${lv.point.lat},${lv.point.lng}` : ''}` : null,
+              noteEditable: passOk && plan.dropoffNotes,
+            };
+          })() : null,
           // Back at the shop: what they can do next and what each costs or gives back (lib/delivery-retry), and a payment
           // page for another try they haven't finished.
           choices: canChoose(order) ? (() => {

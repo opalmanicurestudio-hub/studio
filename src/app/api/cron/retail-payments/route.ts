@@ -16,6 +16,7 @@ import { sweepUncollected } from '@/lib/retail-uncollected';
 import { sweepReaderPayments } from '@/lib/reader-sale';
 import { sweepAddressPays } from '@/lib/address-pay';
 import { sweepRetryPays } from '@/lib/delivery-retry-server';
+import { sweepDriverLocations } from '@/lib/delivery-live-server';
 import { finishPaidOrder } from '@/lib/retail-webhook';
 import { shareOrderTip } from '@/lib/order-tips';
 import { sweepMoneyOnTheWay } from '@/lib/money-sweep';
@@ -40,6 +41,8 @@ export async function GET(req: NextRequest) {
     // Payments and refunds whose answer was lost: after the shop's own work below, and for a business without its own
     // payments account too (booth rent and extras go through the platform's).
     const money = async () => { try { const m = await sweepMoneyOnTheWay(db, t.id, tenant); counts.moneyChecked += m.checked; counts.moneyRecorded += m.recorded; counts.moneyReleased += m.released; counts.moneyWaiting += m.waiting; counts.moneyFailed += m.failed.length; } catch { /* next run */ } };
+    // Drivers who stopped sending mid-route (lib/delivery-live-server): where they were isn't kept.
+    try { counts.driversCleared = (counts.driversCleared || 0) + await sweepDriverLocations(db, t.id); } catch { /* next run */ }
     if (!tenant.stripeAccountId && !tenant.stripeConnectAccountId) { await money(); return; }
     // Payments for a new address nobody came back from: the change goes on, or the payment page closes (lib/address-pay).
     try { counts.addressPays = (counts.addressPays || 0) + await sweepAddressPays(db, t.id, tenant); } catch { /* next run */ }

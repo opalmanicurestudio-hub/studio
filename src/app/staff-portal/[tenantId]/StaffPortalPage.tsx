@@ -28,7 +28,7 @@ import { PushPrompt } from '@/components/shared/PushPrompt';
 import { ClientStatusCard } from '@/components/staff/ClientStatusCard';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { FulfilmentPanel } from '@/components/fulfilment/FulfilmentPanel';
-import { DeliveriesTab, useDeliveryDriver } from '@/components/staff-portal/DeliveriesTab';
+import { DeliveriesTab, DriverLiveUpdates, useDeliveryDriver } from '@/components/staff-portal/DeliveriesTab';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { useRouter } from 'next/navigation';
 import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
@@ -4359,6 +4359,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               <DeliveriesTab tenantId={tenantId} firestore={firestore as any} staffMember={staffMember as any} />
             </div>
           )}
+          {canDeliver && <DriverLiveUpdates tenantId={tenantId} firestore={firestore as any} staffId={String(staffMember.id)} />}
 
           {activeTab==='today' && viewingWalkIns && (
             <div className="space-y-3">

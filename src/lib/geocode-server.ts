@@ -3,7 +3,9 @@
 //   · a lookup kept for later (the shop's own address, measured from for every delivery) asks for a result that may be
 //     stored ('permanent');
 //   · a customer's address at checkout is looked up for that checkout only and never kept, here or on the order: the
-//     answer gives the zone, and checkout carries the distance in its own signed note so it isn't asked twice.
+//     answer gives the zone, and checkout carries the distance in its own signed note so it isn't asked twice;
+//   · once the order is out for delivery, its address is looked up again as a result that may be kept, once
+//     (lib/delivery-live-server), for the driver's arrival times and the customer's map.
 // Not found: null. No key, a slow answer or Mapbox refusing: 'down', so the caller can say the map can't be reached
 // rather than that the address doesn't exist.
 

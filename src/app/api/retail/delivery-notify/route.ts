@@ -5,6 +5,7 @@ import { sendNotification } from '@/lib/notify';
 import { linkOrigin } from '@/lib/app-origin';
 import { deliveryFrom } from '@/lib/delivery-plan';
 import { doorWords, failReason, streetLines, tryKey } from '@/lib/delivery-run';
+import { FRESH_MS } from '@/lib/delivery-live';
 import { formatTime, tenantTimeZone } from '@/lib/tenant-time';
 
 // ─── /api/retail/delivery-notify ─────────────────────────────────────────────
@@ -14,6 +15,7 @@ import { formatTime, tenantTimeZone } from '@/lib/tenant-time';
 //   done    — delivered (left where they asked, with the photo on the order page)
 //   failed  — brought back to the shop, and why; on the order page they choose another try, pickup or cancelling
 //             (lib/delivery-retry)
+//   near    — the driver is a few minutes away (their next stop, from where they are: lib/delivery-live)
 // Like every order message it lands on the order page in full (lib/order-inbox), and the phone gets a short nudge with
 // the link (the door message keeps its own words, as it asks for an answer). Each moment goes once per try: the order
 // records it in a transaction before anything is sent, and gives the mark back when nothing reached them, so the
@@ -23,8 +25,8 @@ import { formatTime, tenantTimeZone } from '@/lib/tenant-time';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type Moment = 'out' | 'door' | 'done' | 'failed';
-const KIND: Record<Moment, string> = { out: 'delivery_out', door: 'delivery_door', done: 'delivery_done', failed: 'delivery_failed' };
+type Moment = 'out' | 'door' | 'done' | 'failed' | 'near';
+const KIND: Record<Moment, string> = { out: 'delivery_out', door: 'delivery_door', done: 'delivery_done', failed: 'delivery_failed', near: 'delivery_near' };
 
 export async function POST(req: NextRequest) {
   let release: (() => Promise<void>) | null = null;
@@ -32,7 +34,7 @@ export async function POST(req: NextRequest) {
   try {
     const b: any = await req.json().catch(() => ({}));
     const tenantId = String(b.tenantId || '').trim(); const orderId = String(b.orderId || '').trim();
-    const moment = (['out', 'door', 'done', 'failed'].includes(String(b.moment)) ? String(b.moment) : '') as Moment | '';
+    const moment = (['out', 'door', 'done', 'failed', 'near'].includes(String(b.moment)) ? String(b.moment) : '') as Moment | '';
     const tryId = /^t\d{1,3}$/.test(String(b.try || '')) ? String(b.try) : 't1';
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(tenantId) || !/^[A-Za-z0-9_-]{1,80}$/.test(orderId) || !moment) return NextResponse.json({ ok: false, error: 'Missing details' }, { status: 400 });
     if (!(await staffOrServer(req, tenantId))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });
@@ -40,6 +42,15 @@ export async function POST(req: NextRequest) {
     const ref = db.doc(`tenants/${tenantId}/retailOrders/${orderId}`);
     // Delivered happens once, whatever try it was on.
     const mark = moment === 'done' ? 'done' : `${moment}_${tryId}`;
+    // "A few minutes away" only while it's still true: this is the driver's next stop, from where they were just now (a
+    // text that couldn't go at first is never sent an hour later).
+    let nearNow = true;
+    if (moment === 'near') {
+      const pre: any = (await ref.get()).data() || {};
+      const did = String(pre.delivery?.driverId || '');
+      const live: any = /^[A-Za-z0-9_-]{1,128}$/.test(did) ? (await db.doc(`tenants/${tenantId}/driverLocations/${did}`).get()).data() || null : null;
+      nearNow = !!live && Array.isArray(live.stops) && live.stops[0] === orderId && Date.now() - (Date.parse(String(live.pointAt || '')) || 0) <= FRESH_MS;
+    }
     const stamp = new Date().toISOString();
     const o: any = await db.runTransaction(async (txn: any) => {
       const s = await txn.get(ref); if (!s.exists) return null;
@@ -49,6 +60,7 @@ export async function POST(req: NextRequest) {
       // Still true now: the same try, and the step it's about.
       const still = moment === 'done' ? del.status === 'delivered'
         : tryKey(d) !== tryId ? false
+        : moment === 'near' ? del.status === 'out' && nearNow
         : moment === 'out' ? del.status === 'out'
         : moment === 'door' ? del.status === 'out' && !!del.doorAt
         : del.status === 'failed';
@@ -74,15 +86,16 @@ export async function POST(req: NextRequest) {
     // The words never carry the customer's own note (a gate code, say): the order page shows that only to them.
     const text = moment === 'out' ? `Hi ${first}, ${driver} is bringing your order ${num} from ${shop} now${vehicle ? ` (${vehicle})` : ''}${when}. Follow it here: ${link}`
       : moment === 'door' ? `Hi ${first}, your driver is at ${street} with order ${num} and ${doorWords(d.doorCode)}. Answer on your order page in the next few minutes: ${link}`
+      : moment === 'near' ? `Hi ${first}, ${driver === 'Our driver' ? 'your driver' : driver} is a few minutes away with your order ${num} from ${shop}${vehicle ? ` (${vehicle})` : ''}. Follow along here: ${link}`
       : moment === 'done' ? `Hi ${first}, your order ${num} from ${shop} was delivered${d.handedTo === 'left' ? ' and left where you asked' : ''}.${d.photoUrl ? ' There’s a photo on your order page' : ' Your order page has the details'}: ${link}`
       : `Hi ${first}, we couldn’t deliver your order ${num} today${why ? ` (${why})` : ''}. It’s back at ${shop}. Choose another time, pick it up or cancel on your order page: ${link}`;
-    const subject = moment === 'out' ? `Your order ${num} is on its way` : moment === 'door' ? `Your driver is at the door with order ${num}` : moment === 'done' ? `Your order ${num} was delivered` : `We couldn’t deliver your order ${num}`;
+    const subject = moment === 'near' ? `Your driver is a few minutes away with order ${num}` : moment === 'out' ? `Your order ${num} is on its way` : moment === 'door' ? `Your driver is at the door with order ${num}` : moment === 'done' ? `Your order ${num} was delivered` : `We couldn’t deliver your order ${num}`;
 
     let failed = false;
     const to = String(o.customerPhone || '').trim();
     if (to) {
-      // On its way and at the door are about right now: never held for the shop's quiet hours.
-      const r = await sendNotification(db, { tenantId, channel: 'sms', to, text, kind: KIND[moment], recipientType: 'client', recipientId: orderId, orderId, essential: moment === 'out' || moment === 'door' } as any);
+      // On its way, a few minutes away and at the door are about right now: never held for the shop's quiet hours.
+      const r = await sendNotification(db, { tenantId, channel: 'sms', to, text, kind: KIND[moment], recipientType: 'client', recipientId: orderId, orderId, essential: moment === 'out' || moment === 'door' || moment === 'near' } as any);
       sent = r.ok === true; if (r.status === 'failed') failed = true;
     }
     if (!sent && o.customerEmail) {

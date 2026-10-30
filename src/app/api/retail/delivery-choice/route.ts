@@ -5,6 +5,8 @@
 //   { action: 'retry_paid', sessionId }   back from paying: the try is booked (the paid Stripe page is its own proof)
 //   { action: 'retry_cancel' }            they left the payment page: it closes and the place in the window goes back
 //   { action: 'pickup' }                  they'll pick it up at the shop instead
+//   { action: 'note', note }              their note for the driver, changed before or while it's on its way (mockup 1C;
+//                                         the driver's app shows it as it changes)
 // Cancelling is api/retail/self-serve's cancel, which knows a failed delivery. Booking a try, leaving its payment and
 // switching to pickup take the customer's pass too (lib/order-pass), like any change to how they get their order.
 import { NextRequest, NextResponse, after } from 'next/server';
@@ -19,8 +21,8 @@ import { linkOrigin } from '@/lib/app-origin';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-const ACTIONS = ['windows', 'retry', 'retry_paid', 'retry_cancel', 'pickup'];
-const NEEDS_PASS = ['retry', 'retry_cancel', 'pickup'];
+const ACTIONS = ['windows', 'retry', 'retry_paid', 'retry_cancel', 'pickup', 'note'];
+const NEEDS_PASS = ['retry', 'retry_cancel', 'pickup', 'note'];
 const bad = (error: string, status = 400, extra: Record<string, any> = {}) => NextResponse.json({ ok: false, error, ...extra }, { status });
 
 export async function POST(req: NextRequest) {
@@ -61,6 +63,23 @@ async function handle(req: NextRequest, b: any, tenantId: string, orderId: strin
       return NextResponse.json(r, { status: r.result === 'not_found' ? 404 : 200 });
     }
     if (action === 'retry_cancel') return NextResponse.json(await cancelRetryPay(db, tenantId, orderId, { tenant }));
+    if (action === 'note') {
+      if (!deliveryFrom(tenant.retailSettings).dropoffNotes) return bad('This shop doesn’t take notes for the driver. Send the shop a message on this page instead.', 409);
+      const note = String(b.note ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      const ref = db.doc(`tenants/${tenantId}/retailOrders/${orderId}`);
+      const r = await db.runTransaction(async (tx: any) => {
+        const cur: any = (await tx.get(ref)).data() || {};
+        if (cur.method !== 'delivery' || !['waiting', 'out'].includes(String(cur.delivery?.status || 'waiting')) || ['completed', 'cancelled', 'placed'].includes(String(cur.stage || ''))) return { ok: false };
+        if (String(cur.delivery?.note || '') === note) return { ok: true, same: true };
+        const now = new Date().toISOString();
+        tx.update(ref, { 'delivery.note': note, 'delivery.noteChangedAt': now });
+        const ev = ref.collection('events').doc();
+        tx.set(ev, { id: ev.id, type: 'note', at: now, actorId: 'customer', actorName: cur.customerName || 'Customer', meta: { kind: 'delivery_note', text: note ? `Changed the note for the driver: “${note}”` : 'Took off the note for the driver' } });
+        return { ok: true };
+      });
+      if (!r.ok) return bad('The note can’t be changed now. Send the shop a message on this page instead.', 409);
+      return NextResponse.json({ ok: true, note, message: note ? 'Your driver sees the new note.' : 'The note is off.' });
+    }
     // Pick it up instead: a payment page left open for another try closes first (paid meanwhile, the try is booked).
     if (retryPayOpen(order)) {
       const f = await cancelRetryPay(db, tenantId, orderId, { tenant });

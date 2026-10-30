@@ -739,6 +739,12 @@ service cloud.firestore {
         allow write: if false;
       }
     }
+    // WHERE A DRIVER IS, while they have stops out (lib/delivery-live-server): their route, each stop's arrival estimate
+    // and, when they share it, their last location. Only the server reads or writes it; the customer's order page gets a
+    // rounded, short-lived view of it through the server, and nobody else sees it.
+    match /tenants/{tenantId}/driverLocations/{staffId} {
+      allow read, write: if false;
+    }
     // ACCESS TO PURCHASED DOWNLOADS (lib/entitlements): one record per buyer per item, with the license and window sold
     // and the downloads used. The team reads them; only the server writes them (payment, the library, the owner's
     // extend and revoke), so no browser can add downloads, extend access or reopen a revoked item.
@@ -806,7 +812,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache', 'entitlements',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations',
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',

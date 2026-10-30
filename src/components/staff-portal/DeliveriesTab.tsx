@@ -7,6 +7,9 @@
 //     way), then the proof the shop asks for (a photo, the customer's code on big orders) and Delivered.
 //   · Can't deliver: what happened (the customer is messaged straight away and has a few minutes to answer here), then
 //     leave it where they asked, bring it back to the shop, or go on and come back.
+// While the driver has stops out, the staff app keeps the customers' order pages up to date (DriverLiveUpdates, below,
+// lib/delivery-live): the route and arrival times, and roughly where the driver is unless they turn that off here. It
+// stops when the last stop is done.
 import * as React from 'react';
 import { collection, doc, limit, query, where } from 'firebase/firestore';
 import { useCollection, useDoc, useMemoFirebase } from '@/firebase';
@@ -16,6 +19,7 @@ import { oneLine } from '@/lib/address-flow';
 import { deliveryFrom, type DeliveryPlan } from '@/lib/delivery-plan';
 import { DOOR_WAIT_MS, FAIL_REASONS, mapsLink, proofNeeded, runFor, stopHint, streetLines, type FailCode } from '@/lib/delivery-run';
 import { formatTime, tenantTimeZone } from '@/lib/tenant-time';
+import { SEND_EVERY_MS } from '@/lib/delivery-live';
 import { markAtDoor, markDelivered, markDeliveryFailed, markOutForDelivery, skipDeliveryStop } from '@/lib/fulfil-client';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', OK = '#1f7a4d', WARN = '#b45309';
@@ -35,6 +39,75 @@ export function useDeliveryDriver(firestore: any, tenantId: string, staffId: str
   const plan = tenant ? deliveryFrom(tenant.retailSettings) : null;
   const isDriver = !!plan?.on && plan.drivers.includes(staffId);
   return { plan, tenant, isDriver, canDeliver: !!plan?.on && (isDriver || plan.drivers.length === 0) };
+}
+
+const SHARE_KEY = 'cf-share-location';
+type Sharing = 'off' | 'asking' | 'on' | 'blocked' | 'none';
+
+// The driver's choice to share where they are (this device) and how it's going, shared by the staff app's updates
+// (DriverLiveUpdates, always running while they have stops out) and the switch on the Deliveries tab.
+const live = {
+  share: ((): boolean => { try { return typeof localStorage === 'undefined' || localStorage.getItem(SHARE_KEY) !== '0'; } catch { return true; } })(),
+  sharing: 'off' as Sharing,
+  subs: new Set<() => void>(),
+};
+const changed = () => live.subs.forEach((f) => f());
+function useLive(): { share: boolean; sharing: Sharing; setShare: (v: boolean) => void } {
+  const [, bump] = React.useState(0);
+  React.useEffect(() => { const f = () => bump((n) => n + 1); live.subs.add(f); return () => { live.subs.delete(f); }; }, []);
+  return { share: live.share, sharing: live.sharing, setShare: (v: boolean) => { live.share = v; try { localStorage.setItem(SHARE_KEY, v ? '1' : '0'); } catch { /* this device only */ } changed(); } };
+}
+const setSharing = (v: Sharing) => { if (live.sharing !== v) { live.sharing = v; changed(); } };
+
+/**
+ * KEEPS THE CUSTOMERS' ORDER PAGES UP TO DATE while this driver has stops out (api/retail/driver-location): every half
+ * minute, or when they've moved about a block, with where they are when they share it (a fix from the last minute). Runs
+ * for the whole staff app, whichever tab is open; once the last stop is done, one last word clears it.
+ */
+export function DriverLiveUpdates({ tenantId, firestore, staffId }: { tenantId: string; firestore: any; staffId: string }) {
+  const q = useMemoFirebase(() => (firestore && tenantId && staffId ? query(collection(firestore, `tenants/${tenantId}/retailOrders`), where('delivery.driverId', '==', staffId), where('delivery.status', '==', 'out'), limit(60)) : null), [firestore, tenantId, staffId]);
+  const { data } = useCollection<any>(q);
+  const active = (data || []).some((o: any) => o.method === 'delivery' && ['packed', 'ready'].includes(String(o.stage)));
+  const { share } = useLive();
+  const last = React.useRef<{ at: number; lat?: number; lng?: number }>({ at: 0 });
+  const pos = React.useRef<GeolocationPosition | null>(null);
+  const wasActive = React.useRef(false);
+  const send = React.useCallback(async (force: boolean) => {
+    const p = live.share && pos.current && Date.now() - pos.current.timestamp <= 60e3 ? pos.current : null;
+    const wants = live.share && live.sharing !== 'blocked';
+    const now = Date.now();
+    const moved = p && last.current.lat !== undefined ? Math.abs(p.coords.latitude - (last.current.lat as number)) + Math.abs(p.coords.longitude - (last.current.lng as number)) > 0.0015 : !!p;
+    if (!force && now - last.current.at < SEND_EVERY_MS && !moved) return;
+    last.current = { at: now, ...(p ? { lat: p.coords.latitude, lng: p.coords.longitude } : {}) };
+    try {
+      await fetch('/api/retail/driver-location', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) },
+        // How old the fix is, as this phone measures it (so its clock being off doesn't matter). Still sharing without a
+        // new one (standing at a door): the last good location stands for a few minutes.
+        body: JSON.stringify({ tenantId, sharing: wants, ...(p ? { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, fixAgeMs: Math.max(0, Date.now() - p.timestamp) } : {}) }) });
+    } catch { /* the next update tries again */ }
+  }, [tenantId]);
+  React.useEffect(() => {
+    if (!active) { if (wasActive.current) { wasActive.current = false; pos.current = null; void send(true); } setSharing('off'); return; }
+    wasActive.current = true;
+    let watch: number | null = null;
+    if (share && typeof navigator !== 'undefined' && navigator.geolocation) {
+      setSharing('asking');
+      watch = navigator.geolocation.watchPosition(
+        (p) => { pos.current = p; setSharing('on'); void send(false); },
+        (e) => { pos.current = null; setSharing(e.code === 1 ? 'blocked' : 'none'); },
+        { enableHighAccuracy: true, maximumAge: 15e3, timeout: 20e3 });
+    } else { pos.current = null; setSharing(share ? 'none' : 'off'); }
+    void send(true);
+    // A phone standing still may not report a new place on its own: each half minute it's asked for one, unless it
+    // just reported.
+    const tick = setInterval(() => {
+      const recent = pos.current && Date.now() - pos.current.timestamp < 20e3;
+      if (share && navigator.geolocation && !recent) navigator.geolocation.getCurrentPosition((p) => { pos.current = p; void send(true); }, () => void send(true), { enableHighAccuracy: true, maximumAge: 0, timeout: 10e3 });
+      else void send(true);
+    }, SEND_EVERY_MS);
+    return () => { clearInterval(tick); if (watch !== null) navigator.geolocation.clearWatch(watch); };
+  }, [active, share, send]);
+  return null;
 }
 
 function when(o: any, tz: string): string {
@@ -58,6 +131,7 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
   const q = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/retailOrders`), where('method', '==', 'delivery'), where('stage', 'in', ['packed', 'ready']), limit(200)) : null), [firestore, tenantId]);
   const { data: orders, isLoading } = useCollection<any>(q);
   const { toTake, route } = React.useMemo(() => runFor(orders || [], me), [orders, me]);
+  const live = useLive();
   const [view, setView] = React.useState<{ kind: 'run' } | { kind: 'stop' | 'fail'; id: string; left?: boolean }>({ kind: 'run' });
   const [picked, setPicked] = React.useState<Set<string>>(new Set());
   const [busy, setBusy] = React.useState('');
@@ -109,6 +183,23 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
         </section>)}
 
       {route.length > 0 && (
+        <section aria-label="Your location" className="flex items-start gap-3 p-4" style={card}>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold">Share my location</span>
+            <span className="block text-[13px]" style={{ color: live.sharing === 'blocked' ? WARN : MUTED }}>
+              {live.sharing === 'blocked' ? 'Location is blocked for this app. Allow it in your browser settings to share it.'
+                : live.sharing === 'none' ? 'Your location isn’t available right now. Customers still see how many stops are before theirs.'
+                : live.share ? 'Customers see roughly where you are, and when you should arrive, only while their order is on its way. It stops when your last stop is done. It updates while this app is open, so come back to it between stops.'
+                : 'Off. Customers see how many stops are before theirs, not where you are.'}
+            </span>
+          </span>
+          <button type="button" role="switch" aria-checked={live.share} aria-label="Share my location" onClick={() => live.setShare(!live.share)}
+            className="relative mt-0.5 h-7 w-12 flex-none rounded-full" style={{ background: live.share ? INK : '#c9cbcf' }}>
+            <span className="absolute top-[3px] h-[22px] w-[22px] rounded-full transition-all" style={{ left: live.share ? 23 : 3, background: '#fff' }} />
+          </button>
+        </section>)}
+
+      {route.length > 0 && (
         <section aria-labelledby="route-h" className="space-y-2">
           <h3 id="route-h" className="text-[13px] font-semibold" style={{ color: MUTED }}>Your route</h3>
           {route.map((o: any, i: number) => (
@@ -128,7 +219,7 @@ export function DeliveriesTab({ tenantId, firestore, staffMember }: { tenantId: 
       {toTake.length > 0 && (
         <div className="space-y-2">
           <Btn kind="primary" className="w-full" disabled={!picked.size || !!busy} onClick={() => void start()}>{busy === 'start' ? 'Starting…' : picked.size ? `Start with ${picked.size} order${picked.size === 1 ? '' : 's'}` : 'Start the route'}</Btn>
-          <p className="text-center text-[13px]" style={{ color: MUTED }}>Tick each order as it goes in the van. Starting tells each customer you’re on the way.</p>
+          <p className="text-center text-[13px]" style={{ color: MUTED }}>Tick each order as it goes in the van. Starting tells each customer you’re on the way. Customers see roughly where you are only while you’re on their delivery.</p>
         </div>)}
     </div>);
 }
@@ -186,7 +277,7 @@ function StopScreen({ tenantId, order, plan, tz, index, total, startLeft, onBack
         <p className="text-[13px] font-semibold" style={{ color: MUTED }}>Order {num(order)} · {itemsOf(order)} item{itemsOf(order) === 1 ? '' : 's'}{when(order, tz) ? ` · ${when(order, tz)}` : ''}</p>
         <p className="text-[24px] font-light tracking-[-0.01em]">{shortName(order.customerName)}</p>
         {lines.map((l, i) => <p key={i} className="text-[16px]">{l}</p>)}
-        {d.note && <p className="rounded-xl px-3 py-2 text-[15px]" style={{ background: SOFT }}>“{d.note}”</p>}
+        {d.note && <p className="rounded-xl px-3 py-2 text-[15px]" style={{ background: SOFT }}>“{d.note}”{d.noteChangedAt && d.outAt && d.noteChangedAt > d.outAt ? <span className="block text-[13px] font-semibold" style={{ color: WARN }}>{name} changed this while you were on the way</span> : null}</p>}
         <div className="grid grid-cols-2 gap-2 pt-1">
           <a href={mapsLink(oneLine(order.shippingAddress), apple)} target="_blank" rel="noreferrer" className="flex h-12 items-center justify-center rounded-full text-[15px] font-semibold" style={{ border: `1px solid ${LINE}` }}>Open in Maps</a>
           <Btn kind="line" style={{ borderColor: LINE }} onClick={() => setMsg((m) => ({ ...m, open: !m.open }))}>Message {name}</Btn>

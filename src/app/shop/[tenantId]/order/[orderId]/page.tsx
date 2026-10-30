@@ -27,6 +27,7 @@ import { OrderContactCard } from '@/components/shop/OrderContactCard';
 import { OrderVerify } from '@/components/shop/OrderVerify';
 import { PickupCollector } from '@/components/shop/PickupCollector';
 import { DeliveryChoices, type DeliveryChoicesData } from '@/components/shop/DeliveryChoices';
+import { DeliveryLive, type DeliveryLiveData } from '@/components/shop/DeliveryLive';
 import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
@@ -64,7 +65,8 @@ interface StatusOrder {
   pickupAt?: string; tipCents?: number;
   delivery?: { when: string; status: string; outAt: string | null; deliveredAt: string | null; failedAt: string | null; driver: string | null; note: string;
     photoUrl?: string | null; left?: string | null; code?: string | null; failed?: { why: string; customerSide: boolean } | null;
-    choices?: DeliveryChoicesData | null; retry?: { label: string; cents: number } | null; retryPay?: { status: string; cents: number; why: string } | null } | null;
+    choices?: DeliveryChoicesData | null; retry?: { label: string; cents: number } | null; retryPay?: { status: string; cents: number; why: string } | null;
+    live?: DeliveryLiveData | null } | null;
   switchedFromDelivery?: { at: string | null; feeBackCents: number } | null;
   deliveryTryBack?: { cents: number; done: boolean } | null; deliveryFeeKeptCents?: number; pendingRefundCents?: number;
   businessName: string; poNumber: string; customerName: string;
@@ -1320,7 +1322,22 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {isDelivery && order.delivery && order.stage !== 'cancelled' && (
+        {isDelivery && order.delivery && order.stage !== 'cancelled' && order.delivery.status === 'out' && order.delivery.live && (
+          <div className="space-y-3">
+            <DeliveryLive live={order.delivery.live} driver={order.delivery.driver} orderNumber={order.orderNumber} when={order.delivery.when}
+              address={order.shippingAddress ? [order.shippingAddress.line1, order.shippingAddress.line2].filter(Boolean).join(', ') : ''} note={order.delivery.note}
+              onMessage={() => { document.getElementById('order-help')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+              saveNote={async (note) => { const d = await deliveryChoice({ action: 'note', note }); load(); return String(d.message || 'Saved.'); }} />
+            {order.delivery.code && (
+              <div className="rounded-[2rem] border-2 bg-white px-5 py-4">
+                <p className="text-[12px] font-bold text-muted-foreground">Your delivery code</p>
+                <p className="text-2xl font-black tracking-[0.3em]" aria-label={`Delivery code ${order.delivery.code.split('').join(' ')}`}>{order.delivery.code}</p>
+                <p className="text-[12px] font-bold text-muted-foreground">The driver asks for it at the door. Only give it to them when you have your order.</p>
+              </div>)}
+          </div>
+        )}
+
+        {isDelivery && order.delivery && order.stage !== 'cancelled' && !(order.delivery.status === 'out' && order.delivery.live) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-2">
               <div className="flex items-center gap-2">

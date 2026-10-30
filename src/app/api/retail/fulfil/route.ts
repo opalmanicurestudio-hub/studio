@@ -58,6 +58,16 @@ function sendMessage(kind: MessageKind, a: { orderId?: string; lineId?: string; 
     if (id) after(async () => { await deliverMessage(db, id, { base: c.base, auth: c.auth }).catch((e: any) => console.warn('[fulfil] message', id, String(e?.message || e).slice(0, 160))); });
   }).catch((e: any) => console.error('[fulfil] message not queued', kind, String(e?.message || e).slice(0, 160))));
 }
+/** After a delivery step, the driver's route as the order pages see it (lib/delivery-live-server), straight away. */
+function refreshRoute(db: any, tenantId: string, orderId: string): void {
+  const job = async () => {
+    const o: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
+    const { refreshDriver } = await import('@/lib/delivery-live-server');
+    if (o.delivery?.driverId) await refreshDriver(db, tenantId, String(o.delivery.driverId));
+  };
+  try { after(() => job().catch(() => null)); } catch { void job().catch(() => null); }
+}
+
 F.setFulfilEffects({
   // The shop's own alert about a customer left waiting comes from the board (api/retail/curbside-notify), not a step.
   curbside: (t, orderId, moment) => { if (moment !== 'staff_escalation') sendMessage(moment === 'ready' ? 'curbside_ready' : 'curbside_out', { orderId }, t); },
@@ -187,6 +197,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         }
         out = await F.markOutForDelivery(db, tenantId, orderId, actor);
         if (out?.ok && out.tries && !/^Already/.test(out.message || '')) sendMessage('delivery_out', { orderId, key: `t${out.tries}` });
+        if (out?.ok) refreshRoute(db, tenantId, orderId);
         break;
       }
       case 'deliveryDone': {
@@ -194,6 +205,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         // Only a manager marks it delivered without the proof the shop asks for (from the back office).
         out = await F.markDelivered(db, tenantId, orderId, actor, { photoUrl: s(b.photoUrl, 1200) || null, left: b.left === true, where: s(b.where, 120), pin: s(b.pin, 12), override: b.override === true && boss, manager: boss });
         if (out?.ok && !/^Already/.test(out.message || '')) sendMessage('delivery_done', { orderId });
+        if (out?.ok) refreshRoute(db, tenantId, orderId);
         break;
       }
       case 'deliveryFailed': {
@@ -201,6 +213,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         const code = failReason(b.code)?.code || null;
         out = await F.markDeliveryFailed(db, tenantId, orderId, actor, s(b.reason, 140), code, boss);
         if (out?.ok && out.tries) sendMessage('delivery_failed', { orderId, key: `t${out.tries}` });
+        if (out?.ok) refreshRoute(db, tenantId, orderId);
         break;
       }
       case 'deliveryDoor': {
@@ -210,7 +223,7 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         if (out?.ok && out.first && out.tries) sendMessage('delivery_door', { orderId, key: `t${out.tries}` });
         break;
       }
-      case 'deliverySkip': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markDeliverySkip(db, tenantId, orderId, actor); break; }
+      case 'deliverySkip': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markDeliverySkip(db, tenantId, orderId, actor); if (out?.ok) refreshRoute(db, tenantId, orderId); break; }
       case 'handoffNoScan': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffWithoutScan(db, tenantId, orderId, s(b.verifiedBy, 140) || 'Checked name and phone', actor); break; }
       case 'splitReady': { const m = need1(orderId, 'order'); if (m) return m; out = await F.splitReadyFromWaiting(db, tenantId, orderId, actor); break; }
       case 'releaseBackorder': { const m = need1(orderId, 'order'); if (m) return m; out = await F.releaseBackorder(db, tenantId, orderId, actor, { onlyIfCovered: b.onlyIfCovered !== false }); break; }
