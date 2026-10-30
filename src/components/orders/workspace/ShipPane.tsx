@@ -107,7 +107,7 @@ export function PickupPane({ fs, tenantId, order, actor, shopZone, rs, onHandove
   if (['paid', 'picking', 'packed'].includes(stage)) return (
     <div className="rounded-2xl p-4" style={{ background: C.soft }}>
       <p className="m-0 text-[15px] font-semibold">Once it’s packed</p>
-      <p className="m-0 mt-1 text-[14px]" style={muted}>It gets a shelf spot, and {who} is told it’s ready{order.method === 'curbside' ? ', with a link to say when they’re outside' : ''}.{order.pickupAt ? ` They asked for ${formatTime(order.pickupAt, shopZone)}.` : ''}</p>
+      <p className="m-0 mt-1 text-[14px]" style={muted}>It gets a shelf spot, and {who} is told it’s ready{order.method === 'curbside' ? ', with a link to say when they’re outside' : ''}.{(order as any).pickupWindow?.label ? ` They chose ${(order as any).pickupWindow.label}.` : order.pickupAt && formatTime(order.pickupAt, shopZone) ? ` They asked for ${formatTime(order.pickupAt, shopZone)}.` : order.pickupAt ? ` They asked for ${order.pickupAt}.` : ''}</p>
     </div>);
   if (['completed'].includes(stage)) return (
     <div className="rounded-2xl p-4" style={{ background: C.okSoft }}>

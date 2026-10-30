@@ -107,6 +107,7 @@ interface CheckoutBody {
   // hidden inside the repo-wide noise. Declaring them changes no behaviour.
   tipCents?: number;
   pickupAt?: string;
+  pickupWindowKey?: string;      // a pickup window from /api/retail/pickup-times, when the shop has set its hours (lib/pickup-slots)
   shippingQuote?: { amountCents?: number; service?: string; carrier?: string; exp?: number; token?: string; days?: number | null; facts?: string };
   tenantId?: string;
   items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
@@ -215,6 +216,10 @@ async function handleCheckout(req: NextRequest) {
   // An order paid in full here, with store credit or a gift card (no card payment to wait for), is paid once however
   // often the request comes: a retry after a lost answer is shown the order that was paid, never a second one.
   const ckey = /^[A-Za-z0-9_-]{16,64}$/.test(String(body.checkoutKey || '')) ? String(body.checkoutKey) : '';
+  // The same checkout tried again (a gift card typo, back from the payment page) replaces its earlier unpaid try's
+  // place in a pickup window rather than competing with it (lib/pickup-slots-server holdsPlace).
+  const { checkoutSlotHash } = await import('@/lib/pickup-slots-server');
+  const ckeyHash = checkoutSlotHash(tenantId, ckey);
   const keyRef = ckey ? db.doc(`tenants/${tenantId}/private/checkoutKeys/keys/${createHash('sha256').update(`${tenantId}:${ckey}`).digest('hex').slice(0, 40)}`) : null;
   const paidByKey = async (): Promise<any | null> => {
     if (!keyRef) return null;
@@ -578,7 +583,24 @@ async function handleCheckout(req: NextRequest) {
     if (off) l.promoCents = off;
     if (offers.byLine[id]) { l.offerCents = offers.byLine[id]; l.offerIds = offers.offersByLine[id] || []; }
   }
-  const pickupAt = String(body.pickupAt || '').slice(0, 40);
+  let pickupAt = String(body.pickupAt || '').slice(0, 40);
+  // A shop that has set its pickup hours (lib/pickup-slots) takes a real window: checked here, and counted again in the
+  // same step the order is written, so a window never takes more than it can.
+  let pickupWin: { key: string; start: string; end: string; label: string; cap: number | null } | null = null;
+  if (!digitalOnly && (method === 'counter' || method === 'curbside')) {
+    const { shopPickup, chosenWindow } = await import('@/lib/pickup-slots-server');
+    const { view, booked } = await shopPickup(db, tenantId, tenant, Date.now(), ckeyHash);
+    if (view.scheduled) {
+      const key = String(body.pickupWindowKey || '').slice(0, 20);
+      if (!key) return NextResponse.json({ error: view.reason || 'Choose a pickup time.' }, { status: 400 });
+      const c = chosenWindow(view, booked, key);
+      if (!c.ok) return NextResponse.json({ error: c.error, pickupFull: true }, { status: 409 });
+      pickupWin = { key: c.window.key, start: c.window.start, end: c.window.end, label: c.window.label, cap: c.cap };
+      // Named by its date, not "Today": the order, its emails and the team read it later.
+      const { windowLabelOn } = await import('@/lib/pickup-slots');
+      pickupAt = windowLabelOn(Date.parse(c.window.start), Date.parse(c.window.end), tenantTimeZone(tenant));
+    }
+  }
   const totalCents = subtotalCents - discountAll + taxCents + shippingCents + tipCents;
   if (totalCents <= 0) return NextResponse.json({ error: 'Order total must be positive' }, { status: 400 });
 
@@ -713,6 +735,7 @@ async function handleCheckout(req: NextRequest) {
     storeCreditRequestedCents: 0,
     tipCents,
     pickupAt,
+    ...(pickupWin ? { pickupWindow: { key: pickupWin.key, start: pickupWin.start, end: pickupWin.end, label: pickupAt }, pickupWindowKey: pickupWin.key, ...(ckeyHash ? { checkoutKeyHash: ckeyHash } : {}) } : {}),
     totalCents,
     customerName,
     customerEmail,
@@ -746,15 +769,12 @@ async function handleCheckout(req: NextRequest) {
     placedAt: now,
   };
 
-  if (wsAccount) {
-    db.collection(`tenants/${tenantId}/wholesaleAccounts`).doc(wsAccount.id)
-      .set({ lastUsedAt: now }, { merge: true }).catch(() => {});
-  }
 
   const evRef = orderRef.collection('events').doc();
   const batch = db.batch();
-  batch.set(orderRef, JSON.parse(JSON.stringify(order)));
-  batch.set(evRef, {
+  const orderData = JSON.parse(JSON.stringify(order));
+  batch.set(orderRef, orderData);
+  const evData = {
     id: evRef.id,
     ...buildEvent('placed', 'customer', customerName, {
       method,
@@ -763,8 +783,28 @@ async function handleCheckout(req: NextRequest) {
       totalCents,
       ...(preorderAck ? { preorderAgreedAt: preorderAck.agreedAt, shipPromiseAt: String(preorderAck.promiseAt || '') } : {}),
     }),
-  });
-  await batch.commit();
+  };
+  batch.set(evRef, evData);
+  if (pickupWin && pickupWin.cap !== null) {
+    // The window's count and the new order in one step: a window that filled while they were choosing turns them back.
+    const win = pickupWin; const cap = pickupWin.cap;
+    const { holdsPlace } = await import('@/lib/pickup-slots-server');
+    const full = await db.runTransaction(async (tx: any) => {
+      const q = await tx.get(db.collection(`tenants/${tenantId}/retailOrders`).where('pickupWindowKey', '==', win.key));
+      const taken = q.docs.filter((d: any) => holdsPlace(d.data(), Date.now(), ckeyHash)).length;
+      if (taken >= cap) return true;
+      tx.set(orderRef, orderData);
+      tx.set(evRef, evData);
+      return false;
+    });
+    if (full) return NextResponse.json({ error: `${win.label} just filled up. Choose another time.`, pickupFull: true }, { status: 409 });
+  } else await batch.commit();
+
+  // Only once the order is really written (a full pickup window turns it back first).
+  if (wsAccount) {
+    db.collection(`tenants/${tenantId}/wholesaleAccounts`).doc(wsAccount.id)
+      .set({ lastUsedAt: now }, { merge: true }).catch(() => {});
+  }
 
   // ── Stripe Checkout Session on the connected account ─────────────────────
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });

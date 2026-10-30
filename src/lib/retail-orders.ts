@@ -1146,6 +1146,10 @@ export function dueAt(order: RetailOrder, policy: FulfilmentPolicy = DEFAULT_POL
     if (Number.isFinite(t)) return t;
   }
 
+  // A pickup window the customer chose (lib/pickup-slots): ready by the time it starts.
+  const win = Date.parse(String((order as any).pickupWindow?.start || ''));
+  if (Number.isFinite(win)) return win;
+
   // "Wants it in ~30 min" from the storefront's pickup picker.
   const wanted = String((order as any).pickupAt || '').trim();
   const m = wanted.match(/(\d+)\s*min/i);

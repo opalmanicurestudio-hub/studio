@@ -160,6 +160,36 @@ export default function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
   const [pickupChoice, setPickupChoice] = useState('ASAP');
+  // Real pickup windows once the shop has set its hours (lib/pickup-slots): fetched only for pickup and curbside.
+  const [pickupTimes, setPickupTimes] = useState<{ scheduled: boolean; windows: { key: string; label: string; day: string; full: boolean }[]; readyBy: string | null; reason: string | null } | null>(null);
+  const [pickupKey, setPickupKey] = useState('');
+  const [pickupState, setPickupState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [pickupNote, setPickupNote] = useState('');
+  // One id for this checkout, kept for every retry from this page, so an order paid in full with store credit or a gift
+  // card is paid once even when an answer is lost and they tap Pay again (api/retail/checkout). The pickup times are
+  // asked with it too, so this checkout's own earlier unpaid try never makes its window look full to it.
+  const checkoutKey = React.useRef('');
+  const ensureCheckoutKey = () => {
+    if (checkoutKey.current) return checkoutKey.current;
+    try { const b = new Uint8Array(18); crypto.getRandomValues(b); checkoutKey.current = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join(''); }
+    catch { checkoutKey.current = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 40); }
+    return checkoutKey.current;
+  };
+  const pickupReq = React.useRef(0);
+  const loadPickupTimes = React.useCallback(async (note = '') => {
+    const mine = ++pickupReq.current;   // only the latest answer counts
+    setPickupState('loading');
+    try {
+      // After a window filled while paying, ask fresh (never a remembered answer).
+      const r = await fetch(`/api/retail/pickup-times?tenantId=${encodeURIComponent(tenantId)}&ck=${encodeURIComponent(ensureCheckoutKey())}${note ? '&fresh=1' : ''}`, { cache: 'no-store' });
+      const d = await r.json();
+      if (mine !== pickupReq.current) return;
+      if (!r.ok) { setPickupState('error'); return; }
+      setPickupTimes(d); setPickupState('ready'); setPickupNote(note);
+      // Keep their choice while it's still open; otherwise the first open window.
+      setPickupKey((cur) => (d.windows || []).some((w: any) => w.key === cur && !w.full) ? cur : ((d.windows || []).find((w: any) => !w.full)?.key || ''));
+    } catch { if (mine === pickupReq.current) setPickupState('error'); }
+  }, [tenantId]);
   const [preorderAgreed, setPreorderAgreed] = useState(false);
   const [ifUnavailable, setIfUnavailable] = useState<IfUnavailable>('refund');
   const [isGift, setIsGift] = useState(() => search?.get('gift') === '1'); const [giftTo, setGiftTo] = useState(''); const [giftMsg, setGiftMsg] = useState('');
@@ -269,6 +299,9 @@ export default function CheckoutPage() {
   // delivery method (or an address) reads as a broken shop, and that's where
   // abandoned carts come from. The server already accepts this shape.
   const digitalOnlyCart = cartEntries.length > 0 && cartEntries.every(([key]) => lineOf(key)?.digital === true);
+  const wantsPickupTime = !!shop && !digitalOnlyCart && (method === 'counter' || method === 'curbside');
+  useEffect(() => { if (wantsPickupTime) void loadPickupTimes(); }, [wantsPickupTime, loadPickupTimes]);
+  const timedPickup = wantsPickupTime && pickupTimes?.scheduled === true;
 
   // ── PRE-ORDERS IN THE CART ────────────────────────────────────────────────
   // A pre-order is the one thing in a cart that is not what it looks like:
@@ -448,6 +481,7 @@ export default function CheckoutPage() {
     cartCount > 0 && name.trim() && email.trim() && minIssues.length === 0 &&
     (!hasPreorder || preorderAgreed) &&
     (digitalOnlyCart || method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode)) &&
+    (!wantsPickupTime || pickupState === 'ready') && (!timedPickup || !!pickupKey) &&
     (!digitalOnlyCart || !isGift || (giftTo.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(giftEmail.trim())));
 
   // ── The address, checked with the carrier before they pay (components/shop/AddressReview) ──
@@ -477,16 +511,10 @@ export default function CheckoutPage() {
   };
   const editAddress = () => { ar.setReview(null); setTimeout(() => document.getElementById('ship-line1')?.focus(), 0); };
 
-  // One id for this checkout, kept for every retry from this page, so an order paid in full with store credit or a gift
-  // card is paid once even when an answer is lost and they tap Pay again (api/retail/checkout).
-  const checkoutKey = React.useRef('');
   const placeOrder = async (extra?: { token?: string; unitAnswer?: 'added' | 'none'; address?: typeof addr }) => {
     if (!canPlace || placing) return;
     setPlacing(true);
-    if (!checkoutKey.current) {
-      try { const b = new Uint8Array(18); crypto.getRandomValues(b); checkoutKey.current = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join(''); }
-      catch { checkoutKey.current = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.slice(0, 40); }
-    }
+    ensureCheckoutKey();
     try {
       const res = await fetch('/api/retail/checkout', {
         method: 'POST',
@@ -495,7 +523,8 @@ export default function CheckoutPage() {
           tenantId,
           items: cartEntries.map(([key, qty]) => ({ ...parseCartKey(key), qty })),
           tipCents,
-          pickupAt: !digitalOnlyCart && method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
+          pickupAt: !digitalOnlyCart && method !== 'ship' && shop?.scheduledPickup && !timedPickup ? pickupChoice : '',
+          pickupWindowKey: timedPickup ? pickupKey : undefined,
           method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
           creditSession: applyCredit ? acctSess : undefined,
@@ -529,6 +558,8 @@ export default function CheckoutPage() {
       if (!res.ok) {
         if (data.promoError) { setPromo(null); setPromoErr(data.error || null); }
         if (data.needsPreorderAck) setPreorderAgreed(false);
+        // The time they chose filled up while they were paying: the choices catch up.
+        if (data.pickupFull) void loadPickupTimes(data.error || 'That time filled up. Choose another.');
         // The ship-by date moved while they were paying: the screen catches up, and the date named is the one sent.
         if (data.datesChanged) { setClock(new Date(Date.now() + clockOffset)); setServerShipBy(String(data.shipBy || '')); }
         throw new Error(data.error || `Checkout failed (HTTP ${res.status})`);
@@ -831,12 +862,55 @@ export default function CheckoutPage() {
                 <span className="font-mono">{shippingCents === 0 || promo?.freeShipping ? (promo?.freeShipping && shippingCents > 0 ? `Free with ${promo.code}` : 'Free') : fmt(shippingCents)}</span>
               </div>
             )}
-            {method !== 'ship' && (shop.prepMinutes || 0) > 0 && (
+            {method !== 'ship' && !timedPickup && (shop.prepMinutes || 0) > 0 && (
               <p className="text-[9px] font-black uppercase tracking-widest text-primary">
                 Usually ready in ~{shop.prepMinutes} min
               </p>
             )}
-            {method !== 'ship' && shop.scheduledPickup && (
+            {wantsPickupTime && pickupState === 'loading' && !pickupTimes && (
+              <p role="status" className="text-[11px] font-bold text-muted-foreground">Finding pickup times…</p>
+            )}
+            {wantsPickupTime && pickupState === 'error' && (
+              <div role="alert" className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-muted-foreground">Pickup times couldn’t be loaded.</span>
+                <button type="button" onClick={() => void loadPickupTimes()} className="inline-flex h-11 items-center text-[11px] font-black uppercase tracking-widest underline underline-offset-4">Try again</button>
+              </div>
+            )}
+            {timedPickup && pickupTimes && pickupState !== 'error' && (
+              <fieldset className="min-w-0 space-y-2">
+                <legend className="sr-only">Pickup time</legend>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span aria-hidden="true" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">When</span>
+                  {pickupTimes.readyBy && <span className="text-[11px] font-bold text-primary">{pickupTimes.readyBy}</span>}
+                </div>
+                <p aria-live="polite" className="text-[11px] font-bold text-muted-foreground empty:hidden">{pickupNote}</p>
+                {pickupTimes.windows.some((w) => !w.full) ? (
+                  // Grouped by day, every window listed: "Today", then its times.
+                  [...new Set(pickupTimes.windows.map((w) => w.day))].map((day) => {
+                    const ws = pickupTimes.windows.filter((w) => w.day === day);
+                    const split = (label: string) => { const m = /^(.*?) (\d{1,2}(?::\d{2})?(?: [ap]m)?–.*)$/.exec(label); return m ? [m[1], m[2]] : ['', label]; };
+                    return (
+                      <div key={day} className="space-y-1.5">
+                        <p className="text-[11px] font-bold">{split(ws[0].label)[0]}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {ws.map((w) => (
+                            <label key={w.key} className={cn('relative inline-flex', w.full ? 'cursor-not-allowed' : 'cursor-pointer')}>
+                              <input type="radio" name="pickup-window" value={w.key} checked={pickupKey === w.key} disabled={w.full}
+                                onChange={() => { setPickupKey(w.key); setPickupNote(''); }} className="peer sr-only" />
+                              <span className={cn('inline-flex h-11 items-center rounded-full border-2 px-4 text-[12px] font-bold transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-foreground peer-focus-visible:ring-offset-2',
+                                pickupKey === w.key ? 'border-foreground bg-foreground text-background' : w.full ? 'border-transparent bg-muted text-muted-foreground' : 'bg-white')}>
+                                {split(w.label)[1]}{w.full ? ' · full' : ''}
+                              </span>
+                            </label>))}
+                        </div>
+                      </div>);
+                  })
+                ) : (
+                  <p role="alert" className="text-[11px] font-bold text-muted-foreground">{pickupTimes.reason || 'There are no pickup times right now.'}</p>
+                )}
+              </fieldset>
+            )}
+            {method !== 'ship' && shop.scheduledPickup && !timedPickup && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pickup time</span>
                 <select aria-label="Pickup time" value={pickupChoice}
