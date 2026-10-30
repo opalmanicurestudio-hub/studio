@@ -1460,6 +1460,7 @@ export default function InventoryPage() {
             <p className="m-0 mt-1 text-[15px]" style={muted}>{productSummary}</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {inventory.some((i: any) => i.digital === true && i.status !== 'archived') && <Link href="/inventory/digital" className="inline-flex h-11 items-center rounded-full px-4 text-[15px] font-medium" style={{ background: C.soft, color: C.ink }}>Digital products</Link>}
             <Btn kind="soft" onClick={() => setIsQuickReceiveOpen(true)}>Receive stock</Btn>
             <Btn kind="primary" onClick={() => setIsAddSheetOpen(true)}>Add a product</Btn>
             <div className="relative">

@@ -9,58 +9,9 @@
 // Opening a file also takes proof it's the buyer (the order pass, lib/order-pass), and each open gets a stream link
 // signed for ten minutes, so a copied address stops working almost at once.
 import { createHmac, timingSafeEqual } from 'crypto';
-import { digitalAccessEndsAt } from '@/lib/retail-orders';
 
-export type ClosedReason = 'inactive' | 'refunded' | 'disputed' | 'expired' | 'revoked';
-
-const c0 = (v: any) => Math.max(0, Math.round(Number(v) || 0));
-
-/**
- * The order has been given back: everything but a tip that was kept (card refunds plus anything returned to a gift
- * card or store credit), or the card payment refunded in full in the Stripe dashboard.
- */
-export function fullyRefunded(o: any): boolean {
-  const total = c0(o?.totalCents);
-  if (total <= 0) return false;
-  if (o?.cardRefundedInFull === true) return true;
-  const tipKept = Math.max(0, c0(o?.tipCents) - c0(o?.refundedTipCents));
-  return c0(o?.refundedCents) + c0(o?.refundedOtherCents) >= total - tipKept;
-}
-
-/** A chargeback open or lost on any payment for this order (a won one, or an inquiry, doesn't count). */
-export function disputeHolds(o: any): boolean {
-  return Object.values(o?.digitalHolds || {}).some((h: any) => ['open', 'lost'].includes(String(h?.status || '')));
-}
-
-/**
- * Whether a digital line can be opened, and if not why. `endsAt` is the end of the window sold (null = for good), moved
- * later when the shop extended it on the buyer's access record (lib/entitlements); a record the shop revoked is closed.
- */
-export function digitalLineAccess(o: any, line: any, now = Date.now(), ent?: { status?: string; access?: { endsAt?: string | null; extendedUntil?: string | null } } | null): { open: boolean; reason: ClosedReason | null; endsAt: string | null } {
-  const sold = line ? digitalAccessEndsAt(line, o?.paidAt, o?.placedAt) : null;
-  const ext = ent?.access?.extendedUntil ? Date.parse(ent.access.extendedUntil) : NaN;
-  const endsAt = sold && Number.isFinite(ext) && ext > Date.parse(sold) ? new Date(ext).toISOString() : sold;
-  const shut = (reason: ClosedReason) => ({ open: false, reason, endsAt });
-  if (!o || !line || line.digital !== true) return shut('inactive');
-  if (['placed', 'cancelled'].includes(String(o.stage))) return shut('inactive');
-  if (['refunded', 'backordered'].includes(String(line.status))) return shut('refunded');
-  const ordered = c0(line.qtyOrdered);
-  if (ordered > 0 && c0(line.qtyRefunded) + c0(line.qtyReturned) >= ordered) return shut('refunded');
-  if (fullyRefunded(o)) return shut('refunded');
-  if (disputeHolds(o)) return shut('disputed');
-  if (ent?.status === 'revoked') return shut('revoked');
-  if (endsAt && Date.parse(endsAt) < now) return shut('expired');
-  return { open: true, reason: null, endsAt };
-}
-
-/** What the customer is told when a line is closed (never a dead end: there's always a person to ask). */
-export function closedMessage(reason: ClosedReason | null, endsAt: string | null): string {
-  if (reason === 'expired' && endsAt) return `Your access to this ended on ${new Date(endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Send the shop a message from your order page and they can extend it.`;
-  if (reason === 'refunded') return 'This item was refunded, so it can’t be opened anymore.';
-  if (reason === 'revoked') return 'The shop has closed access to this item. Send them a message from your order page if you think this is a mistake.';
-  if (reason === 'disputed') return 'This item is paused while a question about the payment is looked into. Send the shop a message from your order page if you think this is a mistake.';
-  return 'This order isn’t active.';
-}
+export { fullyRefunded, disputeHolds, digitalLineAccess, closedMessage } from '@/lib/digital-access-rule';
+export type { ClosedReason } from '@/lib/digital-access-rule';
 
 // ─── Stream links signed for ten minutes ─────────────────────────────────────────
 

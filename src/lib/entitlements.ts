@@ -71,6 +71,7 @@ export function accessEndsAt(e: Pick<Entitlement, 'access'> | null | undefined):
   const ext = e.access?.extendedUntil ? Date.parse(e.access.extendedUntil) : NaN;
   const end = e.access?.endsAt ? Date.parse(e.access.endsAt) : NaN;
   if (!e.access?.endsAt) return null;
+  if (Number.isFinite(ext) && ext >= Date.parse('9999-01-01T00:00:00.000Z')) return null;   // extended for good
   return new Date(Math.max(Number.isFinite(end) ? end : 0, Number.isFinite(ext) ? ext : 0)).toISOString();
 }
 
