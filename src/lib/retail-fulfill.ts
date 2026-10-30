@@ -952,7 +952,10 @@ export async function markOutForDelivery(
 
 /** What the driver brings to "Delivered": the photo they took, whether it was left rather than handed over (and where),
  *  the customer's delivery code, and (back office only) a manager marking it without the proof the shop asks for. */
-export type DeliveredProof = { photoUrl?: string | null; left?: boolean; where?: string; pin?: string; override?: boolean };
+export type DeliveredProof = { photoUrl?: string | null; left?: boolean; where?: string; pin?: string; override?: boolean; manager?: boolean };
+
+/** Only the person who has a delivery (or a manager) marks how it went. */
+const notTheDriver = (order: any) => `This delivery is with ${String(order.delivery?.driverName || 'another driver').split(' ')[0]}. They mark how it went, or a manager can.`;
 
 /**
  * A photo the server stored for this order's delivery (api/retail/delivery-photo), never a link from elsewhere: the
@@ -983,6 +986,7 @@ export async function markDelivered(
       if (order.method !== 'delivery') return { ok: false, message: 'Only a delivery order is delivered.' };
       if (order.stage === 'completed') return { ok: true, message: 'Already delivered.' };
       if (order.delivery?.status !== 'out') return { ok: false, message: 'Mark it out for delivery first.' };
+      if (proof.manager !== true && String(order.delivery?.driverId || '') !== actor.id) return { ok: false, message: notTheDriver(order) };
       if (order.stage !== 'ready' || !canAdvance(order, 'completed').ok) return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}, so it can’t be marked delivered.` };
       // The proof the shop asks for at the door (lib/delivery-run): a manager can mark it without, and it says so.
       const tSnap = await txn.get(doc(fs, `tenants/${tenantId}`));
@@ -1036,7 +1040,7 @@ export async function markDelivered(
  * and whose side it was on, which decides whether a second try is charged.
  */
 export async function markDeliveryFailed(
-  fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason: string, code?: FailCode | null,
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason: string, code?: FailCode | null, manager = false,
 ): Promise<{ ok: boolean; message: string; tries?: number }> {
   try {
     return await runTransaction(fs, async (txn) => {
@@ -1047,6 +1051,7 @@ export async function markDeliveryFailed(
       if (order.method !== 'delivery') return { ok: false, message: 'Only a delivery order can be brought back.' };
       if (order.stage !== 'ready') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}.` };
       if (order.delivery?.status !== 'out') return { ok: false, message: order.delivery?.status === 'failed' ? 'Already back at the shop.' : 'It isn’t out for delivery.' };
+      if (!manager && String(order.delivery?.driverId || '') !== actor.id) return { ok: false, message: notTheDriver(order) };
       const r = failReason(code || order.delivery?.doorCode);
       const why = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 140) || r?.label || 'Something else';
       const now = new Date().toISOString();

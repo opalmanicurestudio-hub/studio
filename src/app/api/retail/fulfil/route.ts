@@ -173,14 +173,14 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       case 'deliveryDone': {
         const m = need1(orderId, 'order'); if (m) return m;
         // Only a manager marks it delivered without the proof the shop asks for (from the back office).
-        out = await F.markDelivered(db, tenantId, orderId, actor, { photoUrl: s(b.photoUrl, 1200) || null, left: b.left === true, where: s(b.where, 120), pin: s(b.pin, 12), override: b.override === true && boss });
+        out = await F.markDelivered(db, tenantId, orderId, actor, { photoUrl: s(b.photoUrl, 1200) || null, left: b.left === true, where: s(b.where, 120), pin: s(b.pin, 12), override: b.override === true && boss, manager: boss });
         if (out?.ok && !/^Already/.test(out.message || '')) sendMessage('delivery_done', { orderId });
         break;
       }
       case 'deliveryFailed': {
         const m = need1(orderId, 'order'); if (m) return m;
         const code = failReason(b.code)?.code || null;
-        out = await F.markDeliveryFailed(db, tenantId, orderId, actor, s(b.reason, 140), code);
+        out = await F.markDeliveryFailed(db, tenantId, orderId, actor, s(b.reason, 140), code, boss);
         if (out?.ok && out.tries) sendMessage('delivery_failed', { orderId, key: `t${out.tries}` });
         break;
       }

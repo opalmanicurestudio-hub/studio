@@ -112,6 +112,9 @@ const moments = () => calls.filter((c) => c.url.endsWith('/api/retail/delivery-n
   r = await FULFIL(req({ tenantId: 't1', action: 'deliveryDone', orderId: 'o1' }));
   check('a booth renter can’t do any delivery step', r.status === 403 && /shop’s own team/.test(r.body.message), r.body);
   actor = { ...actor, uid: 'sam', name: 'Sam Ortiz', isRenter: false };
+  r = await FULFIL(req({ tenantId: 't1', action: 'deliveryFailed', orderId: 'o1', reason: 'x', code: 'other' }));
+  const r2: any = await FULFIL(req({ tenantId: 't1', action: 'deliveryDone', orderId: 'o1', override: true }));
+  check('only the driver who has it (or a manager) marks it delivered or brought back', !r.body.ok && /with Riley/.test(r.body.message) && !r2.body.ok && /with Riley/.test(r2.body.message) && (await get(`${T}/retailOrders/o1`)).delivery.status === 'out', { a: r.body, b: r2.body });
   // At the door.
   r = await FULFIL(req({ tenantId: 't1', action: 'deliveryDoor', orderId: 'o1', code: 'no_answer' }));
   check('only the driver who has it is at its door', !r.body.ok && /with Riley/.test(r.body.message), r.body);
@@ -174,6 +177,14 @@ const moments = () => calls.filter((c) => c.url.endsWith('/api/retail/delivery-n
   o = await get(`${T}/retailOrders/o3`);
   const notes = (await all(`${T}/retailOrders/o3/events`)).filter((e: any) => e.type === 'note').map((e: any) => e.meta?.text || '');
   check('a manager can mark it delivered without the proof, and the history says so', r.body.ok && o.stage === 'completed' && o.delivery.proofSkippedBy === 'Morgan Diaz' && notes.some((t: string) => /without the photo/.test(t)), { b: r.body, notes });
+  // A manager can also say it came back (the driver phoned it in).
+  await db.doc(`${T}/retailOrders/o4`).set({ ...base, id: 'o4', orderNumber: 1215, totalCents: 4500, qrToken: 'tok4', delivery: { status: 'waiting' } });
+  actor = { ...actor, uid: 'riley', name: 'Riley Chen', isManager: false };
+  await FULFIL(req({ tenantId: 't1', action: 'deliveryOut', orderId: 'o4' })); await settle();
+  actor = { ...actor, uid: 'mgr', name: 'Morgan Diaz', isManager: true };
+  r = await FULFIL(req({ tenantId: 't1', action: 'deliveryFailed', orderId: 'o4', reason: 'No one answered', code: 'no_answer' })); await settle();
+  o = await get(`${T}/retailOrders/o4`);
+  check('a manager can mark someone else’s delivery brought back', r.body.ok && o.delivery.status === 'failed' && o.delivery.failCode === 'no_answer', { b: r.body, d: o.delivery });
   actor = { ...actor, uid: 'riley', name: 'Riley Chen', isManager: false };
 
   // ── The messages' words
