@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminStorage } from '@/lib/firebase-admin';   // the NAMED app — getStorage() alone finds no default app
-import { getStorage } from 'firebase-admin/storage';
 import { checkPass } from '@/lib/order-pass';
 import { checkStreamToken, closedMessage, digitalLineAccess, makeStreamToken, streamTokenMode, STREAM_MINUTES } from '@/lib/digital-access';
 import { countUse, downloadsLeft, ensureEntitlement, type Entitlement } from '@/lib/entitlements';
 import { watermarkPdf, looksLikePdf } from '@/lib/pdf-watermark';
+import { downloadFile } from '@/lib/digital-storage';
 import { fileOf, filesOf, openMode, ownPath } from '@/lib/digital-product';
 import { accessPassKey } from '@/lib/digital-gift';
 
@@ -117,38 +116,6 @@ const streamKey = (productId: string, lineId: string, fileId = '') => `${product
 const SLOW = { error: 'That\u2019s a lot of opens in a short time. Please wait a little and try again.' };
 // The name stamped on the file is whoever it belongs to: on a gift, the person it was for, never the buyer.
 const label = (o: any) => { const g = o?.digitalGift; return `${(g ? g.toName : o.customerName) || 'Customer'} \u00b7 ${(g ? g.toEmail : o.customerEmail) || ''} \u00b7 #${String(o.orderNumber ?? '').padStart(4, '0')}`; };
-
-/** Download the stored file through the same bucket-hunting chain. */
-async function downloadFile(path: string, tenantBucket: string | null): Promise<Uint8Array | null> {
-  let projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
-    || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
-  let appBucket: string | null = null;
-  try {
-    const { getApps } = await import('firebase-admin/app');
-    const opts: any = getApps()[0]?.options || {};
-    appBucket = opts.storageBucket || null;
-    if (!projectId) projectId = opts.projectId || opts.credential?.projectId || '';
-  } catch { /* keep hunting */ }
-  const names: (string | null)[] = [
-    tenantBucket, null,
-    process.env.FIREBASE_STORAGE_BUCKET || null,
-    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || null,
-    appBucket,
-    projectId ? `${projectId}.firebasestorage.app` : null,
-    projectId ? `${projectId}.appspot.com` : null,
-  ];
-  const tried = new Set<string>();
-  for (const name of names) {
-    if (name !== null && tried.has(name)) continue;
-    if (name !== null) tried.add(name);
-    try {
-      const bucket = name === null ? getAdminStorage().bucket() : getAdminStorage().bucket(name);
-      const [buf] = await bucket.file(path).download();
-      if (buf) return new Uint8Array(buf);
-    } catch { /* next candidate */ }
-  }
-  return null;
-}
 
 /**
  * GET streams the file itself, watermarked, from OUR origin — so the buyer's

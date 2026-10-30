@@ -64,7 +64,7 @@ ok(publicDigital({ digital: true, digitalFiles: [f('a', 'README')] }, { name: 'P
 const pr = fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8');
 ok(pr.includes('digitalInfo: item.digital === true ? publicDigital(item, licenseFor(tenant, item)) : null,'), 'the product route sends what’s inside, never where it is');
 const lay = fs.readFileSync('src/components/shop/product/ProductLayouts.tsx', 'utf8');
-ok(lay.includes("id: 'inside', title: 'What’s inside'") && (lay.match(/<DigitalBlock d=\{p\.digitalInfo\} \/>/g) || []).length === 2, 'every layout shows what’s inside and the license');
+ok(lay.includes("id: 'inside', title: 'What’s inside'") && (lay.match(/<DigitalBlock d=\{p\.digitalInfo\} v=\{v\} \/>/g) || []).length === 2, 'every layout shows what’s inside and the license');
 
 // ── wiring
 const route = fs.readFileSync('src/app/api/retail/digital-access/route.ts', 'utf8');

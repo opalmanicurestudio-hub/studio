@@ -12,7 +12,14 @@
 export const MAX_FILES = 10;
 export const MAX_FILE_MB = 40;
 
-export type DigitalFile = { id: string; name: string; path: string; size: number; type: string; version: number; addedAt: string };
+export type DigitalFile = { id: string; name: string; path: string; size: number; type: string; version: number; addedAt: string; preview?: boolean };
+
+/**
+ * FREE PREVIEWS. The shop can let anyone read up to MAX_PREVIEWS of an item's PDFs or pictures on its product page
+ * before buying (api/retail/digital-preview), stamped as a preview; the rest unlock when bought. A preview is the whole
+ * file, so the shop is told to upload a short sample rather than mark the full guide.
+ */
+export const MAX_PREVIEWS = 3;
 export type Delivery = 'both' | 'view' | 'download';
 
 export const FORMATS: { id: string; label: string }[] = [
@@ -46,6 +53,8 @@ export function filesOf(item: any): DigitalFile[] {
   if (list.length) return list.slice(0, MAX_FILES).map((f: any) => ({
     id: String(f.id), name: String(f.name || String(f.path).split('/').pop() || 'file'), path: String(f.path),
     size: Math.max(0, Number(f.size) || 0), type: String(f.type || ''), version: Math.max(1, Number(f.version) || 1), addedAt: String(f.addedAt || ''),
+    // Only something the page can show can be a preview.
+    ...(f.preview === true && viewable(String(f.name || '')) ? { preview: true } : {}),
   }));
   const path = String(item?.digitalFilePath || '');
   if (!path) return [];
@@ -96,6 +105,9 @@ export function digitalProblems(item: any): string[] {
   if (link && !/^https:\/\//i.test(link)) out.push('The link must start with https://.');
   const lim = item?.digitalDownloadLimit;
   if (lim !== undefined && lim !== null && lim !== 0 && lim !== '0' && !(Math.floor(Number(lim)) >= 1)) out.push('Set downloads per copy to 1 or more, or turn the limit off.');
+  const previews = files.filter((f) => f.preview).length;
+  if (previews > MAX_PREVIEWS) out.push(`Up to ${MAX_PREVIEWS} files can be free previews. Turn one off.`);
+  if (previews > 0 && previews === files.length && !link) out.push('Every file is a free preview, so there is nothing left to buy. Keep at least one file locked, or add a link.');
   if (deliveryOf(item) === 'view' && files.some((f) => !viewable(f.name))) out.push('View online only works for PDFs and pictures. Choose another way to deliver, or remove the other files.');
   const lic = item?.license;
   if (lic && lic.id === 'custom' && !String(lic.terms || '').trim()) out.push('Write the license terms, or choose Personal use.');
@@ -141,7 +153,8 @@ export function publicDigital(item: any, license: { name: string; terms: string 
   const how = !files.length ? 'Opened from your library' : reads && saves ? 'Read online, or save a copy' : reads ? 'Read online in your library' : 'Saved to your device';
   return {
     formatLabel: fmt && fmt.id !== 'other' ? fmt.label : 'Digital download',
-    files: files.map((f) => ({ name: f.name, type: f.name.includes('.') ? (f.name.split('.').pop() || '').toUpperCase().slice(0, 6) : '', size: f.size || 0 })),
+    // A free preview's id is given so the page can open it; the others are named only.
+    files: files.map((f) => ({ name: f.name, type: f.name.includes('.') ? (f.name.split('.').pop() || '').toUpperCase().slice(0, 6) : '', size: f.size || 0, ...(f.preview ? { preview: true as const, id: f.id } : {}) })),
     hasLink: !!String(item?.digitalUrl || '').trim(),
     delivery: d, reads, saves, how,
     accessDays: days || null,

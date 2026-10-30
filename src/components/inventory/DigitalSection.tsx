@@ -16,7 +16,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
   DELIVERIES, FORMATS, MAX_FILES, MAX_FILE_MB, deliveryOf, digitalProblems, downloadLimitOf, fileId, filesOf,
-  legacyFileFields, sizeWords, viewable, type Delivery, type DigitalFile,
+  legacyFileFields, sizeWords, viewable, type Delivery, type DigitalFile, MAX_PREVIEWS,
 } from '@/lib/digital-product';
 import { licensesOf, termsOf } from '@/lib/licenses';
 import { LicenseManager } from './LicenseManager';
@@ -68,6 +68,7 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
   // Compared as they'd be saved, so a limit typed and then switched off, or "007" days, doesn't keep the section unsaved.
   const norm = (x: typeof d) => ({ ...x, link: x.link.trim(), days: String(Math.max(0, Math.floor(Number(x.days) || 0)) || ''), limit: x.limitOn ? String(Math.floor(Number(x.limit) || 0)) : '', licenseName: x.licenseId === 'custom' ? x.licenseName.trim() : '', licenseTerms: x.licenseId === 'custom' ? x.licenseTerms.trim() : '' });
   const dirty = JSON.stringify(norm(d)) !== JSON.stringify(norm(start));
+  const previewCount = d.files.filter((f) => f.preview).length;
 
   const set = (p: Partial<typeof d>) => setD((x) => ({ ...x, ...p }));
 
@@ -92,7 +93,8 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
       await uploadPrivateFile(path, f);
       const next: DigitalFile = { id, name: f.name, path, size: f.size, type: f.type || '', version: replace ? replace.version + 1 : 1, addedAt: new Date().toISOString() };
       setD((x) => ({ ...x, files: replace ? x.files.map((g) => (g.id === replace.id ? next : g)) : [...x.files, next].slice(0, MAX_FILES) }));
-      toast({ title: replace ? 'New version uploaded' : 'File uploaded', description: 'Save this section to give it to buyers.' });
+      // A new version is never a free preview by itself: the full file could go public by mistake. The shop turns it on again.
+      toast({ title: replace ? 'New version uploaded' : 'File uploaded', description: replace?.preview ? 'It isn’t a free preview anymore. Tick Free preview again if it should be, then save this section.' : 'Save this section to give it to buyers.' });
     } catch {
       toast({ variant: 'destructive', title: 'The upload didn’t finish', description: 'Check your connection and try again.' });
     } finally { setBusy(null); }
@@ -148,7 +150,15 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
               <div key={f.id} className="flex items-center gap-2 rounded-xl border-2 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-black">{f.name}</p>
-                  <p className={hint}>{[`Version ${f.version}`, sizeWords(f.size), viewable(f.name) ? 'Opens in the library' : 'Saved to the device'].filter(Boolean).join(' · ')}</p>
+                  <p className={hint}>{[`Version ${f.version}`, sizeWords(f.size), viewable(f.name) ? 'Opens in the library' : 'Saved to the device', f.preview ? 'Free preview' : ''].filter(Boolean).join(' · ')}</p>
+                  {viewable(f.name) && (
+                    <label className="mt-1 inline-flex min-h-11 cursor-pointer items-center gap-2 text-[11px] font-bold">
+                      <input type="checkbox" className="h-4 w-4" checked={!!f.preview} disabled={!f.preview && previewCount >= MAX_PREVIEWS}
+                        aria-describedby="dg-preview-count"
+                        onChange={(e) => set({ files: d.files.map((g) => { if (g.id !== f.id) return g; const n: DigitalFile = { ...g }; if (e.target.checked) n.preview = true; else delete n.preview; return n; }) })} />
+                      Free preview on the product page
+                    </label>
+                  )}
                 </div>
                 <label className="inline-flex h-10 cursor-pointer items-center gap-1 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest hover:bg-muted" title="Upload a new version">
                   <input type="file" className="sr-only" aria-label={`Upload a new version of ${f.name}`} disabled={!!busy}
@@ -168,6 +178,7 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
               </label>
             )}
             <p className={hint}>PDFs and pictures open in the library; anything else (a zip, audio) is saved. Up to {MAX_FILE_MB} MB each. A new version reaches everyone who bought it.</p>
+            <p id="dg-preview-count" className={hint}>{previewCount >= MAX_PREVIEWS ? `${MAX_PREVIEWS} of ${MAX_PREVIEWS} free previews used. Turn one off to choose another. ` : ''}Up to {MAX_PREVIEWS} PDFs or pictures can be free previews: anyone can read them on the product page (PDFs are stamped as a preview), and they come with the purchase too. A preview is the whole file, so upload a short sample (a few pages) rather than marking the full guide.</p>
           </div>
 
           <div className="space-y-1">

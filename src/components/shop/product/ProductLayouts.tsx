@@ -8,6 +8,7 @@
 //   Bento     — the photos and the buy box as two tiles, then tiles for use, reviews, pairings, delivery and questions.
 // The page works out prices, stock, the ship-by promise and the bag; this file only lays them out.
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Minus, Package, Plus, Star } from 'lucide-react';
@@ -272,36 +273,103 @@ function folds(v: ProductViewProps, withDescription: boolean, withDelivery = tru
   if (p.howToUse) out.push({ id: 'use', title: 'How to use', body: <p className="whitespace-pre-line">{p.howToUse}</p> });
   if (p.specs.length) out.push({ id: 'specs', title: 'Specifications', body: <SpecTable v={v} /> });
   if (p.documents.length) out.push({ id: 'docs', title: 'Documents and downloads', body: <Docs v={v} /> });
-  if (p.digitalInfo) out.push({ id: 'inside', title: 'What’s inside', body: <Inside d={p.digitalInfo} /> });
+  if (p.digitalInfo) out.push({ id: 'inside', title: 'What’s inside', body: <Inside d={p.digitalInfo} v={v} /> });
   if (p.digitalInfo) out.push({ id: 'license', title: 'License', body: <p><span className="font-semibold" style={{ color: 'var(--shop-ink)' }}>{p.digitalInfo.license.name}.</span> {p.digitalInfo.license.terms}</p> });
   if (withDelivery && v.trust?.length) out.push({ id: 'delivery', title: v.digital ? 'Access and delivery' : 'Delivery and returns', body: <ul className="space-y-2">{v.trust.map((t) => <li key={t.title}><span className="font-semibold" style={{ color: 'var(--shop-ink)' }}>{t.title}.</span> {t.sub}</li>)}</ul> });
   return out;
 }
 
 /** What's inside a download and its license, for the layouts that lay details out in full. */
-function DigitalBlock({ d }: { d: PublicDigital }) {
+function DigitalBlock({ d, v }: { d: PublicDigital; v: ProductViewProps }) {
   return (
     <div className="space-y-3 text-[15px] leading-relaxed" style={muted}>
-      <Inside d={d} />
+      <Inside d={d} v={v} />
       <p><span className="font-semibold" style={{ color: 'var(--shop-ink)' }}>{d.license.name}.</span> {d.license.terms}</p>
     </div>);
 }
 
-/** A download's files by name, type and size, and what else comes with it. */
-function Inside({ d }: { d: PublicDigital }) {
+/**
+ * A download's files by name, type and size, and what else comes with it. A file the shop made a free preview opens
+ * here for anyone (api/retail/digital-preview); when there are previews, the rest are marked as unlocking on purchase.
+ */
+function Inside({ d, v }: { d: PublicDigital; v: ProductViewProps }) {
+  const [open, setOpen] = React.useState<{ id: string; name: string; from: HTMLElement } | null>(null);
+  const close = React.useCallback(() => setOpen(null), []);
+  const anyPreview = d.files.some((f) => f.preview);
   return (
     <div className="space-y-3">
       {d.files.length > 0 && (
         <ul className="divide-y" style={line}>
           {d.files.map((f, i) => (
-            <li key={`${f.name}-${i}`} className="flex items-center justify-between gap-4 py-2.5" style={line}>
-              <span className="min-w-0 truncate" style={{ color: 'var(--shop-ink)' }}>{f.name}</span>
-              <span className="shrink-0 text-sm" style={muted}>{[f.type, sizeWords(f.size)].filter(Boolean).join(' · ')}</span>
+            <li key={`${f.name}-${i}`} className="flex min-h-11 items-center justify-between gap-4 py-2" style={line}>
+              <span className="min-w-0">
+                <span className="block truncate" style={{ color: 'var(--shop-ink)' }}>{f.name}</span>
+                <span className="block text-sm" style={muted}>{[f.type, sizeWords(f.size)].filter(Boolean).join(' · ')}</span>
+              </span>
+              {f.preview && f.id ? (
+                <button type="button" aria-label={`Preview ${f.name}`} onClick={(e) => setOpen({ id: f.id!, name: f.name, from: e.currentTarget })} className="inline-flex h-11 shrink-0 items-center px-4 text-sm font-semibold" style={{ ...radius('control'), border: '1px solid var(--shop-ink)', color: 'var(--shop-ink)' }}>Preview</button>
+              ) : anyPreview ? <span className="shrink-0 text-sm" style={muted}>Unlocks when you buy</span> : null}
             </li>))}
         </ul>)}
       {d.hasLink && <p>Plus online content, opened from your library.</p>}
       <p className="text-sm" style={muted}>{[d.formatLabel, d.how, accessWords(d), downloadWords(d)].filter(Boolean).join(' · ')}</p>
+      {open && <PreviewWindow v={v} file={open} onClose={close} />}
     </div>);
+}
+
+/** A free preview in a window over the page, with the way to buy the rest. */
+function PreviewWindow({ v, file, onClose }: { v: ProductViewProps; file: { id: string; name: string; from: HTMLElement }; onClose: () => void }) {
+  const closeRef = React.useRef<HTMLButtonElement>(null);
+  const boxRef = React.useRef<HTMLDivElement>(null);
+  const onCloseRef = React.useRef(onClose); onCloseRef.current = onClose;
+  // Runs once while it's open: focus starts on Close, Tab stays inside, the page behind can't scroll or be reached,
+  // and closing puts focus back on the Preview button that opened it.
+  React.useEffect(() => {
+    const host = boxRef.current?.parentElement || null;
+    const others = host?.parentElement ? Array.from(host.parentElement.children).filter((el) => el !== host) as HTMLElement[] : [];
+    others.forEach((el) => el.setAttribute('inert', ''));
+    closeRef.current?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onCloseRef.current(); return; }
+      if (e.key !== 'Tab' || !boxRef.current) return;
+      const f = Array.from(boxRef.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])'));
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', key);
+    const was = document.body.style.overflow; document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', key); document.body.style.overflow = was; others.forEach((el) => el.removeAttribute('inert')); file.from?.focus?.(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const src = `/api/retail/digital-preview?${new URLSearchParams({ tenantId: v.tenantId, productId: v.product.id, fileId: file.id }).toString()}`;
+  const isPdf = /\.pdf$/i.test(file.name);
+  const off = !v.canBuy || v.paused;
+  // Drawn on the shop's own wrapper (where its colors live), not inside the buy column: a sticky column would hold it
+  // under the shop's header.
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 sm:items-center sm:p-6" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={boxRef} role="dialog" aria-modal="true" aria-labelledby="preview-title" className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden" style={{ ...radius('card'), background: 'var(--shop-surface)', color: 'var(--shop-ink)' }}>
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-2" style={line}>
+          <h2 id="preview-title" className="min-w-0 truncate text-base font-semibold">Free preview: {file.name}</h2>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close the preview" className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-2xl leading-none">×</button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto" style={{ background: 'var(--shop-card)' }}>
+          {isPdf
+            ? <iframe src={src} title={`Free preview: ${file.name}`} className="h-[65dvh] w-full bg-white" />
+            // eslint-disable-next-line @next/next/no-img-element
+            : <img src={src} alt={`Free preview: ${file.name}`} className="mx-auto max-h-[65dvh] w-auto" />}
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3" style={line}>
+          <p className="text-sm" style={muted}>
+            The rest unlocks when you buy.{isPdf && <> <a href={src} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4" style={{ color: 'var(--shop-ink)' }}>Open in a new tab</a></>}
+          </p>
+          <button type="button" disabled={off} onClick={() => { onClose(); v.onAdd(); }} className="inline-flex h-11 items-center px-5 text-sm font-semibold disabled:opacity-50" style={{ ...radius('control'), background: 'var(--shop-brand)', color: 'var(--shop-on-brand)' }}>{v.buyLabel}</button>
+        </div>
+      </div>
+    </div>,
+    (document.querySelector('[data-shop-theme]') as HTMLElement | null) || document.body);
 }
 
 function Folds({ v, items }: { v: ProductViewProps; items: Fold[] }) {
@@ -461,7 +529,7 @@ export function ProductView(v: ProductViewProps) {
             {(p.description && steps.length > 0) || p.specs.length || p.documents.length || p.digitalInfo ? (
               <section aria-labelledby="details-heading" className="space-y-4 p-6" style={tile()}>
                 <h2 id="details-heading" className="text-xl" style={head}>Details</h2>
-                {p.digitalInfo && <div className="space-y-2"><h3 className="font-semibold">What’s inside</h3><DigitalBlock d={p.digitalInfo} /></div>}
+                {p.digitalInfo && <div className="space-y-2"><h3 className="font-semibold">What’s inside</h3><DigitalBlock d={p.digitalInfo} v={v} /></div>}
                 {p.description && steps.length > 0 && <p className="whitespace-pre-line text-[15px] leading-relaxed" style={muted}>{p.description}</p>}
                 {p.specs.length > 0 && <SpecTable v={v} />}
                 {p.documents.length > 0 && <Docs v={v} />}
@@ -502,7 +570,7 @@ export function ProductView(v: ProductViewProps) {
           </div>
         </div>
         <div className="grid gap-10 lg:grid-cols-2">
-          {(p.specs.length > 0 || p.sku || p.documents.length > 0 || p.howToUse || p.digitalInfo || v.trust?.length) && <section aria-labelledby="details-heading" className="space-y-4"><h2 id="details-heading" className="text-2xl" style={head}>Details</h2>{p.digitalInfo && <div className="space-y-2"><h3 className="font-semibold">What’s inside</h3><DigitalBlock d={p.digitalInfo} /></div>}{(p.specs.length > 0 || p.sku) && <SpecTable v={v} />}{p.documents.length > 0 && <Docs v={v} />}{p.howToUse && <div className="space-y-1 pt-2"><h3 className="font-semibold">How to use</h3><p className="whitespace-pre-line text-[15px] leading-relaxed" style={muted}>{p.howToUse}</p></div>}{v.trust?.length ? <div className="pt-2"><TrustChips v={v} /></div> : null}</section>}
+          {(p.specs.length > 0 || p.sku || p.documents.length > 0 || p.howToUse || p.digitalInfo || v.trust?.length) && <section aria-labelledby="details-heading" className="space-y-4"><h2 id="details-heading" className="text-2xl" style={head}>Details</h2>{p.digitalInfo && <div className="space-y-2"><h3 className="font-semibold">What’s inside</h3><DigitalBlock d={p.digitalInfo} v={v} /></div>}{(p.specs.length > 0 || p.sku) && <SpecTable v={v} />}{p.documents.length > 0 && <Docs v={v} />}{p.howToUse && <div className="space-y-1 pt-2"><h3 className="font-semibold">How to use</h3><p className="whitespace-pre-line text-[15px] leading-relaxed" style={muted}>{p.howToUse}</p></div>}{v.trust?.length ? <div className="pt-2"><TrustChips v={v} /></div> : null}</section>}
           <Questions v={v} />
         </div>
         <Reviews v={v} />
