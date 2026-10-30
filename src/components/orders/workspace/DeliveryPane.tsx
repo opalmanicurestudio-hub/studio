@@ -91,7 +91,7 @@ export function DeliveryPane({ tenantId, order, shopZone, onToast }: { tenantId:
           <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>Brought back{d.failedAt ? ` at ${formatTime(d.failedAt, shopZone)}` : ''}</p>
           <p className="m-0 mt-0.5 text-[14px]" style={{ color: C.warn }}>{d.failReason ? `${String(d.failReason).replace(/[.!?]$/, '')}.` : 'It couldn’t be delivered.'}{d.failCause ? ` ${d.failCause === 'customer' ? 'On their side.' : 'Not on their side.'}` : ''}</p>
           <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{d.retryPay?.status === 'awaiting_payment'
-            ? `${who} is paying for another try${d.retryPay.window?.labelOn ? `: ${d.retryPay.window.labelOn}` : ''}.`
+            ? `${who} is paying for another try${d.retryPay.window?.labelOn ? `: ${d.retryPay.window.labelOn}` : ''}. If they haven’t finished in a few minutes, sending it out closes their payment page.`
             : `${who} can choose another try, pick it up or cancel on their order page. You can also send it out again now.`}</p>
         </div>
       ) : (

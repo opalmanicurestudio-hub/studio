@@ -4,6 +4,7 @@
 // step's transaction. A browser can't move an order's stage or change its items itself (firestore.rules), so nothing
 // on the order page or the boards can show a step that didn't happen. Screens call this through lib/fulfil-client.
 //   POST { tenantId, action, ...args } → what the step answers ({ ok, message, … })
+import { canChoose, whenInSentence } from '@/lib/delivery-retry';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -23,6 +24,8 @@ import { failReason } from '@/lib/delivery-run';
 import { deliveryFrom } from '@/lib/delivery-plan';
 
 export const dynamic = 'force-dynamic';
+// A payment page the customer opened for another delivery try is theirs to finish for this long (lib/delivery-retry-server).
+const PAY_GRACE_MS = 5 * 60_000;
 export const maxDuration = 60;
 
 type Need = 'pick' | 'pack' | 'handover' | 'ship' | 'manage' | 'staff' | 'returns' | 'claims';
@@ -165,6 +168,22 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         if (!boss) {
           const drivers = deliveryFrom(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.retailSettings).drivers;
           if (drivers.length && !drivers.includes(actor.id)) return NextResponse.json({ ok: false, message: 'Only the shop’s drivers take deliveries out. A manager can add you under Delivery.' }, { status: 403 });
+        }
+        // The customer was choosing another try on their order page and left its payment page open (lib/delivery-retry-
+        // server): a page just opened is theirs to finish; one left a few minutes is closed, so it goes out now. Paid in
+        // the meantime, the try they paid for stands, in the time they chose.
+        {
+          const pre: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
+          const rp = pre.delivery?.retryPay;
+          if (rp?.status === 'awaiting_payment' && canChoose(pre)) {
+            const who = String(pre.customerName || 'The customer').split(' ')[0];
+            const age = Date.now() - (Date.parse(String(rp.at || '')) || 0);
+            if (age < PAY_GRACE_MS) return NextResponse.json({ ok: false, message: `${who} is paying for another try right now. Give it a few minutes, then send it out.` }, { status: 409 });
+            const { cancelRetryPay } = await import('@/lib/delivery-retry-server');
+            const c = await cancelRetryPay(db, tenantId, orderId);
+            if (c.result === 'applied') return NextResponse.json({ ok: false, message: `${who} just paid for another try${rp.window?.label ? ` ${whenInSentence(String(rp.window.label))}` : ''}. Take it out then.` }, { status: 409 });
+            if (c.result === 'pending') return NextResponse.json({ ok: false, message: `${who}’s payment page couldn’t be closed just now. Try again in a minute.` }, { status: 409 });
+          }
         }
         out = await F.markOutForDelivery(db, tenantId, orderId, actor);
         if (out?.ok && out.tries && !/^Already/.test(out.message || '')) sendMessage('delivery_out', { orderId, key: `t${out.tries}` });

@@ -472,6 +472,16 @@ export async function GET(req: NextRequest) {
       // A delivery they chose to pick up instead (lib/delivery-retry), with the delivery fee coming back when it failed on
       // the shop's side.
       switchedFromDelivery: order.switchedFrom?.method === 'delivery' ? { at: order.switchedFrom.at || null, feeBackCents: Number(order.switchedFrom.feeBackCents) || 0 } : null,
+      // What they paid for another delivery try that's back (or on its way back) to their card, for a canceled order or
+      // one they're picking up instead, where the delivery card no longer shows.
+      // The delivery fees kept when they canceled after a try that failed on their side (lib/delivery-retry): the order's
+      // own, and any paid try kept with it.
+      deliveryFeeKeptCents: (Number(order.deliveryFeeKeptCents) || 0) + Object.values<any>(order.deliveryRetryPaid || {}).filter((e) => e && e.state === 'kept' && !e.refundedAt).reduce((t, e) => t + (Number(e.cents) || 0), 0),
+      deliveryTryBack: (() => {
+        const es = Object.values<any>(order.deliveryRetryPaid || {}).filter((e) => e && (e.refundedAt || (!e.gaveUp && ['refunding', 'refund_failed', 'late', 'replaced'].includes(String(e.state)))));
+        if (!es.length) return null;
+        return { cents: es.reduce((t, e) => t + (Number(e.cents) || 0), 0), done: es.every((e) => !!e.refundedAt) };
+      })(),
       /* The address flow (lib/address-flow): whether the shop asked them to confirm it, their change waiting for the
        * shop (or its answer), and what a change would do now. Never why: a hold for review isn't shown. */
       ...(order.method === 'ship' ? (() => {

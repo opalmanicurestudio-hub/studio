@@ -42,13 +42,14 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'firebase-admin/firestore') return { getFirestore: () => db, FieldValue: FV };
   if (request === '@/lib/request-forensics') return { requestForensics: () => null };
   if (request === '@/lib/order-tracking') return { syncTracking: async () => {}, putTracking: async () => {}, trackingKey: () => '' };
-  if (request === '@/lib/notify') return { sendNotification: async () => ({ ok: true }) };
+  if (request === '@/lib/notify') return { sendNotification: async (_db: any, m: any) => { told.push(m); return { ok: true }; } };
   if (request === '@/lib/email-shell') return { brandedEmail: (_b: any, html: string) => html, emailButton: (link: string) => `<a href="${link}">`, getEmailBrand: async () => ({ shopName: 'Opal' }) };
   if (request === '@/lib/staff-auth' || /\/src\/lib\/staff-auth(\.ts)?$/.test(request)) return { verifyStaffActor: async () => ({ ok: true, actor: { uid: 'riley', name: 'Riley Chen', role: 'staff', isManager: false, isTenantOwner: false, caps: [] }, tenant: {} }) };
   if (request === '@/lib/message-policy' || /\/src\/lib\/message-policy(\.ts)?$/.test(request)) return { gateMessage: async () => ({ send: true }) };
   return load.call(this, request, ...rest);
 };
 const calls: any[] = [];
+const told: any[] = [];
 (globalThis as any).fetch = async (url: string, init: any) => { calls.push({ url: String(url), body: JSON.parse(String(init?.body || '{}')) }); return { ok: true, status: 200, json: async () => ({ ok: true }) }; };
 
 const T = 'tenants/t1';
@@ -70,7 +71,7 @@ const ORDER = { tenantId: 't1', orderNumber: 1214, method: 'delivery', stage: 'r
   delivery: { zoneId: 'a', zoneName: 'Close', feeCents: 600, expressCents: 0, free: false, window: { key: '2026-10-30D10:00', label: 'Fri Oct 30, 10 am–12 pm' }, status: 'failed', tries: 1,
     failedAt: new Date().toISOString(), failReason: 'No one answered', failCode: 'no_answer', failCause: 'customer' } };
 const fresh = async (o: any = {}, plan: any = {}, rs: any = {}) => {
-  db = strictTransactions(makeDb()); sessions = {}; pis = { pi_7: { type: 'delivery_retry', retailOrderId: 'o1' } }; stripeCalls.sessions.length = 0; stripeCalls.expired.length = 0; stripeCalls.refunds.length = 0; calls.length = 0;
+  db = strictTransactions(makeDb()); sessions = {}; pis = { pi_7: { type: 'delivery_retry', retailOrderId: 'o1' } }; stripeCalls.sessions.length = 0; stripeCalls.expired.length = 0; stripeCalls.refunds.length = 0; calls.length = 0; told.length = 0;
   await db.doc(T).set({ name: 'Opal', businessName: 'Opal Studio', timezone: 'America/Los_Angeles', stripeAccountId: 'acct_1', retailSettings: { deliveryPlan: { ...PLAN, ...plan }, prepMinutes: 30, ...rs } });
   await db.doc(`${T}/inventory/gel`).set({ name: 'Gel', stock: 5, stockReserved: 1 });
   await db.doc(`${T}/retailOrders/o1`).set({ ...JSON.parse(JSON.stringify(ORDER)), id: 'o1', ...o, delivery: { ...ORDER.delivery, ...(o.delivery || {}) } });
@@ -269,6 +270,7 @@ const paySession = (sid: string, pi: string) => { sessions[sid] = { ...sessions[
   paySession('cs_1', 'pi_late');
   const late = await S.finishRetryPay(db, 't1', 'o1', 'cs_1', {});
   check('paid after the shop canceled the order: refunded, and said why', late.result === 'refunded' && /was canceled/.test(late.message) && stripeCalls.refunds.some((x) => x.payment_intent === 'pi_late'), late);
+  check('…and they hear it even if they never came back to the page', told.some((m) => m.kind === 'refund_issued' && m.cardKey === 'retrypay-cs_1' && /because your order was canceled/.test(m.html || m.text || '')));
 
   // ── After the review
   console.log('timing, late payments and cleanup');
@@ -309,6 +311,10 @@ const paySession = (sid: string, pi: string) => { sessions[sid] = { ...sessions[
   await S.sweepRetryPays(db, 't1', await get(T));
   o = await order();
   check('a paid try on an order the shop canceled goes back', !!o.deliveryRetryPaid.cs_1.refundedAt && stripeCalls.refunds.some((x) => x.payment_intent === 'pi_booked'), o.deliveryRetryPaid);
+  const note = told.find((m) => m.kind === 'refund_issued' && m.orderId === 'o1');
+  check('…and the customer is told, on their order page and by email, apart from any other refund notice', !!note && note.channel === 'email' && note.cardKey === 'retrypay-cs_1' && /another delivery try/.test(note.nudgeLine) && /\$6\.00 you paid Opal Studio for another delivery try on order #1214 was refunded to your card, because your order was canceled/.test(note.html), note);
+  await S.sweepRetryPays(db, 't1', await get(T));
+  check('…once', told.filter((m) => m.kind === 'refund_issued' && m.orderId === 'o1').length === 1);
   // Kept by the customer's own cancellation (their side): the check leaves it.
   await fresh({ deliveryRetryPaid: { cs_7: { cents: 600, pi: 'pi_7', at: new Date().toISOString(), state: 'applied' } }, deliveryRetryPaidOpen: true, delivery: { feeFor: { cents: 600, from: 'cs_7' }, tries: 2 } });
   r = await SELF(req({ tenantId: 't1', orderId: 'o1', qrToken: 'qr1', pass, action: 'cancel' })); await settle();
@@ -327,7 +333,21 @@ const paySession = (sid: string, pi: string) => { sessions[sid] = { ...sessions[
   await choose({ action: 'retry', key: r.body.windows[0].key });
   const { POST: FULFIL } = await import('../../src/app/api/retail/fulfil/route');
   const fr: any = await FULFIL(({ json: async () => ({ tenantId: 't1', action: 'deliveryOut', orderId: 'o1' }), headers: { get: (k: string) => (k.toLowerCase() === 'authorization' ? 'Bearer t' : null) }, nextUrl: { origin: 'https://shop.test', searchParams: new URLSearchParams() } }) as any); await settle();
-  check('it can’t go out while they’re paying for another try', !fr.body.ok && /is paying for another try/.test(fr.body.message) && (await order()).delivery.status === 'failed', fr.body);
+  check('a page they just opened is theirs to finish: it doesn’t go out yet', !fr.body.ok && /is paying for another try right now/.test(fr.body.message) && (await order()).delivery.status === 'failed', fr.body);
+  const outReq = () => FULFIL(({ json: async () => ({ tenantId: 't1', action: 'deliveryOut', orderId: 'o1' }), headers: { get: (k: string) => (k.toLowerCase() === 'authorization' ? 'Bearer t' : null) }, nextUrl: { origin: 'https://shop.test', searchParams: new URLSearchParams() } }) as any);
+  await db.doc(`${T}/retailOrders/o1`).update({ 'delivery.retryPay.at': new Date(Date.now() - 6 * 60000).toISOString() });
+  const fr2: any = await outReq(); await settle();
+  o = await order();
+  check('a page left open a few minutes is closed, and it goes out', fr2.body.ok && o.delivery.status === 'out' && o.delivery.retryPay.status === 'cancelled' && stripeCalls.expired.includes('cs_1') && !stripeCalls.refunds.length, { b: fr2.body, d: o.delivery });
+  // Paid just before the driver tapped: the try they paid for stands, in their time.
+  await fresh();
+  r = await choose({ action: 'windows' });
+  await choose({ action: 'retry', key: r.body.windows[0].key });
+  await db.doc(`${T}/retailOrders/o1`).update({ 'delivery.retryPay.at': new Date(Date.now() - 6 * 60000).toISOString() });
+  paySession('cs_1', 'pi_justnow');
+  const fr3: any = await outReq(); await settle();
+  o = await order();
+  check('paid just before the driver tapped: their try stands, and the driver is told when', !fr3.body.ok && /just paid for another try (today|tomorrow|[A-Z][a-z]{2} )/.test(fr3.body.message) && !/, Today/.test(fr3.body.message) && o.delivery.status === 'waiting' && o.deliveryRetryPaid.cs_1.state === 'applied', { b: fr3.body, d: o.delivery.status });
   // The delivery fee back, through the real refund route: shipping only, no tax, and never more than the fee.
   await fresh({ delivery: { failCode: 'unsafe', failCause: 'shop', failReason: 'Not safe to leave it here' } });
   await choose({ action: 'pickup' });

@@ -66,6 +66,7 @@ interface StatusOrder {
     photoUrl?: string | null; left?: string | null; code?: string | null; failed?: { why: string; customerSide: boolean } | null;
     choices?: DeliveryChoicesData | null; retry?: { label: string; cents: number } | null; retryPay?: { status: string; cents: number; why: string } | null } | null;
   switchedFromDelivery?: { at: string | null; feeBackCents: number } | null;
+  deliveryTryBack?: { cents: number; done: boolean } | null; deliveryFeeKeptCents?: number; pendingRefundCents?: number;
   businessName: string; poNumber: string; customerName: string;
   lines: StatusLine[];
   subtotalCents: number; taxCents: number; shippingCents: number; promo?: { code: string; label: string; cents: number; freeShipping: boolean } | null; offerSavings?: { label: string; cents: number } | null;
@@ -1021,12 +1022,15 @@ export default function OrderStatusPage() {
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-8 text-center space-y-3">
               <XCircle className="w-10 h-10 mx-auto text-destructive/60" />
-              <p className="font-black uppercase tracking-tight text-lg">Order cancelled</p>
+              <p className="font-black uppercase tracking-tight text-lg">Order canceled</p>
               <p className="text-sm text-muted-foreground">
                 {order.refundedCents > 0
                   ? `${fmt(order.refundedCents)} was refunded to your original payment method. Refunds usually appear in 5–10 business days.`
-                  : 'This order was cancelled before payment completed — nothing was charged.'}
+                  : (order.pendingRefundCents || 0) > 0 ? `A refund of ${fmt(order.pendingRefundCents || 0)} is approved. We’ll let you know when it’s on its way.`
+                  : order.deliveryTryBack || (order.deliveryFeeKeptCents || 0) > 0 ? 'This order was canceled.' : 'This order was canceled before payment completed — nothing was charged.'}
               </p>
+              {order.deliveryTryBack && <p className="text-sm text-muted-foreground">The {fmt(order.deliveryTryBack.cents)} you paid for another delivery try {order.deliveryTryBack.done ? 'was refunded' : 'is being refunded'} to your card.</p>}
+              {(order.deliveryFeeKeptCents || 0) > 0 && <p className="text-sm text-muted-foreground">The {fmt(order.deliveryFeeKeptCents || 0)} delivery fee isn’t refunded, as the delivery couldn’t be made on your side.</p>}
             </CardContent>
           </Card>
         )}
@@ -1128,7 +1132,7 @@ export default function OrderStatusPage() {
                 </p>
               </div>
               {order.switchedFromDelivery && order.stage !== 'completed' && (
-                <p className="text-[12px] font-bold">You chose to pick it up instead of another delivery.{order.switchedFromDelivery.feeBackCents > 0 ? ` Your ${fmt(order.switchedFromDelivery.feeBackCents)} delivery fee goes back to your card.` : ''}</p>)}
+                <p className="text-[12px] font-bold">You chose to pick it up instead of another delivery.{order.switchedFromDelivery.feeBackCents > 0 ? ` Your ${fmt(order.switchedFromDelivery.feeBackCents)} delivery fee goes back to your card.` : order.deliveryTryBack ? ` The ${fmt(order.deliveryTryBack.cents)} you paid for another try ${order.deliveryTryBack.done ? 'was refunded' : 'is being refunded'} to your card.` : ''}</p>)}
               <img src={qrDataUrl} alt={`Pickup QR for order ${order.orderNumber}`} className="w-56 h-56 mx-auto rounded-2xl border-2" />
               {order.pickupPin || order.collectorEditable || order.collector ? (
                 <PickupCollector

@@ -19,6 +19,7 @@ import { holdsPlace, shiftsFor } from '@/lib/pickup-slots-server';
 import { planFrom, windowLabelOn, type ShiftSpan } from '@/lib/pickup-slots';
 import { hasTimeZone, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { refundAmount } from '@/lib/stripe-refund';
+import { sendNotification } from '@/lib/notify';
 import { canChoose, feeBack, feeForNext, keptPaidKeys, retryCents, retryPayOpen, whenInSentence } from '@/lib/delivery-retry';
 
 export type RetryWindow = { key: string; start: string; end: string; label: string; labelOn: string; left: number | null; cap: number | null };
@@ -197,7 +198,7 @@ export async function finishRetryPay(db: any, tenantId: string, orderId: string,
     const pi = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null;
     const cents = c0(session.amount_total);
     await recordPaid(db, tenantId, orderId, order, key, cents, pi, 'replaced');
-    const r = await refundRetryPayment(db, tenantId, orderId, key, 'replaced', { tenant });
+    const r = await refundRetryPayment(db, tenantId, orderId, key, 'replaced', { tenant, tell: true });
     return { ok: true, result: r.ok ? 'refunded' : 'refund_failed', message: refundedWords(money(cents), 'replaced', r.ok) };
   }
   if (rp.status !== 'awaiting_payment') {
@@ -208,7 +209,7 @@ export async function finishRetryPay(db: any, tenantId: string, orderId: string,
         const pi = typeof late.payment_intent === 'string' ? late.payment_intent : late.payment_intent?.id || null;
         const cents = c0(late.amount_total);
         await recordPaid(db, tenantId, orderId, order, key, cents, pi, 'late');
-        const r = await refundRetryPayment(db, tenantId, orderId, key, 'late', { tenant });
+        const r = await refundRetryPayment(db, tenantId, orderId, key, 'late', { tenant, tell: true });
         return { ok: true, result: r.ok ? 'refunded' : 'refund_failed', message: refundedWords(money(cents), 'late', r.ok) };
       }
     }
@@ -255,7 +256,7 @@ export async function finishRetryPay(db: any, tenantId: string, orderId: string,
     await tellTeam(db, tenantId, orderId, order, `${firstName(order)} paid ${money(paidCents)} for another try on order ${num(order)}: ${rp.window?.labelOn || rp.window?.label || ''}.`);
     return said({ ...rp, status: 'applied', paidCents });
   }
-  const r = await refundRetryPayment(db, tenantId, orderId, key, outcome.why || 'gone_out', { tenant });
+  const r = await refundRetryPayment(db, tenantId, orderId, key, outcome.why || 'gone_out', { tenant, tell: true });
   return said({ ...rp, status: r.ok ? 'refunded' : 'refund_failed', paidCents, refundWhy: outcome.why });
 }
 
@@ -294,15 +295,17 @@ async function paymentOwner(tenant: any, pi: any, stripe0?: any): Promise<{ ok: 
   return p ? { ok: true, type: String(p.metadata?.type || ''), orderId: String(p.metadata?.retailOrderId || '') } : { ok: false };
 }
 
-export async function refundRetryPayment(db: any, tenantId: string, orderId: string, key: string, why: RetryRefundWhy, o: { tenant?: any; stripe?: any } = {}): Promise<{ ok: boolean; cents: number; already?: boolean; error?: string }> {
+export async function refundRetryPayment(db: any, tenantId: string, orderId: string, key: string, why: RetryRefundWhy, o: { tenant?: any; stripe?: any; tell?: boolean } = {}): Promise<{ ok: boolean; cents: number; already?: boolean; error?: string }> {
   const ref = refOf(db, tenantId, orderId); const now = new Date().toISOString();
   const claim: any = await db.runTransaction(async (tx: any) => {
     const cur: any = ((await tx.get(ref)).data() as any) || {};
     const e = cur.deliveryRetryPaid?.[key];
     if (!e) return { none: true };
     if (e.refundedAt) return { already: true, cents: c0(e.cents) };
-    tx.update(ref, { [`deliveryRetryPaid.${key}`]: { ...e, state: 'refunding', refundWhy: why, refundTriedAt: now }, deliveryRetryPaidRetry: true });
-    return { e };
+    // Told when it's back (kept on the entry, so a refund that goes through on a later try still tells them).
+    const tell = e.tell === true || o.tell === true;
+    tx.update(ref, { [`deliveryRetryPaid.${key}`]: { ...e, state: 'refunding', refundWhy: why, refundTriedAt: now, ...(tell ? { tell: true } : {}) }, deliveryRetryPaidRetry: true });
+    return { e: { ...e, tell } };
   });
   if (claim.none) return { ok: false, cents: 0, error: 'That payment isn’t on this order.' };
   if (claim.already) return { ok: true, cents: claim.cents, already: true };
@@ -333,7 +336,10 @@ export async function refundRetryPayment(db: any, tenantId: string, orderId: str
       ...(live && sidKey(live.sessionId) === key ? { 'delivery.retryPay': { ...live, status: r.ok ? 'refunded' : 'refund_failed', refundWhy: why, endedAt: done } } : {}) });
   });
   const order: any = ((await ref.get()).data() as any) || {};
-  if (r.ok) await writeRefund(db, tenantId, orderId, order, cents, key, whyWords(why)).catch(() => {});
+  if (r.ok) {
+    await writeRefund(db, tenantId, orderId, order, cents, key, whyWords(why)).catch(() => {});
+    if (e.tell) await tellCustomerRefund(db, tenantId, orderId, key, order, cents, why).catch(() => {});
+  }
   else if (tries === 1 || gaveUp) {
     const n = db.collection(`tenants/${tenantId}/notifications`).doc();
     await n.set({ id: n.id, type: 'order_refund_due', read: false, createdAt: done, link: `/retail-orders?order=${orderId}`,
@@ -368,7 +374,8 @@ export async function sweepRetryPays(db: any, tenantId: string, tenant: any, o: 
   for (const d of cancelled.docs) {
     for (const [k, e] of Object.entries<any>((d.data() || {}).deliveryRetryPaid || {})) {
       if (e?.refundedAt || e?.gaveUp || e?.state !== 'applied') continue;
-      await refundRetryPayment(db, tenantId, d.id, k, 'cancelled', { tenant, stripe: o.stripe }).catch(() => null); n++;
+      // The shop canceled it, so the customer hears their payment for another try is back.
+      await refundRetryPayment(db, tenantId, d.id, k, 'cancelled', { tenant, stripe: o.stripe, tell: true }).catch(() => null); n++;
     }
   }
   const retry = await db.collection(T).where('deliveryRetryPaidRetry', '==', true).limit(30).get().catch(() => ({ docs: [] as any[] }));
@@ -435,6 +442,27 @@ export function retryPaidMarks(cur: any, back: { cents: number; from: string } |
   for (const k of keptPaidKeys(cur)) if (paid[k]?.state === 'applied') { after[k] = { ...paid[k], state: 'kept', keptAt: now }; out[`deliveryRetryPaid.${k}`] = after[k]; }
   if (Object.keys(paid).length) out.deliveryRetryPaidOpen = retryPaidOpen(after);
   return out;
+}
+
+/** The customer hears a second-try payment came back when it wasn't their own choice on the page that sent it back
+ *  (the shop canceled the order, or a payment came through too late): on their order page, with an email (or a text
+ *  when there's no email) pointing to it. */
+async function tellCustomerRefund(db: any, tenantId: string, orderId: string, key: string, order: any, cents: number, why: RetryRefundWhy | string) {
+  const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+  const shop = String(t.businessName || t.name || 'the shop');
+  const first = String(order.customerName || '').trim().split(/\s+/)[0] || 'there';
+  const reason = why === 'cancelled' ? 'because your order was canceled' : `because ${whyWords(why)}`;
+  const text = `Hi ${first}, the ${money(cents)} you paid ${shop} for another delivery try on order ${num(order)} was refunded to your card, ${reason}. Card refunds usually show in 5 to 10 business days.`;
+  // Its own card on the order page and its own nudge, apart from any refund of the order itself the same day.
+  const base = { tenantId, kind: 'refund_issued', recipientType: 'client', recipientId: orderId, orderId, recipientName: order.customerName || null,
+    cardKey: `retrypay-${key}`, nudgeLine: `The ${money(cents)} you paid for another delivery try on order ${num(order)} was refunded.` };
+  if (order.customerEmail) {
+    const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    await sendNotification(db, { ...base, channel: 'email', to: String(order.customerEmail), subject: `Your ${money(cents)} for another delivery try was refunded`,
+      html: `<p style="font-size:14px;color:#16171a;line-height:1.6">${esc(text)}</p>` } as any);
+  } else if (order.customerPhone) {
+    await sendNotification(db, { ...base, channel: 'sms', to: String(order.customerPhone), text } as any);
+  }
 }
 
 async function recordPaid(db: any, tenantId: string, orderId: string, order: any, key: string, cents: number, pi: string | null, state: string) {
