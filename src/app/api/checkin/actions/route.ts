@@ -53,15 +53,24 @@ export async function POST(req: NextRequest) {
     const rating = Math.round(Number(b.rating)); if (!(rating >= 1 && rating <= 5)) return bad('Please choose 1 to 5 stars.');
     const cl = appt.clientId ? (((await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get()).data()) || {}) : {};
     const svc = appt.serviceId ? (((await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get()).data()) || {}) : {};
+    // Shown on the booking page straight away only when the business chose that (Reviews → Visits, lib/reviews).
+    const { reviewSettings } = await import('@/lib/reviews');
+    const show = reviewSettings((await db.doc(`tenants/${tenantId}`).get()).data() || {}).visitAutoShow;
     const id = nanoid();
-    const batch = db.batch();
-    batch.set(db.doc(`tenants/${tenantId}/reviews/${id}`), {
-      id, tenantId, clientId: appt.clientId || null, clientName: appt.clientName || cl.name || 'Guest', clientAvatarUrl: cl.avatarUrl || null,
-      staffId: appt.staffId || '', serviceId: appt.serviceId || null, serviceName: svc.name || appt.serviceName || 'Treatment',
-      appointmentId: apptId, rating, text: str(b.text, 2000), isPublic: false, isFeatured: false, source: 'check-in link', createdAt: nowIso,
+    // One review per visit, even from two taps at once.
+    const took = await db.runTransaction(async (tx: any) => {
+      if ((((await tx.get(ref)).data()) || {}).reviewSubmittedAt) return false;
+      tx.set(db.doc(`tenants/${tenantId}/reviews/${id}`), {
+        id, tenantId, clientId: appt.clientId || null, clientName: appt.clientName || cl.name || 'Guest', clientAvatarUrl: cl.avatarUrl || null,
+        staffId: appt.staffId || '', serviceId: appt.serviceId || null, serviceName: svc.name || appt.serviceName || 'Treatment',
+        appointmentId: apptId, rating, text: str(b.text, 2000), isPublic: show, isFeatured: false, source: 'check-in link', createdAt: nowIso,
+      });
+      tx.set(ref, { reviewSubmittedAt: nowIso, reviewId: id, reviewRating: rating }, { merge: true });
+      return true;
     });
-    batch.set(ref, { reviewSubmittedAt: nowIso, reviewId: id, reviewRating: rating }, { merge: true });
-    await batch.commit();
+    if (!took) return bad('Thanks — you’ve already reviewed this visit.', 409);
+    // Waiting to be shown: the people who decide hear about it (lib/reviews-server).
+    if (!show) { const { tellWaiting } = await import('@/lib/reviews-server'); const { reviewerName } = await import('@/lib/reviews'); await tellWaiting(db, tenantId, { kind: 'visit', rating, who: reviewerName(appt.clientName || cl.name, 'A client'), what: `their ${svc.name || appt.serviceName || 'visit'}` }); }
     await logAuditAdmin(db, tenantId, { action: 'review.received', targetType: 'appointment', targetId: apptId, summary: `${rating}★ review from ${appt.clientName || 'a client'}`, actor: { type: 'user', name: appt.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
     return NextResponse.json({ ok: true });
   }

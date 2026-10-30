@@ -43,7 +43,12 @@ const req = (body: any, headers: Record<string, string> = {}, search = '') => ({
 (async () => {
   // ── Reviews ──
   const page = src('src/app/(app)/retail-orders/reviews/page.tsx');
-  check('the shop reviews screen reads, changes and deletes shop reviews only, never the salon’s visit reviews', (page.match(/retailReviews/g) || []).length >= 3 && !/tenants\/\$\{tenantId\}\/reviews/.test(page));
+  // The shop's page went to the one Reviews screen (row 14): shop and visit reviews side by side, each kind changed only
+  // through the server in its own collection, and none deleted.
+  const screen = src('src/components/reviews/ReviewsScreen.tsx'); const rserver = src('src/lib/reviews-server.ts');
+  check('the Reviews screen keeps shop and visit reviews apart, changes them only through the server, and deletes none',
+    /redirect\('\/reviews\?tab=shop'\)/.test(page) && /tenants\/\$\{tenantId\}\/retailReviews/.test(screen) && /tenants\/\$\{tenantId\}\/reviews`/.test(screen)
+    && !/updateDoc|deleteDoc|setDoc|addDoc/.test(screen) && /kind === 'shop' \? 'retailReviews' : 'reviews'/.test(rserver) && !/\.delete\(/.test(rserver));
   const { POST: REVIEW } = await import('../../src/app/api/retail/reviews/route');
   await db.doc(T).set({ name: 'Opal', retailSettings: {} });
   await db.doc(`${T}/retailOrders/o1`).set({ id: 'o1', stage: 'completed', qrToken: 'o1.tok', customerName: 'Dana Whit', lines: [{ lineId: 'A', productId: 'gel', name: 'Gel polish' }] });

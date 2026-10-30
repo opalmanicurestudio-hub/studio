@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { publishedReviews } from '@/lib/shop-public-server';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { reviewerName, reviewSettings } from '@/lib/reviews';
+import { limitPublic } from '@/lib/rate-limit';
 
 // ─── /api/retail/reviews ──────────────────────────────────────────────────────
 // GET  ?tenantId=&productId=      → { average, count, reviews: [...] }
-// POST { tenantId, orderId, qrToken, productId, rating, title, body, name }
+// POST { tenantId, orderId, qrToken, productId, rating, title, body }   signed with the order's name (lib/reviews)
 //
 // Reviews are only worth anything if they're real, so eligibility is proven
 // rather than claimed: the poster must hold an order's qrToken, that order
@@ -14,38 +17,14 @@ import { publishedReviews } from '@/lib/shop-public-server';
 // One review per product per order. Editing re-submits over the same id, so a
 // customer can fix a typo without creating a second voice.
 //
-// Moderation: retailSettings.reviewsAutoPublish === false holds new reviews at
-// status 'pending' for the shop to approve; otherwise they publish on arrival.
-// GET only ever returns published ones.
+// Moderation (Reviews → Shop, lib/reviews): a shop that reads reviews first (retailSettings.reviewsAutoPublish ===
+// false) holds new ones at status 'pending' (Waiting); otherwise they show on arrival. A review the shop hid stays
+// hidden, with its reason, when the customer edits it; an edited review waits again when the shop reads them first.
+// GET only ever returns shown ones.
 
 export const dynamic = 'force-dynamic';
 
 const RECEIVED_STAGES = ['shipped', 'completed'];
-
-function getAdminDb() {
-  const { initializeApp, getApps, cert } = require('firebase-admin/app');
-  const { getFirestore } = require('firebase-admin/firestore');
-  const APP_NAME = 'admin-retail-reviews';
-  let app = getApps().find((a: any) => a.name === APP_NAME);
-  if (!app) {
-    app = initializeApp({
-      credential: cert({
-        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    }, APP_NAME);
-  }
-  return getFirestore(app);
-}
-
-/** "Jessica Marshall" → "Jessica M." — a real person, not a full identity. */
-function displayName(raw: string): string {
-  const parts = String(raw || '').trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'Verified buyer';
-  if (parts.length === 1) return parts[0].slice(0, 20);
-  return `${parts[0].slice(0, 20)} ${parts[1][0].toUpperCase()}.`;
-}
 
 export async function GET(req: NextRequest) {
   const tenantId = String(req.nextUrl.searchParams.get('tenantId') || '').trim();
@@ -92,6 +71,8 @@ export async function POST(req: NextRequest) {
     if (String(order.qrToken || '') !== qrToken) {
       return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
     }
+    // Anyone with the order link can post: a few a minute is plenty for a real customer.
+    const limited = await limitPublic(req, 'retail-review', tenantId, { perHour: 60, perDay: 600 }); if (limited) return limited;
     if (!RECEIVED_STAGES.includes(String(order.stage))) {
       return NextResponse.json(
         { error: 'You can review once your order has been picked up or delivered.' },
@@ -101,34 +82,51 @@ export async function POST(req: NextRequest) {
     const line = (order.lines || []).find((l: any) => String(l.productId) === productId);
     if (!line) return NextResponse.json({ error: 'That item is not on this order' }, { status: 400 });
 
+    if (order.isTest) return NextResponse.json({ error: 'Reviews can’t be left on a test order.' }, { status: 409 });
+
     const tenantSnap = await db.collection('tenants').doc(tenantId).get();
-    const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
+    const S = reviewSettings(tenantSnap.exists ? tenantSnap.data() : {});
     // Deterministic id = one review per product per order, and a re-submit
     // edits rather than duplicates.
     const reviewId = `${orderId}__${productId}`;
+    const ref = db.collection(`tenants/${tenantId}/retailReviews`).doc(reviewId);
     const now = new Date().toISOString();
-    // A review the shop hid stays hidden when the customer edits it (and one waiting for approval keeps waiting).
-    const prev: any = (await db.collection(`tenants/${tenantId}/retailReviews`).doc(reviewId).get()).data() || null;
-    const status = prev?.status === 'hidden' ? 'hidden' : rs.reviewsAutoPublish === false ? 'pending' : 'published';
-
-    await db.collection(`tenants/${tenantId}/retailReviews`).doc(reviewId).set({
-      id: reviewId,
-      tenantId,
-      productId,
-      // A variant's review shows on its listing's page.
-      listingId: line.listingId ? String(line.listingId) : null,
-      productName: String(line.name || ''),
-      orderId,
-      orderNumber: order.orderNumber ?? null,
-      rating,
-      title,
-      body: text,
-      author: displayName(body.name || order.customerName || ''),
-      customerEmail: String(order.customerEmail || ''),
-      status,
-      createdAt: prev?.createdAt || now,
-      updatedAt: now,
-    }, { merge: true });
+    // Read and written together, so an edit landing just as the shop hides it can't bring it back. A review the shop
+    // hid stays hidden (with its reason) when the customer edits it; one waiting keeps waiting.
+    const { status, isNew, was, firstSinceHidden } = await db.runTransaction(async (tx: any) => {
+      const prev: any = (await tx.get(ref)).data() || null;
+      const st = prev?.status === 'hidden' ? 'hidden' : S.shopAutoShow ? 'published' : 'pending';
+      tx.set(ref, {
+        id: reviewId,
+        tenantId,
+        productId,
+        // A variant's review shows on its listing's page.
+        listingId: line.listingId ? String(line.listingId) : null,
+        productName: String(line.name || ''),
+        orderId,
+        orderNumber: order.orderNumber ?? null,
+        rating,
+        title,
+        body: text,
+        // Signed with the name on the order, first name and last initial.
+        author: reviewerName(order.customerName || ''),
+        customerEmail: String(order.customerEmail || ''),
+        clientId: order.clientId ? String(order.clientId) : null,
+        status: st,
+        createdAt: prev?.createdAt || now,
+        updatedAt: now,
+        ...(prev ? { editedAt: now } : {}),
+      }, { merge: true });
+      // An edit to a hidden review is news the first time since it was hidden, not on every save.
+      const firstSinceHidden = prev?.status === 'hidden' && (!prev?.editedAt || Date.parse(String(prev.editedAt)) < Date.parse(String(prev?.hiddenAt || '')));
+      return { status: st, isNew: !prev, was: String(prev?.status || ''), firstSinceHidden };
+    });
+    // Waiting for the shop (new, or a shown one changed while the shop reads them first), or a hidden one changed (the
+    // reason it was hidden may be gone): the people who decide hear about it.
+    if ((status === 'pending' && (isNew || was !== 'pending')) || (status === 'hidden' && firstSinceHidden)) {
+      const { tellWaiting } = await import('@/lib/reviews-server');
+      await tellWaiting(db, tenantId, { kind: 'shop', rating, who: reviewerName(order.customerName || ''), what: String(line.name || ''), changed: !isNew, hidden: status === 'hidden' });
+    }
 
     return NextResponse.json({
       ok: true,
@@ -136,7 +134,7 @@ export async function POST(req: NextRequest) {
       message: status === 'published'
         ? 'Thank you for your review. It is now live.'
         : status === 'hidden' ? 'Thank you, your review has been updated.'
-        : 'Thank you for your review. It has been submitted and will appear once it is approved.',
+        : 'Thank you for your review. It will show once the shop has read it.',
     });
   } catch (e: any) {
     return NextResponse.json(

@@ -2435,6 +2435,21 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
   );
 }
 // ─── ReviewsSection ───────────────────────────────────────────────────────────
+/** The visit reviews this business shows (api/public/reviews): first name and last initial, stars and words. */
+export function usePublicReviews(tenantId?: string) {
+  const [rows, setRows] = useState<{ name: string; rating: number; text: string }[]>([]);
+  useEffect(() => {
+    if (!tenantId) return;
+    let live = true;
+    fetch(`/api/public/reviews?tenantId=${encodeURIComponent(tenantId)}`).then((r) => r.json()).then((d) => {
+      if (!live || !d?.ok || !Array.isArray(d.reviews)) return;
+      setRows(d.reviews.filter((r: any) => r && r.text).map((r: any) => ({ name: String(r.name || 'A client'), rating: Math.max(1, Math.min(5, Number(r.rating) || 5)), text: String(r.text) })));
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [tenantId]);
+  return rows;
+}
+
 function ReviewsSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const layout = config.layout || 'grid';
   const accent = ac(style);
@@ -2463,14 +2478,16 @@ function ReviewsSection({ config, style, data, isPreview, sectionId, onFieldTap 
     </div>
   ) : null;
  
-  // Sample reviews are a DESIGN placeholder — shown only in the builder
-  // preview. On the live page only reviews the owner actually entered appear:
-  // invented reviews shown to real clients can count as fake reviews.
-  const reviews = [
+  // Clients' own reviews of their visits, the ones the business chose to show (Reviews → Visits), come first. Until
+  // there are some, the ones the owner typed here show. Sample reviews are a DESIGN placeholder, shown only in the
+  // builder preview: invented reviews shown to real clients can count as fake reviews.
+  const real = usePublicReviews(data?.tenantId);
+  const typed = [
     { name: config.rev1Name || (isPreview ? 'Sarah M.' : ''),   rating: config.rev1Rating ?? 5, text: config.rev1Text || (isPreview ? 'Absolutely incredible experience.' : '') },
     { name: config.rev2Name || (isPreview ? 'Jessica T.' : ''), rating: config.rev2Rating ?? 5, text: config.rev2Text || (isPreview ? 'Every visit exceeds my expectations.' : '') },
     { name: config.rev3Name || (isPreview ? 'Priya K.' : ''),   rating: config.rev3Rating ?? 5, text: config.rev3Text || (isPreview ? 'Luxurious yet so welcoming.' : '') },
   ].filter(r => r.text);
+  const reviews = real.length ? real.slice(0, 6) : typed;
   if (!reviews.length) return null; // nothing real to show on the live page
  
   const Stars = ({ count, light = false }: { count: number; light?: boolean }) => (

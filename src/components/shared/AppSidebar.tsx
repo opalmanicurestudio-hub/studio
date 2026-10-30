@@ -64,7 +64,7 @@ const CLIENT_GROWTH = [
   { href: '/gift-cards', icon: Gift,     label: 'Gift cards' },
   { href: '/quotes',    icon: FileText,  label: 'Quotes'        },
   { href: '/campaigns', icon: Megaphone, label: 'Outreach'      },
-  { href: '/reviews',   icon: Star,      label: 'Reputation'    },
+  { href: '/reviews',   icon: Star,      label: 'Reviews'       },
   { href: '/referrals', icon: HeartHandshake, label: 'Referrals'   },
   { href: '/loyalty',   icon: Gift,      label: 'Loyalty'       },
 ];

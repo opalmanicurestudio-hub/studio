@@ -1,6 +1,6 @@
 // src/app/api/cron/retail-payments/route.ts — EVERY 5 MIN (Vercel Cron + CRON_SECRET): every shop order still 'placed'
 // (older than 90 s, so Stripe's own notification gets first go) is checked with Stripe — paid ones complete and appear
-// on the orders board; abandoned ones close. Unanswered swap questions past their time become refunds; pickup reminders and back-in-stock emails go out. Nothing depends on the customer keeping their page open.
+// on the orders board; abandoned ones close. Unanswered swap questions past their time become refunds; pickup reminders, back-in-stock emails and review emails go out. Nothing depends on the customer keeping their page open.
 // Card reader payments at the desk that never got their answer are settled too (lib/reader-sale), and so is every other
 // payment or refund whose answer from Stripe was lost: recorded when it went through, let go when it didn't
 // (lib/money-sweep).
@@ -17,6 +17,7 @@ import { sweepReaderPayments } from '@/lib/reader-sale';
 import { sweepAddressPays } from '@/lib/address-pay';
 import { sweepRetryPays } from '@/lib/delivery-retry-server';
 import { sweepDriverLocations } from '@/lib/delivery-live-server';
+import { sweepReviewAsks } from '@/lib/reviews-server';
 import { finishPaidOrder } from '@/lib/retail-webhook';
 import { shareOrderTip } from '@/lib/order-tips';
 import { sweepMoneyOnTheWay } from '@/lib/money-sweep';
@@ -87,6 +88,9 @@ export async function GET(req: NextRequest) {
         try { const r = await shareOrderTip(db, t.id, d.id); if (r === 'shared' || r === 'unassigned') counts.tipsShared++; } catch (e: any) { console.error('[cron/retail-payments] tip', t.id, d.id, String(e?.message || e).slice(0, 160)); }
       }
     } catch { /* next run */ }
+    // Review emails after pickup or delivery, for a shop that turned them on (lib/reviews-server, once an hour): after
+    // the payment work, and given only a few seconds, so they never hold up a payment.
+    try { counts.reviewAsks = (counts.reviewAsks || 0) + await sweepReviewAsks(db, t.id, tenant, String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '') || req.nextUrl.origin, { budgetMs: 8e3 }); } catch (e: any) { console.error('[cron/retail-payments] review asks', t.id, String(e?.message || e).slice(0, 160)); }
     await money();
   }, { startedAt });   // the shops share the run's time with the messages above
   await heartbeat(db, 'retail-payments');   // HQ's account check uses this to spot a stopped task

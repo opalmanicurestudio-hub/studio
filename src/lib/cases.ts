@@ -95,6 +95,8 @@ export async function openCase(db: any, tenantId: string, actor: RequestActor, b
   await db.doc(`${T(tenantId)}/cases/${id}`).set(JSON.parse(JSON.stringify(doc)));
   // Started from a text or an online review: link the two so it isn't raised again.
   if (b.reviewId) await db.doc(`${T(tenantId)}/externalReviews/${String(b.reviewId).slice(0, 60)}`).set({ caseId: id }, { merge: true }).catch(() => {});
+  // A client's own review of a visit (Reviews → Visits): the review shows its case from then on.
+  if (b.visitReviewId && /^[A-Za-z0-9_-]{1,80}$/.test(String(b.visitReviewId))) await db.doc(`${T(tenantId)}/reviews/${String(b.visitReviewId)}`).update({ caseId: id }).catch(() => {});
   if (b.inboxId) await db.doc(`${T(tenantId)}/smsInbox/${String(b.inboxId).slice(0, 60)}`).set({ caseId: id }, { merge: true }).catch(() => {});
   const mgrs = [...staff.filter((s: any) => MANAGERS.includes(String(s.role))).map((s: any) => s.id), tenant.userId].filter(Boolean); const desk = staff.filter((s: any) => s.role === 'front_desk').map((s: any) => s.id);
   if (renterCase) { if (renter.id !== actor.staffId) await tell(db, tenantId, [renter.id], 'case_new', `Action needed: ${clientName} has raised a concern (${doc.reasonLabel}). As this is your client, please open Client cases to respond.`, id); return { ok: true as const, id, number }; }

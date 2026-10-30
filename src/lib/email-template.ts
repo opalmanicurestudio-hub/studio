@@ -14,6 +14,7 @@ export interface BrandedEmailInput {
   bodyHtml?: string;             // trusted pre-built HTML (caller escapes its own data), rendered after bodyLines
   cta?: { label: string; url: string } | null;
   secondaryCta?: { label: string; url: string } | null; // a quieter second link, e.g. "Add to calendar"
+  afterCtaHtml?: string;         // trusted pre-built HTML (caller escapes its own data), small print under the button
   footerNote?: string;           // small print under the card
 }
 
@@ -60,6 +61,7 @@ export function brandedEmailHtml(i: BrandedEmailInput): string {
           ${code}
           ${cta}
           ${i.secondaryCta ? `<p style="margin:10px 0 0;text-align:center;font-size:14px;"><a href="${esc(i.secondaryCta.url)}" target="_blank" style="color:#334155;text-decoration:underline;">${esc(i.secondaryCta.label)}</a></p>` : ''}
+          ${i.afterCtaHtml || ''}
         </td></tr>
         <!-- Footer -->
         <tr><td style="padding:16px 10px 0;text-align:center;">

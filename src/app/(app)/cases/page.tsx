@@ -96,28 +96,31 @@ function StageRail({ status }: { status: string }) {
     </ol>);
 }
 
-function NewCase({ firestore, tenantId, S, onDone, inboxId = '', reviewId = '' }: { firestore: any; tenantId: string; S: any; onDone: (id: string) => void; inboxId?: string; reviewId?: string }) {
+function NewCase({ firestore, tenantId, S, onDone, inboxId = '', reviewId = '', visitReviewId = '' }: { firestore: any; tenantId: string; S: any; onDone: (id: string) => void; inboxId?: string; reviewId?: string; visitReviewId?: string }) {
   const since = React.useMemo(() => new Date(Date.now() - 60 * 86400000).toISOString(), []);
   const aQ = useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore as Firestore, `tenants/${tenantId}/appointments`), where('startTime', '>=', since)) : null), [firestore, tenantId, since]);
   const { data: appts } = useCollection<any>(aQ);
   const [find, setFind] = React.useState(''); const [visit, setVisit] = React.useState<any>(null); const [reason, setReason] = React.useState(''); const [words, setWords] = React.useState('');
-  const [via, setVia] = React.useState<'call' | 'desk' | 'text' | 'review'>(reviewId ? 'review' : inboxId ? 'text' : 'call'); const [wants, setWants] = React.useState(''); const [name, setName] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const [via, setVia] = React.useState<'call' | 'desk' | 'text' | 'review'>(reviewId || visitReviewId ? 'review' : inboxId ? 'text' : 'call'); const [wants, setWants] = React.useState(''); const [name, setName] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const past = (appts || []).filter((a: any) => Date.parse(a.startTime) < Date.now() && !['cancelled', 'no_show', 'expired'].includes(String(a.status)));
   // Started from a client's text ("Sounds like a complaint"): their words, and their latest visit, filled in.
   const iRef = useMemoFirebase(() => (firestore && tenantId && inboxId ? doc(firestore as Firestore, `tenants/${tenantId}/smsInbox/${inboxId}`) : null), [firestore, tenantId, inboxId]);
   const rRef = useMemoFirebase(() => (firestore && tenantId && reviewId ? doc(firestore as Firestore, `tenants/${tenantId}/externalReviews/${reviewId}`) : null), [firestore, tenantId, reviewId]);
-  const { data: inboxDoc } = useDoc<any>(iRef); const { data: review } = useDoc<any>(rRef); const filled = React.useRef(false);
-  const inbox = inboxDoc || (review ? { body: review.text, clientId: review.clientId, clientName: review.clientName || review.author } : null);
-  React.useEffect(() => { if (!inbox || filled.current || !appts) return; filled.current = true; setWords(String(inbox.body || '')); setVia(reviewId ? 'review' : 'text');
-    const last = past.filter((a: any) => a.clientId && a.clientId === inbox.clientId).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime)))[0];
+  // Started from a client's own review of a visit (Reviews → Visits): their words and that visit.
+  const vRef = useMemoFirebase(() => (firestore && tenantId && visitReviewId ? doc(firestore as Firestore, `tenants/${tenantId}/reviews/${visitReviewId}`) : null), [firestore, tenantId, visitReviewId]);
+  const { data: inboxDoc } = useDoc<any>(iRef); const { data: review } = useDoc<any>(rRef); const { data: vReview } = useDoc<any>(vRef); const filled = React.useRef(false);
+  const inbox = inboxDoc || (review ? { body: review.text, clientId: review.clientId, clientName: review.clientName || review.author } : null) || (vReview ? { body: vReview.text, clientId: vReview.clientId, clientName: vReview.clientName, appointmentId: vReview.appointmentId } : null);
+  React.useEffect(() => { if (!inbox || filled.current || !appts) return; filled.current = true; setWords(String(inbox.body || '')); setVia(reviewId || visitReviewId ? 'review' : 'text');
+    const last = past.find((a: any) => inbox.appointmentId && a.id === inbox.appointmentId) || past.filter((a: any) => a.clientId && a.clientId === inbox.clientId).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime)))[0];
     if (last) setVisit(last); else if (inbox.clientName) { setFind(String(inbox.clientName)); setName(String(inbox.clientName)); } }, [inbox, appts]); // eslint-disable-line react-hooks/exhaustive-deps
   const hits = find.trim().length < 2 ? [] : past.filter((a: any) => `${a.clientName} ${a.serviceName}`.toLowerCase().includes(find.toLowerCase())).sort((a: any, b: any) => String(b.startTime).localeCompare(String(a.startTime))).slice(0, 6);
-  const go = async () => { setBusy(true); setErr(''); const r = await payPost('/api/cases', { tenantId, action: 'open', appointmentId: visit?.id || '', clientId: visit?.clientId || inbox?.clientId || '', clientName: visit?.clientName || name, reasonId: reason, words, via, wants: wants || null, inboxId: inboxId || null, reviewId: reviewId || null }); setBusy(false); if (r.ok) onDone(r.id); else setErr(r.error || 'That didn’t work.'); };
+  const go = async () => { setBusy(true); setErr(''); const r = await payPost('/api/cases', { tenantId, action: 'open', appointmentId: visit?.id || '', clientId: visit?.clientId || inbox?.clientId || '', clientName: visit?.clientName || name, reasonId: reason, words, via, wants: wants || null, inboxId: inboxId || null, reviewId: reviewId || null, visitReviewId: visitReviewId || null }); setBusy(false); if (r.ok) onDone(r.id); else setErr(r.error || 'That didn’t work.'); };
   return (
     <div className="space-y-5">
       <h2 className="text-[22px] font-bold tracking-tight">Start a case</h2>
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>HOW DID YOU HEAR?</p>
         <div className="flex flex-wrap gap-2">{(['call', 'desk', 'text', 'review'] as const).map((v) => <button key={v} type="button" onClick={() => setVia(v)} className="h-10 rounded-full px-4 text-[14px] font-semibold" style={via === v ? { background: INK, color: 'hsl(var(--background))' } : { background: SOFT }}>{v === 'call' ? 'Phone call' : v === 'desk' ? 'At the desk' : v === 'text' ? 'A text' : 'A review'}</button>)}</div>
+        {vReview && <div className="rounded-2xl p-3.5 text-[14px]" style={{ background: SOFT }}><b>{'★'.repeat(Math.max(0, Math.min(5, Number(vReview.rating) || 0)))}{'☆'.repeat(Math.max(0, 5 - (Number(vReview.rating) || 0)))}</b> · {vReview.clientName || 'A client'}’s review of their visit{vReview.createdAt ? ` · ${new Date(vReview.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}{vReview.caseId && <p className="mt-1 font-semibold">There’s already a case for this review.</p>}</div>}
         {review && <div className="rounded-2xl p-3.5 text-[14px]" style={{ background: SOFT }}><b>{'★'.repeat(review.rating)}{'☆'.repeat(Math.max(0, 5 - review.rating))}</b> · {review.author} on Google{review.publishedAt ? ` · ${new Date(review.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}{review.url && <> · <a href={review.url} target="_blank" rel="noreferrer" className="underline">See it</a></>}{review.caseId && <p className="mt-1 font-semibold">There’s already a case for this review.</p>}</div>}
         {inbox?.complaint?.safety && <p className="rounded-xl p-3 text-[14px] font-semibold" style={{ background: PINK, color: RED }}>Their text mentions something that could be a safety concern. If it is, choose the safety reason below so a manager is told now.</p>}</div>
       <div className="space-y-2"><p className="text-[13px] font-bold" style={{ color: MUTED }}>WHICH VISIT?</p>
@@ -377,10 +380,11 @@ export default function CasesPage() {
   const solo = !!staffRows && staffRows.filter((m: any) => m.archived !== true && m.isActive !== false && m.role !== 'renter').length <= 1;
   const { data: services } = useCollection<any>(sQ);
   const [pick, setPick] = React.useState<string>(''); const [starting, setStarting] = React.useState(false); const [showClosed, setShowClosed] = React.useState(false);
-  const [inboxId, setInboxId] = React.useState(''); const [reviewId, setReviewId] = React.useState('');
+  const [inboxId, setInboxId] = React.useState(''); const [reviewId, setReviewId] = React.useState(''); const [visitReviewId, setVisitReviewId] = React.useState('');
   React.useEffect(() => { const q = new URLSearchParams(window.location.search); const id = q.get('id'); if (id) setPick(id);
     if (q.get('start') === 'text' && q.get('inbox')) { setInboxId(String(q.get('inbox'))); setStarting(true); }
-    if (q.get('start') === 'review' && q.get('review')) { setReviewId(String(q.get('review'))); setStarting(true); } }, []);
+    if (q.get('start') === 'review' && q.get('review')) { setReviewId(String(q.get('review'))); setStarting(true); }
+    if (q.get('start') === 'review' && /^[A-Za-z0-9_-]{1,80}$/.test(String(q.get('visitReview') || ''))) { setVisitReviewId(String(q.get('visitReview'))); setStarting(true); } }, []);
   // A renter's client is the renter's case (they run it in their app) — the salon sees renter cases only for safety or equipment.
   const all = (data || []).filter((x: any) => !x.renterCase); const open = all.filter((c: any) => !c.locked).sort((a: any, b: any) => (b.safety ? 1 : 0) - (a.safety ? 1 : 0) || (a.firstReplyAt ? 1 : 0) - (b.firstReplyAt ? 1 : 0) || String(a.createdAt).localeCompare(String(b.createdAt)));
   const closed = all.filter((c: any) => c.locked).sort((a: any, b: any) => String(b.closedAt).localeCompare(String(a.closedAt)));
@@ -412,7 +416,7 @@ export default function CasesPage() {
           {isManager && <a href="/settings/making-it-right" className="block pt-3 text-[14px] underline" style={{ color: MUTED }}>Your rules for making it right</a>}
         </aside>
         <section className="p-4 md:p-8">
-          {starting ? <NewCase key={inboxId || reviewId || 'new'} firestore={firestore} tenantId={tenantId} S={S} inboxId={inboxId} reviewId={reviewId} onDone={(id) => { setStarting(false); setInboxId(''); setReviewId(''); setPick(id); }} />
+          {starting ? <NewCase key={inboxId || reviewId || visitReviewId || 'new'} firestore={firestore} tenantId={tenantId} S={S} inboxId={inboxId} reviewId={reviewId} visitReviewId={visitReviewId} onDone={(id) => { setStarting(false); setInboxId(''); setReviewId(''); setVisitReviewId(''); setPick(id); }} />
             : c ? <CaseView c={c} tenantId={tenantId} S={S} me={user?.uid || ''} isManager={isManager} tz={tz} services={services || []} solo={solo} />
             : <div className="mx-auto max-w-md space-y-2 pt-16 text-center"><p className="text-[20px] font-bold">Pick a case</p><p className="text-[15px]" style={{ color: MUTED }}>Every complaint gets an owner, a fix, and a check-back — and a record you can download.</p></div>}
         </section>

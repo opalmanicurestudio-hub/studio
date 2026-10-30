@@ -590,5 +590,20 @@ export async function GET(req: NextRequest) {
     if (o2.addressRequest?.to) o2.addressRequest = { ...o2.addressRequest, to: maskAddress(o2.addressRequest.to) };
     if (o2.addressPay?.to) o2.addressPay = { ...o2.addressPay, to: maskAddress(o2.addressPay.to), url: null };
   }
+  // Once it can be reviewed: what on it can be (lib/reviews), and the customer's own reviews of it, so the order page
+  // shows what they wrote and lets them change it (lib/reviews-server).
+  if (body.order && ['shipped', 'completed'].includes(String(order.stage)) && !order.isTest) {
+    try {
+      const { reviewableLines, reviewerName, reviewSettings } = await import('@/lib/reviews');
+      const { orderReviews } = await import('@/lib/reviews-server');
+      body.order.reviewable = reviewableLines(order).map((l) => ({ productId: l.productId, name: l.name }));
+      // What they wrote, and how it's signed (first name and last initial), only with their pass: the link alone (the
+      // card in the box, say) shows their stars, like the rest of the page shows their first name only.
+      const mine = await orderReviews(db, tenantId, orderId, order);
+      body.order.reviews = passOk ? mine : Object.fromEntries(Object.entries(mine).map(([k, v]) => [k, { rating: v.rating }]));
+      body.order.reviewAs = passOk ? reviewerName(order.customerName) : '';
+      body.order.reviewsWait = !reviewSettings(tenantSnap.exists ? tenantSnap.data() : {}).shopAutoShow;
+    } catch { /* the review card still opens */ }
+  }
   return NextResponse.json(body);
 }

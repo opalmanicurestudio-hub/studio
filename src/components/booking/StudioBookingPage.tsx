@@ -13,6 +13,7 @@ import { GiftCoverBar } from '@/components/gift/GiftCoverBar';
 import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
 import { GiftCardShowcase } from '@/components/gift/GiftCardShowcase';
 import { catSlug } from '@/lib/share-links';
+import { usePublicReviews } from '@/lib/booking-sections';
 import { useMemo, useState } from 'react';
 import { PublicFrame, Section, PrimaryButton, QuietButton, money, minutes } from '@/components/public/kit';
 
@@ -33,7 +34,11 @@ export function StudioBookingPage({ tenant, services, staff, sections, accent, o
     headline: rawHero.headline && rawHero.headline !== 'Book Your Experience' ? rawHero.headline : '',
     subheadline: rawHero.subheadline && !/^A sanctuary of craft/.test(rawHero.subheadline) ? rawHero.subheadline : '' };
   const rv = sections.find((s) => s.type === 'reviews')?.config || {};
-  const reviews = [1, 2, 3].map((i) => ({ name: rv[`rev${i}Name`], text: rv[`rev${i}Text`], rating: rv[`rev${i}Rating`] ?? 5 })).filter((r) => r.text && r.name);
+  // Clients' own reviews the business chose to show (Reviews → Visits) first; the ones typed in the page builder until then.
+  // Only on a page that has a Reviews section.
+  const real = usePublicReviews(sections.some((s) => s.type === 'reviews') ? tenant?.id : undefined);
+  const typed = [1, 2, 3].map((i) => ({ name: rv[`rev${i}Name`], text: rv[`rev${i}Text`], rating: rv[`rev${i}Rating`] ?? 5 })).filter((r) => r.text && r.name);
+  const reviews = real.length ? real.slice(0, 6) : typed;
   const bookable = services.filter((s) => s.isActive !== false);
   const groups = useMemo(() => {
     const m = new Map<string, any[]>(); const ordered = [...bookable].sort((a: any, b: any) => (Number.isFinite(a.menuOrder) ? a.menuOrder : 1e9) - (Number.isFinite(b.menuOrder) ? b.menuOrder : 1e9) || String(a.name).localeCompare(String(b.name)));   // the owner's menu order

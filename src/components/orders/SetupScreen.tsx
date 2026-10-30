@@ -26,7 +26,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
     ['/retail-orders/wholesale', 'Wholesale', 'Trade prices and access for businesses'],
   ] },
   { title: 'Customers', items: [
-    ['/retail-orders/reviews', 'Reviews', 'What shoppers say, and which ones show'],
+    ['/reviews?tab=shop', 'Reviews', 'What shoppers say, which ones show, and asking for them'],
     ['/retail-orders/claims', 'Claims', 'Problem reports with photos and the packing record'],
     ['/retail-orders/lost', 'Lost and recovered', 'Claims to file, money back from carriers and insurance, and where losses come from'],
     ['/retail-orders/returns', 'Returns desk', 'Scan returns in at a bench'],

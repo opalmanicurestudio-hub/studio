@@ -678,9 +678,9 @@ service cloud.firestore {
     // pickup code, the payment ids, the risk check and holds set by the payment step, swap questions, which order a
     // backorder or replacement was made from, who the customer said is collecting it (api/retail/self-serve) and the
     // wrong tries of its pickup code, and after a delivery that couldn't be made: the second tries the customer paid
-    // for, the delivery fee owed back or kept, and a switch to pickup (lib/delivery-retry-server). Only managers release a
-    // hold or mark a refund as done by hand (with the tax, tip and delivery fee it gave back). Orders are only ever
-    // created on the server.
+    // for, the delivery fee owed back or kept, and a switch to pickup (lib/delivery-retry-server), and the email asking
+    // for a review (lib/reviews-server). Only managers release a hold or mark a refund as done by hand (with the tax,
+    // tip and delivery fee it gave back). Orders are only ever created on the server.
     function orderLockedKeys() {
       return ['chargedCents', 'totalCents', 'subtotalCents', 'taxCents', 'shippingCents', 'tipCents', 'qrToken', 'customerEmail', 'customerPhone', 'customerName', 'textsOff', 'clientId',
               'orderNumber', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq', 'lastStripeRefundId',
@@ -694,7 +694,8 @@ service cloud.firestore {
               'collector', 'pinTries', 'collectedNotifiedAt', 'returnSeq',
               'pickupWindow', 'pickupWindowKey', 'checkoutKeyHash', 'deliveryWindowKey', 'deliveryAsapAt', 'tipFor',
               'shippingAddress', 'deliveredAt',
-              'deliveryRetryPaid', 'deliveryRetryPaidOpen', 'deliveryRetryPaidRetry', 'deliveryRetryLog', 'deliveryFeeBackCents', 'deliveryFeeKeptCents', 'switchedFrom'];
+              'deliveryRetryPaid', 'deliveryRetryPaidOpen', 'deliveryRetryPaidRetry', 'deliveryRetryLog', 'deliveryFeeBackCents', 'deliveryFeeKeptCents', 'switchedFrom',
+              'reviewAsk'];
     }
     // What only the order steps change, on the server (api/retail/fulfil, with the person's role checked there): the
     // order's stage, its items and their counts, who's packing it, when each step happened, the lots that went out and
@@ -744,6 +745,18 @@ service cloud.firestore {
     // rounded, short-lived view of it through the server, and nobody else sees it.
     match /tenants/{tenantId}/driverLocations/{staffId} {
       allow read, write: if false;
+    }
+    // REVIEWS (lib/reviews-server): shop reviews (retailReviews) and visit reviews (reviews). The team reads them on the
+    // Reviews screen; they're written only by the server, so nobody can change what a review says or its stars, add or
+    // delete one, or show or hide one from a browser (Show and Hide go through /api/reviews, for the people whose role
+    // runs marketing, and hiding keeps its reason). Booking pages get the shown visit reviews through the server.
+    match /tenants/{tenantId}/retailReviews/{reviewId} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/reviews/{reviewId} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
     }
     // ACCESS TO PURCHASED DOWNLOADS (lib/entitlements): one record per buyer per item, with the license and window sold
     // and the downloads used. The team reads them; only the server writes them (payment, the library, the owner's
@@ -812,7 +825,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations', 'retailReviews', 'reviews',
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',
