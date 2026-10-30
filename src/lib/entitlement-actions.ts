@@ -50,7 +50,8 @@ export function applyAction(ent: any, a: EntAction, by: string, now: string, ctx
     if (a.until !== 'forever' && Date.parse(until) <= Date.parse(now)) return { ok: false, error: 'Choose a date after today.' };
     if (a.until !== 'forever' && ctx.endsAt && Date.parse(until) <= Date.parse(ctx.endsAt)) return { ok: false, error: `Access already lasts until ${day(ctx.endsAt)}. Choose a later date.` };
     const what = a.until === 'forever' ? 'Access extended for good' : `Access extended to ${day(until)}`;
-    return { ok: true, what, patch: { access: { ...(ent.access || {}), extendedUntil: until }, history: hist(what) } };
+    // accessEnd moves with it, so the reminder before the end (lib/digital-notices) comes before the new end.
+    return { ok: true, what, patch: { access: { ...(ent.access || {}), extendedUntil: until }, accessEnd: a.until === 'forever' ? null : until, history: hist(what) } };
   }
   if (a.kind === 'revoke') {
     if (ent.status === 'revoked') return { ok: false, error: 'Access is already closed.' };

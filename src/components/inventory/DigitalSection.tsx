@@ -19,6 +19,8 @@ import {
   legacyFileFields, sizeWords, viewable, type Delivery, type DigitalFile, MAX_PREVIEWS,
 } from '@/lib/digital-product';
 import { licensesOf, termsOf } from '@/lib/licenses';
+import { changedFiles } from '@/lib/digital-notices';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { LicenseManager } from './LicenseManager';
 
 const label = 'text-[10px] font-black uppercase tracking-widest text-muted-foreground';
@@ -35,6 +37,9 @@ const hint = 'text-[10px] font-bold text-muted-foreground';
 export function DigitalSection({ product, onSave }: { product: any; onSave: (patch: Record<string, any>) => Promise<void> | void }) {
   const { selectedTenant } = useTenant() as any;
   const tenantId = String(selectedTenant?.id || '');
+  // After a new version is saved: the offer to email buyers (lib/digital-notices). Gone when another product opens.
+  const [announce, setAnnounce] = React.useState<{ ids: string[]; names: string[]; sending: boolean; done: string; more: boolean; total: number } | null>(null);
+  React.useEffect(() => { setAnnounce(null); }, [product?.id]);
   const { toast } = useToast();
 
   const start = React.useMemo(() => ({
@@ -121,7 +126,25 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
         licenseId: license.id,
         digitalProtection: 'standard',
       } : { digital: false });
+      // A file with a new version: offer to tell everyone who bought it (never sent without the shop asking).
+      const changed = d.digital ? changedFiles(start.files, files) : [];
+      if (changed.length) setAnnounce({ ids: changed.map((f) => f.id), names: changed.map((f) => f.name), sending: false, done: '', more: false, total: 0 });
     } finally { setSaving(false); }
+  };
+
+  const tellBuyers = async () => {
+    if (!announce) return;
+    setAnnounce({ ...announce, sending: true });
+    try {
+      const res = await fetch('/api/retail/digital/notify-update', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, productId: product.id, fileIds: announce.ids }) });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok || !r.ok) { toast({ variant: 'destructive', title: 'Not sent', description: r.error || 'Try again.' }); setAnnounce({ ...announce, sending: false }); return; }
+      const total = announce.total + Number(r.sent || 0);
+      const more = r.more === true || Number(r.failed || 0) > 0;
+      const sofar = total ? `Emailed ${total} buyer${total === 1 ? '' : 's'}.` : '';
+      const next = r.more ? 'There are more to send: press Send the rest.' : r.failed ? `${r.failed} didn’t go through; press Send the rest to try them again.` : '';
+      setAnnounce({ ...announce, sending: false, more, total, done: [sofar, next].filter(Boolean).join(' ') || 'Everyone who can open it already has this version, so nothing was sent.' });
+    } catch { toast({ variant: 'destructive', title: 'Not sent', description: 'Check your connection and try again.' }); setAnnounce({ ...announce, sending: false }); }
   };
 
   return (
@@ -250,6 +273,22 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
             </ul>
           )}
         </>
+      )}
+
+      {announce && !dirty && (
+        <div role="status" className="space-y-2 rounded-xl border-2 px-3 py-2.5">
+          <p className="text-xs font-black">{announce.names.length === 1 ? `New version of ${announce.names[0]} saved` : `New versions of ${announce.names.length} files saved`}</p>
+          {announce.done && <p className={hint}>{announce.done}</p>}
+          {announce.done && announce.more && <Button type="button" onClick={() => void tellBuyers()} disabled={announce.sending} className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest">{announce.sending ? <Loader className="h-4 w-4 animate-spin" /> : 'Send the rest'}</Button>}
+          {!announce.done && <>
+            <p className={hint}>Email the people who bought this that there’s a new version? It goes once to each buyer who can still open it, and only managers can send it.</p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => void tellBuyers()} disabled={announce.sending} className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest">{announce.sending ? <Loader className="h-4 w-4 animate-spin" /> : 'Email buyers'}</Button>
+              <Button type="button" variant="outline" onClick={() => setAnnounce(null)} disabled={announce.sending} className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Not now</Button>
+            </div>
+          </>}
+          {announce.done && <Button type="button" variant="ghost" onClick={() => setAnnounce(null)} className="h-11 rounded-xl text-[10px] font-black uppercase tracking-widest">Done</Button>}
+        </div>
       )}
 
       {dirty && (

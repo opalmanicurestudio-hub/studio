@@ -9,6 +9,7 @@
 // shop's own changes (revoked, extended) beside the order's refunds, chargebacks and window.
 
 import { BUILT_IN_LICENSES, copyOf, licenseFor } from './licenses';
+import { filesOf } from './digital-product';
 
 export const DEFAULT_DOWNLOADS = 5;
 const c0 = (v: any) => Math.max(0, Math.round(Number(v) || 0));
@@ -20,6 +21,10 @@ export type Entitlement = {
   gift?: boolean;
   license: { id: string; name: string; terms: string };
   access: { days: number; startsAt: string; endsAt: string | null; extendedUntil?: string | null };
+  /** When access ends, counting the shop's extensions (null = for good): what the nightly reminder looks for. */
+  accessEnd?: string | null;
+  /** Messages already sent (lib/digital-notices): the end date warned about, and each file version announced. */
+  notices?: { endingFor?: string | null; updated?: Record<string, number> };
   downloads: { allowed: number | null; used: number; extra: number; seen?: { id: string; at: number }[] };
   views: number;
   status: 'active' | 'revoked';
@@ -45,6 +50,7 @@ export function buildEntitlement(tenantId: string, order: any, line: any, item: 
   const allowed = limitRaw === 0 || limitRaw === '0' ? null : c0(limitRaw) || DEFAULT_DOWNLOADS;
   // The license as the product sells it now (the shop's reusable license, else its own words), copied at sale.
   const lic = line?.license && line.license.id ? line.license : licenseFor(tenant, item);
+  const endsAt = days > 0 ? new Date((Date.parse(start) || Date.now()) + days * 864e5).toISOString() : null;
   return {
     id: entitlementId(order?.id || '', line?.lineId || line?.productId || ''),
     tenantId, orderId: String(order?.id || ''), lineId: String(line?.lineId || ''), productId: String(line?.productId || ''),
@@ -53,7 +59,9 @@ export function buildEntitlement(tenantId: string, order: any, line: any, item: 
     email: String(order?.digitalGift?.toEmail || order?.customerEmail || '').trim().toLowerCase(), clientId: order?.digitalGift ? null : order?.clientId || null, ...(order?.digitalGift ? { gift: true } : {}),
     copies: Math.max(1, c0(line?.qtyOrdered) || 1),
     license: { id: String(lic.id), name: String(lic.name || 'License'), terms: String(lic.terms || '') },
-    access: { days, startsAt: start, endsAt: days > 0 ? new Date((Date.parse(start) || Date.now()) + days * 864e5).toISOString() : null, extendedUntil: null },
+    access: { days, startsAt: start, endsAt, extendedUntil: null }, accessEnd: endsAt,
+    // The file versions they bought, so a later "new version" email only goes for versions newer than these.
+    notices: { updated: Object.fromEntries(filesOf(item).map((f) => [f.id, f.version])) },
     downloads: { allowed: allowed === null ? null : allowed * Math.max(1, c0(line?.qtyOrdered) || 1), used: 0, extra: 0 },
     views: 0,
     status: 'active', revoked: null,

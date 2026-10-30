@@ -163,7 +163,12 @@ export async function GET(req: NextRequest) {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
     const tenantBucket = String((tSnap.data() as any)?.storageBucket || '') || null;
     const bytes = await downloadFile(filePath, tenantBucket);
-    if (!bytes) return NextResponse.json({ error: 'The file couldn\u2019t be opened just now.' }, { status: 502 });
+    if (!bytes) {
+      // The team hears (once per item a day), so a lost file is put back before more buyers find it.
+      const { alertMissingFile } = await import('@/lib/digital-notices-server');
+      await alertMissingFile(db, tenantId, auth.item, productId, String(auth.item?.name || auth.line?.name || 'a download'), 'missing');
+      return NextResponse.json({ error: `The file couldn\u2019t be opened just now. The shop has been told. ${askShop(auth.order)} if it still won\u2019t open later.` }, { status: 502 });
+    }
 
     const isPdf = looksLikePdf(filePath, bytes);
     const out = isPdf ? await watermarkPdf(bytes, label(auth.order)) : bytes;
@@ -229,7 +234,9 @@ export async function POST(req: NextRequest) {
     if (file && !ownPath(tenantId, file.path)) return NextResponse.json({ error: `This file can\u2019t be opened. ${askShop(order)}.` }, { status: 409 });
     const filePath = file ? file.path : '';
     if (!filePath && !linkUrl) {
-      return NextResponse.json({ error: `This file hasn\u2019t been attached yet. ${askShop(order)} and they\u2019ll sort it out.` }, { status: 409 });
+      const { alertMissingFile } = await import('@/lib/digital-notices-server');
+      if (!wantsLink || !files.length) await alertMissingFile(db, tenantId, item, productId, String(item?.name || line?.name || 'a download'), 'unattached');
+      return NextResponse.json({ error: `This file hasn\u2019t been attached yet. The shop has been told. ${askShop(order)} to hear when it\u2019s ready.` }, { status: 409 });
     }
 
     await logOpen(ref, order, line, productId, filePath ? 'file' : 'link');

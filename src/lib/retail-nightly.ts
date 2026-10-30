@@ -37,6 +37,8 @@ export async function retailNightlyForShop(db: any, tenantId: string, tenant: an
     }
     if (n || waiting) out.nonCardRestored = { orders: n, ...(waiting ? { waiting } : {}) };
   } catch (e) { out.nonCardRestored = err(e); }
+  // Downloads whose access ends within the week: one reminder per end date (lib/digital-notices-server).
+  try { const { sweepEndingNotices } = await import('@/lib/digital-notices-server'); const en = await sweepEndingNotices(db, tenantId, tenant); if (en.sent > 0 || !en.done) out.accessEnding = { emailed: en.sent, ...(en.done ? {} : { carriesOn: true }) }; } catch (e) { out.accessEnding = err(e); }
   try { const cr = await closeStaleReturns(db, tenantId, tenant); if (cr > 0) out.returnsClosed = { closed: cr }; } catch (e) { out.returnsClosed = err(e); }
   try { const ex = await alertExpiringStock(db, tenantId); if (ex > 0) out.expiry = { alerts: ex }; } catch (e) { out.expiry = err(e); }
   try { const st = await sweepStaleCurbside(db, tenantId); if (st.flagged > 0) out.curbside = st; } catch (e) { out.curbside = err(e); }
