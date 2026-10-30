@@ -128,8 +128,8 @@ export default function InvoicePage({ params }: { params: Promise<{ tenantId: st
             {o.poNumber ? <p className="muted">PO: {o.poNumber}</p> : null}
           </div>
           <div>
-            <p className="lbl">{o.method === 'ship' ? 'Ship to' : 'Fulfillment'}</p>
-            {o.method === 'ship' && addr ? (
+            <p className="lbl">{o.method === 'ship' ? 'Ship to' : o.method === 'delivery' ? 'Deliver to' : 'Fulfillment'}</p>
+            {(o.method === 'ship' || o.method === 'delivery') && addr ? (
               <p className="body">
                 {addr.masked ? null : <>{addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br /></>}
                 {addr.city}, {addr.state} {addr.masked ? '' : addr.postalCode || addr.zip || ''}
@@ -174,7 +174,7 @@ export default function InvoicePage({ params }: { params: Promise<{ tenantId: st
           <div className="line"><span className="muted">Subtotal</span><span>{fmt(o.subtotalCents)}</span></div>
           {(o.promo?.cents || 0) > 0 && <div className="line ok"><span>{String(o.promo.label || o.promo.code)}</span><span>−{fmt(o.promo.cents)}</span></div>}
           {(o.offerSavings?.cents || 0) > 0 && <div className="line ok"><span>{String(o.offerSavings.label)}</span><span>−{fmt(o.offerSavings.cents)}</span></div>}
-          {(o.shippingCents || 0) > 0 && <div className="line"><span className="muted">Shipping</span><span>{fmt(o.shippingCents)}</span></div>}
+          {(o.shippingCents || 0) > 0 && <div className="line"><span className="muted">{o.method === 'delivery' ? 'Delivery' : 'Shipping'}</span><span>{fmt(o.shippingCents)}</span></div>}
           {(o.taxCents || 0) > 0 && <div className="line"><span className="muted">Tax</span><span>{fmt(o.taxCents)}</span></div>}
           {(o.tipCents || 0) > 0 && <div className="line"><span className="muted">Tip</span><span>{fmt(o.tipCents)}</span></div>}
           <div className={`line ${split ? 'mid' : 'total'}`}><span>Total</span><span>{fmt(o.totalCents)}</span></div>

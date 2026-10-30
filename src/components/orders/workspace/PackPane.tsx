@@ -190,7 +190,7 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
   };
   const putDown = async () => { const r = await stopPacking(fs, tenantId, order, batch, actor); if (!r.ok) { feel(false); setErr(r.message); return; } onPutDown(); };
 
-  const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? (boxCount > 1 ? `Add a photo of box ${photoMissing[0]} first` : 'Add a photo of the box first') : order.method === 'ship' ? 'Done, packed for shipping' : `Done, it’s ready for ${firstName(order.customerName)}`;
+  const mainLabel = left > 0 ? `${left} more to go` : needPhoto ? (boxCount > 1 ? `Add a photo of box ${photoMissing[0]} first` : 'Add a photo of the box first') : order.method === 'ship' ? 'Done, packed for shipping' : order.method === 'delivery' ? 'Done, ready for its driver' : `Done, it’s ready for ${firstName(order.customerName)}`;
 
   const pending = Number(order.pendingRefundCents) || 0;
 
@@ -368,7 +368,7 @@ export function PackPane({ fs, tenantId, order, all, actor, rs, photoFor, shelfF
             <span className="cf-anim-pop mx-auto grid h-24 w-24 place-items-center rounded-full" style={{ background: C.ok }}>
               <svg className="cf-anim-draw" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
             </span>
-            <p className="cf-anim-rise m-0 mt-6 text-[28px] font-light tracking-[-0.02em]">{order.method === 'ship' ? 'Packed' : `Ready for ${firstName(order.customerName)}`}</p>
+            <p className="cf-anim-rise m-0 mt-6 text-[28px] font-light tracking-[-0.02em]">{order.method === 'ship' ? 'Packed' : order.method === 'delivery' ? 'Ready for its driver' : `Ready for ${firstName(order.customerName)}`}</p>
             {done ? <p className="cf-anim-rise m-0 mt-1 text-[15px]" style={muted}>{done}</p> : null}
           </div>
         </div>)}

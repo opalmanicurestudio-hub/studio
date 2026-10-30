@@ -11,7 +11,9 @@ import { publicDigital } from '@/lib/digital-product';
 import { licenseFor } from '@/lib/licenses';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import { leadOf, publicSchedule } from '@/lib/ship-promise';
-import { tenantTimeZone } from '@/lib/tenant-time';
+import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
+import { deliveryFrom, notReady } from '@/lib/delivery-plan';
+import { hasMapsKey } from '@/lib/geocode-server';
 
 // ─── /api/retail/product/route.ts ─────────────────────────────────────────────
 // GET ?tenantId=...&productId=...&wholesaleCode=...
@@ -115,6 +117,8 @@ export async function GET(req: NextRequest) {
       // never touched these keeps today's behaviour.
       offersPickup: rs.pickupEnabled !== false,
       offersShipping: rs.shippingEnabled !== false,
+      // Local delivery (lib/delivery-plan), once checkout can offer it.
+      offersDelivery: (() => { const d = deliveryFrom(rs); return d.on && hasTimeZone(tenant) && !notReady(d, { mapsReady: hasMapsKey() }).length; })(),
       // Ship-by and arrival dates are worked out on the page, live, from the shop's schedule (lib/ship-promise),
       // only once the shop shows dates.
       timeZone: shopZone,

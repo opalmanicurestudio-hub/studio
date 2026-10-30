@@ -31,6 +31,7 @@ const ACTIONS: Record<string, Need> = {
   scanPack: 'pack', markPacked: 'pack', markReady: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
+  deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover',
   openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', decideClaim: 'claims', requestClaimInfo: 'returns',
 };
 
@@ -146,13 +147,17 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         if (out?.ok) {
           const o: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
           if (o.method === 'curbside') { if (out.notifyReady) F.notifyCurbside(tenantId, orderId, 'ready'); }
-          else if (o.method !== 'ship') sendMessage('order_ready', { orderId });
+          // A delivery isn't collected: its customer hears when it's on the way, not that it's ready to pick up.
+          else if (o.method !== 'ship' && o.method !== 'delivery') sendMessage('order_ready', { orderId });
         }
         break;
       }
       case 'bringingOut': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markBringingOut(db, tenantId, orderId, actor, await photoOf(db, tenantId, actor.id)); if (out?.ok && !/already/.test(out.message || '')) F.notifyCurbside(tenantId, orderId, 'out'); delete out?.notify; break; }
       case 'handoffScan': out = await F.handoffByScan(db, tenantId, s(b.value, 300), actor, { orderId: orderId || undefined }); break;
       case 'handoffPin': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffByPin(db, tenantId, orderId, s(b.pin, 12), actor); break; }
+      case 'deliveryOut': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markOutForDelivery(db, tenantId, orderId, actor); break; }
+      case 'deliveryDone': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markDelivered(db, tenantId, orderId, actor); break; }
+      case 'deliveryFailed': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markDeliveryFailed(db, tenantId, orderId, actor, s(b.reason, 140)); break; }
       case 'handoffNoScan': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffWithoutScan(db, tenantId, orderId, s(b.verifiedBy, 140) || 'Checked name and phone', actor); break; }
       case 'splitReady': { const m = need1(orderId, 'order'); if (m) return m; out = await F.splitReadyFromWaiting(db, tenantId, orderId, actor); break; }
       case 'releaseBackorder': { const m = need1(orderId, 'order'); if (m) return m; out = await F.releaseBackorder(db, tenantId, orderId, actor, { onlyIfCovered: b.onlyIfCovered !== false }); break; }

@@ -98,7 +98,7 @@ const req = (body: any, headers: Record<string, string> = {}, search = '') => ({
   await db.doc(`${T}/retailOrders/r3`).set({ id: 'r3', orderNumber: 1502, stage: 'completed', method: 'counter', qrToken: 'r3.tok', subtotalCents: 1500, taxCents: 0, totalCents: 1500, lines: [{ lineId: 'A', productId: 'gel', name: 'Gel polish', unitPriceCents: 1500, qtyOrdered: 1, qtyScanned: 1, qtyShorted: 0, qtyReturned: 0, status: 'picked' }] });
   const both: any[] = await Promise.all([1, 2].map(() => FULFIL(req({ tenantId: 't1', action: 'openReturn', orderId: 'r3', selections: [{ lineId: 'A', qty: 1, reason: 'changed_mind' }], resolution: 'refund' }, { authorization: 'Bearer t' }))));
   check('two returns started at once for the last unit: only one is saved', (await all(`${T}/retailReturns`)).length === 1 && both.filter((x) => x.body.ok).length === 1, both.map((x) => x.body));
-  check('…and the customer’s own returns count the same way', /if \(\(Number\(cur\.returnSeq\) \|\| 0\) !== \(Number\(order\.returnSeq\) \|\| 0\)\) return true;/.test(src('src/app/api/retail/self-serve/route.ts')) && /'returnSeq'\];/.test(src('firestore.rules')));
+  check('…and the customer’s own returns count the same way', /if \(\(Number\(cur\.returnSeq\) \|\| 0\) !== \(Number\(order\.returnSeq\) \|\| 0\)\) return true;/.test(src('src/app/api/retail/self-serve/route.ts')) && /'returnSeq'[,\]]/.test(src('firestore.rules')));
   check('a reply posted with nobody to tell isn’t reported as told', /!\/nobody to nudge\/\.test/.test(src('src/app/api/retail/support-reply/route.ts')));
 
   // ── The database ──

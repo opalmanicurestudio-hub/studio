@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import {
-  ArrowLeft, CalendarClock, Loader, Minus, Package, Plus, Store, Truck, X,
+  ArrowLeft, CalendarClock, Loader, MapPin, Minus, Package, Plus, Store, Truck, X,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -35,7 +35,7 @@ import { todayIn, addDays, dayKey } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
 import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
 
-type Method = 'counter' | 'curbside' | 'ship';
+type Method = 'counter' | 'curbside' | 'ship' | 'delivery';
 
 const fmt = (cents: number) =>
   (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -110,8 +110,8 @@ export default function CheckoutPage() {
   // Starts on a way the shop offers: pickup when it's on, otherwise curbside or shipping.
   useEffect(() => {
     if (!shop) return;
-    const on = (m: Method) => (m === 'counter' ? shop.pickupOffered !== false : m === 'curbside' ? !!shop.curbsideOffered : !!shop.shippingOffered);
-    if (!on(method)) { const first = (['counter', 'curbside', 'ship'] as Method[]).find(on); if (first) setMethod(first); }
+    const on = (m: Method) => (m === 'counter' ? shop.pickupOffered !== false : m === 'curbside' ? !!shop.curbsideOffered : m === 'delivery' ? !!shop.deliveryOffered : !!shop.shippingOffered);
+    if (!on(method)) { const first = (['counter', 'curbside', 'delivery', 'ship'] as Method[]).find(on); if (first) setMethod(first); }
   }, [shop, method]);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -212,6 +212,20 @@ export default function CheckoutPage() {
 
   const addrKey = `${addr.line1}|${addr.city}|${addr.state}|${addr.postalCode}`.toLowerCase();
   const addrComplete = Boolean(addr.line1 && addr.city && addr.state && addr.postalCode);
+
+  // LOCAL DELIVERY (api/retail/delivery-quote): once there's an address, whether the shop delivers there, the fee for
+  // what's in the bag, its delivery times and whether "within N minutes" is on offer. Asked again when the address or
+  // the bag changes; an answer is only used for the address and bag it was for.
+  type DeliveryQuote = { ok: true; miles: number | null; feeCents: number; free: boolean; freeOverCents: number | null; minimumCents: number; expressCents: number | null; minutes: number; asap: { ok: boolean; by?: string }; windows: { key: string; label: string; day: string; full: boolean }[]; dropoffNotes: boolean; token: string | null } | { ok: false; reason: string; message: string; minimumCents?: number };
+  const [dq, setDq] = useState<{ for: string; q: DeliveryQuote } | null>(null);
+  const [dqState, setDqState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [deliveryKey, setDeliveryKey] = useState('');
+  const [deliveryAsap, setDeliveryAsap] = useState(false);
+  const [deliveryNote, setDeliveryNote] = useState('');
+  const [deliveryMsg, setDeliveryMsg] = useState('');
+  const [driverTip, setDriverTip] = useState<number>(0);
+  const [driverTipOther, setDriverTipOther] = useState('');
+  const dqReq = React.useRef(0);
   const quotesFresh = quotes.length > 0 && quotedFor === addrKey;
   const selectedQuote = quotesFresh ? quotes.find((q) => q.id === selectedQuoteId) || null : null;
 
@@ -364,7 +378,10 @@ export default function CheckoutPage() {
   const offerMatch = useMemo(() => (wholesale || !offers.length) ? null : matchOffers(cartEntries.map(([key, q]) => ({ id: key, productId: parseCartKey(key).productId, unitPriceCents: lineOf(key)?.unitCents || 0, qty: q })), offers),
     [offers, wholesale, cartEntries.map(([k, q]) => `${k}:${q}`).join('|'), products]); // eslint-disable-line react-hooks/exhaustive-deps
   const offerCents = offerMatch?.cents || 0;
-  const tipCents = shop?.tipsEnabled && tipPct > 0 ? Math.round((subtotalCents * tipPct) / 100) : 0;
+  // A delivery's tip is for the driver, in dollars; anything else tips the team a share of the items.
+  const tipCents = !shop?.tipsEnabled ? 0
+    : method === 'delivery' && !digitalOnlyCart ? Math.max(0, Math.min(50_000, Math.round(driverTip)))
+      : tipPct > 0 ? Math.round((subtotalCents * tipPct) / 100) : 0;
   // With the choices, so the server knows which variant each line is (a code made for one variant still applies).
   const promoLines = () => cartEntries.map(([key, q]) => { const k = parseCartKey(key); return { productId: k.productId, selections: k.selections, qty: q, unitPriceCents: lineOf(key)?.unitCents || 0 }; });
   const applyPromo = async (code: string) => {
@@ -382,6 +399,39 @@ export default function CheckoutPage() {
   const promoCartKey = cartEntries.map(([k, q]) => `${k}:${q}`).join('|');
   useEffect(() => { if (promo) void applyPromo(promo.code); }, [promoCartKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const promoCents = promo?.cents || 0;
+
+  const wantsDelivery = !!shop && !digitalOnlyCart && method === 'delivery';
+  const dqFor = `${addrKey}|${addr.line2.trim().toLowerCase()}|${subtotalCents}`;
+  const dqFresh = dq && dq.for === dqFor ? dq.q : null;
+  const loadDelivery = async (note = '') => {
+    if (!addrComplete) return;
+    const mine = ++dqReq.current; const forKey = dqFor;
+    setDqState('loading');
+    try {
+      const r = await fetch('/api/retail/delivery-quote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store',
+        body: JSON.stringify({ tenantId, address: { line1: addr.line1, line2: addr.line2, city: addr.city, state: addr.state, postalCode: addr.postalCode }, itemsCents: subtotalCents, ck: ensureCheckoutKey(), token: dq && dq.q.ok ? dq.q.token : undefined }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (mine !== dqReq.current) return;
+      // Only a real answer about the address is shown; anything else (busy, a server hiccup) offers Try again.
+      if (typeof d.ok !== 'boolean' || (!d.ok && !d.reason)) { setDqState('error'); setDq(null); return; }
+      setDq({ for: forKey, q: d }); setDqState('ready'); setDeliveryMsg(note);
+      if (d.ok) {
+        // Keep their choice while it's still open; otherwise the first window with room.
+        setDeliveryKey((cur) => (d.windows.some((w: any) => w.key === cur && !w.full) ? cur : (d.windows.find((w: any) => !w.full)?.key || '')));
+        if (!d.asap?.ok) setDeliveryAsap(false);
+      }
+    } catch { if (mine === dqReq.current) setDqState('error'); }
+  };
+  // Asked a moment after they stop typing, so each address is looked up once.
+  useEffect(() => {
+    if (!wantsDelivery || !addrComplete) return;
+    const t = setTimeout(() => { void loadDelivery(); }, 700);
+    return () => clearTimeout(t);
+  }, [wantsDelivery, dqFor]); // eslint-disable-line react-hooks/exhaustive-deps
+  const deliveryOk = dqFresh && dqFresh.ok ? dqFresh : null;
+  const deliveryReady = !!deliveryOk && dqState !== 'loading' && (deliveryAsap ? deliveryOk.asap.ok : deliveryOk.windows.some((w) => w.key === deliveryKey && !w.full));
 
   /** Live rates for the address. `keep` re-selects the same carrier and service when it's still offered (a refresh of
    *  rates about to expire must not quietly switch the service they chose); otherwise the cheapest is picked. */
@@ -448,12 +498,15 @@ export default function CheckoutPage() {
   }, [noticeDate]);
 
   const shippingCents = useMemo(() => {
-    if (digitalOnlyCart || method !== 'ship' || !shop) return 0;
+    if (digitalOnlyCart || !shop) return 0;
+    // A delivery's fee, from the check of this address and bag, and the charge for "within minutes" when chosen.
+    if (method === 'delivery') return deliveryOk ? deliveryOk.feeCents + (deliveryAsap && deliveryOk.asap.ok && deliveryOk.expressCents ? deliveryOk.expressCents : 0) : 0;
+    if (method !== 'ship') return 0;
     if (freeQualified) return 0;
     if (selectedQuote) return selectedQuote.amountCents;
     return Math.round((shop.flatShippingDollars || 0) * 100);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [method, shop, subtotalCents, selectedQuote, freeQualified]);
+  }, [method, shop, subtotalCents, selectedQuote, freeQualified, deliveryOk, deliveryAsap]);
 
   const setQty = (p: any, qty: number, cartKey?: string) => {
     const clamped = Math.max(0, Math.min(qty, cartKey ? lineOf(cartKey)?.qtyAvailable ?? p.qtyAvailable : p.qtyAvailable));
@@ -481,6 +534,7 @@ export default function CheckoutPage() {
     cartCount > 0 && name.trim() && email.trim() && minIssues.length === 0 &&
     (!hasPreorder || preorderAgreed) &&
     (digitalOnlyCart || method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode)) &&
+    (digitalOnlyCart || method !== 'delivery' || (deliveryReady && phone.replace(/\D/g, '').length >= 10)) &&
     (!wantsPickupTime || pickupState === 'ready') && (!timedPickup || !!pickupKey) &&
     (!digitalOnlyCart || !isGift || (giftTo.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(giftEmail.trim())));
 
@@ -523,7 +577,7 @@ export default function CheckoutPage() {
           tenantId,
           items: cartEntries.map(([key, qty]) => ({ ...parseCartKey(key), qty })),
           tipCents,
-          pickupAt: !digitalOnlyCart && method !== 'ship' && shop?.scheduledPickup && !timedPickup ? pickupChoice : '',
+          pickupAt: !digitalOnlyCart && method !== 'ship' && method !== 'delivery' && shop?.scheduledPickup && !timedPickup ? pickupChoice : '',
           pickupWindowKey: timedPickup ? pickupKey : undefined,
           method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
@@ -540,7 +594,12 @@ export default function CheckoutPage() {
           ifUnavailable: digitalOnlyCart ? undefined : ifUnavailable,
           gift: isGift ? (digitalOnlyCart ? { isGift: true, to: giftTo.trim(), toEmail: giftEmail.trim(), sendOn: giftOn || undefined, message: giftMsg.trim() } : { isGift: true, to: giftTo.trim(), message: giftMsg.trim() }) : undefined,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
-          shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...(extra?.address || addr), country: 'US' } : undefined,
+          shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...(extra?.address || addr), country: 'US' }
+            : method === 'delivery' && !digitalOnlyCart ? { ...addr, name: addr.name.trim() || name.trim(), country: 'US' } : undefined,
+          ...(method === 'delivery' && !digitalOnlyCart ? {
+            deliveryAsap: deliveryAsap || undefined, deliveryWindowKey: deliveryAsap ? undefined : deliveryKey,
+            deliveryToken: deliveryOk?.token || undefined, deliveryNote: deliveryOk?.dropoffNotes ? deliveryNote.trim() || undefined : undefined,
+          } : {}),
           addressCheckToken: method === 'ship' && !digitalOnlyCart && extra?.token ? extra.token : undefined,
           unitAnswer: method === 'ship' && !digitalOnlyCart ? extra?.unitAnswer : undefined,
           shippingQuote: method === 'ship' && selectedQuote
@@ -560,6 +619,8 @@ export default function CheckoutPage() {
         if (data.needsPreorderAck) setPreorderAgreed(false);
         // The time they chose filled up while they were paying: the choices catch up.
         if (data.pickupFull) void loadPickupTimes(data.error || 'That time filled up. Choose another.');
+        // The same for a delivery time, or the address no longer delivered to: the delivery choices catch up.
+        if (data.deliveryFull || data.deliveryProblem) void loadDelivery(data.error || '');
         // The ship-by date moved while they were paying: the screen catches up, and the date named is the one sent.
         if (data.datesChanged) { setClock(new Date(Date.now() + clockOffset)); setServerShipBy(String(data.shipBy || '')); }
         throw new Error(data.error || `Checkout failed (HTTP ${res.status})`);
@@ -688,10 +749,11 @@ export default function CheckoutPage() {
 
           <div className={cn('space-y-2', digitalOnlyCart && 'hidden')}>
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How would you like it?</Label>
-            <div className={cn('grid grid-cols-2 gap-2', [shop.pickupOffered !== false, shop.curbsideOffered, shop.shippingOffered].filter(Boolean).length >= 3 && 'min-[380px]:grid-cols-3')}>
+            <div className={cn('grid grid-cols-2 gap-2', (() => { const n = [shop.pickupOffered !== false, shop.curbsideOffered, shop.deliveryOffered, shop.shippingOffered].filter(Boolean).length; return n === 3 ? 'min-[380px]:grid-cols-3' : n >= 4 ? 'sm:grid-cols-4' : ''; })())}>
               {([
                 { id: 'counter' as Method, label: 'Pickup', icon: Store, show: shop.pickupOffered !== false },
                 { id: 'curbside' as Method, label: shop.curbsideMode === 'drive_thru' ? 'Drive-Thru' : 'Curbside', icon: Package, show: shop.curbsideOffered },
+                { id: 'delivery' as Method, label: 'Delivery', icon: MapPin, show: shop.deliveryOffered },
                 { id: 'ship' as Method, label: 'Ship', icon: Truck, show: shop.shippingOffered },
               ]).filter((m) => m.show).map((m) => (
                 <button
@@ -715,7 +777,7 @@ export default function CheckoutPage() {
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your details</Label>
             <Input placeholder="Full name" aria-label="Full name" autoComplete="name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
             <Input placeholder="Email" aria-label="Email" autoComplete="email" type="email" value={email} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
-            <Input placeholder="Phone (optional)" aria-label="Phone, optional" autoComplete="tel" type="tel" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
+            <Input placeholder={method === 'delivery' && !digitalOnlyCart ? 'Phone (for the driver)' : 'Phone (optional)'} aria-label={method === 'delivery' && !digitalOnlyCart ? 'Phone, for the driver' : 'Phone, optional'} autoComplete="tel" type="tel" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
           </div>
 
           {wholesale && (
@@ -726,10 +788,10 @@ export default function CheckoutPage() {
             </div>
           )}
 
-          {method === 'ship' && !digitalOnlyCart && (
+          {(method === 'ship' || method === 'delivery') && !digitalOnlyCart && (
             <div className="space-y-3">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ship to</Label>
-              <Input placeholder="Recipient name" aria-label="Recipient name" autoComplete="name" value={addr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, name: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
+              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{method === 'delivery' ? 'Deliver to' : 'Ship to'}</Label>
+              <Input placeholder={method === 'delivery' ? 'Name on the door (if not yours)' : 'Recipient name'} aria-label={method === 'delivery' ? 'Name on the door, if not yours' : 'Recipient name'} autoComplete="name" value={addr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, name: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
               <Input id="ship-line1" placeholder="Street address" aria-label="Street address" autoComplete="address-line1" value={addr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line1: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
               <Input placeholder="Apt / suite (optional)" aria-label="Apartment or suite, optional" autoComplete="address-line2" value={addr.line2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line2: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
               <div className="grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
@@ -738,7 +800,69 @@ export default function CheckoutPage() {
                 <Input placeholder="ZIP" aria-label="ZIP code" autoComplete="postal-code" inputMode="numeric" value={addr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, postalCode: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
               </div>
 
-              {shipSched && (!quotesFresh || freeQualified) && (() => {
+              {method === 'delivery' && (
+                <div className="space-y-3" aria-live="polite">
+                  {!addrComplete ? (
+                    <p className="text-[11px] font-bold text-muted-foreground">Add your address to see if we deliver there, what it costs and when it can come.</p>
+                  ) : dqState === 'error' && !dqFresh ? (
+                    <div role="alert" className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-muted-foreground">Delivery couldn’t be checked just now.</span>
+                      <button type="button" onClick={() => void loadDelivery()} className="inline-flex h-11 items-center text-[11px] font-black uppercase tracking-widest underline underline-offset-4">Try again</button>
+                    </div>
+                  ) : !dqFresh ? (
+                    <p role="status" className="text-[11px] font-bold text-muted-foreground">Checking your address…</p>
+                  ) : !dqFresh.ok ? (
+                    <div role="alert" className="rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-bold text-amber-900">
+                      {dqFresh.message}
+                      {dqFresh.reason === 'unavailable' && <button type="button" onClick={() => void loadDelivery()} className="ml-2 inline-flex h-11 items-center font-black uppercase tracking-widest underline underline-offset-4">Try again</button>}
+                    </div>
+                  ) : (<>
+                    <p className="text-[12px] font-bold" style={{ color: '#1f7a4d' }}>
+                      We deliver there{dqFresh.miles !== null ? ` · ${dqFresh.miles < 10 ? dqFresh.miles.toFixed(1) : Math.round(dqFresh.miles)} mi from the shop` : ''} · {dqFresh.feeCents === 0 ? 'free delivery' : `${fmt(dqFresh.feeCents)} delivery`}
+                    </p>
+                    {!dqFresh.free && dqFresh.freeOverCents !== null && <p className="text-[11px] font-bold text-muted-foreground">Free delivery on orders of {fmt(dqFresh.freeOverCents)} or more.</p>}
+                    <fieldset className="min-w-0 space-y-2">
+                      <legend className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">When</legend>
+                      <p className="text-[11px] font-bold text-muted-foreground empty:hidden">{deliveryMsg}</p>
+                      {dqFresh.windows.some((w) => !w.full) ? (
+                        [...new Set(dqFresh.windows.map((w) => w.day))].map((day) => {
+                          const ws = dqFresh.windows.filter((w) => w.day === day);
+                          const split = (label: string) => { const m = /^(.*?) (\d{1,2}(?::\d{2})?(?: [ap]m)?–.*)$/.exec(label); return m ? [m[1], m[2]] : ['', label]; };
+                          return (
+                            <div key={day} className="space-y-1.5">
+                              <p className="text-[11px] font-bold">{split(ws[0].label)[0]}</p>
+                              <div className="flex flex-wrap gap-2">
+                                {ws.map((w) => (
+                                  <label key={w.key} className={cn('relative inline-flex', w.full ? 'cursor-not-allowed' : 'cursor-pointer')}>
+                                    <input type="radio" name="delivery-window" value={w.key} checked={!deliveryAsap && deliveryKey === w.key} disabled={w.full}
+                                      onChange={() => { setDeliveryKey(w.key); setDeliveryAsap(false); setDeliveryMsg(''); }} className="peer sr-only" />
+                                    <span className={cn('inline-flex h-11 items-center rounded-full border-2 px-4 text-[12px] font-bold transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-foreground peer-focus-visible:ring-offset-2',
+                                      !deliveryAsap && deliveryKey === w.key ? 'border-foreground bg-foreground text-background' : w.full ? 'border-transparent bg-muted text-muted-foreground' : 'bg-white')}>
+                                      {split(w.label)[1]}{w.full ? ' · full' : ''}
+                                    </span>
+                                  </label>))}
+                              </div>
+                            </div>);
+                        })
+                      ) : !dqFresh.asap.ok ? (
+                        <p role="alert" className="text-[11px] font-bold text-muted-foreground">There are no delivery times in the next few days. Choose another way to get it, or check back soon.</p>
+                      ) : null}
+                      {dqFresh.asap.ok && dqFresh.expressCents !== null && (
+                        <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl border-2 bg-white px-3 py-2">
+                          <span className="text-[12px]"><span className="font-black">Within {dqFresh.minutes} minutes</span><span className="font-bold text-muted-foreground"> · +{fmt(dqFresh.expressCents)}{dqFresh.asap.by ? ` · by ${dqFresh.asap.by}` : ''}</span></span>
+                          <input type="checkbox" className="h-5 w-5 shrink-0" checked={deliveryAsap} onChange={(e) => { setDeliveryAsap(e.target.checked); setDeliveryMsg(''); }} />
+                        </label>)}
+                    </fieldset>
+                    {dqFresh.dropoffNotes && (
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">For the driver (optional)</span>
+                        <input value={deliveryNote} maxLength={200} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Gate code, leave it at the door, hand it to me"
+                          className="h-11 w-full rounded-xl border-2 bg-white px-3 text-sm" />
+                      </label>)}
+                    {phone.replace(/\D/g, '').length < 10 && <p className="text-[11px] font-bold text-amber-800">Add your phone number above so the driver can reach you.</p>}
+                  </>)}
+                </div>)}
+              {method === 'ship' && shipSched && (!quotesFresh || freeQualified) && (() => {
                 const p = datesFor(null, 'Standard shipping', null);
                 return p ? (
                   <p className="text-[12px] font-bold">
@@ -746,13 +870,13 @@ export default function CheckoutPage() {
                     {!freeQualified && <span className="text-muted-foreground"> with standard shipping</span>}
                   </p>) : null;
               })()}
-              {shipSched && (() => {
+              {method === 'ship' && shipSched && (() => {
                 // For the option they've picked (its own dates), else the shop's standard shipping.
                 const p = selectedQuote && !freeQualified ? datesFor(selectedQuote.carrier, selectedQuote.service, selectedQuote.days) : datesFor(null, 'Standard shipping', null);
                 const line = busyLineFor(p, shipSched, 'product', shopZone);
                 return line ? <p className="text-[12px] font-bold text-muted-foreground">{line}</p> : null;
               })()}
-              {freeQualified ? (
+              {method !== 'ship' ? null : freeQualified ? (
                 <p className="text-[10px] font-black uppercase tracking-widest text-primary">
                   Free shipping — this order qualifies
                 </p>
@@ -806,7 +930,7 @@ export default function CheckoutPage() {
                   </button>
                 </div>
               )}
-              {shipSched && (
+              {method === 'ship' && shipSched && (
                 <p className="text-[11px] font-bold text-muted-foreground">
                   {processingSentence(shipSched, clock, shopZone)}{leadNote ? ` ${leadNote}` : ''}
                 </p>)}
@@ -862,7 +986,16 @@ export default function CheckoutPage() {
                 <span className="font-mono">{shippingCents === 0 || promo?.freeShipping ? (promo?.freeShipping && shippingCents > 0 ? `Free with ${promo.code}` : 'Free') : fmt(shippingCents)}</span>
               </div>
             )}
-            {method !== 'ship' && !timedPickup && (shop.prepMinutes || 0) > 0 && (
+            {method === 'delivery' && !digitalOnlyCart && deliveryOk && (<>
+              <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                <span>Delivery</span><span className="font-mono">{deliveryOk.feeCents === 0 ? 'Free' : fmt(deliveryOk.feeCents)}</span>
+              </div>
+              {deliveryAsap && deliveryOk.asap.ok && deliveryOk.expressCents ? (
+                <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                  <span>Within {deliveryOk.minutes} minutes</span><span className="font-mono">{fmt(deliveryOk.expressCents)}</span>
+                </div>) : null}
+            </>)}
+            {method !== 'ship' && method !== 'delivery' && !timedPickup && (shop.prepMinutes || 0) > 0 && (
               <p className="text-[9px] font-black uppercase tracking-widest text-primary">
                 Usually ready in ~{shop.prepMinutes} min
               </p>
@@ -910,7 +1043,7 @@ export default function CheckoutPage() {
                 )}
               </fieldset>
             )}
-            {method !== 'ship' && shop.scheduledPickup && !timedPickup && (
+            {method !== 'ship' && method !== 'delivery' && shop.scheduledPickup && !timedPickup && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pickup time</span>
                 <select aria-label="Pickup time" value={pickupChoice}
@@ -1047,7 +1180,7 @@ export default function CheckoutPage() {
               {!promoOpen && !promo ? <button type="button" onClick={() => setPromoOpen(true)} className="text-[11px] font-black uppercase tracking-widest underline underline-offset-4">Have a promo code?</button> : promo ? (
                 <div className="flex items-center gap-3">
                   <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[13px] text-white" style={{ background: '#1f7a4d' }}>✓</span>
-                  <span className="min-w-0 flex-1 text-[13px]"><b className="font-semibold">{promo.code}</b> · {promo.freeShipping ? 'free shipping' : `${fmt(promoCents)} off`}</span>
+                  <span className="min-w-0 flex-1 text-[13px]"><b className="font-semibold">{promo.code}</b> · {promo.freeShipping ? (method === 'delivery' && !digitalOnlyCart ? 'free shipping, which doesn’t cover delivery' : 'free shipping') : `${fmt(promoCents)} off`}</span>
                   <button type="button" onClick={() => { setPromo(null); setPromoInput(''); setPromoErr(null); }} className="text-[12px] underline underline-offset-4">Remove</button>
                 </div>
               ) : <>
@@ -1069,7 +1202,27 @@ export default function CheckoutPage() {
                   className="mt-1.5 h-10 w-full rounded-xl border-2 bg-white px-3 font-mono text-sm font-bold tracking-widest outline-none focus:border-foreground/60" />
                 <p className="mt-1.5 text-[10px] font-bold text-muted-foreground">Its balance comes off before you pay. If it covers everything, there’s nothing to pay by card.</p></>}
             </div>
-            {shop.tipsEnabled && (
+            {shop.tipsEnabled && method === 'delivery' && !digitalOnlyCart && (
+              <div className="space-y-2">
+                <span className="block text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip for your driver <span className="normal-case tracking-normal">· optional</span></span>
+                <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Tip for your driver">
+                  {[0, 200, 300, 500].map((c) => (
+                    <button key={c} type="button" role="radio" aria-checked={driverTip === c && !driverTipOther}
+                      onClick={() => { setDriverTip(c); setDriverTipOther(''); }}
+                      className={cn('h-11 min-w-14 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest transition-all',
+                        driverTip === c && !driverTipOther ? 'bg-foreground text-background border-foreground' : 'bg-white')}>
+                      {c === 0 ? 'None' : fmt(c).replace('.00', '')}
+                    </button>))}
+                  <label className={cn('flex h-11 items-center gap-1 rounded-xl border-2 px-3', driverTipOther ? 'border-foreground' : 'bg-white')}>
+                    <span className="text-[11px] font-black">$</span>
+                    <input inputMode="decimal" aria-label="Another amount for your driver, in dollars" placeholder="Other" value={driverTipOther}
+                      onChange={(e) => { const t = e.target.value.replace(/[^0-9.]/g, '').slice(0, 6); setDriverTipOther(t); const n = Number(t); setDriverTip(Number.isFinite(n) ? Math.round(n * 100) : 0); }}
+                      className="w-16 bg-transparent text-sm font-bold outline-none" />
+                  </label>
+                </div>
+              </div>
+            )}
+            {shop.tipsEnabled && !(method === 'delivery' && !digitalOnlyCart) && (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip</span>
                 <div className="flex gap-1">
@@ -1087,7 +1240,7 @@ export default function CheckoutPage() {
             )}
             {tipCents > 0 && (
               <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                <span>Tip</span>
+                <span>{method === 'delivery' && !digitalOnlyCart ? 'Driver tip' : 'Tip'}</span>
                 <span className="font-mono">{fmt(tipCents)}</span>
               </div>
             )}
@@ -1103,10 +1256,10 @@ export default function CheckoutPage() {
               onClick={() => void pay()}
               className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20"
             >
-              {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - offerCents - promoCents) + (promo?.freeShipping ? 0 : shippingCents) + tipCents)} + tax`}
+              {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - offerCents - promoCents) + (promo?.freeShipping && method === 'ship' ? 0 : shippingCents) + tipCents)} + tax`}
             </Button>)}
             <p className="text-[9px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
-              {method === 'ship' && !digitalOnlyCart ? 'Secure payment · Tracking on your order page' : digitalOnlyCart ? (isGift ? 'Secure payment · Emailed to them on the day you chose' : 'Secure payment · Opens the moment you pay') : <>Secure payment &middot; You&apos;ll get a pickup QR code</>}
+              {method === 'ship' && !digitalOnlyCart ? 'Secure payment · Tracking on your order page' : method === 'delivery' && !digitalOnlyCart ? 'Secure payment · Delivery details on your order page' : digitalOnlyCart ? (isGift ? 'Secure payment · Emailed to them on the day you chose' : 'Secure payment · Opens the moment you pay') : <>Secure payment &middot; You&apos;ll get a pickup QR code</>}
             </p>
           </div>
         </div>

@@ -78,7 +78,7 @@ ok(page.includes('q < p.wholesaleMinQty && q < (cart[p.id] ?? 0) ? 0 : q'), 'bel
 ok(/pickupOffered !== false \? 'Order ahead, pick up in store'\s*: null/.test(page), 'the welcome never offers pickup when pickup is off');
 ok(!/bg-white p-4 transition-all hover:shadow-lg/.test(page) && page.includes("background: 'var(--shop-card)', color: 'var(--shop-ink)'"), 'the gift card tile follows the theme (readable on dark presets)');
 const co = fs.readFileSync('src/app/shop/[tenantId]/checkout/page.tsx', 'utf8');
-ok(co.includes(".filter(Boolean).length >= 3 && 'min-[380px]:grid-cols-3'"), 'checkout shows three delivery columns only when three ways are offered');
+ok(co.includes("return n === 3 ? 'min-[380px]:grid-cols-3' : n >= 4 ? 'sm:grid-cols-4' : '';"), 'checkout shows three columns only when three ways are offered, four when four are');
 
 // ── shop grids follow wider-screen columns
 const g = fs.readFileSync('src/app/globals.css', 'utf8');

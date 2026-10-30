@@ -55,9 +55,10 @@ import {
 // Body: {
 //   tenantId:  string,
 //   items:     { productId: string; qty: number }[],
-//   method:    'counter' | 'curbside' | 'ship',
+//   method:    'counter' | 'curbside' | 'ship' | 'delivery',
 //   customer:  { name: string; email: string; phone?: string },
-//   shippingAddress?: ShippingAddress,  // required when method === 'ship'
+//   shippingAddress?: ShippingAddress,  // required when method === 'ship' or 'delivery'
+//   deliveryWindowKey?, deliveryAsap?, deliveryToken?, deliveryNote?  // local delivery (lib/delivery-server)
 //   priceTier?: 'retail' | 'wholesale', // default 'retail'
 //   wholesaleCode?: string,             // required when priceTier === 'wholesale'
 //   business?: { name?: string; poNumber?: string }  // B2B fields
@@ -108,6 +109,10 @@ interface CheckoutBody {
   tipCents?: number;
   pickupAt?: string;
   pickupWindowKey?: string;      // a pickup window from /api/retail/pickup-times, when the shop has set its hours (lib/pickup-slots)
+  deliveryWindowKey?: string;    // a delivery window from /api/retail/delivery-quote (lib/delivery-plan)
+  deliveryAsap?: boolean;        // "within N minutes" instead of a window
+  deliveryToken?: string;        // the signed distance from that check, so the address isn't looked up again
+  deliveryNote?: string;         // where it can be left (when the shop allows a note)
   shippingQuote?: { amountCents?: number; service?: string; carrier?: string; exp?: number; token?: string; days?: number | null; facts?: string };
   tenantId?: string;
   items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
@@ -152,7 +157,7 @@ async function handleCheckout(req: NextRequest) {
 
   if (!tenantId) return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
   if (!FULFILLMENT_METHODS.includes(method) || method === 'in_store') {
-    return NextResponse.json({ error: 'method must be counter, curbside, or ship' }, { status: 400 });
+    return NextResponse.json({ error: 'method must be counter, curbside, delivery, or ship' }, { status: 400 });
   }
   if (rawItems.length === 0) return NextResponse.json({ error: 'Cart is empty' }, { status: 400 });
   if (!customerName || !customerEmail) {
@@ -437,10 +442,12 @@ async function handleCheckout(req: NextRequest) {
   if (!digitalOnly) {
     const offered = method === 'counter' ? rsEarly.pickupEnabled !== false
       : method === 'curbside' ? rsEarly.curbsideOffered !== false
-        : rsEarly.shippingOffered !== false && rsEarly.shippingEnabled !== false;
+        : method === 'delivery' ? rsEarly.deliveryPlan?.on === true
+          : rsEarly.shippingOffered !== false && rsEarly.shippingEnabled !== false;
     if (!offered) {
       return NextResponse.json({ error: method === 'ship' ? 'This shop isn’t shipping orders right now. Choose another way to get your order.'
-        : `This shop isn’t offering ${method === 'curbside' ? 'curbside' : 'pickup'} right now. Choose another way to get your order.` }, { status: 400 });
+        : method === 'delivery' ? 'This shop isn’t delivering right now. Choose another way to get your order.'
+          : `This shop isn’t offering ${method === 'curbside' ? 'curbside' : 'pickup'} right now. Choose another way to get your order.` }, { status: 400 });
     }
   }
   // A download bought as a gift (lib/digital-gift): who it's for, their email and the day it goes. Only for a cart
@@ -453,6 +460,16 @@ async function handleCheckout(req: NextRequest) {
   }
   if (method === 'ship' && !digitalOnly && !shipAddressOk) {
     return NextResponse.json({ error: 'Complete shippingAddress is required for ship orders' }, { status: 400 });
+  }
+  // A delivery goes to the customer's door: the street, town, state and ZIP code are needed; the name on it is theirs
+  // unless they gave another.
+  if (method === 'delivery' && !digitalOnly) {
+    const a: any = body.shippingAddress || {};
+    if (!a.line1 || !a.city || !a.state || !a.postalCode) return NextResponse.json({ error: 'Add the address to deliver to.' }, { status: 400 });
+    // The driver may need to reach them at the door.
+    if (String(body.customer?.phone || '').replace(/\D/g, '').length < 10) return NextResponse.json({ error: 'Add a phone number so the driver can reach you.' }, { status: 400 });
+    const t = (v: any, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+    body.shippingAddress = { name: t(a.name, 80) || customerName, line1: t(a.line1, 120), line2: t(a.line2, 80), city: t(a.city, 80), state: t(a.state, 40), postalCode: t(a.postalCode, 12), country: 'US' } as any;
   }
 
   if (priceTier === 'wholesale') {
@@ -519,7 +536,8 @@ async function handleCheckout(req: NextRequest) {
   // store credit or a gift card pays part: that path works the tax out before the payment page, from a delivery
   // address a download doesn't have, and a credit that covers everything must still finish without a card.
   const paysWithOther = body.applyStoreCredit === true || !!String(body.giftCode || '').trim();
-  const stripeTax = rs.stripeTaxEnabled === true && (method === 'ship' || (digitalOnly && !paysWithOther)) && !taxExempt;
+  // A local delivery is sold where it's left, like a parcel: Stripe Tax takes it too.
+  const stripeTax = rs.stripeTaxEnabled === true && (method === 'ship' || (method === 'delivery' && !digitalOnly) || (digitalOnly && !paysWithOther)) && !taxExempt;
   // Tax is on what the items actually cost after the code (the shop's flat rate; Stripe Tax sees the discount itself).
   let promoCents = promo?.cents || 0;
   const taxCents0 = (base: number) => (stripeTax ? 0 : Math.round(base * (taxRatePercent / 100)));
@@ -558,8 +576,41 @@ async function handleCheckout(req: NextRequest) {
     }
   }
 
+  // LOCAL DELIVERY (lib/delivery-server): the address checked against the shop's zones again, the fee for these items
+  // (worked out here, never taken from the browser), and the window or "within N minutes" they chose, still with room.
+  let deliv: { zoneId: string; zoneName: string; miles: number | null; feeCents: number; expressCents: number; free: boolean; window: { key: string; start: string; end: string; label: string } | null; cap: number | null; asap: { byIso: string; minutes: number; drivers: number } | null; readyBy: string; note: string } | null = null;
+  if (method === 'delivery' && !digitalOnly) {
+    const { deliveryFor } = await import('@/lib/delivery-server');
+    const v = await deliveryFor(db, tenantId, tenant, body.shippingAddress as any, { itemsCents: subtotalCents, sameCheckout: ckeyHash, token: body.deliveryToken });
+    if (!v.ok) return NextResponse.json({ error: v.message, deliveryProblem: v.reason }, { status: 400 });
+    const note = v.plan.dropoffNotes ? String(body.deliveryNote || '').replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    const { windowLabelOn } = await import('@/lib/pickup-slots');
+    if (body.deliveryAsap === true) {
+      if (!v.asap.ok) return NextResponse.json({ error: `Delivery within ${v.plan.asap.minutes} minutes isn’t available right now. Choose a delivery time.`, deliveryFull: true }, { status: 409 });
+      const { driversOnNow } = await import('@/lib/delivery-plan');
+      const { driverShifts } = await import('@/lib/delivery-server');
+      const { todayIn: tdy } = await import('@/lib/tenant-time');
+      const drivers = driversOnNow(await driverShifts(db, tenantId, [tdy(v.tz)], v.plan.drivers), Date.now(), v.tz);
+      const by = Date.parse(v.asap.byIso);
+      // Ready to go out with time for the drive: half the promise, at most half an hour, before it's due at the door.
+      const lead = Math.min(30, Math.floor(v.plan.asap.minutes / 2)) * 60e3;
+      deliv = { zoneId: v.zone.id, zoneName: v.zone.name, miles: v.miles, feeCents: v.fee.feeCents, expressCents: v.zone.expressCents || 0, free: v.fee.free, window: null, cap: null,
+        asap: { byIso: v.asap.byIso, minutes: v.plan.asap.minutes, drivers }, readyBy: new Date(by - lead).toISOString(), note };
+    } else {
+      const key = String(body.deliveryWindowKey || '').slice(0, 24);
+      const w = v.windows.find((x) => x.key === key);
+      if (!w) return NextResponse.json({ error: v.windows.some((x) => !x.full) ? 'That delivery time isn’t available anymore. Choose another.' : 'There are no delivery times in the next few days. Choose another way to get your order.', deliveryFull: true }, { status: 409 });
+      if (w.full) return NextResponse.json({ error: `${w.label} just filled up. Choose another time.`, deliveryFull: true }, { status: 409 });
+      deliv = { zoneId: v.zone.id, zoneName: v.zone.name, miles: v.miles, feeCents: v.fee.feeCents, expressCents: 0, free: v.fee.free,
+        window: { key: w.key, start: w.start, end: w.end, label: windowLabelOn(Date.parse(w.start), Date.parse(w.end), v.tz) }, cap: w.left === null ? null : w.left + (v.booked[w.key] || 0), asap: null, readyBy: w.start, note };
+    }
+    shippingCents = deliv.feeCents + deliv.expressCents;
+    shippingService = deliv.asap ? `Local delivery within ${deliv.asap.minutes} minutes` : 'Local delivery';
+  }
+
   let shippingSavedCents = 0;
-  if (promo?.freeShipping && shippingCents > 0) { shippingSavedCents = shippingCents; shippingCents = 0; }
+  // A free-shipping code is for parcels: a delivery's fee is the shop's own, set per zone.
+  if (promo?.freeShipping && shippingCents > 0 && method === 'ship') { shippingSavedCents = shippingCents; shippingCents = 0; }
   const tipCents = Math.min(
     Math.max(0, Math.floor(Number(body.tipCents) || 0)),
     Math.max(subtotalCents, 50_000)
@@ -764,7 +815,18 @@ async function handleCheckout(req: NextRequest) {
     ...(giftInfo && !digitalOnly ? { gift: { ...giftInfo, token: giftToken() } } : {}),
     ...(digitalGift ? { digitalGift } : {}),
     customerPhone: body.customer?.phone || '',
-    shippingAddress: method === 'ship' ? body.shippingAddress : null,
+    shippingAddress: method === 'ship' || method === 'delivery' ? body.shippingAddress : null,
+    // The delivery as agreed (lib/delivery-plan): the zone and its fee, the window or the "within minutes" promise, when
+    // it has to be ready to go out, and their note for the driver. Its steps (out, delivered, brought back) follow.
+    ...(deliv ? {
+      delivery: {
+        zoneId: deliv.zoneId, zoneName: deliv.zoneName, feeCents: deliv.feeCents, expressCents: deliv.expressCents, free: deliv.free,
+        window: deliv.window, asap: deliv.asap ? { by: deliv.asap.byIso, minutes: deliv.asap.minutes } : null, readyBy: deliv.readyBy, note: deliv.note, status: 'waiting',
+      },
+      ...(deliv.window ? { deliveryWindowKey: deliv.window.key } : { deliveryAsapAt: now }),
+      ...(ckeyHash ? { checkoutKeyHash: ckeyHash } : {}),
+      ...(tipCents > 0 ? { tipFor: 'driver' } : {}),
+    } : {}),
     curbside: null,
     placedAt: now,
   };
@@ -798,9 +860,30 @@ async function handleCheckout(req: NextRequest) {
       return false;
     });
     if (full) return NextResponse.json({ error: `${win.label} just filled up. Choose another time.`, pickupFull: true }, { status: 409 });
+  } else if (deliv && ((deliv.window && deliv.cap !== null) || deliv.asap)) {
+    // The same for a delivery: the window's count, or the drivers still out on "within minutes" orders, and the new
+    // order, in one step.
+    const d = deliv;
+    const { holdsPlace } = await import('@/lib/pickup-slots-server');
+    const { asapBusy } = await import('@/lib/delivery-server');
+    const full = await db.runTransaction(async (tx: any) => {
+      const at = Date.now();
+      if (d.window) {
+        const q = await tx.get(db.collection(`tenants/${tenantId}/retailOrders`).where('deliveryWindowKey', '==', d.window.key));
+        if (q.docs.filter((x: any) => holdsPlace(x.data(), at, ckeyHash)).length >= (d.cap as number)) return true;
+      } else if (d.asap) {
+        const since = new Date(at - Math.max(d.asap.minutes, 60) * 2 * 60e3).toISOString();
+        const q = await tx.get(db.collection(`tenants/${tenantId}/retailOrders`).where('deliveryAsapAt', '>=', since));
+        if (q.docs.filter((x: any) => asapBusy(x.data(), at, ckeyHash)).length >= d.asap.drivers) return true;
+      }
+      tx.set(orderRef, orderData);
+      tx.set(evRef, evData);
+      return false;
+    });
+    if (full) return NextResponse.json({ error: d.window ? `${d.window.label} just filled up. Choose another time.` : `Our drivers are all out right now, so delivery within ${d.asap?.minutes} minutes isn’t available. Choose a delivery time.`, deliveryFull: true }, { status: 409 });
   } else await batch.commit();
 
-  // Only once the order is really written (a full pickup window turns it back first).
+  // Only once the order is really written (a full pickup or delivery window turns it back first).
   if (wsAccount) {
     db.collection(`tenants/${tenantId}/wholesaleAccounts`).doc(wsAccount.id)
       .set({ lastUsedAt: now }, { merge: true }).catch(() => {});
@@ -857,7 +940,7 @@ async function handleCheckout(req: NextRequest) {
         price_data: {
           currency: 'usd',
           unit_amount: tipCents,
-          product_data: { name: 'Tip', ...(withTaxCodes ? { tax_code: 'txcd_00000000' } : {}) },
+          product_data: { name: deliv ? 'Driver tip' : 'Tip', ...(withTaxCodes ? { tax_code: 'txcd_00000000' } : {}) },
           ...(withTaxCodes ? { tax_behavior: 'exclusive' } : {}),
         },
       });

@@ -45,6 +45,9 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
     const notices = Number(o.autoDelayNotices) || 0;
     const detail = n.kind === 'held' ? (o.idCheck?.status === 'verified' ? 'ID check passed · ready to release' : String((o.riskCheck?.reasons || [])[0] || o.holdReason || 'Not packed until someone releases it'))
       : n.kind === 'outside' ? `Waiting ${ago(at, now).replace(' ago', '')}`
+      // A delivery isn't collected or shipped: brought back, or past its delivery time.
+      : o.method === 'delivery' && n.kind === 'uncollected' ? `Brought back ${ago(ms(o.delivery?.failedAt) || at, now)}. Arrange another time with them, then send it out again.`
+      : o.method === 'delivery' && n.kind === 'late' ? `Its delivery time ended ${ago(ms(o.delivery?.window?.end) || ms(o.delivery?.asap?.by) || at, now)}. Send it out now, or arrange a new time with them.`
       : n.kind === 'uncollected' ? `Ready ${ago(at, now)}${Number(o.uncollectedNotices) ? ` · ${o.uncollectedNotices >= 3 ? 'last-day notice sent' : `${o.uncollectedNotices} reminder${o.uncollectedNotices === 1 ? '' : 's'} sent`}` : ''}`
       : n.kind === 'late' ? (o.lateNeedsStaff?.open
         ? `Was due to ship ${day ? dayLabel(day, tz) : 'already'}${notices ? ` · told ${notices === 1 ? 'once' : `${notices} times`} it was running late` : ''}. Send a new date, or ship it today.`

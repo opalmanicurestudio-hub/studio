@@ -75,7 +75,7 @@ export function describeGoods(order: any): string {
       : `${shipped} \u00d7 ${name}`;
   });
 
-  return `Physical merchandise purchased through the online store and shipped: ${bits.join('; ')}.`;
+  return `Physical merchandise purchased through the online store and ${order?.method === 'delivery' ? 'delivered by the merchant’s own driver' : 'shipped'}: ${bits.join('; ')}.`;
 }
 
 /**
@@ -97,10 +97,18 @@ export function buildNarrative(order: any, tenant: any): string {
 
   // What we sent
   s.push('');
-  s.push('WHAT WAS SHIPPED');
+  const local = order?.method === 'delivery';
+  s.push(local ? 'WHAT WAS DELIVERED' : 'WHAT WAS SHIPPED');
   s.push(describeGoods(order));
   const addr = formatShippingAddress(order);
-  if (addr) s.push(`Shipped to the address the customer entered at checkout: ${addr}`);
+  if (addr) s.push(`${local ? 'Delivered' : 'Shipped'} to the address the customer entered at checkout: ${addr}`);
+  // A local delivery: no carrier, so the merchant's own record of the trip.
+  if (local && order?.delivery) {
+    const d = order.delivery;
+    s.push('');
+    s.push('DELIVERY RECORD');
+    s.push(`Delivered by the merchant's own driver${d.deliveredByName ? ` (${String(d.deliveredByName)})` : ''}.${d.outAt ? ` Left the shop ${when(d.outAt)}.` : ''}${d.deliveredAt ? ` Marked delivered ${when(d.deliveredAt)}.` : ''}${d.window?.label ? ` The customer chose the delivery window ${String(d.window.label)}.` : ''}${d.note ? ` The customer's note for the driver: "${String(d.note)}".` : ''}`);
+  }
 
   // Picking / packing verification
   const lines = Array.isArray(order?.lines) ? order.lines : [];
@@ -165,11 +173,12 @@ export function buildNarrative(order: any, tenant: any): string {
   // What the customer was told, and when
   s.push('');
   s.push('CUSTOMER COMMUNICATION');
-  s.push(`An order confirmation was emailed on payment. The customer was emailed automatically at each carrier milestone — dispatch, out for delivery, and delivery — to the address on the order.`);
+  if (order?.method === 'delivery') s.push('An order confirmation was emailed on payment, and the customer’s order page showed each step as it happened, including out for delivery and delivered.');
+  else s.push(`An order confirmation was emailed on payment. The customer was emailed automatically at each carrier milestone — dispatch, out for delivery, and delivery — to the address on the order.`);
   if (trail.customerNotifiedAt) {
     s.push(`Most recent notification sent ${when(trail.customerNotifiedAt)} to ${String(trail.customerNotifiedTo || order?.customerEmail || '')}.`);
   }
-  s.push('The delivery notification asked the customer to report any problem within 7 days. No such report was received before this dispute was filed.');
+  if (order?.method !== 'delivery') s.push('The delivery notification asked the customer to report any problem within 7 days. No such report was received before this dispute was filed.');
 
   // The policy as it stood WHEN THEY BOUGHT, not as it reads today. Quoting a
   // policy edited since the sale would be a misrepresentation, however honest

@@ -269,14 +269,16 @@ export async function sendOrderConfirmation(
       : 'We will email you your tracking details as soon as your order ships.'
     : method === 'curbside'
       ? 'We will send you a text or email as soon as your order is ready. When you arrive, please tap the link below and we will bring it out to you.'
-      : 'We will let you know as soon as your order is ready for pickup. Your QR code is on your order page.';
+      : method === 'delivery'
+        ? `We will deliver it ${order.delivery?.window?.label ? `on ${escapeHtml(String(order.delivery.window.label))}` : order.delivery?.asap?.minutes ? `within ${Number(order.delivery.asap.minutes)} minutes` : 'soon'}. Your order page shows when it is on its way.`
+        : 'We will let you know as soon as your order is ready for pickup. Your QR code is on your order page.';
   const datesBlock = dates
     ? `<table style="width:100%;border-collapse:collapse;margin:14px 0;background:#f5f5f7;border-radius:12px">
       <tr><td style="padding:12px 14px 4px;font-size:14px;font-weight:700;color:#16171a">Ships by</td><td style="padding:12px 14px 4px;font-size:14px;font-weight:700;color:#16171a;text-align:right">${dayLabel(dates.shipBy, dates.timeZone)}</td></tr>
       ${dates.arriveFrom ? `<tr><td style="padding:4px 14px 12px;font-size:14px;color:#16171a">Arrives</td><td style="padding:4px 14px 12px;font-size:14px;color:#16171a;text-align:right">${arrivalLabel(dates, dates.timeZone)}</td></tr>` : '<tr><td colspan="2" style="padding:0 0 8px"></td></tr>'}
     </table>`
     : '';
-  const pickupNote = order.pickupAt && order.pickupAt !== 'ASAP'
+  const pickupNote = method !== 'delivery' && order.pickupAt && order.pickupAt !== 'ASAP'
     ? `<p style="font-size:13px;color:#0f172a">Your requested pickup time: <strong>${String(order.pickupAt)}</strong></p>`
     : '';
 
@@ -294,10 +296,10 @@ export async function sendOrderConfirmation(
       <tr><td style="font-size:13px;color:#64748b">Subtotal</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.subtotalCents)}</td></tr>
       ${(order.promo?.cents || 0) > 0 ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.promo.label || order.promo.code || 'Promo code'))}</td><td style="font-size:13px;text-align:right;color:#1f7a4d">\u2212${money(order.promo.cents)}</td></tr>` : ''}
       ${(order.offerCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.offerLabel || 'Bundle savings'))}</td><td style="font-size:13px;text-align:right;color:#1f7a4d">\u2212${money(order.offerCents)}</td></tr>` : ''}
-      ${order.promo?.freeShipping ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.promo.code || 'Promo code'))}: free shipping</td><td style="font-size:13px;text-align:right;color:#1f7a4d">${(order.promo.shippingSavedCents || 0) > 0 ? `\u2212${money(order.promo.shippingSavedCents)}` : ''}</td></tr>` : ''}
-      ${(order.shippingCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Shipping</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.shippingCents)}</td></tr>` : ''}
+      ${order.promo?.freeShipping && method !== 'delivery' ? `<tr><td style="font-size:13px;color:#1f7a4d">${escapeHtml(String(order.promo.code || 'Promo code'))}: free shipping</td><td style="font-size:13px;text-align:right;color:#1f7a4d">${(order.promo.shippingSavedCents || 0) > 0 ? `\u2212${money(order.promo.shippingSavedCents)}` : ''}</td></tr>` : ''}
+      ${(order.shippingCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">${method === 'delivery' ? 'Delivery' : 'Shipping'}</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.shippingCents)}</td></tr>` : ''}
       ${(order.taxCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Sales tax</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.taxCents)}</td></tr>` : ''}
-      ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Tip</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}
+      ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">${order.tipFor === 'driver' ? 'Driver tip' : 'Tip'}</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}
       ${creditCents > 0 ? `<tr><td style="font-size:13px;color:#64748b">Order total</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.totalCents)}</td></tr>
       <tr><td style="font-size:13px;color:#0f766e;font-weight:700">Store credit applied</td><td style="font-size:13px;text-align:right;color:#0f766e;font-weight:700">\u2212${money(creditCents)}</td></tr>` : ''}
       <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">${creditCents > 0 ? 'Charged to card' : 'Total paid'}</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(chargedCents)}</td></tr>

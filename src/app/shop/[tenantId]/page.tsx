@@ -50,6 +50,7 @@ interface ShopProduct {
 }
 
 interface ShopInfo {
+  deliveryOffered?: boolean;
   tenantId: string;
   name: string;
   logoUrl: string | null;
@@ -297,6 +298,7 @@ export default function ShopPage() {
   const delivery = !shop ? null
     : shop.shippingOffered && shop.freeShippingOverDollars > 0 ? `Free delivery over $${shop.freeShippingOverDollars}`
       : shop.shippingOffered ? 'We deliver to your door'
+        : shop.deliveryOffered ? 'Local delivery to your door'
         : shop.curbsideOffered ? 'Order ahead, pick up curbside'
           : shop.pickupOffered !== false ? 'Order ahead, pick up in store'
             : null;

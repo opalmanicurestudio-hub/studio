@@ -25,6 +25,7 @@ import { useLabelRecords } from '../LabelHistory';
 import { BottomBar, Btn, C, IconBtn, Sheet, feel, muted, Ic } from '../ui';
 import { PackPane, type PackMode } from './PackPane';
 import { PickupPane, ShipPane } from './ShipPane';
+import { DeliveryPane, deliveryWhen } from './DeliveryPane';
 import { CustomerPane } from './CustomerPane';
 import { Documents, RecordPane } from './RecordPane';
 import { Attention } from './Attention';
@@ -115,6 +116,8 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const recs = useLabelRecords(fs, tenantId, order.method === 'ship' ? order.id : '');
   const who = firstName(order.customerName);
   const ship = order.method === 'ship';
+  const delivery = order.method === 'delivery';
+  const dStatus = String(order.delivery?.status || 'waiting');
   const stage = String(order.stage || '');
   const terminal = DONE.includes(stage);
   const due = dueLine(order, rs, Date.now(), shopZone);
@@ -149,15 +152,19 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
     : stage === 'paid' ? { label: 'Start packing', run: () => void beginPack() }
     : stage === 'picking' ? (theirs ? { label: `Take over from ${firstName(order.claimedByName) || 'them'}`, run: () => void takeOver() } : tab === 'pack' ? null : { label: 'Continue packing', run: () => setTab('pack') })
     : stage === 'packed' && ship ? (tab === 'ship' ? null : { label: order.labelUrl ? 'Mark as shipped' : 'Ship it', run: () => setTab('ship') })
+    // A delivery: its steps (out, delivered, brought back) are on its Delivery tab.
+    : delivery && (stage === 'ready' || (stage === 'packed' && dStatus !== 'out')) ? (tab === 'ship' ? null : { label: dStatus === 'out' ? 'Delivered?' : 'Out for delivery', run: () => setTab('ship') })
     : stage === 'packed' ? { label: 'Continue packing', run: () => setTab('pack') }
     : ['ready', 'arrived'].includes(stage) ? (tab === 'ship' ? null : { label: `Hand over to ${who}`, run: () => setHanding(true) })
     : null;
 
   // Where it is: the steps before `now` are done, `now` is the one under way.
-  const steps = ship ? ['Paid', 'Packed', 'Labeled', 'Shipped', 'Delivered'] : ['Paid', 'Packed', 'Ready', 'Picked up'];
+  const steps = ship ? ['Paid', 'Packed', 'Labeled', 'Shipped', 'Delivered'] : delivery ? ['Paid', 'Packed', 'Ready', 'Out', 'Delivered'] : ['Paid', 'Packed', 'Ready', 'Picked up'];
   const now = ship
     ? ({ paid: 1, picking: 1, packed: order.labelUrl || order.shippoTransactionId ? 3 : 2, shipped: 4, completed: 5 } as Record<string, number>)[stage] ?? 1
-    : ({ paid: 1, picking: 1, packed: 2, ready: 3, arrived: 3, completed: 4, } as Record<string, number>)[stage] ?? 1;
+    : delivery
+      ? ({ paid: 1, picking: 1, packed: 2, ready: dStatus === 'out' ? 4 : 3, completed: 5 } as Record<string, number>)[stage] ?? 1
+      : ({ paid: 1, picking: 1, packed: 2, ready: 3, arrived: 3, completed: 4, } as Record<string, number>)[stage] ?? 1;
 
   // MORE: the rarer jobs, kept off the screen until they're needed.
   const follow = isFollowUp(order);
@@ -173,7 +180,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const slip = () => window.open(`/print/packing-slip/${tenantId}/${order.id}?t=${encodeURIComponent(order.qrToken || '')}`, '_blank');
   const message = (text: string) => { setMsgStart(text); if (layout !== 'three') setTab('customer'); };
 
-  const tabs: [WorkTab, string][] = [['pack', 'Pack'], [order.method === 'digital' ? 'record' : 'ship', ship ? 'Ship' : 'Pickup'], ...(layout === 'three' ? [] : [['customer', 'Customer'] as [WorkTab, string]]), ['record', 'Record']];
+  const tabs: [WorkTab, string][] = [['pack', 'Pack'], [order.method === 'digital' ? 'record' : 'ship', ship ? 'Ship' : delivery ? 'Delivery' : 'Pickup'], ...(layout === 'three' ? [] : [['customer', 'Customer'] as [WorkTab, string]]), ['record', 'Record']];
   const uniqTabs = tabs.filter((t, i) => tabs.findIndex((x) => x[0] === t[0]) === i);
   const customer = (aside: boolean) => (
     <CustomerPane fs={fs} tenantId={tenantId} order={order} canEdit={canEditContact} tickets={feeds.tickets} inbox={feeds.inbox} startMessage={msgStart} aside={aside} onToast={onToast}
@@ -191,7 +198,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
       </div>
       <p className="m-0 mt-2.5 text-[28px] font-light leading-tight tracking-[-0.02em] lg:text-[30px]">{order.customerName || 'Customer'}</p>
       <p className="m-0 mt-0.5 text-[15px]" style={muted}>
-        {ship && order.shippingAddress ? `Ships to ${order.shippingAddress.city}, ${order.shippingAddress.state}` : methodLabel(order.method, rs)}
+        {ship && order.shippingAddress ? `Ships to ${order.shippingAddress.city}, ${order.shippingAddress.state}` : delivery && order.shippingAddress ? `Delivers to ${order.shippingAddress.city}${deliveryWhen(order, shopZone) ? ` · ${deliveryWhen(order, shopZone)}` : ''}` : methodLabel(order.method, rs)}
         {order.shippingService && ship ? ` · ${paidService(order)}` : ''} · <span style={due.late && !terminal ? { color: C.warn, fontWeight: 600 } : undefined}>{stage === 'cancelled' ? 'Cancelled' : due.text}</span>
         {order.claimedByName && stage === 'picking' ? ` · ${order.claimedBy === actor.id ? 'you’re packing' : `${firstName(order.claimedByName)} is packing`}` : ''}
       </p>
@@ -214,7 +221,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
       <div className="mt-5" role="tabpanel" aria-label={uniqTabs.find((t) => t[0] === tab)?.[1] || ''}>
         {tab === 'pack' && <PackPane fs={fs} tenantId={tenantId} order={order} all={all} actor={actor} rs={rs} photoFor={photoFor} shelfFor={shelfFor} batch={batch} mode={packMode} wide={!phone}
           canManage={isManager} onMissing={(l) => setMissing(l)} onFinished={(m) => { onToast(m); onDone?.(m); }} onPutDown={() => { onToast('Put back in the queue.'); if (phone) onClose(); }} onBoxSizes={() => setBoxSizes(true)} onToast={onToast} inventory={inventory} />}
-        {tab === 'ship' && (ship
+        {tab === 'ship' && (delivery ? <DeliveryPane tenantId={tenantId} order={order} shopZone={shopZone} onToast={onToast} /> : ship
           ? <ShipPane fs={fs} tenantId={tenantId} order={order} inventory={inventory} rs={rs} actor={actor} recs={recs} canShip={perms.canShip} addressBeside={layout === 'three'} onToast={onToast} />
           : <PickupPane fs={fs} tenantId={tenantId} order={order} actor={actor} shopZone={shopZone} rs={rs} onHandover={() => setHanding(true)} onToast={onToast} />)}
         {tab === 'customer' && customer(false)}

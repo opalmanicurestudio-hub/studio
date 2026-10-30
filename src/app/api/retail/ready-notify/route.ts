@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const o: any = await db.runTransaction(async (txn: any) => {
       const s = await txn.get(ref); if (!s.exists) return null;
       const d = s.data() as any;
-      if (d.method === 'curbside' || d.method === 'ship' || d.readyNotifiedAt || !['ready', 'arrived'].includes(String(d.stage))) return null;
+      if (d.method === 'curbside' || d.method === 'ship' || d.method === 'delivery' || d.readyNotifiedAt || !['ready', 'arrived'].includes(String(d.stage))) return null;
       txn.update(ref, { readyNotifiedAt: stamp });
       return d;
     });

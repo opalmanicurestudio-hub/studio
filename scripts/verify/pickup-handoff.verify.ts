@@ -168,7 +168,7 @@ const fresh = async () => {
 
   // ── The database ──
   const rules = src('firestore.rules');
-  check('a browser can’t name a collector, reset the code’s tries, or write how it was handed over', /'collector', 'pinTries', 'collectedNotifiedAt'(, 'returnSeq')?\];/.test(rules) && /'holdUntilRestock', 'handoff'\];/.test(rules));
+  check('a browser can’t name a collector, reset the code’s tries, or write how it was handed over', /'collector', 'pinTries', 'collectedNotifiedAt'[,\]]/.test(rules) && /'holdUntilRestock', 'handoff'[,\]]/.test(rules));
   check('the code is never written down: nothing stores it', !/pickupPin\s*:/.test(src('src/lib/retail-fulfill.ts')) && !/pickupPin\(/.test(src('src/lib/retail-fulfill.ts')));
   check('the words: no mention of the tool', ![sheet, pc, src('src/lib/pickup-pass.ts'), src('src/app/api/retail/collected-notify/route.ts')].some((t) => /claude|anthropic/i.test(t)));
 

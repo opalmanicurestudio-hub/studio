@@ -29,10 +29,11 @@ export function orderStatus(o: any): Said {
   if (s === 'paid') return o?.holdUntilRestock ? { label: 'Waiting on stock', tone: 'warn' } : o?.holdForReview ? { label: 'Held for review', tone: 'warn' } : { label: 'To pack', tone: '' };
   if (s === 'picking') return { label: 'Packing', tone: '' };
   if (s === 'packed') return ship ? (o?.labelUrl || o?.shippoTransactionId || o?.trackingNumber ? { label: 'Labeled, ready to ship', tone: '' } : { label: 'Packed, needs a label', tone: '' }) : { label: 'Packed', tone: '' };
+  if (s === 'ready' && o?.method === 'delivery') return o?.delivery?.status === 'out' ? { label: 'Out for delivery', tone: '' } : o?.delivery?.status === 'failed' ? { label: 'Brought back', tone: 'warn' } : { label: 'Ready to go out', tone: 'ok' };
   if (s === 'ready') return { label: `Ready for ${methodWords(o?.method).short === 'Pickup' ? 'pickup' : methodWords(o?.method).short.toLowerCase()}`, tone: 'ok' };
   if (s === 'arrived') return { label: 'Outside now', tone: 'warn' };
   if (s === 'shipped') return { label: 'Shipped', tone: 'ok' };
-  if (s === 'completed') return ship ? (o?.deliveredAt ? { label: 'Delivered', tone: 'ok' } : { label: 'Shipped', tone: 'ok' }) : o?.method === 'digital' ? { label: 'Delivered', tone: 'ok' } : { label: 'Picked up', tone: 'ok' };
+  if (s === 'completed') return ship ? (o?.deliveredAt ? { label: 'Delivered', tone: 'ok' } : { label: 'Shipped', tone: 'ok' }) : o?.method === 'digital' || o?.method === 'delivery' ? { label: 'Delivered', tone: 'ok' } : { label: 'Picked up', tone: 'ok' };
   if (s === 'cancelled') return { label: 'Canceled', tone: '' };
   if (s === 'refunded') return { label: 'Refunded', tone: '' };
   return { label: s ? s[0].toUpperCase() + s.slice(1) : 'Order', tone: '' };

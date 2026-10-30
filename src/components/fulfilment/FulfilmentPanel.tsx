@@ -85,7 +85,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const mine = React.useMemo(() => orders.filter((o) => o.stage === 'picking' && (o.claimedBy === staffMember.id || o.assignedTo === staffMember.id)), [orders, staffMember.id]);
   const toFinish = React.useMemo(() => perms.canPack ? orders.filter((o) => o.stage === 'picking' && (!mine.includes(o) || Number(o.toteNo) > 0) && packProgress(o).total > 0 && packProgress(o).done >= packProgress(o).total) : [], [orders, mine, perms.canPack]);
   const toShip = React.useMemo(() => perms.canShip ? orders.filter((o) => o.stage === 'packed' && o.method === 'ship' && o.holdForReview !== true) : [], [orders, perms.canShip]);
-  const shelfOrders = React.useMemo(() => perms.canPack ? orders.filter((o) => ['ready', 'arrived'].includes(o.stage) && o.method !== 'ship').sort((a, b) => Number(b.stage === 'arrived') - Number(a.stage === 'arrived')) : [], [orders, perms.canPack]);
+  const shelfOrders = React.useMemo(() => perms.canPack ? orders.filter((o) => ['ready', 'arrived'].includes(o.stage) && o.method !== 'ship' && o.method !== 'delivery').sort((a, b) => Number(b.stage === 'arrived') - Number(a.stage === 'arrived')) : [], [orders, perms.canPack]);
 
   // Bins and weights for the products in hand, asked of the server (the portal can't read product records directly).
   const [info, setInfo] = React.useState<Record<string, { bin: string; overflow: string; weightOz: number | null }>>({});
@@ -127,7 +127,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
   const needsCheck = (o: BoardOrder) => rs.requirePackScan === true && !o.waveId && !isPackComplete((o.lines || []) as any);
   const doFinish = async (o: BoardOrder) => {
     const r = await finishPacking(fs, tenantId, o, orders, actor as any, rs);
-    say(r.ok ? (o.method === 'ship' ? `${orderNum(o)} packed. It’s ready for a label.` : `${orderNum(o)} is on the shelf${(r as any).slot ? ` at ${(r as any).slot}` : ''}. ${firstName(o.customerName)} has been told.`) : r.message, r.ok);
+    say(r.ok ? (o.method === 'ship' ? `${orderNum(o)} packed. It’s ready for a label.` : o.method === 'delivery' ? `${orderNum(o)} is packed and ready for its driver${(r as any).slot ? `, on the shelf at ${(r as any).slot}` : ''}.` : `${orderNum(o)} is on the shelf${(r as any).slot ? ` at ${(r as any).slot}` : ''}. ${firstName(o.customerName)} has been told.`) : r.message, r.ok);
     return r.ok;
   };
   // Finishing an order picked at the shelf, with the second scan on, starts its scan into the box instead.
@@ -162,14 +162,14 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
         const held = toteBusy(orders, tote);
         if (!held) { show({ kind: 'warn', title: `Tote ${tote} is empty`, sub: 'No order is in it right now.' }); return; }
         const p = packProgress(held);
-        if (p.total > 0 && p.done >= p.total && perms.canPack) { if (await finish(held)) show({ kind: 'ok', title: `Tote ${tote}: ${orderNum(held)} finished`, sub: held.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' }); return; }
+        if (p.total > 0 && p.done >= p.total && perms.canPack) { if (await finish(held)) show({ kind: 'ok', title: `Tote ${tote}: ${orderNum(held)} finished`, sub: held.method === 'ship' ? 'Box it. It’s ready for a label.' : held.method === 'delivery' ? 'On the shelf for its driver.' : 'On the pickup shelf. The customer has been told.' }); return; }
         show({ kind: 'tote', tote, title: `Tote ${tote} is ${orderNum(held)}`, sub: `${Math.max(0, p.total - p.done)} more to pick.` });
         return;
       }
       const slip = orderFromSlipScan(raw, orders);
       if (slip) {
         const p = packProgress(slip);
-        if (slip.stage === 'picking' && p.total > 0 && p.done >= p.total && perms.canPack) { if (await finish(slip)) show({ kind: 'ok', title: `${orderNum(slip)} finished`, sub: slip.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' }); return; }
+        if (slip.stage === 'picking' && p.total > 0 && p.done >= p.total && perms.canPack) { if (await finish(slip)) show({ kind: 'ok', title: `${orderNum(slip)} finished`, sub: slip.method === 'ship' ? 'Box it. It’s ready for a label.' : slip.method === 'delivery' ? 'On the shelf for its driver.' : 'On the pickup shelf. The customer has been told.' }); return; }
         if (slip.stage === 'packed' && slip.method === 'ship' && perms.canShip) { setShipId(slip.id); return; }
         show({ kind: toteOf(slip) ? 'tote' : 'ok', tote: toteOf(slip) || undefined, title: `${orderNum(slip)} ${firstName(slip.customerName)}`, sub: slip.stage === 'picking' ? `${Math.max(0, p.total - p.done)} more to pick.` : slip.stage === 'packed' ? 'Packed. Waiting for a label.' : 'Ready.' });
         return;
@@ -187,7 +187,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
         if (!r.ok) { show({ kind: 'warn', title: 'That isn’t going in this box', sub: r.message }); return; }
         if (r.packComplete) {
           setChecking(null);
-          if (await doFinish(checkOrder)) show({ kind: 'ok', title: `${orderNum(checkOrder)} finished`, sub: checkOrder.method === 'ship' ? 'Box it. It’s ready for a label.' : 'On the pickup shelf. The customer has been told.' });
+          if (await doFinish(checkOrder)) show({ kind: 'ok', title: `${orderNum(checkOrder)} finished`, sub: checkOrder.method === 'ship' ? 'Box it. It’s ready for a label.' : checkOrder.method === 'delivery' ? 'On the shelf for its driver.' : 'On the pickup shelf. The customer has been told.' });
           return;
         }
         show({ kind: 'ok', title: `${r.name || 'Item'} is in`, sub: `${Math.max(0, toCheck(checkOrder) - 1)} more for ${orderNum(checkOrder)}` });

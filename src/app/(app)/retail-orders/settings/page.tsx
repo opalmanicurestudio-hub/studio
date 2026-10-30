@@ -503,6 +503,13 @@ export default function RetailSettingsPage() {
               </span>
               <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
             </Link>
+            <Link href="/retail-orders/policies/delivery" className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3 hover:bg-muted">
+              <span className="min-w-0">
+                <span className="block text-xs font-black uppercase tracking-tight">Ways to get an order and local delivery</span>
+                <span className="block text-[11px] font-bold text-muted-foreground">Which ways checkout offers, delivery zones and fees, delivery windows, who drives and the same-day cutoff.</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
+            </Link>
             <Link href="/retail-orders/policies/pickup" className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3 hover:bg-muted">
               <span className="min-w-0">
                 <span className="block text-xs font-black uppercase tracking-tight">Pickup times</span>

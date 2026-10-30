@@ -45,7 +45,7 @@ export function computeIntegrityScore(input: IntegrityInput): IntegrityScore {
     { label: 'Every unit scanned', ok: allScanned, weight: 30, applicable: lines.length > 0 },
     { label: 'Packing photo', ok: photoCount > 0, weight: 15, applicable: true },
     {
-      label: isShip ? 'Label verified onto box' : 'Handoff verified by scan',
+      label: isShip ? 'Label verified onto box' : input.method === 'delivery' ? 'Delivered by the shop’s driver' : 'Handoff verified by scan',
       ok: input.hasHandoffOrLabelScan === true,
       weight: 20,
       applicable: input.hasHandoffOrLabelScan !== null && input.hasHandoffOrLabelScan !== undefined,

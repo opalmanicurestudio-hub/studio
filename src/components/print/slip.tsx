@@ -122,7 +122,7 @@ export async function SlipSheet({ tenantId, orderId, order, tenant, origin }: { 
         {order.poNumber ? <div><p className="lbl">PO</p><p className="val">{order.poNumber}</p></div> : null}
         {order.shippingAddress ? (
           <div>
-            <p className="lbl">Ship to</p>
+            <p className="lbl">{order.method === 'delivery' ? 'Deliver to' : 'Ship to'}</p>
             <p className="val">
               {order.shippingAddress.name}, {order.shippingAddress.line1}
               {order.shippingAddress.line2 ? `, ${order.shippingAddress.line2}` : ''}, {order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}
@@ -165,7 +165,7 @@ export async function SlipSheet({ tenantId, orderId, order, tenant, origin }: { 
       <div className="foot">
         <div>
           <img className="qr" src={qrDataUrl} alt="Order QR" />
-          <p className="qr-note">Scan at handover. It works even if their phone is dead.</p>
+          <p className="qr-note">{order.method === 'delivery' ? 'Local delivery. Bag it with this slip for the driver.' : 'Scan at handover. It works even if their phone is dead.'}</p>
         </div>
         <div className="totals">
           <p className="line"><span>Subtotal</span><span>{money(order.subtotalCents || 0)}</span></p>
@@ -173,7 +173,7 @@ export async function SlipSheet({ tenantId, orderId, order, tenant, origin }: { 
           {(order.offerCents || 0) > 0 ? <p className="line"><span>{String(order.offerLabel || 'Bundle savings')}</span><span>−{money(order.offerCents)}</span></p> : null}
           {order.taxCents > 0 ? <p className="line"><span>Tax</span><span>{money(order.taxCents)}</span></p> : null}
           {order.shippingCents > 0 ? <p className="line"><span>{order.method === 'ship' ? 'Shipping' : 'Delivery'}</span><span>{money(order.shippingCents)}</span></p> : null}
-          {order.tipCents > 0 ? <p className="line"><span>Tip</span><span>{money(order.tipCents)}</span></p> : null}
+          {order.tipCents > 0 ? <p className="line"><span>{order.tipFor === 'driver' ? 'Driver tip' : 'Tip'}</span><span>{money(order.tipCents)}</span></p> : null}
           {order.refundedCents > 0 ? <p className="line" style={{ color: '#b45309' }}><span>Refunded</span><span>−{money(order.refundedCents)}</span></p> : null}
           <p className="line grand"><span>Total</span><span>{money(order.totalCents || 0)}</span></p>
         </div>

@@ -1,4 +1,5 @@
 import { shrinkStock } from './retail-orders';
+import { followUpDelivery } from './delivery-plan';
 import { taxShareCents } from './restocking';
 import {
   type Firestore, collection, doc, getDoc, getDocs, limit, query, runTransaction, where,
@@ -522,6 +523,7 @@ export async function resolveShortLine(
           customerName: order.customerName, customerEmail: order.customerEmail,
           customerPhone: order.customerPhone || '',
           shippingAddress: order.shippingAddress || null,
+          ...((order as any).method === 'delivery' && (order as any).delivery ? { delivery: followUpDelivery((order as any).delivery) } : {}),
           parentOrderId: orderId, holdUntilRestock: true,
           // Part of a replacement for a lost parcel: still one, so it isn't refunded on its own and nothing comes back
           // for it if the first parcel turns up (lib/order-family).
@@ -657,7 +659,7 @@ export async function markReady(
       const customerWaiting = order.method === 'curbside' && !!order.curbside?.arrivedAt;
 
       txn.update(oRef, { stage: customerWaiting ? 'arrived' : 'ready', readyAt: now });
-      txn.set(doc(collection(oRef, 'events')), evPayload('marked_ready', actor));
+      txn.set(doc(collection(oRef, 'events')), evPayload('marked_ready', actor, order.method === 'delivery' ? { forDelivery: true } : undefined));
       if (customerWaiting) {
         txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, {
           text: 'Customer arrived early — auto-advanced to Arrived',
@@ -665,7 +667,7 @@ export async function markReady(
       }
       return {
         ok: true, autoArrived: customerWaiting,
-        message: customerWaiting ? 'The customer is already waiting outside. Please bring the order out now.' : 'The order is on the ready shelf.',
+        message: customerWaiting ? 'The customer is already waiting outside. Please bring the order out now.' : order.method === 'delivery' ? 'The order is on the ready shelf, waiting for its driver.' : 'The order is on the ready shelf.',
         // Text a curbside customer who is NOT already outside: they may still
         // be at home, and "it's ready" is the message that starts the trip.
         notifyReady: order.method === 'curbside' && !customerWaiting,
@@ -752,6 +754,7 @@ export async function markBringingOut(
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
       const order = oSnap.data() as RetailOrder;
+      if ((order as any).method === 'delivery') return { ok: false, message: 'This is a delivery. Send it out from its Delivery tab.' };
       if (!['ready', 'arrived'].includes(String(order.stage))) {
         return { ok: false, message: 'This order is not waiting to go out.' };
       }
@@ -820,6 +823,7 @@ export async function handoffByScan(
       const oSnap = await txn.get(oRef);
       const order = { ...(oSnap.data() as RetailOrder), id: orderId };
 
+      if ((order as any).method === 'delivery') return { ok: false, message: `Order #${order.orderNumber} is a delivery. Mark it delivered from its Delivery tab.` };
       if (!['ready', 'arrived'].includes(order.stage) || !canAdvance(order, 'completed').ok) {
         return {
           ok: false,
@@ -851,6 +855,7 @@ export async function handoffByPin(
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
       const order = { ...(oSnap.data() as RetailOrder), id: orderId } as any;
+      if (order.method === 'delivery') return { ok: false, message: `Order #${order.orderNumber} is a delivery. Mark it delivered from its Delivery tab.` };
       if (!['ready', 'arrived'].includes(order.stage) || !canAdvance(order, 'completed').ok) {
         return { ok: false, message: `Order #${order.orderNumber} is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS]}, so it cannot be handed off yet.` };
       }
@@ -884,6 +889,7 @@ export async function handoffWithoutScan(
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
       const order = { ...(oSnap.data() as RetailOrder), id: orderId };
+      if ((order as any).method === 'delivery') return { ok: false, message: `Order #${order.orderNumber} is a delivery. Mark it delivered from its Delivery tab.` };
       if (!['ready', 'arrived'].includes(order.stage) || !canAdvance(order, 'completed').ok) {
         return { ok: false, message: `This order is ${STAGE_LABELS[order.stage]} and is not ready for handoff.` };
       }
@@ -898,6 +904,98 @@ export async function handoffWithoutScan(
     return done;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Handoff failed.' };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * LOCAL DELIVERY — out with a driver, delivered, or brought back (lib/delivery-plan)
+ * ════════════════════════════════════════════════════════════════════════════
+ * A delivery order is picked and packed like any other, then waits on the ready shelf for its driver. Going out
+ * isn't a stage change (it's still the shop's until it's delivered, and can't be canceled while it's out); delivering
+ * it is the sale, as handing over is for pickup. One brought back waits on the shelf again for another try.
+ */
+
+export async function markOutForDelivery(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = { ...(oSnap.data() as RetailOrder), id: orderId };
+      if (order.method !== 'delivery') return { ok: false, message: 'Only a delivery order goes out for delivery.' };
+      const st = String(order.delivery?.status || 'waiting');
+      if (st === 'out') return { ok: true, message: `Already out with ${order.delivery?.driverName || 'a driver'}.` };
+      if (st === 'delivered' || order.stage === 'completed') return { ok: false, message: 'This order has been delivered.' };
+      // Packed and not yet on the shelf counts as ready: it's going straight out the door.
+      if (order.stage === 'packed') {
+        const g = canAdvance(order, 'ready'); if (!g.ok) return { ok: false, message: g.reason };
+      } else if (order.stage !== 'ready') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}. Pack it first.` };
+      const now = new Date().toISOString();
+      const tries = (Number(order.delivery?.tries) || 0) + 1;
+      txn.update(oRef, clean({
+        ...(order.stage === 'packed' ? { stage: 'ready', readyAt: now } : {}),
+        'delivery.status': 'out', 'delivery.outAt': now, 'delivery.driverId': actor.id, 'delivery.driverName': actor.name, 'delivery.tries': tries,
+      }) as any);
+      if (order.stage === 'packed') txn.set(doc(collection(oRef, 'events')), evPayload('marked_ready', actor, { forDelivery: true }));
+      txn.set(doc(collection(oRef, 'events')), evPayload('out_for_delivery', actor, { driver: actor.name, ...(tries > 1 ? { attempt: tries } : {}) }));
+      return { ok: true, message: tries > 1 ? `Out again with ${actor.name.split(' ')[0]}.` : `Out for delivery with ${actor.name.split(' ')[0]}.` };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not mark it out for delivery.' };
+  }
+}
+
+export async function markDelivered(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    const done: any = await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = { ...(oSnap.data() as RetailOrder), id: orderId };
+      if (order.method !== 'delivery') return { ok: false, message: 'Only a delivery order is delivered.' };
+      if (order.stage === 'completed') return { ok: true, message: 'Already delivered.' };
+      if (order.delivery?.status !== 'out') return { ok: false, message: 'Mark it out for delivery first.' };
+      if (order.stage !== 'ready' || !canAdvance(order, 'completed').ok) return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}, so it can’t be marked delivered.` };
+      const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
+      convertSaleInTxn(txn, fs, tenantId, order, itemSnaps, actor);
+      const now = new Date().toISOString();
+      txn.update(oRef, clean({ stage: 'completed', completedAt: now, deliveredAt: now, 'delivery.status': 'delivered', 'delivery.deliveredAt': now, 'delivery.deliveredById': actor.id, 'delivery.deliveredByName': actor.name }) as any);
+      txn.set(doc(collection(oRef, 'events')), evPayload('delivered', actor));
+      txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor, { method: 'delivered' }));
+      return { ok: true, message: `Order #${order.orderNumber} delivered.`, order: { ...order, stage: 'completed', completedAt: now } };
+    });
+    if (done?.ok && done.order) { syncRenterCredits(tenantId, done.order); shareOrderTipSoon(tenantId, done.order); }
+    if (done && typeof done === 'object') delete done.order;
+    return done;
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not mark it delivered.' };
+  }
+}
+
+export async function markDeliveryFailed(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason: string,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = { ...(oSnap.data() as RetailOrder), id: orderId };
+      if (order.method !== 'delivery') return { ok: false, message: 'Only a delivery order can be brought back.' };
+      if (order.stage !== 'ready') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}.` };
+      if (order.delivery?.status !== 'out') return { ok: false, message: order.delivery?.status === 'failed' ? 'Already back at the shop.' : 'It isn’t out for delivery.' };
+      const why = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Something else';
+      const now = new Date().toISOString();
+      txn.update(oRef, clean({ 'delivery.status': 'failed', 'delivery.failedAt': now, 'delivery.failReason': why, 'delivery.failedById': actor.id }) as any);
+      txn.set(doc(collection(oRef, 'events')), evPayload('delivery_failed', actor, { reason: why }));
+      return { ok: true, message: 'Back on the ready shelf. Send it out again when there’s a driver, or talk to the customer.' };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not record that.' };
   }
 }
 
@@ -1013,6 +1111,10 @@ export async function cancelOrder(
       }
       if (['cancelled'].includes(order.stage)) {
         return { ok: false, message: `#${order.orderNumber} is already ${order.stage}.` };
+      }
+      // A delivery out with its driver is in the van: it's delivered or brought back before anything else.
+      if ((order as any).method === 'delivery' && (order as any).delivery?.status === 'out') {
+        return { ok: false, message: `#${order.orderNumber} is out for delivery. Mark it delivered or brought back first.` };
       }
 
       const read = async (id: string) => {
@@ -1224,6 +1326,7 @@ export async function splitReadyFromWaiting(
         customerName: order.customerName, customerEmail: order.customerEmail,
         customerPhone: order.customerPhone || '',
         shippingAddress: order.shippingAddress || null,
+        ...((order as any).method === 'delivery' && (order as any).delivery ? { delivery: followUpDelivery((order as any).delivery) } : {}),
         parentOrderId: orderId, holdUntilRestock: true,
         ...((order as any).replacementFor === 'lost_in_transit' ? { replacementFor: 'lost_in_transit', lostParcelOrderId: (order as any).lostParcelOrderId || (order as any).parentOrderId || null } : {}),
         hasPreorder: true,

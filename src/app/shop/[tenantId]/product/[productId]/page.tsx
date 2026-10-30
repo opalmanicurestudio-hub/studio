@@ -64,7 +64,7 @@ export default function ProductPage() {
   const [cfg, setCfg] = useState<any>({
     showTrust: true, showFaq: true, showRelated: true, showVideo: true, showStickyBar: true, faq: [],
   });
-  const [fulfil, setFulfil] = useState({ offersPickup: true, offersShipping: true });
+  const [fulfil, setFulfil] = useState({ offersPickup: true, offersShipping: true, offersDelivery: false });
   const [loadError, setLoadError] = useState('');
   // The shop's shipping schedule (only sent once it shows dates) and its clock, so the ship-by date here is worked out
   // the same way checkout and the order work it out, and moves by itself at the cutoff.
@@ -130,6 +130,7 @@ export default function ProductPage() {
         setFulfil({
           offersPickup: data.shop.offersPickup !== false,
           offersShipping: data.shop.offersShipping !== false,
+          offersDelivery: data.shop.offersDelivery === true,
         });
         // The shop's clock, not the device's, so a phone set wrong can't move the cutoff or the countdown.
         const serverNow = Date.parse(String(data.shop.serverNow || ''));
@@ -292,7 +293,9 @@ export default function ProductPage() {
       : sold.digital
       ? { title: 'Instant access', sub: dInfo && dInfo.saves && !dInfo.reads ? 'Ready to save the moment you pay' : 'Opens in your library the moment you pay' }
       : fulfil.offersPickup
-      ? { title: 'Fast local pickup', sub: 'Ready same day when in stock' }
+      ? { title: 'Fast local pickup', sub: fulfil.offersDelivery ? 'Or local delivery, with a time you choose' : 'Ready same day when in stock' }
+      : fulfil.offersDelivery
+      ? { title: 'Local delivery', sub: 'Choose a delivery time at checkout' }
       : { title: 'Ships to you', sub: 'Live carrier rates at checkout' },
     sold.digital
       ? { title: dInfo ? accessWords(dInfo) : 'Yours to keep', sub: dInfo ? `${dInfo.license.name}, please don’t reshare it` : 'Personal use, please don’t reshare it' }
@@ -306,7 +309,9 @@ export default function ProductPage() {
       : { q: 'How fast do you ship?', a: shipping ? `${processingSentence(shipping.schedule, new Date(Date.now() + shipping.offset), shipping.timeZone)} Tracking shows on your order page, with a text or email to let you know, as soon as it ships.` : 'Orders are packed within a day or two and tracking shows on your order page, with a text or email to let you know, as soon as it ships.' },
     { q: 'What is the return policy?', a: 'Start a return from your order page once it has been picked up or delivered — choose the items and a reason, and the shop takes it from there.' },
     fulfil.offersShipping
-      ? { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' }
+      ? { q: 'Do you ship?', a: `Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.${fulfil.offersDelivery ? ' Nearby, local delivery is offered too: checkout shows it when your address is in the area.' : ''}` }
+      : fulfil.offersDelivery
+      ? { q: 'Do you deliver?', a: 'Yes, nearby. Enter your address at checkout to see whether it’s in the delivery area, the fee and the delivery times.' }
       : { q: 'Is this pickup only?', a: 'Yes — orders are collected in person, and you get a QR code to show when you arrive.' },
   ]) : null;
 

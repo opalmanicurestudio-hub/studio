@@ -120,6 +120,8 @@ export async function POST(req: NextRequest) {
     completed: 'Your order is complete.',
     cancelled: 'This order has been cancelled.',
   };
+  // A delivery isn't picked up: where it is, in its own words.
+  if (order.method === 'delivery') stageLine.ready = order.delivery?.status === 'out' ? 'Your order is out for delivery.' : order.delivery?.status === 'failed' ? 'We couldn’t deliver your order this time, and it’s back at the shop.' : 'Your order is packed and waiting to go out for delivery.';
   /* ═══ ONE ISSUE = ONE CASE ═════════════════════════════════════════════
    * Before creating anything, look for an open case on this order. A new
    * message matching an open case's category (or any open case, when the

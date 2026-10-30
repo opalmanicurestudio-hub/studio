@@ -53,6 +53,10 @@ export const handoffByScan = (_fs: any, tenantId: string, value: string, _actor:
 /** Handed over by the 4-digit code the person says (checked on the server, lib/pickup-pass). */
 export const handoffByPin = (tenantId: string, orderId: string, pin: string) => step<Ans & { orderNumber?: number; collector?: string | null; locked?: boolean }>(tenantId, 'handoffPin', { orderId, pin });
 export const handoffWithoutScan = (_fs: any, tenantId: string, orderId: string, verifiedBy: string, _actor: Actor) => step(tenantId, 'handoffNoScan', { orderId, verifiedBy });
+/** Local delivery (lib/retail-fulfill): out with the person signed in as the driver, delivered, or brought back. */
+export const markOutForDelivery = (tenantId: string, orderId: string) => step(tenantId, 'deliveryOut', { orderId });
+export const markDelivered = (tenantId: string, orderId: string) => step(tenantId, 'deliveryDone', { orderId });
+export const markDeliveryFailed = (tenantId: string, orderId: string, reason: string) => step(tenantId, 'deliveryFailed', { orderId, reason });
 export const splitReadyFromWaiting = (_fs: any, tenantId: string, orderId: string, _actor: Actor) => step<Ans & { childOrderId?: string }>(tenantId, 'splitReady', { orderId });
 export const releaseBackorder = (_fs: any, tenantId: string, orderId: string, _actor: Actor, opts: { onlyIfCovered?: boolean } = {}) => step<Ans & { short?: { productId: string; name: string; have: number; need: number }[] }>(tenantId, 'releaseBackorder', { orderId, onlyIfCovered: opts.onlyIfCovered !== false });
 export async function releaseCoverableBackorders(_fs: any, tenantId: string, received: { productId: string; qty: number }[], _actor: Actor): Promise<{ released: any[] }> {

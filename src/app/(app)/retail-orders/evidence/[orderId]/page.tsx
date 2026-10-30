@@ -153,7 +153,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
       lines: order.lines || [],
       packPhotoUrls: photos,
       trackingNumber: order.trackingNumber || '',
-      hasHandoffOrLabelScan: events.some((e) => e.type === (order.method === 'ship' ? 'label_scan_verified' : 'handoff_scanned')),
+      hasHandoffOrLabelScan: events.some((e) => e.type === (order.method === 'ship' ? 'label_scan_verified' : order.method === 'delivery' ? 'delivered' : 'handoff_scanned')),
       hasMismatchOrOverride: events.some((e) => e.type === 'scan_mismatch' || e.type === 'override'),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -162,7 +162,7 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
   const verifications = order ? [
     { label: 'Every unit scanned', ok: allScanned, icon: ScanLine },
     { label: 'Packing photo', ok: photos.length > 0, icon: Camera },
-    { label: order.method === 'ship' ? 'Label verified onto box' : 'Handoff verified by scan', ok: events.some((e) => e.type === (order.method === 'ship' ? 'label_scan_verified' : 'handoff_scanned')), icon: Check },
+    { label: order.method === 'ship' ? 'Label verified onto box' : order.method === 'delivery' ? 'Delivered by the shop’s driver' : 'Handoff verified by scan', ok: events.some((e) => e.type === (order.method === 'ship' ? 'label_scan_verified' : order.method === 'delivery' ? 'delivered' : 'handoff_scanned')), icon: Check },
     ...(order.method === 'ship' ? [{ label: 'Carrier custody', ok: Boolean(order.trackingNumber), icon: Truck }] : []),
   ] : [];
 

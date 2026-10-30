@@ -66,10 +66,11 @@ function partRefundAsk0(o: any, ask: any): { ok: true; add: PartRefund } | { ok:
   }
   if (kind === 'shipping') {
     const left = shippingLeft(o);
-    if (!left) return { ok: false, error: c0(o?.shippingCents) ? 'The shipping has been refunded already.' : 'They weren’t charged for shipping.' };
+    const what = o?.method === 'delivery' ? 'delivery' : 'shipping';
+    if (!left) return { ok: false, error: c0(o?.shippingCents) ? `The ${what} has been refunded already.` : `They weren’t charged for ${what}.` };
     const want = ask?.cents == null ? left : c0(ask.cents);
-    if (!want) return { ok: false, error: 'Enter how much of the shipping to refund.' };
-    if (want > left) return { ok: false, error: `Only ${money(left)} of the shipping is left to refund.` };
+    if (!want) return { ok: false, error: `Enter how much of the ${what} to refund.` };
+    if (want > left) return { ok: false, error: `Only ${money(left)} of the ${what} is left to refund.` };
     return { ok: true, add: { kind, cents: want, itemsCents: 0, taxCents: 0, note, what: o?.method === 'ship' ? 'Shipping refunded' : 'Delivery refunded', lines: [] } };
   }
   if (kind === 'amount') {

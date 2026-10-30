@@ -163,10 +163,11 @@ async function handle(req: NextRequest) {
             }
           }
         }
-        const cancellable = promiseLate
+        const cancellable = (promiseLate
           ? LATE_CANCEL_STAGES.includes(order.stage)
-          : CANCEL_STAGES.includes(order.stage);
+          : CANCEL_STAGES.includes(order.stage)) && !(order.method === 'delivery' && order.delivery?.status === 'out');
         if (!cancellable) {
+          if (order.method === 'delivery' && order.delivery?.status === 'out') return { status: 409, error: 'Your order is out for delivery right now, so it can’t be canceled. Once it arrives, you can start a return from this page.' };
           if (['cancelled'].includes(order.stage)) {
             return { status: 409, error: 'This order is already cancelled.' };
           }
@@ -348,7 +349,7 @@ async function handle(req: NextRequest) {
       }
       const early = changeMode(po, rs).mode;
       if (early === 'carrier') return NextResponse.json({ error: 'It\u2019s already with the carrier, so the address can\u2019t be changed here. Their tracking page shows what they can do, like holding it for pickup.' }, { status: 409 });
-      if (early === 'none') return NextResponse.json({ error: po.method !== 'ship' ? 'This order isn\u2019t being shipped, so there\u2019s no address to change.' : 'This order can\u2019t be changed any more.' }, { status: 409 });
+      if (early === 'none') return NextResponse.json({ error: po.method === 'delivery' ? 'A delivery address can\u2019t be changed here, because the fee and time depend on it. Message the shop from this page and they\u2019ll sort it out.' : po.method !== 'ship' ? 'This order isn\u2019t being shipped, so there\u2019s no address to change.' : 'This order can\u2019t be changed any more.' }, { status: 409 });
       // The carrier check the page already made for this address, or a fresh one (a few per order, then none).
       const { addressPolicy, validateAddress, shouldBlock, addressMessage } = await import('@/lib/address-validation');
       const { checkFromToken, checkAllowed } = await import('@/lib/address-flow-server');
@@ -400,7 +401,7 @@ async function handle(req: NextRequest) {
         const order = snap.data() as any;
         if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
         if (order.method !== 'ship') {
-          return { status: 409, error: 'This order isn\u2019t being shipped, so there\u2019s no address to change.' };
+          return { status: 409, error: order.method === 'delivery' ? 'A delivery address can\u2019t be changed here, because the fee and time depend on it. Message the shop from this page and they\u2019ll sort it out.' : 'This order isn\u2019t being shipped, so there\u2019s no address to change.' };
         }
         if (order.addressRequest?.status === 'approving') return { status: 409, error: 'The shop is updating your address right now. Check back in a minute.' };
         if (order.addressRequest?.status === 'waiting' && order.addressRequest?.paid) return { status: 409, error: paidWaitingWords(order.addressRequest) };

@@ -12,7 +12,8 @@ const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.is
 
 /** Which notice is due now: 0 none, 1 reminder, 2 second reminder, 3 last day. */
 export function noticeDue(o: any, pol: UncollectedPolicy, now = Date.now()): 0 | 1 | 2 | 3 {
-  if (o.stage !== 'ready' || o.method === 'ship' || o.isTest) return 0;
+  // A delivery waits for its driver, not for the customer to come in.
+  if (o.stage !== 'ready' || o.method === 'ship' || o.method === 'delivery' || o.isTest) return 0;
   const ready = ms(o.readyAt); if (!ready) return 0;
   const h = (now - ready) / 3600e3; const sent = Number(o.uncollectedNotices) || 0;
   const due = h >= (pol.holdDays * 24 - 24) && pol.holdDays * 24 - 24 > pol.secondHours ? 3 : h >= pol.secondHours ? 2 : h >= pol.firstHours ? 1 : 0;

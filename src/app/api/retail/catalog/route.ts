@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { type SellableItem } from '@/lib/retail-orders';
 import { listingsOf } from '@/lib/variants';
-import { tenantTimeZone } from '@/lib/tenant-time';
+import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
+import { deliveryFrom, notReady } from '@/lib/delivery-plan';
+import { hasMapsKey } from '@/lib/geocode-server';
 import { sanitizeShopConfig } from '@/lib/shop-config';
 import { resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import { busyBanner, publicSchedule, scheduleFrom } from '@/lib/ship-promise';
@@ -112,6 +114,9 @@ export async function GET(req: NextRequest) {
       pickupOffered: rs.pickupEnabled !== false,
       shippingOffered: rs.shippingOffered !== false && rs.shippingEnabled !== false,
       curbsideOffered: rs.curbsideOffered !== false,
+      // Local delivery (lib/delivery-plan), once it's on and checkout can use it; whether an address is delivered to is
+      // asked when the customer gives one (api/retail/delivery-quote).
+      deliveryOffered: (() => { const d = deliveryFrom(rs); return d.on && hasTimeZone(tenant) && !notReady(d, { mapsReady: hasMapsKey() }).length; })(),
       curbsideMode: rs.curbsideMode || 'freeform',
       curbsideSpots: Array.isArray(rs.curbsideSpots) ? rs.curbsideSpots : [],
       // The shipping schedule, once the shop shows dates: checkout works out each option's ship-by and arrival

@@ -220,7 +220,7 @@ export default function RetailOrderHistoryPage() {
     </Badge>
   );
 
-  const methodIcon = (m: string) => (m === 'curbside' ? Car : m === 'ship' ? Truck : Store);
+  const methodIcon = (m: string) => (m === 'curbside' ? Car : m === 'ship' || m === 'delivery' ? Truck : Store);
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">
@@ -445,7 +445,7 @@ export default function RetailOrderHistoryPage() {
                       {(detail as any).promo?.cents > 0 && <span style={{ color: '#1f7a4d' }}>{(detail as any).promo.code} −{fmt((detail as any).promo.cents)}</span>}
                       {(detail as any).offerCents > 0 && <span style={{ color: '#1f7a4d' }}>{(detail as any).offerLabel || 'Bundle savings'} −{fmt((detail as any).offerCents)}</span>}
                       {detail.taxCents > 0 && <span>Tax {fmt(detail.taxCents)}</span>}
-                      {detail.shippingCents > 0 && <span>Ship {fmt(detail.shippingCents)}</span>}
+                      {detail.shippingCents > 0 && <span>{(detail as any).method === 'delivery' ? 'Delivery' : 'Ship'} {fmt(detail.shippingCents)}</span>}
                       {detail.refundedCents > 0 && <span className="text-amber-600">Refunded {fmt(detail.refundedCents)}</span>}
                     </div>
                     <p className="font-black font-mono text-lg text-primary">{fmt(detail.totalCents)}</p>

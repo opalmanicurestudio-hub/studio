@@ -63,9 +63,13 @@ function buildOrderContext(order: any, rs: any, claims: any[], returns: any[]): 
     `- return ${r.status}${r.resolution ? ` (${r.resolution})` : ''}${r.labelTrackingStatus ? `, label ${r.labelTrackingStatus}` : ''}`
   ).join('\n');
   return [
-    `Order #${String(order.orderNumber ?? '').padStart(4, '0')} — ${order.method === 'ship' ? 'shipping order' : 'pickup order'}, currently: ${STAGE_WORDS[order.stage] || order.stage}.`,
-    `Placed: ${order.placedAt || 'unknown'}${order.completedAt ? ` · ${order.method === 'ship' ? 'Shipped' : 'Picked up'}: ${order.completedAt}` : ''}${order.deliveredAt ? ` · Delivered (carrier scan): ${order.deliveredAt}` : ''}`,
-    order.trackingNumber ? `Tracking: ${order.trackingNumber}${order.carrier ? ` (${order.carrier})` : ''}` : 'No tracking number yet.',
+    order.method === 'delivery'
+      ? `Order #${String(order.orderNumber ?? '').padStart(4, '0')} — local delivery by the shop's own driver (no carrier, no tracking number), currently: ${order.stage === 'ready' ? (order.delivery?.status === 'out' ? 'out for delivery' : order.delivery?.status === 'failed' ? 'brought back to the shop after a delivery attempt failed' : 'packed, waiting to go out') : order.stage === 'completed' ? 'delivered' : STAGE_WORDS[order.stage] || order.stage}.`
+      : `Order #${String(order.orderNumber ?? '').padStart(4, '0')} — ${order.method === 'ship' ? 'shipping order' : 'pickup order'}, currently: ${STAGE_WORDS[order.stage] || order.stage}.`,
+    order.method === 'delivery'
+      ? `Placed: ${order.placedAt || 'unknown'}${order.delivery?.window?.label ? ` · Delivery window: ${order.delivery.window.label}` : order.delivery?.asap?.by ? ` · Promised within ${order.delivery.asap.minutes || 90} minutes, by ${order.delivery.asap.by}` : ''}${order.delivery?.deliveredAt ? ` · Delivered: ${order.delivery.deliveredAt}` : ''}`
+      : `Placed: ${order.placedAt || 'unknown'}${order.completedAt ? ` · ${order.method === 'ship' ? 'Shipped' : 'Picked up'}: ${order.completedAt}` : ''}${order.deliveredAt ? ` · Delivered (carrier scan): ${order.deliveredAt}` : ''}`,
+    order.method === 'delivery' ? '' : order.trackingNumber ? `Tracking: ${order.trackingNumber}${order.carrier ? ` (${order.carrier})` : ''}` : 'No tracking number yet.',
     `Items:\n${lines || '- (none)'}`,
     `Total paid: ${money(order.totalCents)}${(order.storeCreditRequestedCents || 0) > 0 ? ` (includes ${money(order.storeCreditRequestedCents)} store credit)` : ''}${(order.refundedCents || 0) > 0 ? ` · Refunded so far: ${money(order.refundedCents)}` : ''}${(order.pendingRefundCents || 0) > 0 ? ` · Refund queued: ${money(order.pendingRefundCents)}` : ''}`,
     // The same windows the routes enforce (lib/order-windows): days after delivery, from the ship date when the carrier

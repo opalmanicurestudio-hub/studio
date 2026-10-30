@@ -3,7 +3,7 @@
 import { giftWhen } from '@/lib/digital-gift';
 import { OrderNow } from '@/components/shop/OrderNow';
 import {
-  Car, Check, CheckCircle2, Clock, LifeBuoy, Loader, Package, PackageCheck,
+  Car, Check, CheckCircle2, Clock, LifeBuoy, Loader, MapPin, Package, PackageCheck,
   QrCode, ShoppingBag, Store, Truck, XCircle,
 } from 'lucide-react';
 import { Camera } from 'lucide-react';
@@ -61,6 +61,7 @@ interface StatusLine {
 interface StatusOrder {
   id: string; orderNumber: number; stage: string; method: string; priceTier: string;
   pickupAt?: string; tipCents?: number;
+  delivery?: { when: string; status: string; outAt: string | null; deliveredAt: string | null; failedAt: string | null; driver: string | null; note: string } | null;
   businessName: string; poNumber: string; customerName: string;
   lines: StatusLine[];
   subtotalCents: number; taxCents: number; shippingCents: number; promo?: { code: string; label: string; cents: number; freeShipping: boolean } | null; offerSavings?: { label: string; cents: number } | null;
@@ -907,6 +908,7 @@ export default function OrderStatusPage() {
 
   const isPickup = order.method === 'counter' || order.method === 'curbside';
   const isShip = order.method === 'ship';
+  const isDelivery = order.method === 'delivery';
   const checkedIn = !!order.curbside?.arrivedAt;
 
   // Progress model — the customer's drive-thru lane view.
@@ -917,17 +919,27 @@ export default function OrderStatusPage() {
         { id: 'packed', label: 'Packed' },
         { id: 'shipped', label: 'Shipped' },
       ]
-    : [
-        { id: 'paid', label: 'Confirmed' },
-        { id: 'picking', label: 'Preparing' },
-        { id: 'ready', label: 'Ready' },
-        { id: 'completed', label: 'Picked up' },
-      ];
-  const stageRank: Record<string, number> = {
-    placed: -1, paid: 0, picking: 1, packed: isShip ? 2 : 1.5, ready: 2,
-    arrived: 2.5, shipped: 3, completed: 3.5, cancelled: -2,
-  };
-  const rank = stageRank[order.stage] ?? 0;
+    : isDelivery
+      ? [
+          { id: 'paid', label: 'Confirmed' },
+          { id: 'picking', label: 'Preparing' },
+          { id: 'out', label: 'On its way' },
+          { id: 'completed', label: 'Delivered' },
+        ]
+      : [
+          { id: 'paid', label: 'Confirmed' },
+          { id: 'picking', label: 'Preparing' },
+          { id: 'ready', label: 'Ready' },
+          { id: 'completed', label: 'Picked up' },
+        ];
+  const stageRank: Record<string, number> = isDelivery
+    ? { placed: -1, paid: 0, picking: 1, packed: 1.5, ready: 1.5, out: 2, completed: 3, cancelled: -2 }
+    : {
+        placed: -1, paid: 0, picking: 1, packed: isShip ? 2 : 1.5, ready: 2,
+        arrived: 2.5, shipped: 3, completed: 3.5, cancelled: -2,
+      };
+  // A delivery out with its driver is a step on from waiting on the shelf.
+  const rank = isDelivery && order.stage === 'ready' && order.delivery?.status === 'out' ? 2 : stageRank[order.stage] ?? 0;
 
   const refundedLines = order.lines.filter((l) => l.qtyShorted > 0);
   // Past the date we promised, with nothing shipped: the customer gets an
@@ -943,7 +955,7 @@ export default function OrderStatusPage() {
 
   // What the customer actually received, as opposed to where the order got to.
   const fulfilment = fulfilmentSummary(order.lines);
-  const outcome = customerOutcomeHeadline(fulfilment, isShip);
+  const outcome = customerOutcomeHeadline(fulfilment, isShip || isDelivery);
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-20">
@@ -951,7 +963,7 @@ export default function OrderStatusPage() {
         <div className="max-w-lg mx-auto px-5 py-5 flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">
-              {isShip ? 'Shipping order' : order.method === 'curbside' ? 'Curbside order' : 'Pickup order'}
+              {isShip ? 'Shipping order' : isDelivery ? 'Delivery order' : order.method === 'curbside' ? 'Curbside order' : 'Pickup order'}
             </p>
             <h1 className="font-black uppercase tracking-tighter text-2xl leading-none">
               {typeof order.orderNumber === 'number' && order.orderNumber > 0
@@ -1266,6 +1278,24 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
+        {isDelivery && order.delivery && order.stage !== 'cancelled' && (
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <CardContent className="p-6 space-y-2">
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-primary" aria-hidden="true" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Delivering to {order.shipCity || 'you'}</p>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-sm font-black">{order.delivery.status === 'delivered' || order.stage === 'completed' ? 'Delivered' : order.delivery.status === 'out' ? 'On its way' : 'Comes'}</span>
+                <span className="text-right text-sm font-black">{order.delivery.status === 'out' && order.delivery.driver ? `With ${order.delivery.driver}` : order.delivery.when ? order.delivery.when.charAt(0).toUpperCase() + order.delivery.when.slice(1) : ''}</span>
+              </div>
+              {order.shippingAddress && <p className="text-[12px] font-bold text-muted-foreground">{[order.shippingAddress.line1, order.shippingAddress.line2, order.shippingAddress.city].filter(Boolean).join(', ')}</p>}
+              {order.delivery.note && <p className="text-[12px] font-bold">Your note for the driver: {order.delivery.note}</p>}
+              {order.delivery.status === 'failed' && order.stage !== 'completed' && <p className="text-[12px] font-bold text-amber-800">We couldn’t deliver it this time. It’s back at the shop, and the shop will be in touch to arrange another time.</p>}
+            </CardContent>
+          </Card>
+        )}
+
         {isShip && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-2">
@@ -1369,7 +1399,7 @@ export default function OrderStatusPage() {
                   </div>
                   <div>
                     <p className="font-mono text-base font-black">{totNow}</p>
-                    <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{isShip ? 'In this shipment' : 'Ready with this order'}</p>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{isShip ? 'In this shipment' : isDelivery ? 'In this delivery' : 'Ready with this order'}</p>
                   </div>
                   <div>
                     <p className="font-mono text-base font-black text-amber-700">{totBack > 0 ? totBack : totRefunded}</p>
@@ -1379,7 +1409,7 @@ export default function OrderStatusPage() {
                     <p className="col-span-3 text-[9px] font-bold text-amber-800">
                       {isShip
                         ? 'Backordered units ship separately at no extra shipping cost — we’ll post tracking here and send you a heads-up when they’re on the way.'
-                        : 'Backordered units will be ready for pickup when restocked — we’ll let you know.'}
+                        : isDelivery ? 'Backordered units come when restocked — we’ll let you know.' : 'Backordered units will be ready for pickup when restocked — we’ll let you know.'}
                       {totRefunded > 0 ? ` ${totRefunded} unavailable unit(s) were refunded.` : ''}
                     </p>
                   )}
@@ -1434,9 +1464,9 @@ export default function OrderStatusPage() {
               <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">{fmt(order.subtotalCents)}</span></div>
               {order.promo && order.promo.cents > 0 && <div className="flex justify-between" style={{ color: '#1f7a4d' }}><span>{order.promo.label}</span><span className="font-mono">−{fmt(order.promo.cents)}</span></div>}
               {order.offerSavings && order.offerSavings.cents > 0 && <div className="flex justify-between" style={{ color: '#1f7a4d' }}><span>{order.offerSavings.label}</span><span className="font-mono">−{fmt(order.offerSavings.cents)}</span></div>}
-              {order.promo?.freeShipping && <div className="flex justify-between" style={{ color: '#1f7a4d' }}><span>{order.promo.code}: free shipping</span></div>}
+              {order.promo?.freeShipping && order.method !== 'delivery' && <div className="flex justify-between" style={{ color: '#1f7a4d' }}><span>{order.promo.code}: free shipping</span></div>}
               {order.taxCents > 0 && <div className="flex justify-between"><span>Tax</span><span className="font-mono">{fmt(order.taxCents)}</span></div>}
-              {order.shippingCents > 0 && <div className="flex justify-between"><span>Shipping</span><span className="font-mono">{fmt(order.shippingCents)}</span></div>}
+              {order.shippingCents > 0 && <div className="flex justify-between"><span>{order.method === 'delivery' ? 'Delivery' : 'Shipping'}</span><span className="font-mono">{fmt(order.shippingCents)}</span></div>}
               {order.refundedCents > 0 && (
                 <div className="flex justify-between text-amber-600"><span>Refunded</span><span className="font-mono">-{fmt(order.refundedCents)}</span></div>
               )}
@@ -1662,7 +1692,8 @@ export default function OrderStatusPage() {
                       <div className="rounded-2xl border-2 border-primary/20 bg-primary/[0.03] p-3">
                         <p className="text-xs font-bold text-muted-foreground leading-relaxed">
                           {instantQ === 'status' && (
-                            order.stage === 'ready' ? 'Your order is READY — pickup details are at the top of this page.'
+                            order.stage === 'ready' && order.method === 'delivery' ? (order.delivery?.status === 'out' ? 'Your order is on its way to you now.' : 'Your order is packed and waiting to go out. The delivery time is at the top of this page.')
+                            : order.stage === 'ready' ? 'Your order is READY — pickup details are at the top of this page.'
                             : order.stage === 'shipped' ? (order.trackingNumber ? `Shipped via ${order.carrier || 'carrier'} — tracking ${order.trackingNumber}. Link is above.` : 'Shipped — tracking will appear here once available.')
                             : ['completed'].includes(order.stage) ? 'This order is complete — the receipt is on this page.'
                             : ['picking', 'packed'].includes(order.stage) ? 'Your order is being packed right now — this page updates live.'

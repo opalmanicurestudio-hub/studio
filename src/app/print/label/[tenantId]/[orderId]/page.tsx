@@ -84,7 +84,7 @@ export default async function OrderLabelPage({
           <p className="from">From <b>{shopName}</b></p>
           {a ? (
             <div>
-              <p className="kind">Ship to</p>
+              <p className="kind">{order.method === 'delivery' ? 'Deliver to' : 'Ship to'}</p>
               <p className="to">
                 <b>{a.name}</b><br />{a.line1}{a.line2 ? <><br />{a.line2}</> : null}<br />{a.city}, {a.state} {a.postalCode}
               </p>

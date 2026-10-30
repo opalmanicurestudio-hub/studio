@@ -41,7 +41,7 @@ export function Documents({ tenantId, order, recs, returns, list, onToast }: { t
   if (!list) docs.push({ key: 'evidence', title: 'Evidence pack', sub: 'Scans, photos, weights and carrier scans, for a claim', acts: [{ label: 'Open', href: `/retail-orders/evidence/${order.id}` }, { label: 'Print', run: () => void evidence() }] });
   const withLabel = (returns || []).filter((r) => r.labelUrl);
   if (!list && ship) docs.push({ key: 'return', title: 'Return label', sub: withLabel.length ? withLabel.map((r) => `${String(r.status || 'open')}${r.labelTrackingNumber ? ` · ${tail(r.labelTrackingNumber)}` : ''}`).join(', ') : (returns || []).length ? 'Return started, no label yet' : 'None', acts: withLabel.map((r, i) => ({ label: withLabel.length > 1 ? `Open ${i + 1}` : 'Open', run: () => tab(r.labelUrl) })) });
-  if (!list && order.qrToken && !ship && order.method !== 'digital') docs.push({ key: 'bag', title: 'Bag label', sub: 'For the shelf: their name, order and pickup code', acts: [{ label: 'Print', run: () => tab(`/print/label/${tenantId}/${order.id}?t=${t}`) }] });
+  if (!list && order.qrToken && !ship && order.method !== 'digital') docs.push({ key: 'bag', title: 'Bag label', sub: order.method === 'delivery' ? 'For the shelf: their name, order and where it goes' : 'For the shelf: their name, order and pickup code', acts: [{ label: 'Print', run: () => tab(`/print/label/${tenantId}/${order.id}?t=${t}`) }] });
   if (!list) docs.push({ key: 'page', title: 'Their order page', sub: 'What they see: status, messages and updates', acts: [{ label: 'Open', run: () => tab(`/shop/${tenantId}/order/${order.id}`) }] });
 
   const act = (a: { label: string; run?: () => void; href?: string }) => a.href

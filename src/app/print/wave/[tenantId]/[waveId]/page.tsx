@@ -142,7 +142,7 @@ export default async function PrintWavePage({
       tote: w.tote,
       orderNumber: w.orderNumber,
       customerName: w.customerName,
-      method: w.method === 'ship' ? 'Ship' : w.method === 'curbside' ? (tenant.retailSettings?.curbsideMode === 'drive_thru' ? 'Drive-through' : 'Curbside') : w.method === 'digital' ? 'Download' : 'Pickup',
+      method: w.method === 'ship' ? 'Ship' : w.method === 'delivery' ? 'Delivery' : w.method === 'curbside' ? (tenant.retailSettings?.curbsideMode === 'drive_thru' ? 'Drive-through' : 'Curbside') : w.method === 'digital' ? 'Download' : 'Pickup',
       itemCount: w.itemCount,
       cancelled,
       qr: await QRCode.toDataURL(

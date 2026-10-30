@@ -8,6 +8,7 @@ import {
   type Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
 } from '@/lib/fs-any';
 import { nanoid } from 'nanoid';
+import { followUpDelivery } from './delivery-plan';
 
 import { buildExceptionDoc } from '@/lib/exception-doc';
 import { buildEntry } from '@/lib/stock-ledger';
@@ -413,6 +414,7 @@ export async function resolveReturn(
           customerName: order.customerName, customerEmail: order.customerEmail,
           customerPhone: order.customerPhone || '',
           shippingAddress: order.shippingAddress || null,
+          ...((order as any).method === 'delivery' && (order as any).delivery ? { delivery: followUpDelivery((order as any).delivery) } : {}),
           parentOrderId: order.id, isReplacement: true,
           qrToken: order.qrToken || null,
           placedAt: now, paidAt: now,

@@ -55,12 +55,15 @@ function stepText(e: any, o: any): string {
     case 'line_shorted': return 'An item is out of stock';
     case 'line_reopened': return 'The missing item was found after all';
     case 'packed': return 'Packed';
-    case 'marked_ready': return o?.method === 'curbside' ? 'Ready for curbside pickup' : 'Ready for pickup';
+    case 'marked_ready': return o?.method === 'curbside' ? 'Ready for curbside pickup' : o?.method === 'delivery' ? 'Packed and ready to go out' : 'Ready for pickup';
+    case 'out_for_delivery': return Number(m.attempt) > 1 ? 'Out for delivery again' : 'Out for delivery';
+    case 'delivered': return 'Delivered';
+    case 'delivery_failed': return 'We couldn’t deliver it this time';
     case 'customer_arrived': return 'You checked in';
     case 'handoff_scanned': return 'Pickup code checked';
     case 'shipped': return `Shipped${m.carrier ? ` with ${m.carrier}` : ''}`;
     // Who collected it isn't named here (the live view holds no names): the order page shows it with the customer's pass.
-    case 'completed': return ship ? 'Delivered' : o?.handoff?.collectedBy === 'someone_else' ? 'Picked up by the person you named' : 'Picked up';
+    case 'completed': return ship ? 'Delivered' : o?.method === 'delivery' ? '' : o?.handoff?.collectedBy === 'someone_else' ? 'Picked up by the person you named' : 'Picked up';
     case 'cancelled': return 'Canceled';
     case 'refund_issued': return `Refund of ${money(m.amountCents)} sent`;
     case 'return_opened': return 'Return started';

@@ -142,7 +142,7 @@ function AccountInner() {
     setCreditCents(0);
   };
 
-  const methodIcon = (m: string) => (m === 'curbside' ? Car : m === 'ship' ? Truck : Store);
+  const methodIcon = (m: string) => (m === 'curbside' ? Car : m === 'ship' || m === 'delivery' ? Truck : Store);
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-24">

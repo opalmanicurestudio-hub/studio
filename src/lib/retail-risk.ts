@@ -23,7 +23,8 @@ export function assessRisk(order: any, charge: any | null, priorOrders: number, 
   const card = charge?.payment_method_details?.card || {};
   const checks = card.checks || {};
   if (checks.cvc_check === 'fail') strong.push('The card’s security code didn’t match');
-  const ship = order.method === 'ship';
+  // A delivery leaves the shop for an address without anyone showing a code, as a parcel does: the same signals count.
+  const ship = order.method === 'ship' || order.method === 'delivery';
   const shipCountry = String(order.shippingAddress?.country || 'US').toUpperCase();
   if (ship && card.country && String(card.country).toUpperCase() !== shipCountry) weak.push(`Card from ${String(card.country).toUpperCase()}, shipping to ${shipCountry}`);
   if (checks.address_postal_code_check === 'fail') weak.push('The billing postcode didn’t match the card');

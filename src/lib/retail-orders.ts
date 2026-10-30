@@ -49,7 +49,7 @@ export const ORDER_STAGES = [
 
 export type OrderStage = (typeof ORDER_STAGES)[number];
 
-export const FULFILLMENT_METHODS = ['counter', 'curbside', 'in_store', 'ship'] as const;
+export const FULFILLMENT_METHODS = ['counter', 'curbside', 'in_store', 'ship', 'delivery'] as const;
 export type FulfillmentMethod = (typeof FULFILLMENT_METHODS)[number];
 
 /**
@@ -1003,6 +1003,9 @@ export const ORDER_EVENT_TYPES = [
   'marked_ready',
   'customer_arrived',          // meta: { spotOrVehicle }
   'handoff_scanned',           // customer QR verified at counter/car
+  'out_for_delivery',          // local delivery: a driver left with it — meta: { driver }
+  'delivered',                 // local delivery: left with the customer or where they asked
+  'delivery_failed',           // local delivery: brought back — meta: { reason }
   'shipped',
   'manifested',                // meta: { manifestId, carrier } — on the day's USPS form
   'completed',
@@ -1149,6 +1152,9 @@ export function dueAt(order: RetailOrder, policy: FulfilmentPolicy = DEFAULT_POL
   // A pickup window the customer chose (lib/pickup-slots): ready by the time it starts.
   const win = Date.parse(String((order as any).pickupWindow?.start || ''));
   if (Number.isFinite(win)) return win;
+  // A delivery (lib/delivery-plan): ready to go out when its window starts, or in time for a "within minutes" promise.
+  const out = Date.parse(String((order as any).delivery?.readyBy || ''));
+  if (Number.isFinite(out)) return out;
 
   // "Wants it in ~30 min" from the storefront's pickup picker.
   const wanted = String((order as any).pickupAt || '').trim();
@@ -1676,6 +1682,10 @@ export function canAdvance(order: RetailOrder, target: OrderStage): GuardResult 
       if (order.method === 'ship' && order.stage !== 'shipped' && order.stage !== 'placed') {
         return { ok: false, reason: 'A ship order is completed by its delivery, not handed over.' };
       }
+      // A local delivery is completed by its driver delivering it (lib/retail-fulfill markDelivered), never handed over.
+      if (order.method === 'delivery' && order.stage !== 'placed' && (order as any).delivery?.status !== 'out') {
+        return { ok: false, reason: 'A delivery is completed by delivering it. Send it out for delivery first.' };
+      }
       return { ok: true };
 
     case 'cancelled':
@@ -1696,6 +1706,9 @@ export function canCancel(order: RetailOrder): GuardResult {
   }
   if (['arrived', 'shipped'].includes(order.stage)) {
     return { ok: false, reason: 'Too late to cancel; open a return instead.' };
+  }
+  if (order.method === 'delivery' && (order as any).delivery?.status === 'out') {
+    return { ok: false, reason: 'It’s out for delivery. Mark it delivered or brought back first.' };
   }
   return { ok: true };
 }
@@ -1813,6 +1826,7 @@ export const METHOD_LABELS: Record<FulfillmentMethod, string> = {
   curbside: 'Curbside',
   in_store: 'In-Store',
   ship: 'Shipping',
+  delivery: 'Local Delivery',
 };
 
 export function formatCents(cents: number): string {

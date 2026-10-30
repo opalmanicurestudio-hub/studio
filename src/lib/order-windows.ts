@@ -11,7 +11,8 @@ const ms = (v: unknown): number | null => {
 
 export type WindowStart = { at: number; from: 'delivered' | 'shipped' | 'handed_over' };
 
-/** When the count starts: delivered (the carrier's scan), else shipped (no delivery scan), else handed over (pickups). */
+/** When the count starts: delivered (the carrier's scan, or the shop's own driver), else shipped (no delivery scan), else
+ *  handed over (pickups). */
 export function windowStart(order: any): WindowStart | null {
   const delivered = ms(order?.deliveredAt);
   if (delivered !== null) return { at: delivered, from: 'delivered' };

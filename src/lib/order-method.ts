@@ -6,6 +6,7 @@ export type MethodWords = { short: string; long: string };
 export function methodWords(method: any, rs?: any): MethodWords {
   const m = String(method || '');
   if (m === 'ship') return { short: 'Ship', long: 'Shipping' };
+  if (m === 'delivery') return { short: 'Delivery', long: 'Local delivery' };
   if (m === 'curbside') return rs?.curbsideMode === 'drive_thru' ? { short: 'Drive-through', long: 'Drive-through pickup' } : { short: 'Curbside', long: 'Curbside pickup' };
   if (m === 'in_store') return { short: 'Pickup', long: 'In-store pickup' };
   if (m === 'digital') return { short: 'Download', long: 'Download' };

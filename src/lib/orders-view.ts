@@ -60,6 +60,16 @@ export function dueLine(o: any, retailSettings: any, now = Date.now(), timeZone?
   if (st === 'shipped') { const t = ms(o.completedAt); return { text: t ? `Shipped ${formatShortDay(new Date(t), tz).replace(/^\w+, /, '')}` : 'Shipped', late: false }; }
   if (st === 'completed') return { text: 'Done', late: false };
   if (st === 'cancelled') return { text: 'Canceled', late: false };
+  // A delivery on the shelf waits for its driver: where it is, and when it has to go.
+  if (st === 'ready' && o.method === 'delivery') {
+    const d = o.delivery || {};
+    if (d.status === 'out') return { text: `Out with ${String(d.driverName || 'a driver').split(' ')[0]}`, late: false };
+    if (d.status === 'failed') return { text: 'Brought back', late: true };
+    const end = ms(d.window?.end) || ms(d.asap?.by);
+    if (end && end < now) return { text: 'Missed its delivery time', late: true };
+    const go = ms(d.readyBy);
+    return { text: go ? `Goes out ${dayWord(go, now, tz)}${formatTime(new Date(go), tz) ? ` ${formatTime(new Date(go), tz)}` : ''}` : 'Waiting for a driver', late: false };
+  }
   if (st === 'ready') {
     const since = ms(o.readyAt);
     const days = since ? Math.floor((now - since) / 864e5) : 0;
@@ -130,7 +140,12 @@ export function needsYou(orders: any[], now = Date.now(), staleHours = 48): Need
       if (o.lateNeedsStaff?.open === true) out.push({ key: `${o.id}-late`, orderId: o.id, kind: 'late', text: o.lateNeedsStaff.why === 'held' ? `${who}’s held order missed its ship-by date` : `${who}’s order missed its new ship-by date` });
       else if (ms(o.shipPromiseAt) && ms(o.shipPromiseAt) < now) out.push({ key: `${o.id}-late`, orderId: o.id, kind: 'late', text: `${who}’s order is past the date they were promised` });
     }
-    if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });
+    // A delivery isn't collected: one brought back, or still on the shelf after its delivery time, needs someone instead.
+    if (o.method === 'delivery') {
+      const d = o.delivery || {};
+      if (o.stage === 'ready' && d.status === 'failed') out.push({ key: `${o.id}-back`, orderId: o.id, kind: 'uncollected', text: `${who}’s delivery was brought back${d.failReason ? `: ${String(d.failReason).toLowerCase()}` : ''}` });
+      else if (['paid', 'picking', 'packed', 'ready'].includes(o.stage) && d.status !== 'out' && (ms(d.window?.end) || ms(d.asap?.by)) && (ms(d.window?.end) || ms(d.asap?.by)) < now) out.push({ key: `${o.id}-late`, orderId: o.id, kind: 'late', text: `${who}’s delivery missed its time` });
+    } else if (o.stage === 'ready' && ms(o.readyAt) && now - ms(o.readyAt) > staleHours * 3600e3) out.push({ key: `${o.id}-unc`, orderId: o.id, kind: 'uncollected', text: `${who} hasn’t collected their order` });
   }
   const rank: Record<string, number> = { outside: 0, held: 1, late: 2, carrier: 3, address: 3, voided: 4, relabel: 4, refundDenied: 5, refund: 5, missing: 6, uncollected: 7, unconfirmed: 8, label: 9, unshipped: 9, backorder: 10, charge: 11 };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind]);

@@ -264,7 +264,7 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
 
           <div className="rounded-xl border-2 border-dashed px-3 py-2.5">
             <p className="text-xs font-black">Protection: Standard</p>
-            <p className={hint}>Proof it's the buyer to open anything, links that last ten minutes, their name printed into PDFs, and every open counted. Advanced protection comes with the paid add-on.</p>
+            <p className={hint}>Proof it's the buyer to open anything, links that last ten minutes, their name printed into PDFs, and every open counted. Limiting how many devices a buyer can open it on is coming in a Digital protection add-on.</p>
           </div>
 
           {problems.length > 0 && (

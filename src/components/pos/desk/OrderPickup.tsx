@@ -23,7 +23,7 @@ export function OrderPickup({ firestore, tenantId, actor, scanned, screen }: {
   const [signReq, setSignReq] = React.useState<{ id: string | null; status: 'waiting' | 'signed' } | null>(null);
   const [pin, setPin] = React.useState(''); const [pinOff, setPinOff] = React.useState(false);
   React.useEffect(() => { if (!firestore || !tenantId) return;
-    return onSnapshot(query(collection(firestore, `tenants/${tenantId}/retailOrders`), where('stage', 'in', ['ready', 'arrived'])), (s) => setOrders(s.docs.map((d) => ({ ...(d.data() as any), id: d.id }))), () => setOrders([])); }, [firestore, tenantId]);
+    return onSnapshot(query(collection(firestore, `tenants/${tenantId}/retailOrders`), where('stage', 'in', ['ready', 'arrived'])), (s) => setOrders(s.docs.map((d) => ({ ...(d.data() as any), id: d.id })).filter((o: any) => o.method !== 'delivery')), () => setOrders([])); }, [firestore, tenantId]);
   // A scanned pickup code picks its order straight away.
   const token = scanned ? (parseOrderQr(scanned) ?? scanned.trim()) : null;
   React.useEffect(() => { if (!token || !orders.length) return; const o = orders.find((x) => x.qrToken === token); if (o) { setSel(o); setMsg(null); } }, [token, orders.length]); // eslint-disable-line react-hooks/exhaustive-deps

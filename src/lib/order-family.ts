@@ -139,7 +139,8 @@ export function cancelWithFollowUps(payer: any, followUps: any[], cancellable: (
   const cancel: any[] = [];
   for (const f of fam) {
     const stage = String(f.stage || '');
-    const goes = OPEN_STAGES.includes(stage) && cancellable(f);
+    // A delivery out with its driver is in the van: it isn't canceled with the rest.
+    const goes = OPEN_STAGES.includes(stage) && cancellable(f) && !(f.method === 'delivery' && f.delivery?.status === 'out');
     // Gone out, or going out: the customer has those items, less what's been refunded for them already (those refunds
     // are already off the room). Anything still queued on it goes back on its own.
     // What's been refunded for it counts whichever way it went back: to the card, or onto the gift card or as store credit.

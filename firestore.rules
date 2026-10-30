@@ -688,14 +688,17 @@ service cloud.firestore {
               'tipSharedAt', 'tipSharedWith', 'tipUnassigned', 'partRefunds', 'shippingRefundedCents',
               'taxMode', 'taxCalculationId', 'taxTransactionId', 'tenders', 'shipTogetherRefundCents', 'outsideRefunds',
               'digitalHolds', 'digitalOpens', 'cardRefundedInFull', 'digitalGift', 'digitalGiftPending',
-              'collector', 'pinTries', 'collectedNotifiedAt', 'returnSeq'];
+              'collector', 'pinTries', 'collectedNotifiedAt', 'returnSeq',
+              'pickupWindow', 'pickupWindowKey', 'checkoutKeyHash', 'deliveryWindowKey', 'deliveryAsapAt', 'tipFor',
+              'shippingAddress', 'deliveredAt'];
     }
     // What only the order steps change, on the server (api/retail/fulfil, with the person's role checked there): the
     // order's stage, its items and their counts, who's packing it, when each step happened, the lots that went out and
-    // the follow-up orders made from it. So no screen can show a step that didn't happen.
+    // the follow-up orders made from it, and a local delivery's steps (out, delivered, brought back). So no screen can
+    // show a step that didn't happen.
     function orderStepKeys() {
       return ['stage', 'lines', 'batchId', 'claimedBy', 'claimedByName', 'claimedAt', 'packedAt', 'readyAt', 'completedAt', 'cancelledAt',
-              'saleLots', 'lotKeys', 'backorderOrderIds', 'holdUntilRestock', 'handoff'];
+              'saleLots', 'lotKeys', 'backorderOrderIds', 'holdUntilRestock', 'handoff', 'delivery'];
     }
     match /tenants/{tenantId}/retailOrders/{orderId} {
       allow read: if isTeam(tenantId);

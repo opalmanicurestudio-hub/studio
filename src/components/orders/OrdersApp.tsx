@@ -389,7 +389,7 @@ export function OrdersApp() {
 
   const nextUp = solo && tab === 'pack' && !q && queue[0] ? queue[0] : null;
   const listBody = loading ? <p className="px-4 py-10 text-center text-[15px]" style={muted}>Loading orders…</p>
-    : list.length === 0 ? <Empty title={q ? 'No orders match' : tab === 'pack' ? 'Nothing to pack' : tab === 'ready' ? 'Nothing waiting' : 'No finished orders yet'} sub={q ? 'Try a name, an order number or an item.' : tab === 'pack' ? 'New orders appear here the moment they’re paid.' : tab === 'ready' ? 'Packed orders wait here for pickup or a label.' : 'Shipped, picked up and cancelled orders show here.'} />
+    : list.length === 0 ? <Empty title={q ? 'No orders match' : tab === 'pack' ? 'Nothing to pack' : tab === 'ready' ? 'Nothing waiting' : 'No finished orders yet'} sub={q ? 'Try a name, an order number or an item.' : tab === 'pack' ? 'New orders appear here the moment they’re paid.' : tab === 'ready' ? 'Packed orders wait here for pickup, a driver or a label.' : 'Shipped, picked up and cancelled orders show here.'} />
     : (<>
       {nextUp && (
         <div className="mx-4 mt-3 rounded-3xl border-2 p-4" style={{ borderColor: C.ink }}>

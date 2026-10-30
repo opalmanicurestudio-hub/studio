@@ -100,7 +100,7 @@ ok(receipt.includes("emailButton(`${origin}/shop/${tenantId}/library/${orderId}`
 
 // ── tax on downloads
 const co = fs.readFileSync('src/app/api/retail/checkout/route.ts', 'utf8');
-ok(co.includes("(method === 'ship' || (digitalOnly && !paysWithOther)) && !taxExempt") && co.includes("withAutoTax && digitalOnly ? { billing_address_collection: 'required' }"), 'Stripe Tax covers download-only carts, from the billing address');
+ok(co.includes("(digitalOnly && !paysWithOther)) && !taxExempt") && co.includes("withAutoTax && digitalOnly ? { billing_address_collection: 'required' }"), 'Stripe Tax covers download-only carts, from the billing address');
 
 // ── the browser can't clear a hold or reset the counts
 const fr = fs.readFileSync('firestore.rules', 'utf8');

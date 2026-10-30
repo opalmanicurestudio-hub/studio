@@ -6,7 +6,7 @@ import { putTracking, trackingKey } from '@/lib/order-tracking';
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
 import { changeMode, changePolicy } from '@/lib/address-flow';
 import { busyLineFor, customerDates, scheduleFrom } from '@/lib/ship-promise';
-import { dayKey, tenantTimeZone } from '@/lib/tenant-time';
+import { dayKey, formatTime, tenantTimeZone } from '@/lib/tenant-time';
 import { liveSlots } from '@/lib/label-boxes';
 import { effectiveUnitCents, swapLines } from '@/lib/retail-swap';
 import { windowOpen } from '@/lib/order-windows';
@@ -432,6 +432,18 @@ export async function GET(req: NextRequest) {
         : null,
       shipCity: order.shippingAddress ? `${order.shippingAddress.city}, ${order.shippingAddress.state}` : null,
       shippingAddress: order.shippingAddress || null,
+      // A local delivery (lib/delivery-plan): when it was promised, where it is, and the driver's first name while it's
+      // out. The note they left for the driver is shown only with the pass.
+      delivery: order.method === 'delivery' && order.delivery ? (() => {
+        const d = order.delivery; const tz = tenantTimeZone(tenantSnap.exists ? tenantSnap.data() : null);
+        return {
+          when: d.window?.label ? String(d.window.label) : d.asap?.by ? `within ${Number(d.asap.minutes) || 90} minutes, by ${formatTime(String(d.asap.by), tz)}` : '',
+          status: ['out', 'delivered', 'failed'].includes(String(d.status)) ? String(d.status) : 'waiting',
+          outAt: d.outAt || null, deliveredAt: d.deliveredAt || null, failedAt: d.failedAt || null,
+          driver: d.status === 'out' && d.driverName ? String(d.driverName).split(' ')[0] : null,
+          note: passOk ? String(d.note || '') : '',
+        };
+      })() : null,
       /* The address flow (lib/address-flow): whether the shop asked them to confirm it, their change waiting for the
        * shop (or its answer), and what a change would do now. Never why: a hold for review isn't shown. */
       ...(order.method === 'ship' ? (() => {

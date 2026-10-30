@@ -12,7 +12,7 @@ import { staffIdForLogin } from '@/lib/owner-staff';
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
 const OUT = ['shipped', 'completed'];
 // What counts as fulfilling it: packing it, and sending it or handing it over.
-const WORK = new Set(['item_scanned', 'pick_complete', 'packed', 'marked_ready', 'label_generated', 'shipped', 'handoff_scanned', 'completed', 'override']);
+const WORK = new Set(['item_scanned', 'pick_complete', 'packed', 'marked_ready', 'label_generated', 'shipped', 'handoff_scanned', 'out_for_delivery', 'delivered', 'completed', 'override']);
 const NOT_PEOPLE = new Set(['', 'system', 'staff', 'customer', 'shippo', 'stripe', 'automation']);
 
 export const tipLineId = (orderId: string, staffId: string) => `otip_${orderId}_${String(staffId).replace(/[^A-Za-z0-9_-]/g, '')}`.slice(0, 1400);
@@ -38,10 +38,13 @@ export async function shareOrderTip(db: any, tenantId: string, orderId: string):
   if (!o.booksAt) return 'booked_at_payment';
   if (!OUT.includes(String(o.stage || ''))) return 'not_yet';
 
-  // Who did the work, in the order they first touched it.
+  // Who did the work, in the order they first touched it. A tip given for the driver (a local delivery) is all theirs:
+  // whoever took it out on the trip that delivered it, else whoever marked it delivered.
   const evs = (await oRef.collection('events').orderBy('at', 'asc').limit(400).get().catch(() => ({ docs: [] as any[] }))).docs.map((d: any) => d.data() || {});
   const logins: string[] = [];
-  for (const e of evs) { const id = String(e.actorId || ''); if (WORK.has(String(e.type || '')) && !NOT_PEOPLE.has(id) && !logins.includes(id)) logins.push(id); }
+  const forDriver = o.tipFor === 'driver' && o.method === 'delivery';
+  if (forDriver) for (const id of [String(o.delivery?.driverId || ''), String(o.delivery?.deliveredById || '')]) if (id && !NOT_PEOPLE.has(id)) { logins.push(id); break; }
+  if (!logins.length) for (const e of evs) { const id = String(e.actorId || ''); if (WORK.has(String(e.type || '')) && !NOT_PEOPLE.has(id) && !logins.includes(id)) logins.push(id); }
   const staffIds: string[] = []; const names: Record<string, string> = {};
   for (const uid of logins) {
     const sid = await staffIdForLogin(db, tenantId, uid).catch(() => null);
@@ -81,7 +84,7 @@ export async function shareOrderTip(db: any, tenantId: string, orderId: string):
     const ev = oRef.collection('events').doc(`tip-shared`);
     tx.set(ev, { id: ev.id, type: 'note', at: now, actorId: 'system', actorName: 'Tips',
       meta: { kind: 'tip_shared', text: staffIds.length
-        ? `The ${`$${(tipNow / 100).toFixed(2)}`} tip went to ${staffIds.map((s) => names[s].split(' ')[0]).join(' and ')}, who ${staffIds.length > 1 ? 'packed and sent it' : 'fulfilled it'}. The shop’s tip policy shares it from there.`
+        ? `The ${`$${(tipNow / 100).toFixed(2)}`} tip went to ${staffIds.map((s) => names[s].split(' ')[0]).join(' and ')}, who ${forDriver ? 'delivered it' : staffIds.length > 1 ? 'packed and sent it' : 'fulfilled it'}. The shop’s tip policy shares it from there.`
         : `The ${`$${(tipNow / 100).toFixed(2)}`} tip couldn’t be matched to anyone on the team, so it’s in the books without a name. Give it out by hand in Money.` } });
     return 'done';
   });
