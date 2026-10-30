@@ -312,7 +312,7 @@ function Inside({ d, v }: { d: PublicDigital; v: ProductViewProps }) {
             </li>))}
         </ul>)}
       {d.hasLink && <p>Plus online content, opened from your library.</p>}
-      <p className="text-sm" style={muted}>{[d.formatLabel, d.how, accessWords(d), downloadWords(d)].filter(Boolean).join(' · ')}</p>
+      <p className="text-sm" style={muted}>{[d.formatLabel, d.how, accessWords(d), downloadWords(d), d.deviceLimit ? `Opens on up to ${d.deviceLimit} device${d.deviceLimit === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}</p>
       {open && <PreviewWindow v={v} file={open} onClose={close} />}
     </div>);
 }

@@ -10,6 +10,10 @@
 //
 // A download bought as a gift (lib/digital-gift) opens here for the person it was for, never the buyer: the link in the
 // gift email confirms them, or a code to that email does, and their pass is their own (/api/retail/gift-library).
+//
+// With the shop's Digital protection (lib/device-limit), an item opens on a limited number of devices. This page keeps
+// a copy of the device's id (the server keeps its own in a cookie) and says plainly, on the item, when a new device is
+// over the limit, with the way to ask the shop to reset it.
 import { Loader, Lock } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ShopHeader } from '@/components/shop/ShopChrome';
@@ -17,7 +21,7 @@ import { ShopHeader } from '@/components/shop/ShopChrome';
 type Access = { open: boolean; reason: string | null; endsAt: string | null };
 type Contents = { files: { id: string; name: string; inPage: boolean; size: number }[]; link: boolean; delivery: 'both' | 'view' | 'download' };
 type Target = { fileId?: string; link?: boolean };
-type Item = { key: string; lineId: string; productId: string; name: string; access: Access; left: number | null; license: { name: string; terms: string } | null; contents: Contents | null };
+type Item = { key: string; lineId: string; productId: string; name: string; access: Access; left: number | null; license: { name: string; terms: string } | null; contents: Contents | null; devices: { cap: number; used: number } | null };
 type Verify = { passOk: boolean; emailMasked: string | null; phoneEnding: string | null; canText: boolean };
 
 const card: React.CSSProperties = { borderRadius: 'var(--shop-radius-card)', background: 'var(--shop-card)', border: '1px solid var(--shop-line)' };
@@ -25,6 +29,23 @@ const muted: React.CSSProperties = { color: 'var(--shop-muted)' };
 const solid: React.CSSProperties = { borderRadius: 'var(--shop-radius-pill)', background: 'var(--shop-brand)', color: 'var(--shop-on-brand)' };
 const outline: React.CSSProperties = { borderRadius: 'var(--shop-radius-pill)', border: '1px solid var(--shop-ink)', color: 'var(--shop-ink)' };
 const day = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+const warnBox: React.CSSProperties = { borderRadius: 'var(--shop-radius-control)', background: '#fdf1e4', color: '#b45309' };
+const DEVICE_KEY = 'cfshop-device';
+/**
+ * This device's id for device limits: kept by the page as well as the server's cookie, so either one is enough. Made
+ * here before the first open, so two tabs opening at once are still one device.
+ */
+const readDevice = () => {
+  try {
+    const had = window.localStorage.getItem(DEVICE_KEY) || '';
+    if (had) return had;
+    const b = new Uint8Array(18); crypto.getRandomValues(b);
+    const id = btoa(String.fromCharCode(...Array.from(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    window.localStorage.setItem(DEVICE_KEY, id);
+    return id;
+  } catch { return ''; }
+};
+const keepDevice = (id: string) => { try { if (/^[A-Za-z0-9_-]{16,64}$/.test(id)) window.localStorage.setItem(DEVICE_KEY, id); } catch { /* the cookie still knows it */ } };
 
 function statusOf(a: Access): string {
   if (a.open) return a.endsAt ? `Available until ${day(a.endsAt)}` : 'Yours to keep';
@@ -46,6 +67,8 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
   const [busy, setBusy] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ item: Item; target: Target; url: string; name: string; watermark: string; inPage: boolean; canSave: boolean; left: number | null; license: { name: string; terms: string } | null } | null>(null);
   const [code, setCode] = useState({ id: '', sentTo: '', value: '', sending: false, checking: false });
+  // Items this device can't open because it's over the shop's device limit: what to say, on the item itself.
+  const [limited, setLimited] = useState<Record<string, string>>({});
   const [gift, setGift] = useState<{ toName: string; from: string; message: string; shopName: string } | null>(null);
   const giftMode = React.useRef(false);
 
@@ -67,7 +90,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
     setGift({ toName: String(d.toName || ''), from: String(d.from || ''), message: String(d.message || ''), shopName: String(d.shopName || '') });
     setVerify({ passOk: !!d.verify?.passOk, emailMasked: d.verify?.emailMasked || null, phoneEnding: null, canText: false });
     const digital = Array.isArray(d.lines) ? d.lines : [];
-    setItems(digital.map((l: any) => ({ key: String(l.lineId || l.productId), lineId: String(l.lineId || ''), productId: l.productId, name: l.name, access: l.access || { open: true, reason: null, endsAt: null }, left: l.entitlement?.downloadsLeft ?? null, license: l.entitlement?.license || null, contents: l.contents || null })));
+    setItems(digital.map((l: any) => ({ key: String(l.lineId || l.productId), lineId: String(l.lineId || ''), productId: l.productId, name: l.name, access: l.access || { open: true, reason: null, endsAt: null }, left: l.entitlement?.downloadsLeft ?? null, license: l.entitlement?.license || null, contents: l.contents || null, devices: l.entitlement?.devices || null })));
     setNeedCode(!d.verify?.passOk);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, orderId]);
@@ -94,7 +117,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       setVerify(d.verify || null);
       if (d.expired) { setNeedCode(true); setItems([]); return; }
       const digital = (d.order?.lines || []).filter((l: any) => l.digital === true);
-      setItems(digital.map((l: any) => ({ key: String(l.lineId || l.productId), lineId: String(l.lineId || ''), productId: l.productId, name: l.name, access: l.access || { open: true, reason: null, endsAt: null }, left: l.entitlement?.downloadsLeft ?? null, license: l.entitlement?.license || null, contents: l.contents || null })));
+      setItems(digital.map((l: any) => ({ key: String(l.lineId || l.productId), lineId: String(l.lineId || ''), productId: l.productId, name: l.name, access: l.access || { open: true, reason: null, endsAt: null }, left: l.entitlement?.downloadsLeft ?? null, license: l.entitlement?.license || null, contents: l.contents || null, devices: l.entitlement?.devices || null })));
       if (!digital.length) setErr('There’s nothing digital on this order.');
       setNeedCode(!(d.verify?.passOk));
     } catch {
@@ -135,13 +158,17 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
     if (busy) return;
     setBusy(`${it.key}${target.fileId || (target.link ? '~link' : '')}`); setErr(null); setNote(null);
     try {
+      const touch = (() => { try { return navigator.maxTouchPoints > 1; } catch { return false; } })();
       const res = await fetch('/api/retail/digital-access', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, orderId, productId: it.productId, lineId: it.lineId || undefined, ...target, pass: readPass(), mode }),
+        body: JSON.stringify({ tenantId, orderId, productId: it.productId, lineId: it.lineId || undefined, ...target, pass: readPass(), mode, device: readDevice() || undefined, touch }),
       });
       const d = await res.json();
+      if (d.device) keepDevice(String(d.device));
       if (d.needsPass) { setNeedCode(true); return; }
+      if (d.deviceLimit) { setLimited((m) => ({ ...m, [it.key]: String(d.error || 'This opens on a limited number of devices, and this one isn’t one of them. Ask the shop to reset your devices.') })); return; }
       if (!res.ok) { setErr(d.error || 'That couldn’t be opened.'); if (d.closed) load(); return; }
+      setLimited((m) => { if (!(it.key in m)) return m; const n = { ...m }; delete n[it.key]; return n; });
       if (d.kind === 'link') { window.open(d.url, '_blank', 'noopener,noreferrer'); setNote(`${d.name} opened in a new tab.`); return; }
       if (d.mode === 'download') {
         window.location.href = d.url;
@@ -161,6 +188,14 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       setBusy(null);
     }
   };
+
+  // Over the device limit on this device: said on the item, with the way to ask the shop (a gift's recipient replies to
+  // their gift email, which the message says).
+  const deviceNotice = (it: Item) => !limited[it.key] ? null : (
+    <div className="mt-3 space-y-3">
+      <p role="alert" className="p-4 text-[15px] leading-snug" style={warnBox}>{limited[it.key]}</p>
+      {!gift && <a href={`/shop/${tenantId}/order/${orderId}`} className="flex h-12 w-full items-center justify-center px-5 text-[15px] font-semibold" style={outline}>Message the shop</a>}
+    </div>);
 
   return (
     <div className="min-h-dvh pb-24">
@@ -256,12 +291,13 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
                     ))}
                   </ul>
                   {!it.access.open && !gift && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
+                  {deviceNotice(it)}
                 </li>
               );
               return (
-              <li key={it.key}>
+              <li key={it.key} className={limited[it.key] ? 'p-4' : ''} style={limited[it.key] ? card : undefined}>
                 <button type="button" onClick={() => open(it)} disabled={!it.access.open || !!busy}
-                  className="flex min-h-16 w-full items-center justify-between gap-3 p-4 text-left disabled:cursor-not-allowed" style={card}>
+                  className={`flex w-full items-center justify-between gap-3 text-left disabled:cursor-not-allowed ${limited[it.key] ? 'min-h-11' : 'min-h-16 p-4'}`} style={limited[it.key] ? undefined : card}>
                   <span className="min-w-0">
                     <span className="block truncate text-[15px] font-semibold">{it.name}</span>
                     <span className="block text-sm" style={muted}>{statusOf(it.access)}{it.access.open && it.left !== null ? ` · ${it.left} download${it.left === 1 ? '' : 's'} left` : ''}</span>
@@ -269,12 +305,14 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
                   <span className="shrink-0 text-sm font-semibold">{busy === it.key ? 'Opening…' : it.access.open ? 'Open' : ''}</span>
                 </button>
                 {!it.access.open && !gift && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
+                {deviceNotice(it)}
               </li>
               );
             })}
           </ul>
         ))}
 
+        {!viewing && (items || []).some((it) => it.devices) && <p className="text-sm" style={muted}>A new device counts once it opens something. Opening on the same device again never counts twice.</p>}
         {!viewing && <p className="text-sm" style={muted}>Files open here with your name printed on every page. No website can stop a screen being photographed; the name is what makes a shared copy point back to who shared it.</p>}
       </main>
     </div>

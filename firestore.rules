@@ -76,10 +76,11 @@ service cloud.firestore {
       allow get: if true;
       allow list: if false;
       allow create: if false;
+      // Account status, billing and paid add-ons ('addons', lib/addons) are changed only by the server.
       allow update: if isOwner(tenantId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
              'userId', 'subscriptionStatus', 'subscriptionTier', 'accessLocked',
-             'inviteCode', 'activatedAt', 'suspended', 'platformNotes', 'plan', 'billing'
+             'inviteCode', 'activatedAt', 'suspended', 'platformNotes', 'plan', 'billing', 'addons'
            ]);
     }
     match /tenants/{tenantId}/services/{serviceId} {

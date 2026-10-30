@@ -3,7 +3,8 @@
 // it sold and how much it's been opened; open one to see each buyer's access record (lib/entitlements): when they
 // bought, the license they bought with, how long access lasts, downloads used and opens. Managers can give more
 // downloads, extend access, close it with a reason or open it again (/api/retail/digital/access); a refund or a
-// chargeback closes access on its own. The team reads the records; only the server writes them.
+// chargeback closes access on its own. With Digital protection (lib/device-limit), each buyer's devices are listed and
+// a manager can reset them; buyers at their limit are marked. The team reads the records; only the server writes them.
 import * as React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -20,16 +21,19 @@ import { downloadsLeft } from '@/lib/entitlements';
 import { FOREVER } from '@/lib/entitlement-actions';
 import { filesOf } from '@/lib/digital-product';
 import { LicenseManager } from '@/components/inventory/LicenseManager';
+import { atDeviceLimit, deviceCap, devicesOf, deviceWhen } from '@/lib/device-limit';
+import { asSold } from '@/lib/variants';
 
 const DAY = 864e5;
 const day = (iso: string) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
+const countWord = (n: number) => (['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][n] || String(n));
 const money = (c: number) => (c / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
-type Kind = 'active' | 'nodl' | 'ending' | 'refunded' | 'disputed' | 'revoked' | 'expired' | 'inactive' | 'missing';
-type Row = { ent: any; order: any; line: any; status: { label: string; tone: 'ok' | 'warn' | 'plain'; kind: Kind }; endsAt: string | null };
+type Kind = 'active' | 'nodl' | 'devices' | 'ending' | 'refunded' | 'disputed' | 'revoked' | 'expired' | 'inactive' | 'missing';
+type Row = { ent: any; order: any; line: any; status: { label: string; tone: 'ok' | 'warn' | 'plain'; kind: Kind }; endsAt: string | null; cap: number | null };
 
 /** Where a buyer stands, in words: the one access rule (lib/digital-access) over the order and their record. */
-function standing(ent: any, order: any, line: any, now: number): Row['status'] & { endsAt: string | null } {
+function standing(ent: any, order: any, line: any, now: number, cap: number | null = null): Row['status'] & { endsAt: string | null } {
   // Without its order, refunds and chargebacks can't be checked: said so, never shown as active.
   if (!order || !line) return { label: 'Order not found', tone: 'plain', kind: 'missing', endsAt: null };
   const a = digitalLineAccess(order, line, now, ent);
@@ -41,6 +45,7 @@ function standing(ent: any, order: any, line: any, now: number): Row['status'] &
   }
   const left = downloadsLeft(ent);
   if (left === 0) return { label: 'No downloads left', tone: 'warn', kind: 'nodl', endsAt };
+  if (atDeviceLimit(ent, cap)) return { label: 'At device limit', tone: 'warn', kind: 'devices', endsAt };
   if (endsAt && Date.parse(endsAt) - now < 7 * DAY) { const n = Math.max(1, Math.ceil((Date.parse(endsAt) - now) / DAY)); return { label: `Ends in ${n} day${n === 1 ? '' : 's'}`, tone: 'warn', kind: 'ending', endsAt }; }
   return { label: 'Active', tone: 'ok', kind: 'active', endsAt };
 }
@@ -94,11 +99,20 @@ export default function DigitalProductsPage() {
   }, [products, pick, ents]);
 
   const now = Date.now();
+  // The device limit on each buyer (Digital protection): the product as sold, a variant taking its listing's.
+  const itemById = React.useMemo(() => new Map((inventory || []).map((i: any) => [String(i.id), i])), [inventory]);
+  const capFor = (ent: any): number | null => {
+    const it: any = itemById.get(String(ent.productId || ''));
+    if (!it) return null;
+    const parent: any = it.parentId && it.digital !== true ? itemById.get(String(it.parentId)) : null;
+    return deviceCap(selectedTenant, parent ? asSold(parent, it) : it, ent);
+  };
   const rowsFor = (pid: string): Row[] => (ents || []).filter((e) => String(e.productId) === pid).map((ent) => {
     const order = orders[String(ent.orderId)] || null;
     const line = order ? (order.lines || []).find((l: any) => String(l.lineId || l.productId) === String(ent.lineId || ent.productId)) || null : null;
-    const s = standing(ent, order, line, now);
-    return { ent, order, line, status: { label: s.label, tone: s.tone, kind: s.kind }, endsAt: s.endsAt };
+    const cap = capFor(ent);
+    const s = standing(ent, order, line, now, cap);
+    return { ent, order, line, status: { label: s.label, tone: s.tone, kind: s.kind }, endsAt: s.endsAt, cap };
   }).sort((a, b) => String(b.ent.createdAt || '').localeCompare(String(a.ent.createdAt || '')));
 
   const month = (ents || []).filter((e) => now - Date.parse(e.createdAt || '') < 30 * DAY);
@@ -106,6 +120,7 @@ export default function DigitalProductsPage() {
   const allRows: Row[] = products.flatMap((p: any) => rowsFor(String(p.id)));
   const withAccess = allRows.filter((r) => r.status.tone !== 'plain').length;
   const endingSoon = allRows.filter((r) => r.status.kind === 'ending').length;
+  const atLimit = allRows.filter((r) => r.status.kind === 'devices').length;
   const opens = month.reduce((n, e) => n + (Number(e.views) || 0) + (Number(e.downloads?.used) || 0), 0);
   const closed = allRows.filter((r) => r.status.tone === 'plain');
 
@@ -138,7 +153,7 @@ export default function DigitalProductsPage() {
         ) : (<>
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
             {tile('Sold, last 30 days', month.length, `${money(soldCents)} · ${products.length} product${products.length === 1 ? '' : 's'}`)}
-            {tile('Buyers with access', withAccess, endingSoon ? `${endingSoon} ${endingSoon === 1 ? 'ends' : 'end'} this week` : 'None ending this week')}
+            {tile('Buyers with access', withAccess, [endingSoon ? `${endingSoon} ${endingSoon === 1 ? 'ends' : 'end'} this week` : 'None ending this week', atLimit ? `${atLimit} at their device limit` : ''].filter(Boolean).join(' · '))}
             {tile('Opens, last 30 days', opens, 'Views and saved copies')}
             {tile('Closed', closed.length, `${closed.filter((r) => r.status.kind === 'refunded').length} refunded · ${closed.filter((r) => r.status.kind === 'disputed').length} disputed · ${closed.filter((r) => r.status.kind === 'revoked').length} by you`)}
           </div>
@@ -223,6 +238,8 @@ function BuyerSheet({ row, tenantId, canEdit, onClose, onDone, onError }: { row:
 
   const closed = row.status.kind === 'revoked';
   const hist = Array.isArray(e.history) ? [...e.history].reverse().slice(0, 8) : [];
+  const devices = devicesOf(e);
+  const full = atDeviceLimit(e, row.cap);
   const actBtn = (label: string, sub: string, onClick: () => void, danger = false) => (
     <button type="button" onClick={onClick} className="flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl px-4 text-left text-[15px] font-semibold" style={{ border: `1px solid ${C.line}`, background: C.paper, color: danger ? C.bad : C.ink }}>{label}<span className="text-[14px] font-normal" style={muted}>{sub}</span></button>);
 
@@ -234,7 +251,24 @@ function BuyerSheet({ row, tenantId, canEdit, onClose, onDone, onError }: { row:
             <div key={k} className="flex justify-between gap-3 py-2.5" style={{ borderTop: `1px solid ${C.line}` }}><dt style={muted}>{k}</dt><dd className="m-0 text-right">{v}</dd></div>))}
         </dl>
 
-        {mode === '' && !canEdit && <p className="m-0 text-[14px]" style={muted}>A manager can give more downloads, extend or close access.</p>}
+        {mode === '' && (row.cap || devices.length > 0) && (
+          <section aria-labelledby="devices-h" className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="devices-h" className="m-0 text-[13px] font-semibold" style={muted}>Devices</h3>
+              <span className="inline-flex h-6 items-center rounded-full px-2.5 text-[12.5px] font-semibold" style={full ? { background: C.warnSoft, color: C.warn } : { background: C.soft, color: C.ink }}>{row.cap ? `${devices.length} of ${row.cap}` : `${devices.length}`}</span>
+            </div>
+            {devices.length === 0 ? <p className="m-0 text-[14px]" style={muted}>Not opened on any device since the limit was turned on.</p> : (
+              <ul className="m-0 list-none p-0">{devices.map((dv) => (
+                <li key={dv.id} className="py-2.5" style={{ borderTop: `1px solid ${C.line}` }}><span className="block text-[15px]">{dv.label}</span><span className="block text-[13px]" style={muted}>{deviceWhen(dv)}</span></li>))}</ul>)}
+            {!row.cap && <p className="m-0 text-[13px]" style={muted}>The device limit is off now, so any device opens it. The list is kept in case you turn it on again.</p>}
+            {Number(e.deviceRefused?.count) > 0 && <p className="m-0 text-[13px]" style={{ color: C.warn }}>Refused on a new device {Number(e.deviceRefused.count) === 1 ? 'once' : `${Number(e.deviceRefused.count)} times`}, last {day(String(e.deviceRefused.at || ''))}{e.deviceRefused.label ? ` (${e.deviceRefused.label})` : ''}.</p>}
+            {canEdit && devices.length > 0 && (<>
+              <Btn kind={full ? 'primary' : 'soft'} className="w-full" disabled={busy} onClick={() => void send({ kind: 'reset_devices' })}>{busy ? 'Saving…' : 'Reset devices'}</Btn>
+              <p className="m-0 text-[13px]" style={muted}>Clears the list so {row.cap ? (row.cap === 1 ? 'the next device they open it on counts' : `the next ${countWord(row.cap)} devices they open it on count`) : 'devices count'} from fresh. They’re emailed that it’s done. Kept on this buyer’s history with who reset it.</p>
+            </>)}
+          </section>)}
+
+        {mode === '' && !canEdit && <p className="m-0 text-[14px]" style={muted}>A manager can give more downloads, extend or close access{devices.length ? ', or reset devices' : ''}.</p>}
         {mode === '' && canEdit && (
           <div className="flex flex-col gap-2">
             {e.downloads?.allowed != null && actBtn('Give more downloads', `${downloadsLeft(e) ?? 0} left`, () => setMode('more'))}

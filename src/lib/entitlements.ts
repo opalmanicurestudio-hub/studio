@@ -26,6 +26,8 @@ export type Entitlement = {
   /** Messages already sent (lib/digital-notices): the end date warned about, and each file version announced. */
   notices?: { endingFor?: string | null; updated?: Record<string, number> };
   downloads: { allowed: number | null; used: number; extra: number; seen?: { id: string; at: number }[] };
+  /** The devices it's been opened on while the shop limits devices (lib/device-limit, Digital protection). */
+  devices?: { id: string; label: string; firstAt: string; lastAt: string }[];
   views: number;
   status: 'active' | 'revoked';
   revoked?: { at: string; by: string; reason: string } | null;
@@ -86,10 +88,16 @@ export function accessEndsAt(e: Pick<Entitlement, 'access'> | null | undefined):
   return new Date(Math.max(Number.isFinite(end) ? end : 0, Number.isFinite(ext) ? ext : 0)).toISOString();
 }
 
-/** What the customer may see of their record (no internal ids or history). */
-export function publicEntitlement(e: Entitlement | null) {
+/**
+ * What the customer may see of their record (no internal ids or history). `deviceCap` is the device limit for them
+ * right now (lib/device-limit deviceCap), null when there's none: they see how many devices it opens on and how many
+ * it's open on, never the stored device ids.
+ */
+export function publicEntitlement(e: Entitlement | null, deviceCap: number | null = null) {
   if (!e) return null;
-  return { downloadsLeft: downloadsLeft(e), downloadsAllowed: e.downloads?.allowed == null ? null : c0(e.downloads.allowed) + c0(e.downloads.extra), license: e.license, endsAt: accessEndsAt(e), revoked: e.status === 'revoked' };
+  const used = Array.isArray(e.devices) ? e.devices.length : 0;
+  return { downloadsLeft: downloadsLeft(e), downloadsAllowed: e.downloads?.allowed == null ? null : c0(e.downloads.allowed) + c0(e.downloads.extra), license: e.license, endsAt: accessEndsAt(e), revoked: e.status === 'revoked',
+    devices: deviceCap ? { cap: deviceCap, used: Math.min(used, 999) } : null };
 }
 
 // ─── Reading and writing (firebase-admin) ────────────────────────────────────────

@@ -71,7 +71,7 @@ function fakeDb(docs: Record<string, any>) {
   const route = fs.readFileSync('src/app/api/retail/digital-access/route.ts', 'utf8');
   ok(route.includes('ensureEntitlement(db, tenantId,') && route.includes('digitalLineAccess(order, line, Date.now(), ent)'), 'opening reads the record (made now for older orders) through the one rule');
   ok(route.includes("if (mode === 'view') await countUse(db, tenantId, ent.id, 'view');") && route.includes("countUse(db, tenantId, auth.ent.id, 'download', sig.slice(-32))") && route.includes("saving ? 'attachment' : 'inline'"), 'a view is counted once when its link is made; a download when the file is ready, and saved, not shown');
-  ok(route.includes("const mode = openMode(item, file, asked);") && route.includes("const saving = mode === 'download' || !showsInPage(name);"), 'a file that can’t be shown in the page is always counted as a download');
+  ok(route.includes("const mode = file ? openMode(item, file, asked) : null;") && route.includes("const saving = mode === 'download' || !showsInPage(name);"), 'a file that can’t be shown in the page is always counted as a download');
   ok(route.indexOf("countUse(db, tenantId, auth.ent.id, 'download'") > route.indexOf('watermarkPdf(bytes'), 'a download that fails to load costs nothing');
   ok(route.includes("mode === 'download' && left !== null && left <= 0"), 'a download link isn’t even made once the downloads are used');
   const wh = fs.readFileSync('src/lib/retail-webhook.ts', 'utf8');

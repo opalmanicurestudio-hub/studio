@@ -3,9 +3,17 @@
 // Everything about a digital product in one place (lib/digital-product): its format, its files (each replaced as a new
 // version, so buyers always get the newest), an optional link, how buyers get it, the access window, the download
 // limit, the license and the protection level. Files go to private storage and are only ever opened through the
-// buyer's library, watermarked with their name.
+// buyer's library, watermarked with their name. Protection is Standard for everyone; with the Digital protection
+// add-on (lib/addons, lib/device-limit) the shop can also limit how many devices each buyer opens it on. The owner
+// adds it right here; it's billed with their plan.
 import * as React from 'react';
+import Link from 'next/link';
+import { collection, getDocs, limit, query, where, type Firestore } from 'firebase/firestore';
 import { Loader, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { useFirebase } from '@/firebase';
+import { useInventory } from '@/context/InventoryContext';
+import { ADDONS, addonLive } from '@/lib/addons';
+import { DEFAULT_DEVICES, MAX_DEVICES, atDeviceLimit, deviceLimitOf } from '@/lib/device-limit';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { uploadPrivateFile } from '@/lib/upload-image';
@@ -37,6 +45,20 @@ const hint = 'text-[10px] font-bold text-muted-foreground';
 export function DigitalSection({ product, onSave }: { product: any; onSave: (patch: Record<string, any>) => Promise<void> | void }) {
   const { selectedTenant } = useTenant() as any;
   const tenantId = String(selectedTenant?.id || '');
+  const { user, firestore } = useFirebase() as any;
+  const { inventory } = (useInventory() as any) || {};
+  // Digital protection: live for the shop (lib/addons), or just added here before the shop's record catches up. Only
+  // the owner can add it (it's billed); a manager is told where.
+  const [added, setAdded] = React.useState(false);
+  // Once the shop's own record changes (on here, or switched off anywhere), it decides again.
+  const addonState = JSON.stringify(selectedTenant?.addons?.digitalProtection ?? null);
+  React.useEffect(() => { setAdded(false); }, [addonState]);
+  const protectedShop = added || addonLive(selectedTenant, 'digitalProtection');
+  const isOwner = !!user?.uid && String(selectedTenant?.userId || '') === String(user.uid);
+  const [adding, setAdding] = React.useState(false);
+  const hideKey = `cf-dp-upsell-${tenantId}`;
+  const [upsellHidden, setUpsellHidden] = React.useState(false);
+  React.useEffect(() => { try { setUpsellHidden(window.localStorage.getItem(hideKey) === '1'); } catch { /* shown */ } }, [hideKey]);
   // After a new version is saved: the offer to email buyers (lib/digital-notices). Gone when another product opens.
   const [announce, setAnnounce] = React.useState<{ ids: string[]; names: string[]; sending: boolean; done: string; more: boolean; total: number } | null>(null);
   React.useEffect(() => { setAnnounce(null); }, [product?.id]);
@@ -55,6 +77,8 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
     licenseId: licenseStart(product, selectedTenant),
     licenseName: licenseStart(product, selectedTenant) === 'custom' ? String(product.license?.name || '') : '',
     licenseTerms: licenseStart(product, selectedTenant) === 'custom' ? String(product.license?.terms || '') : '',
+    devLimitOn: deviceLimitOf(product) !== null,
+    devLimit: String(deviceLimitOf(product) ?? DEFAULT_DEVICES),
   }), [product, selectedTenant]);
   const [managing, setManaging] = React.useState(false);
   const policies = licensesOf(selectedTenant);
@@ -71,7 +95,7 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
   const [busy, setBusy] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   // Compared as they'd be saved, so a limit typed and then switched off, or "007" days, doesn't keep the section unsaved.
-  const norm = (x: typeof d) => ({ ...x, link: x.link.trim(), days: String(Math.max(0, Math.floor(Number(x.days) || 0)) || ''), limit: x.limitOn ? String(Math.floor(Number(x.limit) || 0)) : '', licenseName: x.licenseId === 'custom' ? x.licenseName.trim() : '', licenseTerms: x.licenseId === 'custom' ? x.licenseTerms.trim() : '' });
+  const norm = (x: typeof d) => ({ ...x, link: x.link.trim(), days: String(Math.max(0, Math.floor(Number(x.days) || 0)) || ''), limit: x.limitOn ? String(Math.floor(Number(x.limit) || 0)) : '', licenseName: x.licenseId === 'custom' ? x.licenseName.trim() : '', licenseTerms: x.licenseId === 'custom' ? x.licenseTerms.trim() : '', devLimit: x.devLimitOn ? String(Math.floor(Number(x.devLimit) || 0)) : '' });
   const dirty = JSON.stringify(norm(d)) !== JSON.stringify(norm(start));
   const previewCount = d.files.filter((f) => f.preview).length;
 
@@ -81,7 +105,8 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
   const license = d.licenseId === 'custom'
     ? { id: 'custom', name: d.licenseName.trim() || 'License', terms: d.licenseTerms.trim() }
     : { id: picked.id, name: picked.name, terms: termsOf(picked) };
-  const draftItem = { digital: d.digital, digitalFiles: d.files, digitalUrl: d.link.trim(), digitalDelivery: d.delivery, license, digitalDownloadLimit: d.limitOn && d.delivery !== 'view' ? (Number(d.limit) >= 1 ? Number(d.limit) : NaN) : 0 };
+  const draftItem = { digital: d.digital, digitalFiles: d.files, digitalUrl: d.link.trim(), digitalDelivery: d.delivery, license, digitalDownloadLimit: d.limitOn && d.delivery !== 'view' ? (Number(d.limit) >= 1 ? Number(d.limit) : NaN) : 0,
+    digitalDeviceLimit: protectedShop && d.devLimitOn ? (Number(d.devLimit) >= 1 ? Number(d.devLimit) : NaN) : 0 };
   const problems = [...digitalProblems(draftItem), ...(d.digital && d.licenseId !== 'custom' && !policies.some((l) => l.id === d.licenseId) ? ['Pick a license.'] : [])];
 
   /** Upload one file: a new one, or a new version of `replace`. */
@@ -124,7 +149,9 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
         digitalDownloadLimit: d.limitOn ? limit : 0,
         license,
         licenseId: license.id,
-        digitalProtection: 'standard',
+        // The device limit is saved only while Digital protection is on; without it the last setting is kept as it was,
+        // so turning the add-on on again picks it back up.
+        ...(protectedShop ? { digitalDeviceLimit: d.devLimitOn ? Math.max(1, Math.min(MAX_DEVICES, Math.floor(Number(d.devLimit) || DEFAULT_DEVICES))) : 0, digitalProtection: d.devLimitOn ? 'devices' : 'standard' } : {}),
       } : { digital: false });
       // A file with a new version: offer to tell everyone who bought it (never sent without the shop asking).
       const changed = d.digital ? changedFiles(start.files, files) : [];
@@ -146,6 +173,86 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
       setAnnounce({ ...announce, sending: false, more, total, done: [sofar, next].filter(Boolean).join(' ') || 'Everyone who can open it already has this version, so nothing was sent.' });
     } catch { toast({ variant: 'destructive', title: 'Not sent', description: 'Check your connection and try again.' }); setAnnounce({ ...announce, sending: false }); }
   };
+
+  /** The owner adds Digital protection to their plan from here (api/billing); the limit is then theirs to set and save. */
+  const addProtection = async () => {
+    setAdding(true);
+    try {
+      const res = await fetch('/api/billing', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, action: 'addon', addon: 'digitalProtection', on: true }) });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok || !r.ok) { toast({ variant: 'destructive', title: 'Not added', description: r.error || 'Try again.' }); return; }
+      setAdded(true); set({ devLimitOn: true });
+      toast({ title: r.message || 'Digital protection is on.', description: 'Choose devices per buyer, then save this section.' });
+    } catch { toast({ variant: 'destructive', title: 'Not added', description: 'Check your connection and try again.' }); }
+    finally { setAdding(false); }
+  };
+  const hideUpsell = (v: boolean) => { setUpsellHidden(v); try { if (v) window.localStorage.setItem(hideKey, '1'); else window.localStorage.removeItem(hideKey); } catch { /* this visit only */ } };
+
+  // Buyers already at the device limit on this product (and its variants), from their access records.
+  const [atLimit, setAtLimit] = React.useState<string | null>(null);
+  const savedLimit = deviceLimitOf(product);
+  // The product and the variants that sell its download, as one key so the count is read once per change.
+  const idKey = [String(product?.id || ''), ...((inventory || []) as any[]).filter((i) => String(i.parentId || '') === String(product?.id || '') && i.digital !== true).map((i) => String(i.id)).sort()].slice(0, 30).join('|');
+  React.useEffect(() => {
+    setAtLimit(null);
+    if (!protectedShop || !savedLimit || !firestore || !tenantId || !product?.id) return;
+    const ids = idKey.split('|').filter(Boolean);
+    let gone = false;
+    // Read up to 500 buyers' records; past that it says so rather than reading every record each time.
+    getDocs(query(collection(firestore as Firestore, `tenants/${tenantId}/entitlements`), where('productId', 'in', ids), limit(500)))
+      .then((snap) => { if (gone) return; const n = snap.docs.filter((x) => { const e: any = x.data(); return e.status !== 'revoked' && atDeviceLimit(e, savedLimit * Math.max(1, Math.floor(Number(e.copies) || 1))); }).length; setAtLimit(snap.docs.length >= 500 ? `${n} of the first 500` : String(n)); })
+      .catch(() => { if (!gone) setAtLimit(null); });
+    return () => { gone = true; };
+  }, [protectedShop, savedLimit, firestore, tenantId, product?.id, idKey]);
+
+  const addon = ADDONS.digitalProtection;
+  const protection = protectedShop ? (
+    <div className="space-y-3 rounded-xl border-2 px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs font-black">With Digital protection</p>
+        <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: '#eaf6ef', color: '#1f7a4d' }}>On</span>
+      </div>
+      <p className={hint}>Everything in Standard, plus a limit on how many devices each buyer can open it on.</p>
+      <div className="flex items-start justify-between gap-3 border-t pt-3">
+        <div className="min-w-0"><p className="text-xs font-black" id="dg-dev-on">Limit devices per buyer</p><p className={hint}>A buyer’s phone, laptop and tablet count as three. Opening it again on the same one never counts twice.</p></div>
+        <Switch aria-labelledby="dg-dev-on" checked={d.devLimitOn} onCheckedChange={(v: boolean) => set({ devLimitOn: v })} />
+      </div>
+      {d.devLimitOn && (
+        <div className="flex items-center justify-between gap-3 border-t pt-3">
+          <div className="min-w-0"><Label htmlFor="dg-devices" className="text-xs font-black">Devices per buyer</Label><p className={hint}>When they reach it, a new device can’t open it until you reset theirs. Each copy bought counts on its own.</p></div>
+          <Input id="dg-devices" inputMode="numeric" value={d.devLimit} onChange={(e) => set({ devLimit: e.target.value.replace(/\D/g, '').slice(0, 2) })} className="h-11 w-16 shrink-0 rounded-xl border-2 text-center font-mono font-bold" />
+        </div>
+      )}
+      <p className="rounded-xl bg-muted/60 px-3 py-2 text-[11px] font-bold text-muted-foreground">Honest limits: a buyer who clears their browser uses up a device, and nothing stops a screen being photographed. The name printed on every page is still what points a shared copy back to who shared it.</p>
+      {savedLimit !== null && (
+        <Link href="/inventory/digital" className="flex min-h-11 items-center justify-between gap-3 border-t pt-3">
+          <span className="min-w-0"><span className="block text-xs font-black">Buyers at their limit</span><span className={hint}>Shown in Digital products, with Reset devices</span></span>
+          <span className="text-sm font-black">{atLimit ?? '–'}</span>
+        </Link>
+      )}
+      <p className={hint}>Applies to everyone who can open it, counting from their next open. {isOwner ? <Link href="/subscriptions" className="underline underline-offset-2">Turn Digital protection off in Your ClarityFlow</Link> : 'The owner can turn Digital protection off in Your ClarityFlow.'}</p>
+    </div>
+  ) : (
+    <div className="space-y-2 rounded-xl border-2 border-dashed px-3 py-2.5">
+      <p className="text-xs font-black">Protection: Standard</p>
+      <p className={hint}>Included in every plan: proof it’s the buyer to open anything, links that last ten minutes, their name printed into PDFs, and every open counted.</p>
+      {upsellHidden ? (
+        <button type="button" onClick={() => hideUpsell(false)} className="min-h-11 text-left text-[11px] font-bold underline underline-offset-2">{addon.name}, ${addon.amount} a month: limit devices per buyer</button>
+      ) : (
+        <div className="space-y-2 rounded-xl bg-muted/60 p-3">
+          <p className="text-xs font-black">{addon.name} · ${addon.amount} a month</p>
+          <ul className="list-disc space-y-1 pl-4 text-[12px] font-semibold">{addon.bullets.map((b) => <li key={b}>{b}</li>)}</ul>
+          {isOwner ? (
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button type="button" onClick={() => void addProtection()} disabled={adding} className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest">{adding ? <Loader className="h-4 w-4 animate-spin" /> : `Add ${addon.name}`}</Button>
+              <Button type="button" variant="ghost" onClick={() => hideUpsell(true)} disabled={adding} className="h-11 rounded-xl text-[10px] font-black uppercase tracking-widest">Not now</Button>
+            </div>
+          ) : <p className={hint}>The owner can add it here, or from Your ClarityFlow.</p>}
+          <p className={hint}>Added to your monthly plan. Turn it off any time; downloads keep working with Standard protection.</p>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="rounded-[1.5rem] border-2 bg-card p-5 space-y-4">
@@ -262,10 +369,7 @@ export function DigitalSection({ product, onSave }: { product: any; onSave: (pat
           </fieldset>
           {managing && <LicenseManager tenantId={tenantId} tenant={selectedTenant} onClose={() => setManaging(false)} onPicked={(id) => set({ licenseId: id })} />}
 
-          <div className="rounded-xl border-2 border-dashed px-3 py-2.5">
-            <p className="text-xs font-black">Protection: Standard</p>
-            <p className={hint}>Proof it's the buyer to open anything, links that last ten minutes, their name printed into PDFs, and every open counted. Limiting how many devices a buyer can open it on is coming in a Digital protection add-on.</p>
-          </div>
+          {protection}
 
           {problems.length > 0 && (
             <ul className="space-y-1 rounded-xl border-2 border-amber-200 bg-amber-50/60 px-3 py-2.5">

@@ -62,7 +62,7 @@ const zipOnly: any = publicDigital({ digital: true, digitalFiles: [f('a', 'A.zip
 ok(zipOnly.how === 'Saved to your device' && zipOnly.downloadLimit === null && /no limit/.test(digitalFaq(zipOnly)[1].a), 'a zip can’t be read online; no limit says so');
 ok(publicDigital({ digital: true, digitalFiles: [f('a', 'README')] }, { name: 'P', terms: 'T.' })!.files[0].type === '', 'a file with no extension has no type');
 const pr = fs.readFileSync('src/app/api/retail/product/route.ts', 'utf8');
-ok(pr.includes('digitalInfo: item.digital === true ? publicDigital(item, licenseFor(tenant, item)) : null,'), 'the product route sends what’s inside, never where it is');
+ok(pr.includes('digitalInfo: item.digital === true ? publicDigital(item, licenseFor(tenant, item), { deviceLimit: deviceCap(tenant, item) }) : null,'), 'the product route sends what’s inside, never where it is');
 const lay = fs.readFileSync('src/components/shop/product/ProductLayouts.tsx', 'utf8');
 ok(lay.includes("id: 'inside', title: 'What’s inside'") && (lay.match(/<DigitalBlock d=\{p\.digitalInfo\} v=\{v\} \/>/g) || []).length === 2, 'every layout shows what’s inside and the license');
 
@@ -70,7 +70,7 @@ ok(lay.includes("id: 'inside', title: 'What’s inside'") && (lay.match(/<Digita
 const route = fs.readFileSync('src/app/api/retail/digital-access/route.ts', 'utf8');
 ok(route.includes('const file = fileOf(auth.item, fid || null);') && route.includes("streamKey(productId, lineId, fid)"), 'the file route serves the file the link was signed for');
 ok(route.includes('if (openMode(auth.item, file, streamTokenMode(sig)) !== streamTokenMode(sig))'), 'a link made before the shop changed delivery stops working');
-ok(route.includes('const mode = openMode(item, file, asked);') && route.includes('canSave: openMode(item, file, \'download\') === \'download\''), 'opening follows how the shop delivers it, and says whether a copy can be saved');
+ok(route.includes('const mode = file ? openMode(item, file, asked) : null;') && route.includes('canSave: openMode(item, file, \'download\') === \'download\''), 'opening follows how the shop delivers it, and says whether a copy can be saved');
 ok(route.includes("if (item.parentId && item.digital !== true)"), 'a variant opens its listing’s download');
 ok((route.match(/ownPath\(tenantId, /g) || []).length === 2, 'both doors refuse a stored path outside the shop’s downloads folder');
 const st = fs.readFileSync('src/app/api/retail/order-status/route.ts', 'utf8');

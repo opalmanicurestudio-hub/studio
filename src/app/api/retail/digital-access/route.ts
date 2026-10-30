@@ -6,6 +6,8 @@ import { watermarkPdf, looksLikePdf } from '@/lib/pdf-watermark';
 import { downloadFile } from '@/lib/digital-storage';
 import { fileOf, filesOf, openMode, ownPath } from '@/lib/digital-product';
 import { accessPassKey } from '@/lib/digital-gift';
+import { browserOf, deviceCap, deviceLabel, limitMessage } from '@/lib/device-limit';
+import { DEVICE_COOKIE, deviceIdFrom, deviceKey, useDevice } from '@/lib/device-limit-server';
 
 // ─── /api/retail/digital-access ──────────────────────────────────────────────
 // The private door to a purchased file. Honest framing first: NOTHING can
@@ -23,6 +25,8 @@ import { accessPassKey } from '@/lib/digital-gift';
 //     name stamped into PDFs, so a copied address is dead almost at once.
 //   · Every open is counted on the order (files and links alike), and the
 //     route is rate limited per visitor and per order.
+//   · With Digital protection (lib/device-limit), each buyer opens it on a
+//     limited number of devices; a new one is refused once the list is full.
 //   · The file path lives on the INVENTORY item, not the order — replacing
 //     the file updates every past buyer, and clearing it revokes access.
 
@@ -239,33 +243,56 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `This file hasn\u2019t been attached yet. The shop has been told. ${askShop(order)} to hear when it\u2019s ready.` }, { status: 409 });
     }
 
-    await logOpen(ref, order, line, productId, filePath ? 'file' : 'link');
-
     const left = downloadsLeft(ent);
     const lid = String(line.lineId || '');
-    if (file) {
-      // How the shop delivers it decides (lib/digital-product): what can't be shown in the page (a zip, audio, video) is
-      // always a saved copy, view-only never saves, save-only always does.
-      const inPage = showsInPage(file.name);
-      const mode = openMode(item, file, asked);
-      if (!mode) return NextResponse.json({ error: `This file can\u2019t be shown here, and the shop doesn\u2019t offer copies of it. ${askShop(order)}.` }, { status: 409 });
-      // A copy to save, once the downloads are used, is refused here (and again when the file is fetched).
-      if (mode === 'download' && left !== null && left <= 0) {
-        return NextResponse.json({ error: usedUp(order), downloadsLeft: 0 }, { status: 403 });
-      }
+    // How the shop delivers it decides (lib/digital-product): what can't be shown in the page (a zip, audio, video) is
+    // always a saved copy, view-only never saves, save-only always does.
+    const mode = file ? openMode(item, file, asked) : null;
+    if (file && !mode) return NextResponse.json({ error: `This file can\u2019t be shown here, and the shop doesn\u2019t offer copies of it. ${askShop(order)}.` }, { status: 409 });
+    // A copy to save, once the downloads are used, is refused here (and again when the file is fetched).
+    if (file && mode === 'download' && left !== null && left <= 0) {
+      return NextResponse.json({ error: usedUp(order), downloadsLeft: 0 }, { status: 403 });
+    }
+
+    // Digital protection: the device it's opened on, counted once it opens something. Known devices always open it.
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const cap = deviceCap(tSnap.exists ? tSnap.data() : null, item, ent);
+    let dv: { id: string } | null = null;
+    if (cap) {
+      const id = deviceIdFrom(req.cookies.get(DEVICE_COOKIE)?.value, body.device);
+      const dlabel = deviceLabel(req.headers.get('user-agent') || '', body.touch === true);
+      const got = await useDevice(db, tenantId, ent.id, deviceKey(tenantId, id.id, browserOf(dlabel)), dlabel, cap);
+      // A new id is kept only once it has opened something, so a refused first try never replaces the device's id.
+      dv = got.ok || !id.fresh ? id : null;
+      if (!got.ok) return answer(dv, { error: limitMessage(String(line.name || item?.name || ''), cap, got.devices, !!order.digitalGift), deviceLimit: { cap, used: got.devices.length } }, 403);
+    }
+
+    await logOpen(ref, order, line, productId, filePath ? 'file' : 'link');
+
+    if (file && mode) {
       if (mode === 'view') await countUse(db, tenantId, ent.id, 'view');
       // Stored files stream through our own GET so the watermark is baked in; the link lasts ten minutes.
       const fk = file.id === 'main' ? '' : file.id;
       const s = makeStreamToken(tenantId, orderId, streamKey(productId, lid, fk), Date.now(), mode);
       const url = `/api/retail/digital-access?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&productId=${encodeURIComponent(productId)}${lid ? `&lineId=${encodeURIComponent(lid)}` : ''}${fk ? `&fileId=${encodeURIComponent(fk)}` : ''}&s=${encodeURIComponent(s)}`;
-      return NextResponse.json({ ok: true, url, kind: 'file', mode, inPage: mode === 'view', canSave: openMode(item, file, 'download') === 'download', fileName: file.name, name: line.name, endsAt, watermark: label(order), expiresInMinutes: STREAM_MINUTES, downloadsLeft: left, license: ent.license });
+      return answer(dv, { ok: true, url, kind: 'file', mode, inPage: mode === 'view', canSave: openMode(item, file, 'download') === 'download', fileName: file.name, name: line.name, endsAt, watermark: label(order), expiresInMinutes: STREAM_MINUTES, downloadsLeft: left, license: ent.license });
     }
     await countUse(db, tenantId, ent.id, 'view');
-    return NextResponse.json({ ok: true, url: linkUrl, kind: 'link', name: line.name, endsAt, watermark: label(order), expiresInMinutes: 0, downloadsLeft: null, license: ent.license });
+    return answer(dv, { ok: true, url: linkUrl, kind: 'link', name: line.name, endsAt, watermark: label(order), expiresInMinutes: 0, downloadsLeft: null, license: ent.license });
   } catch (err: any) {
     console.error('[digital-access] failed:', err?.message);
     return NextResponse.json({ error: 'Something went wrong opening this.' }, { status: 500 });
   }
+}
+
+/**
+ * An answer that keeps the device's id where the browser holds it (lib/device-limit-server): a cookie only the server
+ * reads, for about a year, and a copy for the page to keep in case the cookie is cleared or blocked.
+ */
+function answer(dv: { id: string } | null, body: Record<string, any>, status = 200) {
+  const res = NextResponse.json(dv ? { ...body, device: dv.id } : body, { status });
+  if (dv) res.cookies.set(DEVICE_COOKIE, dv.id, { httpOnly: true, secure: true, sameSite: 'lax', path: '/api/retail/digital-access', maxAge: 400 * 86400 });
+  return res;
 }
 
 async function logOpen(orderRef: any, order: any, line: any, productId: string, kind: 'file' | 'link'): Promise<void> {

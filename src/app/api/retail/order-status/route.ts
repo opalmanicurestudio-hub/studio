@@ -14,6 +14,7 @@ import { checkPass, linkExpiresAt, linkOpen, makePass, maskAddress, paidHere, pa
 import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
 import { digitalLineAccess } from '@/lib/digital-access';
 import { entitlementId, publicEntitlement } from '@/lib/entitlements';
+import { deviceCap } from '@/lib/device-limit';
 import { deliveryOf, filesOf, viewable } from '@/lib/digital-product';
 import { maskEmail } from '@/lib/contact-change';
 
@@ -355,7 +356,7 @@ export async function GET(req: NextRequest) {
         // A chargeback is said only to the buyer (with a pass); the link alone just sees it isn't available.
         ...(l.digital === true ? {
           access: (({ open, reason, endsAt }) => ({ open, reason: (reason === 'disputed' || reason === 'revoked') && !passOk ? null : reason, endsAt }))(digitalLineAccess(order, l, Date.now(), entMap[String(l.lineId || l.productId)] || null)),
-          entitlement: passOk && !order.digitalGift ? publicEntitlement(entMap[String(l.lineId || l.productId)] || null) : null,
+          entitlement: passOk && !order.digitalGift ? publicEntitlement(entMap[String(l.lineId || l.productId)] || null, deviceCap(tenantSnap.exists ? tenantSnap.data() : null, itemMap[String(l.productId || '')], entMap[String(l.lineId || l.productId)] || null)) : null,
           contents: passOk ? contentsOf(l) : null,
         } : {}),
         optionsLabel: l.optionsLabel || '',

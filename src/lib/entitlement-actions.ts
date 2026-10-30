@@ -1,5 +1,6 @@
 // src/lib/entitlement-actions.ts — WHAT THE SHOP CAN DO FOR ONE BUYER OF A DOWNLOAD (pure), from the Digital products
-// area: give more downloads, extend access (to a date, or for good), close access with a reason, or open it again.
+// area: give more downloads, extend access (to a date, or for good), close access with a reason, open it again, or
+// reset the devices it's been opened on (Digital protection, lib/device-limit).
 // Each change is one patch to the buyer's access record (lib/entitlements) plus a line on its history with who and
 // when. Refunds and chargebacks close access on their own (lib/digital-access); nothing here refunds anything.
 
@@ -7,7 +8,8 @@ export type EntAction =
   | { kind: 'add_downloads'; count: number }
   | { kind: 'extend'; until: string | 'forever' }
   | { kind: 'revoke'; reason: string }
-  | { kind: 'reopen' };
+  | { kind: 'reopen' }
+  | { kind: 'reset_devices' };
 
 /** The date access never ends on: far enough that no window reaches it. */
 export const FOREVER = '9999-12-31T23:59:59.000Z';
@@ -22,6 +24,7 @@ export function cleanAction(raw: any): EntAction | null {
   }
   if (k === 'revoke') { const r = String(raw.reason || '').replace(/\s+/g, ' ').trim().slice(0, 200); return r ? { kind: k, reason: r } : null; }
   if (k === 'reopen') return { kind: k };
+  if (k === 'reset_devices') return { kind: k };
   return null;
 }
 
@@ -53,6 +56,13 @@ export function applyAction(ent: any, a: EntAction, by: string, now: string, ctx
     // accessEnd moves with it, so the reminder before the end (lib/digital-notices) comes before the new end.
     return { ok: true, what, patch: { access: { ...(ent.access || {}), extendedUntil: until }, accessEnd: a.until === 'forever' ? null : until, history: hist(what) } };
   }
+  if (a.kind === 'reset_devices') {
+    // The list starts again from the next device they open it on; who reset it is kept on the history.
+    const n = Array.isArray(ent.devices) ? ent.devices.length : 0;
+    if (!n) return { ok: false, error: 'There are no devices to reset.' };
+    const what = `Devices reset (${n} cleared)`;
+    return { ok: true, what, patch: { devices: [], deviceRefused: null, history: hist(what) } };
+  }
   if (a.kind === 'revoke') {
     if (ent.status === 'revoked') return { ok: false, error: 'Access is already closed.' };
     const what = `Access closed: ${a.reason}`;
@@ -66,6 +76,7 @@ export function applyAction(ent: any, a: EntAction, by: string, now: string, ctx
 export function buyerMessage(a: EntAction, product: string, shop: string, gift = false): { subject: string; line: string } {
   if (a.kind === 'add_downloads') return { subject: `More downloads for ${product}`, line: `${shop} gave you ${a.count} more download${a.count === 1 ? '' : 's'} of ${product}.` };
   if (a.kind === 'extend') return { subject: `Your access to ${product} is extended`, line: a.until === 'forever' ? `${shop} extended your access to ${product}. It’s yours to keep.` : `${shop} extended your access to ${product} until ${day(a.until)}.` };
+  if (a.kind === 'reset_devices') return { subject: `Your devices for ${product} are reset`, line: `${shop} reset the devices for ${product}. Open it on the devices you use now and they count from fresh.` };
   if (a.kind === 'revoke') return { subject: `Access to ${product} has closed`, line: `${shop} has closed your access to ${product}. Their reason: ${/[.!?]$/.test(a.reason) ? a.reason : `${a.reason}.`} If you think this is a mistake, ${gift ? 'reply to this email' : 'send them a message from your order page'}.` };
   return { subject: `${product} is open again`, line: `${shop} opened your access to ${product} again.` };
 }

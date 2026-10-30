@@ -19,6 +19,7 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { AuthBackdrop, Wordmark } from '@/components/auth/AuthBackdrop';
 import { ToolPicker } from '@/components/modules/ToolPicker';
 import { fromTenantModules, hoursFor, RECOMMENDED, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
+import { ADDONS, addonActive, type AddonId } from '@/lib/addons';
 
 export default function YourClarityFlowPage() {
   const { user, firestore } = useFirebase();
@@ -56,6 +57,17 @@ export default function YourClarityFlowPage() {
     const r = await billingApi({ action: 'checkout', tools });
     if (r.ok && r.url) { window.location.href = r.url; return; }
     setErr(r.error || 'Couldn’t start checkout.'); setBusy(false);
+  };
+  // Add-ons (lib/addons): paid extras inside a tool, switched on or off right away (the subscription follows).
+  const [addonBusy, setAddonBusy] = useState<AddonId | null>(null);
+  const [addonNote, setAddonNote] = useState('');
+  const switchAddon = async (id: AddonId, on: boolean) => {
+    setAddonBusy(id); setAddonNote(''); setErr('');
+    const r = await billingApi({ action: 'addon', addon: id, on });
+    setAddonBusy(null);
+    if (!r.ok) { setErr(r.error || 'That didn’t save. Try again.'); return; }
+    setAddonNote(r.message || '');
+    if (tools) billingApi({ action: 'status', tools }).then((x) => x.ok && setBill(x));
   };
   const openPortal = async () => { const r = await billingApi({ action: 'portal' }); if (r.ok && r.url) window.location.href = r.url; else setErr(r.error || 'Couldn’t open billing.'); };
 
@@ -134,6 +146,31 @@ export default function YourClarityFlowPage() {
                     <button type="button" onClick={openPortal} className="rounded-full bg-foreground px-4 py-2 text-[13px] text-background">Manage billing</button>
                   </div>
                 )}
+              </div>
+            )}
+
+            {tenant && (Object.values(ADDONS).some((a) => tools.includes(a.tool)) || Object.keys(ADDONS).some((id) => addonActive(tenant, id as AddonId))) && (
+              <div className="glass mx-auto mt-6 max-w-2xl rounded-[2rem] p-5 sm:p-6">
+                <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground">Add-ons</p>
+                <div className="mt-3 space-y-3">
+                  {Object.values(ADDONS).map((a) => {
+                    const on = addonActive(tenant, a.id);
+                    const toolOn = tools.includes(a.tool);
+                    return (
+                      <div key={a.id} className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[15px] font-semibold">{a.name} · ${a.amount} a month</p>
+                          <p className="text-[13px] text-foreground/80">Under {TOOL_BY_ID[a.tool].name}: {a.line.toLowerCase()}.{on && !toolOn ? ` Paused while ${TOOL_BY_ID[a.tool].name} is off, and not billed.` : ''}</p>
+                        </div>
+                        <button type="button" role="switch" aria-checked={on} aria-label={`${a.name} ${on ? 'on' : 'off'}`} disabled={addonBusy === a.id} onClick={() => void switchAddon(a.id, !on)}
+                          className={`relative mt-1 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-foreground' : 'bg-stone-300'}`}>
+                          <span className={`absolute top-1 h-5 w-5 rounded-full bg-card shadow transition-all ${on ? 'left-6' : 'left-1'}`} />
+                        </button>
+                      </div>);
+                  })}
+                </div>
+                {addonNote && <p role="status" className="mt-3 text-[13px] text-emerald-800">{addonNote}</p>}
+                <p className="mt-3 text-[12px] text-muted-foreground">Switched on or off right away. Turning one off never locks anyone out.</p>
               </div>
             )}
 

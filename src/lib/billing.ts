@@ -34,8 +34,7 @@ export async function billingSettings(): Promise<BillingSettings> {
 /** Create any missing products/prices in Stripe (safe to run again). */
 export async function ensurePrices() {
   const s = stripe();
-  const existing = await s.prices.list({ lookup_keys: ALL_PRICES.map((p) => p.key), limit: 100 });
-  const have = new Set(existing.data.map((p) => p.lookup_key));
+  const have = new Set(Object.keys(await priceIds(ALL_PRICES.map((p) => p.key))));
   let created = 0;
   for (const p of ALL_PRICES) {
     if (have.has(p.key)) continue;
@@ -55,9 +54,20 @@ export async function ensureFoundingCoupon(pct: number): Promise<string | null> 
   return id;
 }
 
+/** Which of these prices aren't set up in Stripe yet (HQ, Finance, Set up prices). */
+export async function missingPrices(keys: string[]): Promise<string[]> {
+  const ids = await priceIds(keys);
+  return keys.filter((k) => !ids[k]);
+}
+
 async function priceIds(keys: string[]): Promise<Record<string, string>> {
-  const res = await stripe().prices.list({ lookup_keys: keys, limit: 100 });
-  return Object.fromEntries(res.data.map((p) => [p.lookup_key as string, p.id]));
+  // Stripe looks up at most ten lookup keys a request.
+  const uniq = [...new Set(keys)]; const out: Record<string, string> = {};
+  for (let i = 0; i < uniq.length; i += 10) {
+    const res = await stripe().prices.list({ lookup_keys: uniq.slice(i, i + 10), limit: 100 });
+    for (const p of res.data) out[p.lookup_key as string] = p.id;
+  }
+  return out;
 }
 
 export async function businessSize(tenantId: string) {
@@ -80,7 +90,8 @@ export async function quoteFor(tenantId: string, tools?: ToolId[]) {
   const t = ((await getAdminDb().doc(`tenants/${tenantId}`).get()).data() as any) || {};
   const size = await businessSize(tenantId);
   const use = tools || fromTenantModules(t.modules);
-  return { ...quote({ tools: use, staff: size.staff, renters: size.renters, team: t.teamSize === 'team', locations: Math.max(1, size.locations - Math.max(0, Math.round(Number(t?.billing?.locationsGranted) || 0))) }), size, tools: use };   // HQ-granted locations aren't billed
+  const { billedAddons } = await import('@/lib/addons');
+  return { ...quote({ tools: use, addons: billedAddons(t, use), staff: size.staff, renters: size.renters, team: t.teamSize === 'team', locations: Math.max(1, size.locations - Math.max(0, Math.round(Number(t?.billing?.locationsGranted) || 0))) }), size, tools: use };   // HQ-granted locations aren't billed
 }
 
 async function ensureCustomer(tenantId: string, email?: string | null) {

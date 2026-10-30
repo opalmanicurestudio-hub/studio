@@ -45,12 +45,18 @@ export const TOOL_PRICES: Partial<Record<ToolId, PriceDef>> = {
   academy: { key: 'cf_tool_academy_v2', name: 'Online academy', amount: 49, description: 'Courses, video lessons, student portal' },
 };
 
-export const ALL_PRICES: PriceDef[] = [CORE.solo, CORE.team, EXTRA_STAFF, EXTRA_RENTER, EXTRA_LOCATION, ...Object.values(TOOL_PRICES) as PriceDef[]];
+// Add-ons: paid extras inside a tool (lib/addons), each switched on by the owner where it's used. Billed only while
+// the tool it belongs to is on.
+export const ADDON_PRICES: Record<string, PriceDef> = {
+  digitalProtection: { key: 'cf_addon_digital_protection_v1', name: 'Digital protection', amount: 19, description: 'Device limits on downloads' },
+};
+
+export const ALL_PRICES: PriceDef[] = [CORE.solo, CORE.team, EXTRA_STAFF, EXTRA_RENTER, EXTRA_LOCATION, ...Object.values(TOOL_PRICES) as PriceDef[], ...Object.values(ADDON_PRICES)];
 
 export interface QuoteLine { key: string; name: string; unit: number; qty: number; total: number }
 
 /** What a business would pay each month for these tools and this size. */
-export function quote(input: { tools: ToolId[]; staff: number; renters: number; team: boolean; locations?: number }): { lines: QuoteLine[]; total: number; textsIncluded: number } {
+export function quote(input: { tools: ToolId[]; staff: number; renters: number; team: boolean; locations?: number; addons?: string[] }): { lines: QuoteLine[]; total: number; textsIncluded: number } {
   const lines: QuoteLine[] = [];
   const team = input.team || input.staff > 1;
   const core = team ? CORE.team : CORE.solo;
@@ -64,6 +70,10 @@ export function quote(input: { tools: ToolId[]; staff: number; renters: number; 
   if (input.tools.includes('renters')) {
     const extra = Math.max(0, input.renters - RENTERS_INCLUDED);
     if (extra) lines.push({ key: EXTRA_RENTER.key, name: EXTRA_RENTER.name, unit: EXTRA_RENTER.amount, qty: extra, total: extra * EXTRA_RENTER.amount });
+  }
+  for (const a of new Set(input.addons || [])) {
+    const p = ADDON_PRICES[a]; if (!p) continue;
+    lines.push({ key: p.key, name: p.name, unit: p.amount, qty: 1, total: p.amount });
   }
   const extraLocations = Math.max(0, (Number(input.locations) || 1) - LOCATIONS_INCLUDED);
   if (extraLocations) lines.push({ key: EXTRA_LOCATION.key, name: EXTRA_LOCATION.name, unit: EXTRA_LOCATION.amount, qty: extraLocations, total: extraLocations * EXTRA_LOCATION.amount });

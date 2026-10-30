@@ -56,7 +56,9 @@ export async function POST(req: NextRequest) {
   try {
     const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     const shop = String(tenant.businessName || tenant.name || 'The shop');
-    const origin = String(process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin || '').replace(/\/$/, '');
+    // The address the shop's own links use (lib/app-origin), so the buyer lands where their device is already known.
+    const { linkOrigin } = await import('@/lib/app-origin');
+    const origin = linkOrigin(tenant, req.nextUrl.origin).replace(/\/$/, '');
     if (ent.email && origin) {
       const { sendNotification } = await import('@/lib/notify');
       const { brandedEmailHtml } = await import('@/lib/email-template');

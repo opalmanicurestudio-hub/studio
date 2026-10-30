@@ -5,9 +5,11 @@
 //   · its files: up to ten, each replaced as a new version (buyers always get the newest; nobody loses access);
 //   · how it's delivered: viewed online, saved as a copy, or both;
 //   · the access window and download limit (copied onto each buyer's access record at sale, lib/entitlements);
-//   · its license (personal use until the shop writes another) and protection level (standard; advanced comes with
-//     the paid add-on).
+//   · its license (personal use until the shop writes another) and protection level (standard, or a device limit with
+//     the Digital protection add-on, lib/device-limit).
 // Products saved before files had versions keep a single file in digitalFilePath; filesOf reads both shapes.
+
+import { MAX_DEVICES } from './device-limit';
 
 export const MAX_FILES = 10;
 export const MAX_FILE_MB = 40;
@@ -111,6 +113,9 @@ export function digitalProblems(item: any): string[] {
   if (deliveryOf(item) === 'view' && files.some((f) => !viewable(f.name))) out.push('View online only works for PDFs and pictures. Choose another way to deliver, or remove the other files.');
   const lic = item?.license;
   if (lic && lic.id === 'custom' && !String(lic.terms || '').trim()) out.push('Write the license terms, or choose Personal use.');
+  // Digital protection's device limit (lib/device-limit): 1 to 10 a buyer, or off (0).
+  const dev = item?.digitalDeviceLimit;
+  if (dev !== undefined && dev !== null && dev !== 0 && !(Math.floor(Number(dev)) >= 1 && Math.floor(Number(dev)) <= MAX_DEVICES)) out.push(`Set devices per buyer from 1 to ${MAX_DEVICES}, or turn the limit off.`);
   return out;
 }
 
@@ -141,7 +146,7 @@ export function legacyFileFields(files: DigitalFile[]): { digitalFilePath: strin
  * Read by the product route; the license comes from the shop's licenses (lib/licenses). A variant with a download of
  * its own is shown with its listing's (variants share their listing's download).
  */
-export function publicDigital(item: any, license: { name: string; terms: string }) {
+export function publicDigital(item: any, license: { name: string; terms: string }, opts: { deviceLimit?: number | null } = {}) {
   if (item?.digital !== true) return null;
   const files = filesOf(item);
   const fmt = FORMATS.find((f) => f.id === String(item?.digitalFormat || ''));
@@ -161,6 +166,8 @@ export function publicDigital(item: any, license: { name: string; terms: string 
     /** null = no limit; 0 = nothing to save (view only, or only online content). */
     downloadLimit: saves ? downloadLimitOf(item) : 0,
     license: { name: String(license.name || 'License'), terms: String(license.terms || '') },
+    /** How many devices one copy opens on (Digital protection), or null for any device. */
+    deviceLimit: opts.deviceLimit && opts.deviceLimit > 0 ? Math.floor(opts.deviceLimit) : null,
   };
 }
 export type PublicDigital = NonNullable<ReturnType<typeof publicDigital>>;
@@ -180,6 +187,7 @@ export function digitalFaq(d: PublicDigital): { q: string; a: string }[] {
     else if (!d.reads) out.push({ q: 'How many times can I download it?', a: d.downloadLimit === null ? 'Each time you open it a copy is saved, with no limit.' : `Each time you open it a copy is saved, and counts as one of your ${plural(d.downloadLimit as number, 'download')}. If you need more, message the shop.` });
     else out.push({ q: 'How many times can I download it?', a: d.downloadLimit === null ? 'As often as you need. Reading it online in your library never counts.' : `You can save ${plural(d.downloadLimit as number, 'copy', 'copies')}. Reading it online in your library never counts. If you need more, message the shop.` });
   }
+  if (d.deviceLimit) out.push({ q: 'How many devices can I open it on?', a: `Up to ${plural(d.deviceLimit, 'device')}. Each phone, laptop or tablet you open it on counts as one, and opening it again on the same one never counts twice. If you change devices, message the shop and they can reset yours.` });
   out.push({ q: 'How long do I have it?', a: d.accessDays ? `For ${plural(d.accessDays, 'day')} from the day you buy it.` : 'For good. It stays in your library.' });
   out.push({ q: 'Can I share it?', a: d.license.terms.trim() ? `${d.license.terms.trim()} (${d.license.name})` : `${d.license.name}.` });
   return out;

@@ -10,6 +10,7 @@ import { checkPass, makePass } from '@/lib/order-pass';
 import { giftPassKey } from '@/lib/digital-gift';
 import { digitalLineAccess } from '@/lib/digital-access-rule';
 import { entitlementId, publicEntitlement } from '@/lib/entitlements';
+import { deviceCap } from '@/lib/device-limit';
 import { deliveryOf, filesOf, viewable } from '@/lib/digital-product';
 import { maskEmail } from '@/lib/contact-change';
 import { timingSafeEqual } from 'crypto';
@@ -45,6 +46,14 @@ export async function POST(req: NextRequest) {
       const ids = [...new Set(lines.map((l: any) => String(l.productId || '')).filter(Boolean))] as string[];
       const is = await db.getAll(...ids.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`)));
       is.forEach((s: any, i: number) => { if (s.exists) items[ids[i]] = s.data(); });
+      // A variant sold inside its listing opens as its listing's download unless it has its own (lib/variants asSold).
+      const parents = [...new Set(Object.values(items).filter((it: any) => it.parentId && it.digital !== true).map((it: any) => String(it.parentId)))];
+      if (parents.length) {
+        const { asSold } = await import('@/lib/variants');
+        const ps = await db.getAll(...parents.map((id) => db.doc(`tenants/${tenantId}/inventory/${id}`)));
+        const pm: Record<string, any> = {}; ps.forEach((sn: any, i: number) => { if (sn.exists) pm[parents[i]] = { id: parents[i], ...sn.data() }; });
+        for (const [k, it] of Object.entries(items)) if ((it as any).parentId && (it as any).digital !== true && pm[String((it as any).parentId)]) items[k] = asSold(pm[String((it as any).parentId)], { id: k, ...(it as any) });
+      }
     }
   } catch { /* the items still list; opening reads them again */ }
   const now = Date.now();
@@ -59,7 +68,7 @@ export async function POST(req: NextRequest) {
       return {
         lineId: l.lineId || '', productId: l.productId, name: l.name, digital: true,
         access: { open: a.open, reason: a.reason, endsAt: a.endsAt },
-        entitlement: publicEntitlement(ents[k] || null),
+        entitlement: publicEntitlement(ents[k] || null, it ? deviceCap(t, it, ents[k] || null) : null),
         contents: it ? { files: files.filter((f) => deliveryOf(it) !== 'view' || viewable(f.name)).map((f) => ({ id: f.id, name: f.name, inPage: viewable(f.name) && deliveryOf(it) !== 'download', size: f.size || 0 })), link: !!String(it.digitalUrl || l.digitalUrl || '').trim(), delivery: deliveryOf(it) } : null,
       };
     }),
