@@ -80,7 +80,7 @@ ok(lib.includes('parts.length > 1') && lib.includes('{viewing.canSave && ('), 't
 const tab = fs.readFileSync('src/components/inventory/OnlineListingTab.tsx', 'utf8');
 ok(tab.includes('<DigitalSection product={product} onSave={onSave} />'), 'downloads are set on the product page');
 const settings = fs.readFileSync('src/app/(app)/retail-orders/settings/page.tsx', 'utf8');
-ok(!settings.includes('digitalFilePath: d.digital') && !settings.includes('uploadPrivateFile') && settings.includes('?tab=online'), 'Shop settings no longer edits downloads (no second editor writing old values back)');
+ok(!settings.includes('digitalFilePath: d.digital') && !settings.includes('uploadPrivateFile') && /Link href="\/inventory"/.test(settings) && !/digitalUrl/.test(settings), 'Shop settings no longer edits downloads (no second editor writing old values back)');
 const ent = fs.readFileSync('src/lib/entitlements.ts', 'utf8');
 ok(ent.includes("item = asSold({ id: String(item.parentId), ...ls.data() }, { id: line.productId, ...item });"), 'a variant’s buyer gets the listing’s limit and license on their record');
 

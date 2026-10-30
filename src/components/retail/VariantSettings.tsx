@@ -1,5 +1,5 @@
 'use client';
-// src/components/retail/VariantSettings.tsx — HOW EACH VARIANT SELLS, under its listing in Shop settings. A variant
+// src/components/retail/VariantSettings.tsx — HOW EACH VARIANT SELLS, on its listing's In the shop tab. A variant
 // sells the way its listing is set (pre-order, a download, made to order, its wholesale price and minimum, its weight
 // for postage: lib/variants asSold) unless it's set on the variant itself. Here each variant can have a wholesale
 // price and a weight of its own (a wholesale minimum is the listing's, counted across its variants), and a setting of

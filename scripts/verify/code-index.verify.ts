@@ -317,7 +317,7 @@ const put = (id: string, x: any) => db.doc(`${T}/inventory/${id}`).set({ id, typ
     && /ok = await onProductAdded\(/.test(src('src/components/inventory/AddProductDialog.tsx')) && /if \(ok !== false\) onOpenChange\(false\)/.test(src('src/components/inventory/AddProductDialog.tsx')));
   const shopSettings = src('src/app/(app)/retail-orders/settings/page.tsx');
   const codesTab = src('src/components/inventory/CodesTab.tsx');
-  check('case and pallet codes are set on the product’s Codes and variants tab, through the server; Shop settings only shows them', /await saveCodes\(tenantId, String\(product\.id\), patch\)/.test(codesTab) && !/saveCodes|codesBase/.test(shopSettings) && !/updateDoc\([^)]*inventory[^;]*caseBarcode/s.test(shopSettings) && /href=\{`\/inventory\/product\/\$\{/.test(shopSettings));
+  check('case and pallet codes are set on the product’s Codes and variants tab, through the server; Shop settings never writes them', /await saveCodes\(tenantId, String\(product\.id\), patch\)/.test(codesTab) && !/saveCodes|codesBase/.test(shopSettings) && !/updateDoc\([^)]*inventory[^;]*caseBarcode/s.test(shopSettings) );
   check('…only the codes changed in its draft are sent (a code changed elsewhere since isn’t put back)', /const patch = changedCodes\(fieldsOf\(base\), fieldsOf\(draft\)\)/.test(codesTab));
   check('a code learned at packing goes through the server', /learnProductCode\(tenantId, productId, code\)/.test(src('src/lib/scan-resolve.ts')) && !/updateDoc\(/.test(src('src/lib/scan-resolve.ts')));
   const tagSrc = src('src/components/pos/desk/TagPairing.tsx');

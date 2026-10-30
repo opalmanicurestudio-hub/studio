@@ -3,12 +3,11 @@
 import { SlipSettingsCard } from '@/components/settings/SlipSettingsCard';
 import { LABEL_FORMAT_CHOICES, labelFormatOf } from '@/lib/label-format';
 import { RetailSecretField } from '@/components/settings/RetailSecretField';
-import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
+import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
-  ArrowLeft, Camera, Car, DollarSign, Globe, Loader, Lock, MapPin, Plus, Printer, ShieldCheck, Store, Truck, X, Zap,
-} from 'lucide-react';
+  ArrowLeft, Camera, Car, DollarSign, Globe, Loader, Lock, MapPin, Plus, Printer, ShieldCheck, Store, Truck, X, Zap } from 'lucide-react';
 import { ChevronDown } from 'lucide-react';
-import { Building2, ClipboardList, Package, RotateCcw, Sparkles, Store as StoreIcon, Wallet } from 'lucide-react';
+import { Building2, ClipboardList, Package, Sparkles, Store as StoreIcon, Wallet } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -23,13 +22,10 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 
-import { listingsOf, variantGroup, variantIdsOf } from '@/lib/variants';
-import { sellableStock } from '@/lib/retail-orders';
+import { listingsOf } from '@/lib/variants';
 import { cn } from '@/lib/utils';
 import { openPrint } from '@/lib/open-print';
-import { VariantSettings } from '@/components/retail/VariantSettings';
 
 // ─── Shop Settings ────────────────────────────────────────────────────────────
 // One panel controls the whole retail surface. The storefront, checkout, and
@@ -124,47 +120,10 @@ export default function RetailSettingsPage() {
   const [rs, setRs] = useState<RetailSettings>({});
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [openGroup, setOpenGroup] = useState<string | null>('shop');
+  const [openGroup, setOpenGroup] = useState<string | null>('open');
   const [newSpot, setNewSpot] = useState('');
-  const [itemBusy, setItemBusy] = useState<string | null>(null);
-  const [uploading, setUploading] = useState<string | null>(null);
 
-  const uploadMedia = async (it: any, files: FileList | null, kind: 'image' | 'video') => {
-    if (!files || files.length === 0 || !firebaseApp || !tenantId) return;
-    setUploading(`${kind}-${it.id}`);
-    try {
-      const storage = getStorage(firebaseApp);
-      const urls: string[] = [];
-      for (const file of Array.from(files).slice(0, kind === 'video' ? 1 : 6)) {
-        if (file.size > (kind === 'video' ? 100 : 10) * 1024 * 1024) {
-          toast({ variant: 'destructive', title: `${file.name} is too large`, description: kind === 'video' ? 'Videos up to 100 MB.' : 'Images up to 10 MB.' });
-          continue;
-        }
-        const path = `tenants/${tenantId}/products/${it.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const snap = await uploadBytes(storageRef(storage, path), file, { contentType: file.type });
-        urls.push(await getDownloadURL(snap.ref));
-      }
-      if (urls.length > 0) {
-        const d = draftFor(it);
-        const next = kind === 'image'
-          ? { ...d, img: [d.img.trim(), ...urls].filter(Boolean).join('\n') }
-          : { ...d, video: urls[0] };
-        setDrafts((prev) => ({ ...prev, [it.id]: next }));
-        toast({ title: kind === 'image' ? `${urls.length} image(s) uploaded` : 'Video uploaded', description: 'Tap Save on the item to publish.' });
-      }
-    } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Upload failed', description: String(e?.message || '').includes('storage/unauthorized') ? 'Enable Firebase Storage + the rules from our setup note.' : e?.message });
-    } finally {
-      setUploading(null);
-    }
-  };
 
-  const [drafts, setDrafts] = useState<Record<string, {
-    wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; kit: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
-    made: boolean; leadMin: string; leadMax: string;
-  }>>({});
-  const [runBusy, setRunBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (loaded) return;
@@ -237,7 +196,6 @@ export default function RetailSettingsPage() {
     () => (inventory || []).filter((i: any) => i.type === 'retail' && i.status !== 'archived' && !listings.has(String(i.id))),
     [inventory, listings]
   );
-  const invById = useMemo(() => new Map((inventory || []).map((i: any) => [String(i.id), i])), [inventory]);
   const liveCount = retailItems.filter((i: any) => i.showOnline === true && (i.msrp ?? 0) > 0).length;
 
   /*
@@ -339,92 +297,8 @@ export default function RetailSettingsPage() {
     }
   };
 
-  const draftFor = (it: any) => drafts[it.id] || {
-    wholesale: it.wholesalePriceDollars != null ? String(it.wholesalePriceDollars) : '',
-    minQty: it.wholesaleMinQty != null ? String(it.wholesaleMinQty) : '',
-    weight: it.weightOz != null && it.weightOz > 0 ? String(it.weightOz) : '',
-    desc: it.onlineDescription || '',
-    img: (it.imageUrls || []).join('\n'),
-    howToUse: it.howToUse || '',
-    kit: (it.kitContents || []).join('\n'),
-    digital: it.digital === true,
-    digitalUrl: it.digitalUrl || '',
-    preorder: it.preorder === true,
-    preorderEtaAt: it.preorderEtaAt || '',
-    preorderClosesAt: it.preorderClosesAt || '',
-    preorderLimit: it.preorderLimit ? String(it.preorderLimit) : '',
-    made: Number(it.leadDays?.max) > 0,
-    leadMin: Number(it.leadDays?.min) > 0 ? String(it.leadDays.min) : '',
-    leadMax: Number(it.leadDays?.max) > 0 ? String(it.leadDays.max) : '',
-    digitalAccessDays: it.digitalAccessDays ? String(it.digitalAccessDays) : '',
-    digitalFilePath: it.digitalFilePath || '',
-    digitalFileName: it.digitalFileName || '',
-    specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
-    docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
-    video: it.videoUrl || '',
-  };
 
-  const toggleOnline = async (it: any, on: boolean) => {
-    if (!firestore || !tenantId) return;
-    if (on && !(it.msrp > 0)) {
-      toast({ variant: 'destructive', title: 'Needs a price', description: `Set an MSRP on ${it.name} in Inventory first.` });
-      return;
-    }
-    await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory`, it.id), { showOnline: on });
-    toast({ title: on ? `${it.name} is live on the shop` : `${it.name} hidden from the shop` });
-  };
 
-  const saveItem = async (it: any) => {
-    if (!firestore || !tenantId || itemBusy) return;
-    const d = draftFor(it);
-    setItemBusy(it.id);
-    try {
-      const imageUrls = d.img.split(/\n+/).map((u) => u.trim()).filter((u) => /^https?:\/\//i.test(u)).slice(0, 10);
-      const specs = d.specs.split(/\n+/).map((line) => {
-        const idx = line.indexOf(':');
-        if (idx <= 0) return null;
-        const label = line.slice(0, idx).trim();
-        const value = line.slice(idx + 1).trim();
-        return label && value ? { label, value } : null;
-      }).filter(Boolean).slice(0, 40);
-      const documents = d.docs.split(/\n+/).map((line) => {
-        const idx = line.indexOf('|');
-        if (idx <= 0) return null;
-        const name = line.slice(0, idx).trim();
-        const url = line.slice(idx + 1).trim();
-        return name && /^https?:\/\//i.test(url) ? { name, url } : null;
-      }).filter(Boolean).slice(0, 20);
-      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory`, it.id), {
-        wholesalePriceDollars: Number(d.wholesale) > 0 ? Number(d.wholesale) : null,
-        weightOz: Math.max(0, Number(d.weight) || 0),
-        wholesaleMinQty: d.minQty.trim() === '' ? null : Math.max(0, Math.floor(Number(d.minQty) || 0)),
-        onlineDescription: d.desc.trim(),
-        howToUse: d.howToUse.trim(),
-        kitContents: d.kit.split('\n').map((p: string) => p.trim()).filter(Boolean).slice(0, 40),
-        preorder: d.preorder === true,
-        preorderEtaAt: d.preorder === true ? (d.preorderEtaAt || null) : null,
-        preorderClosesAt: d.preorder === true ? (d.preorderClosesAt || null) : null,
-        preorderLimit: d.preorder === true ? (Math.max(0, Math.floor(Number(d.preorderLimit) || 0)) || null) : null,
-        // Made to order: the longest time is what the ship-by date counts; the shortest is only shown.
-        leadDays: (() => {
-          if (d.made !== true) return null;
-          const max = Math.min(120, Math.max(0, Math.floor(Number(d.leadMax) || Number(d.leadMin) || 0)));
-          if (max <= 0) return null;
-          const min = Math.min(max, Math.max(1, Math.floor(Number(d.leadMin) || max)));
-          return { min, max };
-        })(),
-        imageUrls,
-        specs: JSON.parse(JSON.stringify(specs)),
-        documents: JSON.parse(JSON.stringify(documents)),
-        videoUrl: (d.video || '').trim(),
-      });
-      toast({ title: `${it.name} updated` });
-    } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Update failed', description: e?.message });
-    } finally {
-      setItemBusy(null);
-    }
-  };
 
   const num = (v: number | undefined) => (v == null || Number.isNaN(v) ? '' : String(v));
 
@@ -457,29 +331,30 @@ export default function RetailSettingsPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
-        <section className="space-y-3">
+        <p className="text-[11px] font-bold text-muted-foreground">Settings for the whole shop. A product’s photos, prices, weight, pre-order and download are on its own page, under In the shop: open it from <Link href="/inventory" className="underline underline-offset-2">Products</Link>.</p>
+        <section className="space-y-3" id="open">
           <button
             type="button"
-            onClick={() => setOpenGroup(openGroup === 'shop' ? null : 'shop')}
-            aria-expanded={openGroup === 'shop'}
+            onClick={() => setOpenGroup(openGroup === 'open' ? null : 'open')}
+            aria-expanded={openGroup === 'open'}
             className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
-              openGroup === 'shop' ? 'border-primary/40' : 'hover:border-primary/20')}
+              openGroup === 'open' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
-              openGroup === 'shop' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              openGroup === 'open' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
               <StoreIcon className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Your shop</span>
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Open or paused</span>
               <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                {rs.storePaused ? 'Paused' : 'Open'} · {[rs.pickupEnabled !== false && 'pickup', rs.shippingEnabled !== false && 'delivery'].filter(Boolean).join(' + ') || 'no collection method'}
+                {rs.storePaused ? 'Paused: not taking new orders' : 'Taking orders'}
               </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'shop' && 'rotate-180 text-primary')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'open' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
-          {openGroup === 'shop' && (
+          {openGroup === 'open' && (
             <div className="space-y-5">
-        <Card className={cn('border-2 rounded-[2rem] overflow-hidden bg-card', rs.storePaused && 'border-amber-300')}>
+<Card className={cn('border-2 rounded-[2rem] overflow-hidden bg-card', rs.storePaused && 'border-amber-300')}>
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -516,72 +391,32 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Store className="w-4 h-4 text-primary" />
-                <p className="text-[10px] font-black uppercase tracking-widest">Storefront</p>
-              </div>
-              <div className="flex gap-2">
-                <Button asChild size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
-                  <Link href="/retail-orders/designer">Design landing</Link>
-                </Button>
-                <Button asChild variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
-                  <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer">View shop</a>
-                </Button>
-                <Button variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(`${window.location.origin}/shop/${tenantId}`)
-                      .then(() => toast({ title: 'Shop link copied' }))
-                      .catch(() => toast({ variant: 'destructive', title: 'Could not copy' }));
-                  }}>
-                  Copy link
-                </Button>
-              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Shopping layout</Label>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { id: 'grid' as const, label: 'Grid', hint: 'Classic cards' },
-                  { id: 'list' as const, label: 'List', hint: 'Dense rows' },
-                  { id: 'showcase' as const, label: 'Showcase', hint: 'Big & bold' },
-                ]).map((m) => (
-                  <button key={m.id} type="button" onClick={() => setRs({ ...rs, shopLayout: m.id })}
-                    className={cn('rounded-2xl border-2 p-3 space-y-2 transition-all text-left',
-                      (rs.shopLayout || 'grid') === m.id ? 'border-primary bg-primary/5' : 'hover:border-primary/30')}>
-                    <div className={cn('h-10 rounded-lg overflow-hidden flex gap-1 p-1',
-                      (rs.shopLayout || 'grid') === m.id ? 'bg-primary/10' : 'bg-muted/20')}>
-                      {m.id === 'grid' && (<><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /></>)}
-                      {m.id === 'list' && (<div className="flex-1 flex flex-col gap-1"><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /></div>)}
-                      {m.id === 'showcase' && (<div className="flex-1 rounded bg-foreground/20" />)}
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-widest">{m.label}</p>
-                      <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">{m.hint}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="grid md:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tagline under your name</Label>
-                <Input aria-label="Tagline under your name" placeholder="Shop" value={rs.shopTagline || ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shopTagline: e.target.value })}
-                  className="h-11 rounded-xl border-2 font-bold text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Announcement bar (optional)</Label>
-                <Input aria-label="Announcement bar (optional)" placeholder="e.g. Free pickup orders ready in 2 hours" value={rs.shopAnnouncement || ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shopAnnouncement: e.target.value })}
-                  className="h-11 rounded-xl border-2 font-bold text-sm" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+          )}
+        </section>
+        <section className="space-y-3" id="get">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'get' ? null : 'get')}
+            aria-expanded={openGroup === 'get'}
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
+              openGroup === 'get' ? 'border-primary/40' : 'hover:border-primary/20')}
+          >
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'get' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <ClipboardList className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">How customers get orders</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                {[rs.pickupEnabled !== false && 'Pickup', rs.curbsideOffered === true && 'curbside', rs.shippingEnabled !== false && 'shipping'].filter(Boolean).join(', ') || 'No way to get orders is on'}
+              </span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'get' && 'rotate-180 text-primary')} aria-hidden="true" />
+          </button>
+          {openGroup === 'get' && (
+            <div className="space-y-5">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Car className="w-4 h-4 text-primary" />
@@ -651,155 +486,7 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setOpenGroup(openGroup === 'money' ? null : 'money')}
-            aria-expanded={openGroup === 'money'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
-              openGroup === 'money' ? 'border-primary/40' : 'hover:border-primary/20')}
-          >
-            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
-              openGroup === 'money' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
-              <Wallet className="h-[18px] w-[18px]" aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Money</span>
-              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                {rs.stripeTaxEnabled === true ? 'Tax by location' : `Tax ${Number(rs.taxRatePercent) || 0}%`} · {rs.tipsEnabled === false ? 'no tips' : 'tips on'}
-              </span>
-            </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'money' && 'rotate-180 text-primary')} aria-hidden="true" />
-          </button>
-          {openGroup === 'money' && (
-            <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <DollarSign className="w-4 h-4 text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Money</p>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tax %</Label>
-                <Input aria-label="Tax %" inputMode="decimal" value={num(rs.taxRatePercent)}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, taxRatePercent: e.target.value === '' ? 0 : Number(e.target.value) })}
-                  className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Flat ship $</Label>
-                <Input aria-label="Flat ship $" inputMode="decimal" value={num(rs.flatShippingDollars)}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, flatShippingDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
-                  className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Free over $</Label>
-                <Input aria-label="Free over $" inputMode="decimal" value={num(rs.freeShippingOverDollars)}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, freeShippingOverDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
-                  className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
-              <div className="min-w-0">
-                <Label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                  Automatic sales tax on shipped orders and downloads
-                </Label>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {rs.stripeTaxEnabled === true
-                    ? 'Stripe Tax sets the rate from the delivery state on shipped orders, and from the buyer\u2019s billing address on orders of downloads only. Pickup orders keep the flat rate above. Requires Stripe Tax activated, your registrations added, and an origin address in your Stripe dashboard — if that setup is missing, checkout quietly falls back to the flat rate so a customer is never blocked.'
-                    : 'Off — every order uses the flat Tax % above. Right for pickup-only shops; a parcel crossing state lines should be taxed at its destination, which is what turning this on does.'}
-                </p>
-              </div>
-              <Switch aria-label="Automatic sales tax on shipped orders and downloads" checked={rs.stripeTaxEnabled === true}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, stripeTaxEnabled: v })} />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <Truck className="w-4 h-4 text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Shipping labels (Shippo)</p>
-            </div>
-            <RetailSecretField tenantId={tenantId} which="shippoApiKey" label="Shippo API key (blank keeps manual tracking entry)" placeholder="shippo_live_…" className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
-            <fieldset className="space-y-2">
-              <legend className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">What labels print on</legend>
-              {LABEL_FORMAT_CHOICES.map((c) => {
-                const on = labelFormatOf(rs) === c.id;
-                return (
-                  <label key={c.id} className={cn('flex cursor-pointer items-start gap-3 rounded-xl border-2 p-3', on ? 'border-primary' : '')}>
-                    <input type="radio" name="label-format" className="mt-1" checked={on} onChange={() => setRs({ ...rs, labelFormat: c.id })} />
-                    <span className="min-w-0"><span className="block text-sm font-bold">{c.label}</span><span className="block text-[11px] text-muted-foreground">{c.sub}</span></span>
-                  </label>);
-              })}
-            </fieldset>
-            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
-              <div className="min-w-0"><Label className="text-[10px] font-black uppercase tracking-widest">Packing slip after each label</Label><p className="text-[11px] text-muted-foreground mt-1">The label stack prints each order’s slip right behind its label, with the tote number, so they stay together.</p></div>
-              <Switch aria-label="Packing slip after each label" checked={rs.labelPackingSlip === true} onCheckedChange={(v: boolean) => setRs({ ...rs, labelPackingSlip: v })} />
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
-              <div className="min-w-0"><Label className="text-[10px] font-black uppercase tracking-widest">Order number on the label</Label><p className="text-[11px] text-muted-foreground mt-1">Printed in the label’s reference line where the carrier supports it (USPS, UPS, FedEx).</p></div>
-              <Switch aria-label="Order number on the label" checked={rs.labelOrderRef !== false} onCheckedChange={(v: boolean) => setRs({ ...rs, labelOrderRef: v })} />
-            </div>
-            <div className="rounded-xl border-2 p-3">
-              <SlipSettingsCard rs={rs} setRs={setRs} />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
-              <Input aria-label="Ship-from address (printed on labels, used for rates)" placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, name: e.target.value } })}
-                className="h-11 rounded-xl border-2 font-bold text-sm" />
-              <Input aria-label="Street address" placeholder="Street address" value={rs.shipFrom?.street1 || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, street1: e.target.value } })}
-                className="h-11 rounded-xl border-2 font-bold text-sm" />
-              <div className="grid grid-cols-3 gap-2">
-                <Input aria-label="City" placeholder="City" value={rs.shipFrom?.city || ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, city: e.target.value } })}
-                  className="h-11 rounded-xl border-2 font-bold text-sm" />
-                <Input aria-label="State" placeholder="State" value={rs.shipFrom?.state || ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, state: e.target.value } })}
-                  className="h-11 rounded-xl border-2 font-bold text-sm" />
-                <Input aria-label="ZIP" placeholder="ZIP" value={rs.shipFrom?.zip || ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, zip: e.target.value } })}
-                  className="h-11 rounded-xl border-2 font-bold text-sm" />
-              </div>
-              <Input aria-label="Phone (carriers may require it)" placeholder="Phone (carriers may require it)" value={rs.shipFrom?.phone || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, phone: e.target.value } })}
-                className="h-11 rounded-xl border-2 font-bold text-sm" />
-            </div>
-          </CardContent>
-        </Card>
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setOpenGroup(openGroup === 'orders' ? null : 'orders')}
-            aria-expanded={openGroup === 'orders'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
-              openGroup === 'orders' ? 'border-primary/40' : 'hover:border-primary/20')}
-          >
-            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
-              openGroup === 'orders' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
-              <ClipboardList className="h-[18px] w-[18px]" aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Getting orders out</span>
-              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                {rs.requirePackScan === true ? 'Two scans per order' : 'One scan per order'}
-              </span>
-            </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'orders' && 'rotate-180 text-primary')} aria-hidden="true" />
-          </button>
-          {openGroup === 'orders' && (
-            <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Truck className="w-4 h-4 text-primary shrink-0" />
@@ -871,7 +558,314 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm font-black uppercase tracking-tight">After the sale</p>
+            </div>
+
+            <Link href="/retail-orders/policies" className="flex min-h-[56px] items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-xs font-black uppercase tracking-tight">Addresses</span>
+                <span className="block text-[11px] font-bold text-muted-foreground">Checking addresses with the carrier{rs.addressValidationEnabled ? ' (on)' : ' (off)'}, and how long customers can change theirs, are in Policies.</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
+            </Link>
+
+            <Link href="/retail-orders/policies" className="flex min-h-[56px] items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-xs font-black uppercase tracking-tight">Returns, refunds and fees</span>
+                <span className="block text-[11px] font-bold text-muted-foreground">Return window, who pays return shipping, restocking fees and claim limits are all in Policies.</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
+            </Link>
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Cart recovery email</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  One email when a checkout times out unpaid &mdash; their cart link, nothing else, never twice.
+                </p>
+              </div>
+              <Switch aria-label="Cart recovery email"
+                checked={rs.cartRecoveryEnabled !== false}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, cartRecoveryEnabled: v })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Second scan at packing</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Every item is scanned into the box, never just tapped. An order picked at the shelf first is scanned again as it’s packed; wave orders, and orders scanned straight into the box, are scanned once.
+                </p>
+              </div>
+              <Switch aria-label="Second scan at packing"
+                checked={rs.requirePackScan === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, requirePackScan: v })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Scan every item</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Packers scan each item into the box instead of tapping it on the screen. Leave it off if some items have no barcode.
+                </p>
+              </div>
+              <Switch aria-label="Scan every item"
+                checked={rs.requireScan === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, requireScan: v })}
+              />
+            </div>
+
+            <div className="space-y-2 rounded-2xl border-2 p-4">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Curbside pickup spots</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Print numbered signs for your bays. Customers scan the sign and we know exactly where they parked &mdash; nothing to type, nothing to mistype.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline"
+                  onClick={() => window.open(`/print/curbside-signs/${tenantId}?count=6`, '_blank')}
+                  className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                  Print 6 signs
+                </Button>
+                <Button type="button" variant="outline"
+                  onClick={() => {
+                    const list = window.prompt('Which spots? Comma separated (e.g. 1,2,3 or A,B,Loading bay):', '1,2,3,4');
+                    if (list && list.trim()) window.open(`/print/curbside-signs/${tenantId}?spots=${encodeURIComponent(list.trim())}`, '_blank');
+                  }}
+                  className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                  Choose spots
+                </Button>
+              </div>
+              <Input placeholder="Alert phone — texted when someone waits too long" inputMode="tel" aria-label="Phone to alert when a customer or guest waits too long"
+                value={rs.curbsideAlertPhone ?? ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideAlertPhone: e.target.value })}
+                className="h-11 rounded-xl border-2 font-bold text-xs" />
+              <p className="text-[10px] font-bold text-muted-foreground">
+                If a customer waits 5 minutes outside, or a lounge guest waits 6, this number gets a text — because a board nobody is watching is a person nobody is helping. Leave blank to turn it off.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Shop latitude" inputMode="decimal" aria-label="Shop latitude"
+                  value={rs.curbsideLat ?? ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideLat: e.target.value === '' ? undefined : Number(e.target.value) })}
+                  className="h-11 rounded-xl border-2 font-bold text-xs" />
+                <Input placeholder="Shop longitude" inputMode="decimal" aria-label="Shop longitude"
+                  value={rs.curbsideLng ?? ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideLng: e.target.value === '' ? undefined : Number(e.target.value) })}
+                  className="h-11 rounded-xl border-2 font-bold text-xs" />
+              </div>
+              <p className="text-[10px] font-bold text-muted-foreground">
+                Optional. With coordinates set, a customer who taps &ldquo;on my way&rdquo; gets a rough ETA and can be checked in automatically when they pull in &mdash; only while their order page is open. Find them by right-clicking your shop in Google Maps. The signs work with or without this.
+              </p>
+            </div>
+
+          </CardContent>
+        </Card>
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Order-ahead extras</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Prep promise (min, 0 = off)</Label>
+                <Input aria-label="Prep promise (min, 0 = off)" inputMode="numeric" value={String(rs.prepMinutes ?? 0)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, prepMinutes: Number(e.target.value) || 0 })}
+                  className="h-11 rounded-xl border-2 font-black font-mono text-sm text-center" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Max orders / 15 min (0 = off)</Label>
+                <Input aria-label="Max orders / 15 min (0 = off)" inputMode="numeric" value={String(rs.throttlePer15 ?? 0)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, throttlePer15: Number(e.target.value) || 0 })}
+                  className="h-11 rounded-xl border-2 font-black font-mono text-sm text-center" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-tight">Tips at checkout</p>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">10 / 15 / 20% chips on the payment sheet</p>
+              </div>
+              <Switch aria-label="Max orders / 15 min (0 = off)" checked={rs.tipsEnabled === true} onCheckedChange={(v: boolean) => setRs({ ...rs, tipsEnabled: v })} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-tight">Scheduled pickup</p>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">ASAP / +15 / +30 / +45 / +60 picker</p>
+              </div>
+              <Switch aria-label="ASAP / +15 / +30 / +45 / +60 picker" checked={rs.scheduledPickup === true} onCheckedChange={(v: boolean) => setRs({ ...rs, scheduledPickup: v })} />
+            </div>
+          </CardContent>
+        </Card>
+            </div>
+          )}
+        </section>
+        <section className="space-y-3" id="money">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'money' ? null : 'money')}
+            aria-expanded={openGroup === 'money'}
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
+              openGroup === 'money' ? 'border-primary/40' : 'hover:border-primary/20')}
+          >
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'money' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <Wallet className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Money</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                Tax, shipping prices, tips and wholesale
+              </span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'money' && 'rotate-180 text-primary')} aria-hidden="true" />
+          </button>
+          {openGroup === 'money' && (
+            <div className="space-y-5">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Money</p>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tax %</Label>
+                <Input aria-label="Tax %" inputMode="decimal" value={num(rs.taxRatePercent)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, taxRatePercent: e.target.value === '' ? 0 : Number(e.target.value) })}
+                  className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Flat ship $</Label>
+                <Input aria-label="Flat ship $" inputMode="decimal" value={num(rs.flatShippingDollars)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, flatShippingDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
+                  className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Free over $</Label>
+                <Input aria-label="Free over $" inputMode="decimal" value={num(rs.freeShippingOverDollars)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, freeShippingOverDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
+                  className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
+              <div className="min-w-0">
+                <Label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                  Automatic sales tax on shipped orders and downloads
+                </Label>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {rs.stripeTaxEnabled === true
+                    ? 'Stripe Tax sets the rate from the delivery state on shipped orders, and from the buyer\u2019s billing address on orders of downloads only. Pickup orders keep the flat rate above. Requires Stripe Tax activated, your registrations added, and an origin address in your Stripe dashboard — if that setup is missing, checkout quietly falls back to the flat rate so a customer is never blocked.'
+                    : 'Off — every order uses the flat Tax % above. Right for pickup-only shops; a parcel crossing state lines should be taxed at its destination, which is what turning this on does.'}
+                </p>
+              </div>
+              <Switch aria-label="Automatic sales tax on shipped orders and downloads" checked={rs.stripeTaxEnabled === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, stripeTaxEnabled: v })} />
+            </div>
+          </CardContent>
+        </Card>
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Wholesale pricing</p>
+            </div>
+            <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+              <Link href="/retail-orders/wholesale">Manage per-business accounts</Link>
+            </Button>
+            <RetailSecretField tenantId={tenantId} which="wholesaleAccessCode" label="House code (shared fallback; per-account codes live in Wholesale)" placeholder="e.g. OPALPRO2026" className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-sm" />
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-black uppercase tracking-widest">Wholesale orders tax-exempt</Label>
+              <Switch aria-label="Wholesale orders tax-exempt" checked={rs.wholesaleTaxExempt === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, wholesaleTaxExempt: v })} />
+            </div>
+          </CardContent>
+        </Card>
+            </div>
+          )}
+        </section>
+        <section className="space-y-3" id="pack">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'pack' ? null : 'pack')}
+            aria-expanded={openGroup === 'pack'}
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
+              openGroup === 'pack' ? 'border-primary/40' : 'hover:border-primary/20')}
+          >
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'pack' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <Package className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Packing</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                Scans, box photos, proof for valuable parcels, labels
+              </span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'pack' && 'rotate-180 text-primary')} aria-hidden="true" />
+          </button>
+          {openGroup === 'pack' && (
+            <div className="space-y-5">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Truck className="w-4 h-4 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Shipping labels (Shippo)</p>
+            </div>
+            <RetailSecretField tenantId={tenantId} which="shippoApiKey" label="Shippo API key (blank keeps manual tracking entry)" placeholder="shippo_live_…" className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
+            <fieldset className="space-y-2">
+              <legend className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">What labels print on</legend>
+              {LABEL_FORMAT_CHOICES.map((c) => {
+                const on = labelFormatOf(rs) === c.id;
+                return (
+                  <label key={c.id} className={cn('flex cursor-pointer items-start gap-3 rounded-xl border-2 p-3', on ? 'border-primary' : '')}>
+                    <input type="radio" name="label-format" className="mt-1" checked={on} onChange={() => setRs({ ...rs, labelFormat: c.id })} />
+                    <span className="min-w-0"><span className="block text-sm font-bold">{c.label}</span><span className="block text-[11px] text-muted-foreground">{c.sub}</span></span>
+                  </label>);
+              })}
+            </fieldset>
+            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
+              <div className="min-w-0"><Label className="text-[10px] font-black uppercase tracking-widest">Packing slip after each label</Label><p className="text-[11px] text-muted-foreground mt-1">The label stack prints each order’s slip right behind its label, with the tote number, so they stay together.</p></div>
+              <Switch aria-label="Packing slip after each label" checked={rs.labelPackingSlip === true} onCheckedChange={(v: boolean) => setRs({ ...rs, labelPackingSlip: v })} />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
+              <div className="min-w-0"><Label className="text-[10px] font-black uppercase tracking-widest">Order number on the label</Label><p className="text-[11px] text-muted-foreground mt-1">Printed in the label’s reference line where the carrier supports it (USPS, UPS, FedEx).</p></div>
+              <Switch aria-label="Order number on the label" checked={rs.labelOrderRef !== false} onCheckedChange={(v: boolean) => setRs({ ...rs, labelOrderRef: v })} />
+            </div>
+            <div className="rounded-xl border-2 p-3">
+              <SlipSettingsCard rs={rs} setRs={setRs} />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
+              <Input aria-label="Ship-from address (printed on labels, used for rates)" placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, name: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
+              <Input aria-label="Street address" placeholder="Street address" value={rs.shipFrom?.street1 || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, street1: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
+              <div className="grid grid-cols-3 gap-2">
+                <Input aria-label="City" placeholder="City" value={rs.shipFrom?.city || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, city: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+                <Input aria-label="State" placeholder="State" value={rs.shipFrom?.state || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, state: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+                <Input aria-label="ZIP" placeholder="ZIP" value={rs.shipFrom?.zip || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, zip: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+              </div>
+              <Input aria-label="Phone (carriers may require it)" placeholder="Phone (carriers may require it)" value={rs.shipFrom?.phone || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, phone: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
+            </div>
+          </CardContent>
+        </Card>
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -982,7 +976,7 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Camera className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -1049,274 +1043,99 @@ export default function RetailSettingsPage() {
             </div>
           )}
         </section>
-
-        <section className="space-y-3">
+        <section className="space-y-3" id="look">
           <button
             type="button"
-            onClick={() => setOpenGroup(openGroup === 'after' ? null : 'after')}
-            aria-expanded={openGroup === 'after'}
+            onClick={() => setOpenGroup(openGroup === 'look' ? null : 'look')}
+            aria-expanded={openGroup === 'look'}
             className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
-              openGroup === 'after' ? 'border-primary/40' : 'hover:border-primary/20')}
+              openGroup === 'look' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
             <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
-              openGroup === 'after' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
-              <RotateCcw className="h-[18px] w-[18px]" aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">After the sale</span>
-              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                Addresses, packing checks, curbside and policies
-              </span>
-            </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'after' && 'rotate-180 text-primary')} aria-hidden="true" />
-          </button>
-          {openGroup === 'after' && (
-            <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-black uppercase tracking-tight">After the sale</p>
-            </div>
-
-            <Link href="/retail-orders/policies" className="flex min-h-[56px] items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3">
-              <span className="min-w-0">
-                <span className="block text-xs font-black uppercase tracking-tight">Addresses</span>
-                <span className="block text-[11px] font-bold text-muted-foreground">Checking addresses with the carrier{rs.addressValidationEnabled ? ' (on)' : ' (off)'}, and how long customers can change theirs, are in Policies.</span>
-              </span>
-              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
-            </Link>
-
-            <Link href="/retail-orders/policies" className="flex min-h-[56px] items-center justify-between gap-3 rounded-2xl border-2 px-4 py-3">
-              <span className="min-w-0">
-                <span className="block text-xs font-black uppercase tracking-tight">Returns, refunds and fees</span>
-                <span className="block text-[11px] font-bold text-muted-foreground">Return window, who pays return shipping, restocking fees and claim limits are all in Policies.</span>
-              </span>
-              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
-            </Link>
-
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label className="text-[11px] font-black uppercase tracking-widest">Cart recovery email</Label>
-                <p className="text-[11px] font-bold text-muted-foreground">
-                  One email when a checkout times out unpaid &mdash; their cart link, nothing else, never twice.
-                </p>
-              </div>
-              <Switch aria-label="Cart recovery email"
-                checked={rs.cartRecoveryEnabled !== false}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, cartRecoveryEnabled: v })}
-              />
-            </div>
-
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label className="text-[11px] font-black uppercase tracking-widest">Second scan at packing</Label>
-                <p className="text-[11px] font-bold text-muted-foreground">
-                  Every item is scanned into the box, never just tapped. An order picked at the shelf first is scanned again as it’s packed; wave orders, and orders scanned straight into the box, are scanned once.
-                </p>
-              </div>
-              <Switch aria-label="Second scan at packing"
-                checked={rs.requirePackScan === true}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, requirePackScan: v })}
-              />
-            </div>
-
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <Label className="text-[11px] font-black uppercase tracking-widest">Scan every item</Label>
-                <p className="text-[11px] font-bold text-muted-foreground">
-                  Packers scan each item into the box instead of tapping it on the screen. Leave it off if some items have no barcode.
-                </p>
-              </div>
-              <Switch aria-label="Scan every item"
-                checked={rs.requireScan === true}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, requireScan: v })}
-              />
-            </div>
-
-            <div className="space-y-2 rounded-2xl border-2 p-4">
-              <div>
-                <Label className="text-[11px] font-black uppercase tracking-widest">Curbside pickup spots</Label>
-                <p className="text-[11px] font-bold text-muted-foreground">
-                  Print numbered signs for your bays. Customers scan the sign and we know exactly where they parked &mdash; nothing to type, nothing to mistype.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button type="button" variant="outline"
-                  onClick={() => window.open(`/print/curbside-signs/${tenantId}?count=6`, '_blank')}
-                  className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
-                  Print 6 signs
-                </Button>
-                <Button type="button" variant="outline"
-                  onClick={() => {
-                    const list = window.prompt('Which spots? Comma separated (e.g. 1,2,3 or A,B,Loading bay):', '1,2,3,4');
-                    if (list && list.trim()) window.open(`/print/curbside-signs/${tenantId}?spots=${encodeURIComponent(list.trim())}`, '_blank');
-                  }}
-                  className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
-                  Choose spots
-                </Button>
-              </div>
-              <Input placeholder="Alert phone — texted when someone waits too long" inputMode="tel" aria-label="Phone to alert when a customer or guest waits too long"
-                value={rs.curbsideAlertPhone ?? ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideAlertPhone: e.target.value })}
-                className="h-11 rounded-xl border-2 font-bold text-xs" />
-              <p className="text-[10px] font-bold text-muted-foreground">
-                If a customer waits 5 minutes outside, or a lounge guest waits 6, this number gets a text — because a board nobody is watching is a person nobody is helping. Leave blank to turn it off.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="Shop latitude" inputMode="decimal" aria-label="Shop latitude"
-                  value={rs.curbsideLat ?? ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideLat: e.target.value === '' ? undefined : Number(e.target.value) })}
-                  className="h-11 rounded-xl border-2 font-bold text-xs" />
-                <Input placeholder="Shop longitude" inputMode="decimal" aria-label="Shop longitude"
-                  value={rs.curbsideLng ?? ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideLng: e.target.value === '' ? undefined : Number(e.target.value) })}
-                  className="h-11 rounded-xl border-2 font-bold text-xs" />
-              </div>
-              <p className="text-[10px] font-bold text-muted-foreground">
-                Optional. With coordinates set, a customer who taps &ldquo;on my way&rdquo; gets a rough ETA and can be checked in automatically when they pull in &mdash; only while their order page is open. Find them by right-clicking your shop in Google Maps. The signs work with or without this.
-              </p>
-            </div>
-
-          </CardContent>
-        </Card>
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setOpenGroup(openGroup === 'trade' ? null : 'trade')}
-            aria-expanded={openGroup === 'trade'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
-              openGroup === 'trade' ? 'border-primary/40' : 'hover:border-primary/20')}
-          >
-            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
-              openGroup === 'trade' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
-              <Building2 className="h-[18px] w-[18px]" aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Trade &amp; wholesale</span>
-              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                {(rs as any).wholesaleCodeSet || rs.wholesaleAccessCode ? 'Access code set' : 'No access code yet'}{rs.wholesaleTaxExempt === true ? ' · tax-exempt' : ''}
-              </span>
-            </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'trade' && 'rotate-180 text-primary')} aria-hidden="true" />
-          </button>
-          {openGroup === 'trade' && (
-            <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <Lock className="w-4 h-4 text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Wholesale pricing</p>
-            </div>
-            <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-              <Link href="/retail-orders/wholesale">Manage per-business accounts</Link>
-            </Button>
-            <RetailSecretField tenantId={tenantId} which="wholesaleAccessCode" label="House code (shared fallback; per-account codes live in Wholesale)" placeholder="e.g. OPALPRO2026" className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-sm" />
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-black uppercase tracking-widest">Wholesale orders tax-exempt</Label>
-              <Switch aria-label="Wholesale orders tax-exempt" checked={rs.wholesaleTaxExempt === true}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, wholesaleTaxExempt: v })} />
-            </div>
-          </CardContent>
-        </Card>
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setOpenGroup(openGroup === 'extras' ? null : 'extras')}
-            aria-expanded={openGroup === 'extras'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
-              openGroup === 'extras' ? 'border-primary/40' : 'hover:border-primary/20')}
-          >
-            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
-              openGroup === 'extras' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              openGroup === 'look' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
               <Sparkles className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Extras</span>
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">How your shop looks</span>
               <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                Prep {Number(rs.prepMinutes) || 0} min · {Number(rs.throttlePer15) || 0} orders per 15 min
+                Layout, tagline, announcement and the product page. These move into the Shop designer next.
               </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'extras' && 'rotate-180 text-primary')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'look' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
-          {openGroup === 'extras' && (
+          {openGroup === 'look' && (
             <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Order-ahead extras</p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Store className="w-4 h-4 text-primary" />
+                <p className="text-[10px] font-black uppercase tracking-widest">Storefront</p>
+              </div>
+              <div className="flex gap-2">
+                <Button asChild size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                  <Link href="/retail-orders/designer">Design landing</Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
+                  <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer">View shop</a>
+                </Button>
+                <Button variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(`${window.location.origin}/shop/${tenantId}`)
+                      .then(() => toast({ title: 'Shop link copied' }))
+                      .catch(() => toast({ variant: 'destructive', title: 'Could not copy' }));
+                  }}>
+                  Copy link
+                </Button>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Shopping layout</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { id: 'grid' as const, label: 'Grid', hint: 'Classic cards' },
+                  { id: 'list' as const, label: 'List', hint: 'Dense rows' },
+                  { id: 'showcase' as const, label: 'Showcase', hint: 'Big & bold' },
+                ]).map((m) => (
+                  <button key={m.id} type="button" onClick={() => setRs({ ...rs, shopLayout: m.id })}
+                    className={cn('rounded-2xl border-2 p-3 space-y-2 transition-all text-left',
+                      (rs.shopLayout || 'grid') === m.id ? 'border-primary bg-primary/5' : 'hover:border-primary/30')}>
+                    <div className={cn('h-10 rounded-lg overflow-hidden flex gap-1 p-1',
+                      (rs.shopLayout || 'grid') === m.id ? 'bg-primary/10' : 'bg-muted/20')}>
+                      {m.id === 'grid' && (<><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /></>)}
+                      {m.id === 'list' && (<div className="flex-1 flex flex-col gap-1"><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /></div>)}
+                      {m.id === 'showcase' && (<div className="flex-1 rounded bg-foreground/20" />)}
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest">{m.label}</p>
+                      <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">{m.hint}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Prep promise (min, 0 = off)</Label>
-                <Input aria-label="Prep promise (min, 0 = off)" inputMode="numeric" value={String(rs.prepMinutes ?? 0)}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, prepMinutes: Number(e.target.value) || 0 })}
-                  className="h-11 rounded-xl border-2 font-black font-mono text-sm text-center" />
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tagline under your name</Label>
+                <Input aria-label="Tagline under your name" placeholder="Shop" value={rs.shopTagline || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shopTagline: e.target.value })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Max orders / 15 min (0 = off)</Label>
-                <Input aria-label="Max orders / 15 min (0 = off)" inputMode="numeric" value={String(rs.throttlePer15 ?? 0)}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, throttlePer15: Number(e.target.value) || 0 })}
-                  className="h-11 rounded-xl border-2 font-black font-mono text-sm text-center" />
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Announcement bar (optional)</Label>
+                <Input aria-label="Announcement bar (optional)" placeholder="e.g. Free pickup orders ready in 2 hours" value={rs.shopAnnouncement || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shopAnnouncement: e.target.value })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
               </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-tight">Tips at checkout</p>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">10 / 15 / 20% chips on the payment sheet</p>
-              </div>
-              <Switch aria-label="Max orders / 15 min (0 = off)" checked={rs.tipsEnabled === true} onCheckedChange={(v: boolean) => setRs({ ...rs, tipsEnabled: v })} />
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-tight">Scheduled pickup</p>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">ASAP / +15 / +30 / +45 / +60 picker</p>
-              </div>
-              <Switch aria-label="ASAP / +15 / +30 / +45 / +60 picker" checked={rs.scheduledPickup === true} onCheckedChange={(v: boolean) => setRs({ ...rs, scheduledPickup: v })} />
             </div>
           </CardContent>
         </Card>
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setOpenGroup(openGroup === 'products' ? null : 'products')}
-            aria-expanded={openGroup === 'products'}
-            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
-              openGroup === 'products' ? 'border-primary/40' : 'hover:border-primary/20')}
-          >
-            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
-              openGroup === 'products' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
-              <Package className="h-[18px] w-[18px]" aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Your products</span>
-              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
-                {retailItems.length} product{retailItems.length === 1 ? '' : 's'} · {liveCount} live
-              </span>
-            </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'products' && 'rotate-180 text-primary')} aria-hidden="true" />
-          </button>
-          {openGroup === 'products' && (
-            <div className="space-y-5">
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-3">
             <div>
               <p className="text-[11px] font-black uppercase tracking-widest">How your shop looks</p>
               <p className="text-[11px] font-bold text-muted-foreground">
-                Colours, layout and type live in the Designer, where you can watch them change as you tap. The switches below control what appears on a product page.
+                Colors, layout and type live in the Designer, where you can watch them change as you tap. The switches below control what appears on a product page.
               </p>
             </div>
             <Button asChild variant="outline" className="h-11 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
@@ -1324,7 +1143,7 @@ export default function RetailSettingsPage() {
             </Button>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-primary shrink-0" />
@@ -1421,7 +1240,32 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
+            </div>
+          )}
+        </section>
+        <section className="space-y-3" id="products">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'products' ? null : 'products')}
+            aria-expanded={openGroup === 'products'}
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
+              openGroup === 'products' ? 'border-primary/40' : 'hover:border-primary/20')}
+          >
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'products' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <Building2 className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Your products</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                {retailItems.length} product{retailItems.length === 1 ? '' : 's'} · {liveCount} live · catalog check and printing
+              </span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'products' && 'rotate-180 text-primary')} aria-hidden="true" />
+          </button>
+          {openGroup === 'products' && (
+            <div className="space-y-5">
+<Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Printer className="w-4 h-4 text-primary shrink-0" />
@@ -1487,292 +1331,6 @@ export default function RetailSettingsPage() {
             <p className="text-[11px] font-bold text-muted-foreground">
               Opens a printable catalog of everything live — print it, or save as PDF to email a stockist.
             </p>
-          </CardContent>
-        </Card>
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-card">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <Globe className="w-4 h-4 text-primary shrink-0" />
-                <p className="text-[10px] font-black uppercase tracking-widest truncate">Online catalog — {retailItems.length} item(s)</p>
-              </div>
-              {liveCount === 0 ? (
-                <Button variant="outline" size="sm" disabled className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest shrink-0">
-                  <Printer className="mr-1.5 h-3.5 w-3.5" /> Labels for all live
-                </Button>
-              ) : (
-                <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest shrink-0">
-                  <Link href={`/inventory/labels?ids=${retailItems.filter((i: any) => i.showOnline === true).map((i: any) => encodeURIComponent(i.id)).slice(0, 200).join(',')}`}><Printer className="mr-1.5 h-3.5 w-3.5" /> Labels for all live</Link>
-                </Button>
-              )}
-            </div>
-            {retailItems.length === 0 && (
-              <div className="rounded-2xl border-2 border-dashed py-10 text-center space-y-2">
-                <Store className="w-7 h-7 mx-auto opacity-20" />
-                <p className="text-[10px] font-black uppercase tracking-widest opacity-40">
-                  Add retail items in Inventory first
-                </p>
-              </div>
-            )}
-            <div className="space-y-3">
-              {retailItems.map((it: any) => {
-                const d = draftFor(it);
-                const live = it.showOnline === true;
-                return (
-                  <div key={it.id} className={cn('rounded-2xl border-2 p-4 space-y-3', live && 'border-primary/40 bg-primary/[0.02]')}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-black uppercase tracking-tight text-xs truncate">{it.name}</p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                          {it.sku ? `${it.sku} · ` : ''}MSRP ${Number(it.msrp || 0).toFixed(2)} · {variantIdsOf(it).length
-                            ? `${variantIdsOf(it).reduce((n: number, v: string) => n + Math.max(0, sellableStock((invById.get(v) as any) || { totalStock: 0 })), 0)} sellable across ${variantIdsOf(it).length} variant${variantIdsOf(it).length === 1 ? '' : 's'}`
-                            : `${it.totalStock - (it.stockReserved || 0)} sellable`}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <Button asChild variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground">
-                          <Link href={`/inventory/labels?ids=${encodeURIComponent(it.id)}`} aria-label={`Print labels for ${it.name}`}><Printer className="h-3.5 w-3.5" /></Link>
-                        </Button>
-                        <span className={cn('text-[8px] font-black uppercase tracking-widest', live ? 'text-primary' : 'text-muted-foreground/50')}>
-                          {live ? 'Live' : 'Hidden'}
-                        </span>
-                        <Switch checked={live} onCheckedChange={(v: boolean) => toggleOnline(it, v)} />
-                      </div>
-                    </div>
-                    {live && (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <Input aria-label="Wholesale $ (optional)" placeholder="Wholesale $ (optional)" inputMode="decimal" value={d.wholesale}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, wholesale: e.target.value } })}
-                            className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
-                          <Input aria-label="Wholesale min qty" placeholder="Wholesale min qty" inputMode="numeric" value={d.minQty}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, minQty: e.target.value } })}
-                            className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
-                          <Input aria-label="Weight (oz) — auto-weighs parcels" placeholder="Weight (oz) — auto-weighs parcels" inputMode="decimal" value={d.weight}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, weight: e.target.value } })}
-                            className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
-                        </div>
-                        <div className="flex gap-2">
-                          <label className={cn('flex-1 h-10 rounded-xl border-2 border-dashed flex items-center justify-center text-[9px] font-black uppercase tracking-widest cursor-pointer hover:border-primary/50 transition-all', uploading === `image-${it.id}` && 'opacity-50 pointer-events-none')}>
-                            {uploading === `image-${it.id}` ? 'Uploading…' : 'Upload images'}
-                            <input type="file" accept="image/*" multiple aria-label={`Upload images for ${it.name}`} className="hidden"
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { uploadMedia(it, e.target.files, 'image'); e.target.value = ''; }} />
-                          </label>
-                          <label className={cn('flex-1 h-10 rounded-xl border-2 border-dashed flex items-center justify-center text-[9px] font-black uppercase tracking-widest cursor-pointer hover:border-primary/50 transition-all', uploading === `video-${it.id}` && 'opacity-50 pointer-events-none')}>
-                            {uploading === `video-${it.id}` ? 'Uploading…' : 'Upload a video'}
-                            <input type="file" accept="video/*" aria-label={`Upload a video for ${it.name}`} className="hidden"
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { uploadMedia(it, e.target.files, 'video'); e.target.value = ''; }} />
-                          </label>
-                        </div>
-                        {d.video && (
-                          <p className="text-[8px] font-black uppercase tracking-widest text-primary truncate">Video attached. It saves with the item.</p>
-                        )}
-                        <Textarea aria-label="Storefront description" placeholder={'Image URLs — one per line (first is the cover)'} value={d.img}
-                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, img: e.target.value } })}
-                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
-                        <Textarea aria-label="Storefront description" placeholder="Storefront description" value={d.desc}
-                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, desc: e.target.value } })}
-                          className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
-                        <Textarea aria-label="How to use — steps or instructions" placeholder="How to use — steps or instructions" value={d.howToUse}
-                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, howToUse: e.target.value } })}
-                          className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
-                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
-                          <div>
-                            <Label className="text-[11px] font-black uppercase tracking-widest">Made to order</Label>
-                            <p className="text-[11px] font-bold text-muted-foreground">Ships in more business days than your usual time. In a cart with other items, the whole order follows the longest one.</p>
-                          </div>
-                          <Switch aria-label="Made to order"
-                            checked={d.made === true}
-                            onCheckedChange={(v: boolean) => setDrafts({ ...drafts, [it.id]: { ...d, made: v, leadMin: v && !d.leadMin ? '5' : d.leadMin, leadMax: v && !d.leadMax ? '7' : d.leadMax } })}
-                          />
-                        </div>
-                        {d.made === true && (
-                          <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-muted-foreground">
-                            <span>Ships in</span>
-                            <Input aria-label="Fewest business days" inputMode="numeric" value={d.leadMin}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, leadMin: e.target.value.replace(/[^0-9]/g, '') } })}
-                              className="h-10 w-16 rounded-xl border-2 text-center font-mono text-sm font-bold" />
-                            <span>to</span>
-                            <Input aria-label="Most business days" inputMode="numeric" value={d.leadMax}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, leadMax: e.target.value.replace(/[^0-9]/g, '') } })}
-                              className="h-10 w-16 rounded-xl border-2 text-center font-mono text-sm font-bold" />
-                            <span>business days</span>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
-                          <div>
-                            <Label className="text-[11px] font-black uppercase tracking-widest">Pre-order</Label>
-                            <p className="text-[11px] font-bold text-muted-foreground">Sell before it lands. You promise a ship-by date — the law holds you to it, and so does this.</p>
-                          </div>
-                          <Switch aria-label="Pre-order"
-                            checked={d.preorder === true}
-                            onCheckedChange={(v: boolean) => setDrafts({ ...drafts, [it.id]: { ...d, preorder: v } })}
-                          />
-                        </div>
-                        {d.preorder === true && (
-                          <div className="space-y-2">
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ships by</Label>
-                                <Input type="date" aria-label="Promised ship-by date" value={d.preorderEtaAt}
-                                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, preorderEtaAt: e.target.value } })}
-                                  className="h-10 rounded-xl border-2 font-bold text-xs" />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Orders close</Label>
-                                <Input type="date" aria-label="Last day to pre-order" value={d.preorderClosesAt}
-                                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, preorderClosesAt: e.target.value } })}
-                                  className="h-10 rounded-xl border-2 font-bold text-xs" />
-                              </div>
-                            </div>
-                            <Input placeholder="How many this run can take (blank = no limit)" inputMode="numeric" aria-label="Pre-order run limit"
-                              value={d.preorderLimit}
-                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, preorderLimit: e.target.value } })}
-                              className="h-10 rounded-xl border-2 font-bold text-xs" />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={runBusy === it.id}
-                              className="h-9 w-full rounded-xl border-2 border-amber-300 text-amber-800 font-black uppercase text-[9px] tracking-widest"
-                              onClick={async () => {
-                                if (!tenantId) return;
-                                const newDate = d.preorderEtaAt;
-                                if (!newDate) {
-                                  toast({ variant: 'destructive', title: 'Set the new ship-by date first', description: 'Change "Ships by" above, then tell everyone.' });
-                                  return;
-                                }
-                                setRunBusy(it.id);
-                                try {
-                                  const peek = await fetch('/api/retail/preorder-run-eta', {
-                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ tenantId, productId: it.id, dryRun: true }),
-                                  }).then((r) => r.json());
-                                  if (!peek.ok) {
-                                    toast({ variant: 'destructive', title: 'Could not check the run', description: peek.error || 'Try again.' });
-                                    return;
-                                  }
-                                  if (!peek.orders) {
-                                    toast({ title: 'Nobody to tell', description: 'No open pre-orders on this product yet.' });
-                                    return;
-                                  }
-                                  const ok = window.confirm(`Tell ${peek.orders} customer(s) the new date is ${newDate}? Each can keep waiting or cancel for a full refund.`);
-                                  if (!ok) return;
-                                  const why = window.prompt('Why the change? (optional \u2014 goes in the email word for word)') || '';
-                                  const res = await fetch('/api/retail/preorder-run-eta', {
-                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ tenantId, productId: it.id, newDate, note: why }),
-                                  });
-                                  const data = await res.json();
-                                  if (!res.ok) toast({ variant: 'destructive', title: 'Not sent', description: data.error || 'Try again.' });
-                                  else toast({ title: 'Everyone told', description: `${data.orders} order(s) updated, ${data.emailed} emailed.` });
-                                } catch {
-                                  toast({ variant: 'destructive', title: 'Not sent', description: 'Check your connection and try again.' });
-                                } finally {
-                                  setRunBusy(null);
-                                }
-                              }}
-                            >
-                              {runBusy === it.id ? 'Working\u2026' : 'Tell everyone the new date'}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              disabled={runBusy === it.id}
-                              className="h-9 w-full rounded-xl border-2 border-destructive/30 text-destructive font-black uppercase text-[9px] tracking-widest"
-                              onClick={async () => {
-                                if (!tenantId) return;
-                                setRunBusy(it.id);
-                                try {
-                                  const peek = await fetch('/api/retail/preorder-run-cancel', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ tenantId, productId: it.id, dryRun: true }),
-                                  }).then((r) => r.json());
-                                  if (!peek.ok) {
-                                    toast({ variant: 'destructive', title: 'Could not check the run', description: peek.error || 'Try again.' });
-                                    return;
-                                  }
-                                  if (!peek.orders) {
-                                    toast({ title: 'Nothing to cancel', description: 'No open pre-orders on this product.' });
-                                    return;
-                                  }
-                                  const ok = window.confirm(`Cancel this run? ${peek.orders} customer order(s), $${(peek.refundCents / 100).toFixed(2)} to refund. Each person is emailed. Refunds within your automatic amount go back on their own; the rest wait on Problems for someone allowed to send them.`);
-                                  if (!ok) return;
-                                  const why = window.prompt('Tell them why (goes in the email word for word):') || '';
-                                  const res = await fetch('/api/retail/preorder-run-cancel', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ tenantId, productId: it.id, reason: why }),
-                                  });
-                                  const data = await res.json();
-                                  if (!res.ok) toast({ variant: 'destructive', title: 'Not cancelled', description: data.error || 'Try again.' });
-                                  else toast({ title: 'Run cancelled', description: `${data.orders} order(s), $${(data.refundCents / 100).toFixed(2)} to refund${data.sentCents ? `, $${(data.sentCents / 100).toFixed(2)} of it sent back already` : ''}, ${data.emailed} emailed.` });
-                                } catch {
-                                  toast({ variant: 'destructive', title: 'Not cancelled', description: 'Check your connection and try again.' });
-                                } finally {
-                                  setRunBusy(null);
-                                }
-                              }}
-                            >
-                              {runBusy === it.id ? 'Working\u2026' : 'Cancel this run + refund everyone'}
-                            </Button>
-                            <p className="text-[10px] font-bold text-muted-foreground">
-                              Taken so far: {(it as any).preorderSold || 0}. Leave the close date blank to keep taking orders until you turn it off. If you miss the ship-by date, buyers get a one-tap refund — so promise a date you can keep.
-                            </p>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed px-3 py-2.5">
-                          <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
-                            {it.digital === true ? 'Sold as a download. Its files, delivery, download limit and license are set on its page, under In the shop.' : 'Selling it as a download? That’s set on its page, under In the shop.'}
-                          </p>
-                          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-                            <Link href={`/inventory/product/${encodeURIComponent(it.id)}?tab=online`}>Download</Link>
-                          </Button>
-                        </div>
-                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed px-3 py-2.5">
-                          <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
-                            {Number(it.casePack) > 1
-                              ? `Case of ${Math.floor(Number(it.casePack))}${it.caseBarcode ? ` (${it.caseBarcode})` : ', no case code yet'}${Number(it.palletPack) > 1 ? ` · pallet of ${Math.floor(Number(it.palletPack))} cases${it.palletBarcode ? ` (${it.palletBarcode})` : ''}` : ''}. `
-                              : 'No case or pallet code. '}
-                            Its codes are set on its page, under Codes and labels.
-                          </p>
-                          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-                            <Link href={`/inventory/product/${encodeURIComponent(it.id)}?tab=codes`}>Codes</Link>
-                          </Button>
-                        </div>
-                        <Textarea placeholder={'Kit or collection? List what\u2019s inside — one piece per line. Customers reporting a problem then pick the exact piece.'} value={d.kit}
-                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, kit: e.target.value } })}
-                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
-                        <Textarea placeholder={'Specs — one per line as Label: Value (e.g. Size: 15 mL)'} value={d.specs}
-                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, specs: e.target.value } })}
-                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
-                        <Textarea placeholder={'Documents — one per line as Name | https://link (e.g. MSDS | https://…)'} value={d.docs}
-                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, docs: e.target.value } })}
-                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
-                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed px-3 py-2.5">
-                          <p className="min-w-0 text-[11px] font-bold text-muted-foreground">
-                            {(it.optionGroups || []).length
-                              ? `Choices: ${(it.optionGroups || []).map((g: any) => (g === variantGroup(it) ? `${g.name} (${variantIdsOf(it).length} variant${variantIdsOf(it).length === 1 ? '' : 's'})` : g.name)).join(' · ')}`
-                              : 'Variants are added on the product’s page, under Codes and labels, and other choices under In the shop.'}
-                          </p>
-                          <Button asChild variant="outline" size="sm" className="h-9 shrink-0 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-                            <Link href={`/inventory/product/${encodeURIComponent(it.id)}?tab=${variantIdsOf(it).length ? 'codes' : 'online'}`}>{(it.optionGroups || []).length ? 'Edit choices' : 'Add choices'}</Link>
-                          </Button>
-                        </div>
-                        <VariantSettings firestore={(firestore as Firestore) || null} tenantId={String(tenantId || '')} listing={it} byId={invById as Map<string, any>}
-                          onToast={(t) => toast({ ...(t.bad ? { variant: 'destructive' as const } : {}), title: t.title, ...(t.description ? { description: t.description } : {}) })} />
-                        <Button disabled={itemBusy === it.id} onClick={() => saveItem(it)}
-                          variant="outline" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
-                          {itemBusy === it.id ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Save item'}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
           </CardContent>
         </Card>
             </div>

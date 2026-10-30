@@ -572,7 +572,7 @@ export default function ProductDetailPage() {
                 )}
 
                 {tab === 'online' && kindOf === 'retail' && (
-                    <OnlineListingTab product={product} inventory={inventory} onSave={handleOnlineSave} onSaveChoices={handleChoicesSave} />
+                    <OnlineListingTab key={product.id} product={product} inventory={inventory} onSave={handleOnlineSave} onSaveChoices={handleChoicesSave} />
                 )}
 
                 {tab === 'variants' && variantIds.length > 0 && (

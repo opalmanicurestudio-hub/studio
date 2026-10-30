@@ -16,11 +16,12 @@
 
 import { SoldForSection } from './SoldForSection';
 import { DigitalSection } from './DigitalSection';
-import { Check, ChevronDown, Loader, Plus, Trash2 } from 'lucide-react';
+import { Section } from './ListingSection';
+import { BeforeStockSection, DocumentsSection, PhotosSection, VariantsSellSection, WholesaleSection } from './ListingExtras';
+import { Check, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useMemo, useState } from 'react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -47,47 +48,6 @@ const money = (cents: number) => `$${(Math.max(0, cents) / 100).toFixed(2)}`;
 /** A new choice's or group's id, never one used before: a cart that still holds a removed choice is refused at
  *  checkout, never sold whatever took its place (ids by position were reused). */
 const freshId = (p: string) => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-
-/** One collapsible section with its own save — the unit of work. */
-function Section({
-  title, hint, children, onSave, dirty,
-}: { title: string; hint: string; children: React.ReactNode; onSave: () => void; dirty: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="rounded-[1.5rem] border-2 bg-card overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-3 px-5 py-4 text-left"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block font-black uppercase tracking-tight text-sm">{title}</span>
-          <span className="mt-0.5 block text-[11px] font-bold text-muted-foreground">{hint}</span>
-        </span>
-        {dirty && (
-          <Badge className="bg-amber-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase tracking-widest">
-            Unsaved
-          </Badge>
-        )}
-        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="space-y-3 border-t-2 px-5 py-4">
-          {children}
-          <Button
-            disabled={!dirty || busy}
-            onClick={async () => { setBusy(true); try { await onSave(); } finally { setBusy(false); } }}
-            className="h-11 w-full rounded-xl font-black uppercase text-[10px] tracking-widest"
-          >
-            {busy ? <Loader className="h-4 w-4 animate-spin" /> : dirty ? 'Save this section' : 'Saved'}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /** Repeatable rows — the structured replacement for "one per line" text. */
 function RowList({
@@ -167,6 +127,9 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
   const [holdback, setHoldback] = useState<string>(String(Number(product.storeHoldback) || 0));
   const [lowAt, setLowAt] = useState<string>(String(Number(product.lowStockThreshold) || 0));
   const [ground, setGround] = useState<boolean>(product.shipGroundOnly === true);
+  const dimStart = { w: Number(product.weightOz) > 0 ? String(product.weightOz) : '', l: Number(product.lengthIn) > 0 ? String(product.lengthIn) : '', wd: Number(product.widthIn) > 0 ? String(product.widthIn) : '', h: Number(product.heightIn) > 0 ? String(product.heightIn) : '' };
+  const [dims, setDims] = useState(dimStart);
+  const pos = (v: string) => (Number(v) > 0 ? Math.round(Number(v) * 100) / 100 : null);
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
   const flash = (what: string) => { setSavedFlash(what); setTimeout(() => setSavedFlash(null), 2000); };
 
@@ -206,7 +169,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
     options: optionGroupsToText(groups) !== optionGroupsToText(Array.isArray(product.optionGroups) ? product.optionGroups : []),
     publish: showOnline !== (product.showOnline === true),
     seo: seoT !== (product.seoTitle || '') || seoD !== (product.seoDescription || ''),
-    stock: Number(holdback) !== (Number(product.storeHoldback) || 0) || Number(lowAt) !== (Number(product.lowStockThreshold) || 0) || ground !== (product.shipGroundOnly === true),
+    stock: Number(holdback) !== (Number(product.storeHoldback) || 0) || Number(lowAt) !== (Number(product.lowStockThreshold) || 0) || ground !== (product.shipGroundOnly === true) || JSON.stringify(dims) !== JSON.stringify(dimStart),
   };
 
   // What a search result will actually look like. Both fields fall back to
@@ -218,9 +181,9 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
   const stockSection = (
     <Section
       title="Stock and shipping"
-      hint="Keep some for the shop counter, get told when it's running low, and keep items that can't fly on the ground."
+      hint="Keep some for the shop counter, get told when it's running low, its weight and size, and keep items that can't fly on the ground."
       dirty={dirty.stock}
-      onSave={async () => { await onSave(hasVariants ? { shipGroundOnly: ground } : { storeHoldback: Math.max(0, Math.floor(Number(holdback) || 0)), lowStockThreshold: Math.max(0, Math.floor(Number(lowAt) || 0)), shipGroundOnly: ground }); flash('stock'); }}
+      onSave={async () => { const size = { weightOz: pos(dims.w) ?? 0, lengthIn: pos(dims.l), widthIn: pos(dims.wd), heightIn: pos(dims.h) }; await onSave(hasVariants ? { shipGroundOnly: ground, ...size } : { storeHoldback: Math.max(0, Math.floor(Number(holdback) || 0)), lowStockThreshold: Math.max(0, Math.floor(Number(lowAt) || 0)), shipGroundOnly: ground, ...size }); flash('stock'); }}
     >
       {hasVariants ? (
         <p className="text-[11px] font-bold text-muted-foreground">
@@ -240,6 +203,14 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
           </div>
         </div>
       )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {([['w', 'Weight (oz)'], ['l', 'Length (in)'], ['wd', 'Width (in)'], ['h', 'Height (in)']] as const).map(([k, t]) => (
+          <div key={k} className="space-y-1">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground" htmlFor={`dim-${k}`}>{t}</Label>
+            <Input id={`dim-${k}`} inputMode="decimal" value={dims[k]} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDims({ ...dims, [k]: e.target.value.replace(/[^0-9.]/g, '') })} className="h-11 rounded-xl border-2 text-center font-mono font-bold" />
+          </div>))}
+      </div>
+      <p className="text-[10px] font-bold text-muted-foreground">The weight prices shipping and weighs parcels; the size helps pick the box. A variant without its own takes its listing’s.</p>
       <div className="flex items-start justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-tight">Ships by ground only</p>
@@ -299,6 +270,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
         </div>
         {dirty.publish && (
           <Button
+            disabled={showOnline && !((Number(product.msrp) || 0) > 0)}
             onClick={async () => { await onSave({ showOnline }); flash('publish'); }}
             className="mt-3 h-11 w-full rounded-xl font-black uppercase text-[10px] tracking-widest"
           >
@@ -309,9 +281,19 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
 
       <SoldForSection product={product} onSave={onSave} />
 
+      <PhotosSection product={product} onSave={onSave} />
+
       <DigitalSection product={product} onSave={onSave} />
 
       {product.digital !== true && stockSection}
+
+      {(product.digital !== true || product.preorder === true || Number(product.leadDays?.max) > 0) && <BeforeStockSection product={product} onSave={onSave} />}
+
+      <WholesaleSection product={product} onSave={onSave} />
+
+      {hasVariants && <VariantsSellSection product={product} inventory={inventory} />}
+
+      <DocumentsSection product={product} onSave={onSave} />
 
       <Section
         title="What customers read"
@@ -343,7 +325,7 @@ export function OnlineListingTab({ product, inventory, onSave, onSaveChoices }: 
         dirty={dirty.specs}
         onSave={async () => {
           await onSave({
-            specs: specs.filter((r) => r[0].trim() || r[1].trim()).map((r) => `${r[0].trim()}: ${r[1].trim()}`),
+            specs: specs.filter((r) => r[0].trim() || r[1].trim()).slice(0, 40).map((r) => ({ label: r[0].trim(), value: r[1].trim() })),
           });
           flash('specs');
         }}

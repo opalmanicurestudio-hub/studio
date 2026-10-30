@@ -268,8 +268,8 @@ const order = (x: any) => ({ tenantId: 't1', method: 'counter', customer: { name
   const catSrc = src('src/lib/shop-catalog.ts');
   check('the grid never says “From $0.00” and says “From” only when live variants cost different amounts', /const liveCs: any\[\] = vg \? vg\.choices\.filter\(\(c: any\) => c\.live !== false\) : \[\];/.test(catSrc) && /priceVaries: !!vg && new Set\(liveCs\.map/.test(catSrc));
   check('the sitemap leaves out only a variant a listing still sells (one whose listing was deleted has a page of its own)', /listedInShop\(item, listings\) \|\| soldInside\(item\)/.test(src('src/app/sitemap.ts')));
-  check('Shop settings shows how each variant sells under its listing (its own wholesale price and weight, and a setting of its own put back to the listing’s)',
-    /<VariantSettings firestore=/.test(src('src/app/(app)/retail-orders/settings/page.tsx')) && /Use the listing’s/.test(src('src/components/retail/VariantSettings.tsx')));
+  check('a listing’s In the shop tab shows how each variant sells (its own wholesale price and weight, and a setting of its own put back to the listing’s)',
+    /<VariantSettings firestore=/.test(src('src/components/inventory/ListingExtras.tsx')) && /hasVariants && <VariantsSellSection/.test(src('src/components/inventory/OnlineListingTab.tsx')) && /Use the listing’s/.test(src('src/components/retail/VariantSettings.tsx')));
 
   // ── E. A listing's pre-order run, shared by its variants (second review) ──
   fresh();
