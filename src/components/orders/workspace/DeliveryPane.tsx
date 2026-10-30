@@ -1,7 +1,8 @@
 'use client';
 // src/components/orders/workspace/DeliveryPane.tsx — A LOCAL DELIVERY, INSIDE THE ORDER (lib/delivery-plan). Where it
 // goes and when it was promised, the customer's note for the driver, then its steps: out with whoever takes it (the
-// person signed in is the driver), delivered, or brought back with the reason. One brought back can go out again.
+// person signed in is the driver), delivered, or brought back with the reason. One brought back can go out again, or
+// waits for the customer's choice on their order page (lib/delivery-retry): another try, pickup, or cancelling.
 import * as React from 'react';
 import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { markDelivered, markDeliveryFailed, markOutForDelivery } from '@/lib/fulfil-client';
@@ -88,12 +89,17 @@ export function DeliveryPane({ tenantId, order, shopZone, onToast }: { tenantId:
       ) : status === 'failed' ? (
         <div className="rounded-2xl p-4" style={{ background: C.warnSoft }}>
           <p className="m-0 text-[15px] font-semibold" style={{ color: C.warn }}>Brought back{d.failedAt ? ` at ${formatTime(d.failedAt, shopZone)}` : ''}</p>
-          <p className="m-0 mt-0.5 text-[14px]" style={{ color: C.warn }}>{d.failReason ? `${String(d.failReason).replace(/[.!?]$/, '')}.` : 'It couldn’t be delivered.'}{d.failCause ? ` ${d.failCause === 'customer' ? 'On their side.' : 'Not on their side.'}` : ''} Talk to {who} about another time, then send it out again, or cancel it from More.</p>
+          <p className="m-0 mt-0.5 text-[14px]" style={{ color: C.warn }}>{d.failReason ? `${String(d.failReason).replace(/[.!?]$/, '')}.` : 'It couldn’t be delivered.'}{d.failCause ? ` ${d.failCause === 'customer' ? 'On their side.' : 'Not on their side.'}` : ''}</p>
+          <p className="m-0 mt-1 text-[14px]" style={{ color: C.warn }}>{d.retryPay?.status === 'awaiting_payment'
+            ? `${who} is paying for another try${d.retryPay.window?.labelOn ? `: ${d.retryPay.window.labelOn}` : ''}.`
+            : `${who} can choose another try, pick it up or cancel on their order page. You can also send it out again now.`}</p>
         </div>
       ) : (
         <div className="rounded-2xl p-4" style={{ background: C.soft }}>
           <p className="m-0 text-[13px] font-semibold" style={muted}>{stage === 'ready' ? 'Shelf' : 'Packed'}</p>
           <p className="m-0 mt-0.5 text-[17px] font-semibold">{stage === 'ready' ? (order.shelfSlot ? `Spot ${order.shelfSlot}, waiting for a driver` : 'Waiting for a driver') : 'Ready to go out'}</p>
+          {d.retry?.label && <p className="m-0 mt-1 text-[14px]">{who} chose another try: {d.retry.label}{Number(d.retry.cents) > 0 ? ` (paid $${(Number(d.retry.cents) / 100).toFixed(2)})` : ' (free)'}.</p>}
+          {d.lastFail?.reason && <p className="m-0 text-[13px]" style={muted}>Try {d.lastFail.try || 1}: {String(d.lastFail.reason).replace(/[.!?]$/, '')}.</p>}
         </div>
       )}
       {where}

@@ -25,8 +25,9 @@ type Draft = { s: Settings; ways: Omit<Ways, 'curbsideName'> };
 
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-// A plan saved before drivers' vehicles and proof at the door existed reads as none and "a photo when it's left".
-const settingsOf = (p: DeliveryPlan): Settings => { const { origin, ...rest } = p; void origin; return JSON.parse(JSON.stringify({ ...rest, vehicles: rest.vehicles || {}, proof: rest.proof || { photo: 'left', pinOverCents: null } })); };
+// A plan saved before drivers' vehicles, proof at the door and the second-try rule existed reads as none, "a photo when
+// it's left" and "charge again when it's the customer's side, free when it's ours".
+const settingsOf = (p: DeliveryPlan): Settings => { const { origin, ...rest } = p; void origin; return JSON.parse(JSON.stringify({ ...rest, vehicles: rest.vehicles || {}, proof: rest.proof || { photo: 'left', pinOverCents: null }, secondTry: rest.secondTry || { customer: 'charge', shop: 'free' } })); };
 const waysOf = (w: Ways) => ({ pickup: w.pickup, curbside: w.curbside, shipping: w.shipping });
 const mins = (hm: string) => { if (hm === '24:00') return 1440; const m = /^(\d{2}):(\d{2})$/.exec(hm || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
 const prepWords = (m: number) => {
@@ -92,6 +93,15 @@ function CountInput({ n, onChange, label, disabled, max = 500 }: { n: number; on
   const d = useDraft(String(n), (t) => { const x = Math.floor(Number(t)); return !t.trim() || !Number.isFinite(x) || x < 1 ? null : Math.min(max, x); }, onChange);
   return <input inputMode="numeric" aria-label={label} disabled={disabled} value={d.value} onFocus={d.onFocus} onBlur={d.onBlur} onKeyDown={d.onKeyDown}
     onChange={(e) => d.onChange(e.target.value.replace(/\D/g, '').slice(0, 3))} className={`${field} w-20 text-right`} style={fieldStyle} />;
+}
+
+/** Charge the delivery fee again, or free. */
+function SecondTry<T extends 'charge' | 'free'>({ value, onChange, label, disabled }: { value: T; onChange: (v: T) => void; label: string; disabled?: boolean }) {
+  return (
+    <select aria-label={label} disabled={disabled} value={value} onChange={(e) => onChange(e.target.value as T)} className={`${field} pr-8`} style={fieldStyle}>
+      <option value="charge">Charge the delivery fee again</option>
+      <option value="free">Free</option>
+    </select>);
 }
 
 function SetRow({ label, note, children }: { label: string; note?: React.ReactNode; children: React.ReactNode }) {
@@ -465,6 +475,19 @@ export function DeliveryScreen() {
                   <Toggle label="Ask for their delivery code" on={s.proof.pinOverCents !== null} disabled={!canEdit} onChange={(v) => set({ proof: { ...s.proof, pinOverCents: v ? 15000 : null } })} />
                 </SetRow>
               </div>
+            </section>
+
+            <section aria-labelledby="retry-h" className="p-5" style={card}>
+              <h2 id="retry-h" className="m-0 text-[13px] font-semibold" style={muted}>A second try after a failed delivery</h2>
+              <div className="mt-2">
+                <SetRow label="Failed on the customer’s side" note="No one answered, couldn’t get in, or the address was wrong.">
+                  <SecondTry label="Second try when it failed on the customer’s side" value={s.secondTry.customer} disabled={!canEdit} onChange={(v) => set({ secondTry: { ...s.secondTry, customer: v } })} />
+                </SetRow>
+                <SetRow label="Failed on the shop’s or driver’s side" note="Not safe to leave it, or something else.">
+                  <SecondTry label="Second try when it failed on the shop’s side" value={s.secondTry.shop} disabled={!canEdit} onChange={(v) => set({ secondTry: { ...s.secondTry, shop: v } })} />
+                </SetRow>
+              </div>
+              <p className="m-0 mt-2 text-[13px] leading-snug" style={muted}>The driver’s reason decides which side it was. Charging again means the order’s own delivery fee. The customer can also pick it up, or cancel for their items back; when it failed on your side, their delivery fee comes back too.</p>
             </section>
           </div>
         </div>

@@ -62,6 +62,12 @@ export type DeliveryPlan = {
    * never; and the customer's delivery code for orders at or over an amount (null = never asked).
    */
   proof: { photo: 'always' | 'left' | 'off'; pinOverCents: number | null };
+  /**
+   * A second try after a delivery couldn't be made (lib/delivery-retry): charged the order's delivery fee again, or
+   * free, by whose side it failed on. The customer's side: no one answered, couldn't get in, the address. The shop's:
+   * not safe to leave it, something else.
+   */
+  secondTry: { customer: 'charge' | 'free'; shop: 'free' | 'charge' };
 };
 
 export const MAX_ZONES = 12;
@@ -131,6 +137,7 @@ export function cleanDelivery(raw: any): DeliveryPlan {
       photo: ['always', 'left', 'off'].includes(raw?.proof?.photo) ? raw.proof.photo : 'left',
       pinOverCents: raw?.proof?.pinOverCents === null || raw?.proof?.pinOverCents === undefined || raw?.proof?.pinOverCents === '' ? null : cents(raw.proof.pinOverCents, 10_000_000) || null,
     },
+    secondTry: { customer: raw?.secondTry?.customer === 'free' ? 'free' : 'charge', shop: raw?.secondTry?.shop === 'charge' ? 'charge' : 'free' },
   };
 }
 

@@ -20,9 +20,9 @@ export function unitsLeft(l: any): number {
   return Math.max(0, c0(l?.qtyOrdered) - c0(l?.qtyShorted) - c0(l?.qtyReturned) - c0(l?.qtyRefunded));
 }
 
-/** Shipping charged that hasn't been refunded yet. */
+/** Shipping charged that hasn’t been refunded yet (a delivery fee given back and marked done by hand counts too: lib/delivery-retry). */
 export function shippingLeft(o: any): number {
-  return Math.max(0, c0(o?.shippingCents) - c0(o?.shippingRefundedCents));
+  return Math.max(0, c0(o?.shippingCents) - c0(o?.shippingRefundedCents) - c0(o?.deliveryFeeBackHandCents));
 }
 
 /** The items' part: what was paid for them and the tax that went with them. */

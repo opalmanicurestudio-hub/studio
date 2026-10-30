@@ -929,6 +929,12 @@ export async function markOutForDelivery(
       const st = String(order.delivery?.status || 'waiting');
       if (st === 'out') return { ok: true, message: `Already out with ${order.delivery?.driverName || 'a driver'}.` };
       if (st === 'delivered' || order.stage === 'completed') return { ok: false, message: 'This order has been delivered.' };
+      // The customer is paying for another try right now (lib/delivery-retry-server): it waits for that, so they don't pay
+      // for a try that's already happening. A page left open lapses within the half hour.
+      const rp = order.delivery?.retryPay;
+      if (rp?.status === 'awaiting_payment' && Date.now() - (Date.parse(String(rp.at || '')) || 0) < 35 * 60000) {
+        return { ok: false, message: `${String(order.customerName || 'The customer').split(' ')[0]} is paying for another try${rp.window?.label ? ` (${rp.window.label})` : ''}. Wait a few minutes, then send it out.` };
+      }
       // Packed and not yet on the shelf counts as ready: it's going straight out the door.
       if (order.stage === 'packed') {
         const g = canAdvance(order, 'ready'); if (!g.ok) return { ok: false, message: g.reason };

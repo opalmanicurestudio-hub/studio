@@ -143,6 +143,9 @@ async function handle(req: NextRequest) {
   const internalKey = !!process.env.CRON_SECRET && req.headers.get('x-internal-key') === process.env.CRON_SECRET;
   const internal = internalKey && body.reason === 'customer_cancel';
   const together = internalKey && body.reason === 'ship_together';
+  // The delivery fee for a try that failed on the shop's side, when the customer picks it up instead (lib/delivery-retry):
+  // never more than what's owed back that way.
+  const feeBackAsk = internalKey && body.reason === 'delivery_fee_back';
   const policyAsk = body.reason === 'policy';
   const autoBelow = Math.max(0, Number(tenant.retailSettings?.policies?.refundAutoBelowCents) || 0);
   const underAuto = (p: number) => autoBelow > 0 && p > 0 && p <= autoBelow && !lostLink;
@@ -160,6 +163,10 @@ async function handle(req: NextRequest) {
   if (together) {
     if (!order.shippedWithOrderId || pendingNow <= 0 || pendingNow > Math.max(0, Number(order.shippingCents) || 0)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
     actor = { uid: 'system', name: 'Shipped together (automatic shipping refund)' };
+  } else if (feeBackAsk) {
+    const owed = c0(order.deliveryFeeBackCents) - c0(order.deliveryFeeBackRefundedCents);
+    if (owed <= 0 || pendingNow <= 0 || pendingNow > owed || pendingNow > c0(order.shippingCents)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
+    actor = { uid: 'system', name: 'Delivery fee back (it couldn’t be delivered)' };
   } else if (internal) {
     if (order.stage !== 'cancelled' || !underAutoTotal(pendingNow)) return NextResponse.json({ error: 'This refund needs the shop to send it.' }, { status: 403 });
     actor = { uid: 'customer', name: 'Customer cancellation (automatic)' };
@@ -311,6 +318,8 @@ async function handle(req: NextRequest) {
         if (pending <= 0) throw new Error('none');
         if (autoCap && pending > autoCap) throw new Error('over');
         if (policyPath && pending + autoUsed(autoSnap) > autoCap) throw new Error('over');
+        // The delivery fee owed back, as the order is now: never anything else waiting with it.
+        if (feeBackAsk && (pending > c0(cur.deliveryFeeBackCents) - c0(cur.deliveryFeeBackRefundedCents) || pending > c0(cur.shippingCents))) throw new Error('over');
         // In all, never more than is left of what was paid: store credit already given for a return counts as given back.
         const cardRoom = piId ? familyRefundableCents(payer, family) : 0;
         const otherRoom = roomCents(payer);
@@ -439,8 +448,11 @@ async function handle(req: NextRequest) {
         const addShip = add && add.kind === 'shipping' ? add.cents : 0;
         const togetherLeft = Math.max(0, c0(cur.shipTogetherRefundCents) - c0(cur.shipTogetherRefundedCents));
         const togetherNow = Math.min(togetherLeft, Math.max(0, cents + given - addShip - tipPart));
-        const shipPart = Math.min(cents + given, addShip + togetherNow);
-        const taxPart = refundTaxPart(payerNow, Math.max(0, cents + given - shipPart - tipPart), { refundedTaxCents: Number(payerNow?.refundedTaxCents) || 0, shippingOnly: together });
+        // The same for a delivery fee owed back when a delivery failed on the shop's side (lib/delivery-retry).
+        const feeBackLeft = Math.max(0, c0(cur.deliveryFeeBackCents) - c0(cur.deliveryFeeBackRefundedCents));
+        const feeBackNow = Math.min(feeBackLeft, Math.max(0, cents + given - addShip - tipPart - togetherNow));
+        const shipPart = Math.min(cents + given, addShip + togetherNow + feeBackNow);
+        const taxPart = refundTaxPart(payerNow, Math.max(0, cents + given - shipPart - tipPart), { refundedTaxCents: Number(payerNow?.refundedTaxCents) || 0, shippingOnly: together || feeBackAsk });
         [taxCard, taxOther] = splitTax(taxPart, [cents, given]);
         tipMeta = { tipCard, tipOther, tipBooked };
         tx.update(oRef, {
@@ -454,7 +466,10 @@ async function handle(req: NextRequest) {
           // A part refund: the items it was for (so they can't be refunded twice), the shipping, and the note.
           ...(add ? partRefundApply(cur, add, { at: now, by: actor.name, seq, refundId }) : {}),
           // The same-box shipping refund, counted as shipping given back (so it can't be refunded again as shipping).
-          ...(togetherNow ? { shipTogetherRefundedCents: c0(cur.shipTogetherRefundedCents) + togetherNow, shippingRefundedCents: c0(cur.shippingRefundedCents) + addShip + togetherNow } : {}),
+          ...(togetherNow || feeBackNow ? {
+            ...(togetherNow ? { shipTogetherRefundedCents: c0(cur.shipTogetherRefundedCents) + togetherNow } : {}),
+            ...(feeBackNow ? { deliveryFeeBackRefundedCents: c0(cur.deliveryFeeBackRefundedCents) + feeBackNow } : {}),
+            shippingRefundedCents: c0(cur.shippingRefundedCents) + addShip + togetherNow + feeBackNow } : {}),
         });
         if (p && (mine(p.refundInFlight) || (follow && taxPart))) tx.update(pRef, { ...(mine(p.refundInFlight) ? { refundInFlight: null } : {}), ...(follow && taxPart ? { refundedTaxCents: (Number(p.refundedTaxCents) || 0) + taxPart } : {}) });
         // Sent within the shop's automatic amount: counted for the order paid on, for everything made from it.

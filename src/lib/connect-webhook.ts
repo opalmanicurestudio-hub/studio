@@ -148,6 +148,13 @@ export async function handleConnectWebhook(req: NextRequest) {
           } catch (e: any) { console.error('[connect-webhook] address change payment failed', e?.message); }
           break;
         }
+        // A customer paid for another try at a delivery that couldn't be made (lib/delivery-retry-server; safe to run twice).
+        if (sessionType === 'delivery_retry') {
+          try { if (session.metadata?.retailOrderId) { const { finishRetryPay } = await import('@/lib/delivery-retry-server');
+              await finishRetryPay(db, tenant.id, String(session.metadata.retailOrderId), session.id, { session, stripe: stripe2 }); }
+          } catch (e: any) { console.error('[connect-webhook] delivery retry payment failed', e?.message); }
+          break;
+        }
         if (sessionType === 'deposit_topup') {
           try { if (session.payment_status === 'paid' && session.metadata?.appointmentId) { const { prepTopUpPaid } = await import('@/lib/prep-check-server');
               await prepTopUpPaid(getAdminDb(), tenant.id, String(session.metadata.appointmentId), { cents: Number(session.amount_total) || Number(session.metadata.cents) || 0, sessionId: session.id, chargeId: null }); }
@@ -574,7 +581,7 @@ export async function handleConnectWebhook(req: NextRequest) {
         let meta: any = { ...(charge.metadata || {}) };
         const chPi = typeof charge.payment_intent === 'string' ? charge.payment_intent : (charge.payment_intent as any)?.id || null;
         if (!meta.type && chPi) { try { const pi: any = await stripe2.paymentIntents.retrieve(chPi, {}, { stripeAccount: connAcct }); meta = { ...(pi?.metadata || {}), ...meta }; } catch { /* told without it */ } }
-        const shopOrder = meta.type === 'retail_order' || meta.type === 'address_change';
+        const shopOrder = meta.type === 'retail_order' || meta.type === 'address_change' || meta.type === 'delivery_retry';
         for (const rf of refunds) {
           if (!rf || ['failed', 'canceled'].includes(String(rf.status || ''))) continue;
           if (!shopOrder && !rf.metadata?.retailOrderId) {

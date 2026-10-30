@@ -201,7 +201,7 @@ ok(/case 'out_for_delivery'/.test(read('src/lib/order-tracking.ts')) && /case 'd
 ok(/method === 'delivery'\n        \? `We will deliver it/.test(read('src/lib/retail-webhook.ts')), 'the confirmation email says when it’s delivered, not pickup');
 ok(/o\.method !== 'delivery'\)\), \(\) => setOrders/.test(read('src/components/pos/desk/OrderPickup.tsx')) && /o\.method !== 'ship' && o\.method !== 'delivery'\)/.test(read('src/components/fulfilment/FulfilmentPanel.tsx')), 'deliveries stay off the pickup lists at the desk and on the floor');
 const rules = read('firestore.rules');
-ok(/'deliveryWindowKey', 'deliveryAsapAt', 'tipFor',\s+'shippingAddress', 'deliveredAt'\]/.test(rules) && /'handoff', 'delivery'\]/.test(rules), 'the rules lock what checkout and the delivery steps write');
+ok(/'deliveryWindowKey', 'deliveryAsapAt', 'tipFor',\s+'shippingAddress', 'deliveredAt'[,\]]/.test(rules) && /'handoff', 'delivery'\]/.test(rules), 'the rules lock what checkout and the delivery steps write');
 
 if (bad) { console.error(`\n${bad} failed`); process.exit(1); }
 console.log('\nall delivery checks passed');

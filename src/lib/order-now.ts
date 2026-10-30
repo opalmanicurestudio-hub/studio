@@ -38,7 +38,10 @@ export function orderNow(o: any, help: any = {}): Now | null {
   if (o.method === 'delivery' && o.delivery && ['paid', 'picking', 'packed', 'ready'].includes(o.stage)) {
     const d = o.delivery; const when = d.when ? ` ${/^within/.test(d.when) ? d.when : `on ${d.when}`}` : ' soon';
     if (d.status === 'out') return { tone: 'calm', title: 'On its way', body: `${d.driver ? `${d.driver} is` : 'We’re'} bringing it to you now.`, extra: refund };
-    if (d.status === 'failed') return { tone: 'act', title: 'We couldn’t deliver it', body: 'It’s back at the shop, safe. The shop will be in touch to arrange another time.', extra: refund };
+    // They choose what happens next on the page (lib/delivery-retry): another try, picking it up, or cancelling.
+    if (d.status === 'failed') return d.choices
+      ? { tone: 'act', title: 'We couldn’t deliver it', body: 'It’s back at the shop, safe. Choose another time, pick it up, or cancel.', action: { label: 'Choose', kind: 'scroll', target: 'delivery-choice' }, extra: refund }
+      : { tone: 'act', title: 'We couldn’t deliver it', body: 'It’s back at the shop, safe. The shop will be in touch to arrange another time.', extra: refund };
     return { tone: 'calm', title: o.stage === 'ready' || o.stage === 'packed' ? 'Packed and ready to go out' : 'We’re getting it ready', body: `We’ll deliver it${when}. This page shows when it’s on its way.`, extra: refund };
   }
   if (['paid', 'picking'].includes(o.stage)) return { tone: 'calm', title: ship ? 'We’re packing your order' : 'We’re getting it ready', body: ship ? (w ? `It ships by ${w.by}${w.arrive ? ` and should arrive ${w.arrive}` : ''}. We’ll email you tracking as soon as it does.` : 'We’ll email you tracking as soon as it ships.') : `We’ll ${o.hasPhone ? 'text and ' : ''}email you the moment it’s ready.${curb ? ' Then just tell us when you’re here.' : ''}`, extra: refund };

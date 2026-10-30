@@ -15,6 +15,7 @@ import { sendRestockAlerts } from '@/lib/restock-alerts';
 import { sweepUncollected } from '@/lib/retail-uncollected';
 import { sweepReaderPayments } from '@/lib/reader-sale';
 import { sweepAddressPays } from '@/lib/address-pay';
+import { sweepRetryPays } from '@/lib/delivery-retry-server';
 import { finishPaidOrder } from '@/lib/retail-webhook';
 import { shareOrderTip } from '@/lib/order-tips';
 import { sweepMoneyOnTheWay } from '@/lib/money-sweep';
@@ -42,6 +43,8 @@ export async function GET(req: NextRequest) {
     if (!tenant.stripeAccountId && !tenant.stripeConnectAccountId) { await money(); return; }
     // Payments for a new address nobody came back from: the change goes on, or the payment page closes (lib/address-pay).
     try { counts.addressPays = (counts.addressPays || 0) + await sweepAddressPays(db, t.id, tenant); } catch { /* next run */ }
+    // Payments for another delivery try nobody came back from, and their refunds (lib/delivery-retry-server).
+    try { counts.retryPays = (counts.retryPays || 0) + await sweepRetryPays(db, t.id, tenant); } catch { /* next run */ }
     // Card reader payments the desk never heard back about: captured, recorded or released (lib/reader-sale).
     try { const r = await sweepReaderPayments(db, t.id, tenant); counts.readerChecked += r.checked; counts.readerCaptured += r.captured; counts.readerReleased += r.released; } catch { /* next run */ }
     // Swap questions nobody answered in time become refunds, so the order isn't held up.

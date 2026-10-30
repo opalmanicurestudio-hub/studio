@@ -47,11 +47,13 @@ export function backSoFarCents(o: { refundedCents?: number; refundedOtherCents?:
 /** The tip inside a refund. A refund gives back the items, the shipping and the tax first, and the tip only once those
  *  have all gone back (a cancelled order, a refund of everything). The tip isn't the shop's sale, so the books take it
  *  out of the refund: off the team's tips if it had been shared with them (lib/order-tips), or nowhere if it hadn't
- *  been booked yet. `backBeforeCents` is what earlier refunds gave back in all (card and gift card or store credit). */
-export function refundTipPart(o: { tipCents?: number; totalCents?: number; refundedTipCents?: number; refundedCents?: number; refundedOtherCents?: number; nonCardRestored?: { giftCents?: number; creditCents?: number } | null } | null | undefined, cents: number, opts: { backBeforeCents?: number } = {}): number {
+ *  been booked yet. A delivery fee kept on a cancellation (deliveryFeeKeptCents) isn't waiting to come back first. `backBeforeCents` is what earlier refunds gave back in all (card and gift card or store credit). */
+export function refundTipPart(o: { tipCents?: number; totalCents?: number; refundedTipCents?: number; refundedCents?: number; refundedOtherCents?: number; nonCardRestored?: { giftCents?: number; creditCents?: number } | null; deliveryFeeKeptCents?: number } | null | undefined, cents: number, opts: { backBeforeCents?: number } = {}): number {
   const tip = c0(o?.tipCents); if (!tip || c0(cents) <= 0) return 0;
   const tipBack = Math.min(tip, c0(o?.refundedTipCents));
-  const nonTipTotal = Math.max(0, c0(o?.totalCents) - tip);
+  // A delivery fee the shop keeps when a cancelled delivery failed on the customer's side (lib/delivery-retry) never
+  // comes back, so the tip is reached without it.
+  const nonTipTotal = Math.max(0, c0(o?.totalCents) - tip - c0(o?.deliveryFeeKeptCents));
   const backBefore = c0(opts.backBeforeCents ?? backSoFarCents(o));
   const nonTipLeft = Math.max(0, nonTipTotal - Math.max(0, backBefore - tipBack));
   return Math.min(tip - tipBack, Math.max(0, c0(cents) - nonTipLeft));

@@ -3,6 +3,9 @@ import { brandOf } from '@/lib/shop-site';
 import { PIN_TRIES, pickupPin, pinKeyOf } from '@/lib/pickup-pass';
 import { proofNeeded } from '@/lib/delivery-run';
 import { deliveryFrom } from '@/lib/delivery-plan';
+import { canChoose, choiceWords, retryCents, retryPayOpen } from '@/lib/delivery-retry';
+import { cardRefundableCents } from '@/lib/retail-money';
+import { isFollowUp as isFollowUpOrder } from '@/lib/order-family';
 
 import { putTracking, trackingKey } from '@/lib/order-tracking';
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
@@ -452,8 +455,23 @@ export async function GET(req: NextRequest) {
           code: passOk && ['waiting', 'out', 'failed'].includes(String(d.status || 'waiting')) && !['placed', 'cancelled', 'completed'].includes(String(order.stage)) && Number(order.pinTries || 0) < PIN_TRIES
             && proofNeeded(order, deliveryFrom(tenantSnap.exists ? (tenantSnap.data() as any)?.retailSettings : null), false).pin ? pickupPin(tenantId, pinKeyOf(order, orderId)) || null : null,
           failed: d.status === 'failed' ? { why: passOk ? String(d.failReason || '') : '', customerSide: d.failCause === 'customer' } : null,
+          // Back at the shop: what they can do next and what each costs or gives back (lib/delivery-retry), and a payment
+          // page for another try they haven't finished.
+          choices: canChoose(order) ? (() => {
+            const plan = deliveryFrom(rs);
+            const cardCents = isFollowUpOrder(order) ? null : cardRefundableCents(order);
+            const live = retryPayOpen(order) && Date.now() - (Date.parse(String(d.retryPay?.at || '')) || 0) < 30 * 60000;
+            return { ...choiceWords(order, plan, { cardCents, pickup: rs.pickupEnabled !== false, withWhy: passOk }), retryCents: retryCents(order, plan),
+              payOpen: live ? { url: String(d.retryPay.url || ''), label: String(d.retryPay.window?.label || ''), cents: Number(d.retryPay.cents) || 0 } : null };
+          })() : null,
+          // Another try they booked: when, and what they paid for it.
+          retry: d.status !== 'failed' && d.retry?.label ? { label: String(d.retry.label), cents: Number(d.retry.cents) || 0 } : null,
+          retryPay: d.retryPay && ['refunded', 'refund_failed', 'refunding'].includes(String(d.retryPay.status)) ? { status: String(d.retryPay.status), cents: Number(d.retryPay.paidCents || d.retryPay.cents) || 0, why: String(d.retryPay.refundWhy || '') } : null,
         };
       })() : null,
+      // A delivery they chose to pick up instead (lib/delivery-retry), with the delivery fee coming back when it failed on
+      // the shop's side.
+      switchedFromDelivery: order.switchedFrom?.method === 'delivery' ? { at: order.switchedFrom.at || null, feeBackCents: Number(order.switchedFrom.feeBackCents) || 0 } : null,
       /* The address flow (lib/address-flow): whether the shop asked them to confirm it, their change waiting for the
        * shop (or its answer), and what a change would do now. Never why: a hold for review isn't shown. */
       ...(order.method === 'ship' ? (() => {

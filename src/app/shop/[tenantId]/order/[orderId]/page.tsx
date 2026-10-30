@@ -26,6 +26,7 @@ import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/comp
 import { OrderContactCard } from '@/components/shop/OrderContactCard';
 import { OrderVerify } from '@/components/shop/OrderVerify';
 import { PickupCollector } from '@/components/shop/PickupCollector';
+import { DeliveryChoices, type DeliveryChoicesData } from '@/components/shop/DeliveryChoices';
 import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
@@ -62,7 +63,9 @@ interface StatusOrder {
   id: string; orderNumber: number; stage: string; method: string; priceTier: string;
   pickupAt?: string; tipCents?: number;
   delivery?: { when: string; status: string; outAt: string | null; deliveredAt: string | null; failedAt: string | null; driver: string | null; note: string;
-    photoUrl?: string | null; left?: string | null; code?: string | null; failed?: { why: string; customerSide: boolean } | null } | null;
+    photoUrl?: string | null; left?: string | null; code?: string | null; failed?: { why: string; customerSide: boolean } | null;
+    choices?: DeliveryChoicesData | null; retry?: { label: string; cents: number } | null; retryPay?: { status: string; cents: number; why: string } | null } | null;
+  switchedFromDelivery?: { at: string | null; feeBackCents: number } | null;
   businessName: string; poNumber: string; customerName: string;
   lines: StatusLine[];
   subtotalCents: number; taxCents: number; shippingCents: number; promo?: { code: string; label: string; cents: number; freeShipping: boolean } | null; offerSavings?: { label: string; cents: number } | null;
@@ -470,6 +473,18 @@ export default function OrderStatusPage() {
     return data;
   };
 
+  // A DELIVERY THAT COULDN'T BE MADE (lib/delivery-retry): another try, pickup, or cancelling (api/retail/delivery-choice).
+  const deliveryChoice = useCallback(async (payload: any) => {
+    const res = await fetch('/api/retail/delivery-choice', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId, orderId, qrToken: selfToken || '', pass: passRef.current, ...payload }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.code === 'pass_needed') setVerifyOpen(true);
+    if (!res.ok) throw new Error(data.error || data.message || 'That didn’t go through. Try again.');
+    return data;
+  }, [tenantId, orderId, selfToken]);
+
   // THE ADDRESS (lib/address-flow): checked with the carrier before it's saved (components/shop/AddressReview), then
   // straight onto the order or sent to the shop to approve, by the shop's policy. The answer comes back here.
   const saveAddress = async (o: { token?: string; unitAnswer?: 'added' | 'none'; address: ReviewAddress }) => {
@@ -545,6 +560,26 @@ export default function OrderStatusPage() {
       } finally {
         try { const u = new URL(window.location.href); u.searchParams.delete('addr_paid'); u.searchParams.delete('addr_cancel'); window.history.replaceState(null, '', u.toString()); } catch { /* the page still works */ }
         setPayAsk(null); load();
+      }
+    })();
+  }, [selfToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Back from paying for another delivery try (or leaving the page): the try is booked, or the place goes back.
+  const retryReturnDone = useRef(false);
+  useEffect(() => {
+    if (!selfToken || retryReturnDone.current) return;
+    const q = new URLSearchParams(window.location.search);
+    const paid = q.get('dretry_paid'); const left = q.has('dretry_cancel');
+    if (!paid && !left) return;
+    retryReturnDone.current = true;
+    (async () => {
+      try {
+        const d = await deliveryChoice(paid ? { action: 'retry_paid', sessionId: paid } : { action: 'retry_cancel' });
+        toast({ title: d.result === 'applied' ? 'Another try is booked' : d.result === 'cancelled' || d.result === 'expired' ? 'Nothing was charged' : d.result === 'refunded' ? 'Payment refunded' : 'Thanks', description: d.message });
+      } catch (e: any) {
+        toast({ variant: 'destructive', title: 'We couldn’t check the payment yet', description: e?.message || 'It will show here shortly.' });
+      } finally {
+        try { const u = new URL(window.location.href); u.searchParams.delete('dretry_paid'); u.searchParams.delete('dretry_cancel'); window.history.replaceState(null, '', u.toString()); } catch { /* the page still works */ }
+        load();
       }
     })();
   }, [selfToken]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1092,6 +1127,8 @@ export default function OrderStatusPage() {
                     : 'Your pickup code — ready when you are'}
                 </p>
               </div>
+              {order.switchedFromDelivery && order.stage !== 'completed' && (
+                <p className="text-[12px] font-bold">You chose to pick it up instead of another delivery.{order.switchedFromDelivery.feeBackCents > 0 ? ` Your ${fmt(order.switchedFromDelivery.feeBackCents)} delivery fee goes back to your card.` : ''}</p>)}
               <img src={qrDataUrl} alt={`Pickup QR for order ${order.orderNumber}`} className="w-56 h-56 mx-auto rounded-2xl border-2" />
               {order.pickupPin || order.collectorEditable || order.collector ? (
                 <PickupCollector
@@ -1303,7 +1340,15 @@ export default function OrderStatusPage() {
                 <a href={order.delivery.photoUrl} target="_blank" rel="noreferrer" className="block">
                   <img src={order.delivery.photoUrl} alt="Where your order was delivered" className="mt-1 max-h-64 w-full rounded-2xl object-cover" />
                 </a>)}
-              {order.delivery.status === 'failed' && order.stage !== 'completed' && <p className="text-[12px] font-bold text-amber-800">We couldn’t deliver it this time{order.delivery.failed?.why ? ` (${order.delivery.failed.why.replace(/[.!?]$/, '').toLowerCase()})` : ''}. It’s back at the shop. Write to the shop under Need help with this order to arrange another time.</p>}
+              {order.delivery.status === 'failed' && order.stage !== 'completed' && <p className="text-[12px] font-bold text-amber-800">We couldn’t deliver it this time{order.delivery.failed?.why ? ` (${order.delivery.failed.why.replace(/[.!?]$/, '').toLowerCase()})` : ''}. It’s back at the shop, safe.{order.delivery.choices ? '' : ' Write to the shop under Need help with this order to arrange another time.'}</p>}
+              {order.delivery.status === 'failed' && order.delivery.choices && selfToken && (
+                <div className="pt-2">
+                  <DeliveryChoices data={order.delivery.choices} orderNumber={order.orderNumber} call={deliveryChoice}
+                    onCancel={async () => String((await selfServe({ action: 'cancel', reason: 'The delivery couldn’t be made' })).message || 'Order canceled.')}
+                    onDone={(title, description) => { toast({ title, description }); load(); }} />
+                </div>)}
+              {order.delivery.status === 'waiting' && order.delivery.retry && <p className="text-[12px] font-bold">Another try, as you chose{order.delivery.retry.cents > 0 ? `. You paid ${fmt(order.delivery.retry.cents)} for it` : ''}.</p>}
+              {order.delivery.retryPay && <p className="text-[12px] font-bold" style={{ color: '#1f7a4d' }}>{order.delivery.retryPay.status === 'refunded' ? `The ${fmt(order.delivery.retryPay.cents)} you paid for another try was refunded to your card.` : `The ${fmt(order.delivery.retryPay.cents)} you paid for another try will be refunded to your card.`}</p>}
             </CardContent>
           </Card>
         )}

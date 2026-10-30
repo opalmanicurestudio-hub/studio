@@ -12,7 +12,8 @@ import { formatTime, tenantTimeZone } from '@/lib/tenant-time';
 //   out     — who's bringing it, and when it should arrive
 //   door    — the driver is at the door and couldn't reach them: answer on the order page in the next few minutes
 //   done    — delivered (left where they asked, with the photo on the order page)
-//   failed  — brought back to the shop, and why; they answer on the order page to arrange another time
+//   failed  — brought back to the shop, and why; on the order page they choose another try, pickup or cancelling
+//             (lib/delivery-retry)
 // Like every order message it lands on the order page in full (lib/order-inbox), and the phone gets a short nudge with
 // the link (the door message keeps its own words, as it asks for an answer). Each moment goes once per try: the order
 // records it in a transaction before anything is sent, and gives the mark back when nothing reached them, so the
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
     const text = moment === 'out' ? `Hi ${first}, ${driver} is bringing your order ${num} from ${shop} now${vehicle ? ` (${vehicle})` : ''}${when}. Follow it here: ${link}`
       : moment === 'door' ? `Hi ${first}, your driver is at ${street} with order ${num} and ${doorWords(d.doorCode)}. Answer on your order page in the next few minutes: ${link}`
       : moment === 'done' ? `Hi ${first}, your order ${num} from ${shop} was delivered${d.handedTo === 'left' ? ' and left where you asked' : ''}.${d.photoUrl ? ' There’s a photo on your order page' : ' Your order page has the details'}: ${link}`
-      : `Hi ${first}, we couldn’t deliver your order ${num} today${why ? ` (${why})` : ''}. It’s back at ${shop}. Answer on your order page and we’ll arrange another time: ${link}`;
+      : `Hi ${first}, we couldn’t deliver your order ${num} today${why ? ` (${why})` : ''}. It’s back at ${shop}. Choose another time, pick it up or cancel on your order page: ${link}`;
     const subject = moment === 'out' ? `Your order ${num} is on its way` : moment === 'door' ? `Your driver is at the door with order ${num}` : moment === 'done' ? `Your order ${num} was delivered` : `We couldn’t deliver your order ${num}`;
 
     let failed = false;

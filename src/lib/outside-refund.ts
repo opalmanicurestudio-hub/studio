@@ -101,7 +101,7 @@ export async function recordOutsideRefund(db: any, tenantId: string, charge: any
       const line = await tx.get(lineRef);
       const ds: any[] = []; for (const r of deps) ds.push(await tx.get(r));
       if (line.exists) return { recorded: false, why: 'already' } as OutsideRefund;
-      tx.set(lineRef, { ...base, taxRefunded: 0, ...(meta?.type === 'address_change' && meta?.retailOrderId ? { retailOrderId: safe(meta.retailOrderId) } : {}),
+      tx.set(lineRef, { ...base, taxRefunded: 0, ...((meta?.type === 'address_change' || meta?.type === 'delivery_retry') && meta?.retailOrderId ? { retailOrderId: safe(meta.retailOrderId) } : {}),
         description: `Refund made in Stripe — ${who === 'a customer' ? (charge?.description || 'a card payment') : who}`.slice(0, 200) });
       let left = cents;
       for (const d of ds) {

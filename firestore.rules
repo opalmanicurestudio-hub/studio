@@ -677,8 +677,10 @@ service cloud.firestore {
     // what a new address cost, the customer's request to change it and their payments for it (lib/address-pay), the
     // pickup code, the payment ids, the risk check and holds set by the payment step, swap questions, which order a
     // backorder or replacement was made from, who the customer said is collecting it (api/retail/self-serve) and the
-    // wrong tries of its pickup code. Only managers release a hold or mark a refund as done by hand (with the tax
-    // and tip it gave back). Orders are only ever created on the server.
+    // wrong tries of its pickup code, and after a delivery that couldn't be made: the second tries the customer paid
+    // for, the delivery fee owed back or kept, and a switch to pickup (lib/delivery-retry-server). Only managers release a
+    // hold or mark a refund as done by hand (with the tax, tip and delivery fee it gave back). Orders are only ever
+    // created on the server.
     function orderLockedKeys() {
       return ['chargedCents', 'totalCents', 'subtotalCents', 'taxCents', 'shippingCents', 'tipCents', 'qrToken', 'customerEmail', 'customerPhone', 'customerName', 'textsOff', 'clientId',
               'orderNumber', 'stripePaymentIntentId', 'stripeCheckoutSessionId', 'refundInFlight', 'refundSeq', 'lastStripeRefundId',
@@ -691,7 +693,8 @@ service cloud.firestore {
               'digitalHolds', 'digitalOpens', 'cardRefundedInFull', 'digitalGift', 'digitalGiftPending',
               'collector', 'pinTries', 'collectedNotifiedAt', 'returnSeq',
               'pickupWindow', 'pickupWindowKey', 'checkoutKeyHash', 'deliveryWindowKey', 'deliveryAsapAt', 'tipFor',
-              'shippingAddress', 'deliveredAt'];
+              'shippingAddress', 'deliveredAt',
+              'deliveryRetryPaid', 'deliveryRetryPaidOpen', 'deliveryRetryPaidRetry', 'deliveryRetryLog', 'deliveryFeeBackCents', 'deliveryFeeKeptCents', 'switchedFrom'];
     }
     // What only the order steps change, on the server (api/retail/fulfil, with the person's role checked there): the
     // order's stage, its items and their counts, who's packing it, when each step happened, the lots that went out and
@@ -712,6 +715,8 @@ service cloud.firestore {
               request.resource.data.get('refundedCents', 0) == resource.data.get('refundedCents', 0)
               && request.resource.data.get('refundedTaxCents', 0) == resource.data.get('refundedTaxCents', 0)
               && request.resource.data.get('refundedTipCents', 0) == resource.data.get('refundedTipCents', 0)
+              && request.resource.data.get('deliveryFeeBackRefundedCents', 0) == resource.data.get('deliveryFeeBackRefundedCents', 0)
+              && request.resource.data.get('deliveryFeeBackHandCents', 0) == resource.data.get('deliveryFeeBackHandCents', 0)
               && (request.resource.data.get('holdForReview', false) == true || resource.data.get('holdForReview', false) != true)
            ));
       allow delete: if false;

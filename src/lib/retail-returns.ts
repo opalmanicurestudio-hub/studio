@@ -506,13 +506,19 @@ export async function markRefundExecuted(
       // Shipping refunded because the order went in one box with another (lib/ship-together) gives back no tax.
       const togetherLeft = Math.max(0, (Number((order as any).shipTogetherRefundCents) || 0) - (Number((order as any).shipTogetherRefundedCents) || 0));
       const togetherNow = Math.min(togetherLeft, Math.max(0, cents - tipPart));
-      const taxPart = refundTaxPart(order as any, Math.max(0, cents - tipPart - togetherNow));
+      // So does a delivery fee owed back because a delivery failed on the shop's side (lib/delivery-retry).
+      const feeBackLeft = Math.max(0, (Number((order as any).deliveryFeeBackCents) || 0) - (Number((order as any).deliveryFeeBackRefundedCents) || 0));
+      const feeBackNow = Math.min(feeBackLeft, Math.max(0, cents - tipPart - togetherNow));
+      const taxPart = refundTaxPart(order as any, Math.max(0, cents - tipPart - togetherNow - feeBackNow));
       txn.update(oRef, {
         pendingRefundCents: 0,
         refundedCents: (order.refundedCents || 0) + cents,
         ...(taxPart ? { refundedTaxCents: (Number((order as any).refundedTaxCents) || 0) + taxPart } : {}),
         ...(tipPart ? { refundedTipCents: (Number((order as any).refundedTipCents) || 0) + tipPart } : {}),
         ...(togetherNow ? { shipTogetherRefundedCents: (Number((order as any).shipTogetherRefundedCents) || 0) + togetherNow } : {}),
+        // Kept apart from the server's shipping count (which only the server writes), so a part refund of the shipping
+        // can't give it back a second time (lib/part-refund).
+        ...(feeBackNow ? { deliveryFeeBackRefundedCents: (Number((order as any).deliveryFeeBackRefundedCents) || 0) + feeBackNow, deliveryFeeBackHandCents: (Number((order as any).deliveryFeeBackHandCents) || 0) + feeBackNow } : {}),
       });
       txn.set(doc(collection(oRef, 'events')), evPayload('refund_issued', actor, {
         amountCents: cents, scope: cents >= order.totalCents ? 'full' : 'partial',

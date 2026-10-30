@@ -1,4 +1,6 @@
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
+import { canChoose, feeBack, keptCents, keptFromCard, retryPayOpen } from '@/lib/delivery-retry';
+import { cancelRetryPay, refundRetryPayment, retryPaidMarks } from '@/lib/delivery-retry-server';
 import { refundWords, type AutoRefund } from '@/lib/auto-refund';
 import { cancelWithFollowUps, followUpCancelCents, followUpsOf, heldUnits, isFollowUp } from '@/lib/order-family';
 import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
@@ -139,6 +141,20 @@ async function handle(req: NextRequest) {
       const reason = String(body.reason || '').slice(0, 200);
       const tenantSnapC = await db.collection('tenants').doc(tenantId).get();
       const polC = ((tenantSnapC.exists ? (tenantSnapC.data() as any).retailSettings : {})?.policies) || {};
+      // A delivery back at the shop with a payment for another try open: the page closes first (lib/delivery-retry-server).
+      // Paid meanwhile, the try is booked, and they're told.
+      // Canceling a delivery that couldn't be made goes past the shop's cancellation policy, so it takes the customer's
+      // pass too (lib/order-pass), like their other two choices there (api/retail/delivery-choice).
+      {
+        const pre: any = (await orderRef.get()).data() || {};
+        if (pre.qrToken === qrToken && canChoose(pre) && !checkPass(tenantId, qrToken, body.pass)) {
+          return NextResponse.json({ error: 'To cancel, first confirm it’s you. We’ll send a code to the email or mobile on your order.', code: 'pass_needed' }, { status: 401 });
+        }
+        if (pre.qrToken === qrToken && canChoose(pre) && retryPayOpen(pre)) {
+          const f = await cancelRetryPay(db, tenantId, orderId, { tenant: tenantSnapC.exists ? tenantSnapC.data() : {} });
+          if (f.result === 'applied' || f.result === 'pending') return NextResponse.json({ error: f.message }, { status: 409 });
+        }
+      }
       const result = await db.runTransaction(async (txn: any) => {
         const snap = await txn.get(orderRef);
         if (!snap.exists) return { status: 404, error: 'Order not found.' };
@@ -146,12 +162,15 @@ async function handle(req: NextRequest) {
         if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
 
         const promiseLate = isPromiseLate(order) || delayNotified(order);
+        // A delivery that couldn't be made: cancelling is one of the customer's three choices (lib/delivery-retry), whatever
+        // the shop's cancellation policy, as its items are back on the shelf.
+        const failedDelivery = canChoose(order);
         /* POLICY GATES — but a LATE PROMISE overrides every one of them:
          * when the shop has blown its own ship promise, cancelling is the
          * customer's right, not a courtesy the policy can switch off. A delay
          * notice offered a full refund, so once one has gone out the same
          * right holds until the order ships. */
-        if (!promiseLate) {
+        if (!promiseLate && !failedDelivery) {
           if (polC.cancelAllowed === false) {
             return { status: 409, error: 'Cancellations for this shop are handled personally. Please send us a note below and we will be happy to help.' };
           }
@@ -163,9 +182,9 @@ async function handle(req: NextRequest) {
             }
           }
         }
-        const cancellable = (promiseLate
+        const cancellable = failedDelivery || ((promiseLate
           ? LATE_CANCEL_STAGES.includes(order.stage)
-          : CANCEL_STAGES.includes(order.stage)) && !(order.method === 'delivery' && order.delivery?.status === 'out');
+          : CANCEL_STAGES.includes(order.stage)) && !(order.method === 'delivery' && order.delivery?.status === 'out'));
         if (!cancellable) {
           if (order.method === 'delivery' && order.delivery?.status === 'out') return { status: 409, error: 'Your order is out for delivery right now, so it can’t be canceled. Once it arrives, you can start a return from this page.' };
           if (['cancelled'].includes(order.stage)) {
@@ -226,7 +245,11 @@ async function handle(req: NextRequest) {
         // lowered the charge). A follow-up's items are added to anything already queued on it.
         const already = Number(order.pendingRefundCents) || 0;
         const lostParcel = order.lostParcelOrderId ? chain.find((x: any) => x.id === String(order.lostParcelOrderId)) || null : null;
-        const pending = follow ? followUpCancelCents(order, parent, payer, famOfPayer, lostParcel) : plan!.pendingCents;
+        // The delivery fee for a try that failed on the customer's side stays with the shop (lib/delivery-retry).
+        // Never more than the card has left to give back.
+        const owedBack = follow ? followUpCancelCents(order, parent, payer, famOfPayer, lostParcel) : plan!.pendingCents;
+        const keptFee = failedDelivery ? Math.min(keptFromCard(order), owedBack) : 0;
+        const pending = Math.max(0, owedBack - keptFee);
         const now = new Date().toISOString();
 
         // A question about swapping one of its items no longer applies: closed, so it stops showing and a YES or NO
@@ -239,6 +262,8 @@ async function handle(req: NextRequest) {
           pendingRefundCents: follow ? already + pending : Math.max(pending, already),
           batchId: null, claimedBy: null, claimedByName: null,
           ...closeSwap(order),
+          ...(keptFee > 0 ? { deliveryFeeKeptCents: keptFee } : {}),
+          ...(failedDelivery ? { 'delivery.status': 'cancelled', deliveryWindowKey: null, deliveryAsapAt: null, ...retryPaidMarks(order, feeBack(order), 'cancelled', now) } : {}),
         });
         const evRef = orderRef.collection('events').doc();
         txn.set(evRef, {
@@ -263,7 +288,7 @@ async function handle(req: NextRequest) {
           });
         }
         // A replacement for a lost parcel is refunded by the shop, not automatically: the first parcel may still turn up.
-        return { status: 200, pending, autoOk: !(follow && order.replacementFor === 'lost_in_transit') };
+        return { status: 200, pending, autoOk: !(follow && order.replacementFor === 'lost_in_transit'), keptFee, feeBack: failedDelivery ? feeBack(order) : null, failedDelivery, order };
       });
 
       if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
@@ -314,10 +339,23 @@ async function handle(req: NextRequest) {
       } catch { /* the five-minute check refunds it */ }
       const addrLine = addrBack ? ` The $${(addrBack / 100).toFixed(2)} you paid to change the address was refunded to your card.` : addrLater ? ` The $${(addrLater / 100).toFixed(2)} you paid to change the address will be refunded to your card.` : '';
 
+      // A delivery that couldn't be made (lib/delivery-retry): a second try's own payment for the try that failed on the
+      // shop's side goes back to its card; what stays with the shop is said.
+      let feeLine = '';
+      if (result.failedDelivery) {
+        const back = result.feeBack;
+        if (back && back.from !== 'order') {
+          const r = await refundRetryPayment(db, tenantId, orderId, back.from, 'cancelled').catch(() => ({ ok: false, cents: back.cents }));
+          feeLine = ` The ${usd(back.cents)} delivery fee for the last try ${r.ok ? 'was refunded' : 'will be refunded'} to your card.`;
+        }
+        const kept = keptCents(result.order, result.keptFee);
+        if (kept > 0) feeLine += back ? ` The ${usd(kept)} for the earlier try isn’t refunded.` : ` The ${usd(kept)} delivery fee isn’t refunded.`;
+      }
+
       // Said as it is: on its way when it went, approved when it's waiting for the shop to send it.
       return NextResponse.json({
         ok: true,
-        message: `Order cancelled.${result.pending > 0 ? ` ${refundWords(result.pending, sent)}` : ''}${restoredLine ? ` ${restoredLine.charAt(0).toUpperCase()}${restoredLine.slice(1)}.` : ''}${addrLine}`,
+        message: `Order canceled.${result.pending > 0 ? ` ${refundWords(result.pending, sent)}` : ''}${restoredLine ? ` ${restoredLine.charAt(0).toUpperCase()}${restoredLine.slice(1)}.` : ''}${addrLine}${feeLine}`,
       });
     }
 

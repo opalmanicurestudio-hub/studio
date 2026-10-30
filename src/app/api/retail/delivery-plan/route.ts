@@ -21,7 +21,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
-const SETTINGS = ['on', 'by', 'zones', 'days', 'slots', 'perWindow', 'perDriver', 'drivers', 'sameDayCutoff', 'daysAhead', 'asap', 'dropoffNotes', 'vehicles', 'proof'] as const;
+const SETTINGS = ['on', 'by', 'zones', 'days', 'slots', 'perWindow', 'perDriver', 'drivers', 'sameDayCutoff', 'daysAhead', 'asap', 'dropoffNotes', 'vehicles', 'proof', 'secondTry'] as const;
 const plain = (v: any) => !!v && typeof v === 'object' && !Array.isArray(v);
 const has = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k);
 
