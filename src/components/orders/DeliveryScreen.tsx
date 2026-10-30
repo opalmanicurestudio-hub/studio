@@ -25,7 +25,8 @@ type Draft = { s: Settings; ways: Omit<Ways, 'curbsideName'> };
 
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const settingsOf = (p: DeliveryPlan): Settings => { const { origin, ...rest } = p; void origin; return JSON.parse(JSON.stringify(rest)); };
+// A plan saved before drivers' vehicles and proof at the door existed reads as none and "a photo when it's left".
+const settingsOf = (p: DeliveryPlan): Settings => { const { origin, ...rest } = p; void origin; return JSON.parse(JSON.stringify({ ...rest, vehicles: rest.vehicles || {}, proof: rest.proof || { photo: 'left', pinOverCents: null } })); };
 const waysOf = (w: Ways) => ({ pickup: w.pickup, curbside: w.curbside, shipping: w.shipping });
 const mins = (hm: string) => { if (hm === '24:00') return 1440; const m = /^(\d{2}):(\d{2})$/.exec(hm || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
 const prepWords = (m: number) => {
@@ -417,7 +418,7 @@ export function DeliveryScreen() {
                   {s.perDriver !== null && <CountInput label="Orders for each driver on shift" disabled={!canEdit} n={s.perDriver} onChange={(n) => set({ perDriver: n })} />}
                   <Toggle label="Size windows by who’s driving" on={s.perDriver !== null} disabled={!canEdit} onChange={(v) => set({ perDriver: v ? 4 : null })} />
                 </SetRow>
-                <SetRow label="Who drives" note={loaded.team.length ? 'Their shifts size the windows, and decide when “within minutes” can be offered.' : 'Add your team in Staff first.'}>
+                <SetRow label="Who drives" note={!loaded.team.length ? 'Add your team in Staff first.' : s.drivers.length ? 'They get Deliveries in the staff app. Their shifts size the windows, and decide when “within minutes” can be offered.' : 'Until you choose, anyone on the team can deliver from the staff app (under Me).'}>
                   <span role="group" aria-label="Who drives" className="flex max-w-full flex-wrap gap-1.5">
                     {loaded.team.map((t) => (
                       <button key={t.id} type="button" aria-pressed={s.drivers.includes(t.id)} disabled={!canEdit} onClick={() => set({ drivers: s.drivers.includes(t.id) ? s.drivers.filter((x) => x !== t.id) : [...s.drivers, t.id] })}
@@ -425,6 +426,15 @@ export function DeliveryScreen() {
                     {s.drivers.filter((id) => !loaded.team.some((t) => t.id === id)).length > 0 && <span className="text-[13px]" style={muted}>Former team members come off the list when you save.</span>}
                   </span>
                 </SetRow>
+                {s.drivers.filter((id) => loaded.team.some((t) => t.id === id)).length > 0 && (
+                  <SetRow label="What they drive" note="Shown to the customer while it’s on its way, so they know what to look for. Optional.">
+                    <span className="flex max-w-full flex-col gap-2">
+                      {s.drivers.map((id) => { const t = loaded.team.find((x) => x.id === id); if (!t) return null; return (
+                        <label key={id} className="flex items-center gap-2 text-[14px]"><span className="w-28 truncate font-semibold">{t.name}</span>
+                          <input value={s.vehicles[id] || ''} maxLength={40} disabled={!canEdit} placeholder="Gray hatchback" aria-label={`What ${t.name} drives`}
+                            onChange={(e) => { const v = { ...s.vehicles }; if (e.target.value.trim()) v[id] = e.target.value; else delete v[id]; set({ vehicles: v }); }} className={`${field} w-48`} style={fieldStyle} /></label>); })}
+                    </span>
+                  </SetRow>)}
                 <SetRow label="Show windows for the next">
                   <CountInput label="Show windows for the next, in days" disabled={!canEdit} n={s.daysAhead} max={30} onChange={(n) => set({ daysAhead: n })} />
                   <span className="text-[15px]">days</span>
@@ -442,6 +452,19 @@ export function DeliveryScreen() {
                 <input type="checkbox" className="h-5 w-5 shrink-0 accent-[#16171a]" checked={s.dropoffNotes} disabled={!canEdit} onChange={(e) => set({ dropoffNotes: e.target.checked })} />
                 <span>Customers may say where it can be left<span className="block text-[13px]" style={muted}>A note at checkout for the driver: a gate code, leave it at the door, hand it to me.</span></span>
               </label>
+              <div className="mt-3">
+                <SetRow label="A photo of the delivery" note={s.proof.photo === 'always' ? 'The driver takes one every time; the customer sees it on their order page.' : s.proof.photo === 'left' ? 'Only when it’s left rather than handed over.' : 'Drivers aren’t asked for one.'}>
+                  <span role="radiogroup" aria-label="A photo of the delivery" className="flex flex-wrap gap-1.5">
+                    {([['always', 'Every delivery'], ['left', 'When it’s left'], ['off', 'Never']] as const).map(([v, l]) => (
+                      <button key={v} type="button" role="radio" aria-checked={s.proof.photo === v} disabled={!canEdit} onClick={() => set({ proof: { ...s.proof, photo: v } })}
+                        className="cf-press h-11 rounded-full border px-3.5 text-[14px] font-semibold disabled:opacity-60" style={pill(s.proof.photo === v)}>{l}</button>))}
+                  </span>
+                </SetRow>
+                <SetRow label="Ask for their delivery code" note={s.proof.pinOverCents === null ? 'Never: the driver marks it delivered.' : 'On orders this size or bigger, the driver asks for the code on the customer’s order page.'}>
+                  {s.proof.pinOverCents !== null && <MoneyInput label="Ask for the code on orders of at least" disabled={!canEdit} cents={s.proof.pinOverCents} onChange={(c) => set({ proof: { ...s.proof, pinOverCents: Math.max(100, c) } })} />}
+                  <Toggle label="Ask for their delivery code" on={s.proof.pinOverCents !== null} disabled={!canEdit} onChange={(v) => set({ proof: { ...s.proof, pinOverCents: v ? 15000 : null } })} />
+                </SetRow>
+              </div>
             </section>
           </div>
         </div>

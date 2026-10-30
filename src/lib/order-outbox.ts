@@ -15,7 +15,8 @@
 import { buildEvent } from './retail-orders';
 import { eventIdFor } from './order-events';
 
-export type MessageKind = 'order_ready' | 'curbside_ready' | 'curbside_out' | 'order_short' | 'order_shipped' | 'return_outcome' | 'claim_decided' | 'claim_info' | 'order_collected';
+export type MessageKind = 'order_ready' | 'curbside_ready' | 'curbside_out' | 'order_short' | 'order_shipped' | 'return_outcome' | 'claim_decided' | 'claim_info' | 'order_collected'
+  | 'delivery_out' | 'delivery_door' | 'delivery_done' | 'delivery_failed';
 
 /** Each kind: the route that sends it, what it's called on the team's timeline, and what it's sent with. */
 const KINDS: Record<MessageKind, { path: string; what: string; body: (a: Args) => Record<string, string> }> = {
@@ -28,6 +29,10 @@ const KINDS: Record<MessageKind, { path: string; what: string; body: (a: Args) =
   claim_decided: { path: '/api/retail/claim-notify', what: 'email about their report', body: (a) => ({ claimId: a.claimId! }) },
   claim_info: { path: '/api/retail/claim-notify', what: 'request for more about their report', body: (a) => ({ claimId: a.claimId!, kind: 'info_request' }) },
   order_collected: { path: '/api/retail/collected-notify', what: 'note that someone else collected it', body: (a) => ({ orderId: a.orderId! }) },
+  delivery_out: { path: '/api/retail/delivery-notify', what: 'text that it’s on its way', body: (a) => ({ orderId: a.orderId!, moment: 'out', try: a.key || 't1' }) },
+  delivery_door: { path: '/api/retail/delivery-notify', what: 'text that the driver is at the door', body: (a) => ({ orderId: a.orderId!, moment: 'door', try: a.key || 't1' }) },
+  delivery_done: { path: '/api/retail/delivery-notify', what: 'delivered message', body: (a) => ({ orderId: a.orderId!, moment: 'done', try: 't1' }) },
+  delivery_failed: { path: '/api/retail/delivery-notify', what: 'message that it couldn’t be delivered', body: (a) => ({ orderId: a.orderId!, moment: 'failed', try: a.key || 't1' }) },
 };
 type Args = { orderId?: string; lineId?: string; returnId?: string; claimId?: string; key?: string };
 
@@ -52,7 +57,7 @@ export function messageId(tenantId: string, kind: MessageKind, a: Args): string 
 /** Queues a step's message (once per step). Returns its id, or '' when it's missing what it needs. */
 export async function queueMessage(db: any, tenantId: string, kind: MessageKind, a: Args, orderId?: string): Promise<string> {
   const k = KINDS[kind]; if (!k || !okId(tenantId)) return '';
-  const body = k.body(a); if (Object.values(body).some((v) => !okId(v) && v !== 'ready' && v !== 'out')) return '';
+  const body = k.body(a); if (Object.values(body).some((v) => !okId(v))) return '';
   const id = messageId(tenantId, kind, a);
   const now = new Date().toISOString();
   try {

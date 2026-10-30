@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { brandOf } from '@/lib/shop-site';
 import { PIN_TRIES, pickupPin, pinKeyOf } from '@/lib/pickup-pass';
+import { proofNeeded } from '@/lib/delivery-run';
+import { deliveryFrom } from '@/lib/delivery-plan';
 
 import { putTracking, trackingKey } from '@/lib/order-tracking';
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
@@ -443,6 +445,13 @@ export async function GET(req: NextRequest) {
           outAt: d.outAt || null, deliveredAt: d.deliveredAt || null, failedAt: d.failedAt || null,
           driver: d.status === 'out' && d.driverName ? String(d.driverName).split(' ')[0] : null,
           note: passOk ? String(d.note || '') : '',
+          // Proof at the door (lib/delivery-run): the photo and where it was left, for the buyer; the code a big order
+          // asks for, shown to them only while it's on its way or waiting to go.
+          photoUrl: passOk && d.status === 'delivered' && d.photoUrl ? String(d.photoUrl) : null,
+          left: d.status === 'delivered' && d.handedTo === 'left' ? (passOk ? String(d.leftWhere || '') || 'Left where you asked' : 'Left where you asked') : null,
+          code: passOk && ['waiting', 'out', 'failed'].includes(String(d.status || 'waiting')) && !['placed', 'cancelled', 'completed'].includes(String(order.stage)) && Number(order.pinTries || 0) < PIN_TRIES
+            && proofNeeded(order, deliveryFrom(tenantSnap.exists ? (tenantSnap.data() as any)?.retailSettings : null), false).pin ? pickupPin(tenantId, pinKeyOf(order, orderId)) || null : null,
+          failed: d.status === 'failed' ? { why: passOk ? String(d.failReason || '') : '', customerSide: d.failCause === 'customer' } : null,
         };
       })() : null,
       /* The address flow (lib/address-flow): whether the shop asked them to confirm it, their change waiting for the

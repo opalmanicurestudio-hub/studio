@@ -21,7 +21,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
-const SETTINGS = ['on', 'by', 'zones', 'days', 'slots', 'perWindow', 'perDriver', 'drivers', 'sameDayCutoff', 'daysAhead', 'asap', 'dropoffNotes'] as const;
+const SETTINGS = ['on', 'by', 'zones', 'days', 'slots', 'perWindow', 'perDriver', 'drivers', 'sameDayCutoff', 'daysAhead', 'asap', 'dropoffNotes', 'vehicles', 'proof'] as const;
 const plain = (v: any) => !!v && typeof v === 'object' && !Array.isArray(v);
 const has = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k);
 
@@ -111,12 +111,15 @@ export async function POST(req: NextRequest) {
         const next = cleanDelivery(raw);
         // Only people on the team drive (someone who has left drops off the list).
         if (team) next.drivers = next.drivers.filter((id) => team.has(id));
+        // What someone drives is kept only while they're a driver.
+        next.vehicles = Object.fromEntries(Object.entries(next.vehicles).filter(([id]) => next.drivers.includes(id)));
         // Zones or windows that contradict each other are never kept, and delivery that's on is never left in a state
         // checkout can't use (no zones, no windows, nowhere to measure from).
         const problems = deliveryProblems(next, { mapsReady: hasMapsKey() });
         if (problems.length) return { error: problems[0], status: 400 };
         const whole = JSON.parse(JSON.stringify(next));
         for (const k of SETTINGS) if (plain(b.plan) && has(b.plan, k)) patch[`retailSettings.deliveryPlan.${k}`] = whole[k];
+        if (plain(b.plan) && has(b.plan, 'drivers')) patch['retailSettings.deliveryPlan.vehicles'] = whole.vehicles;
         if (origin) patch['retailSettings.deliveryPlan.origin'] = whole.origin;
         // Drivers who left come off even when the list itself wasn't what changed.
         if (team && !('retailSettings.deliveryPlan.drivers' in patch)) patch['retailSettings.deliveryPlan.drivers'] = whole.drivers;

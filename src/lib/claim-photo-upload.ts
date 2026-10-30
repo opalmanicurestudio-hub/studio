@@ -24,7 +24,7 @@ export async function uploadClaimPhotoFromDataUrl(
   claimId: string,
   dataUrl: any,
   /** Storage folder under the tenant — claims by default; booking photos use 'booking-inspiration'. */
-  folder: 'retail-claims' | 'booking-inspiration' | 'cases' | 'visit-photos' | 'signatures' | 'pack-photos' = 'retail-claims',
+  folder: 'retail-claims' | 'booking-inspiration' | 'cases' | 'visit-photos' | 'signatures' | 'pack-photos' | 'delivery-photos' = 'retail-claims',
 ): Promise<ClaimPhotoResult> {
   try {
     const s = String(dataUrl || '');

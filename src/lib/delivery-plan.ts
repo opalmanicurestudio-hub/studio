@@ -55,6 +55,13 @@ export type DeliveryPlan = {
   asap: { on: boolean; minutes: number };
   /** Customers may say where it can be left (gate code, leave at the door, hand it to me). */
   dropoffNotes: boolean;
+  /** What each driver drives, shown to the customer while it's on its way ("Gray hatchback"), by staff id. */
+  vehicles: Record<string, string>;
+  /**
+   * Proof at the door (lib/delivery-run): a photo on every delivery, only when it's left rather than handed over, or
+   * never; and the customer's delivery code for orders at or over an amount (null = never asked).
+   */
+  proof: { photo: 'always' | 'left' | 'off'; pinOverCents: number | null };
 };
 
 export const MAX_ZONES = 12;
@@ -118,6 +125,12 @@ export function cleanDelivery(raw: any): DeliveryPlan {
     daysAhead: int(raw?.daysAhead, 1, 30, 7),
     asap: { on: raw?.asap?.on === true, minutes: ASAP_MINUTES.includes(am) ? am : 90 },
     dropoffNotes: raw?.dropoffNotes !== false,
+    vehicles: Object.fromEntries(Object.entries(raw?.vehicles && typeof raw.vehicles === 'object' ? raw.vehicles : {})
+      .filter(([k, v]) => /^[A-Za-z0-9_-]{1,128}$/.test(k) && words(v, 40)).slice(0, 50).map(([k, v]) => [k, words(v, 40)])),
+    proof: {
+      photo: ['always', 'left', 'off'].includes(raw?.proof?.photo) ? raw.proof.photo : 'left',
+      pinOverCents: raw?.proof?.pinOverCents === null || raw?.proof?.pinOverCents === undefined || raw?.proof?.pinOverCents === '' ? null : cents(raw.proof.pinOverCents, 10_000_000) || null,
+    },
   };
 }
 

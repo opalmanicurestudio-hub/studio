@@ -61,7 +61,8 @@ interface StatusLine {
 interface StatusOrder {
   id: string; orderNumber: number; stage: string; method: string; priceTier: string;
   pickupAt?: string; tipCents?: number;
-  delivery?: { when: string; status: string; outAt: string | null; deliveredAt: string | null; failedAt: string | null; driver: string | null; note: string } | null;
+  delivery?: { when: string; status: string; outAt: string | null; deliveredAt: string | null; failedAt: string | null; driver: string | null; note: string;
+    photoUrl?: string | null; left?: string | null; code?: string | null; failed?: { why: string; customerSide: boolean } | null } | null;
   businessName: string; poNumber: string; customerName: string;
   lines: StatusLine[];
   subtotalCents: number; taxCents: number; shippingCents: number; promo?: { code: string; label: string; cents: number; freeShipping: boolean } | null; offerSavings?: { label: string; cents: number } | null;
@@ -1286,12 +1287,23 @@ export default function OrderStatusPage() {
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Delivering to {order.shipCity || 'you'}</p>
               </div>
               <div className="flex items-baseline justify-between gap-3">
-                <span className="text-sm font-black">{order.delivery.status === 'delivered' || order.stage === 'completed' ? 'Delivered' : order.delivery.status === 'out' ? 'On its way' : 'Comes'}</span>
-                <span className="text-right text-sm font-black">{order.delivery.status === 'out' && order.delivery.driver ? `With ${order.delivery.driver}` : order.delivery.when ? order.delivery.when.charAt(0).toUpperCase() + order.delivery.when.slice(1) : ''}</span>
+                <span className="text-sm font-black">{order.delivery.status === 'delivered' || order.stage === 'completed' ? 'Delivered' : order.delivery.status === 'out' ? 'On its way' : order.delivery.status === 'failed' ? 'Back at the shop' : 'Comes'}</span>
+                <span className="text-right text-sm font-black">{order.delivery.status === 'failed' && order.stage !== 'completed' ? '' : order.delivery.status === 'out' && order.delivery.driver ? `With ${order.delivery.driver}` : order.delivery.when ? order.delivery.when.charAt(0).toUpperCase() + order.delivery.when.slice(1) : ''}</span>
               </div>
               {order.shippingAddress && <p className="text-[12px] font-bold text-muted-foreground">{[order.shippingAddress.line1, order.shippingAddress.line2, order.shippingAddress.city].filter(Boolean).join(', ')}</p>}
-              {order.delivery.note && <p className="text-[12px] font-bold">Your note for the driver: {order.delivery.note}</p>}
-              {order.delivery.status === 'failed' && order.stage !== 'completed' && <p className="text-[12px] font-bold text-amber-800">We couldn’t deliver it this time. It’s back at the shop, and the shop will be in touch to arrange another time.</p>}
+              {order.delivery.note && order.delivery.status !== 'delivered' && <p className="text-[12px] font-bold">Your note for the driver: {order.delivery.note}</p>}
+              {order.delivery.code && order.delivery.status !== 'delivered' && (
+                <div className="rounded-2xl bg-muted/60 px-4 py-3">
+                  <p className="text-[12px] font-bold text-muted-foreground">Your delivery code</p>
+                  <p className="text-2xl font-black tracking-[0.3em]" aria-label={`Delivery code ${order.delivery.code.split('').join(' ')}`}>{order.delivery.code}</p>
+                  <p className="text-[12px] font-bold text-muted-foreground">The driver asks for it at the door. Only give it to them when you have your order.</p>
+                </div>)}
+              {order.delivery.status === 'delivered' && order.delivery.left && <p className="text-[12px] font-bold">Left: {order.delivery.left}</p>}
+              {order.delivery.status === 'delivered' && order.delivery.photoUrl && (
+                <a href={order.delivery.photoUrl} target="_blank" rel="noreferrer" className="block">
+                  <img src={order.delivery.photoUrl} alt="Where your order was delivered" className="mt-1 max-h-64 w-full rounded-2xl object-cover" />
+                </a>)}
+              {order.delivery.status === 'failed' && order.stage !== 'completed' && <p className="text-[12px] font-bold text-amber-800">We couldn’t deliver it this time{order.delivery.failed?.why ? ` (${order.delivery.failed.why.replace(/[.!?]$/, '').toLowerCase()})` : ''}. It’s back at the shop. Write to the shop under Need help with this order to arrange another time.</p>}
             </CardContent>
           </Card>
         )}

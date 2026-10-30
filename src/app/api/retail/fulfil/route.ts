@@ -19,6 +19,8 @@ import { decideClaim } from '@/lib/claim-decide';
 import { syncTracking } from '@/lib/order-tracking';
 import { queueMessage, deliverMessage, type MessageKind } from '@/lib/order-outbox';
 import { RETURN_REASONS, RETURN_RESOLUTIONS } from '@/lib/retail-orders';
+import { failReason } from '@/lib/delivery-run';
+import { deliveryFrom } from '@/lib/delivery-plan';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -31,7 +33,7 @@ const ACTIONS: Record<string, Need> = {
   scanPack: 'pack', markPacked: 'pack', markReady: 'pack', bringingOut: 'handover', handoffScan: 'handover', handoffPin: 'handover', handoffNoScan: 'handover',
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
-  deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover',
+  deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover', deliveryDoor: 'handover', deliverySkip: 'handover',
   openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', decideClaim: 'claims', requestClaimInfo: 'returns',
 };
 
@@ -84,11 +86,12 @@ export async function POST(req: NextRequest) {
   const allowed = need === 'staff' ? true
     : need === 'pick' ? perms.canPick
     : need === 'pack' ? perms.canPack
-    : need === 'handover' ? perms.canPack || (!explicit || !['picker', 'none'].includes(explicit))
+    : need === 'handover' ? !(a.isRenter && action.startsWith('delivery')) && (perms.canPack || (!explicit || !['picker', 'none'].includes(explicit)))
     : need === 'ship' ? perms.canShip
     : need === 'manage' ? perms.canManage || refunds
     : need === 'returns' ? !a.isRenter
     : refunds && !a.isRenter;
+  if (!allowed && a.isRenter && action.startsWith('delivery')) return NextResponse.json({ ok: false, message: 'Deliveries are made by the shop’s own team.' }, { status: 403 });
   if (!allowed) {
     const words: Record<Need, string> = {
       pick: 'Packing isn’t part of your role. Ask a manager to add it.', pack: 'Finishing orders isn’t part of your role. Ask a manager to add it.',
@@ -155,9 +158,40 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       case 'bringingOut': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markBringingOut(db, tenantId, orderId, actor, await photoOf(db, tenantId, actor.id)); if (out?.ok && !/already/.test(out.message || '')) F.notifyCurbside(tenantId, orderId, 'out'); delete out?.notify; break; }
       case 'handoffScan': out = await F.handoffByScan(db, tenantId, s(b.value, 300), actor, { orderId: orderId || undefined }); break;
       case 'handoffPin': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffByPin(db, tenantId, orderId, s(b.pin, 12), actor); break; }
-      case 'deliveryOut': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markOutForDelivery(db, tenantId, orderId, actor); break; }
-      case 'deliveryDone': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markDelivered(db, tenantId, orderId, actor); break; }
-      case 'deliveryFailed': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markDeliveryFailed(db, tenantId, orderId, actor, s(b.reason, 140)); break; }
+      // Local delivery (lib/delivery-run): each step the customer hears about queues its message, once per try.
+      case 'deliveryOut': {
+        const m = need1(orderId, 'order'); if (m) return m;
+        // When the shop names its drivers (lib/delivery-plan), only they (or a manager) take a delivery out.
+        if (!boss) {
+          const drivers = deliveryFrom(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.retailSettings).drivers;
+          if (drivers.length && !drivers.includes(actor.id)) return NextResponse.json({ ok: false, message: 'Only the shop’s drivers take deliveries out. A manager can add you under Delivery.' }, { status: 403 });
+        }
+        out = await F.markOutForDelivery(db, tenantId, orderId, actor);
+        if (out?.ok && out.tries && !/^Already/.test(out.message || '')) sendMessage('delivery_out', { orderId, key: `t${out.tries}` });
+        break;
+      }
+      case 'deliveryDone': {
+        const m = need1(orderId, 'order'); if (m) return m;
+        // Only a manager marks it delivered without the proof the shop asks for (from the back office).
+        out = await F.markDelivered(db, tenantId, orderId, actor, { photoUrl: s(b.photoUrl, 1200) || null, left: b.left === true, where: s(b.where, 120), pin: s(b.pin, 12), override: b.override === true && boss });
+        if (out?.ok && !/^Already/.test(out.message || '')) sendMessage('delivery_done', { orderId });
+        break;
+      }
+      case 'deliveryFailed': {
+        const m = need1(orderId, 'order'); if (m) return m;
+        const code = failReason(b.code)?.code || null;
+        out = await F.markDeliveryFailed(db, tenantId, orderId, actor, s(b.reason, 140), code);
+        if (out?.ok && out.tries) sendMessage('delivery_failed', { orderId, key: `t${out.tries}` });
+        break;
+      }
+      case 'deliveryDoor': {
+        const m = need1(orderId, 'order'); if (m) return m;
+        const r = failReason(b.code); if (!r) return NextResponse.json({ ok: false, message: 'Choose what happened.' }, { status: 400 });
+        out = await F.markAtDoor(db, tenantId, orderId, actor, r.code);
+        if (out?.ok && out.first && out.tries) sendMessage('delivery_door', { orderId, key: `t${out.tries}` });
+        break;
+      }
+      case 'deliverySkip': { const m = need1(orderId, 'order'); if (m) return m; out = await F.markDeliverySkip(db, tenantId, orderId, actor); break; }
       case 'handoffNoScan': { const m = need1(orderId, 'order'); if (m) return m; out = await F.handoffWithoutScan(db, tenantId, orderId, s(b.verifiedBy, 140) || 'Checked name and phone', actor); break; }
       case 'splitReady': { const m = need1(orderId, 'order'); if (m) return m; out = await F.splitReadyFromWaiting(db, tenantId, orderId, actor); break; }
       case 'releaseBackorder': { const m = need1(orderId, 'order'); if (m) return m; out = await F.releaseBackorder(db, tenantId, orderId, actor, { onlyIfCovered: b.onlyIfCovered !== false }); break; }

@@ -16,7 +16,7 @@ export const ORDER_PAGE_KINDS = new Set([
   'order_confirmation', 'order_ready', 'order_shipped', 'order_delayed', 'delay_notice', 'carrier_delivered', 'order_short',
   'order_swap', 'order_id_check', 'preorder_eta', 'preorder_cancelled', 'refund_issued', 'return_label', 'return_received',
   'claim_info_request', 'support_reply', 'support_received', 'order_uncollected', 'address_confirm', 'address_reply',
-  'shop_message', 'order_collected',
+  'shop_message', 'order_collected', 'delivery_out', 'delivery_door', 'delivery_done', 'delivery_failed',
 ]);
 /** Sent in full as well as posted: the receipt. */
 const FULL_TOO = new Set(['order_confirmation']);
@@ -25,7 +25,7 @@ const THREAD_KINDS = new Set(['support_reply', 'support_received']);
 /** The customer is on the order page when this happens: no nudge at all. */
 const NO_NUDGE = new Set(['support_received']);
 /** A text that asks for a reply keeps its own words. */
-const KEEP_SMS = new Set(['order_swap']);
+const KEEP_SMS = new Set(['order_swap', 'delivery_door']);
 
 export function nudgeLine(kind: string, num: string, shop: string, subject?: string): string {
   switch (kind) {
@@ -48,6 +48,10 @@ export function nudgeLine(kind: string, num: string, shop: string, subject?: str
     case 'address_confirm': return `Please check the address for your order ${num} before it ships.`;
     case 'address_reply': return `${shop} answered about the address on your order ${num}.`;
     case 'shop_message': return `${shop} sent you a message about your order ${num}.`;
+    case 'delivery_out': return `Your order ${num} is on its way to you.`;
+    case 'delivery_door': return `Your driver is at the door with order ${num}.`;
+    case 'delivery_done': return `Your order ${num} was delivered.`;
+    case 'delivery_failed': return `We couldn’t deliver your order ${num}. See what happens next.`;
     default: return subject ? String(subject) : `There’s an update on your order ${num}.`;
   }
 }

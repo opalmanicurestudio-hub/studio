@@ -152,7 +152,7 @@ const fulfil = read('src/app/api/retail/fulfil/route.ts');
 ok(/o\.method !== 'ship' && o\.method !== 'delivery'\) sendMessage\('order_ready'/.test(fulfil), 'a delivery customer isn’t told to come and pick it up');
 ok(/deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover'/.test(fulfil), 'the delivery steps are hand-over steps');
 const eng = read('src/lib/retail-fulfill.ts');
-ok(/'delivery\.status': 'out'/.test(eng) && /convertSaleInTxn\(txn, fs, tenantId, order, itemSnaps, actor\);\n      const now = new Date\(\)\.toISOString\(\);\n      txn\.update\(oRef, clean\(\{ stage: 'completed'/.test(eng), 'delivered is the sale, as handing over is');
+ok(/'delivery\.status': 'out'/.test(eng) && /convertSaleInTxn\(txn, fs, tenantId, order, itemSnaps, actor\);\n      const now = new Date\(\)\.toISOString\(\);\n[^\n]*\n      txn\.update\(oRef, clean\(\{\n        stage: 'completed'/.test(eng), 'delivered is the sale, as handing over is');
 const ro = read('src/lib/retail-orders.ts');
 ok(/order\.method === 'delivery' && \(order as any\)\.delivery\?\.status === 'out'/.test(ro), 'an order out for delivery can’t be canceled');
 ok(/delivery\?\.readyBy/.test(ro), 'the team’s due time is when it has to go out');

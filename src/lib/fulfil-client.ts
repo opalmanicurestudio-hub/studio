@@ -55,8 +55,13 @@ export const handoffByPin = (tenantId: string, orderId: string, pin: string) => 
 export const handoffWithoutScan = (_fs: any, tenantId: string, orderId: string, verifiedBy: string, _actor: Actor) => step(tenantId, 'handoffNoScan', { orderId, verifiedBy });
 /** Local delivery (lib/retail-fulfill): out with the person signed in as the driver, delivered, or brought back. */
 export const markOutForDelivery = (tenantId: string, orderId: string) => step(tenantId, 'deliveryOut', { orderId });
-export const markDelivered = (tenantId: string, orderId: string) => step(tenantId, 'deliveryDone', { orderId });
-export const markDeliveryFailed = (tenantId: string, orderId: string, reason: string) => step(tenantId, 'deliveryFailed', { orderId, reason });
+export const markDelivered = (tenantId: string, orderId: string, proof: { photoUrl?: string | null; left?: boolean; where?: string; pin?: string; override?: boolean } = {}) =>
+  step<Ans & { needs?: 'photo' | 'pin'; locked?: boolean }>(tenantId, 'deliveryDone', { orderId, ...proof });
+export const markDeliveryFailed = (tenantId: string, orderId: string, reason: string, code?: string) => step(tenantId, 'deliveryFailed', { orderId, reason, code });
+/** At the door and couldn't deliver yet: what happened (lib/delivery-run FAIL_REASONS); the first time, the customer is told. */
+export const markAtDoor = (tenantId: string, orderId: string, code: string) => step<Ans & { first?: boolean; doorAt?: string }>(tenantId, 'deliveryDoor', { orderId, code });
+/** Go to the next stop and come back to this one. */
+export const skipDeliveryStop = (tenantId: string, orderId: string) => step(tenantId, 'deliverySkip', { orderId });
 export const splitReadyFromWaiting = (_fs: any, tenantId: string, orderId: string, _actor: Actor) => step<Ans & { childOrderId?: string }>(tenantId, 'splitReady', { orderId });
 export const releaseBackorder = (_fs: any, tenantId: string, orderId: string, _actor: Actor, opts: { onlyIfCovered?: boolean } = {}) => step<Ans & { short?: { productId: string; name: string; have: number; need: number }[] }>(tenantId, 'releaseBackorder', { orderId, onlyIfCovered: opts.onlyIfCovered !== false });
 export async function releaseCoverableBackorders(_fs: any, tenantId: string, received: { productId: string; qty: number }[], _actor: Actor): Promise<{ released: any[] }> {

@@ -1,5 +1,6 @@
 import { shrinkStock } from './retail-orders';
-import { followUpDelivery } from './delivery-plan';
+import { deliveryFrom, followUpDelivery } from './delivery-plan';
+import { failReason, proofNeeded, type FailCode } from './delivery-run';
 import { taxShareCents } from './restocking';
 import {
   type Firestore, collection, doc, getDoc, getDocs, limit, query, runTransaction, where,
@@ -917,7 +918,7 @@ export async function handoffWithoutScan(
 
 export async function markOutForDelivery(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor,
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; message: string; tries?: number }> {
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -937,19 +938,42 @@ export async function markOutForDelivery(
       txn.update(oRef, clean({
         ...(order.stage === 'packed' ? { stage: 'ready', readyAt: now } : {}),
         'delivery.status': 'out', 'delivery.outAt': now, 'delivery.driverId': actor.id, 'delivery.driverName': actor.name, 'delivery.tries': tries,
+        // Each try starts fresh: no wait at the door, no stop skipped for later.
+        'delivery.doorAt': null, 'delivery.doorCode': null, 'delivery.skippedAt': null,
       }) as any);
       if (order.stage === 'packed') txn.set(doc(collection(oRef, 'events')), evPayload('marked_ready', actor, { forDelivery: true }));
       txn.set(doc(collection(oRef, 'events')), evPayload('out_for_delivery', actor, { driver: actor.name, ...(tries > 1 ? { attempt: tries } : {}) }));
-      return { ok: true, message: tries > 1 ? `Out again with ${actor.name.split(' ')[0]}.` : `Out for delivery with ${actor.name.split(' ')[0]}.` };
+      return { ok: true, tries, message: tries > 1 ? `Out again with ${actor.name.split(' ')[0]}.` : `Out for delivery with ${actor.name.split(' ')[0]}.` };
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not mark it out for delivery.' };
   }
 }
 
+/** What the driver brings to "Delivered": the photo they took, whether it was left rather than handed over (and where),
+ *  the customer's delivery code, and (back office only) a manager marking it without the proof the shop asks for. */
+export type DeliveredProof = { photoUrl?: string | null; left?: boolean; where?: string; pin?: string; override?: boolean };
+
+/**
+ * A photo the server stored for this order's delivery (api/retail/delivery-photo), never a link from elsewhere: the
+ * storage service's own address, and the object filed under this shop's delivery photos for this order.
+ */
+export function deliveryPhotoOk(tenantId: string, orderId: string, url: unknown): boolean {
+  if (typeof url !== 'string' || url.length > 1200) return false;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' || u.hostname !== 'firebasestorage.googleapis.com' || u.username || u.password || u.port) return false;
+    const m = /^\/v0\/b\/[^/]+\/o\/([^/]+)$/.exec(u.pathname);
+    if (!m) return false;
+    const object = decodeURIComponent(m[1]);
+    const dir = `tenants/${tenantId}/delivery-photos/${orderId}/`;
+    return object.startsWith(dir) && /^[A-Za-z0-9._-]{1,120}$/.test(object.slice(dir.length));
+  } catch { return false; }
+}
+
 export async function markDelivered(
-  fs: Firestore, tenantId: string, orderId: string, actor: Actor,
-): Promise<{ ok: boolean; message: string }> {
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, proof: DeliveredProof = {},
+): Promise<{ ok: boolean; message: string; needs?: 'photo' | 'pin'; locked?: boolean }> {
   try {
     const done: any = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -960,11 +984,42 @@ export async function markDelivered(
       if (order.stage === 'completed') return { ok: true, message: 'Already delivered.' };
       if (order.delivery?.status !== 'out') return { ok: false, message: 'Mark it out for delivery first.' };
       if (order.stage !== 'ready' || !canAdvance(order, 'completed').ok) return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}, so it can’t be marked delivered.` };
+      // The proof the shop asks for at the door (lib/delivery-run): a manager can mark it without, and it says so.
+      const tSnap = await txn.get(doc(fs, `tenants/${tenantId}`));
+      const plan = deliveryFrom(((tSnap.exists() ? tSnap.data() : {}) as any)?.retailSettings);
+      const left = proof.left === true;
+      const need = proofNeeded(order, plan, left);
+      // Only a photo the photo route stored for this order (kept on it, server-only), never a link typed in.
+      const issued: string[] = Array.isArray(order.delivery?.photos) ? order.delivery.photos : [];
+      const photo = deliveryPhotoOk(tenantId, orderId, proof.photoUrl) && issued.includes(String(proof.photoUrl)) ? String(proof.photoUrl) : null;
+      const skip = proof.override === true;
+      if (need.photo && !photo && !skip) return { ok: false, needs: 'photo', message: left ? 'Take a photo of where you left it first.' : 'Take a photo of the delivery first.' };
+      let pinOk = false;
+      if (need.pin && !skip) {
+        const tries = Math.max(0, Number(order.pinTries) || 0);
+        if (tries >= PIN_TRIES) return { ok: false, locked: true, message: 'The code was wrong too many times, so it no longer works. Ask the shop to mark it delivered.' };
+        const said = String(proof.pin || '').replace(/\D/g, '').slice(0, 12);
+        if (!said) return { ok: false, needs: 'pin', message: 'Ask them for the delivery code on their order page.' };
+        if (!pinMatches(tenantId, pinKeyOf(order, orderId), said)) {
+          txn.update(oRef, { pinTries: tries + 1 });
+          const leftTries = PIN_TRIES - tries - 1;
+          if (leftTries <= 0) txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Delivery code wrong too many times; it no longer works for this order' }));
+          return { ok: false, needs: 'pin', locked: leftTries <= 0, message: leftTries > 0 ? 'That code doesn’t match. Ask them to check their order page.' : 'That code doesn’t match, and it no longer works. Ask the shop to mark it delivered.' };
+        }
+        pinOk = true;
+      }
       const itemSnaps = await readOrderItems(txn, fs, tenantId, order);
       convertSaleInTxn(txn, fs, tenantId, order, itemSnaps, actor);
       const now = new Date().toISOString();
-      txn.update(oRef, clean({ stage: 'completed', completedAt: now, deliveredAt: now, 'delivery.status': 'delivered', 'delivery.deliveredAt': now, 'delivery.deliveredById': actor.id, 'delivery.deliveredByName': actor.name }) as any);
-      txn.set(doc(collection(oRef, 'events')), evPayload('delivered', actor));
+      const where = String(proof.where || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      txn.update(oRef, clean({
+        stage: 'completed', completedAt: now, deliveredAt: now, 'delivery.status': 'delivered', 'delivery.deliveredAt': now, 'delivery.deliveredById': actor.id, 'delivery.deliveredByName': actor.name,
+        'delivery.handedTo': left ? 'left' : 'customer', 'delivery.leftWhere': left ? (where || String(order.delivery?.note || '').slice(0, 120) || null) : null,
+        'delivery.photoUrl': photo, 'delivery.codeChecked': pinOk || null,
+        ...(skip && (need.photo && !photo || need.pin) ? { 'delivery.proofSkippedBy': actor.name } : {}),
+      }) as any);
+      txn.set(doc(collection(oRef, 'events')), evPayload('delivered', actor, { ...(left ? { left: true } : {}), ...(photo ? { photo: true } : {}), ...(pinOk ? { code: true } : {}) }));
+      if (skip && ((need.photo && !photo) || need.pin)) txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: `Marked delivered without the ${[need.photo && !photo ? 'photo' : '', need.pin ? 'delivery code' : ''].filter(Boolean).join(' or ')} the shop asks for` }));
       txn.set(doc(collection(oRef, 'events')), evPayload('completed', actor, { method: 'delivered' }));
       return { ok: true, message: `Order #${order.orderNumber} delivered.`, order: { ...order, stage: 'completed', completedAt: now } };
     });
@@ -976,9 +1031,13 @@ export async function markDelivered(
   }
 }
 
+/**
+ * Brought back to the shop: why (one of the reasons a driver picks, lib/delivery-run, or words from the back office),
+ * and whose side it was on, which decides whether a second try is charged.
+ */
 export async function markDeliveryFailed(
-  fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason: string,
-): Promise<{ ok: boolean; message: string }> {
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason: string, code?: FailCode | null,
+): Promise<{ ok: boolean; message: string; tries?: number }> {
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -988,11 +1047,61 @@ export async function markDeliveryFailed(
       if (order.method !== 'delivery') return { ok: false, message: 'Only a delivery order can be brought back.' };
       if (order.stage !== 'ready') return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}.` };
       if (order.delivery?.status !== 'out') return { ok: false, message: order.delivery?.status === 'failed' ? 'Already back at the shop.' : 'It isn’t out for delivery.' };
-      const why = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 140) || 'Something else';
+      const r = failReason(code || order.delivery?.doorCode);
+      const why = String(reason || '').replace(/\s+/g, ' ').trim().slice(0, 140) || r?.label || 'Something else';
       const now = new Date().toISOString();
-      txn.update(oRef, clean({ 'delivery.status': 'failed', 'delivery.failedAt': now, 'delivery.failReason': why, 'delivery.failedById': actor.id }) as any);
+      txn.update(oRef, clean({ 'delivery.status': 'failed', 'delivery.failedAt': now, 'delivery.failReason': why, 'delivery.failedById': actor.id,
+        'delivery.failCode': r?.code || 'other', 'delivery.failCause': r?.cause || 'shop', 'delivery.skippedAt': null }) as any);
       txn.set(doc(collection(oRef, 'events')), evPayload('delivery_failed', actor, { reason: why }));
-      return { ok: true, message: 'Back on the ready shelf. Send it out again when there’s a driver, or talk to the customer.' };
+      return { ok: true, tries: Math.max(1, Number(order.delivery?.tries) || 1), message: 'Back on the ready shelf. Send it out again when there’s a driver, or talk to the customer.' };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not record that.' };
+  }
+}
+
+/**
+ * At the door and can't deliver yet: what happened, kept on the try (the customer is told and has a few minutes to
+ * answer before the driver chooses). Once per try; picking another reason only changes the reason.
+ */
+export async function markAtDoor(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, code: FailCode,
+): Promise<{ ok: boolean; message: string; first?: boolean; doorAt?: string; tries?: number }> {
+  const r = failReason(code); if (!r) return { ok: false, message: 'Choose what happened.' };
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = oSnap.data();
+      if (order.method !== 'delivery' || order.delivery?.status !== 'out') return { ok: false, message: 'It isn’t out for delivery.' };
+      if (String(order.delivery?.driverId || '') !== actor.id) return { ok: false, message: `This delivery is with ${String(order.delivery?.driverName || 'another driver').split(' ')[0]}.` };
+      const first = !order.delivery?.doorAt;
+      const doorAt = order.delivery?.doorAt || new Date().toISOString();
+      txn.update(oRef, clean({ 'delivery.doorAt': doorAt, 'delivery.doorCode': r.code }) as any);
+      if (first) txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: `At the door and couldn’t deliver yet: ${r.label.toLowerCase()}. ${String(order.customerName || 'The customer').split(' ')[0]} was messaged.` }));
+      return { ok: true, first, doorAt, tries: Math.max(1, Number(order.delivery?.tries) || 1), message: first ? 'They’ve been messaged.' : 'Updated.' };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not record that.' };
+  }
+}
+
+/** Go to the next stop and come back to this one: it moves to the end of the driver's route (lib/delivery-run). */
+export async function markDeliverySkip(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor,
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order: any = oSnap.data();
+      if (order.method !== 'delivery' || order.delivery?.status !== 'out') return { ok: false, message: 'It isn’t out for delivery.' };
+      if (String(order.delivery?.driverId || '') !== actor.id) return { ok: false, message: `This delivery is with ${String(order.delivery?.driverName || 'another driver').split(' ')[0]}.` };
+      txn.update(oRef, { 'delivery.skippedAt': new Date().toISOString() } as any);
+      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Went on to the next stop, coming back to this one' }));
+      return { ok: true, message: 'Moved to the end of your route.' };
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not record that.' };

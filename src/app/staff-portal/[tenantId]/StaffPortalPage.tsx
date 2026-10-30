@@ -28,6 +28,7 @@ import { PushPrompt } from '@/components/shared/PushPrompt';
 import { ClientStatusCard } from '@/components/staff/ClientStatusCard';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { FulfilmentPanel } from '@/components/fulfilment/FulfilmentPanel';
+import { DeliveriesTab, useDeliveryDriver } from '@/components/staff-portal/DeliveriesTab';
 import { permissionsFor } from '@/lib/fulfilment-access';
 import { useRouter } from 'next/navigation';
 import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
@@ -3758,11 +3759,11 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'|'orders'|'me'>(staffMember.role === 'renter' ? 'rent' : 'today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'|'orders'|'deliveries'|'me'>(staffMember.role === 'renter' ? 'rent' : 'today');
   // Opened from a phone notification (?tab=…) → that tab. Only the portal's own tabs; anything else is ignored.
   useEffect(() => {
     try { const t = new URLSearchParams(window.location.search).get('tab') as any;
-      const allowed = staffMember.role === 'renter' ? ['rent', 'messages', 'inbox', 'documents', 'me'] : ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'orders', 'me', 'rent'];
+      const allowed = staffMember.role === 'renter' ? ['rent', 'messages', 'inbox', 'documents', 'me'] : ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'orders', 'deliveries', 'me', 'rent'];
       if (t && allowed.includes(t)) setActiveTab(t); } catch { /* fine */ }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [selectedDate, setSelectedDate] = useState(() => bizNow());
@@ -4180,6 +4181,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const fr = String((staffMember as any)?.fulfilmentRole || '').toLowerCase();
   const showOrders = !!fulfilmentPerms.canPick && fr !== 'none' && (anyOrder || []).length > 0
     && (!!fr || isMgr);
+  // Drives the shop's own deliveries: delivery is on and they're on its list of drivers (lib/delivery-run).
+  const driveInfo = useDeliveryDriver(firestore, tenantId, String(staffMember.id));
+  const driver = !isRenter && fr !== 'none' && driveInfo.isDriver;
+  const canDeliver = !isRenter && fr !== 'none' && driveInfo.canDeliver;
   const ORDERS_TAB = { id: 'orders', label: 'Orders', icon: ShoppingCart };
   const retailOnly = showOrders && !!fr && fr !== 'manager' && !isRenter && !isHybrid && !(((staffMember as any).serviceIds || []) as any[]).length;
   const startedOnOrders = React.useRef(false);
@@ -4252,8 +4257,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // People a manager set up for online orders get Orders in the bar, in place of Pay (Pay stays under Me). Someone
   // whose whole job is the shop (no services of their own) starts on Orders, and Today drops the visit panels.
   const packer = showOrders && !!fr && fr !== 'manager';
-  const navItems: NavKey[] = isRenter ? ['rent', 'team', 'me'] : retailOnly ? ['orders', 'today', 'schedule', 'team', 'me'] : packer ? ['today', 'orders', 'schedule', 'team', 'me'] : ['today', 'schedule', 'team', 'pay', 'me'];
-  const goNav = (k: NavKey) => setActiveTab(({ today: 'today', schedule: 'schedule', team: 'messages', pay: 'earnings', me: 'me', rent: 'rent', orders: 'orders' } as const)[k] as any);
+  // Someone who drives the shop's deliveries (lib/delivery-run) gets Deliveries in the bar, in place of Pay, unless the
+  // bar is already given to Orders; then it's under Me.
+  const navItems: NavKey[] = isRenter ? ['rent', 'team', 'me'] : retailOnly ? ['orders', 'today', 'schedule', 'team', 'me'] : packer ? ['today', 'orders', 'schedule', 'team', 'me'] : driver ? ['today', 'deliveries', 'schedule', 'team', 'me'] : ['today', 'schedule', 'team', 'pay', 'me'];
+  const goNav = (k: NavKey) => setActiveTab(({ today: 'today', schedule: 'schedule', team: 'messages', pay: 'earnings', me: 'me', rent: 'rent', orders: 'orders', deliveries: 'deliveries' } as const)[k] as any);
   const firstName = String(staffMember.name || '').split(' ')[0] || 'there';
   const hello = (() => { const h = bizNow().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })();
 
@@ -4344,6 +4351,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='orders' && (
             <div className="p-4">
               <FulfilmentPanel tenantId={tenantId} firestore={firestore as any} staffMember={staffMember as any} />
+            </div>
+          )}
+
+          {activeTab==='deliveries' && (
+            <div className="p-4">
+              <DeliveriesTab tenantId={tenantId} firestore={firestore as any} staffMember={staffMember as any} />
             </div>
           )}
 
@@ -4632,7 +4645,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   { k: 'documents', label: 'Handbook and documents', sub: 'Things to read and sign, checklists, your forms', show: true },
                   { k: 'rent', label: 'Rent', sub: 'Your booth, payments and lease', show: isHybrid },
                   { k: 'orders', label: 'Orders', sub: 'Pick and pack online orders', show: showOrders && !packer },
-                  { k: 'earnings', label: 'Pay', sub: 'Your hours, earnings and pay stubs', show: packer },
+                  { k: 'deliveries', label: 'Deliveries', sub: 'Your run, the door, and anything brought back', show: canDeliver && !(driver && !packer && !retailOnly) },
+                  { k: 'earnings', label: 'Pay', sub: 'Your hours, earnings and pay stubs', show: packer || driver },
                   { k: 'requests', label: 'My requests', sub: 'Time off, swaps and early finishes', show: !isRenter },
                 ].filter((r) => r.show).map((r) => (
                   <button key={r.k} type="button" onClick={() => (r.k === 'details' ? setEditingDetails(true) : r.k === 'alerts' ? setEditingAlerts(true) : r.k === 'cases' ? setViewingCases(true) : r.k === 'refunds' ? setViewingRefunds(true) : r.k === 'work' ? setViewingWork(true) : r.k === 'numbers' ? setViewingNumbers(true) : setActiveTab(r.k as any))} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
