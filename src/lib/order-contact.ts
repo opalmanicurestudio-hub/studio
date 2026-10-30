@@ -143,7 +143,7 @@ export async function applyOrderContact(db: any, tenantId: string, orderId: stri
 type Send = (db: any, m: any) => Promise<any>;
 
 /** Send a 6-digit code to the NEW email or mobile. A few an hour per order, and per address. */
-export async function sendContactCode(db: any, tenantId: string, orderId: string, o: any, field: 'email' | 'phone', value: string, opt: { now?: number; send?: Send; origin?: string; purpose?: 'order_contact' | 'order_pass' } = {}) {
+export async function sendContactCode(db: any, tenantId: string, orderId: string, o: any, field: 'email' | 'phone', value: string, opt: { now?: number; send?: Send; origin?: string; purpose?: 'order_contact' | 'order_pass' | 'gift_pass' } = {}) {
   const now = opt.now ?? Date.now(); const T = `tenants/${tenantId}`;
   // A code to show it's them (lib/order-pass) goes to the email or mobile already on the order; a code for a new
   // email or mobile goes to the new one. Both count against the same limits.
@@ -170,11 +170,11 @@ export async function sendContactCode(db: any, tenantId: string, orderId: string
   const brand = await getEmailBrand(db, tenantId).catch(() => ({ shopName: '' } as any));
   const shop = brand.shopName || 'the shop';
   const num = `#${String(o.orderNumber ?? '').padStart(4, '0')}`;
-  const forWhat = purpose === 'order_pass' ? `to see order ${num} and change your details` : field === 'email' ? `to use this email for order ${num}` : `to get updates about order ${num} at this number`;
+  const forWhat = purpose === 'gift_pass' ? 'to open your gift' : purpose === 'order_pass' ? `to see order ${num} and change your details` : field === 'email' ? `to use this email for order ${num}` : `to get updates about order ${num} at this number`;
   const r: any = field === 'email'
     ? await send(db, { tenantId, channel: 'email', to: value, subject: `Your code: ${code}`, kind: 'verify_code', essential: true, recipientType: 'client', recipientId: orderId, orderId,
-        html: brandedEmail(brand, `<p style="font-size:14px;color:#334155;line-height:1.6">Enter this code on your order page ${forWhat}:</p><p style="font-size:30px;letter-spacing:6px;font-weight:600;color:#16171a;margin:14px 0">${code}</p><p style="font-size:13px;color:#6d7075;line-height:1.6">It expires in ${CONTACT_CODE_MIN} minutes. If you didn’t ask for this, you can ignore this email.</p>`, { title: 'Your code', tag: `Order ${num}`, preheader: `Your code is ${code}` }),
-        text: `Your ${shop} code is ${code}. Enter it on your order page ${forWhat}. It expires in ${CONTACT_CODE_MIN} minutes.` }).catch(() => null)
+        html: brandedEmail(brand, `<p style="font-size:14px;color:#334155;line-height:1.6">Enter this code ${purpose === 'gift_pass' ? 'in your library' : 'on your order page'} ${forWhat}:</p><p style="font-size:30px;letter-spacing:6px;font-weight:600;color:#16171a;margin:14px 0">${code}</p><p style="font-size:13px;color:#6d7075;line-height:1.6">It expires in ${CONTACT_CODE_MIN} minutes. If you didn’t ask for this, you can ignore this email.</p>`, { title: 'Your code', tag: purpose === 'gift_pass' ? 'Your gift' : `Order ${num}`, preheader: `Your code is ${code}` }),
+        text: `Your ${shop} code is ${code}. Enter it ${purpose === 'gift_pass' ? 'in your library' : 'on your order page'} ${forWhat}. It expires in ${CONTACT_CODE_MIN} minutes.` }).catch(() => null)
     : await send(db, { tenantId, channel: 'sms', to: value, kind: 'verify_code', essential: true, recipientType: 'client', recipientId: orderId, orderId,
         text: `${shop}: your code is ${code}. Enter it on your order page ${forWhat}. It expires in ${CONTACT_CODE_MIN} minutes.` }).catch(() => null);
   if (!r || r.ok === false) {
@@ -185,7 +185,7 @@ export async function sendContactCode(db: any, tenantId: string, orderId: string
 }
 
 /** Check the code. Once right, it can't be used again; five wrong tries and a new one is needed. */
-export async function confirmContactCode(db: any, tenantId: string, orderId: string, verificationId: string, code: string, now = Date.now(), purpose: 'order_contact' | 'order_pass' = 'order_contact'): Promise<{ ok: true; field: 'email' | 'phone'; value: string } | { ok: false; error: string }> {
+export async function confirmContactCode(db: any, tenantId: string, orderId: string, verificationId: string, code: string, now = Date.now(), purpose: 'order_contact' | 'order_pass' | 'gift_pass' = 'order_contact'): Promise<{ ok: true; field: 'email' | 'phone'; value: string } | { ok: false; error: string }> {
   const ref = db.doc(`tenants/${tenantId}/clientVerifications/${String(verificationId || '').replace(/[^\w-]/g, '').slice(0, 80) || 'none'}`);
   return db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref); const v: any = snap.exists ? snap.data() : null;

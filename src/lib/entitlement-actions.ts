@@ -62,9 +62,9 @@ export function applyAction(ent: any, a: EntAction, by: string, now: string, ctx
 }
 
 /** What the buyer is told, by email, about a change the shop made. */
-export function buyerMessage(a: EntAction, product: string, shop: string): { subject: string; line: string } {
+export function buyerMessage(a: EntAction, product: string, shop: string, gift = false): { subject: string; line: string } {
   if (a.kind === 'add_downloads') return { subject: `More downloads for ${product}`, line: `${shop} gave you ${a.count} more download${a.count === 1 ? '' : 's'} of ${product}.` };
   if (a.kind === 'extend') return { subject: `Your access to ${product} is extended`, line: a.until === 'forever' ? `${shop} extended your access to ${product}. It’s yours to keep.` : `${shop} extended your access to ${product} until ${day(a.until)}.` };
-  if (a.kind === 'revoke') return { subject: `Access to ${product} has closed`, line: `${shop} has closed your access to ${product}. Their reason: ${/[.!?]$/.test(a.reason) ? a.reason : `${a.reason}.`} If you think this is a mistake, send them a message from your order page.` };
+  if (a.kind === 'revoke') return { subject: `Access to ${product} has closed`, line: `${shop} has closed your access to ${product}. Their reason: ${/[.!?]$/.test(a.reason) ? a.reason : `${a.reason}.`} If you think this is a mistake, ${gift ? 'reply to this email' : 'send them a message from your order page'}.` };
   return { subject: `${product} is open again`, line: `${shop} opened your access to ${product} again.` };
 }

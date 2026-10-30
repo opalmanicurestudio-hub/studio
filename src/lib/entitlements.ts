@@ -16,6 +16,8 @@ const c0 = (v: any) => Math.max(0, Math.round(Number(v) || 0));
 export type Entitlement = {
   id: string; tenantId: string; orderId: string; lineId: string; productId: string; name: string;
   email: string; clientId: string | null; copies: number;
+  /** Bought as a gift (lib/digital-gift): the person it was for opens it from their gift library, not an order page. */
+  gift?: boolean;
   license: { id: string; name: string; terms: string };
   access: { days: number; startsAt: string; endsAt: string | null; extendedUntil?: string | null };
   downloads: { allowed: number | null; used: number; extra: number; seen?: { id: string; at: number }[] };
@@ -47,7 +49,8 @@ export function buildEntitlement(tenantId: string, order: any, line: any, item: 
     id: entitlementId(order?.id || '', line?.lineId || line?.productId || ''),
     tenantId, orderId: String(order?.id || ''), lineId: String(line?.lineId || ''), productId: String(line?.productId || ''),
     name: String(line?.name || item?.name || 'Download'),
-    email: String(order?.customerEmail || '').trim().toLowerCase(), clientId: order?.clientId || null,
+    // A download bought as a gift belongs to the person it was for (lib/digital-gift).
+    email: String(order?.digitalGift?.toEmail || order?.customerEmail || '').trim().toLowerCase(), clientId: order?.digitalGift ? null : order?.clientId || null, ...(order?.digitalGift ? { gift: true } : {}),
     copies: Math.max(1, c0(line?.qtyOrdered) || 1),
     license: { id: String(lic.id), name: String(lic.name || 'License'), terms: String(lic.terms || '') },
     access: { days, startsAt: start, endsAt: days > 0 ? new Date((Date.parse(start) || Date.now()) + days * 864e5).toISOString() : null, extendedUntil: null },

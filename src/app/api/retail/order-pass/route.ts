@@ -3,12 +3,15 @@
 // shows the full address and email and lets them change their details, and an expired order link opens again.
 //   POST { tenantId, orderId, action: 'send', via: 'email' | 'phone' }   → { verificationId, sentTo }
 //   POST { tenantId, orderId, action: 'confirm', verificationId, code }  → { pass, until }
+// With gift: true, on a download bought as a gift (lib/digital-gift): the code goes to the person it was for, and the
+// pass opens their library only (it isn't the buyer's pass, and the buyer's doesn't open the gift).
 // Codes are limited per order, per email or number, and per shop each day (lib/order-contact), so this can't be used to
 // flood anyone. Nothing here says whether an email or number is right: the code goes to the one on the order.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { makePass, passUntil } from '@/lib/order-pass';
 import { maskEmail } from '@/lib/contact-change';
+import { giftPassKey } from '@/lib/digital-gift';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +25,20 @@ export async function POST(req: NextRequest) {
   const o: any = snap.data() || {};
   if (o.stage === 'placed' || !o.qrToken) return NextResponse.json({ error: 'This order isn’t finished yet.' }, { status: 409 });
   const { sendContactCode, confirmContactCode } = await import('@/lib/order-contact');
+  if (b.gift === true) {
+    const g = o.digitalGift;
+    if (!g || !g.sentAt) return NextResponse.json({ error: 'This gift hasn’t been sent yet.' }, { status: 409 });
+    if (action === 'send') {
+      const origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '') || req.nextUrl.origin;
+      const r: any = await sendContactCode(db, tenantId, orderId, o, 'email', String(g.toEmail), { origin, purpose: 'gift_pass' });
+      if (!r.ok) return NextResponse.json({ error: r.error }, { status: 429 });
+      return NextResponse.json({ ok: true, verificationId: r.verificationId, sentTo: maskEmail(String(g.toEmail)) });
+    }
+    const c = await confirmContactCode(db, tenantId, orderId, String(b.verificationId || ''), String(b.code || ''), Date.now(), 'gift_pass');
+    if (!c.ok) return NextResponse.json({ error: c.error }, { status: 400 });
+    const pass = makePass(tenantId, giftPassKey(String(o.qrToken)));
+    return NextResponse.json({ ok: true, pass, until: passUntil(pass) });
+  }
   if (action === 'send') {
     const via = b.via === 'phone' ? 'phone' : 'email';
     const to = via === 'phone' ? String(o.customerPhone || '').trim() : String(o.customerEmail || '').trim();

@@ -6,6 +6,7 @@ import { checkStreamToken, closedMessage, digitalLineAccess, makeStreamToken, st
 import { countUse, downloadsLeft, ensureEntitlement, type Entitlement } from '@/lib/entitlements';
 import { watermarkPdf, looksLikePdf } from '@/lib/pdf-watermark';
 import { fileOf, filesOf, openMode, ownPath } from '@/lib/digital-product';
+import { accessPassKey } from '@/lib/digital-gift';
 
 // ─── /api/retail/digital-access ──────────────────────────────────────────────
 // The private door to a purchased file. Honest framing first: NOTHING can
@@ -82,7 +83,7 @@ async function authorize(db: any, tenantId: string, orderId: string, productId: 
     }
   }
   const a = digitalLineAccess(order, line, Date.now(), ent);
-  if (!a.open || !ent) return { error: closedMessage(a.reason, a.endsAt), status: a.reason === 'inactive' || !ent ? 409 : 403, closed: a.reason || 'inactive', endsAt: a.endsAt };
+  if (!a.open || !ent) return { error: closedMessage(a.reason, a.endsAt, !!order?.digitalGift), status: a.reason === 'inactive' || !ent ? 409 : 403, closed: a.reason || 'inactive', endsAt: a.endsAt };
   return { ref, order, line, item, endsAt: a.endsAt, ent };
 }
 
@@ -107,12 +108,15 @@ const TYPES: Record<string, string> = { pdf: 'application/pdf', png: 'image/png'
 const extOf = (name: string) => String(name || '').toLowerCase().split('.').pop() || '';
 const showsInPage = (name: string) => ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp'].includes(extOf(name));
 
-const USED_UP = 'All the downloads for this have been used. You can still view it here, or send the shop a message from your order page for more.';
+/** Where to ask the shop: the buyer from their order page; someone given it as a gift by replying to their gift email. */
+const askShop = (o: any) => (o?.digitalGift ? 'Reply to your gift email to ask the shop' : 'Send the shop a message from your order page');
+const usedUp = (o: any) => `All the downloads for this have been used. You can still view it here, or ${o?.digitalGift ? 'reply to your gift email to ask the shop' : 'send the shop a message from your order page'} for more.`;
 /** What a stream link is signed for: the product, and the line when the order has one (the same product can be on two). */
 const streamKey = (productId: string, lineId: string, fileId = '') => `${productId}${lineId ? `|${lineId}` : ''}${fileId && fileId !== 'main' ? `#${fileId}` : ''}`;
 
 const SLOW = { error: 'That\u2019s a lot of opens in a short time. Please wait a little and try again.' };
-const label = (o: any) => `${o.customerName || 'Customer'} \u00b7 ${o.customerEmail || ''} \u00b7 #${String(o.orderNumber ?? '').padStart(4, '0')}`;
+// The name stamped on the file is whoever it belongs to: on a gift, the person it was for, never the buyer.
+const label = (o: any) => { const g = o?.digitalGift; return `${(g ? g.toName : o.customerName) || 'Customer'} \u00b7 ${(g ? g.toEmail : o.customerEmail) || ''} \u00b7 #${String(o.orderNumber ?? '').padStart(4, '0')}`; };
 
 /** Download the stored file through the same bucket-hunting chain. */
 async function downloadFile(path: string, tenantBucket: string | null): Promise<Uint8Array | null> {
@@ -176,7 +180,7 @@ export async function GET(req: NextRequest) {
     const file = fileOf(auth.item, fid || null);
     if (!file) return NextResponse.json({ error: 'That file isn\u2019t on this item any more. Open it again from your library.' }, { status: 409 });
     const filePath = file.path;
-    if (!ownPath(tenantId, filePath)) return NextResponse.json({ error: 'This file can\u2019t be opened. Send the shop a message from your order page.' }, { status: 409 });
+    if (!ownPath(tenantId, filePath)) return NextResponse.json({ error: `This file can\u2019t be opened. ${askShop(auth.order)}.` }, { status: 409 });
     // How the shop delivers it now wins over the link: a link made before the shop switched to view only can't save.
     if (openMode(auth.item, file, streamTokenMode(sig)) !== streamTokenMode(sig)) return NextResponse.json({ error: 'The shop changed how this item opens. Open it again from your library.' }, { status: 403 });
 
@@ -187,7 +191,7 @@ export async function GET(req: NextRequest) {
     const name = file.name;
     const saving = mode === 'download' || !showsInPage(name);
     const leftNow = downloadsLeft(auth.ent);
-    if (saving && leftNow !== null && leftNow <= 0 && !((auth.ent.downloads as any)?.seen || []).some((x: any) => x?.id === sig.slice(-32))) return NextResponse.json({ error: USED_UP }, { status: 403 });
+    if (saving && leftNow !== null && leftNow <= 0 && !((auth.ent.downloads as any)?.seen || []).some((x: any) => x?.id === sig.slice(-32))) return NextResponse.json({ error: usedUp(auth.order) }, { status: 403 });
 
     const tSnap = await db.collection('tenants').doc(tenantId).get();
     const tenantBucket = String((tSnap.data() as any)?.storageBucket || '') || null;
@@ -196,7 +200,7 @@ export async function GET(req: NextRequest) {
 
     const isPdf = looksLikePdf(filePath, bytes);
     const out = isPdf ? await watermarkPdf(bytes, label(auth.order)) : bytes;
-    if (saving && !(await countUse(db, tenantId, auth.ent.id, 'download', sig.slice(-32))).ok) return NextResponse.json({ error: USED_UP }, { status: 403 });
+    if (saving && !(await countUse(db, tenantId, auth.ent.id, 'download', sig.slice(-32))).ok) return NextResponse.json({ error: usedUp(auth.order) }, { status: 403 });
     const type = isPdf ? 'application/pdf' : TYPES[extOf(name)] || 'application/octet-stream';
 
     return new NextResponse(Buffer.from(out), {
@@ -244,7 +248,8 @@ export async function POST(req: NextRequest) {
     const { order, line, item, endsAt, ref, ent } = auth;
 
     // Proof it's the buyer: the pass this device keeps (lib/order-pass). The order link alone opens nothing.
-    if (!checkPass(tenantId, String(order.qrToken || ''), pass)) {
+    // On a download bought as a gift it's the recipient's pass, never the buyer's (lib/digital-gift).
+    if (!checkPass(tenantId, accessPassKey(order), pass)) {
       return NextResponse.json({ error: 'Confirm it\u2019s you to open this.', needsPass: true }, { status: 401 });
     }
     if (await tooMany(req, tenantId, orderId, 'order')) return NextResponse.json(SLOW, { status: 429 });
@@ -254,10 +259,10 @@ export async function POST(req: NextRequest) {
     const linkUrl = String(item.digitalUrl || line.digitalUrl || '');
     const file = wantsLink ? null : askedFile ? fileOf(item, askedFile) : files[0] || null;
     if (askedFile && !file) return NextResponse.json({ error: 'That file isn\u2019t on this item any more. Reload your library.' }, { status: 409 });
-    if (file && !ownPath(tenantId, file.path)) return NextResponse.json({ error: 'This file can\u2019t be opened. Send the shop a message from your order page.' }, { status: 409 });
+    if (file && !ownPath(tenantId, file.path)) return NextResponse.json({ error: `This file can\u2019t be opened. ${askShop(order)}.` }, { status: 409 });
     const filePath = file ? file.path : '';
     if (!filePath && !linkUrl) {
-      return NextResponse.json({ error: 'This file hasn\u2019t been attached yet. Send the shop a message from your order page and they\u2019ll sort it out.' }, { status: 409 });
+      return NextResponse.json({ error: `This file hasn\u2019t been attached yet. ${askShop(order)} and they\u2019ll sort it out.` }, { status: 409 });
     }
 
     await logOpen(ref, order, line, productId, filePath ? 'file' : 'link');
@@ -269,10 +274,10 @@ export async function POST(req: NextRequest) {
       // always a saved copy, view-only never saves, save-only always does.
       const inPage = showsInPage(file.name);
       const mode = openMode(item, file, asked);
-      if (!mode) return NextResponse.json({ error: 'This file can\u2019t be shown here, and the shop doesn\u2019t offer copies of it. Send the shop a message from your order page.' }, { status: 409 });
+      if (!mode) return NextResponse.json({ error: `This file can\u2019t be shown here, and the shop doesn\u2019t offer copies of it. ${askShop(order)}.` }, { status: 409 });
       // A copy to save, once the downloads are used, is refused here (and again when the file is fetched).
       if (mode === 'download' && left !== null && left <= 0) {
-        return NextResponse.json({ error: USED_UP, downloadsLeft: 0 }, { status: 403 });
+        return NextResponse.json({ error: usedUp(order), downloadsLeft: 0 }, { status: 403 });
       }
       if (mode === 'view') await countUse(db, tenantId, ent.id, 'view');
       // Stored files stream through our own GET so the watermark is baked in; the link lasts ten minutes.

@@ -31,7 +31,7 @@ import { formatPromiseDay, preorderNotice } from '@/lib/preorder-terms';
 import {
   arrivalLabel, busyLineFor, dayLabel, leadSentence, normalizeSchedule, orderPromise, processingSentence, type PromiseLine,
 } from '@/lib/ship-promise';
-import { addDays, dayKey } from '@/lib/tenant-time';
+import { todayIn, addDays, dayKey } from '@/lib/tenant-time';
 import { cn } from '@/lib/utils';
 import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/components/shop/AddressReview';
 
@@ -162,7 +162,9 @@ export default function CheckoutPage() {
   const [pickupChoice, setPickupChoice] = useState('ASAP');
   const [preorderAgreed, setPreorderAgreed] = useState(false);
   const [ifUnavailable, setIfUnavailable] = useState<IfUnavailable>('refund');
-  const [isGift, setIsGift] = useState(false); const [giftTo, setGiftTo] = useState(''); const [giftMsg, setGiftMsg] = useState('');
+  const [isGift, setIsGift] = useState(() => search?.get('gift') === '1'); const [giftTo, setGiftTo] = useState(''); const [giftMsg, setGiftMsg] = useState('');
+  // A download given as a gift (lib/digital-gift): it goes by email to the person it's for, today or on a chosen day.
+  const [giftEmail, setGiftEmail] = useState(''); const [giftOn, setGiftOn] = useState('');
 
   // Live carrier rates. The server signs every option (amount + service +
   // expiry); the browser only ever sends the chosen option's token back, so
@@ -445,7 +447,8 @@ export default function CheckoutPage() {
   const canPlace =
     cartCount > 0 && name.trim() && email.trim() && minIssues.length === 0 &&
     (!hasPreorder || preorderAgreed) &&
-    (digitalOnlyCart || method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode));
+    (digitalOnlyCart || method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode)) &&
+    (!digitalOnlyCart || !isGift || (giftTo.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(giftEmail.trim())));
 
   // ── The address, checked with the carrier before they pay (components/shop/AddressReview) ──
   // Only when something is worth asking: the carrier's version differs in a way that matters, an apartment number looks
@@ -506,7 +509,7 @@ export default function CheckoutPage() {
           preorderShownAt: hasPreorder ? notice?.promiseAt || undefined : undefined,
           shownShipBy: chosenDates ? (serverShipBy && serverShipBy !== chosenDates.shipBy ? serverShipBy : chosenDates.shipBy) : undefined,
           ifUnavailable: digitalOnlyCart ? undefined : ifUnavailable,
-          gift: !digitalOnlyCart && isGift ? { isGift: true, to: giftTo.trim(), message: giftMsg.trim() } : undefined,
+          gift: isGift ? (digitalOnlyCart ? { isGift: true, to: giftTo.trim(), toEmail: giftEmail.trim(), sendOn: giftOn || undefined, message: giftMsg.trim() } : { isGift: true, to: giftTo.trim(), message: giftMsg.trim() }) : undefined,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...(extra?.address || addr), country: 'US' } : undefined,
           addressCheckToken: method === 'ship' && !digitalOnlyCart && extra?.token ? extra.token : undefined,
@@ -647,7 +650,7 @@ export default function CheckoutPage() {
             <div className="rounded-2xl border-2 border-primary/30 bg-primary/[0.04] p-3">
               <p className="text-[10px] font-black uppercase tracking-widest">Instant access</p>
               <p className="text-[11px] font-bold text-muted-foreground">
-                Nothing ships. The moment you pay, everything opens in your library and lands in your email.
+                {isGift ? 'Nothing ships. They get an email with your message, and it opens in their own library.' : 'Nothing ships. The moment you pay, everything opens in your library and lands in your email.'}
               </p>
             </div>
           )}
@@ -874,6 +877,27 @@ export default function CheckoutPage() {
                   </div>)}
               </div>
             )}
+            {digitalOnlyCart && (
+              <div className="space-y-2 rounded-2xl border-2 bg-white p-3">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2.5">
+                  <input type="checkbox" checked={isGift} onChange={(e) => setIsGift(e.target.checked)} className="h-4 w-4" />
+                  <span className="text-[11px] font-black uppercase tracking-widest">Send it as a gift</span>
+                </label>
+                {isGift && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-muted-foreground">We email it to them with your message, and it opens in their own library. Your receipt comes to you.</p>
+                    <input aria-label="Who it’s for" value={giftTo} maxLength={60} onChange={(e) => setGiftTo(e.target.value)} placeholder="Their name" className="h-11 w-full rounded-xl border-2 bg-white px-3 text-sm" />
+                    <input aria-label="Their email" type="email" autoComplete="off" value={giftEmail} maxLength={120} onChange={(e) => setGiftEmail(e.target.value)} placeholder="Their email" className="h-11 w-full rounded-xl border-2 bg-white px-3 text-sm" />
+                    <label className="block space-y-1">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Send it on</span>
+                      <input type="date" value={giftOn} min={todayIn(shop?.timeZone || null)} onChange={(e) => setGiftOn(e.target.value)} className="h-11 w-full rounded-xl border-2 bg-white px-3 text-sm" />
+                      <span className="block text-[10px] font-bold text-muted-foreground">{giftOn ? 'It goes out early that day, shop time.' : 'Leave empty to send it as soon as you pay.'}</span>
+                    </label>
+                    <textarea aria-label="Gift message" value={giftMsg} maxLength={300} onChange={(e) => setGiftMsg(e.target.value)} placeholder="Your message (optional)" rows={3} className="w-full rounded-xl border-2 bg-white px-3 py-2 text-sm" />
+                    <p className="text-right text-[10px] font-bold text-muted-foreground">{giftMsg.length}/300</p>
+                  </div>)}
+              </div>
+            )}
             {acctCreditCents === null && (
               <p className="text-[10px] font-bold text-muted-foreground">
                 Have store credit?{' '}
@@ -1008,7 +1032,7 @@ export default function CheckoutPage() {
               {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - offerCents - promoCents) + (promo?.freeShipping ? 0 : shippingCents) + tipCents)} + tax`}
             </Button>)}
             <p className="text-[9px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
-              {method === 'ship' && !digitalOnlyCart ? 'Secure payment · Tracking on your order page' : digitalOnlyCart ? 'Secure payment · Opens the moment you pay' : <>Secure payment &middot; You&apos;ll get a pickup QR code</>}
+              {method === 'ship' && !digitalOnlyCart ? 'Secure payment · Tracking on your order page' : digitalOnlyCart ? (isGift ? 'Secure payment · Emailed to them on the day you chose' : 'Secure payment · Opens the moment you pay') : <>Secure payment &middot; You&apos;ll get a pickup QR code</>}
             </p>
           </div>
         </div>

@@ -13,6 +13,7 @@
  * fulfilment flow. Payment confirmation is never blocked on stock.
  */
 
+import { giftWhen } from '@/lib/digital-gift';
 import StripeLib from 'stripe';
 import { buildEvent, onlineSellable } from './retail-orders';
 import { assessRisk, riskPolicy, type RiskResult } from './retail-risk';
@@ -166,6 +167,15 @@ export async function finishPaidOrder(db: any, tenantId: string, orderId: string
     try { const { grantEntitlements } = await import('@/lib/entitlements'); await grantEntitlements(db, tenantId, orderId); }
     catch (e) { ok = false; console.error('[retail-webhook] download access', e); }
   }
+  // A download bought as a gift goes to the person it's for, today if no later day was chosen (lib/digital-gift-server).
+  // Once paid it goes on the five-minute check's list, which sends a later day and tries again after a failed send, so a
+  // gift never holds up the rest of this.
+  if (order.digitalGift && !order.digitalGift.sentAt && !order.digitalGift.failedAt) {
+    try {
+      if (!order.digitalGiftPending) await orderRef.set({ digitalGiftPending: true }, { merge: true });
+      const { sendDueGift } = await import('@/lib/digital-gift-server'); await sendDueGift(db, tenantId, orderId);
+    } catch (e) { ok = false; console.error('[retail-webhook] gift', e); }
+  }
   // A promo code on the order: one more use, counted once (lib/promo-codes-server).
   if (order?.promo?.discountId) { try { const { countPromoUse } = await import('@/lib/promo-codes-server'); await countPromoUse(db, tenantId, orderId); } catch (e) { ok = false; console.error('[retail-webhook] promo use', e); } }
   // The receipt the customer expects within seconds of paying, claimed on the order first so it goes once. A send that
@@ -293,7 +303,12 @@ export async function sendOrderConfirmation(
       <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">${creditCents > 0 ? 'Charged to card' : 'Total paid'}</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(chargedCents)}</td></tr>
       ${fullCredit ? `<tr><td colspan="2" style="font-size:12px;color:#0f766e;padding-top:2px">This order was paid in full with store credit. Nothing was charged to a card.</td></tr>` : ''}
     </table>
-    ${(order.lines || []).some((l: any) => l.digital === true)
+    ${order.digitalGift
+      ? `<div style="border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0">
+           <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 8px">Your gift</p>
+           <p style="font-size:13px;color:#0f172a;margin:0">For ${escHtml(String(order.digitalGift.toName || 'them'))}, ${escHtml(giftWhen(order.digitalGift))} to the email you gave. They open it in their own library, with your message.</p>
+         </div>`
+      : (order.lines || []).some((l: any) => l.digital === true)
       ? `<div style="border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0">
            <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 8px">Ready in your library</p>
            ${(order.lines || []).filter((l: any) => l.digital === true).map((l: any) =>

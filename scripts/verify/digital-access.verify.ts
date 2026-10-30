@@ -66,7 +66,7 @@ ok(!checkStreamToken('t1', 'o1', 'p1', 'garbage', now) && !checkStreamToken('t1'
 
 // ── the route
 const route = fs.readFileSync('src/app/api/retail/digital-access/route.ts', 'utf8');
-ok(route.includes("checkPass(tenantId, String(order.qrToken || ''), pass)") && route.includes('needsPass: true'), 'opening needs the order pass, not just the link');
+ok(route.includes('checkPass(tenantId, accessPassKey(order), pass)') && route.includes('needsPass: true'), 'opening needs the order pass, not just the link');
 ok(!/String\(order\.qrToken\) !== qrToken/.test(route) && !route.includes("q.get('t')"), 'the order link token no longer opens files');
 ok(route.includes('checkStreamToken(tenantId, orderId, streamKey(productId, lineId, fid), sig)') && route.includes('makeStreamToken(tenantId, orderId, streamKey(productId, lid, fk), Date.now(), mode)'), 'files stream only through signed ten-minute links');
 ok(route.includes("await logOpen(ref, order, line, productId, filePath ? 'file' : 'link');") && route.indexOf('await logOpen(') < route.indexOf('if (file) {\n      // How the shop'), 'file opens are counted, not only link opens');

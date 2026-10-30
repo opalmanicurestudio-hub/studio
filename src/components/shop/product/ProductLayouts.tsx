@@ -42,6 +42,8 @@ export type ProductViewProps = {
   qty: number; qtyMin: number; qtyMax: number; stepQty: (d: number) => void; onAdd: () => void; onBuyNow: () => void;
   /** The second button's label in Atelier (buy it now, pre-order now); none hides it. */
   buyNowLabel: string | null;
+  /** A download: buy it for someone else (checkout opens with the gift form; lib/digital-gift). */
+  onGift?: (() => void) | null;
   selections: Record<string, string>; onSelect: (groupId: string, choiceId: string) => void;
   showVideo: boolean;
   /** The ship-by card and the restock alert, as the page builds them. */
@@ -214,6 +216,14 @@ function BuyButton({ v, look = 'solid', className, id }: { v: ProductViewProps; 
         ...(look === 'solid' ? { background: 'var(--shop-brand)', color: 'var(--shop-on-brand)' } : { borderColor: 'var(--shop-ink)', color: 'var(--shop-ink)' }),
         ...(L === 'maison' ? { textTransform: 'uppercase', letterSpacing: '.14em', fontSize: 12, fontWeight: 500 } : {}) }}>
       {v.buyLabel}
+    </button>);
+}
+
+function GiftLink({ v }: { v: ProductViewProps }) {
+  if (!v.digital || !v.onGift || !v.canBuy || v.paused) return null;
+  return (
+    <button type="button" onClick={v.onGift} className="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4" style={{ color: 'var(--shop-ink)' }}>
+      Give it as a gift
     </button>);
 }
 
@@ -418,7 +428,7 @@ export function ProductView(v: ProductViewProps) {
             <Choices v={v} />
             {v.promise}
             <Status v={v} />
-            <div className="mt-auto flex items-center gap-3 pt-2"><Stepper v={v} big /><BuyButton v={v} id="buy-main" /></div>
+            <div className="mt-auto flex items-center gap-3 pt-2"><Stepper v={v} big /><BuyButton v={v} id="buy-main" /></div><GiftLink v={v} />
             {v.restock}
           </div>
         </div>
@@ -483,7 +493,7 @@ export function ProductView(v: ProductViewProps) {
               <PriceLine v={v} size="text-2xl" />
               {p.description && <p className="whitespace-pre-line text-[15px] leading-relaxed" style={muted}>{p.description}</p>}
               <Choices v={v} />
-              <div className="flex items-center gap-3"><Stepper v={v} /><BuyButton v={v} id="buy-main" /></div>
+              <div className="flex items-center gap-3"><Stepper v={v} /><BuyButton v={v} id="buy-main" /></div><GiftLink v={v} />
               <Status v={v} />
               {v.promise}
               {v.restock}
@@ -522,12 +532,13 @@ export function ProductView(v: ProductViewProps) {
             <div className="space-y-3">
               {!v.digital && <div className="space-y-2"><p className="text-sm">Quantity</p><Stepper v={v} /></div>}
               <BuyButton v={v} look={v.digital ? 'solid' : 'outline'} className="w-full" id="buy-main" />
+              <GiftLink v={v} />
               {v.buyNowLabel && <button type="button" onClick={v.onBuyNow} className="inline-flex h-12 w-full items-center justify-center text-sm font-semibold transition-opacity hover:opacity-90" style={{ ...radius('control'), background: 'var(--shop-brand)', color: 'var(--shop-on-brand)' }}>{v.buyNowLabel}</button>}
             </div>
           ) : maison ? (
-            <div className="space-y-3"><div className="flex items-center gap-3"><Stepper v={v} /><BuyButton v={v} id="buy-main" /></div></div>
+            <div className="space-y-3"><div className="flex items-center gap-3"><Stepper v={v} /><BuyButton v={v} id="buy-main" /></div><GiftLink v={v} /></div>
           ) : (
-            <div className="flex items-center gap-3"><Stepper v={v} big /><BuyButton v={v} id="buy-main" /></div>
+            <><div className="flex items-center gap-3"><Stepper v={v} big /><BuyButton v={v} id="buy-main" /></div><GiftLink v={v} /></>
           )}
           <Status v={v} />
           {v.promise}

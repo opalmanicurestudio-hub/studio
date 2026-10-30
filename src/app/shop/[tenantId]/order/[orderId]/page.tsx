@@ -1,5 +1,6 @@
 'use client';
 
+import { giftWhen } from '@/lib/digital-gift';
 import { OrderNow } from '@/components/shop/OrderNow';
 import {
   Car, Check, CheckCircle2, Clock, LifeBuoy, Loader, Package, PackageCheck,
@@ -884,7 +885,7 @@ export default function OrderStatusPage() {
   };
 
   if (expired) {
-    return <OrderVerify tenantId={String(tenantId)} orderId={String(orderId)} verify={expired.verify || verify} expired shopName={expired.shopName} orderNumber={expired.order?.orderNumber} onPass={(p) => { keepPass(p); setExpired(null); void load(); }} />;
+    return <OrderVerify tenantId={String(tenantId)} orderId={String(orderId)} verify={expired.verify || verify} expired gift={expired.gift === true} shopName={expired.shopName} orderNumber={expired.order?.orderNumber} onPass={(p) => { keepPass(p); setExpired(null); void load(); }} />;
   }
   if (loadError) {
     return (
@@ -1485,7 +1486,14 @@ export default function OrderStatusPage() {
                   {rcptSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Email my receipt again'}
                 </Button>
               )}
-              {order && selfToken && (order.lines || []).some((l: any) => l.digital === true) && order.stage !== 'placed' && order.stage !== 'cancelled' && (
+              {order && (order as any).digitalGift && order.stage !== 'placed' && (
+                <p className="rounded-xl border-2 p-3 text-xs font-bold text-muted-foreground">
+                  {(order as any).digitalGift.failedAt && !(order as any).digitalGift.sentAt
+                    ? `Your gift for ${(order as any).digitalGift.toName} couldn’t be delivered to the email you gave. Send the shop a message from this page and they can sort it out.`
+                    : `A gift for ${(order as any).digitalGift.toName}, ${giftWhen((order as any).digitalGift)} to the email you gave. It opens in their library, not yours.`}
+                </p>
+              )}
+              {order && selfToken && !(order as any).digitalGift && (order.lines || []).some((l: any) => l.digital === true) && order.stage !== 'placed' && order.stage !== 'cancelled' && (
                 <a
                   href={`/shop/${tenantId}/library/${orderId}`}
                   className="flex w-full h-10 items-center justify-center rounded-xl border-2 font-black uppercase text-[10px] tracking-widest hover:bg-muted"

@@ -318,6 +318,16 @@ export default function ProductPage() {
     if (readCart(tenantId)[key] !== qty) { toast({ title: 'Your bag could not be saved', description: 'This browser is blocking storage. Allow it for this site, or try another browser.' }); return; }
     window.location.href = `/shop/${encodeURIComponent(tenantId)}/checkout`;
   };
+  // A download bought for someone else: this item alone, then checkout with the gift form open. A gift goes by email
+  // on its own, so a bag holding other things is checked out first (nothing in it is moved or lost).
+  const giveAsGift = () => {
+    const key = cartKeyFor(product.id, selections);
+    const before = readCart(tenantId);
+    if (Object.keys(before).some((k) => k !== key && Number(before[k]) > 0)) { toast({ title: 'A gift is checked out on its own', description: 'Your bag has other things in it. Check those out first, or remove them, then give this as a gift.' }); return; }
+    writeCart(tenantId, { [key]: 1 });
+    if (readCart(tenantId)[key] !== 1) { toast({ title: 'Your bag could not be saved', description: 'This browser is blocking storage. Allow it for this site, or try another browser.' }); return; }
+    window.location.href = `/shop/${encodeURIComponent(tenantId)}/checkout?gift=1`;
+  };
   const qtyMin = wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1;
   const qtyMax = sold.digital ? 1 : Math.max(qtyMin, line?.qtyAvailable || product.qtyAvailable || 99);
 
@@ -354,6 +364,7 @@ export default function ProductPage() {
         stepQty={stepQty}
         onAdd={add}
         onBuyNow={buyNow}
+        onGift={sold.digital ? giveAsGift : null}
         selections={selections}
         onSelect={(g, c) => { setSelections({ ...selections, [g]: c }); setQty(wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1); }}
         showVideo={cfg.showVideo !== false}

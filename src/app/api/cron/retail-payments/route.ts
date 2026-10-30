@@ -18,6 +18,7 @@ import { sweepAddressPays } from '@/lib/address-pay';
 import { finishPaidOrder } from '@/lib/retail-webhook';
 import { shareOrderTip } from '@/lib/order-tips';
 import { sweepMoneyOnTheWay } from '@/lib/money-sweep';
+import { sweepDueGifts } from '@/lib/digital-gift-server';
 import { drainOutbox } from '@/lib/order-outbox';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -47,6 +48,8 @@ export async function GET(req: NextRequest) {
     try { counts.swapsRefunded += await expireSwapOffers(db, t.id); } catch { /* next run */ }
     // Pickup reminders for ready orders nobody has collected (each sent once).
     try { counts.pickupReminders += await sweepUncollected(db, t.id, String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '')); } catch { /* next run */ }
+    // Downloads bought as gifts whose day has come (each sent once).
+    try { counts.giftsSent = (counts.giftsSent || 0) + await sweepDueGifts(db, t.id); } catch { /* next run */ }
     // Back-in-stock emails for anything that can be bought online again.
     try { counts.restockEmails += await sendRestockAlerts(db, t.id, String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '')); } catch { /* next run */ }
     const orders = (await db.collection(`tenants/${t.id}/retailOrders`).where('stage', '==', 'placed').limit(100).get().catch(() => ({ docs: [] as any[] }))).docs;

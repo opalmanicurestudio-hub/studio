@@ -77,7 +77,7 @@ function fakeDb(docs: Record<string, any>) {
   const wh = fs.readFileSync('src/lib/retail-webhook.ts', 'utf8');
   ok(wh.includes('grantEntitlements(db, tenantId, orderId)') && wh.indexOf('grantEntitlements(') < wh.indexOf("afterPaidAt: new Date().toISOString()"), 'records are made with the other after-payment steps, retried until done');
   const st = fs.readFileSync('src/app/api/retail/order-status/route.ts', 'utf8');
-  ok(st.includes('entitlement: passOk ? publicEntitlement(') , 'the order page learns downloads left and the license, only with proof it’s the buyer');
+  ok(st.includes('entitlement: passOk && !order.digitalGift ? publicEntitlement(') , 'the order page learns downloads left and the license, only with proof it’s the buyer');
   const acct = fs.readFileSync('src/app/api/retail/account/orders/route.ts', 'utf8');
   ok(acct.includes('digitalLineAccess(o, l, Date.now(), ents[i])') && acct.includes('downloadsLeft: pub?.downloadsLeft') && acct.indexOf('db.getAll(') < acct.indexOf('byProduct.get('), 'the account shelf reads each record before choosing one copy per product, so a revoked copy never hides a newer one');
   ok(st.includes("(reason === 'disputed' || reason === 'revoked') && !passOk ? null : reason"), 'only the buyer is told the shop closed an item');

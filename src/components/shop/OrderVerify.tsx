@@ -10,8 +10,8 @@ type Verify = { emailMasked?: string | null; phoneEnding?: string | null; canTex
 const ink = '#16171a'; const muted = '#6d7075'; const line = '#ececee'; const soft = '#f5f5f7'; const warn = '#b45309';
 const btn: React.CSSProperties = { height: 48, borderRadius: 999, border: 0, fontSize: 15, fontWeight: 600, padding: '0 20px', cursor: 'pointer', fontFamily: 'inherit' };
 
-export function OrderVerify({ tenantId, orderId, verify, expired, shopName, orderNumber, onPass, onClose }: {
-  tenantId: string; orderId: string; verify: Verify; expired?: boolean; shopName?: string; orderNumber?: number | string | null;
+export function OrderVerify({ tenantId, orderId, verify, expired, gift, shopName, orderNumber, onPass, onClose }: {
+  tenantId: string; orderId: string; verify: Verify; expired?: boolean; gift?: boolean; shopName?: string; orderNumber?: number | string | null;
   onPass: (pass: string) => void; onClose?: () => void;
 }) {
   const [sentTo, setSentTo] = React.useState(''); const [vid, setVid] = React.useState('');
@@ -39,9 +39,11 @@ export function OrderVerify({ tenantId, orderId, verify, expired, shopName, orde
   const body = (
     <div style={{ fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: ink, width: '100%', maxWidth: 420 }}>
       {shopName ? <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: muted }}>{shopName}</p> : null}
-      <h1 style={{ margin: '4px 0 0', fontSize: 28, fontWeight: 300, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{expired ? <>This link has <b style={{ fontWeight: 600 }}>expired</b></> : <>Confirm it’s <b style={{ fontWeight: 600 }}>you</b></>}</h1>
+      <h1 style={{ margin: '4px 0 0', fontSize: 28, fontWeight: 300, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{expired && !gift ? <>This link has <b style={{ fontWeight: 600 }}>expired</b></> : <>Confirm it’s <b style={{ fontWeight: 600 }}>you</b></>}</h1>
       <p style={{ margin: '8px 0 0', fontSize: 15, color: muted, lineHeight: 1.5 }}>
-        {expired
+        {gift
+          ? 'This order was a gift, so it stays private. If you bought it, we’ll send a code to the email or mobile on it. If it was a gift for you, open it from the button in your gift email.'
+          : expired
           ? `Order links stay open while an order can still be returned or reported. To see order ${num || 'this order'} again, we’ll send a code to the email or mobile on it.`
           : 'To see your full address and change your details, we’ll send a code to the email or mobile on this order. This device stays confirmed for 30 days.'}
       </p>

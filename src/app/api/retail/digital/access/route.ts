@@ -60,10 +60,12 @@ export async function POST(req: NextRequest) {
     if (ent.email && origin) {
       const { sendNotification } = await import('@/lib/notify');
       const { brandedEmailHtml } = await import('@/lib/email-template');
-      const m = buyerMessage(action, String(ent.name || 'your download'), shop);
-      const url = action.kind === 'revoke' ? `${origin}/shop/${tenantId}/order/${ent.orderId}` : `${origin}/shop/${tenantId}/library/${ent.orderId}`;
-      const html = brandedEmailHtml({ studioName: shop, title: m.subject, bodyLines: [m.line], cta: { label: action.kind === 'revoke' ? 'Open my order' : 'Open my library', url } } as any);
-      emailed = (await sendNotification(db, { tenantId, channel: 'email', to: ent.email, subject: m.subject, text: `${m.line}\n\n${url}`, html, kind: 'digital_access', clientId: ent.clientId || null, recipientType: 'client' } as any)).ok;
+      // Someone given it as a gift has no order page: their link is the gift library, and a reply reaches the shop.
+      const gift = ent.gift === true;
+      const m = buyerMessage(action, String(ent.name || 'your download'), shop, gift);
+      const url = action.kind === 'revoke' && !gift ? `${origin}/shop/${tenantId}/order/${ent.orderId}` : `${origin}/shop/${tenantId}/library/${ent.orderId}`;
+      const html = brandedEmailHtml({ studioName: shop, title: m.subject, bodyLines: [m.line], cta: { label: gift ? 'Open my gift' : action.kind === 'revoke' ? 'Open my order' : 'Open my library', url } } as any);
+      emailed = (await sendNotification(db, { tenantId, channel: 'email', to: ent.email, subject: m.subject, text: `${m.line}\n\n${url}`, html, kind: 'digital_access', clientId: ent.clientId || null, recipientType: gift ? 'other' : 'client' } as any)).ok;
     }
   } catch { /* the change stands */ }
   return NextResponse.json({ ok: true, what: result.what, emailed });

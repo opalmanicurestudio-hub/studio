@@ -52,11 +52,13 @@ export function digitalLineAccess(o: any, line: any, now = Date.now(), ent?: { s
 }
 
 /** What the customer is told when a line is closed (never a dead end: there's always a person to ask). */
-export function closedMessage(reason: ClosedReason | null, endsAt: string | null): string {
-  if (reason === 'expired' && endsAt) return `Your access to this ended on ${new Date(endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. Send the shop a message from your order page and they can extend it.`;
-  if (reason === 'refunded') return 'This item was refunded, so it can’t be opened anymore.';
-  if (reason === 'revoked') return 'The shop has closed access to this item. Send them a message from your order page if you think this is a mistake.';
-  if (reason === 'disputed') return 'This item is paused while a question about the payment is looked into. Send the shop a message from your order page if you think this is a mistake.';
+export function closedMessage(reason: ClosedReason | null, endsAt: string | null, gift = false): string {
+  // Someone given a download has no order page; a reply to their gift email reaches the shop.
+  const ask = gift ? 'Reply to your gift email to reach the shop' : 'Send the shop a message from your order page';
+  if (reason === 'expired' && endsAt) return `Your access to this ended on ${new Date(endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}. ${ask} and they can extend it.`;
+  if (reason === 'refunded') return gift ? 'This gift was refunded, so it can’t be opened anymore.' : 'This item was refunded, so it can’t be opened anymore.';
+  if (reason === 'revoked') return `The shop has closed access to this item. ${ask} if you think this is a mistake.`;
+  if (reason === 'disputed') return `This item is paused while a question about the payment is looked into. ${ask} if you think this is a mistake.`;
   return 'This order isn’t active.';
 }
 

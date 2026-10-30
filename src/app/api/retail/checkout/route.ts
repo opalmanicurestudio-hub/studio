@@ -1,4 +1,5 @@
 import { cleanGift, giftToken } from '@/lib/gift-orders';
+import { cleanDigitalGift } from '@/lib/digital-gift';
 import { getRetailSecrets } from '@/lib/retail-secrets';
 import { shippoKeyFor } from '@/lib/retail-secrets';
 import { soldForOf } from '@/lib/renter-sales';
@@ -437,6 +438,14 @@ async function handleCheckout(req: NextRequest) {
         : `This shop isn’t offering ${method === 'curbside' ? 'curbside' : 'pickup'} right now. Choose another way to get your order.` }, { status: 400 });
     }
   }
+  // A download bought as a gift (lib/digital-gift): who it's for, their email and the day it goes. Only for a cart
+  // that's all downloads; anything with a parcel uses the gift slip instead.
+  let digitalGift: any = null;
+  if (digitalOnly && body.gift?.isGift === true) {
+    const g = cleanDigitalGift(body.gift, dayKey(new Date(), tenantTimeZone(tenant)));
+    if (!g.ok) return NextResponse.json({ error: g.error }, { status: 400 });
+    digitalGift = { ...g.gift, token: giftToken(), sentAt: null };
+  }
   if (method === 'ship' && !digitalOnly && !shipAddressOk) {
     return NextResponse.json({ error: 'Complete shippingAddress is required for ship orders' }, { status: 400 });
   }
@@ -730,6 +739,7 @@ async function handleCheckout(req: NextRequest) {
     ifUnavailable: normaliseIfUnavailable(body.ifUnavailable),
     // A gift: who it's for and their message. The recipient's exchange code is separate from the buyer's order code.
     ...(giftInfo && !digitalOnly ? { gift: { ...giftInfo, token: giftToken() } } : {}),
+    ...(digitalGift ? { digitalGift } : {}),
     customerPhone: body.customer?.phone || '',
     shippingAddress: method === 'ship' ? body.shippingAddress : null,
     curbside: null,

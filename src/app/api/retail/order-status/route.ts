@@ -124,6 +124,7 @@ export async function GET(req: NextRequest) {
     }
   } catch { /* the library opens the first file, as before */ }
   const contentsOf = (l: any) => {
+    if (order.digitalGift) return null;   // a gift's files are for the person it was given to (api/retail/gift-library)
     const it = itemMap[String(l.productId || '')];
     if (!it) return null;
     const files = filesOf(it);
@@ -131,13 +132,15 @@ export async function GET(req: NextRequest) {
     return { files: files.filter((f) => deliveryOf(it) !== 'view' || viewable(f.name)).map((f) => ({ id: f.id, name: f.name, inPage: viewable(f.name) && deliveryOf(it) !== 'download', size: f.size || 0 })), link: !!String(it.digitalUrl || l.digitalUrl || '').trim(), delivery: deliveryOf(it), format: String(it.digitalFormat || '') };
   };
   const linkUntil = linkExpiresAt(order, rs);
-  // Past the link's window: only enough to ask for a code (lib/order-pass).
-  if (!passOk && !linkOpen(order, rs)) {
+  // Past the link's window: only enough to ask for a code (lib/order-pass). A download bought as a gift is the same at
+  // any age: its order id is in the link the person it was for was sent, so without the buyer's own pass nothing about
+  // the buyer or what they paid is shown (they're pointed to their gift library instead).
+  if (!passOk && (order.digitalGift || !linkOpen(order, rs))) {
     // Its live view goes too: nothing about the order is readable with the old link's key any more.
     { const k = trackingKey(tenantId, orderId); if (k) await db.doc(`orderTracking/${k}`).delete().catch(() => {}); }
     const t: any = tenantSnap.exists ? tenantSnap.data() : {};
     return NextResponse.json({
-      expired: true, linkExpiresAt: linkUntil, verify,
+      expired: true, linkExpiresAt: order.digitalGift ? null : linkUntil, verify, ...(order.digitalGift ? { gift: true } : {}),
       shopName: String(t?.businessName || t?.name || ''),
       order: { id: orderId, orderNumber: order.orderNumber, stage: order.stage },
     });
@@ -330,6 +333,8 @@ export async function GET(req: NextRequest) {
       businessName: order.businessName || '',
       poNumber: order.poNumber || '',
       customerName: order.customerName || '',
+      // A download bought as a gift: who it went to and when, never their email (lib/digital-gift).
+      digitalGift: order.digitalGift ? { toName: String(order.digitalGift.toName || ''), sendOn: order.digitalGift.sendOn || null, sentAt: order.digitalGift.sentAt || null, failedAt: order.digitalGift.failedAt || null, message: passOk ? String(order.digitalGift.message || '') : '' } : null,
       lines: (order.lines || []).map((l: any) => ({
         lineId: l.lineId,
         productId: l.productId,
@@ -350,7 +355,7 @@ export async function GET(req: NextRequest) {
         // A chargeback is said only to the buyer (with a pass); the link alone just sees it isn't available.
         ...(l.digital === true ? {
           access: (({ open, reason, endsAt }) => ({ open, reason: (reason === 'disputed' || reason === 'revoked') && !passOk ? null : reason, endsAt }))(digitalLineAccess(order, l, Date.now(), entMap[String(l.lineId || l.productId)] || null)),
-          entitlement: passOk ? publicEntitlement(entMap[String(l.lineId || l.productId)] || null) : null,
+          entitlement: passOk && !order.digitalGift ? publicEntitlement(entMap[String(l.lineId || l.productId)] || null) : null,
           contents: passOk ? contentsOf(l) : null,
         } : {}),
         optionsLabel: l.optionsLabel || '',

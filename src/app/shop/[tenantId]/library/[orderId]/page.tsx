@@ -7,6 +7,9 @@
 // Files open inside the page through a stream link signed for ten minutes, with the buyer's name, email and order
 // number stamped into PDFs and laid over the viewer. The honest limit, said to the customer as well: a screen can
 // always be photographed. The name on every page is what makes a leaked copy point back to whoever shared it.
+//
+// A download bought as a gift (lib/digital-gift) opens here for the person it was for, never the buyer: the link in the
+// gift email confirms them, or a code to that email does, and their pass is their own (/api/retail/gift-library).
 import { Loader, Lock } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ShopHeader } from '@/components/shop/ShopChrome';
@@ -33,7 +36,8 @@ function statusOf(a: Access): string {
 
 export default function LibraryPage({ params }: { params: Promise<{ tenantId: string; orderId: string }> }) {
   const { tenantId, orderId } = React.use(params);
-  const passKey = `cfshop-pass-${tenantId}-${orderId}`;
+  const buyerPassKey = `cfshop-pass-${tenantId}-${orderId}`;
+  const giftPassKey = `cfshop-giftpass-${tenantId}-${orderId}`;
   const [items, setItems] = useState<Item[] | null>(null);
   const [verify, setVerify] = useState<Verify | null>(null);
   const [needCode, setNeedCode] = useState(false);
@@ -42,14 +46,38 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
   const [busy, setBusy] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ item: Item; target: Target; url: string; name: string; watermark: string; inPage: boolean; canSave: boolean; left: number | null; license: { name: string; terms: string } | null } | null>(null);
   const [code, setCode] = useState({ id: '', sentTo: '', value: '', sending: false, checking: false });
+  const [gift, setGift] = useState<{ toName: string; from: string; message: string; shopName: string } | null>(null);
+  const giftMode = React.useRef(false);
 
   // Kept in memory too, so a device that can't save it (private browsing) still opens things for this visit.
   const passMem = React.useRef('');
-  const readPass = () => { if (passMem.current) return passMem.current; try { return window.localStorage.getItem(passKey) || ''; } catch { return ''; } };
-  const keepPass = (p: string) => { passMem.current = p; try { window.localStorage.setItem(passKey, p); } catch { /* private browsing: kept for this visit */ } };
+  const keyNow = () => (giftMode.current ? giftPassKey : buyerPassKey);
+  const readPass = () => { if (passMem.current) return passMem.current; try { return window.localStorage.getItem(keyNow()) || ''; } catch { return ''; } };
+  const keepPass = (p: string) => { passMem.current = p; try { window.localStorage.setItem(keyNow(), p); } catch { /* private browsing: kept for this visit */ } };
+
+  // The gift's own view: what was given, who from, and their access. The link's token is taken out of the address once
+  // it has given this device a pass, so a copied address doesn't carry it.
+  const loadGift = useCallback(async (token: string) => {
+    giftMode.current = true;
+    const res = await fetch('/api/retail/gift-library', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, orderId, ...(token ? { g: token } : { p: readPass() }) }) });
+    const d = await res.json();
+    if (!res.ok) { setErr(d.error || 'This gift could not be loaded.'); setItems([]); return; }
+    if (d.newPass) keepPass(String(d.newPass));
+    if (token) { try { window.history.replaceState(null, '', window.location.pathname); } catch { /* cosmetic */ } }
+    setGift({ toName: String(d.toName || ''), from: String(d.from || ''), message: String(d.message || ''), shopName: String(d.shopName || '') });
+    setVerify({ passOk: !!d.verify?.passOk, emailMasked: d.verify?.emailMasked || null, phoneEnding: null, canText: false });
+    const digital = Array.isArray(d.lines) ? d.lines : [];
+    setItems(digital.map((l: any) => ({ key: String(l.lineId || l.productId), lineId: String(l.lineId || ''), productId: l.productId, name: l.name, access: l.access || { open: true, reason: null, endsAt: null }, left: l.entitlement?.downloadsLeft ?? null, license: l.entitlement?.license || null, contents: l.contents || null })));
+    setNeedCode(!d.verify?.passOk);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, orderId]);
 
   const load = useCallback(async () => {
     try {
+      const token = (() => { try { return new URLSearchParams(window.location.search).get('g') || ''; } catch { return ''; } })();
+      // A device that already opened this as a gift goes straight to it.
+      const hasGiftPass = (() => { try { return !!window.localStorage.getItem(giftPassKey); } catch { return false; } })();
+      if (token || giftMode.current || hasGiftPass) { await loadGift(token); return; }
       const qs = new URLSearchParams({ tenantId, orderId });
       const pass = readPass(); if (pass) qs.set('pass', pass);
       try {
@@ -61,6 +89,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       const res = await fetch(`/api/retail/order-status?${qs.toString()}`, { cache: 'no-store' });
       const d = await res.json();
       if (!res.ok) { setErr(d.error || 'This library could not be loaded.'); return; }
+      if (d.gift || d.order?.digitalGift) { passMem.current = ''; await loadGift(''); return; }
       if (d.newPass) keepPass(String(d.newPass));
       setVerify(d.verify || null);
       if (d.expired) { setNeedCode(true); setItems([]); return; }
@@ -71,14 +100,14 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
     } catch {
       setErr('This library could not be loaded. Check your connection and try again.');
     }
-  }, [tenantId, orderId]);
+  }, [tenantId, orderId, loadGift]);
 
   useEffect(() => { load(); }, [load]);
 
   const sendCode = async (via: 'email' | 'phone') => {
     setCode((c) => ({ ...c, sending: true })); setErr(null);
     try {
-      const res = await fetch('/api/retail/order-pass', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, orderId, action: 'send', via }) });
+      const res = await fetch('/api/retail/order-pass', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, orderId, action: 'send', via, gift: giftMode.current }) });
       const d = await res.json();
       if (!res.ok) { setErr(d.error || 'The code couldn’t be sent.'); return; }
       setCode((c) => ({ ...c, id: String(d.verificationId || ''), sentTo: String(d.sentTo || '') }));
@@ -89,7 +118,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
   const confirmCode = async () => {
     setCode((c) => ({ ...c, checking: true })); setErr(null);
     try {
-      const res = await fetch('/api/retail/order-pass', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, orderId, action: 'confirm', verificationId: code.id, code: code.value.trim() }) });
+      const res = await fetch('/api/retail/order-pass', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, orderId, action: 'confirm', verificationId: code.id, code: code.value.trim(), gift: giftMode.current }) });
       const d = await res.json();
       if (!res.ok || !d.pass) { setErr(d.error || 'That code didn’t match.'); return; }
       keepPass(String(d.pass));
@@ -139,8 +168,14 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-8">
         <div className="flex items-center gap-2">
           <Lock className="h-4 w-4" aria-hidden="true" />
-          <h1 className="text-2xl" style={{ fontWeight: 'var(--shop-head-weight, 500)' as any, letterSpacing: 'var(--shop-head-track, -0.02em)' }}>Your library</h1>
+          <h1 className="text-2xl" style={{ fontWeight: 'var(--shop-head-weight, 500)' as any, letterSpacing: 'var(--shop-head-track, -0.02em)' }}>{gift ? 'Your gift' : 'Your library'}</h1>
         </div>
+        {gift && !viewing && (
+          <section aria-label="About this gift" className="space-y-2 p-5" style={card}>
+            <p className="text-[15px] font-semibold">{gift.toName ? `${gift.toName}, ` : ''}{gift.from} sent you this from {gift.shopName || 'the shop'}.</p>
+            {gift.message && <p className="whitespace-pre-line text-sm" style={muted}>“{gift.message}”</p>}
+          </section>
+        )}
 
         {err && <p role="alert" className="text-sm" style={muted}>{err}</p>}
         {note && <p role="status" className="text-sm" style={muted}>{note}</p>}
@@ -179,7 +214,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
         ) : needCode && verify ? (
           <section aria-labelledby="confirm-heading" className="space-y-4 p-5" style={card}>
             <h2 id="confirm-heading" className="text-lg font-semibold">Confirm it’s you</h2>
-            <p className="text-sm" style={muted}>Your downloads open on devices you’ve confirmed. We’ll send a 6-digit code to the {verify.emailMasked ? `email on this order (${verify.emailMasked})` : 'contact on this order'}. This device stays confirmed for 30 days.</p>
+            <p className="text-sm" style={muted}>{gift ? `Your gift opens on devices you’ve confirmed. We’ll send a 6-digit code to the email it was sent to${verify.emailMasked ? ` (${verify.emailMasked})` : ''}. This device stays confirmed for 30 days.` : `Your downloads open on devices you’ve confirmed. We’ll send a 6-digit code to the ${verify.emailMasked ? `email on this order (${verify.emailMasked})` : 'contact on this order'}. This device stays confirmed for 30 days.`}</p>
             {!code.id ? (
               <div className="flex flex-wrap gap-2">
                 {verify.emailMasked && <button type="button" disabled={code.sending} onClick={() => sendCode('email')} className="inline-flex h-11 items-center px-5 text-sm font-semibold disabled:opacity-50" style={solid}>{code.sending ? 'Sending…' : 'Email me a code'}</button>}
@@ -220,7 +255,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
                       </li>
                     ))}
                   </ul>
-                  {!it.access.open && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
+                  {!it.access.open && !gift && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
                 </li>
               );
               return (
@@ -233,7 +268,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
                   </span>
                   <span className="shrink-0 text-sm font-semibold">{busy === it.key ? 'Opening…' : it.access.open ? 'Open' : ''}</span>
                 </button>
-                {!it.access.open && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
+                {!it.access.open && !gift && <a href={`/shop/${tenantId}/order/${orderId}`} className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4">Message the shop about this</a>}
               </li>
               );
             })}

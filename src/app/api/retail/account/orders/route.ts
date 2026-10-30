@@ -110,6 +110,7 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => String(b.paidAt || b.placedAt || '').localeCompare(String(a.paidAt || a.placedAt || '')))
     .forEach((o: any) => {
       if (['placed', 'cancelled'].includes(String(o.stage))) return;
+      if (o.digitalGift) return;   // bought as a gift: it belongs to the person it was for, who opens it from their gift email
       (o.lines || []).forEach((l: any) => { if (l.digital === true) lines.push({ o, l }); });
     });
   let ents: any[] = lines.map(() => null);
