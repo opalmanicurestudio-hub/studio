@@ -68,6 +68,18 @@ export function cleanPlan(raw: any): PickupPlan {
   };
 }
 
+/**
+ * The shop's plan as checkout, the Pickup times screen and its route all read it. Prep time is the shop's one "ready
+ * in" setting (retailSettings.prepMinutes, also on Shop settings and the team's due clock); unset or 0 there means the
+ * same 30 minutes the due clock uses. An older plan's own prep time is read only when the shared one was never set.
+ */
+export function planFrom(rs: any): PickupPlan {
+  const shared = Math.floor(Number(rs?.prepMinutes));
+  const legacy = Math.floor(Number(rs?.pickupPlan?.prepMinutes));
+  const prep = shared > 0 ? shared : legacy > 0 ? legacy : 30;
+  return cleanPlan({ ...(rs?.pickupPlan || {}), prepMinutes: prep });
+}
+
 /** Whether the shop has set its hours yet (until it has, checkout offers no times, only "ready in about" as before). */
 export const hasHours = (p: PickupPlan) => Object.values(p.hours).some((s) => s.length > 0);
 
@@ -105,6 +117,14 @@ export function dayWord(day: string, today: string): string {
 export function whenLabel(ms: number, tz: string, today: string): string {
   const w = dayWord(dayKey(new Date(ms), tz), today);
   return `${w === 'Today' || w === 'Tomorrow' ? w.toLowerCase() : w} ${fmtTime(ms, tz)} ${ampm(ms, tz)}`;
+}
+
+/** When a pause ends, in words: "tomorrow" for midnight (the rest of today), otherwise "today 3:30 pm". */
+export function pauseEndWords(iso: string, tz: string, today: string): string {
+  const ms = Date.parse(iso);
+  const p = wallParts(new Date(ms), tz);
+  if (p.hour === 0 && p.minute === 0) { const w = dayWord(dayKey(new Date(ms), tz), today); return w === 'Today' || w === 'Tomorrow' ? w.toLowerCase() : w; }
+  return whenLabel(ms, tz, today);
 }
 
 /** "Today 2–4 pm", "Tomorrow 11 am–1 pm". */
@@ -204,10 +224,47 @@ export function readyBy(p: PickupPlan, now: number, tz: string, windows?: Pickup
   return { at: new Date(at).toISOString(), label: `Ready ${w.join(' ')} by ${t}` };
 }
 
+/**
+ * People on shift through a window: the fewest working at any moment of it, so staggered cover (one until 1, another
+ * from 1) still counts as one person. A day with no shifts published at all isn't sized by people (null): the
+ * shop's own limit applies, rather than every window looking full.
+ */
+export function peopleThrough(shifts: { staffId: string; start: number; end: number }[], ws: number, we: number): number | null {
+  if (!shifts.length) return null;
+  const points = [ws, ...shifts.flatMap((s) => [s.start, s.end]).filter((x) => x > ws && x < we)];
+  let least = Infinity;
+  for (const pt of points) least = Math.min(least, new Set(shifts.filter((s) => s.start <= pt && s.end > pt).map((s) => s.staffId)).size);
+  return least === Infinity ? 0 : least;
+}
+
+export type ShiftSpan = { date: string; staffId: string; start: number; end: number };
+
+/** Work shifts as spans of minutes on the shop's clock, from shift records (cancelled, draft and non-work ones left out). */
+export function shiftSpans(rows: any[]): ShiftSpan[] {
+  const hm = (v: any) => { const m = /^(\d{2}):(\d{2})$/.exec(String(v || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+  return rows.flatMap((s: any) => {
+    if (['cancelled', 'draft'].includes(String(s?.status || '')) || (s?.kind && s.kind !== 'work')) return [];
+    const start = hm(s?.startTime), end = hm(s?.endTime);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || !/^\d{4}-\d{2}-\d{2}$/.test(String(s?.date || ''))) return [];
+    return [{ date: String(s.date), staffId: String(s.staffId || ''), start, end }];
+  });
+}
+
+/** How many people are on through a window, from the shift spans (null for a day with none published). */
+export function shiftLookup(spans: ShiftSpan[], tz: string): (startMs: number, endMs: number) => number | null {
+  const byDay = new Map<string, ShiftSpan[]>();
+  for (const s of spans) { const l = byDay.get(s.date) || []; l.push(s); byDay.set(s.date, l); }
+  return (startMs: number, endMs: number) => {
+    const a = wallParts(new Date(startMs), tz), b = wallParts(new Date(endMs), tz);
+    const ws = a.hour * 60 + a.minute, we = b.hour * 60 + b.minute || 24 * 60;
+    return peopleThrough(byDay.get(dayKey(new Date(startMs), tz)) || [], ws, we);
+  };
+}
+
 /** Why there's nothing to offer, in the customer's words. */
 export function noPickupReason(p: PickupPlan, now: number, tz: string): string {
   if (isPaused(p, now)) {
-    const until = p.pausedUntil && p.pausedUntil !== 'manual' ? ` until ${whenLabel(Date.parse(p.pausedUntil), tz, dayKey(new Date(now), tz))}` : '';
+    const until = p.pausedUntil && p.pausedUntil !== 'manual' ? ` until ${pauseEndWords(p.pausedUntil, tz, dayKey(new Date(now), tz))}` : '';
     return `Online pickup is paused${until}.${p.pauseNote ? ` ${p.pauseNote}` : ''}`;
   }
   return 'There are no pickup times in the next few days. Choose another way to get it, or check back soon.';

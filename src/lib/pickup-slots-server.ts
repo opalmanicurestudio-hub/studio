@@ -4,8 +4,9 @@
 // and counts it again in the transaction that writes the order, so two customers can't both take the last place.
 // A shop whose time zone was never set gets no times (its hours would land hours off), and checkout stays as before.
 import { createHash } from 'crypto';
-import { dayKey, hasTimeZone, tenantTimeZone, todayIn, wallParts } from '@/lib/tenant-time';
-import { cleanPlan, hasHours, pickupWindows, readyBy, noPickupReason, type PickupPlan, type PickupWindow } from '@/lib/pickup-slots';
+import { hasTimeZone, tenantTimeZone, todayIn } from '@/lib/tenant-time';
+import { hasHours, isPaused, peopleThrough, pickupWindows, planFrom, readyBy, noPickupReason, shiftLookup, shiftSpans, type PickupPlan, type PickupWindow, type ShiftSpan } from '@/lib/pickup-slots';
+export { peopleThrough };
 
 /**
  * An order still holding its place: anything not cancelled. A checkout still being paid for holds it for an hour (its
@@ -24,37 +25,15 @@ export function holdsPlace(o: any, now: number, sameCheckout = ''): boolean {
   return true;
 }
 
-const minsOf = (hm: string) => { const m = /^(\d{2}):(\d{2})$/.exec(String(hm || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
-
-/**
- * People on shift through a window: the fewest working at any moment of it, so staggered cover (one until 1, another
- * from 1) still counts as one person. A day with no shifts published at all isn't sized by people (null): the
- * shop's own limit applies, rather than every window looking full.
- */
-export function peopleThrough(shifts: { staffId: string; start: number; end: number }[], ws: number, we: number): number | null {
-  if (!shifts.length) return null;
-  const points = [ws, ...shifts.flatMap((s) => [s.start, s.end]).filter((x) => x > ws && x < we)];
-  let least = Infinity;
-  for (const pt of points) least = Math.min(least, new Set(shifts.filter((s) => s.start <= pt && s.end > pt).map((s) => s.staffId)).size);
-  return least === Infinity ? 0 : least;
+/** Work shifts over the days offered, as spans of minutes on the shop's clock. */
+export async function shiftsFor(db: any, tenantId: string, days: string[]): Promise<ShiftSpan[]> {
+  if (!days.length) return [];
+  const snap = await db.collection(`tenants/${tenantId}/shifts`).where('date', '>=', days[0]).where('date', '<=', days[days.length - 1]).orderBy('date').limit(3000).get();
+  return shiftSpans(snap.docs.map((d: any) => { const s = d.data() || {}; return { ...s, staffId: s.staffId || d.id }; }));
 }
 
 export async function shiftCounter(db: any, tenantId: string, tz: string, days: string[]): Promise<(startMs: number, endMs: number) => number | null> {
-  if (!days.length) return () => null;
-  const snap = await db.collection(`tenants/${tenantId}/shifts`).where('date', '>=', days[0]).where('date', '<=', days[days.length - 1]).orderBy('date').limit(3000).get();
-  const byDay = new Map<string, { staffId: string; start: number; end: number }[]>();
-  for (const d of snap.docs) {
-    const s: any = d.data() || {};
-    if (['cancelled', 'draft'].includes(String(s.status || '')) || (s.kind && s.kind !== 'work')) continue;
-    const start = minsOf(s.startTime), end = minsOf(s.endTime);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
-    const list = byDay.get(String(s.date)) || []; list.push({ staffId: String(s.staffId || d.id), start, end }); byDay.set(String(s.date), list);
-  }
-  return (startMs: number, endMs: number) => {
-    const a = wallParts(new Date(startMs), tz), b = wallParts(new Date(endMs), tz);
-    const ws = a.hour * 60 + a.minute, we = b.hour * 60 + b.minute || 24 * 60;
-    return peopleThrough(byDay.get(dayKey(new Date(startMs), tz)) || [], ws, we);
-  };
+  return shiftLookup(await shiftsFor(db, tenantId, days), tz);
 }
 
 /** Orders already in each window over the days offered, by window key (not counting `sameCheckout`'s own earlier try). */
@@ -69,8 +48,10 @@ export type ShopPickup = { scheduled: boolean; windows: PickupWindow[]; readyBy:
 
 /** What checkout shows for collecting an order: the windows, when it can be ready, or why there are none. */
 export async function shopPickup(db: any, tenantId: string, tenant: any, now = Date.now(), sameCheckout = ''): Promise<{ plan: PickupPlan; view: ShopPickup; booked: Record<string, number> }> {
-  const rs = tenant?.retailSettings || {};
-  const plan = cleanPlan({ ...(rs.pickupPlan || {}), prepMinutes: rs.pickupPlan?.prepMinutes ?? rs.prepMinutes ?? 60 });
+  const plan = planFrom(tenant?.retailSettings || {});
+  // A pause stops online pickup whatever else is set: before hours (or a time zone) are set, checkout would otherwise
+  // fall back to its old "ready in about" and take the order anyway.
+  if (isPaused(plan, now)) return { plan, booked: {}, view: { scheduled: true, windows: [], readyBy: null, reason: noPickupReason(plan, now, tenantTimeZone(tenant)) } };
   if (!hasHours(plan) || !hasTimeZone(tenant)) {
     if (hasHours(plan)) console.warn('[pickup-slots] hours set but no time zone', tenantId);
     return { plan, booked: {}, view: { scheduled: false, windows: [], readyBy: null, reason: null } };

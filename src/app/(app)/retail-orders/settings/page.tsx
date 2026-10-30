@@ -503,6 +503,13 @@ export default function RetailSettingsPage() {
               </span>
               <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
             </Link>
+            <Link href="/retail-orders/policies/pickup" className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3 hover:bg-muted">
+              <span className="min-w-0">
+                <span className="block text-xs font-black uppercase tracking-tight">Pickup times</span>
+                <span className="block text-[11px] font-bold text-muted-foreground">Opening hours for pickup, closed days, how many orders each time can take, the same-day cutoff and a pause. Checkout offers only times you can meet.</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true" />
+            </Link>
             <div className="grid grid-cols-2 gap-3">
               {([
                 ['prepMinutes', 'Pickup ready in (min)'],
@@ -696,7 +703,7 @@ export default function RetailSettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-tight">Scheduled pickup</p>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">ASAP / +15 / +30 / +45 / +60 picker</p>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">ASAP / +15 / +30 / +45 / +60 picker. Once Pickup times has opening hours, checkout offers those times instead.</p>
               </div>
               <Switch aria-label="ASAP / +15 / +30 / +45 / +60 picker" checked={rs.scheduledPickup === true} onCheckedChange={(v: boolean) => setRs({ ...rs, scheduledPickup: v })} />
             </div>
