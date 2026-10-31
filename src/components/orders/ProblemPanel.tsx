@@ -119,8 +119,10 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
     if (p.kind === 'return') {
       const r = p.ref;
       const untouched = !(r.lines || []).some((l: any) => !!l.disposition);
-      const labelFix = r.status === 'open' && !r.labelUrl && !!group.order?.shippingAddress;
+      // A label for a return by post: a shipped order with its address and an email to send it to (never a delivery).
+      const labelFix = r.status === 'open' && !r.labelUrl && group.order?.method === 'ship' && !!group.order?.shippingAddress && !!String(group.order?.customerEmail || '').trim();
       return <Card key={p.key} p={p}>
+        {r.notes ? <p className="m-0 mb-3 text-[14px]"><span className="font-semibold">Note:</span> {String(r.notes).slice(0, 300)}</p> : null}
         {labelFix && r.labelError?.message ? <p className="m-0 mb-3 text-[15px]" style={{ color: C.warn }}>Their return label couldn’t be made: {String(r.labelError.message).slice(0, 180)}</p> : null}
         <Btn kind={r.status === 'received' ? 'primary' : 'soft'} className="w-full" style={r.status === 'received' ? undefined : { background: C.paper }} onClick={() => setRet(r)}>{r.status === 'received' ? 'Finish checking in' : 'It’s here, check it in'}</Btn>
         {labelFix && <Btn kind="soft" className="mt-2 w-full" style={{ background: C.paper }} disabled={busy === `label-${r.id}`} onClick={() => void sendLabel(r)}>{busy === `label-${r.id}` ? 'Sending…' : 'Send the return label'}</Btn>}

@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
     const evRef = orderRef.collection('events').doc();
     batch.set(evRef, {
       id: evRef.id, type: 'note', at: now,
-      actorId: 'staff', actorName: 'Returns desk',
+      actorId: 'staff', actorName: 'The shop',
       meta: { text: `Return label emailed — ${cheapest.provider} ${cheapest.service}, ${String(txn.tracking_number || '')}${labelDeductCents ? ` ($${(labelDeductCents / 100).toFixed(2)} deducted from refund)` : ' (shop pays)'}` },
     });
     await batch.commit();

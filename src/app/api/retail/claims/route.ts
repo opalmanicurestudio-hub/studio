@@ -3,7 +3,7 @@ import { unitsOpen } from '@/lib/claim-view';
 import { requestForensics } from '@/lib/request-forensics';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { taxShareCents } from '@/lib/restocking';
-import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
+import { returnableUnits } from '@/lib/return-reserve';
 import { followUpItemsCents, isFollowUp, payingOrder } from '@/lib/order-family';
 import { autoRefund, refundWords } from '@/lib/auto-refund';
 import { startedAgo, windowOpen } from '@/lib/order-windows';
@@ -287,7 +287,8 @@ export async function POST(req: NextRequest) {
     const openReturns = line ? (await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(30).get()).docs.map((d: any) => d.data()) : [];
     // Other reports on the order: one waiting for a decision holds its units too, so one unit is reported once.
     const otherClaims = line ? (await db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(30).get()).docs.map((d: any) => d.data()) : [];
-    const claimableOf = (l: any) => Math.max(0, (Number(l?.qtyOrdered) || 0) - (Number(l?.qtyShorted) || 0) - (Number(l?.qtyReturned) || 0) - claimedUnits(otherClaims, l) - reservedByOpenReturns(openReturns, String(l?.lineId || '')));
+    // What can still be reported: the same count as a return (lib/return-reserve), refunds on their own included.
+    const claimableOf = (l: any) => returnableUnits(l, otherClaims, openReturns);
     const units = line ? Math.min(qty, claimableOf(line)) : 0;
     if (line && units <= 0) {
       return NextResponse.json({ error: 'That item has already been reported, returned or refunded. If something is still wrong, send us a message below.' }, { status: 409 });

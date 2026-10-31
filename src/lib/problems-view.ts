@@ -31,10 +31,11 @@ export function threadOf(t: any): { who: 'customer' | 'shop'; text: string; at: 
   return out.filter((m) => m.text).sort((a, b) => ms(a.at) - ms(b.at));
 }
 
-export function buildProblems(src: { orders: any[]; refundOrders?: any[]; tickets?: any[]; claims?: any[]; returns?: any[]; now?: number; staleHours?: number; timeZone?: string }): ProblemGroup[] {
+/** knownOrders: finished orders a return or report is on (not in the lists of active ones), only to name and open them. */
+export function buildProblems(src: { orders: any[]; refundOrders?: any[]; knownOrders?: any[]; tickets?: any[]; claims?: any[]; returns?: any[]; now?: number; staleHours?: number; timeZone?: string }): ProblemGroup[] {
   const now = src.now ?? Date.now();
   const byOrder = new Map<string, any>();
-  [...(src.refundOrders || []), ...src.orders].forEach((o) => byOrder.set(o.id, o));
+  [...(src.knownOrders || []), ...(src.refundOrders || []), ...src.orders].forEach((o) => byOrder.set(o.id, o));
   const items: Problem[] = [];
   const push = (p: Omit<Problem, 'key'> & { key?: string }) => items.push({ key: p.key || `${p.orderId}-${p.kind}-${items.length}`, ...p } as Problem);
 
@@ -67,7 +68,9 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
       : 'Packs once the stock is in';
     push({ key: n.key, kind: n.kind as ProblemKind, orderId: n.orderId, title: n.text, detail, at, urgent: n.kind === 'outside', ref: o });
   }
-  for (const o of byOrder.values()) {
+  // Refunds to send: from the live lists only (a finished order read once to name a return could be out of date).
+  const live = new Map<string, any>(); [...(src.refundOrders || []), ...src.orders].forEach((o) => live.set(o.id, o));
+  for (const o of live.values()) {
     const c = Number(o.pendingRefundCents) || 0; if (c <= 0) continue;
     push({ key: `${o.id}-refund`, kind: 'refund', orderId: o.id, title: `Refund ${money(c)} to send`, detail: o.returnSummary?.restockingFeeCents ? `After a ${money(o.returnSummary.restockingFeeCents)} restocking fee` : 'Waiting for you to confirm', at: ms(o.returnSummary?.resolvedAt || o.updatedAt || o.paidAt), urgent: false, ref: o });
   }

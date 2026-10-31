@@ -105,7 +105,7 @@ const lampBo = (x: any = {}) => ({ id: 'f1', tenantId: 't1', orderNumber: 1140, 
     await d.doc(`${T}/retailClaims/c9`).set({ id: 'c9', orderId: 'o9', lineId: 'G', qty: 1, type: 'damaged', status: 'in_review' });
   });
   const ro: any = await RR.openReturn(webFs, 't1', { ...(await get(`${T}/retailOrders/o9`)), id: 'o9' } as any, [{ lineId: 'G', qty: 1, reason: 'damaged_in_transit' } as any], 'refund' as any, '', staff);
-  check('a return the team starts can’t take a polish the customer has reported: decide it in Claims', !ro.ok && /Claims/.test(ro.message), ro);
+  check('a return the team starts can’t take a polish the customer has reported: decide it in Problems', !ro.ok && /decide it in Problems/.test(ro.message), ro);
   await db.doc(`${T}/retailClaims/c9`).delete();
   claimsDown = true;
   const ro2: any = await RR.openReturn(webFs, 't1', { ...(await get(`${T}/retailOrders/o9`)), id: 'o9' } as any, [{ lineId: 'G', qty: 1, reason: 'damaged_in_transit' } as any], 'refund' as any, '', staff);

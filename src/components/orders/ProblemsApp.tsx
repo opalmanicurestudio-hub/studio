@@ -7,7 +7,7 @@
 // lib/problems-view.
 import * as React from 'react';
 import Link from 'next/link';
-import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import { useLabelFlagOrders } from './use-label-flags';
 import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -59,11 +59,27 @@ export function ProblemsApp() {
     return () => subs.forEach((u) => u());
   }, [fs, tenantId]);
 
+  // The finished orders a return or report is on (not in the active lists): read once each, so the row names the
+  // customer and the order, and the order's details (its address and link key, for a return label) are at hand.
+  const [known, setKnown] = React.useState<Record<string, any>>({});
+  const missing = React.useMemo(() => {
+    const have = new Set([...orders, ...refundOrders].map((o) => o.id));
+    return [...new Set([...returns, ...claims].map((x: any) => String(x.orderId || '')).filter((id) => id && !have.has(id) && !(id in known)))].slice(0, 40);
+  }, [orders, refundOrders, returns, claims, known]);
+  const missingKey = missing.join(',');
+  React.useEffect(() => {
+    if (!fs || !tenantId || !missingKey) return;
+    // Each read lands whatever else changes meanwhile (merged in, never cut short by the next snapshot).
+    // A read that failed isn't kept, so it's tried again with the next change.
+    void Promise.all(missingKey.split(',').map((id) => getDoc(doc(fs, `tenants/${tenantId}/retailOrders/${id}`)).then((s) => [id, s.exists() ? { ...(s.data() as any), id } : null] as const).catch(() => [id, undefined] as const)))
+      .then((rows) => setKnown((k) => ({ ...k, ...Object.fromEntries(rows.filter((r) => r[1] !== undefined)) })));
+  }, [fs, tenantId, missingKey]);
+  const knownOrders = React.useMemo(() => Object.values(known).filter(Boolean), [known]);
   const shopZone = tenantTimeZone(selectedTenant);
   // Orders a label has put under Needs you, whatever their stage (shipped and closed ones too).
   const flagged = useLabelFlagOrders(fs, tenantId);
   const all = React.useMemo(() => [...orders, ...flagged.filter((f) => !orders.some((o) => o.id === f.id))], [orders, flagged]);
-  const groups = React.useMemo(() => buildProblems({ orders: all, refundOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24), timeZone: shopZone }), [all, refundOrders, tickets, claims, returns, now, rs.readyStaleHours, shopZone]);
+  const groups = React.useMemo(() => buildProblems({ orders: all, refundOrders, knownOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24), timeZone: shopZone }), [all, refundOrders, knownOrders, tickets, claims, returns, now, rs.readyStaleHours, shopZone]);
   const shown = React.useMemo(() => showProblems(groups, show), [groups, show]);
   const counts = React.useMemo(() => Object.fromEntries(PROBLEM_SHOWS.map((x) => [x.id, x.id === show ? shown.length : showProblems(groups, x.id).length])) as Record<ProblemShow, number>, [groups, show, shown]);
   // On a computer the first in the view is open beside it, and takes over from one that's been sorted; on a phone a

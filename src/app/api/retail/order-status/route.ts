@@ -353,6 +353,8 @@ export async function GET(req: NextRequest) {
         // Exchanges made by a gift's recipient aren't shown to the buyer.
         qtyReturned: Math.max(0, (l.qtyReturned || 0) - (l.qtyGiftReturned || 0)),
         qtyClaimed: Math.max(0, Number(l.qtyClaimed) || 0),
+        // Refunded on their own: not offered for a return (lib/claim-view unitsOpen, as the server counts it).
+        qtyRefunded: Math.max(0, Number(l.qtyRefunded) || 0),
         name: l.name,
         documents: Array.isArray(l.documents) ? l.documents.slice(0, 6) : [],
         qtyOrdered: l.qtyOrdered,

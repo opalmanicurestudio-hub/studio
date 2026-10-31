@@ -3,7 +3,7 @@ import { canChoose, feeBack, keptCents, keptFromCard, retryPayOpen } from '@/lib
 import { cancelRetryPay, refundRetryPayment, retryPaidMarks } from '@/lib/delivery-retry-server';
 import { refundWords, type AutoRefund } from '@/lib/auto-refund';
 import { cancelWithFollowUps, followUpCancelCents, followUpsOf, heldUnits, isFollowUp } from '@/lib/order-family';
-import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
+import { claimedUnits, returnableUnits } from '@/lib/return-reserve';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { syncTracking } from '@/lib/order-tracking';
 import { getAdminDb as getAdminDbForTracking } from '@/lib/firebase-admin';
@@ -732,7 +732,7 @@ async function handle(req: NextRequest) {
       // Not shorted, not returned, not covered by a problem they reported (waiting, or refunded), not on its way back
       // already: one item is refunded once.
       const reported = claimedUnits(claimsOn || [], orig);
-      const returnable = Math.max(0, (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0) - reported - reservedByOpenReturns(openReturns || [], orig.lineId));
+      const returnable = returnableUnits(orig, claimsOn || [], openReturns || []);
       if (qty > returnable) {
         return NextResponse.json({ error: `Only ${returnable} of ${orig.name} can still be returned.${reported > 0 ? ' The rest is part of a problem you reported, which the shop handles on its own.' : ''}` }, { status: 400 });
       }

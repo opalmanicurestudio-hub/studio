@@ -104,7 +104,9 @@ export async function POST(req: NextRequest) {
     : need === 'handover' ? !(a.isRenter && action.startsWith('delivery')) && (perms.canPack || (!explicit || !['picker', 'none'].includes(explicit)))
     : need === 'ship' ? perms.canShip
     : need === 'manage' ? perms.canManage || refunds
-    : need === 'returns' ? !a.isRenter
+    // Returns move stock back onto the shelf or write it off: the team's packers and up, never a renter, and never someone
+    // a manager made a picker or gave no part in orders.
+    : need === 'returns' ? !a.isRenter && (perms.canPack || perms.canManage || refunds || (!explicit || !['picker', 'none'].includes(explicit)))
     : refunds && !a.isRenter;
   if (!allowed && a.isRenter && action.startsWith('delivery')) return NextResponse.json({ ok: false, message: 'Deliveries are made by the shop’s own team.' }, { status: 403 });
   if (!allowed) {
@@ -112,7 +114,7 @@ export async function POST(req: NextRequest) {
       pick: 'Packing isn’t part of your role. Ask a manager to add it.', pack: 'Finishing orders isn’t part of your role. Ask a manager to add it.',
       handover: 'Handing orders over isn’t part of your role. Ask a manager to add it.',
       ship: 'Shipping isn’t part of your role. Ask a manager to make you a shipper.', manage: 'Canceling orders is for a manager.',
-      staff: '', returns: 'Returns are checked in by the shop’s team.', claims: 'Deciding on a report is for a manager or someone who can refund.',
+      staff: '', returns: 'Returns aren’t part of your role. Ask a manager to add it.', claims: 'Deciding on a report is for a manager or someone who can refund.',
     };
     return NextResponse.json({ ok: false, message: action === 'requestClaimInfo' ? 'Asking a customer about a report is for a manager or someone who can refund.' : words[need] }, { status: 403 });
   }

@@ -19,6 +19,8 @@ import { setHold } from '../bulk';
 import { MissingSheet } from '../MissingSheet';
 import { HandoverSheet } from '../HandoverSheet';
 import { RefundPartSheet } from '../RefundPartSheet';
+import { StartReturnSheet, hasReturnable } from '../StartReturnSheet';
+import { ReturnSheet } from '../ReturnSheet';
 import { NoteSheet, TagsSheet } from '../TagsSheet';
 import { OrderFacts } from './OrderFacts';
 import { useLabelRecords } from '../LabelHistory';
@@ -100,6 +102,8 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const [more, setMore] = React.useState(false);
   const [boxSizes, setBoxSizes] = React.useState(false);
   const [partRefund, setPartRefund] = React.useState(false);
+  const [startReturn, setStartReturn] = React.useState(false);
+  const [checkRet, setCheckRet] = React.useState<any | null>(null);
   const [tagsOpen, setTagsOpen] = React.useState(false); const [noteOpen, setNoteOpen] = React.useState(false);
   const [confirmCancel, setConfirmCancel] = React.useState(false); const [reason, setReason] = React.useState('');
   const [busy, setBusy] = React.useState(''); const [err, setErr] = React.useState('');
@@ -145,9 +149,17 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const held = order.holdUntilRestock === true && stage === 'paid';
   const release = async () => { setBusy('release'); const r = await releaseHeld(fs, tenantId, order, actor, false); setBusy(''); feel(r.ok); if (r.ok) onToast(r.message); else setErr(r.message); };
 
+  // Gone out, and something on it can still come back: a return is started on the order itself (mockup 10D), by anyone
+  // whose role checks returns in (not a picker; api/retail/fulfil 'returns' rules the same). One on its way back is
+  // checked in from here too.
+  const doesReturns = perms.canPack || perms.canManage || canRefund || isManager;
+  const returnable = doesReturns && hasReturnable(order, feeds.returns);
+  const openRet = doesReturns ? (feeds.returns || []).find((r: any) => ['open', 'received'].includes(String(r.status))) || null : null;
   // THE NEXT STEP, at the bottom: whatever this order needs next, unless the tab in front has its own.
   const main: { label: string; run: () => void } | null =
-    order.holdForReview || (ship && openRequest(order)) || terminal ? null
+    openRet ? { label: 'Check in the return', run: () => setCheckRet(openRet) }
+    : returnable ? { label: 'Start a return', run: () => setStartReturn(true) }
+    : order.holdForReview || (ship && openRequest(order)) || terminal ? null
     : held ? { label: 'Release it to packing', run: () => void release() }
     : stage === 'paid' ? { label: 'Start packing', run: () => void beginPack() }
     : stage === 'picking' ? (theirs ? { label: `Take over from ${firstName(order.claimedByName) || 'them'}`, run: () => void takeOver() } : tab === 'pack' ? null : { label: 'Continue packing', run: () => setTab('pack') })
@@ -253,6 +265,8 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
       {boxSizes && <BoxSizesSheet tenantId={tenantId} rs={rs} onClose={() => setBoxSizes(false)} onToast={onToast} />}
       {tagsOpen && <TagsSheet fs={fs} tenantId={tenantId} order={order} all={all} rs={rs} actor={actor} onClose={() => setTagsOpen(false)} onDone={(m) => { setTagsOpen(false); onToast(m); }} />}
       {noteOpen && <NoteSheet fs={fs} tenantId={tenantId} order={order} actor={actor} onClose={() => setNoteOpen(false)} onDone={(m) => { setNoteOpen(false); onToast(m); }} />}
+      {checkRet && <ReturnSheet fs={fs} tenantId={tenantId} ret={checkRet} initialOrder={order} actor={actor} rs={rs} canRefund={canRefund} onClose={() => setCheckRet(null)} onDone={(m) => { setCheckRet(null); onToast(m); }} />}
+      {startReturn && <StartReturnSheet fs={fs} tenantId={tenantId} order={order} returns={feeds.returns} actor={actor} rs={rs} canRefund={canRefund} onClose={() => setStartReturn(false)} onDone={(m) => { setStartReturn(false); onToast(m); }} />}
       {partRefund && <RefundPartSheet tenantId={tenantId} order={order} onClose={() => setPartRefund(false)} onDone={(m) => { setPartRefund(false); onToast(m); }} />}
       {more && (
         <Sheet title={`${orderNum(order)} · ${who}`} sub="More for this order" onClose={() => setMore(false)} closeLabel="Done">
@@ -264,6 +278,8 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
             {isManager && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setBoxSizes(true); }}>Box sizes</Btn>}
             <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setTagsOpen(true); }}>Tags{Array.isArray(order.tags) && order.tags.length ? ` · ${order.tags.length}` : ''}</Btn>
             <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setNoteOpen(true); }}>{order.staffNote?.text ? 'Change the note' : 'Add a note for the team'}</Btn>
+            {openRet && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setCheckRet(openRet); }}>Check in the return</Btn>}
+            {returnable && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setStartReturn(true); }}>Start a return</Btn>}
             {canRefundPart && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setPartRefund(true); }}>Refund part of this order</Btn>}
             {canCancel && <Btn kind="danger" className="w-full" onClick={() => { setMore(false); setConfirmCancel(true); }}>Cancel the order</Btn>}
           </div>

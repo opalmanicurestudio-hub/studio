@@ -7,7 +7,7 @@
 // lib/claim-decide), and only those the server lets decide see the buttons.
 import * as React from 'react';
 import Link from 'next/link';
-import { doc, getDoc, type Firestore } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, type Firestore } from 'firebase/firestore';
 import { decideClaim, requestClaimInfo } from '@/lib/fulfil-client';
 import { carrierLine, claimRefundable, claimWaiting, recordFacts, unitsOpen, whyNotAuto } from '@/lib/claim-view';
 import { hasGap, type ReplyContext } from '@/lib/replies';
@@ -42,14 +42,13 @@ export function ClaimCard({ fs, tenantId, claim, order: given, rs, canDecide, on
   const t: any = useTenant();
   const tz = tenantTimeZone(t?.selectedTenant);
   const day = (iso: string) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz }) : ''; };
-  // The order's record (Problems only carries the orders still being worked on; a report is usually on a finished one).
-  const [order, setOrder] = React.useState<any | null>(given);
+  // The order's record, kept live (what's left to refund changes as other reports and returns settle; the copy Problems
+  // has of a finished order is only read once, so it's the starting point, never the figures decided on).
+  const [order, setOrder] = React.useState<any | null>(given && given.id === claim.orderId ? given : null);
   React.useEffect(() => {
-    if (given && given.id === claim.orderId) { setOrder(given); return; }
-    let live = true;
-    if (fs && tenantId && claim.orderId) getDoc(doc(fs, `tenants/${tenantId}/retailOrders/${claim.orderId}`)).then((s) => { if (live && s.exists()) setOrder({ ...(s.data() as any), id: s.id }); }).catch(() => {});
-    return () => { live = false; };
-  }, [fs, tenantId, claim.orderId, given]);
+    if (!fs || !tenantId || !claim.orderId) return;
+    return onSnapshot(doc(fs, `tenants/${tenantId}/retailOrders/${claim.orderId}`), (s) => { if (s.exists()) setOrder({ ...(s.data() as any), id: s.id }); }, () => {});
+  }, [fs, tenantId, claim.orderId]);
   const history = useCustomerHistory(fs, tenantId, claim.customerEmail, claim.id);
   const first = String(claim.customerName || '').trim().split(/\s+/)[0] || 'them';
   const named = first !== 'them';

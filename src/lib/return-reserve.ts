@@ -25,3 +25,17 @@ export function claimedUnits(claims: any[], line: any): number {
   }
   return Math.max(Math.floor(Number(line?.qtyClaimed) || 0), decided) + waiting;
 }
+
+/** UNITS OF A LINE THAT CAN STILL COME BACK: ordered, less any shorted, returned, refunded on their own, covered by a
+ *  report (waiting, or put right), or on their way back in another return. One count for the shop's Start a return, the
+ *  customer's, and the server that opens either. */
+export function returnableUnits(line: any, claims: any[], returns: any[]): number {
+  const n = (v: any) => Math.max(0, Math.floor(Number(v) || 0));
+  return Math.max(0, n(line?.qtyOrdered) - n(line?.qtyShorted) - n(line?.qtyReturned) - n(line?.qtyRefunded) - claimedUnits(claims, line) - reservedByOpenReturns(returns, String(line?.lineId || '')));
+}
+
+/** Whether anything on an order that's gone out can still come back (the order's Start a return). */
+export function hasReturnable(order: any, returns: any[]): boolean {
+  if (!['shipped', 'completed'].includes(String(order?.stage)) || order?.isTest) return false;
+  return (Array.isArray(order?.lines) ? order.lines : []).some((l: any) => l?.lineId && l.digital !== true && returnableUnits(l, [], returns) > 0);
+}

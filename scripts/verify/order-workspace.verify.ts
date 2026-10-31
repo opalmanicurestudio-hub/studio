@@ -54,7 +54,7 @@ check('an order in a wave walk is never taken to pack on its own (it’s packed 
 
 // ── Scan any item on the orders screen ──
 check('an item scanned on the orders screen counts into your order that needs it, or takes the most urgent waiting order that does',
-  /if \(!t\) \{[\s\S]{0,700}?await itemScan\(v\); return;\s*\}/.test(app) && /claim = startPacking\(fs, tenantId, waiting, actor\)/.test(app) && /if \(await claim\) await count\(waiting, true\)/.test(app));
+  /if \(!t\) \{[\s\S]{0,1800}?await itemScan\(v\); return;\s*\}/.test(app) && /claim = startPacking\(fs, tenantId, waiting, actor\)/.test(app) && /if \(await claim\) await count\(waiting, true\)/.test(app));
 check('…the count is the scan at the box, and the order opens on its Pack tab', /const r = await scanInto\(fs, tenantId, o\.id, v, actor, rs\)/.test(app) && /openOn\(o\.id, 'pack'\)/.test(app));
 check('…your own order still waiting for its box check is found first (a scan never claims another order instead)', /const mineOpen = orders\.find\(\(o\) => o\.stage === 'picking' && o\.claimedBy === actor\.id && wantsHere\(o\)\)/.test(app) && /const toBox = \(l: any\) => rs\?\.requirePackScan === true/.test(app));
 check('…a code added to a product after the order was placed still finds the order (and a listing’s own code its variants)', /owners\.has\(lineProductId\(l\)\)/.test(app) && /const found = lookupCode\(codeBook\(inventory \|\| \[\]\), v\);/.test(app));

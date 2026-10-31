@@ -159,8 +159,8 @@ M._load = function (request: string, ...rest: any[]) {
 
   // ── Every other scanner asks the same lookup ──
   const src = (p: string) => fs.readFileSync(p, 'utf8');
-  const returnsPage = src('src/app/(app)/retail-orders/returns/page.tsx'); const receive = src('src/components/inventory/ReceiveStockDialog.tsx');
-  check('returns: the codes the line was sold with, then the products’ codes now (a listing’s code is its variant on the return; with two of them, it asks which)', /lineMatchesScan\(x\.orig, raw\)/.test(returnsPage) && /const picked = pickFor\(found, open, \(x\) => lineProductId\(x\.orig\)\);/.test(returnsPage) && /askWhich\(found, picked, \(x\) => lineProductId\(x\.orig\)/.test(returnsPage) && /'this return'\);/.test(returnsPage));
+  const returnsPage = src('src/components/orders/ReturnSheet.tsx'); const receive = src('src/components/inventory/ReceiveStockDialog.tsx');
+  check('returns: the codes the line was sold with, then the products’ codes now (a listing’s code is its variant on the return; with two of them, it asks which)', /lineMatchesScan\(x\.orig, t\)/.test(returnsPage) && /const picked = pickFor\(found, open, \(x: any\) => lineProductId\(x\.orig\)\);/.test(returnsPage) && /askWhich\(found, picked, \(x: any\) => lineProductId\(x\.orig\)/.test(returnsPage) && /'this return'\);/.test(returnsPage));
   check('receiving: the one lookup with tools and supplies too, a case counts the case, a listing’s code is its variant on the delivery (with two, it asks), a name typed in finds its line',
     /codeBook\(items, \{ equipment: true \}\)/.test(receive) && /const picked = pickFor\(found, lines, \(ri\) => ri\.productId\);/.test(receive) && /'this delivery'\);/.test(receive) && /codeForm\(ri\.productName\) === name/.test(receive) && /role="status"/.test(receive) && /Counts as \{ask\.pack\}/.test(receive));
   check('…and scanning a line counts it from zero (a line starts at what was ordered: scanning all 6 used to show 12)', /const now = \(countedRef\.current\.has\(productId\) \? ri\.quantityReceived : 0\) \+ units;/.test(receive) && /countedRef\.current = new Set\(\); setCountedState\(new Set\(\)\);/.test(receive));
@@ -174,7 +174,7 @@ M._load = function (request: string, ...rest: any[]) {
   const invPage = src('src/app/(app)/inventory/page.tsx');
   check('Inventory’s scan button takes every barcode (it used to refuse anything but the shop’s QR), and its search finds a code in any form',
     /const found = lookupCode\(book, data, \{ variants: false \}\);/.test(invPage) && !/Invalid QR Code/.test(invPage) && /<ScanGate cameraFirst label="Point at a barcode or QR code" onScan=\{handleScan\} \/>/.test(invPage) && /codesOf\(\{ \.\.\.item, type: 'retail' \}\)\.some\(\(c\) => c\.code === asCode\)/.test(invPage));
-  check('no scanner compares only a product’s barcode and SKU any more', !/codesMatch\(i\.barcode, v\)|codesMatch\(String\(i\.barcode/.test(src('src/components/orders/BinsScreen.tsx') + src('src/app/(app)/inventory/distribution/page.tsx')) && !/codesMatch\(orig\.barcode, raw\)/.test(src('src/app/(app)/retail-orders/returns/page.tsx')));
+  check('no scanner compares only a product’s barcode and SKU any more', !/codesMatch\(i\.barcode, v\)|codesMatch\(String\(i\.barcode/.test(src('src/components/orders/BinsScreen.tsx') + src('src/app/(app)/inventory/distribution/page.tsx')) && !/codesMatch\(orig\.barcode/.test(src('src/components/orders/ReturnSheet.tsx')));
   const page = src('src/app/(app)/inventory/codes/page.tsx');
   check('the codes check shows every scanner taking the same codes', /const SCANNERS = \['Desk and counter', 'Packing bench', 'Picking', 'Returns', 'Receiving stock', 'Inventory', 'Staff app'\];/.test(page) && !/\{\/\*/.test(page));
 

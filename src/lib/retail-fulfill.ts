@@ -517,7 +517,8 @@ export async function resolveShortLine(
           // Each unit keeps the price paid for it, and the order the tax figures it was paid with (lib/order-family).
           lines: [{
             ...lineFor(target, qtyShorted), lineId: `line-${nanoid(8)}`,
-            qtyScanned: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending', shortReason: '',
+            // Fresh counts: what was refunded or put right on the first order's line was for those units, not these.
+            qtyScanned: 0, qtyShorted: 0, qtyReturned: 0, qtyRefunded: 0, qtyClaimed: 0, status: 'pending', shortReason: '',
           }],
           subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0,
           taxBasis: taxBasisOf(order),

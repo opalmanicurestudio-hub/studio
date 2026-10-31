@@ -506,7 +506,20 @@ export function OrdersApp() {
       // A tote tag, slip code or label that isn't for anything here isn't an item: say what it is.
       const tote = parseTote(v);
       if (tote) { feel(false); setToast(`Tote ${tote} is empty.`); return; }
-      if (/^clarityflow:\/\/order\//i.test(String(v).trim())) { feel(false); setToast('That slip isn’t for an order in progress.'); return; }
+      // The customer's order code (their order page, or the slip in the bag) for an order that's finished: looked up and
+      // opened, so a return can be started on it at the counter (StartReturnSheet).
+      const code = String(v).trim().match(/^clarityflow:\/\/order\/([A-Za-z0-9._-]{1,160})$/i)?.[1];
+      if (code) {
+        const col = collection(fs, `tenants/${tenantId}/retailOrders`);
+        // A backorder or replacement shares the code with the order it came from: the order they paid on is opened (its
+        // record links the others).
+        const byToken = await getDocs(query(col, where('qrToken', '==', code), limit(10))).catch(() => null);
+        if (!byToken) { feel(false); setToast('That order couldn’t be looked up just now. Try the scan again.'); return; }
+        const rows = byToken.docs.map((d: any) => ({ ...(d.data() as any), id: d.id }));
+        const hit = rows.find((o: any) => !o.parentOrderId) || rows[0] || null;
+        if (hit) { feel(true); setOpenId(hit.id); setToast(`#${String(hit.orderNumber ?? '').padStart(4, '0')} is open.`); return; }
+        feel(false); setToast('That order code isn’t for an order here.'); return;
+      }
       if (looksLikeTracking(v)) { feel(false); setToast('That label isn’t for any box waiting to ship.'); return; }
       await itemScan(v); return;
     }

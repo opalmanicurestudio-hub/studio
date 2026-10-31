@@ -3,7 +3,7 @@ import { refundTaxPart, refundTipPart } from '@/lib/refund-tax';
 import { restockingFee } from './restocking';
 import { lineFor, taxBasisOf } from './order-family';
 import { releaseCoverableBackorders } from './retail-fulfill';
-import { claimedUnits, reservedByOpenReturns } from '@/lib/return-reserve';
+import { claimedUnits, returnableUnits } from '@/lib/return-reserve';
 import {
   type Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
 } from '@/lib/fs-any';
@@ -119,12 +119,14 @@ export async function openReturn(
   for (const sel of selections.filter((s) => s.qty > 0)) {
     const orig = order.lines.find((l) => l.lineId === sel.lineId);
     if (!orig) return { ok: false, message: 'Line not found on the order.' };
+    // A download has nothing to send back: refund it instead.
+    if ((orig as any).digital === true) return { ok: false, message: `${orig.name} is a download, so there’s nothing to send back. Refund it instead.` };
     // Not shorted, not returned, not covered by a problem the customer reported (waiting, or refunded), not on its way
     // back already: one item is refunded once.
     const reported = claimedUnits(claims, orig);
-    const returnable = Math.max(0, (Number(orig.qtyOrdered) || 0) - (Number(orig.qtyShorted) || 0) - (Number(orig.qtyReturned) || 0) - reported - reservedByOpenReturns(openReturns, orig.lineId));
+    const returnable = returnableUnits(orig, claims, openReturns);
     if (sel.qty > returnable) {
-      return { ok: false, message: `Only ${returnable} of ${orig.name} can still be returned.${reported > 0 ? ' The rest is part of a problem they reported: decide it in Claims.' : ''}` };
+      return { ok: false, message: `Only ${returnable} of ${orig.name} can still be returned.${reported > 0 ? ' The rest is part of a problem they reported: decide it in Problems.' : ''}` };
     }
     // FINAL SALE. Checked here and not only in the UI, because a screen that
     // hides a button is not a rule — the storefront, the returns board and
@@ -294,7 +296,7 @@ export async function receiveReturnLine(
         txn.update(oRef, { lines: JSON.parse(JSON.stringify(newLines)) });
       }
 
-      return { ok: true, allReceived, message: `${line.name}: ${openedBack ? 'opened, back on the shelf' : restock ? 'back in stock' : disposition === 'open_box' ? 'opened, written off at cost' : 'written off'}${allReceived ? ' \u2014 that was the last item' : ''}` };
+      return { ok: true, allReceived, message: `${line.name}: ${openedBack ? 'opened, back on the shelf' : restock ? 'back in stock' : disposition === 'open_box' ? 'opened, written off at cost' : disposition === 'quarantine' ? 'kept out of stock' : 'written off'}${allReceived ? ' \u2014 that was the last item' : ''}` };
     });
     // Back on the shelf: a backorder waiting for it may be able to go now (lib/retail-fulfill). Best effort.
     const shelf = back as { productId: string; qty: number } | null;
@@ -401,7 +403,7 @@ export async function resolveReturn(
             // Each unit keeps the price paid for it, so a refund on the replacement is what was paid (lib/order-family).
             return {
               ...lineFor(orig, l.qty), lineId: `line-${nanoid(8)}`,
-              qtyScanned: 0, qtyPacked: 0, qtyShorted: 0, qtyReturned: 0, status: 'pending', shortReason: '', preorder: false,
+              qtyScanned: 0, qtyPacked: 0, qtyShorted: 0, qtyReturned: 0, qtyRefunded: 0, qtyClaimed: 0, status: 'pending', shortReason: '', preorder: false,
             };
           });
         txn.set(childRef, JSON.parse(JSON.stringify({
