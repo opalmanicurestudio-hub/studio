@@ -1475,6 +1475,10 @@ export async function GET(req: NextRequest) {
       try { const { monthReviewNotice } = await import('@/lib/month-review'); await monthReviewNotice(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] month review', tDoc.id, e); }
       if ((tDoc.data() as any)?.loyalty?.on === true) { try { const { expirySweep } = await import('@/lib/loyalty-server'); await expirySweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] loyalty', tDoc.id, e); } }
       if ((tDoc.data() as any)?.makingItRight?.reviews?.on) { try { await reviewSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] reviews', tDoc.id, e); } }
+      // Problem reports nobody has decided on in two days: one note to the people who can decide (lib/claim-reminder).
+      try { const { remindWaitingClaims } = await import('@/lib/claim-reminder'); await remindWaitingClaims(db, tDoc.id, { tenant: tDoc.data() }); } catch (e) { console.error('[nightly] waiting reports', tDoc.id, e); }
+      // An approved report whose loss didn't get recorded straight after: recorded now (lib/claim-loss).
+      try { const { sweepClaimLosses } = await import('@/lib/claim-loss'); await sweepClaimLosses(db, tDoc.id); } catch (e) { console.error('[nightly] report losses', tDoc.id, e); }
       // Reviews nobody decided on show on their own after 14 days, with a heads-up three days before (lib/reviews-server).
       try { const { sweepWaitingReviews } = await import('@/lib/reviews-server'); const w = await sweepWaitingReviews(db, tDoc.id, { tenant: tDoc.data() }); if (w.shopShown) { const { revalidateTag } = await import('next/cache'); revalidateTag(`shop:${tDoc.id}`); } } catch (e) { console.error('[nightly] waiting reviews', tDoc.id, e); } } } catch (e) { console.error('[nightly] mir reports', e); }
   return NextResponse.json({ ok: true, timingGroups, mirReports, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, requestTotals, results });

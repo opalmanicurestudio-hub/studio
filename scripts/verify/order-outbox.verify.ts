@@ -177,7 +177,7 @@ const req = (body: any, headers: Record<string, string> = {}) => ({ json: async 
   check('every step’s message goes through the queue (ready, curbside, missing item, shipped, return, report)', !/callRoute/.test(route) && /sendMessage\('order_ready'/.test(route) && /'curbside_ready' : 'curbside_out'/.test(route) && /sendMessage\('order_short'/.test(route) && /sendMessage\('return_outcome'/.test(route) && /sendMessage\('claim_decided', \{ claimId: id, key: String\(c\.decidedAt/.test(route) && /if \(o\.trackingNumber && !o\.shippoTransactionId\) sendMessage\('order_shipped'/.test(route));
   check('…all in the queue before the step answers, even when something after it failed', (route.match(/await Promise\.allSettled\(ctx\(\)\?\.queued \|\| \[\]\);/g) || []).length === 2);
   check('…and an item refunded instead of a swap is told through the queue too', /queueAndSend\(db, tenantId, 'order_short'/.test(src('src/app/api/retail/swap/route.ts')) && /queueAndSend\(db, t, 'order_short'/.test(src('src/lib/retail-swap-server.ts')));
-  check('no screen sends a step’s message itself (shipped with tracking typed in, a report decided)', !/shipped-notify|ready-notify/.test(src('src/lib/orders-flow.ts')) && !/claimId: c\.id \}\)/.test(src('src/app/(app)/retail-orders/claims/page.tsx')));
+  check('no screen sends a step’s message itself (shipped with tracking typed in, a report decided)', !/shipped-notify|ready-notify/.test(src('src/lib/orders-flow.ts')) && !/claim-notify|claimId: claim\.id \}\)/.test(src('src/components/orders/ClaimCard.tsx')));
 
   // ── The queue from a browser ──
   check('nobody reads or writes the queue from a browser', /match \/messageOutbox\/\{id\} \{\s*allow read, write: if false;\s*\}/.test(src('firestore.rules')));

@@ -17,6 +17,7 @@ import { syncRenterCreditsForOrder } from '@/lib/renter-sales-server';
 import { shareOrderTip } from '@/lib/order-tips';
 import { resolveCreditReturn } from '@/lib/return-credit';
 import { decideClaim } from '@/lib/claim-decide';
+import { recordClaimLoss } from '@/lib/claim-loss';
 import { syncTracking } from '@/lib/order-tracking';
 import { queueMessage, deliverMessage, type MessageKind } from '@/lib/order-outbox';
 import { RETURN_REASONS, RETURN_RESOLUTIONS } from '@/lib/retail-orders';
@@ -37,7 +38,7 @@ const ACTIONS: Record<string, Need> = {
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
   deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover', deliveryDoor: 'handover', deliverySkip: 'handover',
-  openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', decideClaim: 'claims', requestClaimInfo: 'returns',
+  openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', decideClaim: 'claims', requestClaimInfo: 'claims',
 };
 
 const s = (v: any, n = 200) => String(v ?? '').slice(0, n);
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
       ship: 'Shipping isn’t part of your role. Ask a manager to make you a shipper.', manage: 'Canceling orders is for a manager.',
       staff: '', returns: 'Returns are checked in by the shop’s team.', claims: 'Deciding on a report is for a manager or someone who can refund.',
     };
-    return NextResponse.json({ ok: false, message: words[need] }, { status: 403 });
+    return NextResponse.json({ ok: false, message: action === 'requestClaimInfo' ? 'Asking a customer about a report is for a manager or someone who can refund.' : words[need] }, { status: 403 });
   }
   // Who did it comes from the sign-in, never from the request.
   const actor = { id: String(a.uid), name: String(a.name || 'A team member') };
@@ -266,17 +267,28 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         break;
       }
       case 'requestClaimInfo': {
-        // Asking the customer for more about a report (a photo, the box): saved on the report here, and the customer is
-        // told from the queue (api/retail/claim-notify), so it's never lost.
+        // Asking the customer for more about a report (a photo, the box): saved on the report here, in one step with what
+        // it reads, and the customer is told from the queue (api/retail/claim-notify), so it's never lost. Only those who
+        // can decide on a report write to the customer about it.
         const id = safeId(b.claimId); const m = need1(id, 'report'); if (m) return m;
         const text = s(b.text, 400).trim(); if (!text) return NextResponse.json({ ok: false, message: 'What should they send?' }, { status: 400 });
         const ref = db.doc(`tenants/${tenantId}/retailClaims/${id}`);
-        const cs = await ref.get(); if (!cs.exists) return NextResponse.json({ ok: false, message: 'That report isn’t there any more.' }, { status: 404 });
-        if (['resolved', 'declined', 'closed'].includes(String(cs.data()?.status || ''))) return NextResponse.json({ ok: false, message: 'That report has been decided already.' }, { status: 409 });
         const at = new Date().toISOString();
-        await ref.update({ infoRequestText: text, infoRequestAt: at, infoRequestBy: actor.name });
+        const asked = await db.runTransaction(async (tx: any) => {
+          const cs = await tx.get(ref);
+          if (!cs.exists) return { status: 404, message: 'That report isn’t there any more.' };
+          const was: any = cs.data() || {};
+          if (['resolved', 'auto_resolved', 'declined', 'closed'].includes(String(was.status || ''))) return { status: 409, message: 'That report has been decided already.' };
+          // A new question starts a new wait: the last one and its answer go into the report's history (kept, never
+          // overwritten), so the report waits under Waiting on them until they answer this one.
+          const hist = Array.isArray(was.infoHistory) ? was.infoHistory.slice(-9) : [];
+          if (was.infoRequestText) hist.push({ asked: s(was.infoRequestText, 400), askedAt: was.infoRequestAt || null, by: was.infoRequestBy || null, answer: was.infoResponseText ? s(was.infoResponseText, 600) : null, answeredAt: was.infoResponseAt || null });
+          tx.update(ref, { infoRequestText: text, infoRequestAt: at, infoRequestBy: actor.name, infoResponseText: null, infoResponseAt: null, infoHistory: hist });
+          return { status: 200, orderId: String(was.orderId || '') };
+        });
+        if (asked.status !== 200) return NextResponse.json({ ok: false, message: asked.message }, { status: asked.status });
         sendMessage('claim_info', { claimId: id, key: at });
-        out = { ok: true, message: 'Asked. They see it on their order page.', orderId: String(cs.data()?.orderId || '') };
+        out = { ok: true, message: 'Asked. They see it on their order page.', orderId: asked.orderId };
         break;
       }
       case 'receiveReturnLine': case 'resolveReturn': {
@@ -293,9 +305,15 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
       }
       case 'decideClaim': {
         const id = safeId(b.claimId); const m = need1(id, 'report'); if (m) return m;
-        out = await decideClaim(db, tenantId, id, b.approve === true, { cents: Number.isFinite(Number(b.cents)) ? Number(b.cents) : null, declineWhy: s(b.declineWhy, 400) });
+        // No amount: what it's worth. An amount given must be a real one above $0.00 (never read as $0, or as all of it).
+        const given = b.cents !== null && b.cents !== undefined && b.cents !== '';
+        const cents = given ? Number(b.cents) : null;
+        if (b.approve === true && given && !(Number.isFinite(cents) && (cents as number) >= 1)) return NextResponse.json({ ok: false, message: 'Pick an amount above $0.00.' }, { status: 400 });
+        out = await decideClaim(db, tenantId, id, b.approve === true, { cents, declineWhy: s(b.declineWhy, 400), by: { id: actor.id, name: actor.name } });
         // The customer is told the decision (api/retail/claim-notify), once per decision.
         if (out?.ok) { const c: any = (await db.doc(`tenants/${tenantId}/retailClaims/${id}`).get()).data() || {}; sendMessage('claim_decided', { claimId: id, key: String(c.decidedAt || '') }); }
+        // An approval is a loss: recorded here, after the answer, never from a screen (lib/claim-loss).
+        if (out?.ok && b.approve === true) after(async () => { try { await recordClaimLoss(db, tenantId, id); } catch (e: any) { console.error('[fulfil] claim loss', id, String(e?.message || e).slice(0, 160)); } });
         break;
       }
     }

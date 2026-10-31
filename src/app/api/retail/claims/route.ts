@@ -60,6 +60,7 @@ const safeClaim = (d: any) => ({
   infoRequestText: d.infoRequestText || null,
   infoRequestAt: d.infoRequestAt || null,
   infoResponseText: d.infoResponseText || null,
+  infoResponseAt: d.infoResponseAt || null,
   status: d.status, resolution: d.resolution || null,
   resolutionCents: d.resolutionCents ?? null,
   declineReason: d.declineReason || null,
@@ -120,30 +121,37 @@ export async function POST(req: NextRequest) {
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
 
   try {
-    // ── APPEAL: reopen a declined claim, once, with the customer's note ──
+    // ── ANSWER: the customer answers what the shop asked about their report ──
     if (String(body.action || '') === 'respond_info') {
       const claimId = String(body.claimId || '').trim();
       const note = String(body.note || '').trim().slice(0, 600);
       if (!claimId || !note) return NextResponse.json({ error: 'Write what the shop asked for.' }, { status: 400 });
 
       const claimRef = db.collection(`tenants/${tenantId}/retailClaims`).doc(claimId);
-      const [orderSnap, claimSnap] = await Promise.all([orderRef.get(), claimRef.get()]);
-      if (!orderSnap.exists || !claimSnap.exists) return NextResponse.json({ error: 'Claim not found.' }, { status: 404 });
-      const order = orderSnap.data() as any;
-      const claim = claimSnap.data() as any;
-      if (order.qrToken !== qrToken || claim.orderId !== orderId) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
-      if (!claim.infoRequestText) return NextResponse.json({ error: 'The shop hasn\u2019t asked for anything on this claim.' }, { status: 409 });
-      if (claim.status === 'resolved') return NextResponse.json({ error: 'This claim is already approved.' }, { status: 409 });
-
-      const batch = db.batch();
-      batch.set(claimRef, { infoResponseText: note, infoResponseAt: new Date().toISOString() }, { merge: true });
-      const evRef = orderRef.collection('events').doc();
-      batch.set(evRef, {
-        id: evRef.id, type: 'note', at: new Date().toISOString(),
-        actorId: 'customer', actorName: order.customerName || 'Customer',
-        meta: { text: `Customer answered the evidence request on their ${String(claim.type || 'issue')} report` },
+      // In one step with what it reads, so it can't land on a question asked, or a decision made, a moment before.
+      const now = new Date().toISOString();
+      const bad = await db.runTransaction(async (tx: any) => {
+        const [orderSnap, claimSnap] = [await tx.get(orderRef), await tx.get(claimRef)];
+        if (!orderSnap.exists || !claimSnap.exists) return { status: 404, error: 'Claim not found.' };
+        const order = orderSnap.data() as any;
+        const claim = claimSnap.data() as any;
+        if (order.qrToken !== qrToken || claim.orderId !== orderId) return { status: 403, error: 'Not authorized.' };
+        if (!claim.infoRequestText) return { status: 409, error: 'The shop hasn\u2019t asked for anything on this claim.' };
+        if (claim.status === 'resolved') return { status: 409, error: 'This claim is already approved.' };
+        if (claim.status !== 'in_review') return { status: 409, error: 'The shop has already decided on this report.' };
+        // An answer is to the question they saw: one sent from a page opened before the shop asked something new waits
+        // for them to read the new one.
+        if (body.askedAt && claim.infoRequestAt && String(body.askedAt) !== String(claim.infoRequestAt)) return { status: 409, error: 'The shop has asked something new. Reload the page to see it.' };
+        tx.set(claimRef, { infoResponseText: note, infoResponseAt: now }, { merge: true });
+        const evRef = orderRef.collection('events').doc();
+        tx.set(evRef, {
+          id: evRef.id, type: 'note', at: now,
+          actorId: 'customer', actorName: order.customerName || 'Customer',
+          meta: { text: `Customer answered the evidence request on their ${String(claim.type || 'issue')} report` },
+        });
+        return null;
       });
-      await batch.commit();
+      if (bad) return NextResponse.json({ error: bad.error }, { status: bad.status });
       return NextResponse.json({ ok: true });
     }
 
@@ -353,7 +361,7 @@ export async function POST(req: NextRequest) {
       const fresh: any = oSnap.exists ? oSnap.data() || {} : {};
       const freshLines: any[] = Array.isArray(fresh.lines) ? fresh.lines : [];
       const approved = autoApprove && !!line && claimableOf(freshLines.find((l: any) => l.lineId === lineId)) >= units;
-      const doc = approved ? claim : { ...claim, status: 'in_review', resolution: null, resolutionCents: null, decidedAt: null, decidedBy: null };
+      const doc = approved ? { ...claim, lossPending: true } : { ...claim, status: 'in_review', resolution: null, resolutionCents: null, decidedAt: null, decidedBy: null };
       tx.set(claimRef, JSON.parse(JSON.stringify(doc)));
       tx.set(evRef, {
         id: evRef.id, type: 'note', at: now,
@@ -371,6 +379,11 @@ export async function POST(req: NextRequest) {
     if (filed.dup) return NextResponse.json({ ok: true, status: filed.dup.status, message: 'This report is already on file, and our team has it.' });
     // Approved by the shop's rules: within the shop's automatic amount the refund goes back now (lib/auto-refund).
     const sent = filed.approved ? await autoRefund(db, tenantId, orderId, req.nextUrl?.origin) : null;
+    // Approved by the rules is still a loss: recorded after the answer, the same as one a person approves (lib/claim-loss).
+    if (filed.approved) {
+      const loss = async () => { try { const { recordClaimLoss } = await import('@/lib/claim-loss'); await recordClaimLoss(db, tenantId, dupId); } catch (e) { console.error('[claims] loss', String((e as any)?.message || e).slice(0, 120)); } };
+      try { after(loss); } catch { void loss(); }
+    }
     // Waiting for the shop: they're told it's in, in the shop's own words if it wrote some (lib/report-received), after
     // the answer, so a slow email service never holds up "Reported".
     if (!filed.approved) {

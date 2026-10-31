@@ -33,6 +33,7 @@ import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
 import { formatDay } from '@/lib/tenant-time';
+import { claimWaiting, customerClaimStatus } from '@/lib/claim-view';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
 // The customer's live order tracker — the success URL from Stripe Checkout
@@ -198,7 +199,7 @@ export default function OrderStatusPage() {
   const [pieceOther, setPieceOther] = useState(false);
   const [claimSending, setClaimSending] = useState(false);
   const [claimDone, setClaimDone] = useState('');
-  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null; photoUrls?: string[]; infoRequestText?: string | null; infoResponseText?: string | null }[]>([]);
+  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null; photoUrls?: string[]; infoRequestText?: string | null; infoRequestAt?: string | null; infoResponseText?: string | null; infoResponseAt?: string | null; openedAt?: string | null }[]>([]);
   const [appealFor, setAppealFor] = useState<string | null>(null);
   const [appealNote, setAppealNote] = useState('');
   const [appealSending, setAppealSending] = useState(false);
@@ -655,13 +656,15 @@ export default function OrderStatusPage() {
       const res = await fetch('/api/retail/claims', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, action: 'respond_info', claimId, note }),
+        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, action: 'respond_info', claimId, note, askedAt: myClaims.find((c) => c.id === claimId)?.infoRequestAt || null }),
       });
       const data = await res.json();
       if (!res.ok) {
         toast({ variant: 'destructive', title: 'Not sent', description: data.error || 'Try again.' });
+        // A new question, or a decision, since the page opened: show what's there now.
+        if (res.status === 409) await loadClaims();
       } else {
-        toast({ title: 'Answer sent', description: 'The shop has it — review continues.' });
+        toast({ title: 'Answer sent', description: 'The shop has it and will look at your report again.' });
         setInfoAnswer({ ...infoAnswer, [claimId]: '' });
         await loadClaims();
       }
@@ -2013,26 +2016,26 @@ export default function OrderStatusPage() {
                       mc.type === 'missing' ? 'Missing item' :
                       mc.type === 'damaged' ? 'Damaged' :
                       mc.type === 'wrong_item' ? 'Wrong item' : 'Never arrived';
-                    const statusLine =
-                      mc.status === 'in_review' ? (mc.appealedAt ? 'Appeal in review — a person is on it' : 'In review with the packing record') :
-                      mc.status === 'auto_resolved' || mc.status === 'resolved'
-                        ? `Approved${mc.resolutionCents ? ` — $${(mc.resolutionCents / 100).toFixed(2)} refund queued` : ''}`
-                        : 'Declined';
-                    const good = mc.status === 'auto_resolved' || mc.status === 'resolved';
+                    // Where it is, in the same words the shop's screens use (lib/claim-view).
+                    const st = customerClaimStatus(mc);
+                    const statusLine = st.label;
+                    const good = st.tone === 'ok';
+                    const waitingOnMe = claimWaiting(mc);
                     return (
                       <div key={mc.id} className={cn('rounded-2xl border-2 p-3 space-y-1.5', good ? 'border-primary/30 bg-primary/[0.03]' : mc.status === 'declined' ? 'border-slate-200' : 'border-amber-200 bg-amber-50/40')}>
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-xs font-black uppercase tracking-tight">
                             {label}{mc.lineName ? ` · ${mc.lineName}` : ''}{mc.qty > 1 ? ` ×${mc.qty}` : ''}
                           </p>
-                          <p className={cn('text-[9px] font-black uppercase tracking-widest', good ? 'text-primary' : 'text-muted-foreground')}>{statusLine}</p>
+                          <p className={cn('text-[9px] font-black uppercase tracking-widest', good ? 'text-primary' : st.tone === 'ask' ? 'text-amber-800' : 'text-muted-foreground')}>{statusLine}</p>
                         </div>
+                        {st.line && st.tone !== 'no' && <p className="text-[11px] font-bold text-muted-foreground">{st.line}</p>}
                         {(mc as any).infoRequestText && (
                           <div className="rounded-xl border-2 border-amber-200 bg-amber-50/60 p-2.5 space-y-1.5">
                             <p className="text-[9px] font-black uppercase tracking-widest text-amber-800">The shop asked</p>
                             <p className="text-[11px] font-bold text-amber-900">{(mc as any).infoRequestText}</p>
-                            {(mc as any).infoResponseText ? (
-                              <p className="text-[11px] font-bold text-foreground border-t-2 border-amber-100 pt-1.5">You answered: {(mc as any).infoResponseText}</p>
+                            {!waitingOnMe ? (
+                              (mc as any).infoResponseText ? <p className="text-[11px] font-bold text-foreground border-t-2 border-amber-100 pt-1.5">You answered: {(mc as any).infoResponseText}</p> : null
                             ) : (
                               <div className="space-y-1.5">
                                 <Textarea
@@ -2120,7 +2123,7 @@ export default function OrderStatusPage() {
                           )
                         )}
                         {mc.status === 'declined' && mc.appealedAt && (
-                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Appealed — awaiting a second look</p>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Looked at a second time. This decision is final.</p>
                         )}
                       </div>
                     );

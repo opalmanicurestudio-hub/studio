@@ -4,7 +4,8 @@
 // the customer's email quotes. Both in one transaction with the order, so two devices can't both decide.
 export type ClaimDecision = { ok: boolean; message: string; cents?: number; orderId?: string };
 
-export async function decideClaim(db: any, tenantId: string, claimId: string, approve: boolean, o: { cents: number | null; declineWhy: string }): Promise<ClaimDecision> {
+export async function decideClaim(db: any, tenantId: string, claimId: string, approve: boolean, o: { cents: number | null; declineWhy: string; by?: { id: string; name: string } }): Promise<ClaimDecision> {
+  const by = { decidedBy: String(o.by?.name || 'staff').slice(0, 80), ...(o.by?.id ? { decidedById: String(o.by.id).slice(0, 128) } : {}) };
   const claimRef = db.doc(`tenants/${tenantId}/retailClaims/${claimId}`);
   if (!approve && !String(o.declineWhy || '').trim()) return { ok: false, message: 'A decline needs a reason. The customer’s email quotes it word for word.' };
   return db.runTransaction(async (tx: any) => {
@@ -17,7 +18,7 @@ export async function decideClaim(db: any, tenantId: string, claimId: string, ap
     const orderSnap = orderRef ? await tx.get(orderRef) : null;
     const now = new Date().toISOString();
     if (!approve) {
-      tx.update(claimRef, { status: 'declined', resolution: 'declined', decidedAt: now, decidedBy: 'staff', declineReason: String(o.declineWhy).trim().slice(0, 400) });
+      tx.update(claimRef, { status: 'declined', resolution: 'declined', decidedAt: now, ...by, declineReason: String(o.declineWhy).trim().slice(0, 400) });
       return { ok: true, message: 'Declined', orderId };
     }
     // The shop's photo rule, stamped on the report when it came in: approving without the photo would make it a lie.
@@ -36,7 +37,10 @@ export async function decideClaim(db: any, tenantId: string, claimId: string, ap
     const units = Math.min(want, left);
     const asked = units < want ? Math.round((asked0 * units) / want) : asked0;
     const cents = o.cents !== null && Number.isFinite(o.cents) ? Math.max(0, Math.min(Math.round(o.cents), asked)) : asked;
-    tx.update(claimRef, { status: 'resolved', resolution: 'refund', resolutionCents: cents, decidedAt: now, decidedBy: 'staff', ...(cents !== asked0 ? { partialOfCents: asked0 } : {}), ...(units < want ? { qtySettled: units } : {}) });
+    // lossPending: the loss is recorded straight after (lib/claim-loss), or by the nightly run if that fails. A reason
+    // from an earlier decline (before an appeal) is kept apart, so an approval never carries it.
+    tx.update(claimRef, { status: 'resolved', resolution: cents > 0 ? 'refund' : 'no_refund', resolutionCents: cents, decidedAt: now, ...by, lossPending: true,
+      ...(cur.declineReason ? { declineReason: null, earlierDeclineReason: String(cur.declineReason).slice(0, 400) } : {}), ...(cents !== asked0 ? { partialOfCents: asked0 } : {}), ...(units < want ? { qtySettled: units } : {}) });
     if (order && orderRef) {
       // The units this report settles can't be returned or claimed again (qtyClaimed): its own item, or for an order that
       // never arrived, everything still on it.

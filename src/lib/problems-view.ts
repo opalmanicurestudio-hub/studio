@@ -5,9 +5,12 @@
 import { firstName, money, needsYou, orderNum } from './orders-view';
 import { dayLabel, promisedDay } from './ship-promise';
 import { carrierItem } from './ship-day';
+import { claimSince, claimWaiting } from './claim-view';
 
 export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'held' | 'backorder' | 'uncollected' | 'late' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'relabel' | 'refundDenied' | 'charge' | 'carrier' | 'unshipped';
-export interface Problem { key: string; kind: ProblemKind; orderId: string; title: string; detail: string; at: number; urgent: boolean; ref: any }
+/** waiting: the shop asked and it waits for the customer's answer (Waiting on them, not in front of you). appeal: they
+ *  asked for a declined report to be looked at again. */
+export interface Problem { key: string; kind: ProblemKind; orderId: string; title: string; detail: string; at: number; urgent: boolean; ref: any; waiting?: boolean; appeal?: boolean }
 export interface ProblemGroup { orderId: string; num: string; customerName: string; items: Problem[]; at: number; urgent: boolean; order: any | null }
 
 const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
@@ -74,12 +77,21 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
     const th = threadOf(t); const last = [...th].reverse().find((m) => m.who === 'customer');
     const waiting = !(th.length && th[th.length - 1].who === 'shop');
     const at = lastCustomerAt(t);
-    push({ key: `t-${t.id}`, kind: 'message', orderId: t.orderId, title: waiting ? `${firstName(t.customerName)} wrote` : `Waiting on ${firstName(t.customerName)}`, detail: `“${String(last?.text || '').slice(0, 90)}”${waiting && unanswered > 1 ? ` · ${unanswered} unanswered` : ''} · ${ago(at, now)}`, at, urgent: t.priority === 'urgent' && waiting, ref: t });
+    push({ key: `t-${t.id}`, kind: 'message', orderId: t.orderId, title: waiting ? `${firstName(t.customerName)} wrote` : `Waiting on ${firstName(t.customerName)}`, detail: `“${String(last?.text || '').slice(0, 90)}”${waiting && unanswered > 1 ? ` · ${unanswered} unanswered` : ''} · ${ago(at, now)}`, at, urgent: t.priority === 'urgent' && waiting, ref: t, waiting: !waiting });
   }
   for (const c of src.claims || []) {
     if (!OPEN_CLAIM.has(String(c.status || '')) || !c.orderId) continue;
-    const at = ms(c.openedAt);
-    push({ key: `c-${c.id}`, kind: 'claim', orderId: c.orderId, title: `Says ${c.lineName || 'an item'} ${CLAIM_WORDS[String(c.type)] || 'has a problem'}`, detail: `${c.claimValueCents ? `${money(c.claimValueCents)} · ` : ''}${Array.isArray(c.photoUrls) && c.photoUrls.length ? `${c.photoUrls.length === 1 ? 'Photo' : `${c.photoUrls.length} photos`} attached · ` : ''}${ago(at, now)}`, at, urgent: false, ref: c });
+    const what = `${c.lineName || (c.type === 'not_received' ? 'the order' : 'an item')} ${CLAIM_WORDS[String(c.type)] || 'has a problem'}`;
+    const who = firstName(c.customerName);
+    const waiting = claimWaiting(c); const appeal = !!c.appealedAt;
+    const answered = !waiting && !!c.infoRequestText && !!c.infoResponseText;
+    // Waited since it last came back to the shop (reported, appealed or answered); one waiting on them, since the ask.
+    const at = waiting ? ms(c.infoRequestAt) : claimSince(c) || ms(c.openedAt);
+    const extras = `${c.claimValueCents ? `${money(c.claimValueCents)} · ` : ''}${Array.isArray(c.photoUrls) && c.photoUrls.length ? `${c.photoUrls.length === 1 ? 'Photo' : `${c.photoUrls.length} photos`} attached · ` : ''}`;
+    push({ key: `c-${c.id}`, kind: 'claim', orderId: c.orderId,
+      title: waiting ? `Waiting on ${who}: ${what}` : appeal ? `Appeal: ${what}` : answered ? `${who} answered: ${what}` : `Says ${what}`,
+      detail: waiting ? `You asked ${ago(at, now)}` : `${extras}${appeal ? 'appealed ' : answered ? 'answered ' : ''}${ago(at, now)}`,
+      at, urgent: false, ref: c, waiting, appeal });
   }
   for (const r of src.returns || []) {
     if (!['open', 'received'].includes(String(r.status)) || !r.orderId) continue;
@@ -99,5 +111,28 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; ticket
   out.forEach((g) => g.items.sort((a, b) => RANK[a.kind] - RANK[b.kind] || a.at - b.at));
   return out.sort((a, b) => Number(b.urgent) - Number(a.urgent) || RANK[a.items[0].kind] - RANK[b.items[0].kind] || a.at - b.at);
 }
+
+export type ProblemShow = 'all' | 'claims' | 'returns' | 'messages' | 'refunds' | 'waiting';
+export const PROBLEM_SHOWS: { id: ProblemShow; label: string }[] = [
+  { id: 'all', label: 'All' }, { id: 'claims', label: 'Claims' }, { id: 'returns', label: 'Returns' }, { id: 'messages', label: 'Messages' },
+  { id: 'refunds', label: 'Refunds to send' }, { id: 'waiting', label: 'Waiting on them' },
+];
+const SHOW_KIND: Partial<Record<ProblemShow, ProblemKind>> = { claims: 'claim', returns: 'return', messages: 'message', refunds: 'refund' };
+/** One filter of the queue (mockup 10F). Everything but Waiting on them leaves out what waits for the customer; Claims
+ *  puts appeals first, then whoever has waited longest. Each order keeps every problem it has (the panel shows them all):
+ *  only the rows are filtered. */
+export function showProblems(groups: ProblemGroup[], show: ProblemShow): ProblemGroup[] {
+  const kind = SHOW_KIND[show];
+  const keep = (p: Problem) => (show === 'waiting' ? !!p.waiting : !p.waiting && (!kind || p.kind === kind));
+  const out = groups.map((g) => { const items = g.items.filter(keep); return items.length ? { ...g, items, at: Math.min(...items.map((p) => p.at || g.at)), urgent: items.some((p) => p.urgent) } : null; })
+    .filter(Boolean) as ProblemGroup[];
+  if (show === 'claims') {
+    out.forEach((g) => g.items.sort((a, b) => Number(!!b.appeal) - Number(!!a.appeal) || a.at - b.at));
+    return out.sort((a, b) => Number(!!b.items[0].appeal) - Number(!!a.items[0].appeal) || a.at - b.at);
+  }
+  if (show === 'all') return out.sort((a, b) => Number(b.urgent) - Number(a.urgent) || RANK[a.items[0].kind] - RANK[b.items[0].kind] || a.at - b.at);
+  return out.sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.at - b.at);
+}
+export const isShow = (v: any): v is ProblemShow => PROBLEM_SHOWS.some((x) => x.id === v);
 
 export function waitLabel(at: number, now = Date.now()): string { return ago(at, now); }

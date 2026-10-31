@@ -654,9 +654,11 @@ export default function RetailSupportPage() {
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
-                <Button asChild size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
-                  <Link href="/retail-orders/claims">Decide on the claims desk</Link>
-                </Button>
+                {c.status === 'in_review' && (
+                  <Button asChild size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                    <Link href={`/retail-orders/problems?order=${c.orderId}`}>Decide in Problems</Link>
+                  </Button>
+                )}
                 <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                   <Link href={`/retail-orders/evidence/${c.orderId}`}>Evidence</Link>
                 </Button>

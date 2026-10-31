@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     // No email to write to (or no email service): a text pointing to the order page, where the decision shows.
     if (!String(decision.customerEmail || '').trim() || !emailReady) {
       const ok = decision.status === 'resolved';
-      const tx = await textInstead(db, tenantId, decision, ok ? 'claim_approved' : 'claim_decision', ok ? 'your report was approved and a refund is on its way. Details on your order page:' : 'we’ve reviewed your report. See our answer on your order page:');
+      const tx = await textInstead(db, tenantId, decision, ok ? 'claim_approved' : 'claim_decision', ok ? (Number(decision.resolutionCents) > 0 ? 'your report was approved and a refund is on its way. Details on your order page:' : 'your report was approved. Details on your order page:') : 'we’ve reviewed your report. See our answer on your order page:');
       if (!tx.ok && tx.failed) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The text service didn’t take it.' }, { status: 503 }); }
       return NextResponse.json({ ok: true, sent: tx.ok, why: tx.ok ? undefined : 'no email or mobile to tell them' });
     }
@@ -168,15 +168,17 @@ export async function POST(req: NextRequest) {
     const cents = Math.max(0, Number(decision.resolutionCents) || 0);
 
     const bodyHtml = approved
-      ? `<p style="font-size:14px;color:#334155;line-height:1.6">We are sorry for the trouble with your order, and thank you for your patience. Your report about the ${what} (<strong>${item}</strong>) has been approved, and a refund of <strong>$${(cents / 100).toFixed(2)}</strong> is approved with it. We will email you as soon as it is sent. Card refunds typically appear within 5 to 10 business days after that.</p>`
+      ? `<p style="font-size:14px;color:#334155;line-height:1.6">We are sorry for the trouble with your order, and thank you for your patience. Your report about the ${what} (<strong>${item}</strong>) has been approved${cents > 0 ? `, and a refund of <strong>$${(cents / 100).toFixed(2)}</strong> is approved with it. We will email you as soon as it is sent. Card refunds typically appear within 5 to 10 business days after that.` : '.'}</p>`
       : `<p style="font-size:14px;color:#334155;line-height:1.6">Thank you for your report about the ${what} (<strong>${item}</strong>). We have carefully reviewed it alongside the packing record for your order, and we are sorry, but we are unable to approve it at this time.</p>
          ${decision.declineReason ? `<p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${String(decision.declineReason).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>` : ''}
-         <p style="font-size:14px;color:#334155;line-height:1.6">If you believe we have made an error, you may submit one appeal from your order page. Please include any additional details, and a member of our team will review it again.</p>`;
+         ${decision.appealedAt
+    ? '<p style="font-size:14px;color:#334155;line-height:1.6">This was our second look at your report, after your appeal, so this decision is final.</p>'
+    : '<p style="font-size:14px;color:#334155;line-height:1.6">If you believe we have made an error, you may submit one appeal from your order page. Please include any additional details, and a member of our team will review it again.</p>'}`;
 
     const html = brandedEmail(emailBrand, `
       <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
       ${bodyHtml}
-      ${orderLink ? emailButton(orderLink, approved ? 'View my order' : 'View or appeal', emailBrand) : ''}
+      ${orderLink ? emailButton(orderLink, approved || decision.appealedAt ? 'View my order' : 'View or appeal', emailBrand) : ''}
       <p style="font-size:14px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>
       <p style="font-size:12px;color:#94a3b8;line-height:1.6">Order #${String(decision.orderNumber ?? '').padStart(4, '0')} at ${shopName}.</p>`,
       { preheader: approved ? 'Your report has been approved' : 'An update on your report' });
@@ -189,7 +191,7 @@ export async function POST(req: NextRequest) {
         : `${shopName}: an update on your report`,
       html,
       // The shop's own Claim decision wording (Client messages) is put in by the email sender with these details.
-      tokens: { client_first: firstName, order_number: String(decision.orderNumber ?? '').padStart(4, '0'), reason: String(decision.declineReason || ''), link: orderLink, studio: shopName },
+      tokens: { client_first: firstName, order_number: String(decision.orderNumber ?? '').padStart(4, '0'), reason: approved ? '' : String(decision.declineReason || ''), link: orderLink, studio: shopName },
       kind: approved ? 'claim_approved' : 'claim_decision', recipientType: 'client',
       recipientId: decision.orderId || null, recipientName: decision.customerName || null,
     });

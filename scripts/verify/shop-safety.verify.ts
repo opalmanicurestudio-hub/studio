@@ -87,10 +87,13 @@ const req = (body: any, headers: Record<string, string> = {}, search = '') => ({
   // ── More about a report ──
   await db.doc(`${T}/retailClaims/c1`).set({ id: 'c1', orderId: 'r1', status: 'in_review', customerEmail: 'dana@example.com', claimValueCents: 1500 });
   r = await FULFIL(req({ tenantId: 't1', action: 'requestClaimInfo', claimId: 'c1', text: 'A photo of the box, please' }, { authorization: 'Bearer t' })); await settle();
+  check('only someone who can decide on a report writes to the customer about it (anyone on the team could)', r.status === 403 && !(await get(`${T}/retailClaims/c1`)).infoRequestText, r.body);
+  actor = { ...actor, caps: ['checkout.refund'] };
+  r = await FULFIL(req({ tenantId: 't1', action: 'requestClaimInfo', claimId: 'c1', text: 'A photo of the box, please' }, { authorization: 'Bearer t' })); await settle();
   const c1 = await get(`${T}/retailClaims/c1`);
   const q = (await all('messageOutbox')).find((m: any) => m.kind === 'claim_info');
   check('asking the customer for more about a report is saved by the server, as the person signed in, and sent from the queue', r.body.ok === true && c1.infoRequestText === 'A photo of the box, please' && c1.infoRequestBy === 'Kai Park' && !!q && q.body.kind === 'info_request', { r: r.body, c1, q });
-  check('the reports screen asks through the server (its request used to fail without a sign-in, silently)', /requestClaimInfo\(String\(tenantId\), c\.id/.test(src('src/app/(app)/retail-orders/claims/page.tsx')) && !/kind: 'info_request'/.test(src('src/app/(app)/retail-orders/claims/page.tsx')));
+  check('the reports screen asks through the server (its request used to fail without a sign-in, silently)', /requestClaimInfo\(tenantId, claim\.id/.test(src('src/components/orders/ClaimCard.tsx')) && !/kind: 'info_request'/.test(src('src/components/orders/ClaimCard.tsx')));
 
   await db.doc(`${T}/retailClaims/c2`).set({ id: 'c2', orderId: 'r1', status: 'resolved' });
   r = await FULFIL(req({ tenantId: 't1', action: 'requestClaimInfo', claimId: 'c2', text: 'More please' }, { authorization: 'Bearer t' }));

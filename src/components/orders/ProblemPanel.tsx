@@ -1,7 +1,7 @@
 'use client';
 // src/components/orders/ProblemPanel.tsx — ONE ORDER'S PROBLEMS. Each problem is a card with its next step right on it:
 // answer the message (or mark it solved), send the refund, check in the return, release the hold, go to the customer
-// outside. Problem reports open in Claims, where the photos and the packing record sit side by side.
+// outside, decide on a problem report with its photos and the packing record side by side (ClaimCard).
 import * as React from 'react';
 import Link from 'next/link';
 import type { Firestore } from 'firebase/firestore';
@@ -12,6 +12,7 @@ import { threadOf, type Problem, type ProblemGroup } from '@/lib/problems-view';
 import type { Actor } from '@/lib/retail-fulfill';
 import { setHold } from './bulk';
 import { ReturnSheet } from './ReturnSheet';
+import { ClaimCard } from './ClaimCard';
 import { Btn, C, Sheet, feel, muted, Ic } from './ui';
 import { GapNote, ReplyChips, pickInto, replyContext } from './ReplyChips';
 import { hasGap } from '@/lib/replies';
@@ -63,8 +64,8 @@ function MessageCard({ p, fs, tenantId, order, shop, onToast }: { p: Problem; fs
     </Card>);
 }
 
-export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canManage, inline, onClose, onToast }: {
-  fs: Firestore; tenantId: string; group: ProblemGroup; actor: Actor; rs: any; canRefund: boolean; canManage: boolean; inline: boolean; onClose: () => void; onToast: (m: string) => void;
+export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canManage, canDecideClaims, settling, inline, onClose, onToast }: {
+  fs: Firestore; tenantId: string; group: ProblemGroup; actor: Actor; rs: any; canRefund: boolean; canManage: boolean; canDecideClaims?: boolean; settling?: boolean; inline: boolean; onClose: () => void; onToast: (m: string) => void;
 }) {
   const [refund, setRefund] = React.useState<Problem | null>(null);
   const [ret, setRet] = React.useState<any | null>(null);
@@ -127,9 +128,7 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
       </Card>;
     }
     if (p.kind === 'claim') return <Card key={p.key} p={p}>
-      {p.ref.description ? <p className="m-0 mb-3 text-[15px]">“{String(p.ref.description).slice(0, 240)}”</p> : null}
-      {Array.isArray(p.ref.photoUrls) && p.ref.photoUrls.length > 0 && <div className="mb-3 flex gap-2">{p.ref.photoUrls.slice(0, 4).map((u: string) => <img key={u} src={u} alt="Customer photo" className="h-16 w-16 rounded-xl object-cover" />)}</div>}
-      <Link href="/retail-orders/claims" className="cf-press inline-flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold" style={{ background: C.ink, color: C.paper }}>Decide in Claims</Link>
+      <ClaimCard fs={fs} tenantId={tenantId} claim={p.ref} order={group.order && group.order.id === p.ref.orderId ? group.order : null} rs={rs} canDecide={canDecideClaims ?? canRefund} onToast={onToast} />
     </Card>;
     if (p.kind === 'held') {
       const o = p.ref; const reasons: string[] = Array.isArray(o.riskCheck?.reasons) && o.riskCheck.reasons.length ? o.riskCheck.reasons : o.holdReason ? [String(o.holdReason)] : [];
@@ -160,7 +159,7 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
       <div className="px-4 pb-12">
         <p className="m-0 text-[28px] font-light tracking-[-0.02em]">{group.customerName}</p>
         <p className="m-0 mt-0.5 text-[15px]" style={muted}>{[o.customerEmail, o.totalCents ? `${money(o.totalCents)} order` : ''].filter(Boolean).join(' · ') || `${group.items.length} to sort`}</p>
-        <div className="mt-5 space-y-3">{body}</div>
+        <div className="mt-5 space-y-3" aria-busy={settling || undefined} style={settling ? { pointerEvents: 'none' } : undefined}>{body}</div>
       </div>
       {refund && (
         <Sheet title={`Send ${money(refund.ref.pendingRefundCents)} to ${first}?`} sub={isFollowUp(refund.ref) ? 'It goes back to the card they paid with on the original order.' : 'It goes back to the card they paid with. Anything paid by store credit or gift card is returned that way.'} onClose={() => setRefund(null)}>
