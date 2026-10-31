@@ -12,7 +12,7 @@
 // name on it, their booking link — and its texts are counted against the
 // renter's allowance or paid by the renter, per the business's setting.
 
-import { resolveAudience, personalise, unsubSig, inTextWindow, TEXT_WINDOW, type Audience, type AudienceMember } from '@/lib/campaigns';
+import { resolveAudience, personalise, unsubSig, unsubHeaders, inTextWindow, TEXT_WINDOW, type Audience, type AudienceMember } from '@/lib/campaigns';
 import { sendNotification } from '@/lib/notify';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { fillTokens } from '@/lib/campaign-templates';
@@ -151,7 +151,7 @@ async function sendOne(db: any, tenantId: string, campaignId: string, c: any, m:
           ...(imgHtml ? { bodyHtml: imgHtml } : {}), ...(offer?.code ? { bigCode: offer.code } : {}),
           cta: { label: 'Book now', url: bookUrl },
           footerNote: `You're receiving this as a client of ${who.name}. Unsubscribe: ${unsub}` } as any),
-        kind, clientId: m.id, clientName: m.name, recipientType: 'client' } as any);
+        headers: unsubHeaders(unsub), kind, clientId: m.id, clientName: m.name, recipientType: 'client' } as any);
       ok = !!r.ok; if (!ok) err = String((r as any).error || (r as any).status || 'not sent');
     }
   } catch (e: any) { err = String(e?.message || e).slice(0, 160); }

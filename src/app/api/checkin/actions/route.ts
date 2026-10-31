@@ -54,8 +54,9 @@ export async function POST(req: NextRequest) {
     const cl = appt.clientId ? (((await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get()).data()) || {}) : {};
     const svc = appt.serviceId ? (((await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get()).data()) || {}) : {};
     // Shown on the booking page straight away only when the business chose that (Reviews → Visits, lib/reviews).
-    const { reviewSettings } = await import('@/lib/reviews');
-    const show = reviewSettings((await db.doc(`tenants/${tenantId}`).get()).data() || {}).visitAutoShow;
+    const { reviewSettings, autoShows } = await import('@/lib/reviews');
+    const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+    const show = reviewSettings(tenant).visitAutoShow;
     const id = nanoid();
     // One review per visit, even from two taps at once.
     const took = await db.runTransaction(async (tx: any) => {
@@ -64,13 +65,16 @@ export async function POST(req: NextRequest) {
         id, tenantId, clientId: appt.clientId || null, clientName: appt.clientName || cl.name || 'Guest', clientAvatarUrl: cl.avatarUrl || null,
         staffId: appt.staffId || '', serviceId: appt.serviceId || null, serviceName: svc.name || appt.serviceName || 'Treatment',
         appointmentId: apptId, rating, text: str(b.text, 2000), isPublic: show, isFeatured: false, source: 'check-in link', createdAt: nowIso,
+        // The form told them it may be shown publicly (so it can show on its own if left waiting, lib/reviews). Only
+        // when the form says it showed them that: one loaded before the notice was added didn't.
+        showNotice: b.noticeShown === true,
       });
       tx.set(ref, { reviewSubmittedAt: nowIso, reviewId: id, reviewRating: rating }, { merge: true });
       return true;
     });
     if (!took) return bad('Thanks — you’ve already reviewed this visit.', 409);
     // Waiting to be shown: the people who decide hear about it (lib/reviews-server).
-    if (!show) { const { tellWaiting } = await import('@/lib/reviews-server'); const { reviewerName } = await import('@/lib/reviews'); await tellWaiting(db, tenantId, { kind: 'visit', rating, who: reviewerName(appt.clientName || cl.name, 'A client'), what: `their ${svc.name || appt.serviceName || 'visit'}` }); }
+    if (!show) { const { tellWaiting } = await import('@/lib/reviews-server'); const { reviewerName } = await import('@/lib/reviews'); await tellWaiting(db, tenantId, { kind: 'visit', rating, who: reviewerName(appt.clientName || cl.name, 'A client'), what: `their ${svc.name || appt.serviceName || 'visit'}`, auto: autoShows('visit', { showNotice: b.noticeShown === true }, tenant) }); }
     await logAuditAdmin(db, tenantId, { action: 'review.received', targetType: 'appointment', targetId: apptId, summary: `${rating}★ review from ${appt.clientName || 'a client'}`, actor: { type: 'user', name: appt.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
     return NextResponse.json({ ok: true });
   }

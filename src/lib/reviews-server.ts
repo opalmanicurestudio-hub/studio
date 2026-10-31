@@ -3,12 +3,12 @@
 // a customer's own reviews on their order page, and the review email after pickup or delivery.
 // Reviews are written only here and by the routes that take them (api/retail/reviews, api/checkin/actions): no browser
 // can change what a review says, its stars, or whether it shows (firestore.rules).
-import { askHours, askVerdict, askWords, isHideReason, receivedAt, reviewableLines, reviewerName, reviewSettings, stateOf, visitState, ASK_STALE_DAYS, type ReviewKind, type ReviewState } from '@/lib/reviews';
+import { askHours, askVerdict, askWords, isHideReason, receivedAt, reviewableLines, reviewerName, reviewSettings, stateOf, visitState, waitingSince, autoShows, autoShowWarned, autoShowFrom, AUTO_SHOW_DAYS, AUTO_SHOW_WARN_DAYS, ASK_STALE_DAYS, type ReviewKind, type ReviewState } from '@/lib/reviews';
 import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
 import { isFollowUp } from '@/lib/order-family';
 import { sendNotification } from '@/lib/notify';
 import { brandedEmailHtml } from '@/lib/email-template';
-import { unsubSig } from '@/lib/campaigns';
+import { unsubSig, unsubHeaders } from '@/lib/campaigns';
 import { privacyOf } from '@/lib/health-privacy';
 import { logAuditAdmin } from '@/lib/audit';
 
@@ -71,24 +71,142 @@ export async function setReviewPinned(db: any, tenantId: string, actor: any, inp
   });
 }
 
+/** The people who decide on reviews: the owner, and staff whose role runs marketing (Settings → Roles). Returns how
+ *  many were told; a failed write throws. */
+async function tellDeciders(db: any, tenantId: string, n: { title: string; message: string; link: string }): Promise<number> {
+  const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+  const { can } = await import('@/lib/permissions');
+  const staff = (await db.collection(`tenants/${tenantId}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
+    .filter((s: any) => s.archived !== true && s.isActive !== false && s.role !== 'renter' && can(t, s, 'marketing.manage'));
+  const to = [...new Set([t.userId, ...staff.map((s: any) => s.id)].filter(Boolean))].slice(0, 20) as string[];
+  if (!to.length) return 0;
+  const b = db.batch(); const now = new Date().toISOString();
+  for (const u of to) { const ref = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(ref, { id: ref.id, userId: u, type: 'review_waiting', title: n.title, message: n.message, link: n.link, createdAt: now, read: false }); }
+  await b.commit();
+  return to.length;
+}
+
 /** A new review is waiting to be shown: the owner and the people whose role runs marketing hear about it, so nothing
- *  sits unseen (a review left waiting is kept off the page the same as one hidden). */
-export async function tellWaiting(db: any, tenantId: string, r: { kind: ReviewKind; rating: number; who: string; what: string; changed?: boolean; hidden?: boolean }) {
+ *  sits unseen (a review left waiting is kept off the page the same as one hidden). `auto`: it shows on its own if left
+ *  waiting (lib/reviews autoShows). */
+export async function tellWaiting(db: any, tenantId: string, r: { kind: ReviewKind; rating: number; who: string; what: string; changed?: boolean; hidden?: boolean; auto?: boolean }) {
   try {
-    const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-    const { can } = await import('@/lib/permissions');
-    const staff = (await db.collection(`tenants/${tenantId}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
-      .filter((s: any) => s.archived !== true && s.isActive !== false && s.role !== 'renter' && can(t, s, 'marketing.manage'));
-    const to = [...new Set([t.userId, ...staff.map((s: any) => s.id)].filter(Boolean))].slice(0, 20) as string[];
-    if (!to.length) return;
-    const b = db.batch(); const now = new Date().toISOString();
     const of = r.what ? ` of ${r.what}` : '';
+    const own = r.auto === false ? '' : `, or on its own in ${AUTO_SHOW_DAYS} days`;
     const message = r.hidden ? `${r.who} changed the review${of} you hid (now ${Math.round(r.rating)} stars). Look again: the reason you hid it may be gone.`
-      : r.changed ? `${r.who} changed their review${of} (now ${Math.round(r.rating)} stars). It shows again once you choose Show.`
-      : `${r.who} left a ${Math.round(r.rating)}-star review${of}. It shows once you choose Show.`;
-    for (const u of to) { const n = db.collection(`tenants/${tenantId}/notifications`).doc(); b.set(n, { id: n.id, userId: u, type: 'review_waiting', title: r.hidden ? 'A hidden review was changed' : r.changed ? 'A changed review is waiting for you' : 'A review is waiting for you', message, link: `/reviews?tab=${r.kind === 'shop' ? 'shop' : 'visits'}`, createdAt: now, read: false }); }
-    await b.commit();
+      : r.changed ? `${r.who} changed their review${of} (now ${Math.round(r.rating)} stars). It shows again once you choose Show${own}.`
+      : `${r.who} left a ${Math.round(r.rating)}-star review${of}. It shows once you choose Show${own}.`;
+    await tellDeciders(db, tenantId, { title: r.hidden ? 'A hidden review was changed' : r.changed ? 'A changed review is waiting for you' : 'A review is waiting for you', message, link: `/reviews?tab=${r.kind === 'shop' ? 'shop' : 'visits'}` });
   } catch { /* the review itself is saved; the screen shows it waiting */ }
+}
+
+/** Reviews nobody decided on (lib/reviews AUTO_SHOW_DAYS): shown on their own after 14 days, and never without a
+ *  heads-up that went out at least three days before. Run once a day (cron/nightly). Returns how many were shown and how
+ *  many heads-ups went out. */
+export async function sweepWaitingReviews(db: any, tenantId: string, o: { now?: number; tenant?: any } = {}) {
+  const now = o.now ?? Date.now(); const T = `tenants/${tenantId}`; const DAYMS = 864e5; const at = new Date(now).toISOString();
+  const tenant: any = o.tenant ?? ((await db.doc(T).get()).data() || {});
+  // A business that's locked out (canceled, or locked) can't act on a heads-up: nothing happens until it's back.
+  if (tenant.accessLocked === true || ['cancelled', 'canceled'].includes(String(tenant.subscriptionStatus || ''))) return { shown: 0, warned: 0, shopShown: 0 };
+  // When the rule began here: the 14 days start then for everything already waiting. Kept where only the server writes
+  // (counters), so it can't be pushed back from a browser; the copy on the business is only the screen's countdown.
+  const startRef = db.doc(`${T}/counters/reviewAutoShow`);
+  let from = Date.parse(String(((await startRef.get()).data() || {}).from || ''));
+  if (!Number.isFinite(from)) {
+    from = now;
+    await startRef.set({ from: at });
+  }
+  // The screen's copy, put right whenever it's missing or was changed.
+  if (autoShowFrom(tenant) !== from) await db.doc(T).update({ 'reviewSettings.autoShowFrom': new Date(from).toISOString() }).catch((e: any) => console.error('[reviews] countdown copy', tenantId, e));
+  // Every waiting review the rule shows, a page at a time (hidden and older ones are skipped, never crowding them out).
+  const all = async (base: any, label: string) => {
+    const out: any[] = []; let last: any = null;
+    for (let i = 0; i < 8; i++) {
+      let q = base.orderBy('__name__').limit(250); if (last) q = q.startAfter(last);
+      let snap: any;
+      try { snap = await q.get(); } catch (e) { console.error('[reviews] waiting', label, tenantId, e); break; }
+      out.push(...snap.docs);
+      if (snap.docs.length < 250) return out;
+      last = snap.docs[snap.docs.length - 1];
+    }
+    if (out.length >= 2000) console.error('[reviews] waiting', label, tenantId, 'more than 2000 waiting: later ones are reached as these are decided');
+    return out;
+  };
+  const shopDocs = await all(db.collection(`${T}/retailReviews`).where('status', '==', 'pending'), 'shop');
+  // Only visit reviews written after the form said they may be shown (lib/reviews autoShows).
+  const visitDocs = autoShows('visit', { showNotice: true }, tenant) ? await all(db.collection(`${T}/reviews`).where('isPublic', '==', false).where('showNotice', '==', true), 'visit') : [];
+  const rows: { kind: ReviewKind; d: any }[] = [...shopDocs.map((d: any) => ({ kind: 'shop' as const, d })), ...visitDocs.map((d: any) => ({ kind: 'visit' as const, d }))]
+    .filter(({ kind, d }) => stateOf(kind, d.data() || {}) === 'waiting' && autoShows(kind, d.data() || {}, tenant));
+  const by = { id: 'system', name: 'Automatic' };
+  const shown = { shop: 0, visit: 0 }; const warned = { shop: 0, visit: 0 }; const toWarn: { kind: ReviewKind; d: any }[] = [];
+  for (const { kind, d } of rows) {
+    try {
+      // No readable date on it (an imported row): counted from when the rule began, as the screen counts it.
+      const r: any = d.data() || {}; const since = waitingSince(r);
+      const age = now - Math.max(since, from);
+      if (age < (AUTO_SHOW_DAYS - AUTO_SHOW_WARN_DAYS) * DAYMS) continue;
+      // The heads-up comes first, always: nights the job missed, or a review the rule only now shows (a business that's
+      // no longer a health business, say), get theirs and three more days.
+      const w = autoShowWarned(r);
+      if (!w) { toWarn.push({ kind, d }); continue; }
+      if (age < AUTO_SHOW_DAYS * DAYMS || now - w < AUTO_SHOW_WARN_DAYS * DAYMS - 6 * 3600e3) continue;
+      let summary = '';
+      const did = await db.runTransaction(async (tx: any) => {
+        const cur: any = (await tx.get(d.ref)).data() || {};
+        // Still waiting, still warned, and not edited since this run looked (an edit starts the 14 days again).
+        if (stateOf(kind, cur) !== 'waiting' || waitingSince(cur) !== since || !autoShows(kind, cur, tenant) || !autoShowWarned(cur)) return false;
+        const log = [...(Array.isArray(cur.stateLog) ? cur.stateLog : []), { to: 'shown', reason: 'waited_14_days', at, by }].slice(-10);
+        const mark = { shownAt: at, shownBy: by, autoShownAt: at, hiddenReason: null, hiddenAt: null, hiddenBy: null, stateLog: log };
+        tx.update(d.ref, kind === 'shop' ? { ...mark, status: 'published' } : { ...mark, isPublic: true, hidden: false });
+        summary = `A ${Math.round(Number(cur.rating) || 0)}-star ${kind === 'shop' ? 'shop' : 'visit'} review from ${String(cur.author || cur.clientName || 'a customer').slice(0, 60)} showed on its own after ${AUTO_SHOW_DAYS} days waiting`;
+        return true;
+      });
+      if (did) {
+        shown[kind]++;
+        await logAuditAdmin(db, tenantId, { action: 'review.shown', targetType: 'review', targetId: d.id, summary, actor: { type: 'system', name: 'Automatic' } } as any).catch(() => {});
+      }
+    } catch (e) { console.error('[reviews] auto-show', tenantId, d.id, e); }
+  }
+  const n = (k: { shop: number; visit: number }) => k.shop + k.visit;
+  const tab = (k: { shop: number; visit: number }) => (k.shop >= k.visit ? 'shop' : 'visits');
+  if (toWarn.length) {
+    // Marked warned only once the heads-up has gone out: if it didn't, it's tried again tomorrow and nothing shows.
+    // Never stuck for good, though: with nobody to tell, or after three nights of trying, it counts as given (on the
+    // record), so a review isn't kept off the page by a notice that can't be sent.
+    let sent = false; let told = 0;
+    try {
+      told = await tellDeciders(db, tenantId, { title: 'Reviews will show on their own soon',
+        message: toWarn.length === 1 ? `One review you haven’t decided on shows on its own in ${AUTO_SHOW_WARN_DAYS} days. Show it, or hide it with a reason, before then.`
+          : `${toWarn.length} reviews you haven’t decided on show on their own in ${AUTO_SHOW_WARN_DAYS} days. Show them, or hide one with a reason, before then.`,
+        link: `/reviews?tab=${toWarn.filter((x) => x.kind === 'shop').length * 2 >= toWarn.length ? 'shop' : 'visits'}` });
+      sent = true;
+    } catch (e) { console.error('[reviews] heads-up', tenantId, e); }
+    for (const { kind, d } of toWarn) {
+      const r: any = d.data() || {};
+      const gave = sent && told > 0; const nobody = sent && told === 0;
+      // Not sent: when it was first tried for this review (since it last changed), and whether three nights have gone by.
+      const triedAt = Date.parse(String(r.autoShowWarnTriedAt || ''));
+      const tried = Number.isFinite(triedAt) && triedAt >= waitingSince(r) ? triedAt : 0;
+      const stuck = !sent && !!tried && now - tried >= AUTO_SHOW_WARN_DAYS * DAYMS - 6 * 3600e3;
+      if (!sent && !tried) { await d.ref.update({ autoShowWarnTriedAt: at }).catch((e: any) => console.error('[reviews] heads-up try', tenantId, d.id, e)); continue; }
+      if (!gave && !nobody && !stuck) continue;
+      try {
+        await d.ref.update({ autoShowWarnedAt: at, ...(gave ? {} : { autoShowWarnedTo: nobody ? 'nobody' : 'not_sent' }) });
+        warned[kind]++;
+        if (!gave) await logAuditAdmin(db, tenantId, { action: 'review.heads_up', targetType: 'review', targetId: d.id, actor: { type: 'system', name: 'Automatic' },
+          summary: nobody ? 'The heads-up that a review will show on its own had nobody to go to (no owner or marketing role); it shows in three days'
+            : 'The heads-up that a review will show on its own couldn’t be sent for three nights; it shows in three days' } as any).catch(() => {});
+      } catch (e) { console.error('[reviews] heads-up mark', tenantId, d.id, e); }
+    }
+  }
+  if (n(shown)) {
+    try {
+      await tellDeciders(db, tenantId, { title: 'Reviews showed on their own',
+        message: n(shown) === 1 ? `One review waited ${AUTO_SHOW_DAYS} days without a decision, so it now shows. You can still hide it with a reason.`
+          : `${n(shown)} reviews waited ${AUTO_SHOW_DAYS} days without a decision, so they now show. You can still hide one with a reason.`, link: `/reviews?tab=${tab(shown)}` });
+    } catch (e) { console.error('[reviews] showed notice', tenantId, e); }
+  }
+  return { shown: n(shown), warned: n(warned), shopShown: shown.shop };
 }
 
 /** Change the business's review settings. Turning the ask on starts from now: orders received before then aren't asked. */
@@ -274,7 +392,7 @@ export async function sweepReviewAsks(db: any, tenantId: string, tenant: any, or
     const text = [w.intro, '', ...items.map((n) => `- ${n}`), '', `${w.cta}: ${link}`, '', w.how, '', w.once, `Unsubscribe ${w.unsub} ${unsub}`, '', foot].join('\n');
     let ok = false; let error = '';
     try {
-      const r: any = await sendNotification(db, { tenantId, channel: 'email', to: String(order.customerEmail), subject: w.subject, html, text, kind: 'review_ask', clientId: String(order.clientId), clientName: String(order.customerName || '') || null, recipientType: 'client' } as any);
+      const r: any = await sendNotification(db, { tenantId, channel: 'email', to: String(order.customerEmail), subject: w.subject, html, text, headers: unsubHeaders(unsub), kind: 'review_ask', clientId: String(order.clientId), clientName: String(order.customerName || '') || null, recipientType: 'client' } as any);
       ok = !!r?.ok; if (!ok) error = String(r?.reason || r?.error || 'not sent').slice(0, 120);
     } catch (e: any) { error = String(e?.message || e).slice(0, 120); }
     const at = iso(now);

@@ -1017,7 +1017,7 @@ export function MyCampaigns({ data, tenantId, token }: { data: any; tenantId: st
   useEffect(() => { void load(); }, [load]);
   if (!st) return <p className="py-2 text-center text-[11px] font-bold text-slate-400">Loading…</p>;
   if (st.policy.mode === 'off') return <p className="text-[11px] font-bold text-slate-500">{st.policy.tenantName} hasn’t turned on campaigns for renters yet. Reconnect (above) still nudges quiet clients for you.</p>;
-  const AUD: [string, string][] = [['all', 'All my clients'], ['inactive_90', 'Not in for 90+ days'], ['one_and_done', 'Came once, never returned'], ['new', 'First visit in the last 30 days'], ['loyal', '5+ visits this year'], ['birthday', 'Birthday this month'], ['service', 'Last had a service…'], ['spent_over', 'Spent over $…'], ['cancelled_recent', 'Cancelled or missed lately']];
+  const AUD: [string, string][] = [['all', 'All my clients'], ['inactive_90', 'Not in for 90+ days'], ['one_and_done', 'Came once, never returned'], ['new', 'First visit in the last 30 days'], ['loyal', '5+ visits this year'], ['birthday', 'Birthday this month'], ['service', 'Last had a service…'], ['spent_over', 'Spent over $…'], ['cancelled_recent', 'Canceled or missed lately']];
   const save = async () => {
     setBusy(true); setErr(''); setQuote(null);
     const d = await api({ action: 'rc-save', tenantId, token, campaignId: draft.id || undefined, ...draft });

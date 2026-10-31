@@ -1465,7 +1465,8 @@ export async function GET(req: NextRequest) {
   try { const { buildTimingStats } = await import('@/lib/timing-stats');
     for (const tDoc of (await db.collection('tenants').get()).docs) { try { const r = await buildTimingStats(db, tDoc.id, tDoc.data() || {}); timingGroups += r.groups; } catch (e: any) { console.error('[nightly] timing stats', tDoc.id, e?.message); } }
   } catch { /* never stops the rest of the night */ }
-  // Making it right: last month's report is ready (on the 1st, business time); low Google reviews to follow up.
+  // Making it right: last month's report is ready (on the 1st, business time); low Google reviews to follow up; reviews
+  // left waiting 14 days shown.
   let mirReports = 0;
   try { const { monthlyReportNotice } = await import('@/lib/mir-report-server');
     const { reviewSweep } = await import('@/lib/review-watch');
@@ -1473,6 +1474,8 @@ export async function GET(req: NextRequest) {
       try { const { giftReminderSweep } = await import('@/lib/gift-cards'); await giftReminderSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] gift reminders', tDoc.id, e); }
       try { const { monthReviewNotice } = await import('@/lib/month-review'); await monthReviewNotice(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] month review', tDoc.id, e); }
       if ((tDoc.data() as any)?.loyalty?.on === true) { try { const { expirySweep } = await import('@/lib/loyalty-server'); await expirySweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] loyalty', tDoc.id, e); } }
-      if ((tDoc.data() as any)?.makingItRight?.reviews?.on) { try { await reviewSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] reviews', tDoc.id, e); } } } } catch (e) { console.error('[nightly] mir reports', e); }
+      if ((tDoc.data() as any)?.makingItRight?.reviews?.on) { try { await reviewSweep(db, tDoc.id, tDoc.data()); } catch (e) { console.error('[nightly] reviews', tDoc.id, e); } }
+      // Reviews nobody decided on show on their own after 14 days, with a heads-up three days before (lib/reviews-server).
+      try { const { sweepWaitingReviews } = await import('@/lib/reviews-server'); const w = await sweepWaitingReviews(db, tDoc.id, { tenant: tDoc.data() }); if (w.shopShown) { const { revalidateTag } = await import('next/cache'); revalidateTag(`shop:${tDoc.id}`); } } catch (e) { console.error('[nightly] waiting reviews', tDoc.id, e); } } } catch (e) { console.error('[nightly] mir reports', e); }
   return NextResponse.json({ ok: true, timingGroups, mirReports, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, leaseWindowsSynced, profileMirrorsSynced, rentalDaysGranted, toursFlagged, reminderTotals, noShowTotals, planTotals, slaTotals, requestTotals, results });
 }

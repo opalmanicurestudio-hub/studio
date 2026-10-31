@@ -14,6 +14,7 @@
 // someone who unsubscribed or whose record was archived, and only during the day where the business is (so not at all
 // until its time zone is set). A send whose outcome isn't known is never tried again: asking twice is worse.
 import { hourIn } from '@/lib/tenant-time';
+import { privacyOf } from '@/lib/health-privacy';
 
 export type ReviewKind = 'shop' | 'visit';
 export type ReviewState = 'waiting' | 'shown' | 'hidden';
@@ -39,6 +40,39 @@ export function visitState(r: any): ReviewState {
   return r?.hidden === true ? 'hidden' : 'waiting';
 }
 export const stateOf = (kind: ReviewKind, r: any): ReviewState => (kind === 'shop' ? shopState(r) : visitState(r));
+
+/* A review nobody decides on shows on its own after AUTO_SHOW_DAYS (from when it arrived, or was last edited), with a
+ * heads-up AUTO_SHOW_WARN_DAYS before. Left waiting forever it would be kept off the page like a hidden one, with no
+ * reason on record: the review suppression the FTC's rule on consumer reviews is about. Hiding with a reason still
+ * works at any time. A rule, not a setting, so it can't be switched off. */
+export const AUTO_SHOW_DAYS = 14;
+export const AUTO_SHOW_WARN_DAYS = 3;
+const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
+/** When a review started waiting: when it arrived, or when it was last edited. */
+export const waitingSince = (r: any): number => Math.max(ms(r?.createdAt), ms(r?.editedAt));
+/** When the 14 days start counting for a business: the first night the rule ran there, so reviews already waiting
+ *  when it began get their full 14 days and the heads-up, never shown all at once. The server keeps its own copy
+ *  (counters/reviewAutoShow); this one, on the business, is for the screen's countdown. */
+export const autoShowFrom = (tenant: any): number => ms(tenant?.reviewSettings?.autoShowFrom);
+/** Which waiting reviews the rule shows. Shop reviews waiting to be shown (they're written on a product page, to be
+ *  shown). Visit reviews only when the client was told, as they wrote it, that it may be shown (showNotice; earlier ones
+ *  were sent as feedback to the business), and never at a health business, where showing a client's review is the
+ *  business's own decision. The rest wait for the business, as before. */
+export function autoShows(kind: ReviewKind, r: any, tenant: any): boolean {
+  if (kind === 'shop') return r?.status === 'pending';
+  if (r?.showNotice !== true) return false;
+  try { return !privacyOf(tenant).healthMode; } catch { return false; }
+}
+/** When the heads-up for this review went out (0 if it hasn't, or it was edited since and needs another). */
+export const autoShowWarned = (r: any): number => { const w = ms(r?.autoShowWarnedAt); return w && w >= waitingSince(r) ? w : 0; };
+/** Whole days until a waiting review shows on its own (0 once it's due): 14 days, and never sooner than three days
+ *  after its heads-up (lib/reviews-server sweepWaitingReviews). The nightly run can make it up to a day later than
+ *  this says (and allows a few hours' slack on the three days), so the screen doesn't promise more time than there is. */
+export function autoShowInDays(r: any, now: number, from = 0): number {
+  const D = 864e5; const since = Math.max(waitingSince(r), from) || now;
+  const warn = autoShowWarned(r) || Math.max(now, since + (AUTO_SHOW_DAYS - AUTO_SHOW_WARN_DAYS) * D);
+  return Math.max(0, Math.ceil((Math.max(since + AUTO_SHOW_DAYS * D, warn + AUTO_SHOW_WARN_DAYS * D) - now) / D));
+}
 
 /** "Jessica Marshall" → "Jessica M.": a real person, not their whole name. */
 export function reviewerName(raw: unknown, fallback = 'Verified buyer'): string {

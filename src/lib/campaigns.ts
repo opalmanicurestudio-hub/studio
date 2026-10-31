@@ -39,7 +39,7 @@ export const AUDIENCE_RULES: Record<Audience, string> = {
   spent_over: 'Spent over an amount in the last 12 months',
   one_and_done: 'Came once, 30+ days ago, never returned',
   members: 'Active members',
-  cancelled_recent: 'Cancelled or missed a visit in the last 30 days, nothing booked since',
+  cancelled_recent: 'Canceled or missed a visit in the last 30 days, nothing booked since',
   first_visit_followup: 'First visit was a set number of days ago',
 };
 
@@ -186,6 +186,11 @@ export async function resolveAudience(db: any, tenantId: string, audience: Audie
 export function personalise(text: string, m: AudienceMember): string {
   return String(text || '').replace(/\{\{\s*(clientName|firstName|name)\s*\}\}/g, m.first).replace(/\{first\}/g, m.first);
 }
+
+/** The mail headers behind Gmail's, Yahoo's and Apple Mail's own Unsubscribe button (RFC 8058): the mailbox POSTs to
+ *  the signed link, which opts the person out in one tap, with no page to confirm (api/campaigns/unsubscribe). Only
+ *  for a full https link: mailboxes ignore anything else. */
+export const unsubHeaders = (url: string): Record<string, string> => (/^https:\/\/[^\s<>]+$/.test(url) ? { 'List-Unsubscribe': `<${url}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } : {});
 
 export async function unsubSig(tenantId: string, clientId: string): Promise<string> {
   const { createHmac } = await import('crypto');

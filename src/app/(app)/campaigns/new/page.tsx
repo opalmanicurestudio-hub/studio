@@ -50,7 +50,7 @@ const AUDIENCES: { id: string; label: string; hint: string; group: 'everyone' | 
   { id: 'loyal', label: 'Regulars', hint: '5 or more visits in the last 12 months', group: 'visits' },
   { id: 'inactive_90', label: 'Haven’t been in a while', hint: 'No visit in 90+ days, nothing booked', group: 'visits' },
   { id: 'one_and_done', label: 'Came once', hint: 'One visit, 30+ days ago, never returned', group: 'visits' },
-  { id: 'cancelled_recent', label: 'Cancelled or missed', hint: 'In the last 30 days, nothing booked since', group: 'visits' },
+  { id: 'cancelled_recent', label: 'Canceled or missed', hint: 'In the last 30 days, nothing booked since', group: 'visits' },
   { id: 'birthday', label: 'Birthdays this month', hint: 'Clients with a birthday this month', group: 'visits' },
   { id: 'members', label: 'Members', hint: 'Clients with an active membership', group: 'visits' },
   { id: 'service', label: 'Had a certain service', hint: 'Their last visit included it', group: 'pick' },

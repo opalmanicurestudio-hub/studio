@@ -16,7 +16,7 @@ import { settingsOf as mirSettings } from '@/lib/making-it-right';
 import { privacyOf } from '@/lib/health-privacy';
 import { hasTimeZone } from '@/lib/tenant-time';
 import {
-  ASK_DAYS, HIDE_REASONS, askWhenWords, hideReasonShort, reviewSettings, stateOf,
+  ASK_DAYS, AUTO_SHOW_DAYS, AUTO_SHOW_WARN_DAYS, HIDE_REASONS, askWhenWords, autoShowFrom, autoShowInDays, autoShows, hideReasonShort, reviewSettings, stateOf,
   type HideReason, type ReviewKind, type ReviewSettings, type ReviewState,
 } from '@/lib/reviews';
 import { Btn, C, LargeTitle, Seg, Toggle, muted } from '@/components/orders/ui';
@@ -24,7 +24,7 @@ import { Btn, C, LargeTitle, Seg, Toggle, muted } from '@/components/orders/ui';
 type Row = {
   kind: ReviewKind; id: string; rating: number; title: string; body: string; who: string; state: ReviewState; reason: string;
   at: string; productName?: string; productId?: string; orderId?: string; orderNumber?: string;
-  staffId?: string; service?: string; clientId?: string; caseId?: string; pinned?: boolean; edited?: string; hiddenAt?: string;
+  staffId?: string; service?: string; clientId?: string; caseId?: string; pinned?: boolean; edited?: string; hiddenAt?: string; notice?: boolean; status?: string; warnedAt?: string;
 };
 type Filter = 'waiting' | 'shown' | 'hidden' | 'all';
 
@@ -44,13 +44,13 @@ function shopRow(id: string, r: any): Row {
   return { kind: 'shop', id, rating: Math.max(1, Math.min(5, Math.round(Number(r.rating) || 0))), title: String(r.title || ''), body: String(r.body || ''),
     who: String(r.author || 'Verified buyer'), state: stateOf('shop', r), reason: String(r.hiddenReason || ''), at: String(r.createdAt || ''), hiddenAt: String(r.hiddenAt || ''),
     productName: String(r.productName || ''), productId: String(r.listingId || r.productId || ''), orderId: String(r.orderId || ''),
-    orderNumber: r.orderNumber != null ? String(r.orderNumber).padStart(4, '0') : '', edited: String(r.editedAt || '') };
+    orderNumber: r.orderNumber != null ? String(r.orderNumber).padStart(4, '0') : '', edited: String(r.editedAt || ''), status: String(r.status || ''), warnedAt: String(r.autoShowWarnedAt || '') };
 }
 function visitRow(id: string, r: any): Row {
   const name = String(r.clientName || 'A client').trim();
   return { kind: 'visit', id, rating: Math.max(1, Math.min(5, Math.round(Number(r.rating) || 0))), title: '', body: String(r.text || ''),
     who: name, state: stateOf('visit', r), reason: String(r.hiddenReason || ''), at: String(r.createdAt || ''),
-    staffId: String(r.staffId || ''), service: String(r.serviceName || ''), clientId: String(r.clientId || ''), caseId: String(r.caseId || ''), pinned: r.isFeatured === true };
+    staffId: String(r.staffId || ''), service: String(r.serviceName || ''), clientId: String(r.clientId || ''), caseId: String(r.caseId || ''), pinned: r.isFeatured === true, notice: r.showNotice === true, warnedAt: String(r.autoShowWarnedAt || '') };
 }
 
 const LIMIT = 300;
@@ -186,7 +186,14 @@ export function ReviewsScreen() {
   const noZone = !hasTimeZone(tenant);
   const now = Date.now();
   const waitedDays = (r: Row) => Math.floor((now - (Date.parse(r.edited || r.at) || now)) / 864e5);
-  const longWaits = (rows || []).filter((r) => r.state === 'waiting' && waitedDays(r) >= 7).length;
+  const auto = (r: Row) => autoShows(r.kind, { showNotice: r.notice, status: r.status }, tenant);
+  const long = (rows || []).filter((r) => r.state === 'waiting' && waitedDays(r) >= 7);
+  const longWaits = long.length; const longAuto = long.every(auto);
+  // Until the nightly rule first runs here, everything waiting gets its full 14 days from then (lib/reviews).
+  const showFrom = autoShowFrom(tenant) || now;
+  const showsIn = (r: Row) => { const n = autoShowInDays({ createdAt: r.at, editedAt: r.edited, autoShowWarnedAt: r.warnedAt }, now, showFrom); return n <= 0 ? 'shows on its own overnight' : n === 1 ? 'shows on its own in a day' : `shows on its own in ${n} days`; };
+  const autoNote = <p className="m-0 text-[13px] leading-snug" style={muted}>A review you don’t decide on shows on its own after {AUTO_SHOW_DAYS} days, with a heads-up {AUTO_SHOW_WARN_DAYS} days before. You can still hide it with a reason afterward.</p>;
+  const visitsAuto = autoShows('visit', { showNotice: true }, tenant);
 
   const settingsCol = tab === 'shop' ? (
     <>
@@ -199,6 +206,7 @@ export function ReviewsScreen() {
               <input type="radio" name="shop-new" checked={S.shopAutoShow === o.v} onChange={() => void saveSettings({ shopAutoShow: o.v })} className="h-5 w-5" style={{ accentColor: '#16171a' }} />{o.l}
             </label>))}
         </fieldset>
+        {!S.shopAutoShow && autoNote}
       </section>
       <section className="space-y-3 p-4" style={box}>
         <div className="flex items-center gap-3">
@@ -236,6 +244,8 @@ export function ReviewsScreen() {
               <input type="radio" name="visit-new" checked={S.visitAutoShow === o.v} onChange={() => void saveSettings({ visitAutoShow: o.v })} className="h-5 w-5" style={{ accentColor: '#16171a' }} />{o.l}
             </label>))}
         </fieldset>
+        {!S.visitAutoShow && (visitsAuto ? <>{autoNote}<p className="m-0 text-[13px] leading-snug" style={muted}>Reviews sent before the review form said they may be shown wait for you.</p></>
+          : <p className="m-0 text-[13px] leading-snug" style={muted}>At a health business, a visit review shows only when you choose to show it.</p>)}
         <p className="m-0 text-[13px] leading-snug" style={muted}>Shown reviews appear in your booking page’s Reviews section.</p>
       </section>
       <section className="space-y-1.5 p-4" style={box}>
@@ -262,7 +272,9 @@ export function ReviewsScreen() {
             {loading ? <p role="status" className="m-0 py-10 text-[15px]" style={muted}>Loading reviews…</p> : <>
               {longWaits > 0 && canEdit && (
                 <p role="status" className="m-0 rounded-2xl p-4 text-[14.5px] leading-snug" style={{ background: C.warnSoft, color: C.warn }}>
-                  {longWaits === 1 ? 'One review has' : `${longWaits} reviews have`} waited more than a week. A review left waiting stays off your page the same as a hidden one, so show it, or hide it with its reason.
+                  {longWaits === 1 ? 'One review has' : `${longWaits} reviews have`} waited more than a week. {longAuto
+                    ? <>{longWaits === 1 ? 'Show it, or hide it' : 'Show them, or hide one'} with its reason: a review nobody decides on shows on its own after {AUTO_SHOW_DAYS} days.</>
+                    : <>A review left waiting stays off your page the same as a hidden one, so show it, or hide it with its reason.</>}
                 </p>)}
               {counts.all > 0 && (
                 <div className="flex flex-wrap gap-7 p-4" style={box}>
@@ -298,7 +310,7 @@ export function ReviewsScreen() {
               ) : shown.map((r) => {
                 const open = hiding?.id === r.id;
                 const days = waitedDays(r);
-                const tag = r.state === 'waiting' ? { t: `${days >= 2 ? `Waiting ${days} days` : 'Waiting'}${r.edited ? ' · Edited' : ''}`, c: C.warn } : r.state === 'shown' ? { t: r.pinned ? 'Shown · Pinned' : 'Shown', c: C.ok } : { t: `Hidden${r.reason ? ` · ${hideReasonShort(r.reason)}` : ''}${r.edited && Date.parse(r.edited) > Date.parse(r.hiddenAt || '') ? ' · Edited since' : ''}`, c: C.muted };
+                const tag = r.state === 'waiting' ? { t: `${days >= 2 ? `Waiting ${days} days` : 'Waiting'}${r.edited ? ' · Edited' : ''}${auto(r) ? ` · ${showsIn(r)}` : ''}`, c: C.warn } : r.state === 'shown' ? { t: r.pinned ? 'Shown · Pinned' : 'Shown', c: C.ok } : { t: `Hidden${r.reason ? ` · ${hideReasonShort(r.reason)}` : ''}${r.edited && Date.parse(r.edited) > Date.parse(r.hiddenAt || '') ? ' · Edited since' : ''}`, c: C.muted };
                 const what = r.kind === 'shop'
                   ? [r.who, r.productName, r.orderNumber ? `order ${r.orderNumber}` : '', r.at ? `reviewed ${day(r.at)}` : ''].filter(Boolean).join(' · ')
                   : [r.who, [r.service, staffName.get(r.staffId || '') ? `with ${staffName.get(r.staffId || '')}` : ''].filter(Boolean).join(' '), r.at ? `reviewed ${day(r.at)}` : ''].filter(Boolean).join(' · ');

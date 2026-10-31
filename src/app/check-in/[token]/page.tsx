@@ -417,7 +417,7 @@ const CompletedView = ({ tenant, client, appointment, service, brand }: { brand:
         if (rating === 0 || !appointment) return;
         setIsSubmitting(true);
         try {
-            const res = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'review', token: (appointment as any).checkInToken || (typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : ''), rating, text: reviewText }) });
+            const res = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'review', token: (appointment as any).checkInToken || (typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : ''), rating, text: reviewText, noticeShown: true }) });
             const d = await res.json().catch(() => ({}));
             if (!d?.ok) { toast({ variant: 'destructive', title: 'Couldn’t send your review', description: d?.error || 'Please try again.' }); return; }
             toast({ title: 'Thank you', description: 'Your review has been sent.' });
@@ -444,6 +444,7 @@ const CompletedView = ({ tenant, client, appointment, service, brand }: { brand:
                     </div>
                     <textarea value={reviewText} onChange={(e) => setReviewText(e.target.value)} rows={3} maxLength={1000} placeholder="Anything you’d like to tell us? (optional)"
                         className="w-full rounded-xl p-3 text-[14px] outline-none" style={{ background: '#f1ece6' }} />
+                    <VisitMuted>Your review may be shown publicly, with your first name and last initial.</VisitMuted>
                     <VisitButton onClick={handleReviewSubmit} disabled={rating === 0 || isSubmitting}>{isSubmitting ? 'Sending…' : 'Send'}</VisitButton>
                 </VisitCard>
             ) : (

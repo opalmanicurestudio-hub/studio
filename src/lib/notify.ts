@@ -82,7 +82,22 @@ export type NotifyInput = {
    * the unconfirmed treatment, which is the safe direction to be wrong in. */
   eventConfirmed?: boolean;
   eventStartIso?: string | null;
+  /** Email only: mail headers to add. Only the unsubscribe pair is passed on (lib/campaigns unsubHeaders). */
+  headers?: Record<string, string>;
 };
+
+// The only mail headers a caller may add: the pair the mailbox's own Unsubscribe button reads (RFC 8058), each in the
+// one form it takes. Anything else is dropped.
+export function mailHeaders(h: unknown): Record<string, string> | null {
+  if (!h || typeof h !== 'object') return null;
+  let link = ''; let post = '';
+  for (const [k, v] of Object.entries(h as Record<string, unknown>)) {
+    if (typeof v !== 'string') continue;
+    if (k.toLowerCase() === 'list-unsubscribe' && v.length <= 2000 && /^<https:\/\/[^\s<>]+>$/.test(v)) link = v;
+    if (k.toLowerCase() === 'list-unsubscribe-post' && v === 'List-Unsubscribe=One-Click') post = v;
+  }
+  return link ? { 'List-Unsubscribe': link, ...(post ? { 'List-Unsubscribe-Post': post } : {}) } : null;
+}
 
 export type NotifyResult = {
   ok: boolean;
@@ -292,6 +307,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
             subject: input.subject || 'A note from your studio',
             html,
             ...(input.text ? { text: input.text } : {}),
+            ...(mailHeaders(input.headers) ? { headers: mailHeaders(input.headers) } : {}),
             // Replies come back to the business, never to the shared sending address: into the app when receiving is
             // set up (INBOUND_EMAIL_DOMAIN, see /api/webhooks/resend), otherwise to the business's own email.
             ...(await replyToFor(db, tenantId, input) ? { reply_to: await replyToFor(db, tenantId, input) } : {}),

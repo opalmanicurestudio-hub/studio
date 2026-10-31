@@ -25,7 +25,7 @@ import { Mail, MessageSquare, Plus, Repeat, Clock, Copy, Trash2, Pause, Play, Ch
 
 const AUDIENCE_LABEL: Record<string, string> = {
   all: 'Everyone', new: 'New clients', loyal: 'Regulars', inactive_90: 'Haven’t been in a while', one_and_done: 'Came once',
-  cancelled_recent: 'Cancelled or missed', birthday: 'Birthdays this month', members: 'Members', service: 'Had a certain service',
+  cancelled_recent: 'Canceled or missed', birthday: 'Birthdays this month', members: 'Members', service: 'Had a certain service',
   provider: 'Saw a certain team member', spent_over: 'Top spenders', specific: 'Hand-picked', first_visit_followup: 'After a first visit',
 };
 const n = (x: any) => Number(x) || 0;

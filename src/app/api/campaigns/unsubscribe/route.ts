@@ -7,6 +7,10 @@
 //
 // Opening the link asks them to confirm with one button (a POST to the same address). Mail scanners that open every
 // link in an email would otherwise unsubscribe people who never asked to be.
+//
+// The same POST is the one-tap Unsubscribe button Gmail, Yahoo and Apple Mail show beside the sender (the
+// List-Unsubscribe headers, lib/campaigns unsubHeaders): the mailbox sends "List-Unsubscribe=One-Click" and gets a
+// plain 200, with no page and no redirect (RFC 8058).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -38,11 +42,14 @@ export async function GET(req: NextRequest) {
     `<form method="post" action="${esc(action)}"><button type="submit" style="height:48px;padding:0 24px;border:0;border-radius:999px;background:#16171a;color:#fff;font:inherit;font-size:15px;font-weight:600">Unsubscribe</button></form>`);
 }
 
-// The confirm button.
+// The confirm button, or the mailbox's own Unsubscribe button.
 export async function POST(req: NextRequest) {
-  const k = await signed(req); if (!k) return BAD();
+  const oneClick = /List-Unsubscribe=One-Click/i.test(await req.text().catch(() => ''));
+  const plain = (status: number, msg: string) => new NextResponse(msg, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
+  const k = await signed(req); if (!k) return oneClick ? plain(400, 'Bad link') : BAD();
   try {
-    await getAdminDb().doc(`tenants/${k.t}/clients/${k.c}`).set({ marketingOptOut: true, reconnectOptOut: true, marketingOptOutAt: new Date().toISOString() }, { merge: true });
-  } catch { return page('Something went wrong', 'Please try again in a moment.'); }
+    await getAdminDb().doc(`tenants/${k.t}/clients/${k.c}`).set({ marketingOptOut: true, reconnectOptOut: true, marketingOptOutAt: new Date().toISOString(), marketingOptOutVia: oneClick ? 'mailbox' : 'link' }, { merge: true });
+  } catch { return oneClick ? plain(500, 'Try again') : page('Something went wrong', 'Please try again in a moment.'); }
+  if (oneClick) return plain(200, 'Unsubscribed');
   return page('You’re unsubscribed', 'No more offers, check-ins or review requests. Appointment confirmations, reminders and order updates will still arrive.');
 }
