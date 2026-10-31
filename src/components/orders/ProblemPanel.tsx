@@ -13,6 +13,8 @@ import type { Actor } from '@/lib/retail-fulfill';
 import { setHold } from './bulk';
 import { ReturnSheet } from './ReturnSheet';
 import { Btn, C, Sheet, feel, muted, Ic } from './ui';
+import { GapNote, ReplyChips, pickInto, replyContext } from './ReplyChips';
+import { hasGap } from '@/lib/replies';
 
 const when = (iso: string) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; };
 
@@ -26,8 +28,8 @@ function Card({ p, children }: { p: Problem; children?: React.ReactNode }) {
     </div>);
 }
 
-function MessageCard({ p, tenantId, onToast }: { p: Problem; tenantId: string; onToast: (m: string) => void }) {
-  const [text, setText] = React.useState(''); const [busy, setBusy] = React.useState('');
+function MessageCard({ p, fs, tenantId, order, shop, onToast }: { p: Problem; fs: Firestore; tenantId: string; order: any; shop: string; onToast: (m: string) => void }) {
+  const [text, setText] = React.useState(''); const [busy, setBusy] = React.useState(''); const [picked, setPicked] = React.useState<string | null>(null); const lastFill = React.useRef<string | null>(null);
   const thread = threadOf(p.ref);
   const send = async (resolve: boolean) => {
     setBusy(resolve && !text.trim() ? 'solve' : 'send');
@@ -35,7 +37,7 @@ function MessageCard({ p, tenantId, onToast }: { p: Problem; tenantId: string; o
       const r = await fetch('/api/retail/support-reply', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, ticketId: p.ref.id, reply: text.trim(), resolve }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { feel(false); onToast(d.error || 'That didn’t send. Try again.'); return; }
-      feel(true); setText(''); onToast(d.message || 'Sent.');
+      feel(true); setText(''); setPicked(null); onToast(d.message || 'Sent.');
     } finally { setBusy(''); }
   };
   return (
@@ -49,11 +51,13 @@ function MessageCard({ p, tenantId, onToast }: { p: Problem; tenantId: string; o
             </div>
           </div>))}
       </div>
-      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={`Reply to ${String(p.ref.customerName || '').split(' ')[0] || 'them'}`} aria-label="Reply"
+      <ReplyChips className="mt-3" fs={fs} tenantId={tenantId} situation="message" ctx={replyContext({ ...(order || {}), customerName: p.ref.customerName || order?.customerName, orderNumber: order?.orderNumber ?? p.ref.orderNumber }, shop)} picked={picked} onPick={(t, id) => { const prev = lastFill.current; setText((cur) => pickInto(cur, prev, t)); lastFill.current = t; setPicked(id); }} />
+      <textarea value={text} onChange={(e) => { setText(e.target.value); if (!e.target.value.trim()) setPicked(null); }} rows={3} placeholder={`Reply to ${String(p.ref.customerName || '').split(' ')[0] || 'them'}`} aria-label="Reply"
         className="mt-3 block w-full resize-y rounded-2xl border-0 px-3.5 py-3 text-[15px] outline-none ring-0 focus:ring-0" style={{ background: C.paper, color: C.ink }} />
+      <GapNote text={text} />
       <div className="mt-2.5 flex flex-wrap gap-2">
-        <Btn kind="primary" className="flex-1" disabled={!text.trim() || !!busy} onClick={() => void send(false)}>{busy === 'send' ? 'Sending…' : 'Send'}</Btn>
-        <Btn kind="soft" className="flex-1" style={{ background: C.paper }} disabled={!!busy} onClick={() => void send(true)}>{text.trim() ? 'Send and mark solved' : busy === 'solve' ? 'Saving…' : 'Mark solved'}</Btn>
+        <Btn kind="primary" className="flex-1" disabled={!text.trim() || !!busy || hasGap(text)} onClick={() => void send(false)}>{busy === 'send' ? 'Sending…' : 'Send'}</Btn>
+        <Btn kind="soft" className="flex-1" style={{ background: C.paper }} disabled={!!busy || hasGap(text)} onClick={() => void send(true)}>{text.trim() ? 'Send and mark solved' : busy === 'solve' ? 'Saving…' : 'Mark solved'}</Btn>
       </div>
       <p className="m-0 mt-2 text-[12px]" style={muted}>It appears on their order page, and they get a text or email pointing them to it. Their reply lands right here.</p>
     </Card>);
@@ -109,7 +113,7 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
   };
 
   const body = group.items.map((p) => {
-    if (p.kind === 'message') return <MessageCard key={p.key} p={p} tenantId={tenantId} onToast={onToast} />;
+    if (p.kind === 'message') return <MessageCard key={p.key} p={p} fs={fs} tenantId={tenantId} order={group.order} shop="" onToast={onToast} />;
     if (p.kind === 'refund') return <Card key={p.key} p={p}>{canRefund || inAuto(p.ref) ? <Btn kind="primary" className="w-full" onClick={() => setRefund(p)}>Send {money(p.ref.pendingRefundCents)}</Btn> : <p className="m-0 text-[14px]" style={muted}>Waiting for someone allowed to send refunds.</p>}</Card>;
     if (p.kind === 'return') {
       const r = p.ref;

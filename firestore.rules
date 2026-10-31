@@ -758,6 +758,13 @@ service cloud.firestore {
       allow read: if isTeam(tenantId);
       allow write: if false;
     }
+    // THE REPLIES PLAYBOOK (lib/replies): the business's own wording for ready replies. The team reads it to pick a reply;
+    // only the server writes it (/api/replies, for the people whose role runs the settings), so nobody can change the
+    // words the whole team sends from a browser.
+    match /tenants/{tenantId}/replies/{replyId} {
+      allow read: if isTeam(tenantId);
+      allow write: if false;
+    }
     // ACCESS TO PURCHASED DOWNLOADS (lib/entitlements): one record per buyer per item, with the license and window sold
     // and the downloads used. The team reads them; only the server writes them (payment, the library, the owner's
     // extend and revoke), so no browser can add downloads, extend access or reopen a revoked item.
@@ -825,7 +832,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations', 'retailReviews', 'reviews',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations', 'retailReviews', 'reviews', 'replies',
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',

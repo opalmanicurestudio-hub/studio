@@ -703,13 +703,25 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
   },
   {
     id: 'claim_decision', group: 'Retail', label: 'Claim decision',
-    when: 'You approve or decline a damage, missing, or wrong-item claim.',
+    when: 'You decline a damage, missing, or wrong-item report (an approval has its own email).',
     channels: ['email'], canDisable: false,
     mandatoryNote: 'They reported a problem. The decision is the whole point of reporting it.',
-    tokens: ['{{client_first}}', '{{order_number}}', '{{amount}}', '{{link}}', '{{studio}}'],
-    requiredTokens: [],
+    // Sent when a report is declined (an approval has its own email): your wording has to keep the reason.
+    tokens: ['{{client_first}}', '{{order_number}}', '{{reason}}', '{{link}}', '{{studio}}'],
+    requiredTokens: ['{{reason}}', '{{link}}'],
     defaultSubject: 'Our decision on your report for order {{order_number}}',
-    defaultBody: 'Hi {{client_first}},\n\nThank you for your patience. We have reviewed your report on order {{order_number}}.\n\n{{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for your patience. We have reviewed your report on order {{order_number}}, and we are not able to approve it: {{reason}}\n\nIf you think we got it wrong, you can ask us to look again once, from your order page. {{link}}',
+    timing: 'immediate',
+  },
+  {
+    id: 'claim_received', group: 'Retail', label: 'Report received',
+    when: 'A customer reports something damaged, missing, wrong or never arrived, and it waits for you to decide.',
+    channels: ['email'], canDisable: true,
+    tokens: ['{{client_first}}', '{{order_number}}', '{{item}}', '{{link}}', '{{studio}}'],
+    // The way back to their order page (where the decision and any question will be) has to stay.
+    requiredTokens: ['{{link}}'],
+    defaultSubject: 'We have your report about order {{order_number}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for letting us know about {{item}}. We will look at your report with the packing record and tell you what we decide on your order page and by email.\n\nThere is no need to send it again. {{link}}',
     timing: 'immediate',
   },
   {

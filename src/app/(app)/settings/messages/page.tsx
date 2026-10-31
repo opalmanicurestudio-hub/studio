@@ -14,10 +14,10 @@
 //     client's inbox.
 
 import { SettingsPage, Section, Row, Toggle as CfToggle } from '@/components/settings/settings-ui';
-import { doc, updateDoc, type Firestore } from 'firebase/firestore';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { ArrowLeft, Clock, Lock, Mail, MapPin, MessageSquare, Moon, Pencil, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,7 +27,7 @@ import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { WinBackSettings } from '@/components/settings/WinBackSettings';
 import {
-  MESSAGE_KINDS, resolveQuietHours, resolveAddressPolicy, validateOverride, type MessageKindDef,
+  MESSAGE_KINDS, resolveMessagePolicy, resolveQuietHours, resolveAddressPolicy, validateOverride, type MessageKindDef,
 } from '@/lib/message-policy';
 import { cn } from '@/lib/utils';
 
@@ -35,15 +35,26 @@ const GROUPS = ['Booking', 'Money', 'Reminders', 'After the visit', 'Your team',
 
 export default function MessageSettingsPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant, role: myRole } = useTenant();
+  const tenantCtx: any = useTenant();
+  const { selectedTenant } = tenantCtx;
   const tenantId = selectedTenant?.id || '';
   const { toast } = useToast();
 
   const stored = ((selectedTenant as any)?.messagePolicy || {}) as Record<string, any>;
-  const staffRole = String(myRole || 'staff').toLowerCase();   // the signed-in person's role (never assumed to be the owner)
-  const isMgr = ['owner', 'admin', 'manager'].includes(staffRole);
+  // Anyone whose role runs the settings (Settings → Roles); saved through the server (api/message-settings), which checks
+  // every field, so it works for them and not only the owner.
+  const isMgr = typeof tenantCtx.can === 'function' ? !!tenantCtx.can('settings.manage') : false;
+  const saveFields = async (updates: Record<string, any>) => {
+    const r = await fetch('/api/message-settings', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, updates }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.ok === false) throw new Error(d.error || 'That didn’t save. Try again.');
+  };
 
   const [group, setGroup] = useState<typeof GROUPS[number]>('Booking');
+  // Opened from the replies playbook (Settings → Replies): straight to the shop's messages.
+  useEffect(() => {
+    try { const q = new URLSearchParams(window.location.search).get('group'); if (q && (GROUPS as readonly string[]).includes(q)) setGroup(q as typeof GROUPS[number]); } catch { /* the first group */ }
+  }, []);
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [offsetDraft, setOffsetDraft] = useState<Record<string, string>>({});
@@ -60,7 +71,7 @@ export default function MessageSettingsPage() {
     if (!firestore || !tenantId || !isMgr || busy) return;
     setBusy(key);
     try {
-      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { [field]: value });
+      await saveFields({ [field]: value });
       toast({ title: `${label} saved` });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not save', description: e?.message });
@@ -76,7 +87,7 @@ export default function MessageSettingsPage() {
     if (!firestore || !tenantId || busy) return;
     setBusy(`${k.id}-copy`);
     try {
-      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), {
+      await saveFields({
         [`messagePolicy.${k.id}.body`]: draftBody.trim(),
         [`messagePolicy.${k.id}.subject`]: draftSubject.trim(),
       });
@@ -238,11 +249,17 @@ export default function MessageSettingsPage() {
           </CardContent>
         </Card>
 
+        {group === 'Retail' && (
+          <p className="text-sm text-muted-foreground">Ready replies your team picks when answering shop customers are in <Link href="/settings/replies" className="font-semibold text-foreground underline underline-offset-2">Replies</Link>.</p>
+        )}
+
         {kinds.map((k) => {
           const cfg = stored[k.id] || {};
           const emailOn = k.canDisable ? cfg.emailEnabled !== false : true;
           const smsOn = k.canDisable ? cfg.smsEnabled !== false : true;
           const hasCustom = String(cfg.body || '').trim().length > 0;
+          // Wording saved before a detail became required (the reason on a claim decision, say): the built-in is used.
+          const rejected = hasCustom ? resolveMessagePolicy(selectedTenant, k.id, 'email').overrideRejected : undefined;
           const isEditing = editing === k.id;
 
           return (
@@ -255,10 +272,11 @@ export default function MessageSettingsPage() {
                   </div>
                   {hasCustom && (
                     <span className="shrink-0 rounded-full border-2 border-primary/30 bg-primary/5 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-primary">
-                      Your wording
+                      {rejected ? 'Not in use' : 'Your wording'}
                     </span>
                   )}
                 </div>
+                {rejected && <p className="text-xs font-semibold text-amber-800">Your wording is missing {k.requiredTokens.filter((t) => !String(cfg.body || '').includes(t)).join(' and ')}, so the built-in wording goes out instead. Edit it to add it back.</p>}
 
                 {k.canDisable ? (
                   <div className="flex flex-wrap items-center gap-4">

@@ -12,6 +12,9 @@ import { conversationOf, openCase, waitingOnShop, type ThreadMsg } from '@/lib/o
 import { cleanContact, contactDiff } from '@/lib/contact-change';
 import { AddressCard } from '../AddressCard';
 import { Btn, C, Toggle, feel, muted } from '../ui';
+import { GapNote, ReplyChips, pickInto, replyContext } from '../ReplyChips';
+import { hasGap } from '@/lib/replies';
+import { useTenant } from '@/context/TenantContext';
 
 const when = (iso: string) => { const d = new Date(iso); return Number.isFinite(d.getTime()) ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; };
 const NOT_A_SALE = ['placed', 'cancelled'];
@@ -72,6 +75,11 @@ export function CustomerPane({ fs, tenantId, order, canEdit, tickets, inbox, sta
     } catch { setFormErr('That didn’t save. Try again.'); } finally { setSaving(false); }
   };
 
+  // Ready replies (lib/replies): the one picked, and the shop's name to fill in.
+  const [picked, setPicked] = React.useState<string | null>(null);
+  const lastFill = React.useRef<string | null>(null);
+  const tc: any = useTenant();
+  const shopName = String(tc?.selectedTenant?.businessName || tc?.selectedTenant?.name || '');
   const reachable = !!(order.customerEmail || order.customerPhone);
   const send = async (resolve: boolean) => {
     const t = text.trim();
@@ -83,7 +91,7 @@ export function CustomerPane({ fs, tenantId, order, canEdit, tickets, inbox, sta
         : await fetch('/api/retail/order-message', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, orderId: order.id, text: t }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.ok === false) { feel(false); setErr(d.error || 'That didn’t send. Try again.'); return; }
-      feel(true); setText(''); onToast(d.message || 'Sent.');
+      feel(true); setText(''); setPicked(null); onToast(d.message || 'Sent.');
       setTimeout(() => endRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 120);
     } catch { setErr('That didn’t send. Try again.'); } finally { setBusy(''); }
   };
@@ -174,14 +182,16 @@ export function CustomerPane({ fs, tenantId, order, canEdit, tickets, inbox, sta
       </div>
       {reachable ? (
         <div className="mt-3">
+          <ReplyChips className="mb-2" fs={fs} tenantId={tenantId} situation="message" ctx={replyContext(order, shopName)} picked={picked} onPick={(t, id) => { const prev = lastFill.current; setText((cur) => pickInto(cur, prev, t)); lastFill.current = t; setPicked(id); setErr(''); }} />
           <label className="block">
             <span className="sr-only">{open ? `Reply to ${who}` : `Write to ${who}`}</span>
-            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={aside ? 3 : 4} maxLength={1500} placeholder={open ? `Reply to ${who}` : `Write to ${who}`}
+            <textarea value={text} onChange={(e) => { setText(e.target.value); if (!e.target.value.trim()) setPicked(null); }} rows={aside ? 3 : 4} maxLength={1500} placeholder={open ? `Reply to ${who}` : `Write to ${who}`}
               className="block w-full resize-y rounded-2xl border px-3.5 py-3 text-[15px] outline-none" style={{ borderColor: C.line, background: C.paper, color: C.ink }} />
           </label>
+          <GapNote text={text} />
           <div className="mt-2 flex flex-wrap gap-2">
-            <Btn kind="primary" className="h-11 flex-1" disabled={!text.trim() || !!busy} onClick={() => void send(false)}>{busy === 'send' ? 'Sending…' : open ? 'Send reply' : 'Send'}</Btn>
-            {open && <Btn kind="soft" className="h-11" disabled={!!busy} onClick={() => void send(true)}>{text.trim() ? 'Send and mark solved' : busy === 'solve' ? 'Saving…' : 'Mark solved'}</Btn>}
+            <Btn kind="primary" className="h-11 flex-1" disabled={!text.trim() || !!busy || hasGap(text)} onClick={() => void send(false)}>{busy === 'send' ? 'Sending…' : open ? 'Send reply' : 'Send'}</Btn>
+            {open && <Btn kind="soft" className="h-11" disabled={!!busy || hasGap(text)} onClick={() => void send(true)}>{text.trim() ? 'Send and mark solved' : busy === 'solve' ? 'Saving…' : 'Mark solved'}</Btn>}
             {open && !text.trim() && <Btn kind="plain" className="h-11" disabled={!!busy} onClick={() => void draft()}>{busy === 'draft' ? 'Drafting…' : 'Draft a reply'}</Btn>}
           </div>
           {err && <p role="alert" className="m-0 mt-2 text-[14px]" style={{ color: C.warn }}>{err}</p>}

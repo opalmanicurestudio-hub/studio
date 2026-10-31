@@ -20,6 +20,8 @@ import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { decideClaim, requestClaimInfo } from '@/lib/fulfil-client';
+import { GapNote, ReplyChips, pickInto } from '@/components/orders/ReplyChips';
+import { hasGap, type ReplyContext } from '@/lib/replies';
 
 // ─── Claims desk ──────────────────────────────────────────────────────────────
 // Every claim arrives with its evidence already snapshotted at open time —
@@ -69,6 +71,9 @@ export default function RetailClaimsPage() {
   const [askFor, setAskFor] = useState<Record<string, string>>({});
   const [askBusy, setAskBusy] = useState<string | null>(null);
   const [approveCents, setApproveCents] = useState<Record<string, number>>({});
+  // Ready replies (lib/replies) for asking and declining: the last one put in each box, so a new pick replaces it.
+  const lastFill = React.useRef<Record<string, string>>({});
+  const replyCtx = (c: Claim): ReplyContext => ({ client_first: String(c.customerName || '').trim().split(/\s+/)[0] || '', order_number: c.orderNumber != null ? String(c.orderNumber).padStart(4, '0') : '', item: c.lineName || '', amount: money(c.claimValueCents) });
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -345,15 +350,24 @@ export default function RetailClaimsPage() {
                     </div>
                   )}
                   {c.status === 'in_review' && (
+                    <ReplyChips className="mt-2" fs={firestore as Firestore} tenantId={String(tenantId)} situation="claim_ask" ctx={replyCtx(c)}
+                      onPick={(t) => {
+                        // A question can carry 400 characters: one that won't fit after what's typed replaces it instead of being cut.
+                        const one = t.slice(0, 400); const joined = pickInto(askFor[c.id] || '', lastFill.current[`ask-${c.id}`] ?? null, one, ' ');
+                        const next = joined.length > 400 ? one : joined;
+                        setAskFor({ ...askFor, [c.id]: next }); lastFill.current[`ask-${c.id}`] = next === one ? one : (lastFill.current[`ask-${c.id}`] ?? null); }} />
+                  )}
+                  {c.status === 'in_review' && (
                     <div className="mt-2 flex gap-2">
                       <input
                         aria-label="Ask the customer for a specific document or photo"
                         placeholder="Ask for something specific — e.g. a photo of the batch code"
+                        maxLength={400}
                         value={askFor[c.id] ?? ''}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAskFor({ ...askFor, [c.id]: e.target.value })}
                         className="h-9 flex-1 rounded-xl border-2 px-2.5 text-xs font-bold"
                       />
-                      <Button size="sm" variant="outline" disabled={askBusy === c.id || !(askFor[c.id] || '').trim()}
+                      <Button size="sm" variant="outline" disabled={askBusy === c.id || !(askFor[c.id] || '').trim() || hasGap(askFor[c.id] || '')}
                         onClick={() => requestInfo(c)}
                         className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                         {askBusy === c.id ? 'Sending…' : 'Request'}
@@ -425,8 +439,11 @@ export default function RetailClaimsPage() {
                     )}
                   </div>
 
+                  {c.status === 'in_review' && <GapNote text={askFor[c.id] || ''} />}
                   {declineFor === c.id && c.status === 'in_review' && (
                     <div className="space-y-2">
+                      <ReplyChips fs={firestore as Firestore} tenantId={String(tenantId)} situation="claim_decline" ctx={replyCtx(c)}
+                        onPick={(t) => { const prev = lastFill.current[`no-${c.id}`] ?? null; setDeclineWhy((cur) => pickInto(cur, prev, t)); lastFill.current[`no-${c.id}`] = t; }} />
                       <Textarea
                         aria-label="Reason for declining this claim"
                         placeholder="Why — the customer's email quotes this word for word"
@@ -434,10 +451,11 @@ export default function RetailClaimsPage() {
                         onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDeclineWhy(e.target.value)}
                         className="min-h-20 rounded-xl border-2 font-bold text-sm"
                       />
+                      <GapNote text={declineWhy} />
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={busy === c.id}
+                        disabled={busy === c.id || hasGap(declineWhy)}
                         onClick={() => decide(c, false)}
                         className="h-9 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest text-destructive"
                       >

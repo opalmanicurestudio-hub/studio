@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { requestForensics } from '@/lib/request-forensics';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { taxShareCents } from '@/lib/restocking';
@@ -371,6 +371,15 @@ export async function POST(req: NextRequest) {
     if (filed.dup) return NextResponse.json({ ok: true, status: filed.dup.status, message: 'This report is already on file, and our team has it.' });
     // Approved by the shop's rules: within the shop's automatic amount the refund goes back now (lib/auto-refund).
     const sent = filed.approved ? await autoRefund(db, tenantId, orderId, req.nextUrl?.origin) : null;
+    // Waiting for the shop: they're told it's in, in the shop's own words if it wrote some (lib/report-received), after
+    // the answer, so a slow email service never holds up "Reported".
+    if (!filed.approved) {
+      const tell = async () => {
+        try { const { tellReportReceived } = await import('@/lib/report-received'); await tellReportReceived(db, tenantId, claim, req.nextUrl?.origin); }
+        catch (e) { console.error('[claims] report received', String((e as any)?.message || e).slice(0, 120)); }
+      };
+      try { after(tell); } catch { void tell(); }
+    }
 
     return NextResponse.json({
       ok: true,
