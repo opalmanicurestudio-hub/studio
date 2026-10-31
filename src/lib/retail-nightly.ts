@@ -5,7 +5,7 @@ import { alertExpiringStock } from '@/lib/expiry-alerts';
 import { syncRenterCreditsForOrder } from '@/lib/renter-sales-server';
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
 import { roomCents } from '@/lib/non-card-back';
-import { closeStaleReturns } from '@/lib/return-close';
+import { closeStaleReturns, countEarlierHolds } from '@/lib/return-close';
 import { sweepRecoveryDeadlines, sweepStalledShipments, sweepStaleCases } from '@/lib/retail-sweeps';
 import { ensureCodeIndex } from './code-index';
 
@@ -40,6 +40,8 @@ export async function retailNightlyForShop(db: any, tenantId: string, tenant: an
   // Downloads whose access ends within the week: one reminder per end date (lib/digital-notices-server).
   try { const { sweepEndingNotices } = await import('@/lib/digital-notices-server'); const en = await sweepEndingNotices(db, tenantId, tenant); if (en.sent > 0 || !en.done) out.accessEnding = { emailed: en.sent, ...(en.done ? {} : { carriesOn: true }) }; } catch (e) { out.accessEnding = err(e); }
   try { const cr = await closeStaleReturns(db, tenantId, tenant); if (cr > 0) out.returnsClosed = { closed: cr }; } catch (e) { out.returnsClosed = err(e); }
+  // Once: items held to check on the old Return desk wait in Problems like the rest (lib/return-close).
+  try { const h = await countEarlierHolds(db, tenantId); if (h > 0) out.holdsCounted = { returns: h }; } catch (e) { out.holdsCounted = err(e); }
   try { const ex = await alertExpiringStock(db, tenantId); if (ex > 0) out.expiry = { alerts: ex }; } catch (e) { out.expiry = err(e); }
   try { const st = await sweepStaleCurbside(db, tenantId); if (st.flagged > 0) out.curbside = st; } catch (e) { out.curbside = err(e); }
   try {

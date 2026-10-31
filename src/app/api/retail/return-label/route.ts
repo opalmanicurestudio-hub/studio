@@ -184,7 +184,8 @@ export async function POST(req: NextRequest) {
 
     // Payer decision — recorded, disclosed, never silently executed.
     const payer = rs.returnLabelPayer === 'shop' || rs.returnLabelPayer === 'customer' ? rs.returnLabelPayer : 'fault';
-    const anyShopFault = retLines.some((rl: any) => SHOP_FAULT_REASONS.includes(String(rl.reason)));
+    // The rest of a return that only partly came back keeps the first part's fault (lib/retail-returns trimReturn).
+    const anyShopFault = ret.shopFault === true || retLines.some((rl: any) => SHOP_FAULT_REASONS.includes(String(rl.reason)));
     const deduct = payer === 'customer' || (payer === 'fault' && !anyShopFault);
     const labelDeductCents = deduct ? cheapest.amountCents : 0;
 

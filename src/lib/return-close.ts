@@ -95,3 +95,29 @@ export async function closeStaleReturns(db: any, t: string, tenant: any, now = D
   }
   return n;
 }
+
+/** Once a shop: items held to check before Problems listed them (on the old Return desk) are counted, so they wait in
+ *  Problems with the rest until someone decides. Read in pages, in id order; a shop with more than a night's worth
+ *  carries on from where it stopped the next night, and is marked done only once every return has been read. */
+export async function countEarlierHolds(db: any, t: string, o: { page?: number; pages?: number } = {}): Promise<number> {
+  const mark = db.doc(`tenants/${t}/private/holdsCounted`);
+  const m: any = (await mark.get()).data() || null;
+  if (m?.doneAt) return 0;
+  const page = o.page || 400; const pages = o.pages || 10;
+  let after: string = String(m?.after || ''); const n = Number(m?.returns) || 0; let counted = 0;
+  for (let i = 0; i < pages; i++) {
+    let q = db.collection(`tenants/${t}/retailReturns`).where('status', 'in', ['received', 'resolved']).orderBy('__name__');
+    if (after) q = q.startAfter(after);
+    const snap = await q.limit(page).get();
+    for (const d of snap.docs) {
+      const r: any = d.data() || {};
+      if (r.holdsOpen != null) continue;
+      const open = (Array.isArray(r.lines) ? r.lines : []).filter((l: any) => l?.disposition === 'quarantine' && !l?.holdDecided).length;
+      if (open > 0) { await d.ref.set({ holdsOpen: open }, { merge: true }); counted++; }
+    }
+    if (snap.docs.length) after = snap.docs[snap.docs.length - 1].id;
+    if (snap.docs.length < page) { await mark.set({ doneAt: new Date().toISOString(), returns: n + counted, after: null }); return counted; }
+  }
+  await mark.set({ after, returns: n + counted, at: new Date().toISOString() });
+  return counted;
+}

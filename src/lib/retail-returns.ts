@@ -1,6 +1,6 @@
 
 import { refundTaxPart, refundTipPart } from '@/lib/refund-tax';
-import { restockingFee } from './restocking';
+import { restockingFee, returnIsShopFault } from './restocking';
 import { lineFor, taxBasisOf } from './order-family';
 import { releaseCoverableBackorders } from './retail-fulfill';
 import { claimedUnits, returnableUnits } from '@/lib/return-reserve';
@@ -14,7 +14,7 @@ import { buildExceptionDoc } from '@/lib/exception-doc';
 import { buildEntry } from '@/lib/stock-ledger';
 
 import {
-  buildEvent, isReturnReceivable, parseOrderQr, returnRefundCents,
+  buildEvent, isReturnReceivable, parseOrderQr, returnRefundCents, trimmedReturnCents,
   type OrderEventType, type RetailOrder, type RetailReturn, type ReturnDisposition,
   type ReturnLine, type ReturnReason, type ReturnResolution,
 } from '@/lib/retail-orders';
@@ -173,6 +173,79 @@ export async function openReturn(
   }
 }
 
+/** Items held to check that nobody has decided yet. */
+export const holdsOpenOf = (lines: any[]): number => (lines || []).filter((l: any) => l?.disposition === 'quarantine' && !l?.holdDecided).length;
+
+/** What a returned item's condition does, inside the caller's transaction once every read is done: back on the shelf
+ *  (a new batch at the item's cost now, and a stock correction), or written off at cost (a Spoilage expense and its loss
+ *  record, together). Gives what went back on the shelf, so a backorder waiting for it can go. */
+function applyCondition(fs: Firestore, txn: any, tenantId: string, a: {
+  ret: { id: string; orderId: string; orderNumber: number }; lineId: string; qty: number; name: string; origLine: any; iRef: any; iSnap: any;
+  restock: boolean; writeOff: boolean; disposition: string; openedBack?: boolean; held?: boolean; actor: Actor; now: string; lossId?: string;
+}): { productId: string; qty: number } | null {
+  const { ret, lineId, qty, name, origLine, iRef, iSnap, actor, now, disposition } = a;
+  let back: { productId: string; qty: number } | null = null;
+  if (a.restock && iRef && iSnap?.exists()) {
+    const item = iSnap.data() as any;
+    const batches = [...(item.batches || []), {
+      id: `batch-${nanoid()}`, stock: qty,
+      costPerUnit: item.costPerUnit || 0, receivedDate: now,
+    }];
+    txn.update(iRef, {
+      batches: JSON.parse(JSON.stringify(batches)),
+      totalStock: batches.reduce((x: number, b: any) => x + (b.stock || 0), 0),
+    });
+    txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), {
+      productId: origLine!.productId, date: now, change: qty,
+      unit: item.unit || 'units',
+      reason: a.held ? `Held return checked and put back on the shelf (Order #${ret.orderNumber})` : a.openedBack ? `Opened return put back on the shelf (Order #${ret.orderNumber})` : `Return restocked (Order #${ret.orderNumber})`,
+      orderId: ret.orderId, returnId: ret.id,
+      actorId: actor.id, actorName: actor.name, source: 'retail_engine',
+    });
+    back = { productId: String(origLine!.productId), qty: Number(qty) || 0 };
+  }
+
+  if (a.writeOff && origLine) {
+    const costPerUnit = (iSnap?.exists() ? (iSnap.data() as any).costPerUnit : 0) || 0;
+    const costCents = Math.round(costPerUnit * 100) * qty;
+    const txnRef = doc(collection(fs, `tenants/${tenantId}/transactions`));
+    txn.set(txnRef, {
+      id: txnRef.id, date: now,
+      description: `Return ${disposition === 'dispose' ? 'disposal' : disposition === 'damaged' ? 'damage write-off' : disposition === 'open_box' ? 'write-off (opened)' : 'write-off'}${a.held ? ' after a check' : ''}: ${qty} x ${name} (Order #${ret.orderNumber})`,
+      clientOrVendor: 'Internal', type: 'expense', context: 'Business',
+      category: 'Spoilage', taxBucket: 'expense',
+      amount: costCents / 100, paymentMethod: 'Internal', hasReceipt: false,
+      retailOrderId: ret.orderId, retailReturnId: ret.id, tenantId,
+    });
+    /* THE EXCEPTION SPINE. Same transaction as the Spoilage line, so the
+     * loss record and its ledger recognition are atomic and linked
+     * (ledgerTxnId is the double-count guard: one economic loss, one
+     * ledger line, provably). Landed cost is what accounting sees; the
+     * retail and margin figures ride along as analytics only. */
+    const lossId = a.lossId || `ret-${ret.id}-${lineId}`;
+    const excRef = doc(collection(fs, `tenants/${tenantId}/inventoryExceptions`), lossId);
+    txn.set(excRef, JSON.parse(JSON.stringify(buildExceptionDoc({
+      dedupeId: lossId,
+      reason: disposition === 'damaged' ? 'return_damaged'
+        : disposition === 'dispose' ? 'return_contaminated' : 'return_opened',
+      qty,
+      productId: origLine.productId || null,
+      sku: (origLine as any).sku || null,
+      name,
+      costPerUnitDollars: costPerUnit,
+      retailPerUnitCents: Number(origLine.unitPriceCents) || 0,
+      orderId: ret.orderId,
+      orderNumber: ret.orderNumber,
+      returnId: ret.id,
+      responsibleParty: 'customer',
+      ledgerTxnId: txnRef.id,
+      recordedBy: { id: actor.id, name: actor.name },
+      source: 'returns_desk',
+    }, tenantId))));
+  }
+  return back;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
  * RECEIVE — scan-verified disposition per line
  * ════════════════════════════════════════════════════════════════════════════ */
@@ -219,70 +292,14 @@ export async function receiveReturnLine(
       const writeOff = ['write_off', 'damaged', 'dispose'].includes(disposition) || (disposition === 'open_box' && !openedBack);
 
       const now = new Date().toISOString();
+      back = applyCondition(fs, txn, tenantId, { ret: { id: ret.id, orderId: fresh.orderId, orderNumber: fresh.orderNumber }, lineId, qty: line.qty, name: line.name, origLine, iRef, iSnap, restock, writeOff, disposition, openedBack, actor, now });
 
-      if (restock && iRef && iSnap?.exists()) {
-        const item = iSnap.data() as any;
-        const batches = [...(item.batches || []), {
-          id: `batch-${nanoid()}`, stock: line.qty,
-          costPerUnit: item.costPerUnit || 0, receivedDate: now,
-        }];
-        txn.update(iRef, {
-          batches: JSON.parse(JSON.stringify(batches)),
-          totalStock: batches.reduce((a: number, b: any) => a + (b.stock || 0), 0),
-        });
-        txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), {
-          productId: origLine!.productId, date: now, change: line.qty,
-          unit: item.unit || 'units',
-          reason: openedBack ? `Opened return put back on the shelf (Order #${fresh.orderNumber})` : `Return restocked (Order #${fresh.orderNumber})`,
-          orderId: fresh.orderId, returnId: ret.id,
-          actorId: actor.id, actorName: actor.name, source: 'retail_engine',
-        });
-        back = { productId: String(origLine!.productId), qty: Number(line.qty) || 0 };
-      }
-
-      if (writeOff && origLine) {
-        const costPerUnit = (iSnap?.exists() ? (iSnap.data() as any).costPerUnit : 0) || 0;
-        const costCents = Math.round(costPerUnit * 100) * line.qty;
-        const txnRef = doc(collection(fs, `tenants/${tenantId}/transactions`));
-        txn.set(txnRef, {
-          id: txnRef.id, date: now,
-          description: `Return ${disposition === 'dispose' ? 'disposal' : disposition === 'damaged' ? 'damage write-off' : disposition === 'open_box' ? 'write-off (opened)' : 'write-off'}: ${line.qty} x ${line.name} (Order #${fresh.orderNumber})`,
-          clientOrVendor: 'Internal', type: 'expense', context: 'Business',
-          category: 'Spoilage', taxBucket: 'expense',
-          amount: costCents / 100, paymentMethod: 'Internal', hasReceipt: false,
-          retailOrderId: fresh.orderId, retailReturnId: ret.id, tenantId,
-        });
-        /* THE EXCEPTION SPINE. Same transaction as the Spoilage line, so the
-         * loss record and its ledger recognition are atomic and linked
-         * (ledgerTxnId is the double-count guard: one economic loss, one
-         * ledger line, provably). Landed cost is what accounting sees; the
-         * retail and margin figures ride along as analytics only. */
-        const excRef = doc(collection(fs, `tenants/${tenantId}/inventoryExceptions`), `ret-${ret.id}-${lineId}`);
-        txn.set(excRef, JSON.parse(JSON.stringify(buildExceptionDoc({
-          dedupeId: `ret-${ret.id}-${lineId}`,
-          reason: disposition === 'damaged' ? 'return_damaged'
-            : disposition === 'dispose' ? 'return_contaminated' : 'return_opened',
-          qty: line.qty,
-          productId: origLine.productId || null,
-          sku: (origLine as any).sku || null,
-          name: line.name,
-          costPerUnitDollars: costPerUnit,
-          retailPerUnitCents: Number(origLine.unitPriceCents) || 0,
-          orderId: fresh.orderId,
-          orderNumber: fresh.orderNumber,
-          returnId: ret.id,
-          responsibleParty: 'customer',
-          ledgerTxnId: txnRef.id,
-          recordedBy: { id: actor.id, name: actor.name },
-          source: 'returns_desk',
-        }, tenantId))));
-      }
-
+      // Held to check: kept out of stock, and it waits in Problems until someone decides (decideHold).
       const updatedLines = fresh.lines.map((l) =>
-        l.lineId === lineId ? { ...l, disposition, dispositionScannedAt: now } : l
+        l.lineId === lineId ? { ...l, disposition, dispositionScannedAt: now, ...(disposition === 'quarantine' ? { heldAt: now } : {}) } : l
       );
       const allReceived = updatedLines.every((l) => !!l.disposition);
-      txn.update(rRef, { lines: JSON.parse(JSON.stringify(updatedLines)), status: 'received' });
+      txn.update(rRef, { lines: JSON.parse(JSON.stringify(updatedLines)), status: 'received', holdsOpen: holdsOpenOf(updatedLines) });
 
       if (order && origLine) {
         const newLines = order.lines.map((l) => {
@@ -293,10 +310,11 @@ export async function receiveReturnLine(
           const gift = (fresh as any).giftRecipient ? { qtyGiftReturned: ((l as any).qtyGiftReturned || 0) + line.qty } : {};
           return { ...l, qtyReturned, ...gift, status: fullyReturned ? ('returned' as const) : l.status };
         });
-        txn.update(oRef, { lines: JSON.parse(JSON.stringify(newLines)) });
+        // What's on its way back changed (now counted as returned): a return started at the same moment is tried again.
+        txn.update(oRef, { lines: JSON.parse(JSON.stringify(newLines)), returnSeq: (Number((order as any).returnSeq) || 0) + 1 });
       }
 
-      return { ok: true, allReceived, message: `${line.name}: ${openedBack ? 'opened, back on the shelf' : restock ? 'back in stock' : disposition === 'open_box' ? 'opened, written off at cost' : disposition === 'quarantine' ? 'kept out of stock' : 'written off'}${allReceived ? ' \u2014 that was the last item' : ''}` };
+      return { ok: true, allReceived, message: `${line.name}: ${openedBack ? 'opened, back on the shelf' : restock ? 'back in stock' : disposition === 'open_box' ? 'opened, written off at cost' : disposition === 'quarantine' ? 'held to check, out of stock until it’s decided in Problems' : 'written off'}${allReceived ? ' \u2014 that was the last item' : ''}` };
     });
     // Back on the shelf: a backorder waiting for it may be able to go now (lib/retail-fulfill). Best effort.
     const shelf = back as { productId: string; qty: number } | null;
@@ -309,6 +327,177 @@ export async function receiveReturnLine(
     return out;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not receive the line.' };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ONLY PART CAME BACK — check in just what did
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Only part of a return came back. The return is cut down to what did (anything on it already checked in stays as it
+ * is), and what it pays back with it. The rest either isn't coming (it can be returned again later), or is still
+ * coming: a return of its own for it, with the same reasons and the same way of putting it right, which waits in
+ * Problems (and is closed by the nightly check if it never comes, lib/return-close). The return is then checked in as
+ * usual. Asked again with the same counts, nothing more changes.
+ */
+export async function trimReturn(
+  fs: Firestore, tenantId: string, returnId: string, received: { lineId: string; qty: number }[], rest: 'drop' | 'keep', actor: Actor
+): Promise<{ ok: boolean; message: string; trimmed?: boolean; earlier?: boolean; restReturnId?: string; orderId?: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const rRef = doc(returnCol(fs, tenantId), returnId);
+      const rSnap = await txn.get(rRef);
+      if (!rSnap.exists()) return { ok: false, message: 'That return isn’t there any more.' };
+      const fresh = { ...(rSnap.data() as RetailReturn), id: returnId };
+      if (!['open', 'received'].includes(String(fresh.status))) return { ok: false, message: 'This return is already closed.' };
+      const oRef = doc(orderCol(fs, tenantId), fresh.orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'The order this return is for can’t be read just now. Try again in a moment.' };
+      const order = { ...(oSnap.data() as RetailOrder), id: fresh.orderId };
+      // A gift's recipient, as the server recorded them: the rest's credit goes to the same person (lib/return-credit).
+      const gRef = doc(fs, `tenants/${tenantId}/private/giftReturns/returns/${returnId}`);
+      const gSnap = await txn.get(gRef);
+      const gRec: any = gSnap.exists() ? gSnap.data() || {} : null;
+
+      // What came back of each item; an item the screen didn't count is left as it is (never dropped unasked).
+      const got = new Map(received.map((x) => [x.lineId, Math.max(0, Math.floor(Number(x.qty) || 0))]));
+      const kept: ReturnLine[] = []; const left: ReturnLine[] = [];
+      for (const l of fresh.lines || []) {
+        const n = l.disposition ? l.qty : Math.min(l.qty, got.has(l.lineId) ? (got.get(l.lineId) as number) : l.qty);
+        if (n > 0) kept.push({ ...l, qty: n });
+        if (n < l.qty) left.push({ lineId: l.lineId, sku: l.sku, name: l.name, qty: l.qty - n, reason: l.reason });
+      }
+      if (!left.length) {
+        // Cut down already (a try after one that stopped part way): what was decided then stands, and is said again.
+        const last: any = Array.isArray(fresh.trimmed) && fresh.trimmed.length ? fresh.trimmed[fresh.trimmed.length - 1] : null;
+        if (last) {
+          const was = (last.lines || []).map((l: any) => `${l.name}${Number(l.qty) > 1 ? ` × ${l.qty}` : ''}`).join(', ');
+          return { ok: true, trimmed: false, earlier: true, orderId: fresh.orderId, message: last.rest === 'keep' ? `The rest (${was}) was already made a return of its own in Problems.` : `The rest (${was}) was already taken off this return.` };
+        }
+        return { ok: true, message: 'Everything on it came back.', trimmed: false, orderId: fresh.orderId };
+      }
+      if (!kept.length) return { ok: false, message: 'Mark what came back first. If nothing has, leave the return open, or close it in Problems.' };
+
+      const now = new Date().toISOString();
+      const isRefund = fresh.resolution === 'refund'; const isCredit = fresh.resolution === 'store_credit';
+      const share = (to: ReturnLine[], q: any) => trimmedReturnCents(order, fresh.lines, to, Number(q) || 0);
+      const restRef = rest === 'keep' ? doc(returnCol(fs, tenantId)) : null;
+      const items = left.map((l) => `${l.name}${l.qty > 1 ? ` × ${l.qty}` : ''}`).join(', ');
+      // The shop's fault follows the faulty item: while it's still coming, both parts keep it (no restocking fee, the
+      // shop pays the label), whichever comes back first; one that isn't coming leaves the rest as it is.
+      const fault = fresh.shopFault === true || returnIsShopFault(fresh.lines || []);
+      const keptFault = rest === 'keep' ? fault : fresh.shopFault === true || returnIsShopFault(kept);
+      txn.update(rRef, JSON.parse(JSON.stringify({
+        ...(keptFault ? { shopFault: true } : {}),
+        lines: kept,
+        ...(isRefund ? { refundCents: share(kept, fresh.refundCents) } : {}),
+        ...(isCredit ? { storeCreditCents: share(kept, fresh.storeCreditCents) } : {}),
+        trimmed: [...(Array.isArray(fresh.trimmed) ? fresh.trimmed : []).slice(-9), { at: now, by: actor.name, rest, lines: left.map((l) => ({ lineId: l.lineId, name: l.name, qty: l.qty })) }],
+        ...(restRef ? { restReturnId: restRef.id } : {}),
+        holdsOpen: holdsOpenOf(kept),
+      })));
+      // What the gift's recipient is owed, as the server recorded it, follows the items.
+      if (gRec) txn.set(gRef, JSON.parse(JSON.stringify({ ...gRec, valueCents: share(kept, gRec.valueCents), trimmedAt: now })));
+      if (restRef) {
+        const gift = (fresh as any).giftRecipient || (gRec?.email ? { name: String(gRec.name || ''), email: String(gRec.email) } : null);
+        txn.set(restRef, JSON.parse(JSON.stringify({
+          id: restRef.id, tenantId, orderId: fresh.orderId, orderNumber: fresh.orderNumber, lines: left, resolution: fresh.resolution,
+          status: 'open', photoUrls: [],
+          refundCents: isRefund ? share(left, fresh.refundCents) || undefined : undefined,
+          storeCreditCents: isCredit ? share(left, fresh.storeCreditCents) || undefined : undefined,
+          openedBy: actor.name, openedAt: now, restOf: returnId, ...(fault ? { shopFault: true } : {}),
+          notes: `The rest of an earlier return: only part of it came back.${fresh.notes ? ` ${fresh.notes}` : ''}`.slice(0, 500),
+          ...(gift ? { giftRecipient: gift, isGiftReturn: true } : {}),
+        })));
+        if (gRec) txn.set(doc(fs, `tenants/${tenantId}/private/giftReturns/returns/${restRef.id}`), JSON.parse(JSON.stringify({ ...gRec, valueCents: share(left, gRec.valueCents), at: now, restOf: returnId })));
+      }
+      // Each change to what's on its way back counts on the order, so a return started at the same moment is tried again.
+      txn.update(oRef, { returnSeq: (Number((order as any).returnSeq) || 0) + 1 });
+      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, {
+        kind: 'return_trimmed', returnId,
+        text: `Only part of the return came back. ${rest === 'keep' ? `Still to come, as a return of its own: ${items}` : `Not coming: ${items}`}`,
+      }));
+      return {
+        ok: true, trimmed: true, orderId: fresh.orderId, ...(restRef ? { restReturnId: restRef.id } : {}),
+        message: rest === 'keep' ? `The rest (${items}) is a return of its own in Problems.` : `The rest (${items}) can be returned again later.`,
+      };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Couldn’t check in part of the return.' };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * HELD TO CHECK — decided in Problems
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const HOLD_OUTCOMES = ['restock', 'open_box', 'damaged', 'dispose'] as const;
+export type HoldOutcome = (typeof HOLD_OUTCOMES)[number];
+
+/** How many of a held item are still to be decided. */
+export const heldLeft = (l: any): number => (l?.disposition !== 'quarantine' || l?.holdDecided ? 0
+  : Math.max(0, (Math.floor(Number(l?.qty) || 0)) - (Array.isArray(l?.holdDecisions) ? l.holdDecisions : []).reduce((a: number, d: any) => a + Math.max(0, Math.floor(Number(d?.qty) || 0)), 0)));
+
+/** An item held to check when it came back, decided: fine, back on the shelf; opened (back on the shelf or written off,
+ *  by the shop's policy for opened items); or written off at cost (damaged, or thrown away). Some of them at a time
+ *  when they turn out differently (two fine, one damaged), never more than are still held. The money on the return
+ *  was settled when it was checked in; this is only where the items go. */
+export async function decideHold(
+  fs: Firestore, tenantId: string, returnId: string, lineId: string, outcome: HoldOutcome, actor: Actor, qty?: number
+): Promise<{ ok: boolean; message: string; orderId?: string; left?: number }> {
+  let back: { productId: string; qty: number } | null = null;
+  try {
+    const out = await runTransaction(fs, async (txn) => {
+      back = null;
+      const rRef = doc(returnCol(fs, tenantId), returnId);
+      const rSnap = await txn.get(rRef);
+      if (!rSnap.exists()) return { ok: false, message: 'That return isn’t there any more.' };
+      const fresh = rSnap.data() as RetailReturn;
+      const line: any = (fresh.lines || []).find((l) => l.lineId === lineId);
+      if (!line || line.disposition !== 'quarantine') return { ok: false, message: 'That item isn’t held to check.' };
+      const left = heldLeft(line);
+      if (left <= 0) return { ok: false, message: `${line.name} has been decided already.` };
+      const n = qty == null ? left : Math.floor(Number(qty) || 0);
+      if (n < 1) return { ok: false, message: 'Say how many.' };
+      if (n > left) return { ok: false, message: `Only ${left} of ${line.name} ${left === 1 ? 'is' : 'are'} still held.` };
+      const oRef = doc(orderCol(fs, tenantId), fresh.orderId);
+      const oSnap = await txn.get(oRef);
+      const origLine: any = oSnap.exists() ? (((oSnap.data() as RetailOrder).lines || []).find((l) => l.lineId === lineId) || null) : null;
+      if (!origLine) return { ok: false, message: 'The order it came back on can’t be read just now. Try again in a moment.' };
+      const iRef = origLine.productId ? invDoc(fs, tenantId, String(origLine.productId)) : null;
+      const iSnap = iRef ? await txn.get(iRef) : null;
+      // Opened: back on the shelf or written off at cost, by the shop's policy for opened items (as at check-in).
+      const tSnap = outcome === 'open_box' ? await txn.get(doc(fs, 'tenants', tenantId)) : null;
+      const openedBack = outcome === 'open_box' && ((tSnap?.exists() ? (tSnap.data() as any)?.retailSettings?.policies?.openedReturns : '') === 'restock');
+      const restock = outcome === 'restock' || openedBack;
+      if (restock && !iSnap?.exists()) return { ok: false, message: `${line.name} isn’t in your stock list any more, so it can’t go back on the shelf. Write it off instead.` };
+
+      const now = new Date().toISOString();
+      const decisions = [...(Array.isArray(line.holdDecisions) ? line.holdDecisions : []), { outcome, qty: n, at: now, by: actor.name }];
+      // Each write-off of the same item keeps its own loss record.
+      const lossId = decisions.length > 1 ? `ret-${returnId}-${lineId}-h${decisions.length}` : undefined;
+      back = applyCondition(fs, txn, tenantId, { ret: { id: returnId, orderId: fresh.orderId, orderNumber: fresh.orderNumber }, lineId, qty: n, name: line.name, origLine, iRef, iSnap, restock, writeOff: !restock, disposition: outcome, openedBack, held: true, actor, now, lossId });
+      const done = n === left;
+      const outcomes = [...new Set(decisions.map((d: any) => d.outcome))];
+      const lines = fresh.lines.map((l: any) => (l.lineId !== lineId ? l : { ...l, holdDecisions: decisions, ...(done ? { holdDecided: { outcome: outcomes.length === 1 ? outcome : 'mixed', at: now, by: actor.name } } : {}) }));
+      txn.update(rRef, { lines: JSON.parse(JSON.stringify(lines)), holdsOpen: holdsOpenOf(lines) });
+      const name = `${line.name}${n > 1 ? ` × ${n}` : ''}`;
+      const what = restock ? (openedBack ? 'opened, back on the shelf' : 'back on the shelf') : outcome === 'open_box' ? 'opened, written off at cost' : outcome === 'damaged' ? 'written off as damaged' : 'thrown away and written off';
+      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { kind: 'hold_decided', returnId, text: `Held item checked: ${name}, ${what}` }));
+      return { ok: true, message: `${name}: ${what}${done ? '' : `. ${left - n} still held`}`, orderId: fresh.orderId, left: left - n };
+    });
+    const shelf = back as { productId: string; qty: number } | null;
+    if (out.ok && shelf && shelf.qty > 0) {
+      try {
+        const { released } = await releaseCoverableBackorders(fs, tenantId, [shelf], actor);
+        if (released.length) out.message += `. ${released.length === 1 ? `Order #${released[0].orderNumber ?? ''} was waiting for it and` : `${released.length} orders were waiting for it and`} can be packed now`;
+      } catch { /* the order's own Release still works */ }
+    }
+    if (out.ok) out.message += '.';
+    return out;
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Couldn’t save that just now.' };
   }
 }
 
@@ -384,7 +573,7 @@ export async function resolveReturn(
         let cents = Math.max(0, gross - labelDeduct);
         /* RESTOCKING FEE — by the condition each item came back in, remorse only. Any shop-fault line on the
          * return waives it (lib/restocking). */
-        const fee = restockingFee(order.lines as any, fresh.lines as any, pol);
+        const fee = restockingFee(order.lines as any, fresh.lines as any, pol, (fresh as any).shopFault === true);
         feeCents = Math.min(cents, fee.cents);
         cents = Math.max(0, cents - feeCents);
         if (feeCents > 0) txn.update(rRef, { restockingFeeCents: feeCents, restockingFeeLines: fee.lines });

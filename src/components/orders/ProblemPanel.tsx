@@ -1,7 +1,8 @@
 'use client';
 // src/components/orders/ProblemPanel.tsx — ONE ORDER'S PROBLEMS. Each problem is a card with its next step right on it:
 // answer the message (or mark it solved), send the refund, check in the return, release the hold, go to the customer
-// outside, decide on a problem report with its photos and the packing record side by side (ClaimCard).
+// outside, decide on a problem report with its photos and the packing record side by side (ClaimCard), say what a
+// returned item held to check turned out to be.
 import * as React from 'react';
 import Link from 'next/link';
 import type { Firestore } from 'firebase/firestore';
@@ -11,6 +12,7 @@ import { isFollowUp } from '@/lib/order-family';
 import { threadOf, type Problem, type ProblemGroup } from '@/lib/problems-view';
 import type { Actor } from '@/lib/retail-fulfill';
 import { setHold } from './bulk';
+import { decideHold } from '@/lib/fulfil-client';
 import { ReturnSheet } from './ReturnSheet';
 import { ClaimCard } from './ClaimCard';
 import { Btn, C, Sheet, feel, muted, Ic } from './ui';
@@ -27,6 +29,51 @@ function Card({ p, children }: { p: Problem; children?: React.ReactNode }) {
       {p.detail ? <p className="m-0 mt-0.5 text-[14px]" style={muted}>{p.detail}</p> : null}
       {children ? <div className="mt-3">{children}</div> : null}
     </div>);
+}
+
+// A returned item held to check: what it turned out to be. Back on the shelf, or written off at cost (lib/retail-returns
+// decideHold), some at a time when they turn out differently; the money on the return was settled when it was checked in.
+type Found = 'restock' | 'open_box' | 'damaged' | 'dispose';
+function HoldCard({ p, tenantId, rs, onToast }: { p: Problem; tenantId: string; rs: any; onToast: (m: string) => void }) {
+  const r = p.ref; const l = r.line || {};
+  const left = Math.max(1, Number(r.left) || Number(l.qty) || 1);
+  const [pick, setPick] = React.useState<Found | ''>(''); const [busy, setBusy] = React.useState(false);
+  const [n, setN] = React.useState(left);
+  React.useEffect(() => { setN((x) => Math.min(Math.max(1, x), left)); }, [left]);
+  const openedBack = rs?.policies?.openedReturns === 'restock';
+  const FOUND: { id: Found; label: string; note: string }[] = [
+    { id: 'restock', label: 'Fine, as new', note: 'Goes back into stock.' },
+    { id: 'open_box', label: 'Opened', note: openedBack ? 'Goes back into stock (your policy for opened items).' : 'Written off at cost (your policy for opened items).' },
+    { id: 'damaged', label: 'Damaged', note: 'Written off at cost.' },
+    { id: 'dispose', label: 'Throw away', note: 'Thrown away and written off at cost (for anything that can’t be sold again).' },
+  ];
+  const save = async () => {
+    if (!pick) return;
+    setBusy(true);
+    // Always the count on screen: if someone else decided some meanwhile, the server says so instead of acting on a
+    // different number.
+    try { const res = await decideHold(tenantId, r.id, l.lineId, pick, n); feel(res.ok); onToast(res.message); if (res.ok) setPick(''); } finally { setBusy(false); }
+  };
+  const some = n > 1 ? (n === left ? (n === 2 ? 'both' : `all ${n}`) : `${n}`) : left > 1 ? '1' : 'it';
+  const shelf = pick === 'restock' || (pick === 'open_box' && openedBack);
+  return <Card p={p}>
+    {r.notes ? <p className="m-0 mb-3 text-[14px]"><span className="font-semibold">Note:</span> {String(r.notes).slice(0, 300)}</p> : null}
+    {left > 1 && (
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <span className="text-[15px]">How many</span>
+        <div className="flex shrink-0 items-center gap-1" role="group" aria-label={`How many ${l.name || 'items'}`}>
+          <button type="button" aria-label="One fewer" disabled={n <= 1} onClick={() => setN((x) => Math.max(1, x - 1))} className="cf-press h-11 w-11 rounded-full text-[18px] disabled:opacity-40" style={{ background: C.paper }}>−</button>
+          <span className="min-w-[56px] text-center text-[15px] font-semibold" aria-live="polite">{n} of {left}</span>
+          <button type="button" aria-label="One more" disabled={n >= left} onClick={() => setN((x) => Math.min(left, x + 1))} className="cf-press h-11 w-11 rounded-full text-[18px] disabled:opacity-40" style={{ background: C.paper }}>+</button>
+        </div>
+      </div>)}
+    <div role="group" aria-label={`What ${l.name || 'it'} turned out to be`} className="flex flex-wrap gap-1.5">
+      {FOUND.map((f) => <button key={f.id} type="button" aria-pressed={pick === f.id} onClick={() => setPick(f.id)}
+        className="cf-press h-11 rounded-full px-3.5 text-[14px] font-semibold" style={pick === f.id ? { background: C.ink, color: C.paper } : { background: C.paper, color: C.ink }}>{f.label}</button>)}
+    </div>
+    <p className="m-0 mt-1.5 text-[13px]" style={muted}>{FOUND.find((f) => f.id === pick)?.note || 'What did you find?'}</p>
+    <Btn kind="primary" className="mt-3 w-full" disabled={!pick || busy} onClick={() => void save()}>{busy ? 'Saving…' : !pick ? 'Choose what you found' : shelf ? `Put ${some} back on the shelf` : pick === 'dispose' ? `Throw ${some === 'it' ? 'it' : some} away` : `Write ${some === 'it' ? 'it' : some} off`}</Btn>
+  </Card>;
 }
 
 function MessageCard({ p, fs, tenantId, order, shop, onToast }: { p: Problem; fs: Firestore; tenantId: string; order: any; shop: string; onToast: (m: string) => void }) {
@@ -129,6 +176,7 @@ export function ProblemPanel({ fs, tenantId, group, actor, rs, canRefund, canMan
         {untouched && <Btn kind="soft" className="mt-2 w-full" style={{ background: C.paper }} onClick={() => { setCloseNote(''); setClosing(r); }}>It isn’t coming, close it</Btn>}
       </Card>;
     }
+    if (p.kind === 'inspect') return <HoldCard key={p.key} p={p} tenantId={tenantId} rs={rs} onToast={onToast} />;
     if (p.kind === 'claim') return <Card key={p.key} p={p}>
       <ClaimCard fs={fs} tenantId={tenantId} claim={p.ref} order={group.order && group.order.id === p.ref.orderId ? group.order : null} rs={rs} canDecide={canDecideClaims ?? canRefund} onToast={onToast} />
     </Card>;

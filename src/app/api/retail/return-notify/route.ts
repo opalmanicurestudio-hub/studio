@@ -26,6 +26,7 @@ export const dynamic = 'force-dynamic';
  */
 
 const str = (v: any, max: number): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+const esc = (v: string): string => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
 
 export async function POST(req: NextRequest) {
@@ -98,8 +99,13 @@ export async function POST(req: NextRequest) {
     const labelDeduct = Math.max(0, Number(ret.labelDeductCents) || 0);
 
     const itemsHtml = (Array.isArray(ret.lines) ? ret.lines : []).slice(0, 10).map((l: any) =>
-      `<tr><td style="font-size:13px;color:#0f172a;padding:4px 0">${str(l.name, 120) || 'Item'}${(Number(l.qty) || 1) > 1 ? ` \u00d7 ${Number(l.qty)}` : ''}</td></tr>`
+      `<tr><td style="font-size:13px;color:#0f172a;padding:4px 0">${esc(str(l.name, 120) || 'Item')}${(Number(l.qty) || 1) > 1 ? ` \u00d7 ${Number(l.qty)}` : ''}</td></tr>`
     ).join('');
+    // Only part of it came back (lib/retail-returns trimReturn): what didn't arrive, and what is still to come.
+    const cut = (Array.isArray(ret.trimmed) ? ret.trimmed : []).flatMap((t: any) => (Array.isArray(t?.lines) ? t.lines : []).map((l: any) => ({ ...l, rest: t?.rest })));
+    const namesOf = (xs: any[]) => xs.slice(0, 10).map((l: any) => `${esc(str(l.name, 120) || 'Item')}${(Number(l.qty) || 1) > 1 ? ` \u00d7 ${Number(l.qty)}` : ''}`).join(', ');
+    const dropped = cut.filter((x: any) => x.rest === 'drop'); const coming = cut.filter((x: any) => x.rest === 'keep');
+    const cutHtml = `${dropped.length ? `<p style="font-size:13px;color:#334155;line-height:1.6">${namesOf(dropped)} ${dropped.length > 1 ? 'were' : 'was'} not checked in, so ${dropped.length > 1 ? 'they are' : 'it is'} not part of this return. If you sent ${dropped.length > 1 ? 'them' : 'it'} back, please reply ${gr ? 'to this email' : 'from your order page'} and we will look into it.</p>` : ''}${coming.length ? `<p style="font-size:13px;color:#334155;line-height:1.6">${namesOf(coming)} ${coming.length > 1 ? 'have' : 'has'} not arrived yet. When ${coming.length > 1 ? 'they do' : 'it does'}, we will check ${coming.length > 1 ? 'them' : 'it'} in and let you know.</p>` : ''}`;
 
     let outcomeHtml = '';
     const resolution = String(ret.resolution || '');
@@ -165,6 +171,7 @@ export async function POST(req: NextRequest) {
       <p style="font-size:14px;color:#0f172a;margin:0 0 8px">Hi ${first},</p>
       <p style="font-size:13px;color:#334155;line-height:1.6">Thank you for sending your return. We have received and checked in the following items${gr ? '' : ` from order ${num}`}:</p>
       <table style="border-collapse:collapse;margin:8px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0;width:100%">${itemsHtml}</table>
+      ${cutHtml}
       ${outcomeHtml}
       ${origin && !gr ? emailButton(`${origin}/shop/${tenantId}/order/${ret.orderId}`, 'View my order', emailBrand) : ''}
       <p style="font-size:13px;color:#334155;line-height:1.6;margin:16px 0 0">Kind regards,<br>${emailBrand.shopName}</p>`,

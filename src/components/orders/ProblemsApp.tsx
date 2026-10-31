@@ -37,6 +37,8 @@ export function ProblemsApp() {
   const [tickets, setTickets] = React.useState<any[]>([]);
   const [claims, setClaims] = React.useState<any[]>([]);
   const [returns, setReturns] = React.useState<any[]>([]);
+  // Returns with an item held to check that nobody has decided yet, open or settled.
+  const [holds, setHolds] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [openId, setOpenId] = React.useState<string | null>(null);
   const [toast, setToast] = React.useState('');
@@ -55,6 +57,7 @@ export function ProblemsApp() {
       onSnapshot(query(col('retailSupport'), where('status', '==', 'open')), (s) => setTickets(rows(s)), () => setTickets([])),
       onSnapshot(query(col('retailClaims'), where('status', '==', 'in_review')), (s) => setClaims(rows(s)), () => setClaims([])),
       onSnapshot(query(col('retailReturns'), where('status', 'in', ['open', 'received'])), (s) => setReturns(rows(s)), () => setReturns([])),
+      onSnapshot(query(col('retailReturns'), where('holdsOpen', '>', 0)), (s) => setHolds(rows(s)), () => setHolds([])),
     ];
     return () => subs.forEach((u) => u());
   }, [fs, tenantId]);
@@ -64,8 +67,8 @@ export function ProblemsApp() {
   const [known, setKnown] = React.useState<Record<string, any>>({});
   const missing = React.useMemo(() => {
     const have = new Set([...orders, ...refundOrders].map((o) => o.id));
-    return [...new Set([...returns, ...claims].map((x: any) => String(x.orderId || '')).filter((id) => id && !have.has(id) && !(id in known)))].slice(0, 40);
-  }, [orders, refundOrders, returns, claims, known]);
+    return [...new Set([...returns, ...holds, ...claims].map((x: any) => String(x.orderId || '')).filter((id) => id && !have.has(id) && !(id in known)))].slice(0, 40);
+  }, [orders, refundOrders, returns, holds, claims, known]);
   const missingKey = missing.join(',');
   React.useEffect(() => {
     if (!fs || !tenantId || !missingKey) return;
@@ -79,7 +82,7 @@ export function ProblemsApp() {
   // Orders a label has put under Needs you, whatever their stage (shipped and closed ones too).
   const flagged = useLabelFlagOrders(fs, tenantId);
   const all = React.useMemo(() => [...orders, ...flagged.filter((f) => !orders.some((o) => o.id === f.id))], [orders, flagged]);
-  const groups = React.useMemo(() => buildProblems({ orders: all, refundOrders, knownOrders, tickets, claims, returns, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24), timeZone: shopZone }), [all, refundOrders, knownOrders, tickets, claims, returns, now, rs.readyStaleHours, shopZone]);
+  const groups = React.useMemo(() => buildProblems({ orders: all, refundOrders, knownOrders, tickets, claims, returns, holds, now, staleHours: Math.max(1, Number(rs.readyStaleHours) || 24), timeZone: shopZone }), [all, refundOrders, knownOrders, tickets, claims, returns, holds, now, rs.readyStaleHours, shopZone]);
   const shown = React.useMemo(() => showProblems(groups, show), [groups, show]);
   const counts = React.useMemo(() => Object.fromEntries(PROBLEM_SHOWS.map((x) => [x.id, x.id === show ? shown.length : showProblems(groups, x.id).length])) as Record<ProblemShow, number>, [groups, show, shown]);
   // On a computer the first in the view is open beside it, and takes over from one that's been sorted; on a phone a
@@ -132,7 +135,7 @@ export function ProblemsApp() {
   const EMPTY: Record<ProblemShow, [string, string]> = {
     all: ['Nothing needs you', 'Messages, problem reports, returns and refunds show up here the moment they come in.'],
     claims: ['No problem reports to decide', 'When a customer reports something wrong with an order, it shows here with the packing record.'],
-    returns: ['No returns to check in', 'Returns on their way back show here until they’re checked in.'],
+    returns: ['No returns to check in', 'Returns on their way back show here until they’re checked in, and items held to check until someone decides.'],
     messages: ['No messages to answer', 'Customer messages about an order land here.'],
     refunds: ['No refunds to send', 'Approved refunds wait here for someone allowed to send them.'],
     waiting: ['Nothing waiting on customers', 'When you ask a customer for something, it waits here until they answer.'],

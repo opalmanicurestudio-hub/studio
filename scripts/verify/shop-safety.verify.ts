@@ -82,7 +82,7 @@ const req = (body: any, headers: Record<string, string> = {}, search = '') => ({
   r = await FULFIL(req({ tenantId: 't1', action: 'openReturn', orderId: 'r1', selections: [{ lineId: 'A', qty: 1 }] }, { authorization: 'Bearer t' }));
   check('…and a renter can’t open the shop’s returns', r.status === 403);
   actor = { uid: 'k1', name: 'Kai Park', role: 'staff', isManager: false, isTenantOwner: false, caps: [] };
-  check('a return started on the order opens through the server, and is checked in through it', /import \{ openReturn, type Actor \} from '@\/lib\/fulfil-client'/.test(src('src/components/orders/StartReturnSheet.tsx')) && /import \{ receiveReturnLine, resolveReturn \} from '@\/lib\/fulfil-client'/.test(src('src/components/orders/ReturnSheet.tsx')));
+  check('a return started on the order opens through the server, and is checked in through it', /import \{ openReturn, type Actor \} from '@\/lib\/fulfil-client'/.test(src('src/components/orders/StartReturnSheet.tsx')) && /import \{ receiveReturnLine, resolveReturn, trimReturn \} from '@\/lib\/fulfil-client'/.test(src('src/components/orders/ReturnSheet.tsx')));
 
   // ── More about a report ──
   await db.doc(`${T}/retailClaims/c1`).set({ id: 'c1', orderId: 'r1', status: 'in_review', customerEmail: 'dana@example.com', claimValueCents: 1500 });

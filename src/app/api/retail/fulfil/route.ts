@@ -39,7 +39,7 @@ const ACTIONS: Record<string, Need> = {
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
   deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover', deliveryDoor: 'handover', deliverySkip: 'handover',
-  openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', decideClaim: 'claims', requestClaimInfo: 'claims',
+  openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', trimReturn: 'returns', decideHold: 'returns', decideClaim: 'claims', requestClaimInfo: 'claims',
 };
 
 const s = (v: any, n = 200) => String(v ?? '').slice(0, n);
@@ -302,9 +302,31 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         const ret: any = { ...(snap.data() || {}), id };
         touchedIds.push(String(ret.orderId || ''));
         if (action === 'resolveReturn') { out = await R.resolveReturn(db, tenantId, ret, actor); break; }
-        const disp = ['restock', 'open_box', 'quarantine', 'damaged', 'dispose', 'write_off'].includes(b.disposition) ? b.disposition : 'restock';
+        // The condition it came back in is always said, never assumed (a faulty item put back on the shelf by default
+        // would be sold again).
+        if (!['restock', 'open_box', 'quarantine', 'damaged', 'dispose', 'write_off'].includes(b.disposition)) return NextResponse.json({ ok: false, message: 'Say what condition it came back in.' }, { status: 400 });
         const lm = need1(lineId, 'item'); if (lm) return lm;
-        out = await R.receiveReturnLine(db, tenantId, ret, lineId, disp, actor); break;
+        out = await R.receiveReturnLine(db, tenantId, ret, lineId, b.disposition, actor); break;
+      }
+      case 'trimReturn': {
+        // Only part of a return came back: what did, counted by the screen, and whether the rest is still coming
+        // (lib/retail-returns trimReturn works out the rest and its money from the return as it's saved).
+        const id = safeId(b.returnId); const m = need1(id, 'return'); if (m) return m;
+        const rest = b.rest === 'keep' || b.rest === 'drop' ? b.rest : '';
+        if (!rest) return NextResponse.json({ ok: false, message: 'Say whether the rest is still coming.' }, { status: 400 });
+        const received = (Array.isArray(b.received) ? b.received : []).slice(0, 50)
+          .map((x: any) => ({ lineId: safeId(x?.lineId), qty: Math.max(0, Math.floor(Number(x?.qty) || 0)) })).filter((x: any) => x.lineId);
+        out = await R.trimReturn(db, tenantId, id, received, rest, actor);
+        if (out?.orderId) touchedIds.push(String(out.orderId));
+        break;
+      }
+      case 'decideHold': {
+        // An item held to check when it came back: what was found (lib/retail-returns decideHold).
+        const id = safeId(b.returnId); const m = need1(id, 'return') || need1(lineId, 'item'); if (m) return m;
+        if (!(R.HOLD_OUTCOMES as readonly string[]).includes(String(b.outcome))) return NextResponse.json({ ok: false, message: 'Say what you found.' }, { status: 400 });
+        out = await R.decideHold(db, tenantId, id, lineId, b.outcome, actor, b.qty == null ? undefined : Math.max(0, Math.floor(Number(b.qty) || 0)));
+        if (out?.orderId) touchedIds.push(String(out.orderId));
+        break;
       }
       case 'decideClaim': {
         const id = safeId(b.claimId); const m = need1(id, 'report'); if (m) return m;

@@ -1,13 +1,13 @@
 // src/lib/problems-view.ts — THE PROBLEMS LIST. Everything about an order that needs a person, from every place it
 // can come from (customer messages, problem reports, returns, refunds waiting to go, held orders, orders waiting on
-// stock or not collected, customers outside), gathered under the order it belongs to. One order, one row, however
+// stock or not collected, customers outside, returned items held to check), gathered under the order it belongs to. One order, one row, however
 // many problems it has. Most urgent first, then whoever has waited longest. Pure, so it can be tested.
 import { firstName, money, needsYou, orderNum } from './orders-view';
 import { dayLabel, promisedDay } from './ship-promise';
 import { carrierItem } from './ship-day';
 import { claimSince, claimWaiting } from './claim-view';
 
-export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'held' | 'backorder' | 'uncollected' | 'late' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'relabel' | 'refundDenied' | 'charge' | 'carrier' | 'unshipped';
+export type ProblemKind = 'outside' | 'message' | 'claim' | 'refund' | 'return' | 'inspect' | 'held' | 'backorder' | 'uncollected' | 'late' | 'address' | 'unconfirmed' | 'label' | 'voided' | 'relabel' | 'refundDenied' | 'charge' | 'carrier' | 'unshipped';
 /** waiting: the shop asked and it waits for the customer's answer (Waiting on them, not in front of you). appeal: they
  *  asked for a declined report to be looked at again. */
 export interface Problem { key: string; kind: ProblemKind; orderId: string; title: string; detail: string; at: number; urgent: boolean; ref: any; waiting?: boolean; appeal?: boolean }
@@ -16,8 +16,9 @@ export interface ProblemGroup { orderId: string; num: string; customerName: stri
 const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
 const ago = (t: number, now: number) => { if (!t) return ''; const m = Math.max(0, Math.round((now - t) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const CLAIM_WORDS: Record<string, string> = { missing: 'is missing', damaged: 'arrived damaged', wrong_item: 'is the wrong item', not_received: 'never arrived', defective: 'doesn’t work' };
-const RANK: Record<ProblemKind, number> = { outside: 0, message: 1, late: 2, carrier: 3, claim: 3, refund: 4, held: 5, address: 6, voided: 7, relabel: 7, refundDenied: 8, return: 8, uncollected: 9, unconfirmed: 10, label: 11, unshipped: 11, backorder: 12, charge: 13 };
+const RANK: Record<ProblemKind, number> = { outside: 0, message: 1, late: 2, carrier: 3, claim: 3, refund: 4, held: 5, address: 6, voided: 7, relabel: 7, refundDenied: 8, return: 8, inspect: 9, uncollected: 9, unconfirmed: 10, label: 11, unshipped: 11, backorder: 12, charge: 13 };
 const OPEN_CLAIM = new Set(['in_review', 'needs_info', 'info_requested', 'open']);
+const RETURN_WHY: Record<string, string> = { damaged_in_transit: 'Arrived damaged', defective: 'Doesn’t work', wrong_item: 'Wrong item', changed_mind: 'Changed their mind' };
 
 export function lastCustomerAt(t: any): number {
   const f = Array.isArray(t.followUps) ? t.followUps.map((x: any) => ms(x.at)) : [];
@@ -31,8 +32,9 @@ export function threadOf(t: any): { who: 'customer' | 'shop'; text: string; at: 
   return out.filter((m) => m.text).sort((a, b) => ms(a.at) - ms(b.at));
 }
 
-/** knownOrders: finished orders a return or report is on (not in the lists of active ones), only to name and open them. */
-export function buildProblems(src: { orders: any[]; refundOrders?: any[]; knownOrders?: any[]; tickets?: any[]; claims?: any[]; returns?: any[]; now?: number; staleHours?: number; timeZone?: string }): ProblemGroup[] {
+/** knownOrders: finished orders a return or report is on (not in the lists of active ones), only to name and open them.
+ *  holds: returns with an item held to check that nobody has decided yet. */
+export function buildProblems(src: { orders: any[]; refundOrders?: any[]; knownOrders?: any[]; tickets?: any[]; claims?: any[]; returns?: any[]; holds?: any[]; now?: number; staleHours?: number; timeZone?: string }): ProblemGroup[] {
   const now = src.now ?? Date.now();
   const byOrder = new Map<string, any>();
   [...(src.knownOrders || []), ...(src.refundOrders || []), ...src.orders].forEach((o) => byOrder.set(o.id, o));
@@ -100,7 +102,19 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; knownO
     if (!['open', 'received'].includes(String(r.status)) || !r.orderId) continue;
     const units = (r.lines || []).reduce((a: number, l: any) => a + (Number(l.qty) || 0), 0);
     const at = ms(r.openedAt);
-    push({ key: `r-${r.id}`, kind: 'return', orderId: r.orderId, title: r.status === 'received' ? 'Return to finish checking in' : `${units} item${units === 1 ? '' : 's'} coming back`, detail: `${r.resolution === 'store_credit' ? 'Store credit' : r.resolution === 'replacement' ? 'Replacement' : 'Refund'} · started ${ago(at, now)}`, at, urgent: false, ref: r });
+    push({ key: `r-${r.id}`, kind: 'return', orderId: r.orderId, title: r.status === 'received' ? 'Return to finish checking in' : `${units} item${units === 1 ? '' : 's'} ${r.restOf ? 'still to come back' : 'coming back'}`, detail: `${r.resolution === 'store_credit' ? 'Store credit' : r.resolution === 'replacement' ? 'Replacement' : 'Refund'} · started ${ago(at, now)}`, at, urgent: false, ref: r });
+  }
+  // A returned item held to check: kept out of stock, here until someone decides what it is (lib/retail-returns decideHold).
+  for (const r of src.holds || []) {
+    if (!r.orderId || ['cancelled', 'canceled', 'rejected'].includes(String(r.status))) continue;
+    for (const l of Array.isArray(r.lines) ? r.lines : []) {
+      if (l?.disposition !== 'quarantine' || l.holdDecided) continue;
+      // Some may be decided already (two fine, one still to look at).
+      const left = Math.max(0, Math.floor(Number(l.qty) || 1) - (Array.isArray(l.holdDecisions) ? l.holdDecisions : []).reduce((a: number, d: any) => a + Math.max(0, Math.floor(Number(d?.qty) || 0)), 0));
+      if (left <= 0) continue;
+      const at = ms(l.heldAt || l.dispositionScannedAt || r.openedAt);
+      push({ key: `h-${r.id}-${l.lineId}`, kind: 'inspect', orderId: r.orderId, title: `Held to check: ${l.name || 'an item'}${left > 1 ? ` ×${left}` : ''}`, detail: `${RETURN_WHY[String(l.reason)] || 'Returned'} · held ${ago(at, now)}`, at, urgent: false, ref: { ...r, line: l, left } });
+    }
   }
 
   const groups = new Map<string, ProblemGroup>();
@@ -120,13 +134,13 @@ export const PROBLEM_SHOWS: { id: ProblemShow; label: string }[] = [
   { id: 'all', label: 'All' }, { id: 'claims', label: 'Claims' }, { id: 'returns', label: 'Returns' }, { id: 'messages', label: 'Messages' },
   { id: 'refunds', label: 'Refunds to send' }, { id: 'waiting', label: 'Waiting on them' },
 ];
-const SHOW_KIND: Partial<Record<ProblemShow, ProblemKind>> = { claims: 'claim', returns: 'return', messages: 'message', refunds: 'refund' };
+const SHOW_KIND: Partial<Record<ProblemShow, ProblemKind[]>> = { claims: ['claim'], returns: ['return', 'inspect'], messages: ['message'], refunds: ['refund'] };
 /** One filter of the queue (mockup 10F). Everything but Waiting on them leaves out what waits for the customer; Claims
  *  puts appeals first, then whoever has waited longest. Each order keeps every problem it has (the panel shows them all):
  *  only the rows are filtered. */
 export function showProblems(groups: ProblemGroup[], show: ProblemShow): ProblemGroup[] {
   const kind = SHOW_KIND[show];
-  const keep = (p: Problem) => (show === 'waiting' ? !!p.waiting : !p.waiting && (!kind || p.kind === kind));
+  const keep = (p: Problem) => (show === 'waiting' ? !!p.waiting : !p.waiting && (!kind || kind.includes(p.kind)));
   const out = groups.map((g) => { const items = g.items.filter(keep); return items.length ? { ...g, items, at: Math.min(...items.map((p) => p.at || g.at)), urgent: items.some((p) => p.urgent) } : null; })
     .filter(Boolean) as ProblemGroup[];
   if (show === 'claims') {

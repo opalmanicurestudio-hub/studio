@@ -1761,6 +1761,11 @@ export interface ReturnLine {
   reason: ReturnReason;
   disposition?: ReturnDisposition;   // set at receiving scan
   dispositionScannedAt?: string;
+  /** Held to check (disposition 'quarantine'): kept out of stock until someone decides, in Problems (lib/retail-returns decideHold). */
+  heldAt?: string;
+  /** What each held unit turned out to be, some at a time; holdDecided once none are left to decide. */
+  holdDecisions?: { outcome: 'restock' | 'open_box' | 'damaged' | 'dispose'; qty: number; at: string; by: string }[];
+  holdDecided?: { outcome: 'restock' | 'open_box' | 'damaged' | 'dispose' | 'mixed'; at: string; by: string };
 }
 
 export interface RetailReturn {
@@ -1780,6 +1785,23 @@ export interface RetailReturn {
   resolvedBy?: string;
   resolvedAt?: string;
   notes?: string;
+  /** Items on it held to check and not decided yet (Problems lists them until they are). */
+  holdsOpen?: number;
+  /** Only part came back: what didn't, and whether the rest is still coming (a return of its own, restReturnId). */
+  trimmed?: { at: string; by: string; rest: 'drop' | 'keep'; lines: { lineId: string; name: string; qty: number }[] }[];
+  restReturnId?: string;
+  /** The rest of another return, still to come back. */
+  restOf?: string;
+  /** Something on it was the shop's fault before only part of it came back: no restocking fee, and the shop pays the
+   *  label, on both parts. */
+  shopFault?: boolean;
+}
+
+/** What a return was quoted, for fewer items than it was started with (only part came back): the same share of the
+ *  quote as those items are of what was paid for all of them. */
+export function trimmedReturnCents(order: RetailOrder, before: ReturnLine[], after: ReturnLine[], quoted: number): number {
+  const full = returnRefundCents(order, before);
+  return full > 0 ? Math.round((Math.max(0, Number(quoted) || 0) * returnRefundCents(order, after)) / full) : 0;
 }
 
 /** Item price plus the tax that was paid on those items. */

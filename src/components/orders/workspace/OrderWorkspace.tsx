@@ -154,7 +154,9 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   // checked in from here too.
   const doesReturns = perms.canPack || perms.canManage || canRefund || isManager;
   const returnable = doesReturns && hasReturnable(order, feeds.returns);
-  const openRet = doesReturns ? (feeds.returns || []).find((r: any) => ['open', 'received'].includes(String(r.status))) || null : null;
+  // One part way through checking in first, then the one started first (the rest of a return comes after it).
+  const opens = (feeds.returns || []).filter((r: any) => ['open', 'received'].includes(String(r.status)));
+  const openRet = doesReturns ? opens.find((r: any) => r.status === 'received') || [...opens].sort((a: any, b: any) => String(a.openedAt || '').localeCompare(String(b.openedAt || '')))[0] || null : null;
   // THE NEXT STEP, at the bottom: whatever this order needs next, unless the tab in front has its own.
   const main: { label: string; run: () => void } | null =
     openRet ? { label: 'Check in the return', run: () => setCheckRet(openRet) }

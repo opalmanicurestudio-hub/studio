@@ -41,9 +41,10 @@ export function effectiveUnitCents(l: { unitPriceCents?: number; qtyOrdered?: nu
 }
 
 /** The fee for a return: per line, the condition's percentage of what was paid for the item (its price after any
- *  promo code), never its tax. */
-export function restockingFee(orderLines: { lineId: string; unitPriceCents: number }[], lines: { lineId: string; qty: number; reason?: string; disposition?: string | null }[], pol: any): { cents: number; lines: FeeLine[]; waived: boolean } {
-  if (returnIsShopFault(lines)) return { cents: 0, lines: [], waived: true };
+ *  promo code), never its tax. `shopFault`: the return was the shop's fault before only part of it came back (the
+ *  waiver stays with both parts, lib/retail-returns trimReturn). */
+export function restockingFee(orderLines: { lineId: string; unitPriceCents: number }[], lines: { lineId: string; qty: number; reason?: string; disposition?: string | null }[], pol: any, shopFault = false): { cents: number; lines: FeeLine[]; waived: boolean } {
+  if (shopFault || returnIsShopFault(lines)) return { cents: 0, lines: [], waived: true };
   const out: FeeLine[] = [];
   for (const l of lines) {
     const orig = orderLines.find((o) => o.lineId === l.lineId); if (!orig) continue;
