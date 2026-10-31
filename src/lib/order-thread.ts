@@ -21,6 +21,10 @@ export type ThreadMsg = {
   photos?: string[];
   /** A follow-up that only chased (no new information). */
   chaser?: boolean;
+  /** How it reached the shop when it wasn't the order page. */
+  via?: 'email' | 'text';
+  /** A thank-you that doesn't wait on the shop (lib/order-texts). */
+  quiet?: boolean;
 };
 
 /** Kinds that are the shop talking, not an automatic update. */
@@ -32,9 +36,11 @@ export function conversationOf(inbox: any[], tickets: any[]): ThreadMsg[] {
   for (const t of tickets || []) {
     if (!t) continue;
     const id = String(t.id || '');
-    if (txt(t.message)) out.push({ id: `${id}-0`, at: String(t.createdAt || ''), who: 'customer', text: txt(t.message), ticketId: id, photos: Array.isArray(t.photoUrls) ? t.photoUrls.slice(0, 4) : undefined });
+    // Photos sent by text are in the shop's Twilio messages: said here, for the team (lib/order-texts).
+    const smsPics = (x: any) => { const n = Math.max(0, Number(x?.smsPhotos) || 0); return n ? ` (${n === 1 ? 'A photo' : `${n} photos`} sent by text: open ${n === 1 ? 'it' : 'them'} in the shop’s Twilio messages.)` : ''; };
+    if (txt(t.message) || smsPics(t)) out.push({ id: `${id}-0`, at: String(t.createdAt || ''), who: 'customer', text: `${txt(t.message)}${smsPics(t)}`.trim(), ticketId: id, photos: Array.isArray(t.photoUrls) ? t.photoUrls.slice(0, 4) : undefined, ...(t.via === 'sms' ? { via: 'text' as const } : {}) });
     (Array.isArray(t.followUps) ? t.followUps : []).forEach((f: any, i: number) => {
-      if (txt(f?.message) || (Array.isArray(f?.photoUrls) && f.photoUrls.length)) out.push({ id: `${id}-f${i}`, at: String(f.at || ''), who: 'customer', text: txt(f.message), ticketId: id, photos: Array.isArray(f.photoUrls) ? f.photoUrls.slice(0, 4) : undefined, chaser: f.kind === 'chaser' });
+      if (txt(f?.message) || smsPics(f) || (Array.isArray(f?.photoUrls) && f.photoUrls.length)) out.push({ id: `${id}-f${i}`, at: String(f.at || ''), who: 'customer', text: `${txt(f.message)}${smsPics(f)}`.trim(), ticketId: id, photos: Array.isArray(f.photoUrls) ? f.photoUrls.slice(0, 4) : undefined, chaser: f.kind === 'chaser', ...(f.quiet === true ? { quiet: true } : {}), ...(f.kind === 'email' ? { via: 'email' as const } : f.kind === 'sms' ? { via: 'text' as const } : {}) });
     });
     (Array.isArray(t.replies) ? t.replies : []).forEach((r: any, i: number) => {
       if (txt(r?.text)) out.push({ id: `${id}-r${i}`, at: String(r.at || ''), who: 'shop', text: txt(r.text), by: r.by ? String(r.by) : undefined, ticketId: id });
@@ -59,7 +65,7 @@ export function openCase(tickets: any[]): any | null {
 /** Waiting on the shop: the customer spoke last in an open case. */
 export function waitingOnShop(thread: ThreadMsg[], tickets: any[]): boolean {
   if (!openCase(tickets)) return false;
-  const people = thread.filter((m) => m.who !== 'update');
+  const people = thread.filter((m) => m.who !== 'update' && !m.quiet);
   return people.length > 0 && people[people.length - 1].who === 'customer';
 }
 

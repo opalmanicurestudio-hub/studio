@@ -138,6 +138,8 @@ export type SmsMeta = {
   recipientId?: string | null;
   recipientName?: string | null;
   appointmentId?: string | null;
+  /** The shop order it's about, so a reply can find its way back to that order (lib/order-texts). */
+  orderId?: string | null;
   skipMessageLog?: boolean;            // notify.ts email path logs its own
 };
 
@@ -249,6 +251,7 @@ export async function sendTenantSms(
         error: result.ok ? null : (result.error || null),
         providerId: result.sid || null,
         appointmentId: meta?.appointmentId || null,
+        orderId: meta?.orderId || null,
         clientId: who.recipientType === 'client' ? who.recipientId : null,
         clientName: who.recipientType === 'client' ? who.recipientName : null,
         recipientType: who.recipientType,

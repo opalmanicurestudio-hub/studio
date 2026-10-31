@@ -174,8 +174,8 @@ async function handleCheckout(req: NextRequest) {
   try {
     const flagSnap = await getAdminDb()
       .collection(`tenants/${tenantId}/customerFlags`)
-      .where('email', '==', customerEmail).limit(1).get();
-    if (!flagSnap.empty && String((flagSnap.docs[0].data() as any).level) === 'banned') {
+      .where('email', '==', customerEmail).limit(10).get();
+    if (flagSnap.docs.some((d: any) => String((d.data() as any)?.level) === 'banned')) {
       return NextResponse.json(
         { error: 'We can\u2019t take this order online. Please contact the shop directly.' },
         { status: 403 },

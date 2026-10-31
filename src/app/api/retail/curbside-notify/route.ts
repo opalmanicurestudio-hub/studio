@@ -146,6 +146,8 @@ export async function POST(req: NextRequest) {
     const res = await sendTenantSms(
       db, tenantId, claimed.phone, message,
       { email: claimed.email, subject: moment === 'ready' ? `Order ${num} is ready` : `Order ${num} is on its way out to you` },
+      // Which order, so their reply lands on it (lib/order-texts).
+      { kind: moment === 'ready' ? 'curbside_ready' : 'curbside_out', orderId },
     );
 
     // The text service didn't take it (and no email did instead): try again later (lib/order-outbox).

@@ -335,6 +335,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
         const r = await sendTenantSms(db, tenantId, to, input.text || '', undefined, {
           kind,
           appointmentId: input.appointmentId || null,
+          orderId: input.orderId || null,
           recipientType: input.recipientType || (input.clientId ? 'client' : undefined),
           recipientId: input.recipientId || input.clientId || null,
           recipientName: input.recipientName || input.clientName || null,

@@ -235,9 +235,8 @@ const fresh = async (x: any = {}) => {
   const fsMod = await import('fs');
   const rules = fsMod.readFileSync('firestore.rules', 'utf8');
   const credits = (rules.match(/match \/tenants\/\{tenantId\}\/depositCredits\/\{creditId\} \{[\s\S]*?\n    \}/) || [''])[0];
-  check('a browser can’t add store credit marked as for a return: the old way round the staff limit is gone',
-    !!credits && !/\('sourceRetailReturnId' in request\.resource\.data\) \|\|/.test(credits) && /!request\.resource\.data\.keys\(\)\.hasAny\(\['sourceRetailReturnId', 'returnForOrderId'[^\]]*\]\)/.test(credits)
-    && /amountCents <= staffCreditCapCents\(tenantId\)/.test(credits), credits);
+  check('a browser can’t add store credit at all, so nothing gets round the staff limit (the server adds every credit)',
+    !!credits && /allow create: if false;/.test(credits), credits);
   check('…and can’t move a backorder or replacement onto another order', /function orderLockedKeys\(\) \{[^}]*'parentOrderId'/.test(rules));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');

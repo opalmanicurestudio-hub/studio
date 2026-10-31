@@ -216,7 +216,7 @@ export function PoliciesScreen() {
 
         <Group title="Refunds and credit">
           <Row label="Refund on its own up to" note="Up to this much for each order goes back on its own: a return checked in, a cancelled order, an item that wasn’t on the shelf, a swap they turned down, a report your rules approve. Anyone on the team except renters can send it. $0 means someone allowed to refund sends every one."><NumberField label="Refund on its own up to" prefix="$" value={dollars(pol.refundAutoBelowCents)} disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.refundAutoBelowCents', Math.round(n * 100), 'Refund limit')} /></Row>
-          <Row label="Staff can give store credit up to" note="Managers have no limit." last><NumberField label="Staff credit limit" prefix="$" value={dollars(rs.staffCreditCapCents ?? 2500)} disabled={!canEdit} onSave={(n) => void save('retailSettings.staffCreditCapCents', Math.round(n * 100), 'Credit limit')} /></Row>
+          <Row label="Staff can give store credit up to" note="On each order, all told. Managers have no limit." last><NumberField label="Staff credit limit" prefix="$" value={dollars(rs.staffCreditCapCents ?? 2500)} disabled={!canEdit} onSave={(n) => void save('retailSettings.staffCreditCapCents', Math.round(n * 100), 'Credit limit')} /></Row>
         </Group>
 
         <Group title="Pickups nobody collects" foot={`They get a text and an email at each step. After the hold, the order shows in Problems for you to ${unc.after === 'keep' ? 'decide on' : 'put back on the shelf'}.`}>

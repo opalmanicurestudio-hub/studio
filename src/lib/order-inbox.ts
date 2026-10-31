@@ -178,7 +178,7 @@ export async function routeThroughOrderPage(db: any, input: any, send: (i: any) 
   const line = lineFor();
   if (viaText) {
     const text = KEEP_SMS.has(kind) && input.channel === 'sms' && input.text ? String(input.text) : `${shop}: ${line}${link ? ` ${link}` : ''}`;
-    return sendNudge({ ...input, viaOrderPage: true, channel: 'sms', to: String(order.customerPhone), text, html: undefined, subject: undefined });
+    return sendNudge({ ...input, orderId, viaOrderPage: true, channel: 'sms', to: String(order.customerPhone), text, html: undefined, subject: undefined });
   }
   if (!order.customerEmail) { await logPosted(db, tenantId, input, orderId, 'Posted on the order page; no phone or email to nudge'); return { ok: true, status: 'sent', error: 'posted to the order page; nobody to nudge' }; }
   const { brandedEmailHtml } = await import('./email-template');

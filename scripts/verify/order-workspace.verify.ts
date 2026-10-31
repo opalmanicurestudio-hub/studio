@@ -29,7 +29,7 @@ for (const [name, p] of [['bench', 'src/app/(app)/retail-orders/bench/page.tsx']
 const setup = src('src/components/orders/SetupScreen.tsx');
 check('setup no longer lists the bench or the classic board', !/retail-orders\/bench|retail-orders\/classic/.test(setup));
 check('wave picking sends the totes to the orders screen to pack', /href="\/retail-orders">Pack them/.test(src('src/app/(app)/retail-orders/waves/page.tsx')) && !/retail-orders\/bench/.test(src('src/app/(app)/retail-orders/waves/page.tsx')));
-check('the message inbox opens the order on its conversation', /\/retail-orders\?order=\$\{encodeURIComponent\(t\.orderId\)\}&tab=customer/.test(src('src/app/(app)/retail-orders/support/page.tsx')));
+check('a message in Problems opens its order', /href=\{`\/retail-orders\?order=\$\{group\.orderId\}`\}/.test(src('src/components/orders/ProblemPanel.tsx')));
 check('nothing links to the bench or the classic board any more',
   !/['"`]\/retail-orders\/(bench|classic)['"`]/.test([app, ws, pack, portal, setup, src('src/lib/modules.ts'), src('src/components/shared/AppSidebar.tsx'), src('src/components/orders/shell.tsx')].join('\n')));
 

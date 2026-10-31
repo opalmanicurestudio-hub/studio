@@ -512,7 +512,7 @@ const fresh = async (rs: any = {}) => {
   const rules = fs.readFileSync('firestore.rules', 'utf8');
   check('reviews: the team reads them, only the server writes them', /match \/tenants\/\{tenantId\}\/retailReviews\/\{reviewId\} \{\s+allow read: if isTeam\(tenantId\);\s+allow write: if false;/.test(rules)
     && /match \/tenants\/\{tenantId\}\/reviews\/\{reviewId\} \{\s+allow read: if isTeam\(tenantId\);\s+allow write: if false;/.test(rules) && /'driverLocations', 'retailReviews', 'reviews',/.test(rules));
-  check('the review email’s record on the order is locked', /'switchedFrom',\s+'reviewAsk'\];/.test(rules));
+  check('the review email’s record on the order is locked', /'switchedFrom',\s+'reviewAsk'[,\]]/.test(rules));
   check('the old shop page goes to the Shop tab, and Reviews is in every plan', /redirect\('\/reviews\?tab=shop'\)/.test(fs.readFileSync('src/app/(app)/retail-orders/reviews/page.tsx', 'utf8')) && !/'\/reviews'/.test(fs.readFileSync('src/lib/modules.ts', 'utf8')));
   const cron = fs.readFileSync('src/app/api/cron/retail-payments/route.ts', 'utf8');
   check('the cron sends them after the payment work, with a time budget', /sweepReviewAsks\(db, t\.id, tenant[^\n]*budgetMs/.test(cron) && cron.indexOf('sweepReviewAsks(db') > cron.indexOf("where('stage', '==', 'placed')"));

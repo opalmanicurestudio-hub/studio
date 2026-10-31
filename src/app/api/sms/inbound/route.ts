@@ -131,6 +131,12 @@ export async function POST(req: NextRequest) {
         await db.doc(`tenants/${tenantId}/private/smsOptOuts`).set({ [key]: stop ? nowIso : FieldValue.delete() }, { merge: true });
         if (clientId) await db.doc(`tenants/${tenantId}/clients/${clientId}`).set({ smsOptOut: stop, ...(stop ? { smsOptOutAt: nowIso } : { smsOptInAt: nowIso }) }, { merge: true });
       } catch (e) { console.error('[sms/inbound] opt-out', e); } } }
+    // A customer's text about an order from the last 30 days lands on that order: its case, the conversation on the
+    // order and Problems (lib/order-texts). STOP, HELP and the like stay here.
+    if ((senderType === 'client' || senderType === 'unknown') && !/^\s*(stop|stopall|unsubscribe|cancel|end|quit|help|info|start|unstop)\s*$/i.test(body)) {
+      const mediaUrls = Array.from({ length: Math.min(5, mediaCount) }, (_, i) => String(params[`MediaUrl${i}`] || '')).filter((u) => /^https:\/\//.test(u));
+      try { const { textIntoOrder } = await import('@/lib/order-texts'); if (await textIntoOrder(db, tenantId, { from, body, mediaCount, mediaUrls, clientId, senderName: clientId ? senderName : null, sid: String(params.MessageSid || params.SmsSid || '') })) return twimlOk(); } catch (e) { console.error('[sms/inbound] order text', e); }
+    }
     const noteBody = `${body}${mediaCount > 0 ? `${body ? ' ' : ''}(${mediaCount} photo${mediaCount === 1 ? '' : 's'} sent by MMS — view in Twilio console until media forwarding is set up)` : ''}`;
 
     // ── Does this reply belong on an active ticket's thread? ─────────

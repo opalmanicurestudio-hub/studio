@@ -211,7 +211,7 @@ export const SETTINGS_MAP: SettingEntry[] = [
     summarise: (t) => {
       const c = Number(t?.retailSettings?.staffCreditCapCents ?? 2500) / 100;
       return c > 0
-        ? `A non-manager can grant up to ${money(c)} in credit before a manager is needed.`
+        ? `A non-manager can give up to ${money(c)} in store credit on an order before a manager is needed.`
         : 'Only managers can grant credit.';
     },
   },

@@ -29,6 +29,7 @@ import { PackPane, type PackMode } from './PackPane';
 import { PickupPane, ShipPane } from './ShipPane';
 import { DeliveryPane, deliveryWhen } from './DeliveryPane';
 import { CustomerPane } from './CustomerPane';
+import { GoodwillSheet } from '../GoodwillSheet';
 import { Documents, RecordPane } from './RecordPane';
 import { Attention } from './Attention';
 import { BoxSizesSheet } from './BoxSizes';
@@ -153,6 +154,9 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   // whose role checks returns in (not a picker; api/retail/fulfil 'returns' rules the same). One on its way back is
   // checked in from here too.
   const doesReturns = perms.canPack || perms.canManage || canRefund || isManager;
+  // Store credit for the trouble, on a paid order with an email to keep it by (lib/goodwill-credit says how much).
+  const canCredit = doesReturns && order.stage !== 'placed' && !order.isTest && !!String(order.customerEmail || '').trim();
+  const [credit, setCredit] = React.useState(false);
   const returnable = doesReturns && hasReturnable(order, feeds.returns);
   // One part way through checking in first, then the one started first (the rest of a return comes after it).
   const opens = (feeds.returns || []).filter((r: any) => ['open', 'received'].includes(String(r.status)));
@@ -197,7 +201,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
   const tabs: [WorkTab, string][] = [['pack', 'Pack'], [order.method === 'digital' ? 'record' : 'ship', ship ? 'Ship' : delivery ? 'Delivery' : 'Pickup'], ...(layout === 'three' ? [] : [['customer', 'Customer'] as [WorkTab, string]]), ['record', 'Record']];
   const uniqTabs = tabs.filter((t, i) => tabs.findIndex((x) => x[0] === t[0]) === i);
   const customer = (aside: boolean) => (
-    <CustomerPane fs={fs} tenantId={tenantId} order={order} canEdit={canEditContact} tickets={feeds.tickets} inbox={feeds.inbox} startMessage={msgStart} aside={aside} onToast={onToast}
+    <CustomerPane fs={fs} tenantId={tenantId} order={order} canEdit={canEditContact} tickets={feeds.tickets} inbox={feeds.inbox} startMessage={msgStart} aside={aside} by={actor.name} isManager={isManager} onToast={onToast}
       documents={aside && tab !== 'record' ? <Documents tenantId={tenantId} order={order} recs={recs} returns={feeds.returns} list onToast={onToast} /> : undefined} />);
 
   const body = (
@@ -270,6 +274,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
       {checkRet && <ReturnSheet fs={fs} tenantId={tenantId} ret={checkRet} initialOrder={order} actor={actor} rs={rs} canRefund={canRefund} onClose={() => setCheckRet(null)} onDone={(m) => { setCheckRet(null); onToast(m); }} />}
       {startReturn && <StartReturnSheet fs={fs} tenantId={tenantId} order={order} returns={feeds.returns} actor={actor} rs={rs} canRefund={canRefund} onClose={() => setStartReturn(false)} onDone={(m) => { setStartReturn(false); onToast(m); }} />}
       {partRefund && <RefundPartSheet tenantId={tenantId} order={order} onClose={() => setPartRefund(false)} onDone={(m) => { setPartRefund(false); onToast(m); }} />}
+      {credit && <GoodwillSheet tenantId={tenantId} order={order} isManager={isManager} rs={rs} onClose={() => setCredit(false)} onDone={(m) => { setCredit(false); onToast(m); }} />}
       {more && (
         <Sheet title={`${orderNum(order)} · ${who}`} sub="More for this order" onClose={() => setMore(false)} closeLabel="Done">
           <div className="mt-2 flex flex-col gap-2">
@@ -283,6 +288,7 @@ export function OrderWorkspace({ fs, tenantId, order, all, actor, rs, photoFor, 
             {openRet && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setCheckRet(openRet); }}>Check in the return</Btn>}
             {returnable && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setStartReturn(true); }}>Start a return</Btn>}
             {canRefundPart && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setPartRefund(true); }}>Refund part of this order</Btn>}
+            {canCredit && <Btn kind="soft" className="w-full" onClick={() => { setMore(false); setCredit(true); }}>Give store credit</Btn>}
             {canCancel && <Btn kind="danger" className="w-full" onClick={() => { setMore(false); setConfirmCancel(true); }}>Cancel the order</Btn>}
           </div>
         </Sheet>)}

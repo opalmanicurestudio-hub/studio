@@ -30,7 +30,10 @@ export function ProblemsApp() {
   const wide = useWide();
   const canRefund = typeof can === 'function' ? can('checkout.refund') : false;
   // Deciding on a report, and asking the customer about one: the same test as the server's (api/retail/fulfil 'claims').
-  const canDecideClaims = canRefund || ['owner', 'admin', 'manager'].includes(String(role || ''));
+  const isManager = ['owner', 'admin', 'manager'].includes(String(role || ''));
+  const canDecideClaims = canRefund || isManager;
+  // Store credit for the trouble: the same team as returns (api/retail/fulfil 'credit'); how much is the server's.
+  const canCredit = !!(perms.canPack || perms.canManage || canRefund || isManager);
 
   const [orders, setOrders] = React.useState<any[]>([]);
   const [refundOrders, setRefundOrders] = React.useState<any[]>([]);
@@ -62,13 +65,14 @@ export function ProblemsApp() {
     return () => subs.forEach((u) => u());
   }, [fs, tenantId]);
 
-  // The finished orders a return or report is on (not in the active lists): read once each, so the row names the
-  // customer and the order, and the order's details (its address and link key, for a return label) are at hand.
+  // The finished orders a return, report or message is on (not in the active lists): read once each, so the row names
+  // the customer and the order, and the order's details (its address and link key for a return label, its email for
+  // store credit) are at hand.
   const [known, setKnown] = React.useState<Record<string, any>>({});
   const missing = React.useMemo(() => {
     const have = new Set([...orders, ...refundOrders].map((o) => o.id));
-    return [...new Set([...returns, ...holds, ...claims].map((x: any) => String(x.orderId || '')).filter((id) => id && !have.has(id) && !(id in known)))].slice(0, 40);
-  }, [orders, refundOrders, returns, holds, claims, known]);
+    return [...new Set([...returns, ...holds, ...claims, ...tickets].map((x: any) => String(x.orderId || '')).filter((id) => id && !have.has(id) && !(id in known)))].slice(0, 40);
+  }, [orders, refundOrders, returns, holds, claims, tickets, known]);
   const missingKey = missing.join(',');
   React.useEffect(() => {
     if (!fs || !tenantId || !missingKey) return;
@@ -118,7 +122,7 @@ export function ProblemsApp() {
       title={g.customerName} detail={`${g.items[0].title}${more > 0 ? ` and ${more} more` : ''}`}
       trail={<span className="shrink-0 text-[14px]" style={g.urgent ? { color: C.warn, fontWeight: 600 } : muted}>{g.urgent ? 'Now' : waitLabel(g.at, now)}</span>} />;
   };
-  const panel = open && <ProblemPanel key={open.orderId} fs={fs} tenantId={tenantId} group={open} actor={actor} rs={rs} canRefund={canRefund} canManage={!!perms.canManage} canDecideClaims={canDecideClaims} settling={settling} inline={wide} onClose={() => setOpenId(null)} onToast={setToast} />;
+  const panel = open && <ProblemPanel key={open.orderId} fs={fs} tenantId={tenantId} group={open} actor={actor} rs={rs} canRefund={canRefund} canManage={!!perms.canManage} canDecideClaims={canDecideClaims} isManager={isManager} canCredit={canCredit} settling={settling} inline={wide} onClose={() => setOpenId(null)} onToast={setToast} />;
   const needs = counts.all;
   const header = (
     <div className="px-4 pt-3">

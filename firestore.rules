@@ -187,24 +187,12 @@ service cloud.firestore {
       allow update: if isManager(tenantId);
       allow delete: if false;
     }
-    function staffCreditCapCents(tenantId) {
-      return tenantDoc(tenantId).data
-        .get('retailSettings', {})
-        .get('staffCreditCapCents', 2500);
-    }
-    // STORE CREDIT. The team adds it by hand (a goodwill credit): managers any amount, anyone else up to the shop's
-    // limit. Credit for a return is issued only by the server (lib/return-credit), worked out from what was paid, and so
-    // is a deposit's credit, added when the deposit is paid (lib/deposit-record, the payment webhooks), so nothing from a
-    // browser can be marked as either.
+    // STORE CREDIT. Only the server adds it: credit given for the trouble on an order (lib/goodwill-credit: managers
+    // any amount, anyone else up to the shop's limit on the order), credit for a return (lib/return-credit, worked out
+    // from what was paid) and a deposit's credit (lib/deposit-record, the payment webhooks). A browser never adds one.
     match /tenants/{tenantId}/depositCredits/{creditId} {
       allow read: if isStaff(tenantId);
-      allow create: if (isManager(tenantId) || (
-          isStaff(tenantId)
-          && request.resource.data.amountCents is int
-          && request.resource.data.amountCents <= staffCreditCapCents(tenantId)
-        ))
-        && !request.resource.data.keys().hasAny(['sourceRetailReturnId', 'returnForOrderId',
-          'sourceAppointmentId', 'stripePaymentIntentId', 'stripeChargeId', 'checkoutSessionId']);
+      allow create: if false;
       allow update, delete: if isManager(tenantId);
     }
     match /tenants/{tenantId}/serviceSessions/{sessionId} {
@@ -695,7 +683,7 @@ service cloud.firestore {
               'pickupWindow', 'pickupWindowKey', 'checkoutKeyHash', 'deliveryWindowKey', 'deliveryAsapAt', 'tipFor',
               'shippingAddress', 'deliveredAt',
               'deliveryRetryPaid', 'deliveryRetryPaidOpen', 'deliveryRetryPaidRetry', 'deliveryRetryLog', 'deliveryFeeBackCents', 'deliveryFeeKeptCents', 'switchedFrom',
-              'reviewAsk'];
+              'reviewAsk', 'goodwillCents', 'textsIn'];
     }
     // What only the order steps change, on the server (api/retail/fulfil, with the person's role checked there): the
     // order's stage, its items and their counts, who's packing it, when each step happened, the lots that went out and
@@ -791,6 +779,19 @@ service cloud.firestore {
     }
     // RETURNS: opened, checked in and settled on the server (api/retail/fulfil, api/retail/self-serve), which works out
     // what comes back from what was paid. The team reads them.
+    // NOTES ABOUT A CUSTOMER (components/orders/CustomerFlag), kept by email: the team reads them and adds notes; only a
+    // manager stops online checkout or lets them back; notes are never taken away, and none is deleted from a browser.
+    // The checkout reads them on the server.
+    match /tenants/{tenantId}/customerFlags/{flagId} {
+      allow read: if isTeam(tenantId);
+      allow create: if isTeam(tenantId) && request.resource.data.reasons is list
+        && (request.resource.data.level == 'watch' || isManager(tenantId));
+      allow update: if isTeam(tenantId) && request.resource.data.reasons is list
+        && request.resource.data.reasons.hasAll(resource.data.get('reasons', []))
+        && request.resource.data.get('email', '') == resource.data.get('email', '')
+        && (request.resource.data.get('level', 'watch') == resource.data.get('level', 'watch') || isManager(tenantId));
+      allow delete: if false;
+    }
     match /tenants/{tenantId}/retailReturns/{returnId} {
       allow read: if isTeam(tenantId);
       allow write: if false;
@@ -832,7 +833,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations', 'retailReviews', 'reviews', 'replies',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'customerFlags', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations', 'retailReviews', 'reviews', 'replies',
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',

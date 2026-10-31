@@ -11,6 +11,7 @@ import { firstName, money } from '@/lib/orders-view';
 import { conversationOf, openCase, waitingOnShop, type ThreadMsg } from '@/lib/order-thread';
 import { cleanContact, contactDiff } from '@/lib/contact-change';
 import { AddressCard } from '../AddressCard';
+import { CustomerFlag } from '../CustomerFlag';
 import { Btn, C, Toggle, feel, muted } from '../ui';
 import { GapNote, ReplyChips, pickInto, replyContext } from '../ReplyChips';
 import { hasGap } from '@/lib/replies';
@@ -38,8 +39,10 @@ function useHistory(fs: Firestore, tenantId: string, email: string, orderId: str
   return h;
 }
 
-export function CustomerPane({ fs, tenantId, order, canEdit, tickets, inbox, startMessage, aside, documents, onToast }: {
+export function CustomerPane({ fs, tenantId, order, canEdit, tickets, inbox, startMessage, aside, documents, by, isManager, onToast }: {
   fs: Firestore; tenantId: string; order: any; canEdit: boolean; tickets: any[]; inbox: any[]; startMessage?: string | null; aside: boolean;
+  /** Who's signed in, for a note about the customer; a manager can also stop their online checkout. */
+  by?: string; isManager?: boolean;
   /** The order's documents, shown under the conversation beside the order on a computer. */
   documents?: React.ReactNode; onToast: (m: string) => void;
 }) {
@@ -121,7 +124,7 @@ export function CustomerPane({ fs, tenantId, order, canEdit, tickets, inbox, sta
             {m.text && <p className="m-0 whitespace-pre-wrap text-[14.5px] leading-snug">{m.text}</p>}
             {m.photos && m.photos.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{m.photos.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer"><img src={u} alt="A photo they sent" className="h-16 w-16 rounded-lg object-cover" /></a>)}</div>}
           </div>
-          <p className={`m-0 mt-0.5 text-[11.5px] ${mine ? 'text-right' : ''}`} style={muted}>{mine ? `${m.by || 'The shop'} · ` : m.chaser ? 'Checking in · ' : ''}{when(m.at)}</p>
+          <p className={`m-0 mt-0.5 text-[11.5px] ${mine ? 'text-right' : ''}`} style={muted}>{mine ? `${m.by || 'The shop'} · ` : m.via === 'text' ? 'By text · ' : m.via === 'email' ? 'By email · ' : m.chaser ? 'Checking in · ' : ''}{when(m.at)}</p>
         </div>
       </div>);
   };
@@ -138,6 +141,7 @@ export function CustomerPane({ fs, tenantId, order, canEdit, tickets, inbox, sta
           {order.customerEmail ? <p className="m-0 break-all">{order.customerEmail}</p> : <p className="m-0" style={muted}>No email</p>}
           {order.customerPhone ? <p className="m-0">{order.customerPhone}<span style={muted}> · {order.textsOff ? 'texts off' : 'texts on'}</span></p> : <p className="m-0" style={muted}>No mobile</p>}
           {!canEdit && <p className="m-0 mt-1 text-[12.5px]" style={muted}>Managers and the front desk can change these.</p>}
+          <CustomerFlag fs={fs} tenantId={tenantId} email={order.customerEmail} name={order.customerName} orderId={order.id} by={by || 'Team'} isManager={!!isManager} onToast={onToast} />
         </div>
       ) : (
         <div className="mt-1">

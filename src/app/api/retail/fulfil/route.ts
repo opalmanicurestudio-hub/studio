@@ -30,7 +30,7 @@ export const dynamic = 'force-dynamic';
 const PAY_GRACE_MS = 5 * 60_000;
 export const maxDuration = 60;
 
-type Need = 'pick' | 'pack' | 'handover' | 'ship' | 'manage' | 'staff' | 'returns' | 'claims';
+type Need = 'pick' | 'pack' | 'handover' | 'ship' | 'manage' | 'staff' | 'returns' | 'claims' | 'credit';
 /** What each step needs. 'staff': anyone on the team (receiving stock releases backorders it covers). */
 const ACTIONS: Record<string, Need> = {
   claimNext: 'pick', claimOrder: 'pick', takeOver: 'pick', releaseBatch: 'pick', sweepStale: 'staff',
@@ -39,7 +39,7 @@ const ACTIONS: Record<string, Need> = {
   splitReady: 'pack', releaseBackorder: 'pack', releaseCovered: 'staff', waveStatus: 'pick',
   markShipped: 'ship', cancel: 'manage',
   deliveryOut: 'handover', deliveryDone: 'handover', deliveryFailed: 'handover', deliveryDoor: 'handover', deliverySkip: 'handover',
-  openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', trimReturn: 'returns', decideHold: 'returns', decideClaim: 'claims', requestClaimInfo: 'claims',
+  openReturn: 'returns', receiveReturnLine: 'returns', resolveReturn: 'returns', trimReturn: 'returns', decideHold: 'returns', decideClaim: 'claims', requestClaimInfo: 'claims', giveCredit: 'credit',
 };
 
 const s = (v: any, n = 200) => String(v ?? '').slice(0, n);
@@ -107,6 +107,9 @@ export async function POST(req: NextRequest) {
     // Returns move stock back onto the shelf or write it off: the team's packers and up, never a renter, and never someone
     // a manager made a picker or gave no part in orders.
     : need === 'returns' ? !a.isRenter && (perms.canPack || perms.canManage || refunds || (!explicit || !['picker', 'none'].includes(explicit)))
+    // Store credit for the trouble: the same team as returns (never a renter, a picker or someone with no part in
+    // orders); how much is lib/goodwill-credit's.
+    : need === 'credit' ? !a.isRenter && (perms.canPack || perms.canManage || refunds || (!explicit || !['picker', 'none'].includes(explicit)))
     : refunds && !a.isRenter;
   if (!allowed && a.isRenter && action.startsWith('delivery')) return NextResponse.json({ ok: false, message: 'Deliveries are made by the shop’s own team.' }, { status: 403 });
   if (!allowed) {
@@ -115,6 +118,7 @@ export async function POST(req: NextRequest) {
       handover: 'Handing orders over isn’t part of your role. Ask a manager to add it.',
       ship: 'Shipping isn’t part of your role. Ask a manager to make you a shipper.', manage: 'Canceling orders is for a manager.',
       staff: '', returns: 'Returns aren’t part of your role. Ask a manager to add it.', claims: 'Deciding on a report is for a manager or someone who can refund.',
+      credit: 'Giving store credit isn’t part of your role. Ask a manager.',
     };
     return NextResponse.json({ ok: false, message: action === 'requestClaimInfo' ? 'Asking a customer about a report is for a manager or someone who can refund.' : words[need] }, { status: 403 });
   }
@@ -318,6 +322,19 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
           .map((x: any) => ({ lineId: safeId(x?.lineId), qty: Math.max(0, Math.floor(Number(x?.qty) || 0)) })).filter((x: any) => x.lineId);
         out = await R.trimReturn(db, tenantId, id, received, rest, actor);
         if (out?.orderId) touchedIds.push(String(out.orderId));
+        break;
+      }
+      case 'giveCredit': {
+        // Store credit for the trouble, on the order (lib/goodwill-credit): how much a person may give is worked out
+        // there from who they are, and the customer gets their balance by email straight after.
+        const m = need1(orderId, 'order'); if (m) return m;
+        const { giveGoodwillCredit } = await import('@/lib/goodwill-credit');
+        const r = await giveGoodwillCredit(db, tenantId, { orderId, cents: Number(b.cents), note: s(b.note, 300), key: s(b.key, 60), ticketId: safeId(b.ticketId) || null }, { id: actor.id, name: actor.name, boss });
+        if (!r.ok) return NextResponse.json({ ok: false, message: r.message }, { status: r.status || 409 });
+        touchedIds.push(orderId);
+        const c = ctx();
+        if (r.creditId && !r.already && c) after(async () => { try { await fetch(`${c.base}/api/retail/credit-notify`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: c.auth }, body: JSON.stringify({ tenantId, creditId: r.creditId }) }); } catch (e: any) { console.warn('[fulfil] credit email', String(e?.message || e).slice(0, 160)); } });
+        out = { ok: true, message: r.message, cents: r.cents, already: r.already === true };
         break;
       }
       case 'decideHold': {

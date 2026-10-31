@@ -21,15 +21,21 @@ const OPEN_CLAIM = new Set(['in_review', 'needs_info', 'info_requested', 'open']
 const RETURN_WHY: Record<string, string> = { damaged_in_transit: 'Arrived damaged', defective: 'Doesn’t work', wrong_item: 'Wrong item', changed_mind: 'Changed their mind' };
 
 export function lastCustomerAt(t: any): number {
-  const f = Array.isArray(t.followUps) ? t.followUps.map((x: any) => ms(x.at)) : [];
+  // A quiet thank-you (lib/order-texts) isn't the customer waiting on the shop.
+  const f = Array.isArray(t.followUps) ? t.followUps.filter((x: any) => !x?.quiet).map((x: any) => ms(x.at)) : [];
   return Math.max(ms(t.createdAt), ...f, ms(t.lastCustomerAt));
 }
 
-export function threadOf(t: any): { who: 'customer' | 'shop'; text: string; at: string; by?: string; via?: string }[] {
-  const out: any[] = [{ who: 'customer', text: String(t.message || ''), at: t.createdAt }];
-  (Array.isArray(t.followUps) ? t.followUps : []).forEach((f: any) => out.push({ who: 'customer', text: String(f.message || ''), at: f.at, via: f.kind === 'email' ? 'email' : undefined }));
+export function threadOf(t: any): { who: 'customer' | 'shop'; text: string; at: string; by?: string; via?: string; photos?: string[]; chaser?: boolean; quiet?: boolean }[] {
+  // How it reached the shop when it wasn't the order page: a reply by email, or a text (lib/order-texts). Their photos
+  // ride along (ones sent by text are in the shop's Twilio messages, said here for the team only); a follow-up that only
+  // chased says so; a quiet thank-you is shown but never waits on the shop.
+  const pics = (v: any) => (Array.isArray(v) ? v.filter((u: any) => /^https:\/\//.test(String(u))).slice(0, 4) : []);
+  const words = (x: any) => { const n = Math.max(0, Number(x?.smsPhotos) || 0); return [String(x?.message || ''), n ? `(${n === 1 ? 'A photo' : `${n} photos`} sent by text: open ${n === 1 ? 'it' : 'them'} in the shop’s Twilio messages.)` : ''].filter(Boolean).join(' '); };
+  const out: any[] = [{ who: 'customer', text: words(t), at: t.createdAt, via: t.via === 'sms' ? 'text' : undefined, photos: pics(t.photoUrls) }];
+  (Array.isArray(t.followUps) ? t.followUps : []).forEach((f: any) => out.push({ who: 'customer', text: words(f), at: f.at, via: f.kind === 'email' ? 'email' : f.kind === 'sms' ? 'text' : undefined, photos: pics(f.photoUrls), chaser: f.kind === 'chaser', quiet: f.quiet === true }));
   (Array.isArray(t.replies) ? t.replies : []).forEach((r: any) => out.push({ who: 'shop', text: String(r.text || ''), at: r.at, by: r.by }));
-  return out.filter((m) => m.text).sort((a, b) => ms(a.at) - ms(b.at));
+  return out.filter((m) => m.text || (m.photos && m.photos.length)).sort((a, b) => ms(a.at) - ms(b.at));
 }
 
 /** knownOrders: finished orders a return or report is on (not in the lists of active ones), only to name and open them.
@@ -79,7 +85,7 @@ export function buildProblems(src: { orders: any[]; refundOrders?: any[]; knownO
   for (const t of src.tickets || []) {
     if (t.status === 'resolved' || !t.orderId) continue;
     const unanswered = Math.max(1, Number(t.customerMessagesSinceStaffReply) || (Array.isArray(t.replies) && t.replies.length ? 0 : 1));
-    const th = threadOf(t); const last = [...th].reverse().find((m) => m.who === 'customer');
+    const th = threadOf(t).filter((m) => !m.quiet); const last = [...th].reverse().find((m) => m.who === 'customer');
     const waiting = !(th.length && th[th.length - 1].who === 'shop');
     const at = lastCustomerAt(t);
     push({ key: `t-${t.id}`, kind: 'message', orderId: t.orderId, title: waiting ? `${firstName(t.customerName)} wrote` : `Waiting on ${firstName(t.customerName)}`, detail: `“${String(last?.text || '').slice(0, 90)}”${waiting && unanswered > 1 ? ` · ${unanswered} unanswered` : ''} · ${ago(at, now)}`, at, urgent: t.priority === 'urgent' && waiting, ref: t, waiting: !waiting });

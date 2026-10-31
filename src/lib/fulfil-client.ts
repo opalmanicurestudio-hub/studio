@@ -80,6 +80,8 @@ export const openReturn = (_fs: any, tenantId: string, order: { id: string }, se
 export const requestClaimInfo = (tenantId: string, claimId: string, text: string) => step(tenantId, 'requestClaimInfo', { claimId, text });
 /** Only part of a return came back: what did, and whether the rest is still coming (the server works out the rest). */
 export const trimReturn = (tenantId: string, returnId: string, received: { lineId: string; qty: number }[], rest: 'drop' | 'keep') => step<Ans & { trimmed?: boolean; earlier?: boolean; restReturnId?: string }>(tenantId, 'trimReturn', { returnId, received, rest });
+/** Store credit for the trouble, on the order (worked out and saved on the server; `key` makes a retry give it once). */
+export const giveCredit = (tenantId: string, orderId: string, cents: number, o: { note?: string; key: string; ticketId?: string }) => step<Ans & { cents?: number; already?: boolean }>(tenantId, 'giveCredit', { orderId, cents, note: o.note || '', key: o.key, ticketId: o.ticketId || '' });
 /** An item held to check when it came back, decided (some of them at a time): back on the shelf, or written off. */
 export const decideHold = (tenantId: string, returnId: string, lineId: string, outcome: 'restock' | 'open_box' | 'damaged' | 'dispose', qty?: number) => step<Ans & { left?: number }>(tenantId, 'decideHold', { returnId, lineId, outcome, ...(qty ? { qty } : {}) });
 export const resolveReturn = (_fs: any, tenantId: string, ret: { id: string }, _actor: Actor) => step<Ans & { refundQueuedCents?: number; orderQrToken?: string }>(tenantId, 'resolveReturn', { returnId: ret.id });

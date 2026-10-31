@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     const snap = await db.collection(`${T}/smsInbox`).orderBy('at', 'desc').limit(300).get();
     let items = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
       .filter((m: any) => !['tech', 'renter'].includes(String(m.senderType || '')))   // maintenance and renter texts live on their own screens
+      .filter((m: any) => !m.routedOrderId)   // a customer's text about a shop order is answered on the order (lib/order-texts)
       .map((m: any) => ({ id: m.id, at: m.at, channel: m.channel === 'email' ? 'email' : m.channel === 'app' ? 'app' : 'sms', from: m.from || null, appointmentId: m.appointmentId || null, fromName: m.fromName || null, clientId: m.clientId || null, clientName: m.clientName || null,
         subject: m.subject || null, body: m.body || null, mediaCount: m.mediaCount || 0, readAt: m.readAt || null, readBy: m.readBy || null, repliedAt: m.repliedAt || null, repliedBy: m.repliedBy || null,
         via: m.via || null, actionTaken: m.actionTaken || null, complaint: m.complaint ? { match: true, safety: !!m.complaint.safety } : soundsLikeComplaint(m.body) }));

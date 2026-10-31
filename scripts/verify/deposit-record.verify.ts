@@ -208,9 +208,9 @@ const fresh = async (x: any = {}) => {
     !!handler && /\/api\/appointments\/desk-deposit/.test(handler) && /action: 'charge'/.test(handler) && !/depositCredits/.test(handler) && !/charge-card/.test(handler) && !/writeBatch/.test(handler), handler.slice(0, 200));
   const rules = src('firestore.rules');
   const creditRule = (rules.match(/match \/tenants\/\{tenantId\}\/depositCredits\/\{creditId\} \{[\s\S]*?\n    \}/) || [''])[0];
-  check('the rules don’t let a browser add credit marked as a deposit or a card payment (a goodwill credit is still fine)',
-    /hasAny\(\[[^\]]*'sourceAppointmentId'[^\]]*'stripePaymentIntentId'[^\]]*'stripeChargeId'[^\]]*'checkoutSessionId'[^\]]*\]\)/.test(creditRule) && /staffCreditCapCents/.test(creditRule), creditRule);
-  check('the support desk’s goodwill credit carries none of those marks', !/sourceAppointmentId|stripePaymentIntentId|stripeChargeId|checkoutSessionId/.test((src('src/app/(app)/retail-orders/support/page.tsx').match(/addDoc\(collection\(firestore as Firestore, `tenants\/\$\{tenantId\}\/depositCredits`\), \{[\s\S]*?\}\);/) || ['x'])[0]));
+  check('the rules don’t let a browser add credit at all (deposits, card payments and credit for the trouble are all added by the server)',
+    /allow create: if false;/.test(creditRule) && /allow read: if isStaff\(tenantId\);/.test(creditRule), creditRule);
+  check('store credit given for the trouble carries none of those marks', !/sourceAppointmentId|stripePaymentIntentId|stripeChargeId|checkoutSessionId/.test((src('src/lib/goodwill-credit.ts').match(/tx\.set\(cRef, \{[\s\S]*?\}\);/) || ['sourceAppointmentId'])[0]));
   check('approvals, group bookings and the nightly retry record a charged deposit through the server recorder',
     ['src/app/api/appointments/decide/route.ts', 'src/app/api/appointments/party/route.ts', 'src/lib/retail-sweeps.ts'].every((p) => /recordCardDepositSafely\(/.test(src(p))));
   check('…and instant and phone bookings add its credit with the booking', ['src/lib/booking/create-booking.ts', 'src/app/api/voice/create-booking/route.ts'].every((p) => /cardDepositCredit\(/.test(src(p)) && /depositCredits\/\$\{dc\.id\}/.test(src(p))));

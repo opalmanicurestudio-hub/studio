@@ -32,7 +32,7 @@ function getAdminDb() {
 export async function POST(req: NextRequest) {
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
   if (!ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'AI drafts need ANTHROPIC_API_KEY in the environment.' }, { status: 400 });
+    return NextResponse.json({ error: 'Reply drafts aren’t set up yet. Write it yourself, or pick a reply above.' }, { status: 400 });
   }
 
   let body: any;
@@ -76,9 +76,10 @@ export async function POST(req: NextRequest) {
     const email = String(ticket.customerEmail || '').trim().toLowerCase();
     if (email) {
       const fSnap = await db.collection(`tenants/${tenantId}/customerFlags`)
-        .where('email', '==', email).limit(1).get();
+        .where('email', '==', email).limit(10).get();
       if (!fSnap.empty) {
-        const f = fSnap.docs[0].data() as any;
+        const rows = fSnap.docs.map((d: any) => d.data() as any);
+        const f = rows.find((r: any) => r.level === 'banned') || rows[0];
         const kinds = [...new Set((f.reasons || []).map((r: any) => String(r.kind || 'other')))].join(', ');
         flagCoaching = `\n- INTERNAL CONTEXT (never reference or hint at this to the customer): this customer is flagged ${String(f.level)} for: ${kinds || 'staff concern'}. Be professionally warm but FIRM: make zero commitments (no refunds, credits, replacements, or exceptions), do not apologize beyond one sentence, state only recorded facts, and close by saying the team will review and follow up. Keep it short. Do not match hostility.`;
       }
@@ -86,7 +87,16 @@ export async function POST(req: NextRequest) {
   } catch { /* coaching is best-effort */ }
 
   const urgent = ticket.priority === 'urgent';
-  const system = `You draft short customer-service email replies for ${shopName}, a small local shop. Rules:
+  // The whole conversation, so a reply answers what they said last (a case that came back by text or email), not only
+  // their first message.
+  const said = [
+    { at: String(ticket.createdAt || ''), who: 'Customer', text: String(ticket.message || '') },
+    ...(Array.isArray(ticket.followUps) ? ticket.followUps : []).map((f: any) => ({ at: String(f.at || ''), who: 'Customer', text: String(f.message || '') })),
+    ...(Array.isArray(ticket.replies) ? ticket.replies : []).map((r: any) => ({ at: String(r.at || ''), who: 'Shop', text: String(r.text || '') })),
+  ].filter((m) => m.text.trim()).sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0)).slice(-8);
+  const conversation = said.map((m) => `${m.who}: "${m.text.slice(0, 600)}"`).join('\n');
+  // The reply goes on their order page (they get a text or email pointing to it), so it's a message, not an email.
+  const system = `You draft short customer-service replies for ${shopName}, a small local shop, posted on the customer's order page. Rules:
 - Use ONLY the order facts provided. NEVER invent refunds, dates, discounts, or policies not in the facts.
 - Professional, warm, courteous and concise (3-6 full sentences). US spelling. No greeting, subject line or signature block (these are added automatically). No slang, no emoji, prefer periods to dashes.
 - If a refund is queued, say it will be processed shortly and typically reaches cards in 5-10 business days.
@@ -103,22 +113,25 @@ ${urgent ? '- The customer is upset. Lead by acknowledging their specific frustr
         system,
         messages: [{
           role: 'user',
-          content: `ORDER FACTS:\n${facts}\n\nCUSTOMER MESSAGE:\n"${String(ticket.message || '').slice(0, 1000)}"\n\nDraft the reply body only.`,
+          content: `ORDER FACTS:\n${facts}\n\nTHE CONVERSATION SO FAR (oldest first; answer the customer's latest message):\n${conversation}\n\nDraft the reply body only.`,
         }],
       }),
     });
     const data = await res.json();
+    // The service's own words stay in the server log, never on the team's screen.
     if (!res.ok) {
-      return NextResponse.json({ error: String(data?.error?.message || 'AI service error').slice(0, 200) }, { status: 502 });
+      console.warn('[support-draft]', res.status, String(data?.error?.message || '').slice(0, 200));
+      return NextResponse.json({ error: 'A draft couldn’t be made just now. Write it yourself, or pick a reply above.' }, { status: 502 });
     }
     const draft = (data.content || [])
       .filter((c: any) => c.type === 'text')
       .map((c: any) => c.text)
       .join('\n')
       .trim();
-    if (!draft) return NextResponse.json({ error: 'Empty draft returned' }, { status: 502 });
+    if (!draft) return NextResponse.json({ error: 'A draft couldn’t be made just now. Write it yourself, or pick a reply above.' }, { status: 502 });
     return NextResponse.json({ draft });
   } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message || 'Draft failed').slice(0, 200) }, { status: 502 });
+    console.warn('[support-draft]', String(e?.message || e).slice(0, 200));
+    return NextResponse.json({ error: 'A draft couldn’t be made just now. Write it yourself, or pick a reply above.' }, { status: 502 });
   }
 }
