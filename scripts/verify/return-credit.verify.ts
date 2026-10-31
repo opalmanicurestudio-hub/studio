@@ -207,7 +207,7 @@ const fresh = async (x: any = {}) => {
   stripeCalls.length = 0;
   let rf = await refund();
   check('all four polishes given as $60.48 store credit: a card refund for the same money is refused, nothing goes to the card',
-    r.body.creditCents === 6048 && rf.status === 409 && stripeCalls.length === 0 && /store credit for a return/.test(rf.body.error), { credit: r.body, rf: rf.body });
+    r.body.creditCents === 6048 && rf.status === 409 && stripeCalls.length === 0 && /given as store credit\./.test(rf.body.error), { credit: r.body, rf: rf.body });
   await fresh();
   await db.doc(T).set({ name: 'Opal', stripeAccountId: 'acct_1', retailSettings: {} });
   await db.doc(`${T}/retailReturns/rc`).set(ret('rc', 1));

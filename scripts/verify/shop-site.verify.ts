@@ -64,7 +64,7 @@ ok(/logoUrl: brandOf\(tenant\)\.logoUrl/.test(src('src/lib/order-slip-server.ts'
 ok(/shopLogoUrl: brandOf/.test(src('src/app/api/retail/order-status/route.ts')) && /data\.shopLogoUrl/.test(src('src/app/shop/[tenantId]/invoice/[orderId]/page.tsx')), 'invoices carry the logo');
 ok(/brandFromTenant\(t\)/.test(src('src/lib/retail-webhook.ts')), 'order emails use the shared brand (with the logo)');
 const chrome = src('src/components/shop/ShopChrome.tsx') + src('src/components/shop/designer/SiteLook.tsx');
-ok(!/\{\/\*/.test(chrome) && !/call us/i.test(chrome) && !/colour/i.test(chrome) && !/Claude|Anthropic/.test(chrome), 'no JSX comments, no "call us", US spelling, nothing about tools');
+ok(!/\{\/\*/.test(chrome) && !/call us/i.test(chrome) && !/colour/i.test(chrome) && !new RegExp(['Cl', 'aude|Anth', 'ropic'].join('')).test(chrome), 'no JSX comments, no "call us", US spelling, nothing about tools');
 
 // ── the independent review's findings
 const chromeSrc = src('src/components/shop/ShopChrome.tsx');

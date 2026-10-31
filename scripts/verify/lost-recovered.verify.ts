@@ -159,7 +159,7 @@ const day = (v: string) => new Date(v).toISOString().slice(5, 10);
   await db.doc('tenants/t1/retailClaims/l5__not_received__order').set({ orderId: 'l5', type: 'not_received', status: 'in_review' });
   const refusedRefund = await call('l4'); const refusedClaim = await call('l5');
   check('no replacement while a refund for it is on its way, or while the customer’s missing report is open',
-    refusedRefund.status === 409 && /refunded/.test(refusedRefund.body.error) && refusedClaim.status === 409 && /Claims/.test(refusedClaim.body.error) && !db._store.get('tenants/t1/retailOrders/l4').replacementOrderId, { a: refusedRefund.body, b: refusedClaim.body });
+    refusedRefund.status === 409 && /refunded/.test(refusedRefund.body.error) && refusedClaim.status === 409 && /Decide it in Problems/.test(refusedClaim.body.error) && !db._store.get('tenants/t1/retailOrders/l4').replacementOrderId, { a: refusedRefund.body, b: refusedClaim.body });
   // Orders that rode in the same box go in the replacement too, and are marked replaced.
   await db.doc('tenants/t1/retailOrders/l6').set({ stage: 'shipped', method: 'ship', orderNumber: 1043, customerName: 'Kim Lee', shippedWithOrderIds: ['l7'], carrierIssue: { open: true, status: 'STALLED', quietDays: 6 }, lines: [{ lineId: 'x', productId: 'gel', qtyOrdered: 1, unitPriceCents: 3000 }] });
   await db.doc('tenants/t1/retailOrders/l7').set({ stage: 'shipped', method: 'ship', orderNumber: 1044, customerName: 'Kim Lee', labelFromOrderId: 'l6', shippedWithOrderId: 'l6', lines: [{ lineId: 'w', productId: 'polish', qtyOrdered: 1, unitPriceCents: 1500 }] });

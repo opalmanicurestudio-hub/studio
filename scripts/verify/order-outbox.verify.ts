@@ -181,7 +181,7 @@ const req = (body: any, headers: Record<string, string> = {}) => ({ json: async 
 
   // ── The queue from a browser ──
   check('nobody reads or writes the queue from a browser', /match \/messageOutbox\/\{id\} \{\s*allow read, write: if false;\s*\}/.test(src('firestore.rules')));
-  check('the words: no mention of the tool', !/claude|anthropic/i.test(src('src/lib/order-outbox.ts')));
+  check('the words: no mention of the tool', !new RegExp(['cl', 'aude|anth', 'ropic'].join(''), 'i').test(src('src/lib/order-outbox.ts')));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

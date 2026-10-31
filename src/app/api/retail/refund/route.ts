@@ -343,7 +343,7 @@ async function handle(req: NextRequest) {
       if (e?.message === 'nocard') {
         return NextResponse.json({
           error: unconfirmedLine || (credited > 0
-            ? `Everything paid on ${follow ? 'the original order' : 'this order'} has already gone back: refunded, or given as store credit for a return.`
+            ? `Everything paid on ${follow ? 'the original order' : 'this order'} has already gone back: refunded, or given as store credit.`
             : follow ? 'Everything paid on the original order has already gone back the way it was paid.' : 'Everything paid on this order has already gone back the way it was paid.'),
         }, { status: 409 });
       }

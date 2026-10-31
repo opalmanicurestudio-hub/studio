@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server';
+import { unitsOpen } from '@/lib/claim-view';
 import { requestForensics } from '@/lib/request-forensics';
 import { effectiveUnitCents } from '@/lib/retail-swap';
 import { taxShareCents } from '@/lib/restocking';
@@ -62,6 +63,8 @@ const safeClaim = (d: any) => ({
   infoResponseText: d.infoResponseText || null,
   infoResponseAt: d.infoResponseAt || null,
   status: d.status, resolution: d.resolution || null,
+  replacementMethod: d.replacementMethod || null,
+  creditCents: d.creditCents ?? null,
   resolutionCents: d.resolutionCents ?? null,
   declineReason: d.declineReason || null,
   appealedAt: d.appealedAt || null,
@@ -333,6 +336,9 @@ export async function POST(req: NextRequest) {
       customerName: String(order.customerName || ''),
       customerEmail: String(order.customerEmail || ''),
       type, qty: line ? units : qty,
+      // A whole order: what was still theirs when they reported it, so putting it right later never pays for anything
+      // settled since (lib/claim-view claimRefundable).
+      ...(!line ? { openAtFiling: Object.fromEntries(lines.filter((l: any) => l && l.lineId && unitsOpen(l) > 0).map((l: any) => [String(l.lineId), unitsOpen(l)])) } : {}),
       lineId: lineId || null,
       lineName: line ? String(line.name || '') : null,
       lineSku: line ? String(line.sku || '') : null,

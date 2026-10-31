@@ -15,9 +15,9 @@ export type PartRefund = { kind: PartKind; cents: number; itemsCents: number; ta
 const c0 = (v: any): number => Math.max(0, Math.round(Number(v) || 0));
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 
-/** Units of a line that can still be refunded on their own. */
+/** Units of a line that can still be refunded on their own (not ones put right through a problem report, qtyClaimed). */
 export function unitsLeft(l: any): number {
-  return Math.max(0, c0(l?.qtyOrdered) - c0(l?.qtyShorted) - c0(l?.qtyReturned) - c0(l?.qtyRefunded));
+  return Math.max(0, c0(l?.qtyOrdered) - c0(l?.qtyShorted) - c0(l?.qtyReturned) - c0(l?.qtyRefunded) - c0(l?.qtyClaimed));
 }
 
 /** Shipping charged that hasn’t been refunded yet (a delivery fee given back and marked done by hand counts too: lib/delivery-retry). */

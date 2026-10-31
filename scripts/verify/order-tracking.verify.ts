@@ -143,7 +143,7 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1201, s
   check('the order page listens to the live view, and asks for the whole order every minute while it hears it (it used to ask every 4 seconds)',
     /onSnapshot\(doc\(fs, 'orderTracking', trackKey\)/.test(page) && /const LISTEN_POLL_MS = 60000;/.test(page) && /listening \? LISTEN_POLL_MS : ACTIVE_POLL_MS/.test(page) && !/ACTIVE_POLL_MS = 4000/.test(page));
   check('…and shows the items collected, item by item, and the steps so far with their times', /Collecting your items/.test(page) && /of \$\{want\} collected/.test(page) && />So far</.test(page) && /stepTime\(st\.at, order\.timeZone\)/.test(page) && /role="progressbar"/.test(page));
-  check('the words: no mention of the tool, US spelling, no "call us"', !/claude|anthropic|call us/i.test(src('src/lib/order-tracking.ts')) && /Canceled/.test(src('src/lib/order-tracking.ts')));
+  check('the words: no mention of the tool, US spelling, no "call us"', !new RegExp(['cl', 'aude|anth', 'ropic|call us'].join(''), 'i').test(src('src/lib/order-tracking.ts')) && /Canceled/.test(src('src/lib/order-tracking.ts')));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

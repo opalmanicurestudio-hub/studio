@@ -18,6 +18,7 @@ import { shareOrderTip } from '@/lib/order-tips';
 import { resolveCreditReturn } from '@/lib/return-credit';
 import { decideClaim } from '@/lib/claim-decide';
 import { recordClaimLoss } from '@/lib/claim-loss';
+import { settleClaim, type SettleHow } from '@/lib/claim-settle';
 import { syncTracking } from '@/lib/order-tracking';
 import { queueMessage, deliverMessage, type MessageKind } from '@/lib/order-outbox';
 import { RETURN_REASONS, RETURN_RESOLUTIONS } from '@/lib/retail-orders';
@@ -309,7 +310,15 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
         const given = b.cents !== null && b.cents !== undefined && b.cents !== '';
         const cents = given ? Number(b.cents) : null;
         if (b.approve === true && given && !(Number.isFinite(cents) && (cents as number) >= 1)) return NextResponse.json({ ok: false, message: 'Pick an amount above $0.00.' }, { status: 400 });
-        out = await decideClaim(db, tenantId, id, b.approve === true, { cents, declineWhy: s(b.declineWhy, 400), by: { id: actor.id, name: actor.name } });
+        // Put right with a refund (the default), by sending another, or with store credit (lib/claim-settle).
+        const how = b.approve === true && ['replacement', 'store_credit'].includes(String(b.how)) ? String(b.how) as SettleHow : 'refund';
+        if (how === 'refund') out = await decideClaim(db, tenantId, id, b.approve === true, { cents, declineWhy: s(b.declineWhy, 400), by: { id: actor.id, name: actor.name } });
+        else {
+          const r = await settleClaim(db, tenantId, id, how, { cents, by: { id: actor.id, name: actor.name, role: String(a.role || ''), isTenantOwner: a.isTenantOwner === true } });
+          if (!r.ok) return NextResponse.json({ ok: false, message: r.message }, { status: r.status || 409 });
+          out = r;
+          if (r.replacementOrderId) touchedIds.push(r.replacementOrderId);
+        }
         // The customer is told the decision (api/retail/claim-notify), once per decision.
         if (out?.ok) { const c: any = (await db.doc(`tenants/${tenantId}/retailClaims/${id}`).get()).data() || {}; sendMessage('claim_decided', { claimId: id, key: String(c.decidedAt || '') }); }
         // An approval is a loss: recorded here, after the answer, never from a screen (lib/claim-loss).

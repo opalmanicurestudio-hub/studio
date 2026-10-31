@@ -33,7 +33,7 @@ import { addressLinesOf, oneLine } from '@/lib/address-flow';
 import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
 import { formatDay } from '@/lib/tenant-time';
-import { claimWaiting, customerClaimStatus } from '@/lib/claim-view';
+import { claimWaiting, customerClaimStatus, unitsOpen } from '@/lib/claim-view';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
 // The customer's live order tracker — the success URL from Stripe Checkout
@@ -199,7 +199,7 @@ export default function OrderStatusPage() {
   const [pieceOther, setPieceOther] = useState(false);
   const [claimSending, setClaimSending] = useState(false);
   const [claimDone, setClaimDone] = useState('');
-  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null; photoUrls?: string[]; infoRequestText?: string | null; infoRequestAt?: string | null; infoResponseText?: string | null; infoResponseAt?: string | null; openedAt?: string | null }[]>([]);
+  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null; photoUrls?: string[]; infoRequestText?: string | null; infoRequestAt?: string | null; infoResponseText?: string | null; infoResponseAt?: string | null; openedAt?: string | null; replacementMethod?: string | null; creditCents?: number | null }[]>([]);
   const [appealFor, setAppealFor] = useState<string | null>(null);
   const [appealNote, setAppealNote] = useState('');
   const [appealSending, setAppealSending] = useState(false);
@@ -2277,8 +2277,8 @@ export default function OrderStatusPage() {
                     </p>
                   )}
                   <div className="space-y-2">
-                    {order.lines.filter((l) => l.lineId && (l as any).digital !== true && (l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0) - (l.qtyClaimed || 0)) > 0).map((l) => {
-                      const max = l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0) - (l.qtyClaimed || 0);
+                    {order.lines.filter((l) => l.lineId && (l as any).digital !== true && unitsOpen(l) > 0).map((l) => {
+                      const max = unitsOpen(l);
                       const q = retQty[l.lineId as string] || 0;
                       return (
                         <div key={l.lineId} className="rounded-2xl border-2 p-3 space-y-2">

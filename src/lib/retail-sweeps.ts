@@ -113,7 +113,8 @@ export async function sweepStalledShipments(
       const order = d.data() as any;
       res.scanned += 1;
       try {
-        if (!order.trackingNumber || order.replacementOrderId) continue;
+        // Replaced, or a report that it never arrived already put right: not a lost parcel to raise again.
+        if (!order.trackingNumber || order.replacementOrderId || order.lostReportSettled) continue;
         if (String(order.completedAt || '') < since) continue;
 
         // The carrier's latest status, where the shipping webhook keeps it (carrierTrail); a top-level copy is read

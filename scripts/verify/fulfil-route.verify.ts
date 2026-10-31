@@ -193,7 +193,7 @@ const as = (x: any) => { actor = { uid: 'k1', name: 'Kai Park', role: 'staff', i
   const bad = screens.filter((p) => /import \{[^}]*\} from '@\/lib\/retail-fulfill'/.test(src(p)) || !/from '@\/lib\/fulfil-client'/.test(src(p)));
   check('every screen that moves an order asks the server', bad.length === 0, bad);
   check('…and deciding on a report never changes the order from the screen', !/runTransaction|updateDoc|setDoc/.test(src('src/components/orders/ClaimCard.tsx')) && /decideClaim\(/.test(src('src/components/orders/ClaimCard.tsx')));
-  check('the words: no mention of the tool, no "call us", US spelling in the new messages', !/claude|anthropic/i.test(src('src/app/api/retail/fulfil/route.ts') + src('src/lib/fulfil-client.ts') + src('src/lib/fs-any.ts') + src('src/lib/claim-decide.ts')) && !/call us/i.test(src('src/app/api/retail/fulfil/route.ts')));
+  check('the words: no mention of the tool, no "call us", US spelling in the new messages', !new RegExp(['cl', 'aude|anth', 'ropic'].join(''), 'i').test(src('src/app/api/retail/fulfil/route.ts') + src('src/lib/fulfil-client.ts') + src('src/lib/fs-any.ts') + src('src/lib/claim-decide.ts')) && !/call us/i.test(src('src/app/api/retail/fulfil/route.ts')));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

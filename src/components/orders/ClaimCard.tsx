@@ -2,14 +2,14 @@
 // src/components/orders/ClaimCard.tsx — DECIDING ON A CUSTOMER'S REPORT, IN ONE PLACE (mockups 10A, 10B). Opened from
 // Problems on a computer or a phone: what they said and sent, what the order's record shows (facts, no score), who
 // they are from their history, why the shop's rules didn't approve it on their own, the carrier claim to file if it's
-// approved; then ask them for something, approve the refund (up to what's left to refund of what they paid), or
-// decline with a reason they see word for word. Everything is decided on the server (api/retail/fulfil,
+// approved; then ask them for something, put it right (a refund up to what's left to refund, sending another at no
+// charge, or store credit), or decline with a reason they see word for word. Everything is decided on the server (api/retail/fulfil,
 // lib/claim-decide), and only those the server lets decide see the buttons.
 import * as React from 'react';
 import Link from 'next/link';
 import { doc, getDoc, type Firestore } from 'firebase/firestore';
 import { decideClaim, requestClaimInfo } from '@/lib/fulfil-client';
-import { carrierLine, claimRefundable, claimWaiting, recordFacts, whyNotAuto } from '@/lib/claim-view';
+import { carrierLine, claimRefundable, claimWaiting, recordFacts, unitsOpen, whyNotAuto } from '@/lib/claim-view';
 import { hasGap, type ReplyContext } from '@/lib/replies';
 import { money } from '@/lib/orders-view';
 import { tenantTimeZone } from '@/lib/tenant-time';
@@ -59,7 +59,8 @@ export function ClaimCard({ fs, tenantId, claim, order: given, rs, canDecide, on
   // What's left to refund, worked out as the server will: part of it returned or refunded already isn't paid again.
   const left = claimRefundable(claim, order);
   const max = left.cents;
-  const noUnits = !!claim.lineId && !!order && left.units <= 0;
+  // Nothing left to put right: the item (or everything on the order) already returned, refunded or settled another way.
+  const noUnits = !!order && left.units <= 0;
   const ctx: ReplyContext = { client_first: named ? first : '', order_number: claim.orderNumber != null ? String(claim.orderNumber).padStart(4, '0') : '', item: claim.lineName || '', amount: money(max) };
   const photoGate = claim.photosRequired && !(Array.isArray(claim.photoUrls) && claim.photoUrls.length);
 
@@ -69,6 +70,30 @@ export function ClaimCard({ fs, tenantId, claim, order: given, rs, canDecide, on
   // The order arrives after the card: the amount follows what's left to refund until someone changes it.
   React.useEffect(() => { if (!touched.current) setAmount((max / 100).toFixed(2)); }, [max]);
   const [done, setDone] = React.useState(false);
+  // How it's put right (mockup 10A): a refund, sending another, or store credit. Send another isn't offered for a
+  // download, or for a whole order that already has a replacement; store credit needs their email and something to give.
+  type How = 'refund' | 'replacement' | 'store_credit';
+  const [howPick, setHow] = React.useState<How>('refund');
+  const line = claim.lineId && Array.isArray(order?.lines) ? order.lines.find((l: any) => l?.lineId === claim.lineId) : null;
+  // Send another, as the server allows it: the order loaded, not a download, something still theirs to send, not paid
+  // back in full already, and for a whole order, not already replaced and not a box shared with another order.
+  const paidBack = (Number(order?.totalCents) || 0) > 0 && (Number(order?.refundedCents) || 0) + (Number(order?.pendingRefundCents) || 0) >= (Number(order?.totalCents) || 0);
+  const shared = (Array.isArray(order?.shippedWithOrderIds) && order.shippedWithOrderIds.length > 0) || !!order?.shippedWithOrderId || !!order?.labelFromOrderId;
+  const canSend = !!order && !paidBack && (claim.lineId
+    ? !!line && line.digital !== true && left.units > 0
+    : !order.replacementOrderId && !shared && (order.lines || []).some((l: any) => l && l.digital !== true && unitsOpen(l) > 0));
+  const canCredit = max > 0 && !!String(claim.customerEmail || order?.customerEmail || '').trim();
+  const hows: { id: How; label: string }[] = [{ id: 'refund', label: 'A refund' }, ...(canSend ? [{ id: 'replacement' as How, label: 'Send another' }] : []), ...(canCredit ? [{ id: 'store_credit' as How, label: 'Store credit' }] : [])];
+  const how: How = hows.some((h) => h.id === howPick) ? howPick : 'refund';
+  // What's on the shelf for Send another, so they know whether it can go now or waits for stock.
+  const [shelf, setShelf] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    setShelf(null);
+    const pid = String(line?.productId || ''); if (!fs || !tenantId || !pid || how !== 'replacement') return;
+    let live = true;
+    getDoc(doc(fs, `tenants/${tenantId}/inventory/${pid}`)).then((s) => { if (!live || !s.exists()) return; const d: any = s.data() || {}; setShelf(Math.max(0, (Number(d.totalStock) || 0) - (Number(d.stockReserved) || 0))); }).catch(() => {});
+    return () => { live = false; };
+  }, [fs, tenantId, line?.productId, how]);
   const [declining, setDeclining] = React.useState(false);
   const [asking, setAsking] = React.useState(false);
   const [why, setWhy] = React.useState(''); const whyFill = React.useRef<string | null>(null);
@@ -87,15 +112,18 @@ export function ClaimCard({ fs, tenantId, claim, order: given, rs, canDecide, on
     setAsk(''); askFill.current = null; setAsking(false); onToast(`Asked. ${named ? `${first} sees` : 'They see'} it on their order page and gets a nudge to look.`);
   };
   const approve = async () => {
-    if (!amountOk || photoGate || noUnits || off) return;
+    if ((how !== 'replacement' && !amountOk) || photoGate || noUnits || off) return;
     setBusy('approve'); setErr('');
     // Nothing left to refund (already refunded another way): approved with no refund, and the loss still recorded.
-    const r = await decideClaim(tenantId, claim.id, true, { cents: max === 0 ? null : cents });
+    const r = await decideClaim(tenantId, claim.id, true, { how, cents: how === 'replacement' || max === 0 ? null : cents });
     setBusy(''); feel(r.ok);
     if (!r.ok) { setErr(r.message || 'That didn’t go through. Try again.'); return; }
     setDone(true);
     const got = Number((r as any).cents ?? cents) || 0;
-    onToast(got > 0 ? `Approved. ${money(got)} is added to the order’s refund to send, and ${named ? `${first} is` : 'they’re'} told.` : `Approved with no refund, and ${named ? `${first} is` : 'they’re'} told.`);
+    const told = `${named ? `${first} is` : 'they’re'} told`;
+    onToast(how === 'replacement' ? `Approved. Another is on the list to pack, at no charge, and ${told}.`
+      : how === 'store_credit' ? `Approved. ${money(got)} store credit is ready for ${named ? first : 'them'} at checkout, and ${told}.`
+      : got > 0 ? `Approved. ${money(got)} is added to the order’s refund to send, and ${told}.` : `Approved with no refund, and ${told}.`);
   };
   const decline = async () => {
     const text = why.trim().slice(0, WHY_MAX); if (!text || hasGap(text) || busy || done) return;
@@ -142,23 +170,39 @@ export function ClaimCard({ fs, tenantId, claim, order: given, rs, canDecide, on
 
       {canDecide ? (
         <div className="space-y-2.5 border-t pt-4" style={{ borderColor: C.line }}>
-          {noUnits ? <p className="m-0 text-[14px]" style={{ color: C.warn }}>That item has already been refunded, through a return or another report. Decline this one with that as the reason.</p>
+          {!noUnits && hows.length > 1 && (
+            <div>
+              <p id={`how-${claim.id}`} className="m-0 text-[13px] font-semibold" style={muted}>Put it right with</p>
+              <div role="radiogroup" aria-labelledby={`how-${claim.id}`} className="mt-1.5 flex rounded-full p-[3px]" style={{ background: C.paper }}>
+                {hows.map((h) => (
+                  <button key={h.id} type="button" role="radio" aria-checked={how === h.id} onClick={() => { setHow(h.id); setErr(''); }}
+                    className="cf-press h-10 flex-1 rounded-full px-2 text-[14px] font-semibold transition-colors duration-200"
+                    style={how === h.id ? { background: C.ink, color: C.paper } : { color: C.muted }}>{h.label}</button>))}
+              </div>
+            </div>)}
+          {noUnits ? <p className="m-0 text-[14px]" style={{ color: C.warn }}>{claim.lineId ? 'That item has already been refunded, through a return or another report.' : 'Everything on this order has already been put right, through a return, a refund or another report.'} Decline this one with that as the reason.</p>
+            : how === 'replacement' ? <p className="m-0 text-[14px] leading-snug">{claim.lineId
+              ? `${line?.name || claim.lineName || 'The item'}${left.units > 1 ? ` ×${left.units}` : ''} goes out again at no charge, as its own order to pack.${shelf == null ? '' : shelf >= Math.max(1, left.units) ? ` ${shelf} on the shelf.` : ' None free on the shelf right now, so it waits for stock like any order.'}`
+              : 'Everything still theirs on the order goes out again at no charge, as its own order to pack.'}</p>
             : max > 0 ? <>
-              <label className="block text-[13px] font-semibold" style={muted}>Refund
+              <label className="block text-[13px] font-semibold" style={muted}>{how === 'store_credit' ? 'Store credit' : 'Refund'}
                 <span className="mt-1.5 flex items-center gap-2">
                   <input inputMode="decimal" value={amount} onChange={(e) => { touched.current = true; setAmount(e.target.value); }} aria-describedby={`max-${claim.id}`}
                     className="h-12 w-28 rounded-2xl border-0 px-3.5 text-[17px] font-normal" style={{ background: C.paper, color: C.ink }} />
-                  <span id={`max-${claim.id}`} className="text-[13px] font-normal">up to {money(max)}, {left.all ? 'what they paid for it' : `for the ${left.units} not already returned or refunded`}</span>
+                  <span id={`max-${claim.id}`} className="text-[13px] font-normal">up to {money(max)}, {left.all ? 'what they paid for it' : claim.lineId ? `for the ${left.units} not already returned or refunded` : 'for what’s still theirs on the order'}</span>
                 </span></label>
               <p role="status" aria-live="polite" className="m-0 text-[13px] empty:hidden" style={{ color: C.warn }}>{amountOk ? '' : `Pick an amount from $0.01 to ${money(max)}.`}</p>
             </> : <p className="m-0 text-[14px]" style={muted}>Nothing is left to refund on this order. Approving records the loss and tells {named ? first : 'them'} it’s approved, with no refund.</p>}
           {photoGate && <p className="m-0 text-[13.5px]" style={{ color: C.warn }}>Your policy asks for a photo before approving. {waiting ? 'You’ve asked; it waits for their answer.' : `Ask ${named ? first : 'them'} for one, or decline if it doesn’t hold up.`}</p>}
-          {!noUnits && <Btn kind="primary" className="w-full" disabled={!amountOk || photoGate || off} onClick={() => void approve()}>{busy === 'approve' ? 'Approving…' : max === 0 ? 'Approve, no refund' : `Approve, refund ${amountOk ? money(cents) : ''}`.trim()}</Btn>}
+          {!noUnits && <Btn kind="primary" className="w-full" disabled={(how !== 'replacement' && !amountOk) || photoGate || off} onClick={() => void approve()}>{busy === 'approve' ? 'Approving…'
+            : how === 'replacement' ? (claim.lineId ? 'Approve, send another' : 'Approve, send the order again')
+            : how === 'store_credit' ? (amountOk ? `Approve, ${money(cents)} store credit` : 'Approve, store credit')
+            : max === 0 ? 'Approve, no refund' : `Approve, refund ${amountOk ? money(cents) : ''}`.trim()}</Btn>}
           <div className="flex flex-col gap-2 min-[420px]:flex-row">
             {!waiting && <Btn kind="soft" className="w-full px-3 min-[420px]:flex-1" style={{ background: C.paper }} disabled={off} onClick={() => { setErr(''); setAsking(true); }}>Ask for something</Btn>}
             <Btn kind="soft" className="w-full px-3 min-[420px]:flex-1" style={{ background: C.paper }} disabled={off} onClick={() => { setErr(''); setDeclining(true); }}>Decline</Btn>
           </div>
-          <p className="m-0 text-[12.5px] leading-snug" style={muted}>Approving adds the refund to the order’s refunds to send and records the loss. {named ? `${first} is` : 'They’re'} told in your Claim decision wording.</p>
+          <p className="m-0 text-[12.5px] leading-snug" style={muted}>{how === 'replacement' ? 'It goes the way the first one did, and its stock is held now.' : how === 'store_credit' ? 'Kept with their email, ready at checkout, and counted as money given back on the order.' : 'Approving adds the refund to the order’s refunds to send.'} Approving records the loss. {named ? `${first} is` : 'They’re'} told in your Claim decision wording.</p>
         </div>
       ) : <p className="m-0 text-[14px]" style={muted}>A manager, or someone allowed to refund, decides on reports.</p>}
       {err && !asking && !declining && <p role="alert" className="m-0 text-[14px]" style={{ color: C.warn }}>{err}</p>}

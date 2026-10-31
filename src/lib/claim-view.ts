@@ -3,6 +3,7 @@
 // approved; where it is for the customer (Being checked, We need something from you, Approved, Declined). Pure, so the
 // decide sheet, Problems and the customer's order page say the same thing.
 import { coverFor, fileBy } from './lost-recovered';
+import { effectiveUnitCents } from './restocking';
 
 const ms = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
 const money = (c: number) => `$${(Math.max(0, Number(c) || 0) / 100).toFixed(2)}`;
@@ -28,17 +29,44 @@ export function deliveredAt(order: any): string | null {
   return String(t.carrierStatus || t.status || '').toUpperCase() === 'DELIVERED' ? String(t.carrierStatusAt || '') || 'yes' : null;
 }
 
-/** What approving can refund, as the server works it out (lib/claim-decide): units since returned or refunded through
- *  another report aren't paid again, so only part of it left is that share of the amount. Without the order, the
- *  report's own amount. */
+/** Units of a line still the customer's to be put right for: ordered, less any shorted, returned, refunded on their own,
+ *  or settled by another report. One count for the decide sheet, the server's three ways of putting it right, and a
+ *  replacement for a lost parcel. */
+export const unitsOpen = (l: any): number => { const n = (v: any) => Math.max(0, Math.round(Number(v) || 0)); return Math.max(0, n(l?.qtyOrdered) - n(l?.qtyShorted) - n(l?.qtyReturned) - n(l?.qtyRefunded) - n(l?.qtyClaimed)); };
+
+/** What putting a report right can be worth, as the server works it out (lib/claim-decide, lib/claim-settle). An item:
+ *  units since returned, refunded or settled another way aren't paid again, so only part of it left is that share of the
+ *  amount. A whole order: what's still theirs now against what was when they reported it (openAtFiling), so anything
+ *  settled since isn't paid twice. Without the order (or a report filed before that was kept), the report's own amount. */
 export function claimRefundable(c: any, order: any | null): { cents: number; units: number; all: boolean } {
   const n = (v: any) => Math.max(0, Number(v) || 0);
   const asked = n(c?.claimValueCents); const want = Math.max(1, n(c?.qty));
-  const line = c?.lineId && Array.isArray(order?.lines) ? order.lines.find((l: any) => l?.lineId === c.lineId) : null;
-  if (!line) return { cents: asked, units: want, all: true };
-  const left = Math.max(0, n(line.qtyOrdered) - n(line.qtyShorted) - n(line.qtyReturned) - n(line.qtyClaimed));
-  const units = Math.min(want, left);
-  return { cents: units < want ? Math.round((asked * units) / want) : asked, units, all: units >= want };
+  const lines: any[] | null = Array.isArray(order?.lines) ? order.lines : null;
+  if (c?.lineId) {
+    const line = lines ? lines.find((l: any) => l?.lineId === c.lineId) : null;
+    if (!line) return { cents: asked, units: want, all: true };
+    const units = Math.min(want, unitsOpen(line));
+    return { cents: units < want ? Math.round((asked * units) / want) : asked, units, all: units >= want };
+  }
+  if (!lines || !lines.some((l: any) => l?.lineId)) return { cents: asked, units: 1, all: true };
+  // Each unit at what it was really paid (after a line discount and its share of a promo code).
+  const price = (l: any) => effectiveUnitCents(l || {});
+  const stamped = c?.openAtFiling && typeof c.openAtFiling === 'object' ? c.openAtFiling : null;
+  // A report filed before that was kept: what's open now against the same, counting what's since been put right through
+  // another report as still open then (a return or a refund before they reported it was already left out of the amount).
+  const was = stamped || Object.fromEntries(lines.filter((l: any) => l?.lineId).map((l: any) => [String(l.lineId), unitsOpen(l) + n(l.qtyClaimed)]));
+  let then = 0; let now = 0; let unitsThen = 0; let unitsNow = 0;
+  for (const l of lines) {
+    if (l?.digital === true && !stamped) continue;
+    const w = n(was[String(l?.lineId)]); if (!w) continue;
+    const left = Math.min(w, unitsOpen(l));
+    then += price(l) * w; now += price(l) * left; unitsThen += w; unitsNow += left;
+  }
+  // Nothing was still theirs (everything returned, refunded or put right already): nothing to put right now.
+  if (unitsThen <= 0 || unitsNow <= 0) return { cents: 0, units: 0, all: false };
+  // Free items only: their units still count, the amount is what the report says.
+  if (then <= 0) return { cents: asked, units: 1, all: true };
+  return { cents: now >= then ? asked : Math.round((asked * now) / then), units: unitsNow > 0 ? 1 : 0, all: now >= then };
 }
 /** When it last came back to the shop: reported, appealed, or answered. A reminder counts from here. */
 export const claimSince = (c: any): number => Math.max(ms(c?.openedAt), ms(c?.appealedAt), claimWaiting(c) ? 0 : ms(c?.infoResponseAt));
@@ -110,7 +138,10 @@ export function carrierLine(c: any, order: any | null, day: (iso: string) => str
 /** Where it is, for the customer's order page. */
 export function customerClaimStatus(c: any): { label: string; line: string; tone: 'wait' | 'ask' | 'ok' | 'no' } {
   const st = String(c?.status || '');
-  if (st === 'resolved' || st === 'auto_resolved') return { label: 'Approved', tone: 'ok', line: Number(c?.resolutionCents) > 0 ? `A ${money(c.resolutionCents)} refund, back to how you paid.` : '' };
+  if (st === 'resolved' || st === 'auto_resolved') return { label: 'Approved', tone: 'ok',
+    line: c?.resolution === 'replacement' ? (c?.replacementMethod === 'ship' ? 'Another is on its way to you, at no charge.' : c?.replacementMethod === 'delivery' ? 'Another is coming to you, at no charge. You’ll hear when it’s out for delivery.' : 'We’re getting another ready for you, at no charge. You’ll hear when it’s ready to collect.')
+      : c?.resolution === 'store_credit' ? `${money(c.creditCents ?? c.resolutionCents)} store credit, ready to use at checkout.`
+      : Number(c?.resolutionCents) > 0 ? `A ${money(c.resolutionCents)} refund, back to how you paid.` : '' };
   if (st === 'declined') return { label: 'Declined', tone: 'no', line: c?.declineReason ? String(c.declineReason) : '' };
   if (claimWaiting(c)) return { label: 'We need something from you', tone: 'ask', line: 'Your report waits for your answer.' };
   return { label: c?.appealedAt ? 'Being checked again' : 'Being checked', tone: 'wait', line: c?.appealedAt ? 'A person is looking at it again.' : 'The shop is looking at it with the packing record.' };

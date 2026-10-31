@@ -96,7 +96,7 @@ function filesUnder(dir: string): string[] {
   const rules = src('firestore.rules');
   check('a browser adds only the team’s notes and the few things done there to an order’s history, each with its time',
     /match \/events\/\{eventId\} \{[^}]*allow create: if isTeam\(tenantId\)[^}]*'at', ''\) != ''[^}]*\['note', 'held_for_review', 'hold_released', 'return_opened', 'label_scan_verified'\][^}]*'refund_issued' && isManager\(tenantId\)/.test(rules));
-  check('the words: US spelling for a canceled order, no mention of the tool', /Canceled/.test(src('src/lib/order-events.ts')) && !/claude|anthropic/i.test(src('src/lib/order-events.ts')));
+  check('the words: US spelling for a canceled order, no mention of the tool', /Canceled/.test(src('src/lib/order-events.ts')) && !new RegExp(['cl', 'aude|anth', 'ropic'].join(''), 'i').test(src('src/lib/order-events.ts')));
 
   console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);

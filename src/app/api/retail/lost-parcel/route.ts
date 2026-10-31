@@ -16,6 +16,7 @@ import { buildExceptionDoc } from '@/lib/exception-doc';
 import { buildEntry } from '@/lib/stock-ledger';
 import { refundAllowed } from '@/lib/money-limits';
 import { lineFor, taxBasisOf } from '@/lib/order-family';
+import { unitsOpen } from '@/lib/claim-view';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,19 +25,22 @@ const SHIPPED = ['shipped'];
 const OPEN_CLAIM = new Set(['in_review', 'needs_info', 'info_requested', 'open']);
 const num = (o: any) => `#${String(o?.orderNumber ?? '').padStart(4, '0')}`;
 
-/** What went in the box from one order: every physical item sent (ordered, less any shorted before it shipped). */
+/** What went in the box from one order and is still theirs to get: every physical item sent (ordered, less any shorted
+ *  before it shipped), less any already refunded on its own or put right through a problem report (lib/claim-view). */
 const sentLines = (o: any) => (Array.isArray(o?.lines) ? o.lines : [])
   .filter((l: any) => l && l.digital !== true)
-  .map((l: any) => ({ l, qty: Math.max(0, (Number(l.qtyOrdered) || 0) - (Number(l.qtyShorted) || 0)), from: o }))
+  .map((l: any) => ({ l, qty: unitsOpen(l), from: o }))
   .filter((x: any) => x.qty > 0);
 
 /** Why this order's customer shouldn't also get a replacement: a refund on its way or sent, or a report still open. */
 function alreadyCovered(o: any, claims: any[]): string | null {
+  if (o?.replacementOrderId) return `${num(o)} already has a replacement on its way.`;
+  if (o?.lostReportSettled) return `The customer’s report that ${num(o)} never arrived was already put right.`;
   if ((Number(o?.pendingRefundCents) || 0) > 0 || ((Number(o?.totalCents) || 0) > 0 && (Number(o?.refundedCents) || 0) >= (Number(o?.totalCents) || 0))) {
     return `${num(o)} is being refunded, so a replacement would pay for it twice. Sort out the refund first.`;
   }
   if (claims.some((c) => c.orderId === o?.id && c.type === 'not_received' && OPEN_CLAIM.has(String(c.status || '')))) {
-    return `${String(o?.customerName || 'The customer').split(/\s+/)[0]} reported ${num(o)} missing. Answer that under Claims first.`;
+    return `${String(o?.customerName || 'The customer').split(/\s+/)[0]} reported ${num(o)} missing. Decide it in Problems first.`;
   }
   return null;
 }

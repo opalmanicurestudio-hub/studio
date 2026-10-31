@@ -79,7 +79,7 @@ export const openReturn = (_fs: any, tenantId: string, order: { id: string }, se
 /** Asking the customer for more about a report; they're told from the server. */
 export const requestClaimInfo = (tenantId: string, claimId: string, text: string) => step(tenantId, 'requestClaimInfo', { claimId, text });
 export const resolveReturn = (_fs: any, tenantId: string, ret: { id: string }, _actor: Actor) => step<Ans & { refundQueuedCents?: number; orderQrToken?: string }>(tenantId, 'resolveReturn', { returnId: ret.id });
-export const decideClaim = (tenantId: string, claimId: string, approve: boolean, o: { cents?: number | null; declineWhy?: string } = {}) => step<Ans & { cents?: number }>(tenantId, 'decideClaim', { claimId, approve, cents: o.cents ?? null, declineWhy: o.declineWhy || '' });
+export const decideClaim = (tenantId: string, claimId: string, approve: boolean, o: { cents?: number | null; declineWhy?: string; how?: 'refund' | 'replacement' | 'store_credit' } = {}) => step<Ans & { cents?: number; replacementOrderId?: string; creditCents?: number }>(tenantId, 'decideClaim', { claimId, approve, cents: o.cents ?? null, declineWhy: o.declineWhy || '', how: o.how || 'refund' });
 
 /** The curbside text for a moment the board sees first (a customer waiting too long: the shop's own number is told). */
 export function notifyCurbside(tenantId: string, orderId: string, moment: 'ready' | 'out' | 'staff_escalation'): void {

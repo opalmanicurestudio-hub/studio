@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
     // No email to write to (or no email service): a text pointing to the order page, where the decision shows.
     if (!String(decision.customerEmail || '').trim() || !emailReady) {
       const ok = decision.status === 'resolved';
-      const tx = await textInstead(db, tenantId, decision, ok ? 'claim_approved' : 'claim_decision', ok ? (Number(decision.resolutionCents) > 0 ? 'your report was approved and a refund is on its way. Details on your order page:' : 'your report was approved. Details on your order page:') : 'we’ve reviewed your report. See our answer on your order page:');
+      const tx = await textInstead(db, tenantId, decision, ok ? 'claim_approved' : 'claim_decision', ok ? (decision.resolution === 'replacement' ? (decision.replacementMethod === 'ship' ? 'your report was approved and we’re sending another at no charge. Details on your order page:' : 'your report was approved and we’re getting another ready at no charge. Details on your order page:') : decision.resolution === 'store_credit' ? 'your report was approved with store credit, ready to use at checkout. Details on your order page:' : Number(decision.resolutionCents) > 0 ? 'your report was approved and a refund is on its way. Details on your order page:' : 'your report was approved. Details on your order page:') : 'we’ve reviewed your report. See our answer on your order page:');
       if (!tx.ok && tx.failed) { await release(); return NextResponse.json({ ok: false, sent: false, retry: true, why: 'The text service didn’t take it.' }, { status: 503 }); }
       return NextResponse.json({ ok: true, sent: tx.ok, why: tx.ok ? undefined : 'no email or mobile to tell them' });
     }
@@ -168,7 +168,11 @@ export async function POST(req: NextRequest) {
     const cents = Math.max(0, Number(decision.resolutionCents) || 0);
 
     const bodyHtml = approved
-      ? `<p style="font-size:14px;color:#334155;line-height:1.6">We are sorry for the trouble with your order, and thank you for your patience. Your report about the ${what} (<strong>${item}</strong>) has been approved${cents > 0 ? `, and a refund of <strong>$${(cents / 100).toFixed(2)}</strong> is approved with it. We will email you as soon as it is sent. Card refunds typically appear within 5 to 10 business days after that.` : '.'}</p>`
+      ? `<p style="font-size:14px;color:#334155;line-height:1.6">We are sorry for the trouble with your order, and thank you for your patience. Your report about the ${what} (<strong>${item}</strong>) has been approved${decision.resolution === 'replacement'
+        ? (decision.replacementMethod === 'ship' ? `, and we are sending you another at no charge. You will get the usual updates as it is packed and on its way.` : decision.replacementMethod === 'delivery' ? `, and another is coming to you at no charge. We will let you know when it is out for delivery.` : `, and we are getting another ready for you at no charge. We will let you know when it is ready to collect.`)
+        : decision.resolution === 'store_credit'
+          ? `, and <strong>$${(cents / 100).toFixed(2)}</strong> in store credit has been added for you. It is kept with ${String(decision.creditEmail || 'this email address').replace(/[<>&"]/g, '')} and ready to use at checkout.`
+          : cents > 0 ? `, and a refund of <strong>$${(cents / 100).toFixed(2)}</strong> is approved with it. We will email you as soon as it is sent. Card refunds typically appear within 5 to 10 business days after that.` : '.'}</p>`
       : `<p style="font-size:14px;color:#334155;line-height:1.6">Thank you for your report about the ${what} (<strong>${item}</strong>). We have carefully reviewed it alongside the packing record for your order, and we are sorry, but we are unable to approve it at this time.</p>
          ${decision.declineReason ? `<p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${String(decision.declineReason).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>` : ''}
          ${decision.appealedAt

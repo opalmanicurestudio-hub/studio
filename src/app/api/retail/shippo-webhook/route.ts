@@ -256,16 +256,21 @@ export async function POST(req: NextRequest) {
 
       // A parcel a replacement went out for that turned up after all (delivered, or coming back to the shop): its claim
       // to file is closed, so nobody files "lost in transit" for a box that arrived (lib/lost-recovered).
-      if (order.replacementOrderId && ['DELIVERED', 'RETURNED'].includes(String(status))) {
+      if ((order.replacementOrderId || order.lostReportSettled) && ['DELIVERED', 'RETURNED'].includes(String(status))) {
         try {
-          const excRef = db.doc(`tenants/${tenantId}/inventoryExceptions/lost-${d.id}`);
-          await db.runTransaction(async (tx: any) => {
-            const e = await tx.get(excRef);
-            const rec: any = e.exists ? e.data()?.recovery || null : null;
-            if (!rec || rec.status !== 'candidate') return;
-            const at = new Date().toISOString();
-            tx.set(excRef, { recovery: { ...rec, status: 'abandoned', events: [...(Array.isArray(rec.events) ? rec.events : []), { at, by: 'Carrier', action: 'abandon', note: status === 'DELIVERED' ? 'It was delivered after all' : 'It’s coming back to the shop' }] } }, { merge: true });
-          });
+          // The lost parcel's record, and one written when a "never arrived" report on it was put right (lib/claim-loss).
+          const lostIds = [`lost-${d.id}`, ...((await db.collection(`tenants/${tenantId}/inventoryExceptions`).where('orderId', '==', d.id).limit(10).get().catch(() => null))?.docs || [])
+            .filter((x: any) => String(x.id).startsWith('claim-') && x.data()?.reason === 'carrier_lost').map((x: any) => String(x.id))];
+          for (const id of lostIds) {
+            const excRef = db.doc(`tenants/${tenantId}/inventoryExceptions/${id}`);
+            await db.runTransaction(async (tx: any) => {
+              const e = await tx.get(excRef);
+              const rec: any = e.exists ? e.data()?.recovery || null : null;
+              if (!rec || rec.status !== 'candidate') return;
+              const at = new Date().toISOString();
+              tx.set(excRef, { recovery: { ...rec, status: 'abandoned', events: [...(Array.isArray(rec.events) ? rec.events : []), { at, by: 'Carrier', action: 'abandon', note: status === 'DELIVERED' ? 'It was delivered after all' : 'It’s coming back to the shop' }] } }, { merge: true });
+            });
+          }
         } catch { /* the claim stays to file; the screens leave out one that turned up */ }
       }
 

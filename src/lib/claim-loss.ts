@@ -63,7 +63,7 @@ export async function recordClaimLoss(db: any, tenantId: string, claimId: string
     qty, productId, sku: c.lineSku || null,
     name: contents || c.lineName || `Order #${num} contents`,
     costPerUnitDollars: cost, retailPerUnitCents: retail,
-    orderId: c.orderId || null, orderNumber: c.orderNumber ?? o.orderNumber ?? null, claimId,
+    orderId: c.orderId || null, orderNumber: c.orderNumber ?? o.orderNumber ?? null, claimId, replacementOrderId: c.replacementOrderId || null,
     trackingNumber: o.trackingNumber || null, carrier: o.carrier || null,
     insuredCents: o.shipmentProtection ? Number(o.shipmentProtection.insuranceCents) || 0 : null,
     shippedAt: o.completedAt || o.shipmentProtection?.decidedAt || null,
