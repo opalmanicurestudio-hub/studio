@@ -284,6 +284,21 @@ export async function GET(req: NextRequest) {
       .sort((a: any, b: any) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
   } catch { supportTickets = []; }
 
+  // The order's returns, and where each is (lib/return-view): what the customer may see, the label only with their pass.
+  // A gift recipient's exchange is kept apart from the buyer's page.
+  // Only once it's gone out (nothing comes back before), so a page still being packed doesn't ask.
+  let returns: any[] = [];
+  if (['shipped', 'completed'].includes(String(order.stage))) {
+    try {
+      const rSnap = await db.collection(`tenants/${tenantId}/retailReturns`).where('orderId', '==', orderId).limit(10).get();
+      const { publicReturn, sortReturns } = await import('@/lib/return-view');
+      returns = sortReturns(rSnap.docs.map((d: any) => ({ ...(d.data() || {}), id: d.id })).filter((r: any) => !r.giftRecipient && r.isGiftReturn !== true)
+        .map((r: any) => publicReturn(r, passOk, { refundWaiting: (Number(order.pendingRefundCents) || 0) > 0 })));
+    } catch { returns = []; }
+  }
+  // A return still on its way back or being checked keeps the page asking now and then, so the customer sees it move.
+  const returnMoving = returns.some((r: any) => ['open', 'received'].includes(String(r.status)));
+
   /* HELP ELIGIBILITY — computed HERE, beside the routes that enforce it,
    * so the menu the customer sees and the server's refusals can never
    * disagree. A hidden button is honest; a button that errors is not. */
@@ -410,6 +425,7 @@ export async function GET(req: NextRequest) {
        * every staff reply, and its status. Same poll that moves the stage
        * tracker moves this, so a reply appears without a refresh. */
       support: supportTickets,
+      returns,
       updates,
       totalCents: order.totalCents || 0,
       timestamps: {
@@ -562,7 +578,9 @@ export async function GET(req: NextRequest) {
       spots: Array.isArray(rs.curbsideSpots) ? rs.curbsideSpots : [],
     },
     qrValue,
-    active,
+    active: active || returnMoving,
+    // Asked about only for a return on its way: now and then, not every few seconds.
+    slowPoll: !active && returnMoving,
   };
   // Without a pass: the town it ships to, never the street, their first name, and the email masked (lib/order-pass).
   // The shop's updates on the page are read the same way: the street, the postcode, the full name, the email and the

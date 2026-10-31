@@ -34,6 +34,7 @@ import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/reta
 import { arrivalLabel, dayLabel, longDayLabel, type CustomerDates } from '@/lib/ship-promise';
 import { formatDay } from '@/lib/tenant-time';
 import { claimWaiting, customerClaimStatus, unitsOpen } from '@/lib/claim-view';
+import { CustomerReturns } from '@/components/shop/CustomerReturns';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
 // The customer's live order tracker — the success URL from Stripe Checkout
@@ -173,6 +174,8 @@ export default function OrderStatusPage() {
   const [retNotes, setRetNotes] = useState('');
   const [retSending, setRetSending] = useState(false);
   const [retDone, setRetDone] = useState(false);
+  // The return just started: once it's in the list of their returns (CustomerReturns), the list says where it is.
+  const [startedId, setStartedId] = useState('');
   const [retLabel, setRetLabel] = useState<{ url: string; deductCents: number; carrier: string } | null>(null);
   const [retLabelFailed, setRetLabelFailed] = useState(false);
   const [fixOpen, setFixOpen] = useState(false);
@@ -204,6 +207,7 @@ export default function OrderStatusPage() {
   const [appealNote, setAppealNote] = useState('');
   const [appealSending, setAppealSending] = useState(false);
   const activeRef = useRef(true);
+  const [slowPoll, setSlowPoll] = useState(false);
   const [track, setTrack] = useState<TrackView | null>(null);
   const [listening, setListening] = useState(false);
   // The live view's fingerprint as last heard (from the order, then the listener), so only a real change is news.
@@ -260,6 +264,7 @@ export default function OrderStatusPage() {
       setQrValue(data.qrValue);
       setSelfToken(data.selfServeToken || (data.qrValue ? String(data.qrValue).split('order/')[1] : null));
       activeRef.current = data.active;
+      setSlowPoll(data.slowPoll === true);
       setLoadError('');
     } catch (e: any) {
       if (!order) setLoadError(e?.message || 'Could not load this order');
@@ -274,9 +279,9 @@ export default function OrderStatusPage() {
     if (!tenantId || !orderId) return;
     const t = setInterval(() => {
       if (activeRef.current && document.visibilityState === 'visible') load();
-    }, listening ? LISTEN_POLL_MS : ACTIVE_POLL_MS);
+    }, listening || slowPoll ? LISTEN_POLL_MS : ACTIVE_POLL_MS);
     return () => clearInterval(t);
-  }, [tenantId, orderId, load, listening]);
+  }, [tenantId, orderId, load, listening, slowPoll]);
 
   // The live view: when a step happens, the counts change at once and the rest of the order is asked for (only while
   // the order is still going and the page is showing; a copy kept on the phone from before is never taken as news).
@@ -797,7 +802,7 @@ export default function OrderStatusPage() {
     setRetSending(true);
     try {
       const data = await selfServe({ action: 'start_return', selections, resolution: retResolution, notes: retNotes.trim() });
-      setRetDone(true);
+      setRetDone(true); setStartedId(String(data.returnId || '')); setReturnOpen(false);
       toast({ title: 'Return started', description: data.message });
       /* THE LABEL, WITHOUT ASKING. For shipped orders the return starts with
        * a prepaid label in hand: the label route is policy-aware (shop pays /
@@ -816,6 +821,8 @@ export default function OrderStatusPage() {
           } else setRetLabelFailed(true);   // the shop sees it on Problems, with a way to send it
         } catch { setRetLabelFailed(true); }
       }
+      // Their returns, with this one and its label, as the page shows them from now on.
+      void load();
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not start return', description: e?.message });
     } finally {
@@ -2230,10 +2237,14 @@ export default function OrderStatusPage() {
             mine={(order as any).reviews || {}} signedAs={String((order as any).reviewAs || '')} shopReadsFirst={(order as any).reviewsWait === true} onSaved={() => { void load(); }} />
         )}
 
+        {order && Array.isArray((order as any).returns) && (order as any).returns.length > 0 && (
+          <CustomerReturns returns={(order as any).returns} method={String(order.method || '')} timeZone={order.timeZone || null} labelFailedId={retLabelFailed && !retLabel ? startedId : ''} />
+        )}
+
         {selfToken && order && ['shipped', 'completed'].includes(order.stage) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-5 space-y-3">
-              {retDone ? (
+              {retDone && !(startedId && Array.isArray((order as any).returns) && (order as any).returns.some((r: any) => r.id === startedId)) ? (
                 <div className="space-y-2">
                   {retLabel && (
                     <div className="space-y-2 rounded-2xl border-2 border-primary/30 bg-primary/[0.05] p-3">
