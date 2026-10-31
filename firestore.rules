@@ -777,8 +777,6 @@ service cloud.firestore {
       allow read: if isTeam(tenantId);
       allow create, update, delete: if false;
     }
-    // RETURNS: opened, checked in and settled on the server (api/retail/fulfil, api/retail/self-serve), which works out
-    // what comes back from what was paid. The team reads them.
     // NOTES ABOUT A CUSTOMER (components/orders/CustomerFlag), kept by email: the team reads them and adds notes; only a
     // manager stops online checkout or lets them back; notes are never taken away, and none is deleted from a browser.
     // The checkout reads them on the server.
@@ -792,6 +790,8 @@ service cloud.firestore {
         && (request.resource.data.get('level', 'watch') == resource.data.get('level', 'watch') || isManager(tenantId));
       allow delete: if false;
     }
+    // RETURNS: opened, checked in and settled on the server (api/retail/fulfil, api/retail/self-serve), which works out
+    // what comes back from what was paid. The team reads them.
     match /tenants/{tenantId}/retailReturns/{returnId} {
       allow read: if isTeam(tenantId);
       allow write: if false;
