@@ -1,6 +1,6 @@
 'use client';
 // src/components/public/PublicSheet.tsx — a panel over a public page (the booking page's full policy, member sign-in):
-// rises from the bottom on a phone, sits in the middle on a wide screen. Escape, the close button or a tap outside
+// slides up from the bottom on a phone (over the page, never away from it), sits in the middle on a wide screen. Escape, the close button or a tap outside
 // closes it; focus moves into it and back to where it was; Tab stays inside while it's open.
 
 import * as React from 'react';
@@ -31,11 +31,11 @@ export function PublicSheet({ open, onClose, title, children }: { open: boolean;
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-      <div className="absolute inset-0 bg-stone-900/40" onClick={onClose} aria-hidden />
-      <div ref={box} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className="outline-none pub-rise pub-safe-bottom relative max-h-[88dvh] w-full overflow-y-auto rounded-t-[1.75rem] bg-[#faf8f5] px-5 pt-5 shadow-xl sm:max-w-lg sm:rounded-[1.75rem] sm:pb-6">
+      <div className="pub-scrim absolute inset-0 bg-stone-900/40" onClick={onClose} aria-hidden />
+      <div ref={box} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} className="outline-none pub-sheet pub-safe-bottom relative max-h-[88dvh] w-full overflow-y-auto rounded-t-[1.75rem] px-5 pt-5 shadow-xl sm:max-w-lg sm:rounded-[1.75rem] sm:pb-6" style={{ background: 'var(--paper, #faf8f5)' }}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-[20px] tracking-tight" style={{ fontWeight: 600 }}>{title}</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-stone-600 shadow-sm"><X className="h-5 w-5" aria-hidden /></button>
+          <button type="button" onClick={onClose} aria-label="Close" className="pub-round pub-press grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-stone-600 shadow-sm"><X className="h-5 w-5" aria-hidden /></button>
         </div>
         {children}
       </div>

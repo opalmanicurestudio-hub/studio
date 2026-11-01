@@ -25,6 +25,7 @@ import { releaseSentence } from '@/lib/booking-release';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { moduleEnabled } from '@/lib/modules';
 import { privacyOf } from '@/lib/health-privacy';
+import { StudioSplash, useSplash } from '@/components/booking/StudioSplash';
 import { Car, ChevronRight, Clock, DoorOpen, Mail, MapPin, Minus, PlayCircle, Phone, Plus, RotateCcw, Tag } from 'lucide-react';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -54,7 +55,7 @@ const whenWords = (date: string, label: string, today: string) => {
 type LastVisit = { first: string; serviceId: string; staffId: string | null; at: string };
 const lastVisitKey = (tenantId: string) => `cf.lastVisit.${tenantId}`;
 /** Five stars, filled to the nearest whole star (the number beside them is exact). */
-const Stars = ({ of }: { of: number }) => { const n = Math.max(0, Math.min(5, Math.round(of))); return <span aria-hidden style={{ color: 'var(--accent)' }}>{'★'.repeat(n)}<span style={{ opacity: 0.3 }}>{'★'.repeat(5 - n)}</span></span>; };
+const Stars = ({ of }: { of: number }) => { const n = Math.max(0, Math.min(5, Math.round(of))); return <span aria-hidden style={{ color: 'var(--accent-text, var(--accent))' }}>{'★'.repeat(n)}<span style={{ opacity: 0.3 }}>{'★'.repeat(5 - n)}</span></span>; };
 /** The words in the bar of sections, shorter than the section titles. */
 const CHIP: Partial<Record<SectionId, string>> = { services: 'Services', offers: 'Memberships', events: 'Events', team: 'Team', work: 'Our work', reviews: 'Reviews', about: 'About', policies: 'Good to know', faqs: 'Questions', gifts: 'Gift cards', visit: 'Visit us' };
 /** Where each section sits on the page. */
@@ -100,6 +101,11 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   });
   const hasHours = hours.some((h) => h.text !== 'Closed');
   const photo = page.cover?.url || null;
+  // The opening splash (first open only); the top of the page rises in as it lifts.
+  const [splash, endSplash0] = useSplash(preview ? undefined : tenant?.id, page.splash);
+  const splashAt = useRef(typeof performance !== 'undefined' ? performance.now() : 0);
+  const [lift, setLift] = useState(splash ? 0.6 : 0);
+  const endSplash = () => { const gone = (performance.now() - splashAt.current) / 1000; if (gone < 0.6) setLift(gone); endSplash0(); };
   const addr = addressLine(tenant?.address);
   const [allWork, setAllWork] = useState(false);
   const [openFaq, setOpenFaq] = useState(0);
@@ -128,7 +134,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   const againWho = againService && last?.staffId ? team.find((m: any) => m.id === last.staffId) || null : null;
 
   // The soonest open time for each service, for the team, and for "Book again" (over the next two weeks).
-  const [soon, setSoon] = useState<{ today: string; soonest: Record<string, { date: string; time: string; label: string; staffId: string; staffFirst: string }> } | null>(null);
+  const [soon, setSoon] = useState<{ today: string; soonest: Record<string, { date: string; time: string; label: string }> } | null>(null);
   // Asked for in the order the menu shows (the first twelve), and for each person their shortest service they can do.
   const teamPairs = useMemo(() => {
     const menu = groups.flatMap(([, list]) => list).filter((s: any) => s.membersOnly !== true);
@@ -151,6 +157,10 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
     return () => { live = false; };
   }, [soonAsk]); // eslint-disable-line react-hooks/exhaustive-deps
   const nextFor = (key: string) => { const x = soon?.soonest?.[key]; return x ? whenWords(x.date, x.label, soon!.today) : ''; };
+  // A small dot breathes beside a time that's today.
+  const isToday = (key: string) => { const x = soon?.soonest?.[key]; return !!x && x.date <= soon!.today; };
+  const soonLine = (k: string, className: string, children: React.ReactNode) =>   // a plain call, so the dot keeps breathing across renders
+    <span className={`flex items-center gap-1.5 font-medium ${className}`} style={{ color: 'var(--good)' }}>{isToday(k) && <span className="pub-breathe" aria-hidden />}{children}</span>;
   const teamNext = (m: any) => { const p = teamPairs.find((x) => x.staffId === m.id); return p ? nextFor(`${p.serviceId}|${p.staffId}`) : ''; };
 
   // Getting here: the business's own notes on parking, the entrance and a short video of the way in.
@@ -285,7 +295,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   const rentersHere = renters.filter((m: any) => m?.externalBookingUrl && /^https?:\/\//i.test(String(m.externalBookingUrl)));
   const alsoHere = rentersHere.length > 0 && <div className="mt-3 space-y-3">{rentersHere.map((m: any) => (
     <a key={m.id} href={m.externalBookingUrl} target="_blank" rel="noopener noreferrer" className="pub-card flex min-h-16 items-center gap-3 p-4">
-      {m.photoUrl || m.avatarUrl ? <img src={m.photoUrl || m.avatarUrl} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" /> : <span className="h-11 w-11 shrink-0 rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 18%, #fff)' }} aria-hidden />}
+      {m.photoUrl || m.avatarUrl ? <img src={m.photoUrl || m.avatarUrl} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" /> : <span className="pub-round h-11 w-11 shrink-0 rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 18%, #fff)' }} aria-hidden />}
       <span className="min-w-0 flex-1"><span className="block truncate text-[15px] font-semibold">Also here: {m.name}{(m.specialties || [])[0] ? `, ${String(m.specialties[0]).toLowerCase()}` : ''}</span>
         <span className="block text-[13px] text-stone-500">Books on their own site</span></span>
       <ChevronRight className="h-4 w-4 shrink-0 text-stone-400" aria-hidden /><span className="sr-only">(opens their booking site)</span>
@@ -293,14 +303,14 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
 
   const part = (id: SectionId): React.ReactNode => {
     if (!shows(id)) return null;
-    if (id === 'spaces') return tenant?.id && !preview ? <div id="spaces"><BoothListingsSection tenantId={tenant.id} config={{ kind: 'spaces', title: 'Book a space', subtitle: 'By the hour or the day, no appointment needed.', showMonthly: false, hideWhenEmpty: true }} /></div> : null;
+    if (id === 'spaces') return tenant?.id && !preview ? <div id="spaces" className="pub-plate"><BoothListingsSection tenantId={tenant.id} config={{ kind: 'spaces', title: 'Book a space', subtitle: 'By the hour or the day, no appointment needed.', showMonthly: false, hideWhenEmpty: true }} /></div> : null;
     if (id === 'offers' && offers) return <Section id="offers" eyebrow="Memberships and packages" title={<>Come back for <b>less</b></>}>
       <div className="grid gap-3 sm:grid-cols-2">{[...offers.memberships.map((m) => ({ kind: 'membership' as const, item: m, price: `${money(m.price)} ${per(m)}`, words: m.description, perks: m.perks || [], cta: 'Join' })),
         ...offers.packages.map((p) => ({ kind: 'package' as const, item: p, price: money(p.price), words: p.description, perks: [] as string[], cta: 'Buy' }))].map(({ kind, item, price, words, perks, cta }) => (
         <div key={`${kind}-${item.id}`} className="pub-card flex flex-col gap-3 p-5">
           <div><p className="text-[17px] font-semibold">{item.name}</p><p className="mt-0.5 text-[22px] font-light">{price}</p></div>
           {words && <p className="text-[14px] leading-relaxed text-stone-600">{words}</p>}
-          {perks.length > 0 && <ul className="space-y-1 text-[14px] text-stone-600">{perks.map((x: string) => <li key={x} className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden />{x}</li>)}</ul>}
+          {perks.length > 0 && <ul className="space-y-1 text-[14px] text-stone-600">{perks.map((x: string) => <li key={x} className="flex gap-2"><span className="pub-round mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden />{x}</li>)}</ul>}
           <div className="mt-auto pt-1">{offers.online && !preview
             ? <button type="button" onClick={() => openBuy(kind, item)} className="inline-flex h-11 items-center rounded-full px-6 text-[15px] font-medium text-white" style={{ background: 'var(--accent)' }}>{cta}<span className="sr-only"> {item.name}</span></button>
             : preview ? <span className="inline-flex h-11 items-center rounded-full px-6 text-[15px] font-medium text-white" style={{ background: 'var(--accent)' }}>{cta}</span>
@@ -314,7 +324,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
         const meta = [clockUp(e.time), start !== null && end !== null && end > start ? minutes(end - start) : '', e.venue ? String(e.venue) : '', left !== undefined && left > 0 ? `${left} ${left === 1 ? 'place' : 'places'} left` : ''].filter(Boolean).join(' · ');
         return (
           <div key={e.id} className="pub-card flex items-center gap-4 p-4">
-            <div className="w-12 shrink-0 text-center" aria-hidden><p className="text-[12px] font-semibold tracking-wide" style={{ color: 'var(--accent)', textTransform: 'uppercase' }}>{d.toLocaleDateString('en-US', { month: 'short' })}</p><p className="text-[24px] font-light leading-none">{d.getDate()}</p></div>
+            <div className="w-12 shrink-0 text-center" aria-hidden><p className="text-[12px] font-semibold tracking-wide" style={{ color: 'var(--accent-text, var(--accent))', textTransform: 'uppercase' }}>{d.toLocaleDateString('en-US', { month: 'short' })}</p><p className="text-[24px] font-light leading-none">{d.getDate()}</p></div>
             <div className="min-w-0 flex-1"><p className="text-[16px] font-semibold"><span className="sr-only">{d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}: </span>{e.title || e.name || 'Event'}</p>{meta && <p className="mt-0.5 text-[13px] text-stone-500">{meta}</p>}</div>
             {full ? <span className="shrink-0 rounded-full bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-500">Full</span>
               : preview ? <span className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Reserve</span>
@@ -324,11 +334,11 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
     if (id === 'team') return <Section id="team" eyebrow="The team" title={<>Meet the <b>people</b></>}>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{team.map((m: any) => (
         <div key={m.id} className="pub-card space-y-3 p-5">
-          <div className="flex items-center gap-3">{m.avatarUrl ? <img src={m.avatarUrl} alt="" className="h-14 w-14 rounded-full object-cover" /> : <span className="flex h-14 w-14 items-center justify-center rounded-full text-lg font-semibold text-white" style={{ background: 'var(--accent)' }} aria-hidden>{String(m.name || '?').slice(0, 1)}</span>}
+          <div className="flex items-center gap-3">{m.avatarUrl ? <img src={m.avatarUrl} alt="" className="h-14 w-14 rounded-full object-cover" /> : <span className="pub-round flex h-14 w-14 items-center justify-center rounded-full text-lg font-semibold text-white" style={{ background: 'var(--accent)' }} aria-hidden>{String(m.name || '?').slice(0, 1)}</span>}
             <div className="min-w-0"><p className="font-semibold">{m.name}</p>{(m.specialties || []).length > 0 && <p className="truncate text-[13px] text-stone-500">{m.specialties.slice(0, 3).join(' · ')}</p>}</div></div>
           {m.bio && <p className="line-clamp-3 text-[14px] text-stone-600">{m.bio}</p>}
-          {teamNext(m) && <p className="text-[14px] font-medium" style={{ color: '#1f7a4d' }}>Next opening: {teamNext(m)}</p>}
-          <button type="button" onClick={() => { setWithId(m.id); bookTop(); }} className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent)' }}>Book with {String(m.name || '').split(' ')[0]}</button>
+          {teamNext(m) && (() => { const p = teamPairs.find((x) => x.staffId === m.id); return soonLine(p ? `${p.serviceId}|${p.staffId}` : '', 'text-[14px]', <>Next opening: {teamNext(m)}</>); })()}
+          <button type="button" onClick={() => { setWithId(m.id); bookTop(); }} className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent-text, var(--accent))' }}>Book with {String(m.name || '').split(' ')[0]}</button>
         </div>
       ))}</div>
     </Section>;
@@ -339,12 +349,12 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
           {w.caption && <figcaption className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-full bg-white/90 px-2.5 py-1 text-[12px] font-medium text-stone-800">{w.caption}</figcaption>}
         </figure>
       ))}</div>
-      {page.work.length > 4 && <button type="button" onClick={() => setAllWork((v) => !v)} className="mt-3 inline-flex min-h-11 items-center text-[14px] font-medium" style={{ color: 'var(--accent)' }}>{allWork ? 'Show fewer' : `See all ${page.work.length} photos`}</button>}
+      {page.work.length > 4 && <button type="button" onClick={() => setAllWork((v) => !v)} className="mt-3 inline-flex min-h-11 items-center text-[14px] font-medium" style={{ color: 'var(--accent-text, var(--accent))' }}>{allWork ? 'Show fewer' : `See all ${page.work.length} photos`}</button>}
     </Section>;
     if (id === 'reviews') return <Section id="reviews" eyebrow="Kind words" title={<>What clients <b>say</b></>}>
       {real.length > 0 && rv.count >= 3 && rv.average > 0 && <p className="-mt-2 mb-4 text-[15px] text-stone-600"><Stars of={rv.average} /> <b className="text-stone-800">{rv.average.toFixed(1)}</b> · {rv.count} reviews</p>}
       <div className="grid gap-3 sm:grid-cols-3">{reviews.map((r, i) => (
-        <figure key={i} className="pub-card space-y-3 p-5"><p aria-label={`${r.rating} out of 5 stars`} style={{ color: 'var(--accent)' }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</p><blockquote className="text-[15px] text-stone-700">“{r.text}”</blockquote><figcaption className="text-[14px] font-semibold">{r.name}</figcaption></figure>
+        <figure key={i} className="pub-card space-y-3 p-5"><p aria-label={`${r.rating} out of 5 stars`} style={{ color: 'var(--accent-text, var(--accent))' }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</p><blockquote className="text-[15px] text-stone-700">“{r.text}”</blockquote><figcaption className="text-[14px] font-semibold">{r.name}</figcaption></figure>
       ))}</div>
     </Section>;
     if (id === 'about') return <Section id="about" eyebrow="About us" title={<>About <b>{name}</b></>}>
@@ -356,7 +366,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
     if (id === 'policies') return <Section id="policies" eyebrow="Before you book" title={<>Good to <b>know</b></>}>
       <div className="pub-card max-w-3xl px-5 py-2">
         <dl className="divide-y divide-stone-200">{rules.map((r) => <div key={r.title} className="py-3"><dt className="text-[15px] font-semibold">{r.title}</dt><dd className="mt-0.5 text-[14px] leading-relaxed text-stone-600">{r.text}</dd></div>)}</dl>
-        <div className="border-t border-stone-200 py-2"><button type="button" onClick={() => setFullPolicy(true)} className="inline-flex min-h-11 items-center text-[14px] font-medium" style={{ color: 'var(--accent)' }}>Read our full policy</button></div>
+        <div className="border-t border-stone-200 py-2"><button type="button" onClick={() => setFullPolicy(true)} className="inline-flex min-h-11 items-center text-[14px] font-medium" style={{ color: 'var(--accent-text, var(--accent))' }}>Read our full policy</button></div>
       </div>
     </Section>;
     if (id === 'faqs') return <Section id="questions" eyebrow="Questions" title={<>Asked <b>often</b></>}>
@@ -368,28 +378,28 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
         </div>); })}</div>
     </Section>;
     if (id === 'gifts') return giftsOn && !preview ? <Section id="gift-cards" eyebrow="Gift cards" title={<>Give the gift of a <b>visit</b></>}>
-      <GiftCardShowcase tenantId={tenant.id} brand={{ name, logo: tenant?.logoUrl || null, accent }} items={tenant.giftCardSettings.showcase || null} services={bookable} offered={tenant.giftCardSettings.designs || null} />
+      <GiftCardShowcase tenantId={tenant.id} brand={{ name, logo: tenant?.logoUrl || null, accent }} items={tenant.giftCardSettings.showcase || null} services={bookable} offered={tenant.giftCardSettings.designs || null} ink="var(--ink)" muted="var(--muted)" line="var(--line)" surface="var(--card)" />
     </Section> : null;
     if (id === 'visit') return <Section id="visit" eyebrow="Visit us" title={<>Find <b>us</b></>}>
       <div className="grid gap-3 md:grid-cols-2">
         <div className="pub-card space-y-3 p-5 text-[15px]">
-          {addr && <p className="flex gap-3"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden /><span>{addr}<br /><a href={`https://maps.google.com/?q=${encodeURIComponent(addr)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent)' }}>Get directions</a></span></p>}
+          {addr && <p className="flex gap-3"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden /><span>{addr}<br /><a href={`https://maps.google.com/?q=${encodeURIComponent(addr)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent-text, var(--accent))' }}>Get directions</a></span></p>}
           {tenant?.phone && <p className="flex items-center gap-3"><Phone className="h-4 w-4 shrink-0 text-stone-500" aria-hidden /><a href={`tel:${String(tenant.phone).replace(/[^\d+]/g, '')}`} className="inline-flex min-h-11 items-center underline underline-offset-4">{tenant.phone}</a></p>}
           {tenant?.email && <p className="flex items-center gap-3"><Mail className="h-4 w-4 shrink-0 text-stone-500" aria-hidden /><a href={`mailto:${tenant.email}`} className="inline-flex min-h-11 items-center underline underline-offset-4">{tenant.email}</a></p>}
-          {(addr || visitNotes.parking || visitNotes.entrance || visitNotes.video) && <button type="button" onClick={() => setHere(true)} className="inline-flex h-11 w-full items-center justify-center rounded-full text-[15px] font-medium" style={{ background: '#f1ece6' }}>Getting here</button>}
+          {(addr || visitNotes.parking || visitNotes.entrance || visitNotes.video) && <button type="button" onClick={() => setHere(true)} className="inline-flex h-11 w-full items-center justify-center rounded-full text-[15px] font-medium" style={{ background: 'color-mix(in srgb, var(--ink) 7%, transparent)' }}>Getting here</button>}
         </div>
         {hasHours && <div className="pub-card p-5"><p className="mb-2 flex items-center gap-2 font-semibold"><Clock className="h-4 w-4 text-stone-500" aria-hidden />Hours</p><dl className="grid grid-cols-[3.5rem_1fr] gap-y-1 text-[15px]">{hours.map((h) => <div key={h.label} className="contents"><dt className="text-stone-500">{h.label}</dt><dd className={h.text === 'Closed' ? 'text-stone-400' : ''}>{h.text}</dd></div>)}</dl></div>}
       </div>
       {alsoHere}
     </Section>;
-    if (id === 'waitlist') return <p className="mx-auto max-w-6xl px-4 py-6 text-center text-[15px] text-stone-600">Can’t find a time? {preview ? <span className="font-medium" style={{ color: 'var(--accent)' }}>Join the waitlist</span> : <a href={`/w/${encodeURIComponent(tenant.id)}`} className="inline-flex min-h-11 items-center font-medium underline-offset-4 hover:underline" style={{ color: 'var(--accent)' }}>Join the waitlist</a>}</p>;
+    if (id === 'waitlist') return <p className="mx-auto max-w-6xl px-4 py-6 text-center text-[15px] text-stone-600">Can’t find a time? {preview ? <span className="font-medium" style={{ color: 'var(--accent-text, var(--accent))' }}>Join the waitlist</span> : <a href={`/w/${encodeURIComponent(tenant.id)}`} className="inline-flex min-h-11 items-center font-medium underline-offset-4 hover:underline" style={{ color: 'var(--accent-text, var(--accent))' }}>Join the waitlist</a>}</p>;
     return null;
   };
 
   const rating = page.showRating && rv.count >= 3 && rv.average > 0;
   // Back from paying for a membership or package: what happened, in plain words.
   const boughtCard = bought && <div className="pub-card max-w-xl p-4" role="status">
-    <p className="text-[16px] font-semibold" style={{ color: bought.outcome === 'given' ? '#1f7a4d' : undefined }}>{
+    <p className="text-[16px] font-semibold" style={{ color: bought.outcome === 'given' ? 'var(--good)' : undefined }}>{
       bought.outcome === 'given' ? (bought.kind === 'membership' ? `Welcome to ${bought.name}` : `${bought.name} is yours`)
       : bought.outcome === 'pending' || bought.outcome === 'slow' ? 'Your payment is being confirmed' : bought.outcome === 'refunded' ? 'Your payment was refunded' : 'We’re looking into your payment'}</p>
     <p className="mt-0.5 text-[14px] text-stone-600">{
@@ -403,24 +413,25 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   </div>;
   // The offer they're booking with (from a link, a campaign or a code they typed), taken off at the visit.
   const offerCard = offer && <div className="pub-card flex max-w-xl items-start gap-3 p-4" role="status">
-    <Tag className="mt-0.5 h-5 w-5 shrink-0" style={{ color: 'var(--accent)' }} aria-hidden />
+    <Tag className="mt-0.5 h-5 w-5 shrink-0" style={{ color: 'var(--accent-text, var(--accent))' }} aria-hidden />
     <div className="min-w-0"><p className="text-[16px] font-semibold">{offer.amount || offer.line}</p>
       <p className="text-[13.5px] text-stone-500">{[offer.from ? `From ${offer.from}’s link` : `Code ${offer.code}`, offer.until ? `until ${offer.until}` : '', offer.oncePer ? 'one per client' : ''].filter(Boolean).join(' · ')}. Taken off at your visit.</p></div>
   </div>;
   return (
-    <PublicFrame accent={accent}>
-      <header ref={top} className="sticky top-0 z-30 border-b border-stone-200/70 bg-[#faf8f5]/90 backdrop-blur" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+    <PublicFrame accent={accent} mood={page.mood}>
+      {splash && <StudioSplash name={name} city={typeof tenant?.address === 'object' ? String(tenant.address?.city || '') : ''} logoUrl={tenant?.logoUrl} onDone={endSplash} />}
+      <header ref={top} className="pub-bar sticky top-0 z-30 border-b border-stone-200/70 backdrop-blur" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 items-center gap-2.5">{tenant?.logoUrl && <img src={tenant.logoUrl} alt="" className="h-9 w-9 rounded-xl object-contain" />}<span className="truncate text-[17px] font-semibold">{name}</span></div>
-          <div className="flex shrink-0 items-center gap-2">{tenant?.giftCardSettings?.online && tenant?.id && <a href={giftsOn && shows('gifts') ? '#gift-cards' : `/gift/${tenant.id}`} onClick={(e) => { if (giftsOn && shows('gifts')) { e.preventDefault(); go('gift-cards'); } }} className="inline-flex h-10 items-center rounded-full px-4 text-sm font-medium text-stone-700 hover:bg-stone-100">Gift cards</a>}
+          <div className="flex shrink-0 items-center gap-2">{tenant?.giftCardSettings?.online && tenant?.id && <a href={giftsOn && shows('gifts') ? '#gift-cards' : `/gift/${tenant.id}`} onClick={(e) => { if (giftsOn && shows('gifts')) { e.preventDefault(); go('gift-cards'); } }} className="inline-flex h-11 items-center rounded-full px-4 text-sm font-medium text-stone-700 hover:bg-stone-100">Gift cards</a>}
           <PrimaryButton onClick={bookTop} className="h-10 px-5 text-sm">Book</PrimaryButton></div>
         </div>
         {chips.length > 1 && <nav aria-label="Sections of this page" className="border-t border-stone-200/60">
           <div ref={chipRow} className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {chips.map((id) => { const on = current === id; return (
               <a key={id} data-chip={id} href={`#${anchor(id)}`} aria-current={on ? 'location' : undefined} onClick={(e) => { e.preventDefault(); setCurrent(id); go(anchor(id)); }} className="inline-flex h-11 shrink-0 items-center">
-                <span className="inline-flex h-9 items-center rounded-full px-4 text-[14px] font-medium transition-colors"
-                  style={on ? { background: '#1c1917', color: '#fff' } : { background: '#fff', color: '#44403c', boxShadow: 'inset 0 0 0 1px rgba(28,25,23,.08)' }}>{CHIP[id]}</span></a>); })}
+                <span className="pub-press inline-flex h-9 items-center rounded-full px-4 text-[14px] font-medium"
+                  style={on ? { background: 'var(--ink)', color: 'var(--paper)' } : { background: 'var(--card)', color: 'var(--muted)', boxShadow: 'inset 0 0 0 1px var(--line)' }}>{CHIP[id]}</span></a>); })}
           </div>
         </nav>}
       </header>
@@ -428,39 +439,48 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
       <main id="main">
         {focus ? (
           <section className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-12 sm:py-20 md:grid-cols-2" aria-label={`Book ${focus.name}`}>
-            <div className="pub-rise space-y-5">
+            <div className="pub-rise space-y-5" style={{ animationDelay: `${lift}s` }}>
               <p className="text-sm uppercase tracking-wide text-stone-500">{focus.category || 'Service'} · {name}</p>
               <h1 className="text-4xl leading-[1.08] sm:text-6xl">{focus.name}</h1>
               <p className="text-lg text-stone-700">{focus.duration ? `${focus.duration} min · ` : ''}{(focus.priceIsFrom || (focus.serviceTiers || []).length ? 'from ' : '')}${(Number(focus.price) || 0).toFixed(0)}</p>
               {focus.description && <p className="max-w-xl text-lg text-stone-600">{focus.description}</p>}
               <div className="flex flex-wrap items-center gap-3"><PrimaryButton onClick={() => book(focus)}>Book {focus.name}</PrimaryButton><QuietButton onClick={bookTop}>See all services</QuietButton></div>
             </div>
-            {(focus.imageUrl || photo) && <div className="pub-rise pub-card overflow-hidden" style={{ animationDelay: '.1s' }}><img src={focus.imageUrl || photo} alt="" className="aspect-[4/3] w-full object-cover" /></div>}
+            {(focus.imageUrl || photo) && <div className="pub-rise pub-card overflow-hidden" style={{ animationDelay: `${lift + 0.1}s` }}><img src={focus.imageUrl || photo} alt="" className="aspect-[4/3] w-full object-cover" /></div>}
           </section>
         ) : (
         <section className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-12 sm:py-20 md:grid-cols-2">
-          <div className="pub-rise space-y-5">
+          <div className="pub-rise space-y-5" style={{ animationDelay: `${lift}s` }}>
             <h1 className="text-4xl leading-[1.08] sm:text-6xl">{page.headline ? <>{plain}{bold && <> <b>{bold}</b></>}</> : <>Welcome to <b>{name}</b></>}</h1>
             {rating && <p className="text-[15px] text-stone-600">{shows('reviews') ? <a href="#reviews" onClick={(e) => { e.preventDefault(); go('reviews'); }} className="inline-flex min-h-11 items-center gap-1.5"><Stars of={rv.average} /><b className="text-stone-800">{rv.average.toFixed(1)}</b> · {rv.count} reviews</a>
               : <span className="inline-flex items-center gap-1.5"><Stars of={rv.average} /><b className="text-stone-800">{rv.average.toFixed(1)}</b> · {rv.count} reviews</span>}</p>}
             <p className="max-w-xl text-lg text-stone-600">{page.description || 'Book your next visit online in under a minute: pick a service, a time, and you’re done.'}</p>
             <div className="flex flex-wrap gap-3"><PrimaryButton onClick={bookTop}>Book an appointment</PrimaryButton>{team.length > 0 && shows('team') && <QuietButton onClick={() => go('team')}>Meet the team</QuietButton>}</div>
             {(!preview || memberPerk) && <p className="flex flex-wrap gap-x-6">
-              {!preview && tenant?.id && <a href={`/book/${encodeURIComponent(tenant.id)}/find`} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent)' }}>Find my booking</a>}
-              {memberPerk && member !== true && <button type="button" onClick={() => askSignIn()} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent)' }}>Member? Sign in</button>}</p>}
+              {!preview && tenant?.id && <a href={`/book/${encodeURIComponent(tenant.id)}/find`} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent-text, var(--accent))' }}>Find my booking</a>}
+              {memberPerk && member !== true && <button type="button" onClick={() => askSignIn()} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent-text, var(--accent))' }}>Member? Sign in</button>}</p>}
             {againService && last && <div className="pub-card max-w-xl p-4">
               <div className="flex items-start gap-3"><RotateCcw className="mt-1 h-4 w-4 shrink-0 text-stone-500" aria-hidden />
                 <div className="min-w-0"><p className="text-[16px] font-semibold">Welcome back, {last.first}</p>
                   <p className="text-[14px] text-stone-600">{againService.name}{againWho ? ` with ${String(againWho.name || '').split(' ')[0]}` : ''}{last.at && Date.parse(last.at) < Date.now() ? <> · <span className="whitespace-nowrap">last booked for {new Date(last.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tenantTimeZone(tenant) })}</span></> : null}</p>
-                  {(againWho ? nextFor(`${againService.id}|${againWho.id}`) : nextFor(againService.id)) && <p className="text-[14px] font-medium" style={{ color: '#1f7a4d' }}>{againWho ? `${String(againWho.name || '').split(' ')[0]}’s next opening` : 'Next opening'}: {againWho ? nextFor(`${againService.id}|${againWho.id}`) : nextFor(againService.id)}</p>}</div></div>
+                  {(againWho ? nextFor(`${againService.id}|${againWho.id}`) : nextFor(againService.id)) && soonLine(againWho ? `${againService.id}|${againWho.id}` : againService.id, 'text-[14px]', <>{againWho ? `${String(againWho.name || '').split(' ')[0]}’s next opening` : 'Next opening'}: {againWho ? nextFor(`${againService.id}|${againWho.id}`) : nextFor(againService.id)}</>)}</div></div>
               <div className="mt-3 flex flex-wrap items-center gap-3"><PrimaryButton onClick={() => book(againService, againWho?.id)} className="h-11 px-5">Book again</PrimaryButton>
                 <button type="button" onClick={forget} aria-label={`Not ${last.first}? Forget the visit saved on this device`} className="inline-flex min-h-11 items-center text-[14px] text-stone-500">Not {last.first}?</button></div>
             </div>}
-            {member === true && <p className="text-[15px] font-medium" style={{ color: '#1f7a4d' }} role="status">Signed in as a member{membersOnly ? ': members-only services are open' : ''}.</p>}
+            {member === true && <p className="text-[15px] font-medium" style={{ color: 'var(--good)' }} role="status">Signed in as a member{membersOnly ? ': members-only services are open' : ''}.</p>}
             {offer && offerCard}
             {boughtCard}
           </div>
-          {photo && <div className="pub-rise pub-card overflow-hidden" style={{ animationDelay: '.1s' }}><img src={photo} alt="" className="aspect-[4/3] w-full object-cover" /></div>}
+          <div className="pub-rise pub-card relative order-first overflow-hidden md:order-none" style={{ animationDelay: `${lift + 0.1}s` }}>
+            {photo ? <img src={photo} alt="" className="aspect-[16/10] w-full object-cover md:aspect-[4/3]" />
+              : <div className="relative aspect-[16/10] md:aspect-[4/3]" aria-hidden>
+                <span className="absolute -inset-[30%]" style={{ background: 'radial-gradient(40% 45% at 30% 40%, color-mix(in srgb, var(--accent) 50%, transparent), transparent 70%), radial-gradient(35% 40% at 72% 55%, color-mix(in srgb, var(--accent) 32%, transparent), transparent 70%)' }} />
+                <span className="absolute inset-0 grid place-items-center">
+                  {tenant?.logoUrl ? <span className="grid h-20 w-20 place-items-center overflow-hidden rounded-3xl p-2 shadow-sm" style={{ background: '#fff' }}><img src={tenant.logoUrl} alt="" className="h-full w-full object-contain" /></span>
+                    : <span className="grid h-20 w-20 place-items-center rounded-3xl text-[34px] font-bold text-white" style={{ background: 'var(--accent)' }}>{(name.trim()[0] || '·').toUpperCase()}</span>}
+                </span>
+              </div>}
+          </div>
         </section>)}
 
         {offer && focus && <div className="mx-auto max-w-6xl px-4">{offerCard}</div>}
@@ -474,12 +494,12 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
               <div key={cat} id={`cat-${catSlug(cat)}`} className="space-y-3 scroll-mt-32">
                 {groups.length > 1 && <h3 className="text-lg font-semibold">{cat}</h3>}
                 <div className="grid gap-3 sm:grid-cols-2">{list.map((s: any, i: number) => { const locked = s.membersOnly === true && member !== true; return (
-                  <button key={s.id} type="button" onClick={() => book(s)} className="pub-rise pub-card flex w-full items-center gap-4 p-4 text-left transition hover:-translate-y-0.5" style={{ animationDelay: `${Math.min(i, 8) * 0.04}s` }} aria-label={`Book ${s.name}${locked ? ', for members' : ''}`}>
+                  <button key={s.id} type="button" onClick={() => book(s)} className="pub-stagger pub-press pub-card flex w-full items-center gap-4 p-4 text-left" style={{ ['--i' as any]: i }} aria-label={`Book ${s.name}${locked ? ', for members' : ''}`}>
                     {s.imageUrl && <img src={s.imageUrl} alt="" className="h-16 w-16 shrink-0 rounded-2xl object-cover" />}
                     <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><span className="text-[16px] font-semibold">{s.name}</span>{s.membersOnly === true && <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-[12px] font-medium text-stone-600">Members</span>}</span>
                       <span className="mt-0.5 block text-[13px] text-stone-500">{[minutes(s.duration), money(s.price) && `${s.priceIsFrom || (s.serviceTiers || []).length ? 'from ' : ''}${money(s.price)}`, depositWords(tenant, s)].filter(Boolean).join(' · ')}</span>
-                      {giftCents > 0 && Number(s.price) > 0 && Number(s.price) * 100 <= giftCents && <span className="mt-1 inline-block rounded-full px-2.5 py-0.5 text-[12px] font-medium" style={{ background: '#e9f3ed', color: '#1f7a4d' }}>Covered by your gift card</span>}
-                      {nextFor(s.id) && <span className="mt-1 block text-[13px] font-medium" style={{ color: '#1f7a4d' }}>Next: {nextFor(s.id)}</span>}
+                      {giftCents > 0 && Number(s.price) > 0 && Number(s.price) * 100 <= giftCents && <span className="mt-1 inline-block rounded-full px-2.5 py-0.5 text-[12px] font-medium" style={{ background: 'var(--good-soft)', color: 'var(--good)' }}>Covered by your gift card</span>}
+                      {nextFor(s.id) && soonLine(s.id, 'mt-1 text-[13px]', <>Next: {nextFor(s.id)}</>)}
                       {s.description && <span className="mt-1 line-clamp-2 block text-[13px] text-stone-600">{s.description}</span>}</span>
                     <span className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Book</span>
                   </button>); })}</div>
@@ -487,7 +507,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
             ))}</div>
           )}
           {onOfferCode && !offer && <div className="mt-6">
-            {!codeOpen ? <button type="button" onClick={() => setCodeOpen(true)} className="inline-flex min-h-11 items-center gap-2 text-[15px] font-medium" style={{ color: 'var(--accent)' }}><Tag className="h-4 w-4" aria-hidden />Have an offer code?</button>
+            {!codeOpen ? <button type="button" onClick={() => setCodeOpen(true)} className="inline-flex min-h-11 items-center gap-2 text-[15px] font-medium" style={{ color: 'var(--accent-text, var(--accent))' }}><Tag className="h-4 w-4" aria-hidden />Have an offer code?</button>
               : <div className="max-w-md">
                 <label htmlFor="offer-code" className="mb-1.5 block text-[14px] font-medium">Offer code</label>
                 <div className="flex gap-2">
@@ -504,7 +524,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
       </main>
 
       <footer className="mx-auto max-w-6xl px-4 pb-28 pt-8 text-[13px] text-stone-500 md:pb-10">© {new Date().getFullYear()} {name} · Online booking by ClarityFlow</footer>
-      {!preview && <div className="pub-safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-stone-200/70 bg-[#faf8f5]/95 px-4 pt-3 backdrop-blur md:hidden">
+      {!preview && <div className="pub-safe-bottom pub-bar fixed inset-x-0 bottom-0 z-30 border-t border-stone-200/70 px-4 pt-3 backdrop-blur md:hidden">
         <PrimaryButton onClick={bookTop} className="w-full">Book an appointment</PrimaryButton>
       </div>}
 
@@ -552,7 +572,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
       <PublicSheet open={!!reserve} onClose={() => setReserve(null)} title={rsvDone ? 'Reserved' : 'Reserve a place'}>
         {reserve && <div className="space-y-3 pb-2">
           <p className="text-[15px] text-stone-600"><b className="text-stone-800">{reserve.title || reserve.name || 'Event'}</b>, {new Date(`${reserve.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}{reserve.time ? ` at ${clockUp(reserve.time)}` : ''}.</p>
-          {rsvDone ? <><p className="text-[15px] font-medium" style={{ color: '#1f7a4d' }} role="status">{rsvDone}</p><PrimaryButton onClick={() => setReserve(null)} className="w-full">Done</PrimaryButton></>
+          {rsvDone ? <><p className="text-[15px] font-medium" style={{ color: 'var(--good)' }} role="status">{rsvDone}</p><PrimaryButton onClick={() => setReserve(null)} className="w-full">Done</PrimaryButton></>
           : seats[reserve.id] === 0 ? <><p className="text-[15px] text-stone-700" role="alert">This event is full.</p><PrimaryButton onClick={() => setReserve(null)} className="w-full">Close</PrimaryButton></>
           : <form className="space-y-3" noValidate onSubmit={(e) => { e.preventDefault(); void reserveNow(); }}>
             <label htmlFor="rsv-name" className="block text-[14px] font-medium">Your name</label>

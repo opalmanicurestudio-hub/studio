@@ -224,6 +224,9 @@ export default function BookingPageSettings() {
             <Row label="Mood" help={MOODS.find((m) => m.id === page.mood)?.meaning}>
               <Choice<Mood> label="Mood" value={page.mood} options={MOODS.map((m) => ({ value: m.id, label: m.title }))} onChange={(v) => { if (isMgr) void save({ mood: v }, 'Mood'); }} />
             </Row>
+            <Row label="Opening splash" help="Your color, logo and name for under a second, the first time someone opens your page. Never for anyone whose phone asks for less motion." inline>
+              <Toggle label="Show the opening splash" checked={page.splash} disabled={!isMgr} onChange={(v) => void save({ splash: v ? undefined : false }, 'Opening splash')} />
+            </Row>
           </Section>
 
           <Section title="At the top">

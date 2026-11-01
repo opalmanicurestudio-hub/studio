@@ -1,5 +1,5 @@
 // /api/booking/find — FIND MY BOOKING, from the booking page.
-//   GET  ?tenantId=…                    → the business's name, color and logo, for the page
+//   GET  ?tenantId=…                    → the business's name, color, mood and logo, for the page
 //   POST { tenantId, contact }           → their upcoming visits' links, sent ONLY to that phone or email
 // The answer is always the same ("if that has a booking, a link is on its way"), and it comes back before any lookup
 // is done (the lookup and the sending happen after the answer), so neither what it says nor how long it takes tells
@@ -9,7 +9,7 @@ import { NextRequest, NextResponse, after } from 'next/server';
 import { createHash } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic, bump } from '@/lib/rate-limit';
-import { brandColor } from '@/lib/studio-page';
+import { brandColor, studioPage } from '@/lib/studio-page';
 import { linkOrigin } from '@/lib/app-origin';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { privacyOf } from '@/lib/health-privacy';
@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
   if (!ID.test(tenantId)) return NextResponse.json({ ok: false }, { status: 400 });
   const t: any = (await getAdminDb().doc(`tenants/${tenantId}`).get()).data();
   if (!t) return NextResponse.json({ ok: false }, { status: 404 });
-  return NextResponse.json({ ok: true, name: t.name || 'Book an appointment', accent: brandColor(t), logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null },
-    { headers: { 'Cache-Control': 'public, max-age=300, s-maxage=300' } });
+  return NextResponse.json({ ok: true, name: t.name || 'Book an appointment', accent: brandColor(t), mood: studioPage(t).mood, logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null },
+    { headers: { 'Cache-Control': 'public, max-age=60, s-maxage=60' } });
 }
 
 export async function POST(req: NextRequest) {

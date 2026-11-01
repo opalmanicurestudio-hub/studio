@@ -24,9 +24,10 @@ function useReducedMotion() {
   return r;
 }
 
-export function GiftCardShowcase({ tenantId, brand, items, services = [], offered, preview = false, ink = '#1c1917', muted = '#78716c', line = '#e7e2dc', font }: {
+export function GiftCardShowcase({ tenantId, brand, items, services = [], offered, preview = false, ink = '#1c1917', muted = '#78716c', line = '#e7e2dc', surface, font }: {
   tenantId: string; brand: { name: string; logo?: string | null; accent?: string | null }; items?: ShowcaseItem[] | null; services?: any[];
   offered?: string[] | null; preview?: boolean; ink?: string; muted?: string; line?: string; font?: string;
+  surface?: string;   // what the note and the "Who's it for?" field sit on (a dark page passes its card color)
 }) {
   const list = (items && items.length ? items : DEFAULT_SHOWCASE).slice(0, 3);
   const accent = brand.accent || ink;
@@ -71,7 +72,7 @@ export function GiftCardShowcase({ tenantId, brand, items, services = [], offere
         .gcs-pop{animation:gcsPop .45s cubic-bezier(.2,.8,.2,1)}@keyframes gcsPop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
         @media (prefers-reduced-motion: reduce){.gcs-card{transition:none}.gcs-float,.gcs-sweep::after,.gcs-pop{animation:none}}
       `}</style>
-      {occasion && <div className="mb-6 flex justify-center"><span className="gcs-pop inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13.5px] font-medium" style={{ background: `color-mix(in srgb, ${accent} 10%, #fff)`, color: ink }}>
+      {occasion && <div className="mb-6 flex justify-center"><span className="gcs-pop inline-flex items-center gap-2 rounded-full px-4 py-2 text-[13.5px] font-medium" style={{ background: `color-mix(in srgb, ${accent} 10%, ${surface || '#fff'})`, color: ink }}>
         <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: occasion.lineColor || accent }} />{occasion.name} cards are here — schedule it to arrive on the day</span></div>}
 
       <div ref={stage} onPointerMove={onMove} onPointerLeave={() => setTilt({ x: 0, y: 0 })}
@@ -105,7 +106,7 @@ export function GiftCardShowcase({ tenantId, brand, items, services = [], offere
           <p className="mt-1 text-[38px] font-light leading-none tracking-[-0.03em]">{money(it.amount)}</p>
           {covers(it.amount) && <p className="mt-2 text-[14.5px]" style={{ color: muted }}>{covers(it.amount)}</p>}
         </div>
-        <div className="mt-5 flex items-center gap-2 rounded-full border bg-white p-1.5 pl-5" style={{ borderColor: line }}>
+        <div className={`mt-5 flex items-center gap-2 rounded-full border p-1.5 pl-5 ${surface ? '' : 'bg-white'}`} style={{ borderColor: line, ...(surface ? { background: surface } : {}) }}>
           <input value={to} onChange={(e) => setTo(e.target.value.slice(0, 40))} placeholder="Who’s it for?" aria-label="Who’s it for?" className="h-11 min-w-0 flex-1 bg-transparent text-[15.5px] outline-none" />
           <button type="button" onClick={() => go(active)} className="gcs-cta h-11 shrink-0 rounded-full px-5 text-[14.5px] font-semibold text-white" style={{ background: accent, boxShadow: `0 10px 24px color-mix(in srgb, ${accent} 30%, transparent)` }}>Give this card</button>
         </div>

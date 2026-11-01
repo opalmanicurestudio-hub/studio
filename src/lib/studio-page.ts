@@ -17,6 +17,7 @@ export interface Faq { q: string; a: string }
 export interface StudioSettings {
   color?: string; mood?: Mood; cover?: Photo | null; headline?: string; description?: string;
   soonest?: boolean; bookAgain?: boolean; showRating?: boolean;
+  splash?: boolean;   // the opening splash: the color, the logo and the name for under a second, the first time a visitor opens the page
   visit?: VisitNotes;   // Getting here: parking, the entrance and a short video of the way in
   order?: SectionId[]; off?: Partial<Record<SectionId, boolean>>;
   work?: Photo[]; about?: { text?: string; photo?: Photo | null }; faqs?: Faq[];
@@ -89,10 +90,10 @@ export function readable(hex: string): string {
 }
 
 /** On the black look: the color lightened just enough that dark text on it, and the color itself on black, read clearly
- *  (4.5:1 against ink). */
-export function lifted(hex: string): string {
+ *  (4.5:1 against ink, or against `on`, the darkest-but-one surface it sits on, such as a card on a dark page). */
+export function lifted(hex: string, on = '#16171a'): string {
   const h0 = hexOf(hex); if (!h0) return '#f5f5f7';
-  const lum = (h: string) => 1.05 / whiteContrast(h) - 0.05; const inkLum = lum('#16171a');
+  const lum = (h: string) => 1.05 / whiteContrast(h) - 0.05; const inkLum = lum(hexOf(on) || '#16171a');
   const ok = (h: string) => (lum(h) + 0.05) / (inkLum + 0.05) >= 4.5;
   if (ok(h0)) return h0;
   const n = parseInt(h0.slice(1), 16); const from = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
@@ -164,7 +165,7 @@ function classic(t: any) {
 
 export interface ResolvedPage {
   color: string | null; paint: string; mood: Mood; cover: Photo | null; headline: string; description: string;
-  soonest: boolean; bookAgain: boolean; showRating: boolean; visit: VisitNotes;
+  soonest: boolean; bookAgain: boolean; showRating: boolean; splash: boolean; visit: VisitNotes;
   order: SectionId[]; on: Record<SectionId, boolean>;
   work: Photo[]; about: { text: string; photo: Photo | null }; faqs: Faq[];
   /** Reviews typed into the old page builder, shown only until clients' own reviews are chosen to show. */
@@ -186,7 +187,7 @@ export function studioPage(t: any): ResolvedPage {
     cover: s.cover === null ? null : s.cover?.url ? s.cover : c.cover,
     headline: typeof s.headline === 'string' ? s.headline.trim() : c.headline,
     description: typeof s.description === 'string' ? s.description.trim() : c.description || String(t?.description || '').trim(),
-    soonest: s.soonest !== false, bookAgain: s.bookAgain !== false, showRating: s.showRating !== false,
+    soonest: s.soonest !== false, bookAgain: s.bookAgain !== false, showRating: s.showRating !== false, splash: s.splash !== false,
     visit: visitNotes(s.visit),
     order: ['services', ...order] as SectionId[], on,
     work: Array.isArray(s.work) ? s.work.filter((p) => p?.url) : c.work,
