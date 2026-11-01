@@ -6,6 +6,7 @@
 import * as React from 'react';
 import { settingsOf } from '@/lib/making-it-right';
 import { PRINT, PRINT_FONT_STACK } from '@/lib/print-style';
+import { pageAccent } from '@/lib/studio-page';
 
 const INK = 'hsl(var(--foreground))';
 const money = (c: number) => `$${(Math.round(c || 0) / 100).toFixed(2)}`;
@@ -17,7 +18,7 @@ function bills(cents: number) {
   return out;
 }
 function accentOf(t: any) {
-  const c = t?.bookingPageSettings?.cfPageConfig?.accentColor || t?.bookingPageSettings?.theme?.primaryColor || t?.brandColor || '';
+  const c = pageAccent(t) || '';
   return typeof c === 'string' && /^#?[0-9a-f]{6}$/i.test(c.trim()) ? (c.trim().startsWith('#') ? c.trim() : `#${c.trim()}`) : PRINT.ink;
 }
 const LBL: React.CSSProperties = { fontSize: 11, fontWeight: 500, color: PRINT.muted };

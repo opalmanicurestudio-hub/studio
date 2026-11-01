@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { linkOrigin } from '@/lib/app-origin';
+import { pageAccent } from '@/lib/studio-page';
 export const dynamic = 'force-dynamic';
 const H = { 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=900' };
 
@@ -25,6 +26,6 @@ export async function GET(req: NextRequest) {
     .filter((b: any) => b.isActive !== false && b.dayUseEnabled && b.listed !== false && b.status !== 'maintenance')
     .map((b: any) => { const rate = (f: string) => { const o = (b.pricingOptions || []).find((x: any) => x.frequency === f && x.amountCents > 0); return o ? o.amountCents / 100 : null; };
       return { id: b.id, name: b.name, hourly: rate('hourly'), daily: rate('daily'), description: b.description ? String(b.description).slice(0, 200) : null, imageUrl: (b.photoUrls || [])[0] || b.photoUrl || null }; });
-  return NextResponse.json({ ok: true, business: { name: t.name || 'Studio', accent: cfg.accentColor || t.brandColor || '#1c1917', logoUrl: cfg.logoUrl || t.logoUrl || null },
+  return NextResponse.json({ ok: true, business: { name: t.name || 'Studio', accent: pageAccent(t) || '#1c1917', logoUrl: cfg.logoUrl || t.logoUrl || null },
     bookBase: `${linkOrigin(t, req.nextUrl.origin)}/book/${encodeURIComponent(tenantId)}`, spaces, categories: [...m.entries()].map(([name, services]) => ({ name, services })) }, { headers: H });
 }

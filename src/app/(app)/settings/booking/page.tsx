@@ -21,7 +21,6 @@ import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useTenant } from '@/context/TenantContext';
-import { PageDesignPicker } from '@/components/settings/PageDesignPicker';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { AppointmentAuthoritySettings } from '@/components/settings/AppointmentAuthoritySettings';
@@ -138,7 +137,7 @@ export default function BookingSettingsPage() {
 
 
   return (
-    <SettingsPage title="How bookings come in" help={`What happens when someone books online, and how your booking page looks.${isMgr ? '' : ' (View only.)'}`}>
+    <SettingsPage title="How bookings come in" help={`What happens when someone books online.${isMgr ? '' : ' (View only.)'}`}>
       <div className="space-y-6">
         <Card id="rules" className="scroll-mt-20 border-2 rounded-[2rem] bg-card">
           <CardContent className="p-5 space-y-3">
@@ -225,8 +224,6 @@ export default function BookingSettingsPage() {
           <Row label="Fill late cancellations quickly" help="A slot freed within 48 hours is open to everyone, even past your usual rules." inline><Toggle checked={!!(selectedTenant as any)?.flashYieldEnabled} disabled={!isMgr || busy === 'flashYieldEnabled'} onChange={(v) => void save('flashYieldEnabled', 'flashYieldEnabled', v, 'Fill late cancellations quickly')} label="Fill late cancellations quickly" /></Row>
         </Section>
 
-        <div id="design" className="scroll-mt-20" />
-        {tenantId && <PageDesignPicker firestore={firestore as any} tenantId={tenantId} current={(selectedTenant as any)?.bookingPageSettings?.design} />}
 
         <More help="No-show limits, rebooking at the counter, who can move appointments, blocked time, and when plans change.">
 

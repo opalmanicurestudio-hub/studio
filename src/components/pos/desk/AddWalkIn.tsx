@@ -5,6 +5,7 @@ import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { printAppointmentTicket } from '@/lib/appointment-ticket';
 import { openVisit } from '@/lib/visit-client';
+import { pageAccent } from '@/lib/studio-page';
 
 export function AddWalkIn({ tenantId, tenant, services, staff, onDone, locationId = null }: { tenantId: string; tenant: any; services: any[]; staff: any[]; onDone?: () => void; locationId?: string | null }) {
   const svcs = (services || []).filter((x: any) => x && x.type !== 'addon' && !x.isAddon && x.isActive !== false && !x.archived);
@@ -24,7 +25,7 @@ export function AddWalkIn({ tenantId, tenant, services, staff, onDone, locationI
   };
   const print = (size: 'letter' | 'receipt') => printAppointmentTicket({ id: `apt-walkin-${res.walkInId}`, clientName: res.clientName, checkInToken: res.checkInToken, shortCode: res.shortCode },
     { studioName: tenant?.name, clientName: res.clientName, serviceName: res.serviceName, staffName: res.staffName, kind: 'walkin', queuePosition: res.assigned ? null : res.position, estWaitMin: res.estWaitMin,
-      accent: tenant?.bookingPageSettings?.cfPageConfig?.accentColor || tenant?.brandColor, logoUrl: tenant?.logoUrl || tenant?.bookingPageSettings?.cfPageConfig?.logoUrl, size, origin: window.location.origin } as any);
+      accent: pageAccent(tenant) || tenant?.brandColor, logoUrl: tenant?.logoUrl || tenant?.bookingPageSettings?.cfPageConfig?.logoUrl, size, origin: window.location.origin } as any);
   const box = { background: 'var(--card)', border: '1px solid var(--line)' } as React.CSSProperties; const soft = { background: 'var(--soft)' } as React.CSSProperties;
   const inp = 'h-12 w-full rounded-xl px-4 text-[16px] outline-none'; const inpS = { background: 'var(--paper)', border: '1px solid var(--line)' } as React.CSSProperties;
   if (res) return (

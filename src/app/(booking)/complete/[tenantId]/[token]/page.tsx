@@ -10,6 +10,7 @@ import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
 import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import { CheckCircle2, ShieldCheck, CreditCard, Loader, AlertTriangle, Lock, FileSignature, Upload, Image as ImageIcon } from 'lucide-react';
+import { pageAccent } from '@/lib/studio-page';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // /complete/[tenantId]/[token]
@@ -88,7 +89,7 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     return () => { cancelled = true; };
   }, [tenantId, token, getDb]);
 
-  const accent        = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || '#111827';
+  const accent        = pageAccent(tenant) || '#111827';
   const studioName    = tenant?.name || 'the studio';
   const depositDollars = (completion?.depositAmountCents || 0) / 100;
   // Key flags from QuickBook

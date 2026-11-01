@@ -32,12 +32,15 @@ export function Row({ label, help, children, inline }: { label: string; help?: R
   );
 }
 
-/** An on/off switch in the business's colour. */
+/** An on/off switch: green when on, grey when off (a darker grey on black), with a white knob that always shows (a
+ *  white that the black look's repainting of white backgrounds leaves alone). The tap area is 44px tall around the track. */
 export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   return (
     <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)}
-      className="relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-40" style={{ background: checked ? 'var(--accent)' : 'var(--line)' }}>
-      <span className="absolute top-1 h-5 w-5 rounded-full shadow transition-[left]" style={{ left: checked ? 24 : 4, background: 'hsl(var(--card))' }} />
+      className="group relative inline-flex h-11 w-14 shrink-0 items-center justify-center rounded-full disabled:opacity-40">
+      <span className="relative h-7 w-12 rounded-full transition-colors" style={{ background: checked ? '#1f7a4d' : 'var(--toggle-off, #d4d5d9)' }} aria-hidden>
+        <span className="absolute top-1 h-5 w-5 rounded-full shadow transition-[left]" style={{ left: checked ? 24 : 4, background: '#fefefe' }} />
+      </span>
     </button>
   );
 }
@@ -48,7 +51,7 @@ export function Choice<T extends string | number>({ value, options, onChange, la
     <div role="radiogroup" aria-label={label} className="inline-flex flex-wrap gap-1 rounded-full p-1" style={{ background: 'var(--soft)' }}>
       {options.map((o) => { const on = o.value === value; return (
         <button key={String(o.value)} type="button" role="radio" aria-checked={on} onClick={() => onChange(o.value)}
-          className="h-9 rounded-full px-4 text-[14px] transition-colors" style={on ? { background: 'var(--card)', color: 'var(--ink)', fontWeight: 600, boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: 'var(--muted)' }}>{o.label}</button>); })}
+          className="h-9 rounded-full px-4 text-[14px] transition-colors [@media(pointer:coarse)]:h-11" style={on ? { background: 'var(--card)', color: 'var(--ink)', fontWeight: 600, boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: 'var(--muted)' }}>{o.label}</button>); })}
     </div>
   );
 }
@@ -81,13 +84,13 @@ export function fromPicker(v: string): string {
 
 /** The frame every settings screen uses — the header bar (search, notifications), "‹ Settings", the page's name and
  *  one line about it, on the Studio paper. Sub-pages (Booking, Messages, Automations…) look exactly like the tabs. */
-export function SettingsPage({ title, help, actions, children }: { title: string; help?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {
+export function SettingsPage({ title, help, actions, children, wide }: { title: string; help?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode; wide?: boolean }) {
   const back = useSettingsBack();
   return (
     <div className="cf-settings cf-legacy min-h-full">
       <SettingsStyle />
       <AppHeader title="Settings" />
-      <main className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 pb-32 md:space-y-10 md:px-10 md:py-10">
+      <main className={`mx-auto w-full ${wide ? 'max-w-6xl' : 'max-w-3xl'} space-y-8 px-4 py-6 pb-32 md:space-y-10 md:px-10 md:py-10`}>
         <header className="space-y-4 text-left">
           <Link href={back.href} className="inline-flex min-h-11 items-center gap-1 text-[14px] font-medium cf-muted hover:underline lg:hidden"><ChevronLeft className="h-4 w-4" aria-hidden />{back.label}</Link>
           <div className="flex flex-wrap items-end justify-between gap-3">

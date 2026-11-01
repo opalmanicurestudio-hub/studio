@@ -5,6 +5,7 @@
 // virtual and mobile appointments alike.
 import React from 'react';
 import { PublicFrame } from '@/components/public/kit';
+import { pageAccent } from '@/lib/studio-page';
 
 export type VisitBrand = { accent: string; studioName?: string | null; bookHref?: string | null; phone?: string | null };
 
@@ -12,7 +13,7 @@ export type VisitBrand = { accent: string; studioName?: string | null; bookHref?
 export function brandOf(tenant: any, tenantId?: string | null, serviceId?: string | null): VisitBrand {
   const t = tenant || {};
   return {
-    accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || '#7c3aed',
+    accent: pageAccent(t) || t.brandColor || '#7c3aed',
     studioName: t.name || t.businessName || null,
     bookHref: tenantId ? `/book/${tenantId}${serviceId ? `?service=${encodeURIComponent(serviceId)}` : ''}` : null,
     phone: t.phone || t.twilioPhoneNumber || null,

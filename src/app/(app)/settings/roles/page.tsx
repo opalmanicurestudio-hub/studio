@@ -45,7 +45,7 @@ function RoleEditor({ id, def, count, canEdit, onDone, others }: { id: string | 
         </div>))}
       {!locked && <div className="flex flex-wrap gap-2 pt-1">
         <button type="button" disabled={busy || !name.trim()} onClick={() => run({ action: 'save', roleId: id || undefined, name: name.trim(), caps, base: def.base }, id ? 'Role saved.' : 'Role added.')}
-          className="h-11 rounded-full px-5 text-[15px] font-semibold text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>{id ? 'Save' : 'Add role'}</button>
+          className="h-11 rounded-full px-5 text-[15px] font-semibold disabled:opacity-50" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>{id ? 'Save' : 'Add role'}</button>
         {id && def.builtIn && <button type="button" disabled={busy} onClick={() => run({ action: 'reset', roleId: id }, 'Back to how it started.')} className="h-11 rounded-full border px-5 text-[15px]" style={{ borderColor: 'var(--line)' }}>Reset</button>}
         {!id && <button type="button" onClick={() => onDone()} className="h-11 rounded-full border px-5 text-[15px]" style={{ borderColor: 'var(--line)' }}>Cancel</button>}
       </div>}
@@ -75,7 +75,7 @@ export default function RolesPage() {
 
   return (
     <SettingsPage title="Roles and permissions" help={`What each person on your team can see and do. Change a role and everyone on it gets the change straight away.${canEdit ? '' : ' (View only — the owner can change these.)'}`}
-      actions={canEdit ? <button type="button" onClick={() => { setOpen(null); setAdding({ name: '', caps: BUILT_IN.staff.caps, base: 'staff' }); }} className="inline-flex h-11 items-center gap-2 rounded-full px-5 text-[15px] font-semibold text-white" style={{ background: 'var(--accent)' }}><Plus className="h-4 w-4" aria-hidden />Add a role</button> : undefined}>
+      actions={canEdit ? <button type="button" onClick={() => { setOpen(null); setAdding({ name: '', caps: BUILT_IN.staff.caps, base: 'staff' }); }} className="inline-flex h-11 items-center gap-2 rounded-full px-5 text-[15px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}><Plus className="h-4 w-4" aria-hidden />Add a role</button> : undefined}>
       {adding && <Section title="New role" help="Start from what a provider can do, then switch things on or off.">
         <div className="pt-4"><RoleEditor key={`new-${adding.name}`} id={null} def={adding} count={0} canEdit={canEdit} onDone={done} others={[]} /></div>
       </Section>}

@@ -8,8 +8,9 @@ import * as React from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useFirebase } from '@/firebase';
-import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
+import { DESK_CSS, Btn, Seg, deskAccent } from '@/components/pos/desk/kit';
 import { approveWithPin, askManagerPhone } from '@/lib/approve-client';
+import { pageAccent } from '@/lib/studio-page';
 
 const money = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
 function SendToClient({ tenantId, receiptId }: { tenantId: string; receiptId: string }) {
@@ -61,10 +62,10 @@ export function TodaysSales({ open, onClose, tenantId, tenant, role, transaction
     if (!r?.ok) { setErr(r?.error || 'Couldn’t ask a manager.'); return; } setPhoneId(r.id);
   };
   const inp = 'h-11 w-full rounded-xl px-3.5 text-[15px] outline-none'; const inpS = { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)' } as React.CSSProperties;
-  const accent = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || tenant?.brandColor || 'hsl(var(--primary))';
+  const accent = pageAccent(tenant) || 'hsl(var(--primary))';
   const isCash = sel && String(sel.paymentMethod) === 'cash';
   return (
-    <div className="desk fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(28,25,23,.45)', ['--accent' as any]: accent, ['--accent-ink' as any]: '#fff' }} onClick={() => { reset(); onClose(); }}>
+    <div className="desk fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(28,25,23,.45)', ...deskAccent(accent) }} onClick={() => { reset(); onClose(); }}>
       <style>{DESK_CSS}</style>
       <div role="dialog" aria-modal="true" aria-label="Today's sales" onClick={(e) => e.stopPropagation()} className="flex h-full w-full max-w-xl flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
         <header className="flex items-center justify-between px-5 pb-3 pt-5"><p className="text-[20px] font-semibold">{done ? 'Sale voided' : sel ? 'Void this sale' : 'Today’s sales'}</p><Btn quiet onClick={() => { reset(); onClose(); }}>Close</Btn></header>

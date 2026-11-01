@@ -26,6 +26,7 @@ import { getIdentity } from '@/lib/school-identity';
 import { setupOf, SEAT_STAGES } from '@/lib/academy-decisions';
 import { DEFAULT_DOCS } from '@/lib/academy-admissions';
 import { mediaUrl } from '@/lib/academy';
+import { pageAccent } from '@/lib/studio-page';
 
 export const usd = (c: number) => `$${(Math.round(c) / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
@@ -166,7 +167,7 @@ export async function loadSchoolSite(tenantId: string) {
     .map((j: any) => ({ id: j.id, title: j.title, description: j.description || '', pay: j.pay || '', schedule: j.schedule || '', requirements: j.requirements || '' }));
   return {
     tenantId, settings, identity: id,
-    name: id.displayName || t.name || 'Our school', color: t.bookingPageSettings?.cfPageConfig?.accentColor || t.bookingPageSettings?.primaryColor || '#7c3aed',
+    name: id.displayName || t.name || 'Our school', color: pageAccent(t) || t.bookingPageSettings?.primaryColor || '#7c3aed',
     address: id.address || '', phone: id.phone || '', email: id.email || '', programs, cohorts, instructors, jobs,
     hasOnlineCourses: courseS.docs.length > 0, logoUrl: id.logoUrl,
     canGive: !!t.stripeAccountId,

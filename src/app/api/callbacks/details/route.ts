@@ -3,6 +3,7 @@
 // about — never staff notes. They can add a few lines (up to 5 times); staff see it on the call-back.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { pageAccent } from '@/lib/studio-page';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ ok: true, business: t.name || 'the business', first: String(d.callerName || '').split(' ')[0] || null,
     owner: d.ownerName ? String(d.ownerName).split(' ')[0] : null, about: d.reason && d.reason !== 'other' ? String(d.reasonLabel || '').toLowerCase() : null,
     open: d.status !== 'resolved', added: Array.isArray(d.callerAdded) ? d.callerAdded.length : 0,
-    accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null, logoUrl: t.logoUrl || null });
+    accent: pageAccent(t) || t.brandColor || null, logoUrl: t.logoUrl || null });
 }
 
 export async function POST(req: NextRequest) {

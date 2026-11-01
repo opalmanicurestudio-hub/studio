@@ -5,9 +5,10 @@ import * as React from 'react';
 import { collection, doc, query, updateDoc, where } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
-import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
+import { DESK_CSS, Btn, Seg, deskAccent } from '@/components/pos/desk/kit';
 import { callbackReasonsFor } from '@/lib/callback-reasons';
 import { useClientSearch, useDebounced } from '@/hooks/use-clients';
+import { pageAccent } from '@/lib/studio-page';
 
 async function callsPost(body: any) {
   const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
@@ -65,9 +66,9 @@ export function LogCallSheet({ open, onClose, tenantId, tenant, clients, staff, 
     setDone(outcome === 'logged' ? 'Logged for reference.' : outcome === 'callback' ? 'Logged — it’s in the callback queue.' : `Logged and passed to ${who}${outcome === 'urgent' ? ' (urgent)' : ''}.${r.linkSent ? ' They’ve been texted the link.' : ''}`);
   };
   const inp = 'h-11 w-full rounded-xl px-3.5 text-[15px] outline-none'; const inpS = { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)' } as React.CSSProperties;
-  const accent = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || tenant?.brandColor || 'hsl(var(--primary))';
+  const accent = pageAccent(tenant) || 'hsl(var(--primary))';
   return (
-    <div className="desk fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(28,25,23,.45)', ['--accent' as any]: accent, ['--accent-ink' as any]: '#fff' }} onClick={onClose}>
+    <div className="desk fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(28,25,23,.45)', ...deskAccent(accent) }} onClick={onClose}>
       <style>{DESK_CSS}</style>
       <div role="dialog" aria-modal="true" aria-label="Log a call" onClick={(e) => e.stopPropagation()} className="flex h-full w-full max-w-xl flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
         <header className="flex items-center justify-between px-5 pb-3 pt-5"><p className="text-[20px] font-semibold">{done ? 'Logged' : 'Log a call'}</p><Btn quiet onClick={onClose}>Close</Btn></header>

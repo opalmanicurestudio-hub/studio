@@ -74,6 +74,7 @@ import {
   AlertTriangle, UserCheck, Check, Ticket, Hourglass, ChevronRight, Coffee,
   Mail,
 } from 'lucide-react';
+import { pageAccent } from '@/lib/studio-page';
 
 type Step =
   | 'students'
@@ -1037,7 +1038,7 @@ export default function WalkInKioskPage() {
             ? `Waiting for ${firstNameOf(g.staffName) || 'your provider'} · ${softWait(g.estWaitMin)}`
             : '',
         studioName: t.name || null,
-        accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null, logoUrl: guestLogo(t),   // the Studio look, in their colours
+        accent: pageAccent(t) || t.brandColor || null, logoUrl: guestLogo(t),   // the Studio look, in their colours
         studioPhone: t.phone || null,
         studioEmail: t.email || null,
         studioAddress: t.address || null,

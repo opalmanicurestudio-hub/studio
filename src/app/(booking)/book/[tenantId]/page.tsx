@@ -17,6 +17,7 @@ import { X as XIcon, ArrowRight } from 'lucide-react';
 import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
 import { policyText } from '@/lib/package-credits';
 import { horizonDaysFor, releaseSentence } from '@/lib/booking-release';
+import { brandColor } from '@/lib/studio-page';
 import { StudioBookingPage } from '@/components/booking/StudioBookingPage';
 import { PUBLIC_CSS, PUBLIC_FONT_HREF } from '@/components/public/kit';
 import { BookingSheet } from '@/components/booking/BookingSheet';
@@ -456,8 +457,11 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     root.style.setProperty('--booking-heading-font', STACKS[resolvedStyle.headingFont] || STACKS.jakarta);
     root.style.setProperty('--booking-body-font',    STACKS[resolvedStyle.bodyFont]    || STACKS.jakarta);
     root.style.setProperty('--radius', `${resolvedStyle.borderRadius}px`);
-    try { root.style.setProperty('--primary', hexToHsl(resolvedStyle.accentColor)); } catch {}
-  }, [resolvedStyle]);
+    // The Studio page and its flow paint with the business color from Settings › Booking page; the old design keeps its own.
+    // A reschedule always opens the Studio flow, so it takes the business color too.
+    const studioFlow = studioDesign || (!!reschedule && !providerId);
+    try { root.style.setProperty('--primary', hexToHsl(studioFlow ? brandColor(tenant) : resolvedStyle.accentColor)); } catch {}
+  }, [resolvedStyle, studioDesign, tenant, reschedule, providerId]);
 
   const data: PageData = {
     tenant,
@@ -663,7 +667,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     const flowStudio = studioDesign || (!!reschedule && !providerId);
     return (
       <div className={`w-full min-h-dvh overflow-x-hidden ${flowStudio ? 'pub-flow' : ''}`}
-           style={flowStudio ? { background: '#faf8f5', ['--accent' as any]: resolvedStyle.accentColor } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
+           style={flowStudio ? { background: '#faf8f5', ['--accent' as any]: brandColor(tenant) } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
         {flowStudio && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
         {agentHold && <p role="status" className="mx-auto max-w-xl px-4 pt-4 text-[14px]" style={{ color: '#6d7075' }}>{agentHold.live ? `We’re holding this time for you until ${new Date(agentHold.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. Check your details and confirm to book it.` : 'The time your assistant held has been released. Please pick a time below.'}</p>}
         <BookingSheet
@@ -1123,12 +1127,14 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     );
   }
 
+  // Shown small in Settings › Booking page: the real page, but nothing can be booked from it.
+  const previewOnly = (() => { try { return new URLSearchParams(window.location.search).get('preview') === '1'; } catch { return false; } })();
   if (studioDesign) {
     return (
-      <StudioBookingPage tenant={tenant} accent={resolvedStyle.accentColor}
+      <StudioBookingPage tenant={tenant} accent={brandColor(tenant)} preview={previewOnly}
         focus={(() => { try { const id = new URLSearchParams(window.location.search).get('service'); return id ? services.find((sv: any) => sv.id === id) || null : null; } catch { return null; } })()}
-        services={services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true)} staff={staff} sections={sections} giftCents={giftCents}
-        onBook={(svc, staffId) => { setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
+        services={services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true)} staff={staff} giftCents={giftCents}
+        onBook={(svc, staffId) => { if (previewOnly) return; setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
     );
   }
 

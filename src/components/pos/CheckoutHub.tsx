@@ -12,7 +12,7 @@ import { saleProfileOf } from '@/lib/sale-profile';
 import { PosCatalog } from '@/components/pos/PosCatalog';
 import { useClientScreen } from '@/components/pos/ClientScreen';
 import { SaleComplete } from '@/components/pos/SaleComplete';
-import { DESK_CSS, Icon as DIcon, Ring } from '@/components/pos/desk/kit';
+import { DESK_CSS, Icon as DIcon, Ring, deskAccent } from '@/components/pos/desk/kit';
 import { HeldStockGate } from '@/components/pos/desk/HeldStockGate';
 import { useTerminalOptional } from '@/components/pos/StripeTerminalProvider';
 import { ReaderPanel } from '@/components/pos/ReaderPanel';
@@ -47,6 +47,7 @@ import { brandAccent } from '@/lib/brand-accent';
 import { deskScript, shopSettings } from '@/lib/gift-designs';
 import { liveOffer, todayIn } from '@/lib/gift-offers';
 import { useClientSearch, useDebounced } from '@/hooks/use-clients';
+import { pageAccent } from '@/lib/studio-page';
 
 // The card reader, where the desk has started one (null otherwise).
 const useTerminalSafe = (): any => useTerminalOptional();
@@ -1096,9 +1097,9 @@ export const CheckoutHub = ({
   const rowBtn = 'flex w-full items-center justify-between gap-3 rounded-2xl p-4 text-left transition active:scale-[.99]';
   const dueNow = isCardTab ? amountToCharge : finalTotal;
   const payBlocked = isCartEmpty || (isGroupCheckout && !selectedClientId) || (isOverAutonomy && !isOverrideUnlocked);
-  const accentVar = (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (selectedTenant as any)?.brandColor || null;
+  const accentVar = pageAccent(selectedTenant);
   return (
-    <div className="desk co" style={{ background: 'transparent', ...(accentVar ? { ['--accent' as any]: accentVar } : {}) }}>
+    <div className="desk co" style={{ background: 'transparent', ...deskAccent(accentVar) }}>
       <style>{DESK_CSS}{`.co{container-type:inline-size;container-name:co}.co-grid{display:grid;gap:12px;grid-template-columns:minmax(0,1fr)}@container co (min-width:700px){.co-grid{grid-template-columns:minmax(0,1fr) 340px}.co-right{position:sticky;top:0;align-self:start}}`}</style>
       <div className="co-grid">
         <div className="co-left min-w-0 space-y-3">

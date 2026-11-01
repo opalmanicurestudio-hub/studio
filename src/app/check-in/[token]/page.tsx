@@ -117,6 +117,7 @@ import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
 import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
+import { pageAccent } from '@/lib/studio-page';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -2945,7 +2946,7 @@ export default function CheckInPage() {
                 if (d?.ok && d.next === 'accept_offer') { const acc = await call({ action: 'provider_offer_reply', choice: 'accept' }); return { ...d, accepted: !!acc?.ok, error: acc?.ok ? undefined : acc?.error }; }
                 return d;
             }}
-            accent={(tenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (tenant as any)?.brandColor || '#7c3aed'}
+            accent={pageAccent(tenant) || (tenant as any)?.brandColor || '#7c3aed'}
             studioName={tenant?.name}
             first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || 'there'}
             serviceName={service?.name}

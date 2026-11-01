@@ -18,6 +18,7 @@ import { clientScreenSettingsOf, rebookSettingsOf } from '@/lib/client-screen';
 import { rebookStart, rebookDay, rebookBook, rebookWaitlist } from '@/lib/rebook-actions';
 import { readerStripe, safeId, ticketBlocks } from '@/lib/reader-sale';
 import { closeOpenPayment, closedAnswer, paidOnScreen, recordCardShare } from '@/lib/screen-pay';
+import { pageAccent } from '@/lib/studio-page';
 
 export const dynamic = 'force-dynamic';
 const now = () => new Date().toISOString();
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
     const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Card payments are not set up for this business.' }, { status: 400 });
     const stripe: any = readerStripe();   // the same card payments client as the rest of the desk (lib/reader-sale)
     if (action === 'pay_view') return NextResponse.json({ ok: true, clientSecret: q.clientSecret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '', stripeAccount: acct,
-      amount: num(q.amount), business: t.name || 'Payment', allowSave: !!q.allowSave, paid: !!q.answeredAt, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null });
+      amount: num(q.amount), business: t.name || 'Payment', allowSave: !!q.allowSave, paid: !!q.answeredAt, accent: pageAccent(t) || t.brandColor || null });
     if (q.answeredAt) return NextResponse.json({ ok: true, already: true });
     if (action === 'pay_tip') {   // the tip they chose on the iPad → added to the payment (server-side) before they pay
       const tip = Math.max(0, Math.round(num(b.tip) * 100) / 100);
@@ -139,7 +140,7 @@ export async function POST(req: NextRequest) {
     if (!s?.tenantId) return NextResponse.json({ ok: false, error: 'This screen is not paired.' }, { status: 404 });
     if (action === 'ping') {
       const pt: any = ((await db.doc(`tenants/${s.tenantId}`).get()).data() as any) || {}; const ps = clientScreenSettingsOf(pt);
-      await ref.update({ lastSeen: now(), brand: { name: pt.name || pt.businessName || '', logo: pt.logoUrl || pt.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pt.bookingPageSettings?.cfPageConfig?.accentColor || pt.brandColor || null },
+      await ref.update({ lastSeen: now(), brand: { name: pt.name || pt.businessName || '', logo: pt.logoUrl || pt.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pageAccent(pt) || pt.brandColor || null },
         settings: { welcome: ps.welcome, reviewTicket: ps.reviewTicket, motion: ps.motion, confetti: ps.confetti } });
       return NextResponse.json({ ok: true }); }
     const T = `tenants/${s.tenantId}`;
@@ -213,7 +214,7 @@ export async function POST(req: NextRequest) {
     const name = String(b.name || '').trim().slice(0, 40) || 'Client screen';
     const pt: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; const ps = clientScreenSettingsOf(pt);
     await hit.ref.set({ tenantId, name, code: null, codeExpiresAt: null, pairedAt: now(), pairedBy: auth.actor.name || 'Staff', phase: 'idle', request: null, response: null, ticket: null,
-      brand: { name: pt.name || pt.businessName || '', logo: pt.logoUrl || pt.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pt.bookingPageSettings?.cfPageConfig?.accentColor || pt.brandColor || null },
+      brand: { name: pt.name || pt.businessName || '', logo: pt.logoUrl || pt.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pageAccent(pt) || pt.brandColor || null },
       settings: { welcome: ps.welcome, reviewTicket: ps.reviewTicket, motion: ps.motion, confetti: ps.confetti } }, { merge: true });   // the iPad shows your name, logo and welcome at once
     await logAuditAdmin(db, tenantId, { action: 'client_screen.paired', targetType: 'client_screen', targetId: hit.id, summary: `Client screen “${name}” paired by ${auth.actor.name}`, actor: { type: 'user', id: auth.actor.uid, name: auth.actor.name, role: auth.actor.role } } as any).catch(() => {});
     return NextResponse.json({ ok: true, screenId: hit.id, name });
@@ -225,7 +226,7 @@ export async function POST(req: NextRequest) {
   const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
   if (!s || s.tenantId !== tenantId) return NextResponse.json({ ok: false, error: 'That screen is not paired with this business.' }, { status: 404 });
   const t: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
-  const brand = { name: t.name || t.businessName || '', logo: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null };
+  const brand = { name: t.name || t.businessName || '', logo: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pageAccent(t) || t.brandColor || null };
   const settings = clientScreenSettingsOf(t);
   if (action === 'alive') { await ref.update({ deskAliveAt: now() }); return NextResponse.json({ ok: true }); }
   if (action === 'push') {

@@ -38,6 +38,7 @@ import { DeskPOS } from '@/components/pos/desk/DeskPOS';
 import { StripeTerminalProvider } from '@/components/pos/StripeTerminalProvider';
 import { Drawer, Icon } from '@/components/pos/desk/kit';
 import { usePosEngine, safeDate, RecoveryOverrideDialog, IdentityMatchDialog, VoidAuthForm } from '@/components/pos/usePosEngine';
+import { pageAccent } from '@/lib/studio-page';
 
 function POSPage() {
   // Everything the POS knows and can do lives in the engine (shared by every POS layout).
@@ -153,7 +154,7 @@ function POSPage() {
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', checkInStatusTimestamp: new Date().toISOString(), overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
       {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
       <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
-      <DeskCheckIn e={__engine} accent={(selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || null} />
+      <DeskCheckIn e={__engine} accent={pageAccent(selectedTenant) || null} />
 
       <IdentityMatchDialog open={!!pendingIdentityMatch} onOpenChange={() => setPendingIdentityMatch(null)} walkIn={pendingIdentityMatch} matchedClient={pendingIdentityMatch?.matchedClient}
         onLinkSession={async (matchedClient: any) => { if (!firestore || !tenantId || !pendingIdentityMatch) return; if (pendingIdentityMatch.type !== 'walk-in') { toast({ title: 'Cannot link', description: 'Identity matching only applies to walk-in guests.' }); setPendingIdentityMatch(null); return; } updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name }); toast({ title: 'Linked', description: `Today’s visit is now on ${matchedClient.name}’s profile.` }); setPendingIdentityMatch(null); }}
@@ -253,7 +254,7 @@ function POSPage() {
             onClick={() => {
               const t: any = ticketToPrint || {}; const apt: any = t.appointment || t;
               const okPrint = apt?.id ? printAppointmentTicket({ ...apt }, { studioName: selectedTenant?.name || 'Studio', clientName: apt.clientName || t.client?.name || (clients || []).find((c: any) => c.id === apt.clientId)?.name, serviceName: t.service?.name || apt.serviceName || (services || []).find((x: any) => x.id === apt.serviceId)?.name, staffName: t.staff?.name || t.provider?.name || apt.staffName || (staff || []).find((x: any) => x.id === apt.staffId)?.name,
-                accent: (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.accentColor || (selectedTenant as any)?.brandColor, logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.logoUrl, kind: apt.isWalkIn ? 'walkin' : 'appointment', origin: window.location.origin }) : false;
+                accent: pageAccent(selectedTenant) || (selectedTenant as any)?.brandColor, logoUrl: (selectedTenant as any)?.logoUrl || (selectedTenant as any)?.bookingPageSettings?.cfPageConfig?.logoUrl, kind: apt.isWalkIn ? 'walkin' : 'appointment', origin: window.location.origin }) : false;
               if (!okPrint) window.print();
               setIsPrintDialogOpen(false);
             }}><Icon name="printer" size={18} />Print the ticket</button>

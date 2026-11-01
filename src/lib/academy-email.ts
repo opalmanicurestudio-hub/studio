@@ -14,6 +14,7 @@
 import { getAdminDb } from '@/lib/firebase-admin';
 import { getIdentity } from '@/lib/school-identity';
 import { linkOrigin } from '@/lib/app-origin';
+import { pageAccent } from '@/lib/studio-page';
 
 const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 const URL_ONLY = /^\s*(https?:\/\/\S+)\s*$/;
@@ -71,7 +72,7 @@ export async function schoolLook(tenantId: string) {
   const origin = linkOrigin(t);
   const abs = (u?: string | null) => (u ? (u.startsWith('/') ? `${origin}${u}` : u) : null);
   return {
-    name: id?.displayName || t.name || 'Your academy', legal: id?.legalName || '', accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.bookingPageSettings?.primaryColor || '#7c3aed',
+    name: id?.displayName || t.name || 'Your academy', legal: id?.legalName || '', accent: pageAccent(t) || t.bookingPageSettings?.primaryColor || '#7c3aed',
     logo: abs(id?.logoUrl), seal: abs(id?.sealUrl), signature: abs(id?.signatureUrl), signer: [id?.signerName, id?.signerTitle].filter(Boolean).join(', '),
     address: id?.address || '', phone: id?.phone || '', email: id?.email || '', licence: id?.licenseNumber ? `${id.licensingBoard ? `${id.licensingBoard} · ` : ''}School licence #${id.licenseNumber}` : '',
   };

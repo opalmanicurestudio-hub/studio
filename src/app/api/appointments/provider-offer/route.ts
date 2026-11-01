@@ -16,6 +16,7 @@ import { providerFree } from '@/lib/provider-availability';
 
 export const dynamic = 'force-dynamic';
 import { suggestProviders, offerSettingsOf, mustAsk } from '@/lib/provider-suggest';
+import { pageAccent } from '@/lib/studio-page';
 
 // Actions (staff unless noted):
 //   suggest        — the ranked shortlist (lib/provider-suggest): eligible first, then fair turn, with reasons
@@ -130,7 +131,7 @@ export async function GET(req: NextRequest) {
   const po = ap.providerOffer || {};
   return NextResponse.json({ ok: true, business: tenant.name || 'The front desk', client: firstOf(ap.clientName) || 'A client', service: svc.name || ap.serviceName || 'Appointment',
     startAt: po.startAt, minutes: po.minutes || null, price: Number(ap.price ?? svc.price) || null, answerBy: ap.providerAsk.answerBy, open: po.status === 'asking_provider' && Date.parse(ap.providerAsk.answerBy) > Date.now(),
-    accent: tenant.bookingPageSettings?.cfPageConfig?.accentColor || tenant.brandColor || null, timezone: tenant.timezone || null });
+    accent: pageAccent(tenant) || tenant.brandColor || null, timezone: tenant.timezone || null });
 }
 
 export async function POST(req: NextRequest) {

@@ -8,6 +8,7 @@
 // Every one has a barcode (handheld scanners), a square code (phone and tablet cameras) and the code in letters.
 // Codes stay black on white so they scan.
 import { PRINT_FONT_HREF, PRINT_FONT_STACK } from './print-style';
+import { pageAccent } from '@/lib/studio-page';
 export interface LabelBrand { name?: string | null; accent?: string | null; logoUrl?: string | null; sizes?: Partial<Record<LabelFormat, LabelSize>> | null }
 /** A label's size in millimetres. Wrap bands: w = the strip's length, h = its depth. Tie-on tags: w = open width (front + back). */
 export interface LabelSize { w: number; h: number }
@@ -19,7 +20,7 @@ export const LABEL_FORMATS: { id: LabelFormat; label: string; hint: string }[] =
 export interface LabelData { title: string; code: string; sub?: string; steps?: string[] }
 export const KIT_STEPS = ['Scan when you take it for a client', 'Scan when the visit ends', 'Scan when cleaning starts', 'Check the contents, then scan: clean'];
 export const BUNDLE_STEPS = ['Scan when it goes out', 'Scan when it comes back', 'Scan into the wash', 'Scan when clean and folded'];
-export const brandOf = (tenant: any): LabelBrand => ({ sizes: tenant?.ops?.labelSizes || null, name: tenant?.name || tenant?.businessName || null, accent: tenant?.bookingPageSettings?.cfPageConfig?.accentColor || tenant?.brandColor || null, logoUrl: tenant?.logoUrl || tenant?.bookingPageSettings?.logoUrl || null });
+export const brandOf = (tenant: any): LabelBrand => ({ sizes: tenant?.ops?.labelSizes || null, name: tenant?.name || tenant?.businessName || null, accent: pageAccent(tenant) || tenant?.brandColor || null, logoUrl: tenant?.logoUrl || tenant?.bookingPageSettings?.logoUrl || null });
 export const DEFAULT_SIZE: Record<LabelFormat, LabelSize> = { sticker: { w: 90, h: 34 }, hang: { w: 96, h: 86 }, band: { w: 190, h: 30 } };
 export const SIZE_LIMITS: Record<LabelFormat, { w: [number, number]; h: [number, number] }> = { sticker: { w: [40, 190], h: [18, 120] }, hang: { w: [50, 190], h: [50, 150] }, band: { w: [90, 277], h: [15, 60] } };
 export const SIZE_PRESETS: Record<LabelFormat, { label: string; w: number; h: number }[]> = {

@@ -754,9 +754,11 @@ main :where(div, section, form, li) { min-width: 0; }
 .station-mode .border-amber-300 { border-width: 3px; }
 
 /* ── STUDIO — the app-wide look (same family as the front desk + booking page) ──
-   Switched on by <StudioTheme/> (html.studio) unless a business picks "Classic".
+   Switched on by <StudioTheme/> (html.studio) for every business.
    Warm paper, ink and stone; buttons in the business's accent (set inline as
-   --primary when it has enough contrast); and calmer type — the tiny, letter-
+   --primary, deepened if needed so white text on it stays readable, and on the
+   black look lightened with dark text on it, like the app's own colors there);
+   and calmer type — the tiny, letter-
    spaced UPPERCASE labels read as sentence case, extra-bold becomes firm. */
 html.studio {
   --background: 0 0% 100%;           /* #fff */
@@ -800,6 +802,11 @@ html.studio.dark {
   --sidebar-accent-foreground: 240 8% 96%;
   --sidebar-border: 240 6% 14%;
 }
+/* In black the primary color is light, so buttons and badges that hard-code white text on it take its dark text instead. */
+html.studio.dark :is(.bg-primary, .bg-primary\/90, .bg-primary\/80).text-white,
+html.studio.dark .hover\:bg-primary.hover\:text-white:hover,
+html.studio.dark .group:hover .group-hover\:bg-primary.group-hover\:text-white,
+html.studio.dark .group[data-state=open] .group-data-\[state\=open\]\:bg-primary.group-data-\[state\=open\]\:text-white { color: hsl(var(--primary-foreground)); }
 
 /* ── TRUE BLACK, FOR SCREENS THAT STILL HARD-CODE LIGHT COLOURS ──
    Many older screens write white panels and ink text directly (bg-white, text-slate-900, or an inline #fff / #16171a)

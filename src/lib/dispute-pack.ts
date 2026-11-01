@@ -8,6 +8,7 @@ import fontkit from '@pdf-lib/fontkit';
 import { visitOf, staffList } from '@/lib/cases';
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { JAKARTA_400, JAKARTA_500, JAKARTA_700, JAKARTA_800 } from '@/lib/fonts/jakarta';
+import { pageAccent } from '@/lib/studio-page';
 
 const W = 612, H = 792, M = 42;
 const INK = rgb(0.086, 0.09, 0.102), MUTED = rgb(0.427, 0.439, 0.459), LINE = rgb(0.863, 0.867, 0.878), SOFT = rgb(0.969, 0.969, 0.973), WHITE = rgb(1, 1, 1);
@@ -49,7 +50,7 @@ export async function disputePack(db: any, tenantId: string, o: { appointmentId?
   const glyphs = new Set(R.getCharacterSet());
   const safe = (s: any) => Array.from(String(s ?? '')).map((ch) => (ch === '\n' || glyphs.has(ch.codePointAt(0) as number) ? ch : ch === '•' ? '·' : '')).join('');
   const bname = tenant.name || tenant.businessName || 'Business'; doc.setTitle(safe(`Dispute evidence - ${a.clientName || 'client'} - ${day(a.startTime, tz)}`)); doc.setCreator(safe(bname));
-  const A = hex((tenant.bookingPageSettings?.cfPageConfig?.accentColor || tenant.brandColor || '#16171a'));
+  const A = hex((pageAccent(tenant) || tenant.brandColor || '#16171a'));
   let page: PDFPage = doc.addPage([W, H]); let pageNo = 1; const pages: PDFPage[] = [page];
   const Y = (top: number) => H - top;   // layout in "distance from the top"
   const text = (s: string, x: number, top: number, o: { size?: number; font?: PDFFont; color?: any; right?: boolean; spacing?: number } = {}) => { const size = o.size ?? 10, font = o.font ?? R; const t = safe(s); const w = font.widthOfTextAtSize(t, size); page.drawText(t, { x: o.right ? x - w : x, y: Y(top) - size, size, font, color: o.color ?? INK }); return w; };

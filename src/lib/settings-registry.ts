@@ -31,7 +31,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   ] },
   { id: 'bookings', title: 'Bookings', meaning: 'How bookings come in and your booking page', pages: [
     { id: 'how', title: 'How clients book', meaning: 'Right away, with your approval, or with a deposit first', href: '/settings/booking#rules', words: 'instant approve approval request deposit card on file how far ahead notice blocked time group bookings' },
-    { id: 'page', title: 'Booking page', meaning: 'Your page’s design and a preview', href: '/settings/booking#design', words: 'booking page design website preview photo headline color' },
+    { id: 'page', title: 'Booking page', meaning: 'Your color, photo, headline and sections, with a preview', href: '/settings/booking-page', words: 'booking page design website preview photo cover headline color colour mood sections gallery our work about us questions faq qr code link' },
   ] },
   { id: 'changes', title: 'Changes and exceptions', meaning: 'Canceling, no-shows, running late, fees and making it right', pages: [
     { id: 'cancellations', title: 'Cancellations and no-shows', meaning: 'Notice, fees, running late, rescheduling and the policy clients read', href: '/settings/policies', words: 'cancel canceling cancelling cancellation no-show noshow late grace reschedule deposit refund policy fee lead time release' },

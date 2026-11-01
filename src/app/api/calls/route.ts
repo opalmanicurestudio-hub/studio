@@ -14,6 +14,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { linkOrigin } from '@/lib/app-origin';
 import { callbackReason } from '@/lib/callback-reasons';
+import { pageAccent } from '@/lib/studio-page';
 
 export const dynamic = 'force-dynamic';
 const OUTCOMES = ['logged', 'message', 'action', 'callback', 'urgent'] as const;
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
   // What a recipient sees: the caller's words, what's asked of them — never the staff's private note.
   return NextResponse.json({ ok: true, business: t.name || 'Front desk', callerName: c.callerName || 'A caller', callerPhone: c.callerPhone || null, reason: c.reasonLabel || null,
     summary: c.summary || '', ask: c.ask || null, dueAt: c.dueAt || null, outcome: c.outcome, urgent: c.outcome === 'urgent', ackedAt: r.ackedAt || null, open: c.status !== 'resolved', loggedBy: first(c.loggedBy),
-    accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null, timezone: t.timezone || null });
+    accent: pageAccent(t) || t.brandColor || null, timezone: t.timezone || null });
 }
 
 export async function POST(req: NextRequest) {

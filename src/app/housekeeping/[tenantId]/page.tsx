@@ -13,6 +13,7 @@ import { StationTiles } from '@/components/pos/desk/StationTiles';
 import { Disinfection } from '@/components/pos/desk/Disinfection';
 import { ScanSheet, useScanSheet } from '@/components/pos/desk/ScanSheet';
 import { attendantsOnNow, housekeepingMode } from '@/lib/attendant';
+import { pageAccent } from '@/lib/studio-page';
 
 function Clock() { const [now, setNow] = React.useState(() => new Date()); React.useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
   return <span className="tabular-nums">{now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>; }
@@ -34,7 +35,7 @@ export default function HousekeepingWall() {
   // Keep the screen awake where the browser allows it.
   React.useEffect(() => { let lock: any = null; const go = async () => { try { lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* not supported — the device's own setting applies */ } };
     void go(); const vis = () => { if (document.visibilityState === 'visible') void go(); }; document.addEventListener('visibilitychange', vis); return () => { document.removeEventListener('visibilitychange', vis); try { lock?.release(); } catch { /* gone already */ } }; }, []);
-  const accent = /^#[0-9a-fA-F]{3,8}$/.test(String(tenant?.bookingPageSettings?.cfPageConfig?.accentColor || '')) ? tenant.bookingPageSettings.cfPageConfig.accentColor : '#16171a';
+  const accent = pageAccent(tenant) || '#16171a';
   const crew = attendantsOnNow(tenant, staff || []);
   // A wide screen gets the board (lanes + tiles); a phone gets one job at a time.
   const [wide, setWide] = React.useState(true); React.useEffect(() => { const m = window.matchMedia('(min-width: 1024px)'); const f = () => setWide(m.matches); f(); m.addEventListener('change', f); return () => m.removeEventListener('change', f); }, []);

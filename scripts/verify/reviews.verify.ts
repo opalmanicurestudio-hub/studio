@@ -520,7 +520,7 @@ const fresh = async (rs: any = {}) => {
   check('…and nothing to review on a test order', /\['shipped', 'completed'\]\.includes\(String\(order\.stage\)\) && !order\.isTest/.test(os));
   check('the order page gets their words and last initial only with their pass', /body\.order\.reviews = passOk \? mine/.test(os) && /body\.order\.reviewAs = passOk \?/.test(os));
   check('a case can start from a low visit review', /visitReviewId/.test(fs.readFileSync('src/lib/cases.ts', 'utf8')) && /visitReview/.test(fs.readFileSync('src/app/(app)/cases/page.tsx', 'utf8')));
-  check('the booking page shows the visit reviews the business shows', /usePublicReviews\(data\?\.tenantId\)/.test(fs.readFileSync('src/lib/booking-sections.tsx', 'utf8')) && /usePublicReviews\(sections\.some\(\(s\) => s\.type === 'reviews'\) \? tenant\?\.id : undefined\)/.test(fs.readFileSync('src/components/booking/StudioBookingPage.tsx', 'utf8')));
+  check('the booking page shows the visit reviews the business shows', /usePublicReviews\(data\?\.tenantId\)/.test(fs.readFileSync('src/lib/booking-sections.tsx', 'utf8')) && /usePublicReviews\(page\.on\.reviews && !preview \? tenant\?\.id : undefined\)/.test(fs.readFileSync('src/components/booking/StudioBookingPage.tsx', 'utf8')));
   const files = ['src/lib/reviews.ts', 'src/lib/reviews-server.ts', 'src/app/api/reviews/route.ts', 'src/app/api/public/reviews/route.ts', 'src/components/reviews/ReviewsScreen.tsx', 'src/components/shop/OrderReviews.tsx', 'src/app/api/campaigns/unsubscribe/route.ts'];
   const words = files.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
   const tool = new RegExp(String.fromCharCode(67, 108, 97, 117, 100, 101), 'i');

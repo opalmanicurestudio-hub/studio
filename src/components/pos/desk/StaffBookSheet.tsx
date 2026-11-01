@@ -10,7 +10,7 @@ import { extraMinutesFor, extraChargeCents, minutesLabel } from '@/lib/client-ti
 import * as React from 'react';
 import { useClient, useClientSearch, useDebounced } from '@/hooks/use-clients';
 import { getAuth } from 'firebase/auth';
-import { DESK_CSS, Btn, Seg } from '@/components/pos/desk/kit';
+import { DESK_CSS, Btn, Seg, deskAccent } from '@/components/pos/desk/kit';
 import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
 import { ClientIntelligencePanel } from '@/components/pos/ClientIntelligencePanel';
@@ -18,6 +18,7 @@ import { unpaidFeeRuleOf, seriesDepositOf, seriesDepositDaysOf } from '@/lib/boo
 import { computeDepositCents } from '@/lib/deposit-policy';
 import { hasRealCard } from '@/lib/card-on-file';
 import { callbackReasonsFor, callbackReason } from '@/lib/callback-reasons';
+import { pageAccent } from '@/lib/studio-page';
 
 export type Mode = 'one' | 'repeat' | 'group' | 'steps';
 type Guest = { name: string; phone: string; serviceId: string; staffId: string };
@@ -170,7 +171,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const packages = (Array.isArray(client?.activePackages) ? client.activePackages : []).filter((p: any) => Number(p.sessionsRemaining) > 0);
   const hasDeposit = !!svc && svc.depositType && svc.depositType !== 'none';
   const placeOpts = svc ? placeOptionsOf(svc) : [];
-  const accent = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || tenant?.brandColor || 'hsl(var(--primary))';
+  const accent = pageAccent(tenant) || 'hsl(var(--primary))';
 
   // Real open times whenever the service, provider, day or length changes.
   React.useEffect(() => {
@@ -294,7 +295,7 @@ export function StaffBookSheet({ open, onClose, tenantId, tenant, clients, servi
   const visitLink = done?.checkInToken || done?.appointments?.[0]?.checkInToken ? `${window.location.origin}/check-in/${done.checkInToken || done.appointments[0].checkInToken}` : null;
 
   return (
-    <div className="desk fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(28,25,23,.45)', ['--accent' as any]: accent, ['--accent-ink' as any]: '#fff' }} onClick={onClose}>
+    <div className="desk fixed inset-0 z-50 flex justify-end" style={{ background: 'rgba(28,25,23,.45)', ...deskAccent(accent) }} onClick={onClose}>
       <style>{DESK_CSS}</style>
       <div role="dialog" aria-modal="true" aria-label="Book an appointment" onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full max-w-xl flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>

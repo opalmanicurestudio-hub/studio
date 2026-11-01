@@ -84,7 +84,7 @@ export default function SetupPage() {
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { window.prompt('Your booking link', link); } }} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: C.ink, color: C.paper }}>{copied ? 'Copied' : 'Copy link'}</button>
                   <button type="button" onClick={showQr} className="h-11 rounded-full px-4 text-[14px] font-semibold" style={{ background: C.paper, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.line}` }}>{qr ? 'Hide QR code' : 'QR code'}</button>
-                  <Link href="/settings/booking#design" onClick={() => void payPost('/api/getting-started', { tenantId, action: 'page-seen' })} className="inline-flex h-11 items-center rounded-full px-4 text-[14px] font-semibold" style={{ background: C.paper, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.line}` }}>Design your page</Link>
+                  <Link href="/settings/booking-page" onClick={() => void payPost('/api/getting-started', { tenantId, action: 'page-seen' })} className="inline-flex h-11 items-center rounded-full px-4 text-[14px] font-semibold" style={{ background: C.paper, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.line}` }}>Design your page</Link>
                 </div>
                 {qr && <div className="space-y-2"><img src={qr} alt="QR code for your booking link" className="mx-auto h-44 w-44" /><a href={qr} download="booking-qr.png" className="flex min-h-11 items-center justify-center text-[13px] font-semibold underline underline-offset-4">Download the QR code</a></div>}
               </div>}

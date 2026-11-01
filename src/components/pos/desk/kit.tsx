@@ -12,11 +12,21 @@ import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { readThemePref, resolveTheme, setThemePref, type ThemePref } from '@/lib/app-theme';
+import { lifted } from '@/lib/studio-page';
+
+/** The business color for the desk's buttons and focus rings, set on a wrapper: as it is on white, and on the black look
+ *  lightened with dark text on it, so it never sinks into the black. DESK_CSS picks the one for the look (no hook, so
+ *  it can sit anywhere). A non-hex value (the app's own color) is used on white and left to the desk on black. */
+export function deskAccent(accent: string | null | undefined): Record<string, string> {
+  if (!accent) return {};
+  const hex = /^#[0-9a-f]{6}$/i.test(accent) ? accent : null;
+  return { '--biz-accent': accent, '--biz-ink': '#fff', ...(hex ? { '--biz-accent-dark': lifted(hex), '--biz-ink-dark': '#000' } : {}) };
+}
 
 export const DESK_CSS = `
-.desk{--accent:#16171a;--accent-ink:#fff;--paper:#fff;--panel:#fff;--ink:#16171a;--muted:#6d7075;--cf-muted:#6d7075;--line:#ececee;--card:#fff;--soft:#f5f5f7;--warn:#a15c07;--ok:#1f7a4d;--danger:#b42318;--shade:0 1px 2px rgba(16,17,20,.04),0 8px 24px -16px rgba(16,17,20,.18);
+.desk{--accent:var(--biz-accent,#16171a);--accent-ink:var(--biz-ink,#fff);--paper:#fff;--panel:#fff;--ink:#16171a;--muted:#6d7075;--cf-muted:#6d7075;--line:#ececee;--card:#fff;--soft:#f5f5f7;--warn:#a15c07;--ok:#1f7a4d;--danger:#b42318;--shade:0 1px 2px rgba(16,17,20,.04),0 8px 24px -16px rgba(16,17,20,.18);
   background:var(--paper);color:var(--ink);font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;color-scheme:light}
-[data-desk-theme=dark].desk,[data-desk-theme=dark] .desk{--accent:#7fd1a5;--accent-ink:#000;--paper:#000;--panel:#0c0c0e;--ink:#f5f5f7;--muted:#9a9ca3;--cf-muted:#9a9ca3;--line:#222226;--card:#0c0c0e;--soft:#18181b;--warn:#f0b35a;--ok:#7fd1a5;--danger:#ff8a80;--shade:0 0 0 1px #1c1c20;color-scheme:dark}
+[data-desk-theme=dark].desk,[data-desk-theme=dark] .desk{--accent:var(--biz-accent-dark,#7fd1a5);--accent-ink:var(--biz-ink-dark,#000);--paper:#000;--panel:#0c0c0e;--ink:#f5f5f7;--muted:#9a9ca3;--cf-muted:#9a9ca3;--line:#222226;--card:#0c0c0e;--soft:#18181b;--warn:#f0b35a;--ok:#7fd1a5;--danger:#ff8a80;--shade:0 0 0 1px #1c1c20;color-scheme:dark}
 .desk :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 @keyframes desk-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes desk-ping{0%{transform:scale(1);opacity:.5}80%,100%{transform:scale(2.6);opacity:0}}
@@ -86,7 +96,7 @@ export function useDeskTheme() {
 export function DeskFrame({ accent, children }: { accent?: string | null; children: ReactNode }) {
   const { resolved } = useDeskTheme();
   return (
-    <div className="desk flex min-h-0 flex-1 flex-col" data-desk-theme={resolved} style={accent ? { ['--accent' as any]: accent, ['--accent-ink' as any]: '#fff' } : undefined}>
+    <div className="desk flex min-h-0 flex-1 flex-col" data-desk-theme={resolved} style={deskAccent(accent)}>
       <style>{DESK_CSS}</style>
       <link rel="stylesheet" href={DESK_FONT} />
       {children}
@@ -277,7 +287,7 @@ export function Drawer({ open, onClose, title, children, wide, accent }: { open:
   const still = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 639px)').matches;
   return createPortal(
     <AnimatePresence>{open && (
-      <div className="desk fixed inset-0 z-[80]" data-desk-theme={resolved} style={{ background: 'transparent', ...(accent ? { ['--accent' as any]: accent } : {}) }}>
+      <div className="desk fixed inset-0 z-[80]" data-desk-theme={resolved} style={{ background: 'transparent', ...deskAccent(accent) }}>
         <style>{DESK_CSS}</style>
         <motion.div className="absolute inset-0 bg-black/30" initial={still ? false : { opacity: 0 }} animate={{ opacity: 1 }} exit={still ? undefined : { opacity: 0 }} onClick={onClose} aria-hidden />
         <motion.aside role="dialog" aria-label={title} initial={still ? false : { x: '100%' }} animate={{ x: 0 }} exit={still ? undefined : { x: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 40 }}

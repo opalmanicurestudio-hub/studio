@@ -75,6 +75,7 @@ import { serviceOverrun, overrunImpact, overrunMode } from '@/lib/appointment-op
 import { opsStatus, paymentOutstanding } from '@/lib/appointment-ops';
 import { resolvePolicy } from '@/lib/booking-policies';
 import { query, where } from 'firebase/firestore';
+import { pageAccent } from '@/lib/studio-page';
 
 type Stage = 'arriving' | 'waiting' | 'service' | 'ready' | 'done';
 type View = 'day' | 'timeline' | 'lanes' | 'stations' | 'mix';
@@ -90,7 +91,7 @@ const lateLabel = (m: number) => (m >= 90 ? `${Math.round(m / 60)} hr late` : `$
 
 export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; waitlist?: ReactNode; spaces?: ReactNode } }) {
   const tenant = e.selectedTenant;
-  const accent = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || null;
+  const accent = pageAccent(tenant) || null;
   // Which location this desk is looking at (multi-location businesses; remembered per device). '' = every location.
   const { locations: allLocations } = useInventory() as any;
   const places = businessLocations(allLocations);

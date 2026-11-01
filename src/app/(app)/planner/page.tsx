@@ -70,6 +70,7 @@ import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { AlertCircle, XCircle } from 'lucide-react';
 import { LeftOpen, useLeftOpen } from '@/components/ops/LeftOpen';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
+import { pageAccent } from '@/lib/studio-page';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -1185,7 +1186,7 @@ function PlannerPageContent() {
     const t: any = selectedTenant || {};
     const opened = printAppointmentTicket(apt, {
       studioName: t.name || null,
-        accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null, logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null,   // the Studio look, in their colours
+        accent: pageAccent(t) || t.brandColor || null, logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null,   // the Studio look, in their colours
       studioPhone: t.phone || null,
       studioEmail: t.email || null,
       studioAddress: t.address || null,

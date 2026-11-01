@@ -18,6 +18,7 @@ import { useFirebase } from '@/firebase';
 import { doc, writeBatch, increment } from 'firebase/firestore';
 import { VisitTicket } from '@/components/visit/VisitTicket';
 import dynamic from 'next/dynamic';
+import { pageAccent } from '@/lib/studio-page';
 // Loaded only when a visit is opened — the host sits on every page, the full Visit is large.
 const AppointmentDetailsSheet: any = dynamic(() => import('@/components/planner/AppointmentDetailsSheet').then((m) => m.AppointmentDetailsSheet), { ssr: false });
 
@@ -29,7 +30,7 @@ export function VisitTicketHost() {
   const [id, setId] = React.useState<string | null>(null);
   React.useEffect(() => { const open = (e: any) => setId(String(e?.detail?.appointmentId || '') || null); window.addEventListener('cf:open-visit', open); return () => window.removeEventListener('cf:open-visit', open); }, []);
   const tenantId = selectedTenant?.id || null;
-  const accent = selectedTenant?.bookingPageSettings?.cfPageConfig?.accentColor || selectedTenant?.brandColor || null;
+  const accent = pageAccent(selectedTenant) || selectedTenant?.brandColor || null;
   const onPlanner = typeof window !== 'undefined' && window.location.pathname.startsWith('/planner');
   // Only the visit that was opened is read.
   const { appointment: appt } = useAppointmentById(id) as { appointment: any };

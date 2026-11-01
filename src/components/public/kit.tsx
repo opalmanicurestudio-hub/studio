@@ -42,7 +42,7 @@ export function PublicFrame({ accent, children, className = '', app = false }: {
 export function Section({ id, eyebrow, title, children, className = '' }: { id?: string; eyebrow?: string; title?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section id={id} className={`mx-auto max-w-6xl scroll-mt-20 px-4 py-10 sm:py-14 ${className}`}>
-      {eyebrow && <p className="text-[12px] font-semibold uppercase tracking-[0.2em]" style={{ color: 'var(--accent)' }}>{eyebrow}</p>}
+      {eyebrow && <p className="text-[12px] font-semibold tracking-[0.2em]" style={{ color: 'var(--accent)', textTransform: 'uppercase' }}>{eyebrow}</p>}
       {title && <h2 className="mt-1 text-3xl sm:text-4xl">{title}</h2>}
       <div className="mt-6">{children}</div>
     </section>

@@ -580,7 +580,7 @@ function SettingsPageImpl() {
               <Section title="When are you open?" help="Clients can only book inside these hours.">
                 {localSchedule ? dayOrder.map((day) => { const d = localSchedule[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }; const name = day[0].toUpperCase() + day.slice(1); return (
                   <div key={day} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 [&+&]:border-t" style={{ borderColor: 'var(--line)' }}>
-                    <div className="flex w-36 items-center gap-3"><Toggle checked={!!d.enabled} onChange={(v) => handleScheduleChange(day, { enabled: v })} label={`Open on ${name}`} /><span className="text-[15px] font-medium">{name}</span></div>
+                    <div className="flex w-44 shrink-0 items-center gap-3"><Toggle checked={!!d.enabled} onChange={(v) => handleScheduleChange(day, { enabled: v })} label={`Open on ${name}`} /><span className="text-[15px] font-medium">{name}</span></div>
                     {d.enabled ? (
                       <div className="flex flex-1 items-center gap-2 min-w-[15rem]">
                         <input type="time" aria-label={`${name} opens`} className={cfInput} style={cfInputStyle} value={toPicker(d.start)} onChange={(e) => handleScheduleChange(day, { start: fromPicker(e.target.value) })} />
@@ -877,7 +877,7 @@ function SettingsPageImpl() {
                   <div className="px-5 py-2">
                     {tenantData.kioskSettings?.useSpecificHours && dayOrder.map((day) => { const d = localKioskSchedule?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }; const name = day[0].toUpperCase() + day.slice(1); return (
                       <div key={`kiosk-${day}`} className="flex flex-wrap items-center gap-x-4 gap-y-3 py-3 [&+&]:border-t" style={{ borderColor: 'var(--line)' }}>
-                        <div className="flex w-36 items-center gap-3"><Toggle checked={!!d.enabled} onChange={(v) => handleKioskScheduleChange(day, { enabled: v })} label={`Kiosk open on ${name}`} /><span className="text-[15px] font-medium">{name}</span></div>
+                        <div className="flex w-44 shrink-0 items-center gap-3"><Toggle checked={!!d.enabled} onChange={(v) => handleKioskScheduleChange(day, { enabled: v })} label={`Kiosk open on ${name}`} /><span className="text-[15px] font-medium">{name}</span></div>
                         {d.enabled ? (<div className="flex flex-1 items-center gap-2 min-w-[15rem]">
                           <input type="time" aria-label={`${name} kiosk opens`} className={cfInput} style={cfInputStyle} value={toPicker(d.start)} onChange={(e) => handleKioskScheduleChange(day, { start: fromPicker(e.target.value) })} />
                           <span className="text-[14px] cf-muted">to</span>
@@ -1005,7 +1005,7 @@ function SettingsGate() {
   React.useEffect(() => { if (tab && FORWARD_TABS[tab]) router.replace(FORWARD_TABS[tab]); }, [tab, router]);
   if (tab && FORWARD_TABS[tab]) return null;
   // Two old tabs became their own pages — send old links there.
-  const moved: Record<string, string> = { automations: '/settings/automations', builder: '/settings/booking#design' };
+  const moved: Record<string, string> = { automations: '/settings/automations', builder: '/settings/booking-page' };
   if (tab && moved[tab]) { if (typeof window !== 'undefined') window.location.replace(moved[tab]); return null; }
   if (!tab) return (<><AppHeader title="Settings" /><SettingsHome tenant={selectedTenant} /></>);
   return <SettingsPageImpl />;   // its own header has the way back ("‹ Settings")

@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   const team = st.docs.filter((d: any) => (d.data() as any)?.archived !== true && (d.data() as any)?.role !== 'renter' && !(d.data() as any)?.isRenter).length;
   const hours = !!sp?.docs.some((d: any) => { const w = (d.data() as any)?.week || {}; return Object.values(w).some((x: any) => x?.enabled); });
   const pays = !!t.stripeAccountId && t.stripeChargesEnabled !== false;
-  const page = !!t.bookingPageSettings?.design || !!t.bookingPageVisitedAt;
+  const page = !!t.bookingPageSettings?.design || !!t.bookingPageVisitedAt || !!t.bookingPageSettings?.studio;
   const steps = [
     { key: 'services', done: live > 0, note: live ? `${live} on your booking page${toPrice ? ` · ${toPrice} still need a price` : ''}` : toPrice ? `${toPrice} ready for your prices` : null },
     { key: 'hours', done: hours }, { key: 'team', done: team > 1, note: team > 1 ? `${team} people` : null }, { key: 'payments', done: pays },

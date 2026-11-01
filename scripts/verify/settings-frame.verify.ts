@@ -44,7 +44,7 @@ ok(at('/settings') === null, 'Settings home is no page in particular');
 ok(at('/retail-orders/policies/delivery') === 'shop/ways' && at('/retail-orders/policies') === 'shop/returns' && at('/retail-orders/policies/pickup') === 'shop/pickup', 'shop pages are found by their own address, the longest match winning');
 ok(at('/settings/booking') === 'bookings/how', 'a page with two parts on one address opens on its first');
 ok(at('/settings/policies') === 'changes/cancellations' && settingsPageAt('/settings/policies', null, '#privacy')?.page.id === 'privacy', 'Cancellations and Privacy share an address: the #part decides, and without one it’s Cancellations');
-ok(settingsPageAt('/settings/booking', null, '#design')?.page.id === 'page', '“Booking page” is marked when its #part is open');
+ok(settingsPageAt('/settings/booking-page', null, '')?.page.id === 'page' && settingsPageAt('/settings/booking', null, '')?.page.id === 'how', '“Booking page” has its own page, apart from how bookings come in');
 const self = all.filter(({ p }) => p.inShell !== false).filter(({ p }) => { const tab = p.href.match(/[?&]tab=([a-z]+)/)?.[1] || null; const hash = p.href.includes('#') ? '#' + p.href.split('#')[1] : ''; return settingsPageAt(p.href.split(/[?#]/)[0], tab, hash)?.page.id !== p.id; }).map(({ p }) => p.id);
 ok(self.length === 0, `every page in Settings is marked as itself when it’s open${self.length ? ': not ' + self.join(', ') : ''}`);
 const hashMiss = all.filter(({ p }) => p.href.includes('#')).filter(({ p }) => { const [path, h] = p.href.split('#'); const f = 'src/app/(app)' + path + '/page.tsx'; return !fs.existsSync(f) || !src(f).includes(`id="${h}"`); }).map(({ p }) => p.href);

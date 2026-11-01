@@ -11,6 +11,7 @@ import { SETTINGS_GROUPS } from '../src/lib/settings-registry';
 import { MESSAGE_KINDS } from '../src/lib/message-policy';
 import { SITUATIONS } from '../src/lib/replies';
 import { AUTOMATION_SWITCHES } from '../src/lib/automation-switches';
+import { SECTIONS as PAGE_SECTIONS } from '../src/lib/studio-page';
 
 export interface RowEntry { l: string; m?: string; c?: 1; q?: string }
 type Found = { l: string; at: number; name?: true };
@@ -258,11 +259,8 @@ function sourcesFor(href: string): [string, string][] {
   }
   const file = ['src/app/(app)' + p + '/page.tsx', 'src/app' + p + '/page.tsx'].find(exists); if (!file) return [];
   let seg = read(file);
-  // Two pages on one address: Privacy is its own section of the policies page; How clients book and Booking page
-  // split at the booking page's #design part (the page design picker), the rest of the page being booking rules.
+  // Two pages on one address: Privacy is its own section of the policies page.
   if (p === '/settings/policies') { const priv = fnBody(seg, 'PrivacySection'); seg = hash === 'privacy' ? priv : seg.replace(priv, ''); }
-  if (p === '/settings/booking') { const i = seg.indexOf('id="design"'); const j = i > 0 ? seg.indexOf('<More', i) : -1;
-    if (i > 0) seg = hash === 'design' ? seg.slice(i, j > 0 ? j : undefined) : seg.slice(0, i) + (j > 0 ? seg.slice(j) : ''); }
   const screens = p === '/settings/policies' && hash === 'privacy' ? [] : screensUsed(file, shownPart(seg));
   return [[file, seg], ...screens.map((f) => [f, read(f)] as [string, string])];
 }
@@ -295,6 +293,7 @@ export function buildSettingsRows(): Record<string, RowEntry[]> {
     if (key === 'messages/wording') for (const k of MESSAGE_KINDS) add({ l: k.label, q: `group=${k.group}` });
     if (key === 'messages/replies') for (const x of SITUATIONS) add({ l: x.label });
     if (key === 'auto/all') for (const a of AUTOMATION_SWITCHES) add({ l: a.title, ...(a.module ? { m: a.module } : {}) });
+    if (key === 'bookings/page') for (const x of PAGE_SECTIONS) add({ l: x.title, ...(x.module ? { m: x.module } : {}) });
     out[key] = rows;
   }
   return out;

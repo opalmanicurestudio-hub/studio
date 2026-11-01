@@ -11,6 +11,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { linkOrigin } from '@/lib/app-origin';
 import { findByPin, issueApproval, isApprover } from '@/lib/approvals';
+import { pageAccent } from '@/lib/studio-page';
 
 export const dynamic = 'force-dynamic';
 const KIND_LABEL: Record<string, string> = { held_stock: 'sell units held for online orders', waive: 'waive fees', recovery: 'give service recovery', discount: 'give a discount', void: 'void a sale', cancel_override: 'override a cancellation fee', service_override: 'override a service rule', client_recovery: 'issue a recovery credit', pos_override: 'approve an override' };
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
   if (!a || !k || a.decideHash !== sha(k)) return NextResponse.json({ ok: false, error: 'This request isn’t available.' }, { status: 404 });
   const t: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
   return NextResponse.json({ ok: true, business: t.name || 'The front desk', kind: KIND_LABEL[a.kind] || a.kind, amount: a.amount ?? null, summary: a.summary || null, reason: a.reason || null,
-    requestedBy: a.requestedBy || 'The front desk', status: a.status, open: a.status === 'pending' && Date.parse(a.expiresAt) > Date.now(), accent: t.bookingPageSettings?.cfPageConfig?.accentColor || t.brandColor || null });
+    requestedBy: a.requestedBy || 'The front desk', status: a.status, open: a.status === 'pending' && Date.parse(a.expiresAt) > Date.now(), accent: pageAccent(t) || t.brandColor || null });
 }
 
 export async function POST(req: NextRequest) {
