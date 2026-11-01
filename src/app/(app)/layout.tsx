@@ -13,6 +13,9 @@ import { AuthGuard } from '@/components/auth/AuthGuard';
 import { TenantProvider } from '@/context/TenantContext';
 import { LocationProvider } from '@/context/LocationContext';
 import { usePathname } from 'next/navigation';
+import { SettingsShell } from '@/components/settings/SettingsShell';
+import { useInSettings } from '@/components/settings/settings-place';
+import { isSettingsPath } from '@/lib/settings-registry';
 
 /**
  * IMPORTANT FINDING, not introduced by this change: TenantProvider was
@@ -35,6 +38,19 @@ import { usePathname } from 'next/navigation';
  * deliberate refactor of AuthGuard itself — flagged here, not done as a
  * side effect of wiring in LocationProvider.
  */
+
+/** The app's sidebar and the page. Settings has its own list on the left on a computer, in the sidebar's place
+ *  (components/settings/SettingsShell); settings-place says which pages open inside it, and for whom. */
+function Framed({ children }: { children: React.ReactNode }) {
+  const onSettingsPath = isSettingsPath(usePathname() || '');
+  const inSettings = useInSettings();
+  return (<>
+    <div className={inSettings ? 'contents lg:hidden' : 'contents'}><AppSidebar /></div>
+    <SidebarInset className="bg-background">
+      <main id="main"><StaleCopyBanner />{onSettingsPath ? <SettingsShell nav={inSettings}>{children}</SettingsShell> : children}</main>
+    </SidebarInset>
+  </>);
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -94,10 +110,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <IdleSignOut />
         <LocationProvider>
           <SidebarProvider>
-            <AppSidebar />
-            <SidebarInset className="bg-background">
-              <main id="main"><StaleCopyBanner />{children}</main>
-            </SidebarInset>
+            <Framed>{children}</Framed>
             <HelpDesk />
             <VisitTicketHost />
             <StepReminder />

@@ -15,6 +15,8 @@ import {
 } from '@/lib/pickup-slots';
 import { dayKey } from '@/lib/tenant-time';
 import { Btn, C, Ic, LargeTitle, Sheet, Toggle, UndoBar, muted } from './ui';
+import { ShopBack } from './shell';
+import { setLeaveGuard } from '@/components/settings/settings-place';
 
 const ORDER = [1, 2, 3, 4, 5, 6, 0];
 const NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -116,7 +118,8 @@ export function PickupTimesScreen() {
   React.useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { if (dirtyRef.current) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
+    setLeaveGuard(() => !dirtyRef.current || window.confirm('Leave without saving your changes to pickup times?'));
+    return () => { window.removeEventListener('beforeunload', warn); setLeaveGuard(null); };
   }, []);
 
   if (failed) return (
@@ -218,7 +221,7 @@ export function PickupTimesScreen() {
   return (
     <div className="min-h-[100dvh] pb-24" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-6xl px-4 pt-3">
-        <Link href="/retail-orders/settings" onClick={(e) => { if (dirty && !window.confirm('Leave without saving your changes to pickup times?')) e.preventDefault(); }} className="inline-flex h-11 items-center gap-1 text-[17px]" style={{ color: C.ink }}>{Ic.back}Shop settings</Link>
+        <ShopBack look="ink" fallback={{ href: '/retail-orders/settings', label: 'Shop settings' }} onClick={(e) => { if (dirty && !window.confirm('Leave without saving your changes to pickup times?')) e.preventDefault(); }} />
         <LargeTitle title="Pickup times" sub={canEdit ? 'When customers can collect online orders.' : 'Only a manager can change these.'}
           right={canEdit ? <Btn kind="primary" disabled={!dirty || saving || problems.length > 0} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</Btn> : undefined} />
         {!zoneSet && (

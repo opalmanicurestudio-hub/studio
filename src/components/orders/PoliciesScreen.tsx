@@ -18,6 +18,7 @@ import { FEE_BANDS, type FeeBand } from '@/lib/restocking';
 import { clockLabel, scheduleFrom, showsDates } from '@/lib/ship-promise';
 import { protectionPolicy } from '@/lib/shipment-protection';
 import { C, Group, LargeTitle, Row, Seg, Toggle, UndoBar, muted, Ic } from './ui';
+import { ShopBack } from './shell';
 
 function NumberField({ value, unit, prefix, label, onSave, disabled, max }: { value: number; unit?: string; prefix?: string; label: string; onSave: (n: number) => void; disabled?: boolean; max?: number }) {
   const [v, setV] = React.useState(String(value));
@@ -126,7 +127,7 @@ export function PoliciesScreen() {
   return (
     <div className="min-h-[100dvh] pb-24" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-2xl px-4 pt-3">
-        <Link href="/retail-orders/setup" className="inline-flex h-11 items-center gap-1 text-[17px]" style={{ color: C.ink }}>{Ic.back}Setup</Link>
+        <ShopBack look="ink" />
         <LargeTitle title="Policies" sub={canEdit ? 'Changes save as you make them.' : 'Only a manager can change these.'} />
 
         <Group title="Shipping">

@@ -10,7 +10,9 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import { MESSAGE_KIND_BY_ID, resolveMessagePolicy } from '@/lib/message-policy';
 import { AUTOMATIC_KINDS, SITUATIONS, playbook, tokensFor, readable, BUILT_IN_REPLIES, type Reply, type ReplySituation } from '@/lib/replies';
 import { useStoredReplies } from '@/components/orders/ReplyChips';
-import { Btn, C, LargeTitle, Toggle, muted } from '@/components/orders/ui';
+import { Btn, C, Ic, LargeTitle, Toggle, muted } from '@/components/orders/ui';
+import { AppHeader } from '@/components/shared/AppHeader';
+import { useSettingsBack } from '@/components/settings/settings-place';
 
 const box: React.CSSProperties = { border: `1px solid ${C.line}`, borderRadius: 18, background: C.paper };
 const linkCls = 'font-semibold underline underline-offset-[3px]';
@@ -29,6 +31,7 @@ async function post(body: any) {
 type Draft = { id: string | null; situation: ReplySituation; name: string; text: string };
 
 export function RepliesScreen() {
+  const back = useSettingsBack();
   const { firestore } = useFirebase();
   const t: any = useTenant();
   const tenant: any = t.selectedTenant;
@@ -128,7 +131,9 @@ export function RepliesScreen() {
   const hidden = all.filter((r) => r.hidden);
   return (
     <div className="min-h-[100dvh] pb-24" style={{ background: C.paper, color: C.ink }}>
+      <AppHeader title="Settings" />
       <div className="mx-auto max-w-6xl px-4 pt-5">
+        <Link href={back.href} className="mb-2 inline-flex h-11 items-center gap-1 text-[17px] lg:hidden" style={{ color: C.ink }}>{Ic.back}{back.label}</Link>
         <LargeTitle title="Replies" sub={canEdit ? 'One set of wording for everyone, so customers hear the same thing whoever answers.' : 'The wording your team uses. Only people whose role runs the settings can change it.'} />
         <div className="mt-5 flex flex-wrap items-start gap-5">
           <div className="min-w-0 flex-[3_1_560px] space-y-3.5">

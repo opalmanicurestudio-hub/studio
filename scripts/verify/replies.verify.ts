@@ -185,7 +185,7 @@ const fresh = async (tenant: any = {}) => {
   const cl = fs.readFileSync('src/components/orders/ClaimCard.tsx', 'utf8');
   check('asking for something on a claim and declining one offer their replies too, with the gap check', /situation="claim_ask"/.test(cl) && /situation="claim_decline"/.test(cl) && /hasGap\(why\)/.test(cl) && /hasGap\(ask\)/.test(cl));
   check('…the question and the reason keep within 400 characters (a pick that won’t fit replaces it); no order number is a gap, not 0000', /const fitPick = \(cur: string, prev: string \| null, pick: string, max: number\) => \{ const one = pick\.slice\(0, max\); const joined = pickInto\(cur, prev, one, '\\n\\n'\); return joined\.length > max \? one : joined; \};/.test(cl) && /const next = fitPick\(ask, prev, txt, ASK_MAX\);/.test(cl) && /maxLength=\{ASK_MAX\}/.test(cl) && /const ASK_MAX = 400;/.test(cl) && /order_number: claim\.orderNumber != null \?/.test(cl));
-  check('Settings lists Replies, and the shop messages point to it', /href: '\/settings\/replies'/.test(fs.readFileSync('src/components/settings/SettingsHome.tsx', 'utf8')) && /href="\/settings\/replies"/.test(fs.readFileSync('src/app/(app)/settings/messages/page.tsx', 'utf8')));
+  check('Settings lists Replies, and the shop messages point to it', /href: '\/settings\/replies'/.test(fs.readFileSync('src/lib/settings-registry.ts', 'utf8')) && /href="\/settings\/replies"/.test(fs.readFileSync('src/app/(app)/settings/messages/page.tsx', 'utf8')));
   const rs = fs.readFileSync('src/components/settings/RepliesScreen.tsx', 'utf8');
   check('the Replies screen changes things only through the server', /fetch\('\/api\/replies'/.test(rs) && !/setDoc|updateDoc|addDoc|deleteDoc/.test(rs));
 

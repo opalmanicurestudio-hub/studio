@@ -16,6 +16,8 @@ import {
 import { closureOn, hasHours, type PickupPlan, type ShiftSpan } from '@/lib/pickup-slots';
 import { dayKey } from '@/lib/tenant-time';
 import { Btn, C, Ic, LargeTitle, Sheet, Toggle, UndoBar, muted } from './ui';
+import { ShopBack } from './shell';
+import { setLeaveGuard } from '@/components/settings/settings-place';
 
 type Ways = { pickup: boolean; curbside: boolean; shipping: boolean; curbsideName: string };
 type Place = { id: string; name: string; address: string };
@@ -170,7 +172,8 @@ export function DeliveryScreen() {
   React.useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { if (dirtyRef.current) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
+    setLeaveGuard(() => !dirtyRef.current || window.confirm('Leave without saving your changes?'));
+    return () => { window.removeEventListener('beforeunload', warn); setLeaveGuard(null); };
   }, []);
 
   if (failed) return (
@@ -292,7 +295,7 @@ export function DeliveryScreen() {
   return (
     <div className="min-h-[100dvh] pb-24" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-6xl px-4 pt-3">
-        <Link href="/retail-orders/settings" onClick={(e) => { if (dirty && !window.confirm('Leave without saving your changes?')) e.preventDefault(); }} className="inline-flex h-11 items-center gap-1 text-[17px]" style={{ color: C.ink }}>{Ic.back}Shop settings</Link>
+        <ShopBack look="ink" fallback={{ href: '/retail-orders/settings', label: 'Shop settings' }} onClick={(e) => { if (dirty && !window.confirm('Leave without saving your changes?')) e.preventDefault(); }} />
         <LargeTitle title="Ways to get an order" sub={canEdit ? 'What checkout offers, and where and when you deliver.' : 'Only a manager can change these.'}
           right={canEdit ? <Btn kind="primary" disabled={!dirty || saving || blocking.length > 0} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</Btn> : undefined} />
         {!loaded.zoneSet && (

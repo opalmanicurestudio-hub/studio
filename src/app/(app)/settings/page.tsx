@@ -37,6 +37,7 @@ import { type Tenant, type ScheduleProfile, type DayHours, type Service, type Pr
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { SettingsHome } from '@/components/settings/SettingsHome';
+import { useSettingsBack } from '@/components/settings/settings-place';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn, safeNumber, hexToHSLComponents } from '@/lib/utils';
@@ -277,6 +278,9 @@ function SettingsPageImpl() {
   const tabParam       = searchParams.get('tab');
 
   const [activeTab,        setActiveTab]        = useState(tabParam || 'profile');
+  // The Settings list stays open beside this page, so moving between two tabs doesn't reload it: follow the address.
+  React.useEffect(() => { setActiveTab(tabParam || 'profile'); }, [tabParam]);
+  const back = useSettingsBack(undefined, activeTab);
   // Settings save as you go (no Edit/Save mode). Kept as constants so every field stays enabled.
   const isEditing = true; const setIsEditing = (_v: boolean) => {};
   // Where staff can clock in now lives on each LOCATION (address, map pin, radius). The first time an owner or
@@ -481,7 +485,7 @@ function SettingsPageImpl() {
         <div className="max-w-3xl mx-auto space-y-8 md:space-y-10 px-4 py-6 md:px-10 md:py-10 pb-32">
 
           <header className="space-y-4 text-left">
-            <Link href="/settings" className="inline-flex items-center gap-1 text-[14px] font-medium cf-muted hover:underline"><ChevronLeft className="h-4 w-4" aria-hidden />Settings</Link>
+            <Link href={back.href} className="inline-flex min-h-11 items-center gap-1 text-[14px] font-medium cf-muted hover:underline lg:hidden"><ChevronLeft className="h-4 w-4" aria-hidden />{back.label}</Link>
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div className="space-y-1.5">
                 <h1 className="text-[32px] md:text-[38px] font-light tracking-tight leading-none">{tabs.find((t) => t.value === activeTab)?.label || (SETTINGS_TAB_MODULE[activeTab] ? MODULES[SETTINGS_TAB_MODULE[activeTab]]?.label : null) || 'Settings'}</h1>
@@ -495,10 +499,10 @@ function SettingsPageImpl() {
             </div>
             {(() => { const sibs = (TAB_GROUPS.find((g) => g.includes(activeTab)) || []).filter((v) => tabs.some((t) => t.value === v));
               return sibs.length > 1 ? (
-                <nav aria-label="Related settings" className="flex flex-wrap gap-2">
+                <nav aria-label="Related settings" className="flex flex-wrap gap-2 lg:hidden">
                   {sibs.map((v) => { const t = tabs.find((x) => x.value === v)!; const on = v === activeTab; return (
                     <button key={v} type="button" onClick={() => { setActiveTab(v); try { window.history.replaceState(null, '', `/settings?tab=${v}`); } catch { /* ignore */ } }} aria-current={on ? 'page' : undefined}
-                      className="h-9 rounded-full px-4 text-[13.5px] font-medium transition-colors" style={on ? { background: 'var(--ink)', color: 'var(--paper)' } : { background: 'var(--soft)', color: 'var(--ink)' }}>{t.label}</button>); })}
+                      className="h-11 rounded-full px-4 text-[13.5px] font-medium transition-colors" style={on ? { background: 'var(--ink)', color: 'var(--paper)' } : { background: 'var(--soft)', color: 'var(--ink)' }}>{t.label}</button>); })}
                 </nav>) : null; })()}
           </header>
 
@@ -976,7 +980,7 @@ const WHATS_HERE: Record<string, string> = {
 };
 
 // Settings pages that belong together — shown as quick links at the top of each page.
-const TAB_GROUPS: string[][] = [['profile', 'hours', 'locations'], ['payments', 'terminal', 'policies'], ['visits', 'kiosk', 'experience'], ['operations'], ['timeclock']];
+const TAB_GROUPS: string[][] = [['profile', 'hours', 'locations'], ['payments', 'terminal'], ['policies'], ['visits', 'kiosk', 'experience'], ['operations'], ['timeclock']];
 
 export default function SettingsPage() {
   return (

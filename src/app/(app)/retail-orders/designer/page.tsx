@@ -5,6 +5,7 @@ import {
   ArrowDown, ArrowLeft, ArrowUp, Eye, EyeOff, Loader, Paintbrush, Plus, Trash2, X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useSettingsBack } from '@/components/settings/settings-place';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -41,6 +42,7 @@ import { listedInShop, listingBuyable, listingsOf, variantIdsOf, variantPriceCen
 export default function ShopDesignerPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
+  const back = useSettingsBack({ href: '/retail-orders', label: 'Online orders' });
   const tenantId = selectedTenant?.id || '';
   const { inventory } = useInventory();
   const { toast } = useToast();
@@ -169,8 +171,8 @@ export default function ShopDesignerPage() {
     <div className="min-h-dvh bg-muted/5 pb-28">
       <header className="sticky top-0 z-30 bg-card/90 backdrop-blur border-b-2">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-            <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
+          <Button asChild variant="ghost" size="icon" className={`h-11 w-11 rounded-xl${back.inSettings ? ' lg:hidden' : ''}`}>
+            <Link href={back.href} aria-label={`Back to ${back.label}`}><ArrowLeft className="h-4 w-4" /></Link>
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Shop Designer</h1>

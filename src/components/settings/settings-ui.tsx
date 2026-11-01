@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { ChevronDown, ChevronLeft } from 'lucide-react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { SettingsStyle } from '@/components/settings/settings-style';
+import { useSettingsBack } from '@/components/settings/settings-place';
 
 export const cfInput = 'h-12 w-full rounded-xl border px-4 text-[15px] outline-none transition-colors focus:border-[var(--accent)]';
 export const cfInputStyle: React.CSSProperties = { background: 'var(--card)', borderColor: 'var(--line)', color: 'var(--ink)' };
@@ -81,13 +82,14 @@ export function fromPicker(v: string): string {
 /** The frame every settings screen uses — the header bar (search, notifications), "‹ Settings", the page's name and
  *  one line about it, on the Studio paper. Sub-pages (Booking, Messages, Automations…) look exactly like the tabs. */
 export function SettingsPage({ title, help, actions, children }: { title: string; help?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {
+  const back = useSettingsBack();
   return (
     <div className="cf-settings cf-legacy min-h-full">
       <SettingsStyle />
       <AppHeader title="Settings" />
       <main className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 pb-32 md:space-y-10 md:px-10 md:py-10">
         <header className="space-y-4 text-left">
-          <Link href="/settings" className="inline-flex items-center gap-1 text-[14px] font-medium cf-muted hover:underline"><ChevronLeft className="h-4 w-4" aria-hidden />Settings</Link>
+          <Link href={back.href} className="inline-flex min-h-11 items-center gap-1 text-[14px] font-medium cf-muted hover:underline lg:hidden"><ChevronLeft className="h-4 w-4" aria-hidden />{back.label}</Link>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="space-y-1.5"><h1 className="text-[32px] font-light leading-none tracking-tight md:text-[38px]">{title}</h1>{help && <p className="max-w-[60ch] text-[15px] cf-muted">{help}</p>}</div>
             {actions}

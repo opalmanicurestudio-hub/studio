@@ -25,9 +25,11 @@ import { useInventory } from '@/context/InventoryContext';
 import { useMemo, useContext } from 'react';
 import { InHub } from '@/components/shared/HubContext';
 import { cn } from '@/lib/utils';
+import { useInSettings } from '@/components/settings/settings-place';
 
 export function AppHeader({ title }: { title?: string }) {
   const inHub = useContext(InHub);
+  const inSettings = useInSettings();
   const { user } = useUser();
   const auth = useAuth();
   const router = useRouter();
@@ -68,7 +70,7 @@ export function AppHeader({ title }: { title?: string }) {
   return (
     <header className="sticky top-3 z-30 mx-3 mt-3 flex h-14 items-center justify-between gap-3 rounded-[22px] bg-card/95 px-3 shadow-[0_1px_2px_rgba(28,25,23,.05),0_10px_32px_rgba(28,25,23,.07)] backdrop-blur-xl md:h-[60px] md:px-4 print:hidden">
       <div className="flex min-w-0 items-center gap-2 md:w-[220px]">
-        <SidebarTrigger className="hover:bg-primary/10 transition-colors" />
+        <SidebarTrigger className={cn('hover:bg-primary/10 transition-colors', inSettings && 'lg:hidden')} />
         {title && (
           <h1 className="truncate text-[17px] font-semibold tracking-tight md:text-[19px]">
             {title}

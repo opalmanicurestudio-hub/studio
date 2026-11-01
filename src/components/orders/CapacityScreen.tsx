@@ -14,7 +14,7 @@ import { scheduleFrom, type CapacityRules, type ShipSchedule } from '@/lib/ship-
 import { CAPACITY_DAYS, dayLoads, onTimeRate, overDays, overTitle, packedOn, suggestionsFor, teamCapacity, type Over, type Suggestion, type TeamCapacity } from '@/lib/capacity';
 import { lateItem, whenWord } from '@/lib/ship-day';
 import { Btn, C, Group, Ic, LargeTitle, Row, Sheet, Toggle, UndoBar, feel, muted } from './ui';
-import { PhoneShopBar, useWide } from './shell';
+import { PhoneShopBar, ShopBackRow, useWide } from './shell';
 import { saveBusy, saveSchedule } from './schedule-save';
 
 const SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -171,11 +171,7 @@ export function CapacityScreen() {
   return (
     <div className="cf-settings min-h-[100dvh] pb-32" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-2xl px-4 pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <Link href="/retail-orders/setup" aria-label="Back to setup" className="cf-press grid h-11 w-11 shrink-0 place-items-center rounded-full" style={{ background: C.soft, color: C.ink }}>{Ic.back}</Link>
-          <span className="text-[14px]" style={muted}>Setup</span>
-          <span className="h-11 w-11" />
-        </div>
+        <ShopBackRow />
         <div className="mt-3"><LargeTitle title="Shipping capacity" sub="How many orders a day the team can ship, and what’s coming." /></div>
 
         <div className="mt-5 flex flex-col gap-1 rounded-[20px] px-4 py-3.5" style={{ border: `1px solid ${C.line}` }}>

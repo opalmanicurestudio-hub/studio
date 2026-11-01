@@ -16,6 +16,7 @@ import { seoDescription, seoTitle, SEO_TITLE_MAX } from '@/lib/shop-seo';
 import { feedProblem, gtinOf, shopFactsOf } from '@/lib/shop-discovery';
 import { agentPolicy } from '@/lib/agent-access';
 import { Btn, C, Group, Ic, LargeTitle, Row, Toggle, UndoBar, muted } from './ui';
+import { ShopBack } from './shell';
 
 const Pill = ({ on, children }: { on: boolean; children: React.ReactNode }) => <span className="shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold" style={on ? { background: C.okSoft, color: C.ok } : { background: C.paper, color: C.muted }}>{children}</span>;
 
@@ -70,7 +71,7 @@ export function DiscoveryScreen() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-32 pt-5 lg:px-8" style={{ color: C.ink }}>
-      <Link href="/retail-orders/setup" className="cf-press inline-flex h-11 items-center gap-1 text-[15px]" style={muted}>{Ic.back} Setup</Link>
+      <ShopBack look="quiet" />
       <LargeTitle title="Search and assistants" sub="How your shop shows up on Google and to AI assistants." />
       {!facts.listed && <p className="m-0 mt-4 rounded-2xl px-4 py-3 text-[14px] leading-snug" style={{ background: C.warnSoft, color: C.ink }}>Your shop can’t take payments yet, so it isn’t shown to search engines or assistants. Everything below starts working once payments are connected.</p>}
       {facts.listed && facts.paused && <p className="m-0 mt-4 rounded-2xl px-4 py-3 text-[14px] leading-snug" style={{ background: C.warnSoft, color: C.ink }}>Your shop is paused. It stays in search, with products shown as out of stock until you reopen.</p>}

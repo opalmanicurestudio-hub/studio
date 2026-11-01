@@ -15,6 +15,7 @@ import {
   type BusyLine, type BusyPeriod, type Closure, type PickupRule, type ShipSchedule,
 } from '@/lib/ship-promise';
 import { Btn, C, Group, LargeTitle, Row, Seg, Sheet, Toggle, UndoBar, muted, Ic } from './ui';
+import { ShopBack } from './shell';
 
 const ORDER = [1, 2, 3, 4, 5, 6, 0];
 const LETTER: Record<number, string> = { 0: 'S', 1: 'M', 2: 'T', 3: 'W', 4: 'T', 5: 'F', 6: 'S' };
@@ -292,7 +293,7 @@ export function ShippingScheduleScreen() {
   return (
     <div className="min-h-[100dvh] pb-24" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-2xl px-4 pt-3">
-        <Link href="/retail-orders/policies" className="inline-flex h-11 items-center gap-1 text-[17px]" style={{ color: C.ink }}>{Ic.back}Policies</Link>
+        <ShopBack look="ink" fallback={{ href: '/retail-orders/policies', label: 'Policies' }} />
         <LargeTitle title="Shipping schedule" sub={canEdit ? 'Changes save as you make them.' : 'Only a manager can change these.'} />
 
         {!zoneSet && (

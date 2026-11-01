@@ -6,9 +6,9 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import { NAV_AREAS } from '@/components/shared/AppSidebar';
-import { SETTINGS_INDEX } from '@/components/settings/SettingsHome';
+import { visibleGroups } from '@/lib/settings-registry';
 import { useTenant } from '@/context/TenantContext';
-import { pageVisible, settingVisible } from '@/lib/modules';
+import { pageVisible } from '@/lib/modules';
 
 type Hit = { title: string; where: string; href: string; hay: string };
 
@@ -18,7 +18,7 @@ export function AppSearch() {
   const box = React.useRef<HTMLInputElement>(null);
   const all = React.useMemo<Hit[]>(() => {
     const pages = NAV_AREAS.flatMap((a) => a.items.filter((i) => pageVisible(selectedTenant, i.href)).map((i) => ({ title: i.label, where: a.area, href: i.href, hay: `${i.label} ${a.area}`.toLowerCase() })));
-    const settings = SETTINGS_INDEX.flatMap((g) => g.items.filter((i: any) => settingVisible(selectedTenant, i.href, i.module)).map((i: any) => ({ title: i.title, where: `Settings · ${g.question}`, href: i.href, hay: `${i.title} ${i.meaning} ${i.words || ''}`.toLowerCase() })));
+    const settings = (selectedTenant ? visibleGroups(selectedTenant) : []).flatMap((g) => g.pages.map((p) => ({ title: p.title, where: `Settings · ${g.title}`, href: p.href, hay: `${p.title} ${p.meaning} ${p.words || ''} ${g.title}`.toLowerCase() })));
     const seen = new Set<string>(); return [...pages, ...settings].filter((h) => (seen.has(h.href + h.title) ? false : (seen.add(h.href + h.title), true)));
   }, [selectedTenant]);
   const hits = React.useMemo(() => { const n = q.trim().toLowerCase(); if (n.length < 2) return [];

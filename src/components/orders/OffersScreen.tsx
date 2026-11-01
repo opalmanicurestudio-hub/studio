@@ -18,6 +18,7 @@ import {
   type Offer, type OfferKind, type SaveType,
 } from '@/lib/retail-offers';
 import { Btn, C, Empty, Group, Ic, LargeTitle, ListRow, Seg, Sheet, Thumb, Toggle, UndoBar, muted } from './ui';
+import { ShopBack } from './shell';
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 const KINDS: { id: OfferKind; title: string; note: string }[] = [
@@ -99,7 +100,7 @@ export function OffersScreen() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-32 pt-5 lg:px-8" style={{ color: C.ink }}>
-      <Link href="/retail-orders/setup" className="cf-press inline-flex h-11 items-center gap-1 text-[15px]" style={muted}>{Ic.back} Setup</Link>
+      <ShopBack look="quiet" />
       <LargeTitle title="Bundles and kits" sub="Kits, build-your-own boxes, shoppable looks and what to suggest together."
         right={canEdit ? <Btn kind="primary" onClick={() => setPicking(true)}>New</Btn> : undefined} />
       <p className="m-0 mt-3 text-[14px] leading-snug" style={muted}>Each product keeps its own price and stock. What an offer saves comes off at checkout as its own line, worked out from what is in the cart. Promo codes don’t stack on items an offer already covers.</p>

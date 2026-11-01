@@ -11,7 +11,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { ORDER_ALERTS, PACKERS_DAYS, packersOf, wantsAlert, type OrderAlertKind } from '@/lib/order-alerts';
 import { C, Group, Ic, LargeTitle, Row, Toggle, UndoBar, muted } from './ui';
-import { PhoneShopBar, useWide } from './shell';
+import { PhoneShopBar, ShopBackRow, useWide } from './shell';
 
 export function AlertsScreen() {
   const { firestore } = useFirebase() as any; const fs = firestore as Firestore;
@@ -46,11 +46,7 @@ export function AlertsScreen() {
   return (
     <div className="cf-settings min-h-[100dvh] pb-32" style={{ background: C.paper, color: C.ink }}>
       <div className="mx-auto max-w-2xl px-4 pt-3">
-        <div className="flex items-center justify-between gap-2">
-          <Link href="/retail-orders/setup" aria-label="Back to setup" className="cf-press grid h-11 w-11 shrink-0 place-items-center rounded-full" style={{ background: C.soft, color: C.ink }}>{Ic.back}</Link>
-          <span className="text-[14px]" style={muted}>Setup</span>
-          <span className="h-11 w-11" />
-        </div>
+        <ShopBackRow />
         <div className="mt-3"><LargeTitle title="Alerts" sub="What buzzes your phone about online orders. Each goes out once a day at most." /></div>
         {me && packedBy === null ? (
           <p className="m-0 mt-8 text-[15px]" style={muted}>One moment…</p>

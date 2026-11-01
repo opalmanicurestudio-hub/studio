@@ -120,6 +120,9 @@ const SidebarProvider = React.forwardRef<
           event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
           (event.metaKey || event.ctrlKey)
         ) {
+          // On a computer, Settings shows its own list where the sidebar was: there's nothing to toggle.
+          if (!isMobile && document.querySelector("[data-settings-nav]")) return
+
           event.preventDefault()
           toggleSidebar()
         }
@@ -127,7 +130,7 @@ const SidebarProvider = React.forwardRef<
 
       window.addEventListener("keydown", handleKeyDown)
       return () => window.removeEventListener("keydown", handleKeyDown)
-    }, [toggleSidebar])
+    }, [toggleSidebar, isMobile])
 
     // We add a state so that we can do data-state="expanded" or "collapsed".
     // This makes it easier to style the sidebar with Tailwind classes.

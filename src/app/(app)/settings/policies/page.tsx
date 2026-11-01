@@ -53,8 +53,8 @@ const Text = ({ field, value, label, placeholder }: { field: string; value: stri
   const [v, setV] = useState(value || ''); useEffect(() => setV(value || ''), [value]);
   return <textarea value={v} disabled={!isMgr} placeholder={placeholder} rows={3} onChange={(e) => setV(e.target.value)} onBlur={() => { if ((v || '') !== (value || '')) save(field, v.trim(), label); }} className="w-full rounded-xl border p-3 text-sm" />;
 };
-const Section = ({ n, q, children }: { n: number; q: string; children: React.ReactNode }) => (
-  <section className="rounded-3xl border bg-card p-5"><p className="mb-3 text-lg font-semibold"><span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-secondary text-sm">{n}</span>{q}</p>{children}</section>
+const Section = ({ n, q, id, children }: { n: number; q: string; id?: string; children: React.ReactNode }) => (
+  <section id={id} className="scroll-mt-24 rounded-3xl border bg-card p-5"><p className="mb-3 text-lg font-semibold"><span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-secondary text-sm">{n}</span>{q}</p>{children}</section>
 );
 
 
@@ -97,7 +97,7 @@ function PrivacySection({ n, t }: { n: number; t: any }) {
   const pv = privacyOf(t); const raw = t?.privacy || {};
   const [open, setOpen] = useState(false);
   return (
-    <Section n={n} q="Privacy">
+    <Section n={n} q="Privacy" id="privacy">
       <p className="mb-3 text-sm text-muted-foreground">For businesses that keep health information, such as med spas, clinics and wellness practices. Any business can turn these on.</p>
       <Row label="Health information mode" note="Staff screens sign out when left idle, every time someone opens a client’s health or consent answers it’s recorded, and AI features stay off for client information until you confirm a signed agreement below.">
         <Choice field="privacy.healthMode" value={pv.healthMode} label="Health information mode" options={[[true, 'On'], [false, 'Off']]} />

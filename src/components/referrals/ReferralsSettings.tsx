@@ -35,7 +35,7 @@ export function ReferralsSettings({ tenantId }: { tenantId: string }) {
         <h1 className="text-[30px] font-light tracking-[-0.02em]">Settings</h1></div>
         <div className="flex items-center gap-3 rounded-full border bg-card py-1.5 pl-4 pr-1.5" style={{ borderColor: LINE }}><span className="text-[14px] font-semibold">{s.on ? 'Referrals are on' : 'Referrals are off'}</span><Switch on={!!s.on} label="Referrals on" onClick={() => set({ ...s, on: !s.on })} /></div></div>
       <div className="grid items-start gap-5 md:grid-cols-[200px_1fr]">
-        <nav className="flex gap-1 overflow-x-auto md:sticky md:top-20 md:flex-col" aria-label="Settings sections">{MENU.map(([id, t]) => <button key={id} type="button" onClick={() => go(id)} className="whitespace-nowrap rounded-[12px] px-3 py-2 text-left text-[14px]" style={at === id ? { background: 'hsl(var(--card))', fontWeight: 700, boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: MUTED }}>{t}</button>)}</nav>
+        <nav className="flex gap-1 overflow-x-auto md:sticky md:top-20 md:flex-col" aria-label="Settings sections">{MENU.map(([id, t]) => <button key={id} type="button" onClick={() => go(id)} className="whitespace-nowrap rounded-[12px] px-3 py-2 text-left text-[14px]" style={at === id ? { background: 'var(--card)', fontWeight: 700, boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: MUTED }}>{t}</button>)}</nav>
         <div className="min-w-0 space-y-5">
           <Card id="program" title="Program" sub="Clients read the terms page made from these. The friend’s offer is a discount you approve by saving; prices on a service never change.">
             {row('r', 'Credit for the person who referred', cents('rewardCents'))}
