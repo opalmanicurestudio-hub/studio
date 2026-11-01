@@ -861,10 +861,10 @@ function SettingsPageImpl() {
                 <Row label="Look" inline>
                   <Choice label="Kiosk look" value={(tenantData.kioskSettings?.theme as string) || 'light'} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'rose', label: 'Rose' }, { value: 'sage', label: 'Sage' }, { value: 'slate', label: 'Slate' }]} onChange={(v) => setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, theme: v } } as any))} />
                 </Row>
-                <Row label="Button colour" help="Leave it to use your business colour." inline>
+                <Row label="Button color" help="Leave it to use your business color." inline>
                   <span className="inline-flex items-center gap-2">
-                    <input type="color" aria-label="Button colour" value={/^#[0-9a-fA-F]{6}$/.test(kioskCustomHex) ? kioskCustomHex : '#7c3aed'} onChange={(e) => { const hex = e.target.value; setKioskCustomHex(hex); setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: hex } } as any)); }} className="h-10 w-12 cursor-pointer rounded-lg border bg-transparent p-0.5" style={{ borderColor: 'var(--line)' }} />
-                    {tenantData.kioskSettings?.primaryColor && <button type="button" onClick={() => { setKioskCustomHex(''); setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: undefined } } as any)); }} className="text-[13.5px] underline underline-offset-4">Use my colour</button>}
+                    <input type="color" aria-label="Button color" value={/^#[0-9a-fA-F]{6}$/.test(kioskCustomHex) ? kioskCustomHex : '#7c3aed'} onChange={(e) => { const hex = e.target.value; setKioskCustomHex(hex); setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: hex } } as any)); }} className="h-10 w-12 cursor-pointer rounded-lg border bg-transparent p-0.5" style={{ borderColor: 'var(--line)' }} />
+                    {tenantData.kioskSettings?.primaryColor && <button type="button" onClick={() => { setKioskCustomHex(''); setTenantData((prev) => ({ ...prev, kioskSettings: { ...prev.kioskSettings, primaryColor: undefined } } as any)); }} className="text-[13.5px] underline underline-offset-4">Use my color</button>}
                   </span>
                 </Row>
               </Section>
@@ -915,7 +915,7 @@ function SettingsPageImpl() {
               <More help="Stricter rules, overtime and breaks — most studios leave these as they are.">
                 <Section title="Stricter rules">
                   {T('requireAppointmentToClockIn', 'Only clock in with an appointment that day')}
-                  {T('blockClockInOnExpiredLicense', 'Block clock-in if their licence has expired')}
+                  {T('blockClockInOnExpiredLicense', 'Block clock-in if their license has expired')}
                   {T('requireManagerOverrideForLateClockIn', 'A manager must approve late clock-ins')}
                   <Row label="Late after" help="Minutes after a shift starts before a clock-in counts as late." inline><Num field="lateGraceMinutes" suffix="minutes" max={60} /></Row>
                   <Row label="Pay approved hours only" help="Payroll counts only shifts a manager has approved on Timesheets; the rest wait for the next pay run.">

@@ -172,8 +172,8 @@ export function DeliveryScreen() {
   React.useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => { if (dirtyRef.current) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', warn);
-    setLeaveGuard(() => !dirtyRef.current || window.confirm('Leave without saving your changes?'));
-    return () => { window.removeEventListener('beforeunload', warn); setLeaveGuard(null); };
+    const offGuard = setLeaveGuard(() => !dirtyRef.current || window.confirm('Leave without saving your changes?'));
+    return () => { window.removeEventListener('beforeunload', warn); offGuard(); };
   }, []);
 
   if (failed) return (

@@ -14,6 +14,13 @@ export const SETTINGS_CSS = `
 .cf-settings :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .cf-settings :focus-visible:not(.rounded-full){border-radius:12px}
 .cf-settings .hover\\:bg-accent:hover{background-color:var(--soft)}
+.cf-settings .bg-accent,.cf-settings .focus\\:bg-accent:focus,.cf-settings .data-\\[state\\=open\\]\\:bg-accent[data-state=open]{background-color:var(--soft)}
+.cf-settings .text-accent-foreground,.cf-settings .hover\\:text-accent-foreground:hover,.cf-settings .focus\\:text-accent-foreground:focus{color:var(--ink)}
+.cf-found{border-radius:14px;box-shadow:inset 0 0 0 2px var(--line);box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent) 60%,transparent);background-color:var(--soft);background-color:color-mix(in srgb,var(--accent) 8%,transparent);outline:none}
+.cf-found-out{border-radius:14px;transition:box-shadow .9s ease,background-color .9s ease}
+@media (prefers-reduced-motion: reduce){.cf-found-out{transition:none}}
+.cf-settings .cf-found:focus-visible,.cf-settings .cf-found-out:focus-visible,.cf-settings [data-cf-pointed]:focus-visible,.cf-settings .cf-search input:focus-visible{outline:none}
+.cf-settings .cf-search:focus-within{outline:3px solid var(--accent);outline-offset:2px}
 .cf-sheet{background:var(--card);border:1px solid var(--line);border-radius:22px;overflow:hidden}
 .cf-row{display:flex;align-items:center;gap:16px;padding:16px 20px;transition:background-color .15s ease}
 .cf-row + .cf-row{border-top:1px solid var(--line)}

@@ -13,10 +13,27 @@ import { useTenant } from '@/context/TenantContext';
 import { C } from '@/components/orders/ui';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { visibleGroups, settingsPageAt, searchPages, type SettingsPageEntry } from '@/lib/settings-registry';
+import { useRowSearch, announceFind } from '@/components/settings/use-row-search';
+import { RowFinder } from '@/components/settings/RowFinder';
 import { mayLeave } from '@/components/settings/settings-place';
 
-/** Every link in the list checks first that the open page has nothing unsaved (or that leaving is confirmed). */
-const guard = (then?: () => void) => (e: React.MouseEvent) => { if (!mayLeave()) { e.preventDefault(); return; } then?.(); };
+/** Every link in the list checks first that the open page has nothing unsaved (or that leaving is confirmed). A click
+ *  that opens a new tab, or a link to the page already open, leaves nothing behind, so it doesn't ask. */
+const guard = (then?: () => void) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const newTab = e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+  const here = samePage(e.currentTarget.href);
+  if (newTab || here) { if (!newTab) then?.(); return; }
+  if (!mayLeave()) { e.preventDefault(); return; }
+  then?.();
+};
+const hashOfHref = (href: string) => (href.includes('#') ? '#' + href.split('#')[1] : '');
+/** The page already open (a ?find= pointing at one of its settings doesn't make it another page). */
+function samePage(href: string): boolean {
+  try {
+    const strip = (u: URL) => { const p = new URLSearchParams(u.search); p.delete('find'); return u.pathname + '?' + p.toString(); };
+    return strip(new URL(href, window.location.href)) === strip(new URL(window.location.href));
+  } catch { return false; }
+}
 
 export const GROUP_ICON: Record<string, any> = {
   business: Building2, bookings: CalendarDays, changes: RefreshCw, checkin: DoorOpen, messages: MessageSquare,
@@ -68,7 +85,9 @@ function SettingsNav() {
   const groups = React.useMemo(() => (selectedTenant ? visibleGroups(selectedTenant) : []), [selectedTenant]);
   const [q, setQ] = React.useState('');
   const searching = q.trim().length >= 2;
-  const hits = React.useMemo(() => (selectedTenant ? searchPages(selectedTenant, q).slice(0, 12) : []), [selectedTenant, q]);
+  const hits = React.useMemo(() => (selectedTenant ? searchPages(selectedTenant, q).slice(0, 8) : []), [selectedTenant, q]);
+  const { hits: rowHits, loading: rowsLoading } = useRowSearch(selectedTenant, q, 8);
+  const first = hits[0] ? { href: hits[0].page.href, title: hits[0].page.title } : rowHits[0] ? { href: rowHits[0].href, title: rowHits[0].label } : null;
   const navRef = React.useRef<HTMLElement>(null);
   React.useEffect(() => { navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest' }); }, [at?.page.id, groupId, groups.length]);
   return (
@@ -76,19 +95,27 @@ function SettingsNav() {
       <a href="#settings-page" onClick={(e) => { e.preventDefault(); const el = document.getElementById('settings-page'); el?.focus(); el?.scrollIntoView({ block: 'start' }); }} className="sr-only rounded-lg px-2.5 py-2 text-[14px] focus:not-sr-only focus:block" style={{ color: C.ink }}>Skip to the page</a>
       <Link href="/dashboard" onClick={guard()} className="inline-flex h-9 [@media(pointer:coarse)]:min-h-11 items-center gap-1 rounded-lg px-2.5 text-[14px]" style={{ color: C.muted }}><ChevronLeft className="h-4 w-4" aria-hidden />Back to the app</Link>
       <Link href="/settings" onClick={guard()} className="block px-2.5 pb-3 pt-1 text-[26px] font-light tracking-[-0.02em]" style={{ color: C.ink }}>Settings</Link>
-      <label className="mx-0.5 mb-3 flex h-10 items-center gap-2.5 rounded-xl px-3.5" style={{ background: C.soft }}>
+      <label className="cf-search mx-0.5 mb-3 flex h-10 [@media(pointer:coarse)]:h-11 items-center gap-2.5 rounded-xl px-3.5" style={{ background: C.soft }}>
         <Search className="h-4 w-4 shrink-0" style={{ color: C.muted }} aria-hidden />
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && hits[0] && mayLeave()) { setQ(''); setHash(hits[0].page.href.includes('#') ? '#' + hits[0].page.href.split('#')[1] : ''); router.push(hits[0].page.href); } if (e.key === 'Escape') setQ(''); }}
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && first && (samePage(first.href) || mayLeave())) { setQ(''); setHash(hashOfHref(first.href)); announceFind(first.title); router.push(first.href); } if (e.key === 'Escape') setQ(''); }}
           placeholder="Search settings" aria-label="Search settings" aria-describedby="settings-search-status" className="h-full min-w-0 flex-1 bg-transparent text-[15px] outline-none" style={{ color: C.ink }} />
       </label>
-      <p id="settings-search-status" aria-live="polite" className="sr-only">{searching ? (hits.length ? `${hits.length} result${hits.length === 1 ? '' : 's'}. Press Enter to open ${hits[0].page.title}.` : `Nothing matches ${q}.`) : ''}</p>
+      <p id="settings-search-status" aria-live="polite" className="sr-only">{searching ? (first ? `${hits.length + rowHits.length} result${hits.length + rowHits.length === 1 ? '' : 's'}. Press Enter to open ${first.title}.` : rowsLoading ? '' : `Nothing matches ${q}.`) : ''}</p>
       {searching ? (
         <div>
-          {hits.length === 0 ? <p className="px-2.5 py-2 text-[14px]" style={{ color: C.muted }}>Nothing matches “{q}”.</p> : hits.map((h, i) => (
-            <Link key={h.group.id + h.page.id} href={h.page.href} onClick={guard(() => { setQ(''); setHash(h.page.href.includes('#') ? '#' + h.page.href.split('#')[1] : ''); })} className="flex [@media(pointer:coarse)]:min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 py-2 hover:bg-[var(--soft)]" style={i === 0 ? { background: C.soft } : undefined}>
+          {!first && !rowsLoading && <p className="px-2.5 py-2 text-[14px]" style={{ color: C.muted }}>Nothing matches “{q}”.</p>}
+          {hits.map((h, i) => (
+            <Link key={h.group.id + h.page.id} href={h.page.href} onClick={guard(() => { setQ(''); setHash(hashOfHref(h.page.href)); })} className="flex [@media(pointer:coarse)]:min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 py-2 hover:bg-[var(--soft)]" style={i === 0 ? { background: C.soft } : undefined}>
               <GroupIcon id={h.group.id} size={26} />
               <span className="min-w-0 flex-1"><span className="block truncate text-[14.5px]" style={{ color: C.ink }}>{h.page.title}</span><span className="block truncate text-[12.5px]" style={{ color: C.muted }}>{h.group.title}</span></span>
               {i === 0 && <span className="shrink-0 text-[11.5px]" style={{ color: C.muted }} aria-hidden>Enter</span>}
+            </Link>))}
+          {rowHits.length > 0 && <p className="px-2.5 pb-1 pt-3 text-[12.5px] font-semibold" style={{ color: C.muted }}>Settings on a page</p>}
+          {rowHits.map((r, i) => (
+            <Link key={r.href} href={r.href} prefetch={false} onClick={guard(() => { setQ(''); setHash(hashOfHref(r.page.href)); announceFind(r.label); })} className="flex [@media(pointer:coarse)]:min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 py-2 hover:bg-[var(--soft)]" style={!hits.length && i === 0 ? { background: C.soft } : undefined}>
+              <GroupIcon id={r.group.id} size={26} />
+              <span className="min-w-0 flex-1"><span className="block truncate text-[14.5px]" style={{ color: C.ink }}>{r.label}</span><span className="block truncate text-[12.5px]" style={{ color: C.muted }}>{r.page.title === r.group.title ? r.page.title : `${r.page.title} · ${r.group.title}`}</span></span>
+              {!hits.length && i === 0 && <span className="shrink-0 text-[11.5px]" style={{ color: C.muted }} aria-hidden>Enter</span>}
             </Link>))}
         </div>
       ) : (
@@ -102,7 +129,7 @@ function SettingsNav() {
                 style={{ color: C.ink, fontWeight: lit ? 600 : 400, background: lit ? C.soft : undefined }}>
                 <GroupIcon id={g.id} size={26} /><span className="min-w-0 flex-1 truncate">{g.title}</span>{single && g.pages[0].inShell === false && <AwayArrow />}
               </Link>
-              {open && !single && <div className="mt-0.5 space-y-0.5">{g.pages.map((p) => <PageLink key={p.id} page={p} on={at?.page.id === p.id && at.group.id === g.id} onPick={() => setHash(p.href.includes('#') ? '#' + p.href.split('#')[1] : '')} />)}</div>}
+              {open && !single && <div className="mt-0.5 space-y-0.5">{g.pages.map((p) => <PageLink key={p.id} page={p} on={at?.page.id === p.id && at.group.id === g.id} onPick={() => setHash(hashOfHref(p.href))} />)}</div>}
             </li>);
         })}</ul>
       )}
@@ -117,6 +144,7 @@ export function SettingsShell({ children, nav = true }: { children: React.ReactN
     <div className="flex min-h-dvh w-full">
       <SettingsStyle />
       {nav && <React.Suspense fallback={<div className="hidden w-[272px] shrink-0 lg:block" />}><SettingsNav /></React.Suspense>}
+      <React.Suspense fallback={null}><RowFinder /></React.Suspense>
       <div id="settings-page" tabIndex={-1} className="cf-settings min-w-0 flex-1 outline-none">{children}</div>
     </div>
   );

@@ -13,7 +13,8 @@ import { isSettingsPath, settingsPageAt, visibleGroups } from '@/lib/settings-re
 /** A page with unsaved edits (Delivery, Pickup times) sets this while it's open, so the Settings list asks before
  *  leaving the same way the page's own back link does. Returns true when it's fine to go. */
 let leaveGuard: (() => boolean) | null = null;
-export function setLeaveGuard(fn: (() => boolean) | null) { leaveGuard = fn; }
+/** Sets the guard and returns how to remove it; removing only clears this page's own guard. */
+export function setLeaveGuard(fn: () => boolean): () => void { leaveGuard = fn; return () => { if (leaveGuard === fn) leaveGuard = null; }; }
 export function mayLeave(): boolean { return leaveGuard ? leaveGuard() : true; }
 
 export function useInSettings(): boolean {

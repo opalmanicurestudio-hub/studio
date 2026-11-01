@@ -1,6 +1,6 @@
 'use client';
 // src/components/orders/PoliciesScreen.tsx — EVERY SHOP POLICY ON ONE SCREEN. The shipping schedule (on its own screen),
-// cancelling, addresses (carrier checks, how long customers can change theirs, lib/address-flow, and who pays when a new
+// canceling, addresses (carrier checks, how long customers can change theirs, lib/address-flow, and who pays when a new
 // address costs more to ship, with the running total of what the shop covered, lib/address-cost), returns,
 // restocking fees by condition, problem reports, protection (insurance, signatures and the packing checklist for
 // insured orders), claims (the reminder before a deadline and when a quiet parcel is flagged, lib/lost-recovered),
@@ -151,8 +151,8 @@ export function PoliciesScreen() {
           <Row label="Packing checklist for insured orders" note="The bench asks for the insurer’s packing rules and a photo of the box." last><Toggle label="Packing checklist for insured orders" on={pol.insuredPackCheck !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.insuredPackCheck', v, 'Packing checklist')} /></Row>
         </Group>
 
-        <Group title="Cancelling" foot="If an order misses its promised time, the customer can always cancel, whatever this says.">
-          <Row label="Customers can cancel online"><Toggle label="Customers can cancel online" on={pol.cancelAllowed !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.cancelAllowed', v, 'Cancelling')} /></Row>
+        <Group title="Canceling" foot="If an order misses its promised time, the customer can always cancel, whatever this says.">
+          <Row label="Customers can cancel online"><Toggle label="Customers can cancel online" on={pol.cancelAllowed !== false} disabled={!canEdit} onChange={(v) => void save('retailSettings.policies.cancelAllowed', v, 'Canceling')} /></Row>
           <Row label="Up to" note="Hours after paying. 0 means until packing starts." last><NumberField label="Cancel window in hours" value={Number(pol.cancelWindowHours) || 0} unit="hours" disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.cancelWindowHours', Math.floor(n), 'Cancel window')} /></Row>
         </Group>
 
@@ -216,7 +216,7 @@ export function PoliciesScreen() {
         </Group>
 
         <Group title="Refunds and credit">
-          <Row label="Refund on its own up to" note="Up to this much for each order goes back on its own: a return checked in, a cancelled order, an item that wasn’t on the shelf, a swap they turned down, a report your rules approve. Anyone on the team except renters can send it. $0 means someone allowed to refund sends every one."><NumberField label="Refund on its own up to" prefix="$" value={dollars(pol.refundAutoBelowCents)} disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.refundAutoBelowCents', Math.round(n * 100), 'Refund limit')} /></Row>
+          <Row label="Refund on its own up to" note="Up to this much for each order goes back on its own: a return checked in, a canceled order, an item that wasn’t on the shelf, a swap they turned down, a report your rules approve. Anyone on the team except renters can send it. $0 means someone allowed to refund sends every one."><NumberField label="Refund on its own up to" prefix="$" value={dollars(pol.refundAutoBelowCents)} disabled={!canEdit} onSave={(n) => void save('retailSettings.policies.refundAutoBelowCents', Math.round(n * 100), 'Refund limit')} /></Row>
           <Row label="Staff can give store credit up to" note="On each order, all told. Managers have no limit." last><NumberField label="Staff credit limit" prefix="$" value={dollars(rs.staffCreditCapCents ?? 2500)} disabled={!canEdit} onSave={(n) => void save('retailSettings.staffCreditCapCents', Math.round(n * 100), 'Credit limit')} /></Row>
         </Group>
 

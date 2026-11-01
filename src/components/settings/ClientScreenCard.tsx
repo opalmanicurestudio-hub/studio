@@ -78,7 +78,7 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
         {check('payOnScreen', 'Let clients pay on the iPad', 'Stripe’s secure card form — card details never touch your system')}
         {check('payOnPhone', 'Let clients pay on their phone', 'a QR code on the iPad; Apple Pay and Google Pay on their own phone')}
         {check('offerSaveCard', 'Offer “Save my card for next time”', 'their own tick box — recorded as their consent')}
-        <div className="flex flex-wrap items-center gap-2">If they walk away, cancel the payment after <input type="number" min={2} max={30} value={s.payTimeoutMin} disabled={!canEdit} onChange={(e) => save({ ...s, payTimeoutMin: Math.max(2, Math.min(30, Number(e.target.value) || 5)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Minutes before an unfinished payment is cancelled" /> minutes</div>
+        <div className="flex flex-wrap items-center gap-2">If they walk away, cancel the payment after <input type="number" min={2} max={30} value={s.payTimeoutMin} disabled={!canEdit} onChange={(e) => save({ ...s, payTimeoutMin: Math.max(2, Math.min(30, Number(e.target.value) || 5)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Minutes before an unfinished payment is canceled" /> minutes</div>
         <p className="text-xs text-muted-foreground">Needs Stripe connected (Settings → Payments). Switching payment type, switching client or closing checkout always cancels an unfinished payment — nothing is charged. Your Stripe card reader works from the desk as before.</p>
       </div>
       <div className="space-y-2 text-sm"><p className="font-semibold">Card on file</p>
@@ -95,7 +95,7 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
       <div className="space-y-2 text-sm"><p className="font-semibold">Look and feel</p>
         <div className="flex flex-wrap gap-2">{([['lively', 'Lively'], ['calm', 'Calm'], ['off', 'No animation']] as const).map(([k, l]) =>
           <button key={k} type="button" disabled={!canEdit} aria-pressed={s.motion === k} onClick={() => save({ ...s, motion: k })} className={`rounded-full border px-4 py-1.5 ${s.motion === k ? 'bg-foreground text-background' : 'bg-card'}`}>{l}</button>)}</div>
-        <p className="text-xs text-muted-foreground">A slow glow in your brand colour on the welcome screen, steps that glide in, a tick that draws itself when they pay. The iPad’s own “Reduce Motion” setting always wins.</p>
+        <p className="text-xs text-muted-foreground">A slow glow in your brand color on the welcome screen, steps that glide in, a tick that draws itself when they pay. The iPad’s own “Reduce Motion” setting always wins.</p>
         {check('confetti', 'Confetti for celebrations', 'birthdays, milestones, and when they leave a tip')}
         <div className="flex flex-wrap items-center gap-2">Back to your logo <input type="number" inputMode="numeric" min={5} max={120} value={s.returnAfter} disabled={!canEdit} onChange={(e) => save({ ...s, returnAfter: Math.max(5, Math.min(120, Number(e.target.value) || 20)) })} className="h-10 w-20 rounded-xl border px-3 text-right" aria-label="Seconds before returning to the logo" /> seconds after a sale</div>
       </div>

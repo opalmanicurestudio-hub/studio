@@ -90,7 +90,7 @@ function SmallNumber({ value, onSave, label, disabled, min, max }: { value: numb
 
 function RowButton({ label, note, value, onClick, last }: { label: string; note?: string; value?: string; onClick: () => void; last?: boolean }) {
   return (
-    <button type="button" onClick={onClick} className="cf-press flex min-h-[56px] w-full items-center gap-3 pl-4 text-left" style={{ color: C.ink }}>
+    <button type="button" data-setting-row={label} onClick={onClick} className="cf-press flex min-h-[56px] w-full items-center gap-3 pl-4 text-left" style={{ color: C.ink }}>
       <span className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-3 pr-4" style={last ? undefined : { borderBottom: `1px solid ${C.line}` }}>
         <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]">{label}</span>{note ? <span className="mt-0.5 block text-[13px] leading-snug" style={muted}>{note}</span> : null}</span>
         {value ? <span className="shrink-0 text-[15px]" style={muted}>{value}</span> : null}

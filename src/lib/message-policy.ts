@@ -138,7 +138,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     id: 'cancellation_undone', group: 'Booking', label: 'Cancellation undone',
     when: 'A client cancels from their link and taps “Undo” within 15 minutes, while the time is still free.',
     channels: ['email', 'sms'], canDisable: false,
-    mandatoryNote: 'They were just told it was cancelled. This confirms it is back on.',
+    mandatoryNote: 'They were just told it was canceled. This confirms it is back on.',
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{studio}}'],
     requiredTokens: ['{{when}}'],
     defaultSubject: 'Your {{service}} on {{when}} is still booked',
@@ -146,14 +146,14 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
-    id: 'appointment_cancelled', group: 'Booking', label: 'Appointment cancelled',
-    when: 'A visit is cancelled — by the client from their link, or by your team. Says what happened to any fee and deposit, in your policy wording.',
+    id: 'appointment_cancelled', group: 'Booking', label: 'Appointment canceled',
+    when: 'A visit is canceled — by the client from their link, or by your team. Says what happened to any fee and deposit, in your policy wording.',
     channels: ['email', 'sms'], canDisable: false,
     mandatoryNote: 'They need to know their time is gone — and what, if anything, it cost them.',
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{outcome}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{outcome}}'],
-    defaultSubject: 'Your appointment at {{studio}} has been cancelled',
-    defaultBody: 'Hi {{client_first}},\n\nYour appointment on {{when}} has been cancelled.\n\n{{outcome}}\n\nWe hope to see you again soon. Whenever you\'re ready, you can book a new time here: {{link}}',
+    defaultSubject: 'Your appointment at {{studio}} has been canceled',
+    defaultBody: 'Hi {{client_first}},\n\nYour appointment on {{when}} has been canceled.\n\n{{outcome}}\n\nWe hope to see you again soon. Whenever you\'re ready, you can book a new time here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -167,12 +167,12 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
-    id: 'appointment_cancelled_closure', group: 'Booking', label: 'Cancelled — the studio is closed',
-    when: 'A flood, fire, power loss or forced closure means the studio cannot open, and bookings on those days are cancelled from the interruption record.',
+    id: 'appointment_cancelled_closure', group: 'Booking', label: 'Canceled — the studio is closed',
+    when: 'A flood, fire, power loss or forced closure means the studio cannot open, and bookings on those days are canceled from the interruption record.',
     channels: ['email', 'sms'], canDisable: false,
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{reason}}', '{{refund_line}}', '{{link}}', '{{studio}}'],
     requiredTokens: ['{{when}}', '{{refund_line}}', '{{link}}'],
-    defaultSubject: 'Your appointment on {{when}} is cancelled because {{studio}} is closed',
+    defaultSubject: 'Your appointment on {{when}} is canceled because {{studio}} is closed',
     defaultBody: 'Hi {{client_first}},\n\nWe\'re sorry to let you know that we\'re unexpectedly closed ({{reason}}), so we\'ve had to cancel your {{service}} on {{when}}. We know this is disappointing, and we apologize.\n\n{{refund_line}}\n\nWe\'d love to see you as soon as we reopen. You can choose a new time here: {{link}}',
     timing: 'immediate',
   },
@@ -182,7 +182,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
      * all — somebody kept that time free and then turned up to a shop that
      * was not expecting them. canDisable is false for the same reason the
      * decline notice is. */
-    id: 'appointment_cancelled_no_cover', group: 'Booking', label: 'Cancelled — nobody could cover it',
+    id: 'appointment_cancelled_no_cover', group: 'Booking', label: 'Canceled — nobody could cover it',
     when: 'A provider cannot take a booking and no one else is able to cover it, so the studio cancels.',
     channels: ['email', 'sms'], canDisable: false,
     mandatoryNote: 'This person has your time in their calendar. Not telling them is the one unforgivable version of this feature.',

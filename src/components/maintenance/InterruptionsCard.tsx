@@ -68,8 +68,8 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
   }, [leases, allStaff]);
 
   // ── The studio's own bookings inside the window ───────────────────────
-  // Cancelling is one move: status, audit, and the closure message to each
-  // client (Settings → Messages → "Cancelled — the studio is closed").
+  // Canceling is one move: status, audit, and the closure message to each
+  // client (Settings → Messages → "Canceled — the studio is closed").
   // Renter bookings are counted but never touched here — those are their
   // clients, handled from their portals.
   const cancelStudioBookings = async (rec: InterruptionRecord, list: any[]) => {
@@ -95,7 +95,7 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
           if (d?.ok && d.reachable) told++;
         } catch { /* the cancellation stands */ }
       }
-      setCancelResult((m) => ({ ...m, [rec.id]: `Cancelled ${done} · ${told} client${told === 1 ? '' : 's'} told` }));
+      setCancelResult((m) => ({ ...m, [rec.id]: `Canceled ${done} · ${told} client${told === 1 ? '' : 's'} told` }));
     } finally { setBusy(''); setCancelArm(''); }
   };
 
@@ -249,11 +249,11 @@ export function InterruptionsCard({ tenantId, firestore, tenant, booths }: { ten
                 <p className="text-[11px] font-black tabular-nums">{studioAp.length} · {money(bookedValueCents(studioAp))} booked</p>
               </div>
               {byStaff.size > 0 && <p className="text-[10px] font-bold text-foreground/80">{[...byStaff.entries()].map(([n, c]) => `${n} ${c}`).join(' · ')}</p>}
-              {alreadyCut.length > 0 && <p className="text-[10px] font-bold text-muted-foreground">{alreadyCut.length} already cancelled by this closure.</p>}
+              {alreadyCut.length > 0 && <p className="text-[10px] font-bold text-muted-foreground">{alreadyCut.length} already canceled by this closure.</p>}
               {isOpen && live.length > 0 && (
                 <button type="button" disabled={busy === `cx-${rec.id}`} onClick={() => { if (armed) void cancelStudioBookings(rec, live); else setCancelArm(rec.id); }}
                   className={cn('h-9 w-full rounded-lg px-3 text-[9px] font-black uppercase tracking-widest disabled:opacity-40', armed ? 'bg-red-700 text-white' : 'border-2 border-red-300 text-red-800 bg-card')}>
-                  {busy === `cx-${rec.id}` ? 'Cancelling…' : armed ? `Tap again · cancel ${live.length} and tell each client` : `Cancel ${live.length} still-live booking${live.length === 1 ? '' : 's'} & tell the clients`}
+                  {busy === `cx-${rec.id}` ? 'Canceling…' : armed ? `Tap again · cancel ${live.length} and tell each client` : `Cancel ${live.length} still-live booking${live.length === 1 ? '' : 's'} & tell the clients`}
                 </button>
               )}
               {cancelResult[rec.id] && <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">{cancelResult[rec.id]}</p>}

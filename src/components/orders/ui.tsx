@@ -161,7 +161,7 @@ export function Group({ title, foot, children }: { title?: string; foot?: React.
 /** One row inside a Group: a label, an optional note under it, and a control on the right. */
 export function Row({ label, note, children, last }: { label: React.ReactNode; note?: React.ReactNode; children?: React.ReactNode; last?: boolean }) {
   return (
-    <div className="flex min-h-[56px] items-center gap-3 pl-4">
+    <div data-setting-row={typeof label === 'string' ? label : undefined} className="flex min-h-[56px] items-center gap-3 pl-4">
       <div className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-3 pr-4" style={last ? undefined : { borderBottom: `1px solid ${C.line}` }}>
         <div className="min-w-0 flex-1"><p className="m-0 text-[17px] tracking-[-0.01em]">{label}</p>{note ? <p className="m-0 mt-0.5 text-[13px] leading-snug" style={muted}>{note}</p> : null}</div>
         {children}

@@ -62,7 +62,7 @@ export function TeamDiscountsCard({ tenantId, tenant, canEdit }: { tenantId: str
             : <><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a client to add" aria-label="Find a client to add" className="h-10 w-full rounded-xl border px-3" />
               {matches.map((c: any) => <button key={c.id} type="button" onClick={() => setPick(c)} className="block w-full rounded-lg px-2 py-1.5 text-left hover:bg-card">{c.name} <span className="text-muted-foreground">{c.phone || c.email || ''}</span></button>)}</>}
           {pick && <div className="flex flex-wrap items-center gap-2">
-            <select value={type} onChange={(e) => setType(e.target.value as any)} className="h-10 rounded-xl border px-2" aria-label="Programme"><option value="family">Family & friends of</option><option value="team">Team member —</option></select>
+            <select value={type} onChange={(e) => setType(e.target.value as any)} className="h-10 rounded-xl border px-2" aria-label="Program"><option value="family">Family & friends of</option><option value="team">Team member —</option></select>
             <select value={staffId} onChange={(e) => setStaffId(e.target.value)} className="h-10 rounded-xl border px-2" aria-label="Team member"><option value="">Choose…</option>{team.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
             <button type="button" disabled={!staffId} onClick={link} className="h-10 rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50">Add</button>
           </div>}

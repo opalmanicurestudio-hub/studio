@@ -136,6 +136,13 @@ export function groupById(id: string): SettingsGroup | null {
   return SETTINGS_GROUPS.find((g) => g.id === id) || null;
 }
 
+/** A page's address with a value set in its query, before any #part (an existing value of the same name is replaced). */
+export function withParam(href: string, key: string, value: string): string {
+  const u = new URL(href, 'http://x');
+  u.searchParams.set(key, value);
+  return u.pathname + u.search.replace(/\+/g, '%20') + u.hash;
+}
+
 /** Pages for search: every visible page with its group, title, meaning and other words. */
 export function searchPages(tenant: any, q: string) {
   const n = q.trim().toLowerCase(); if (n.length < 2) return [];

@@ -19,7 +19,7 @@ const GROUPS: { title: string; items: Item[] }[] = [
   { title: 'Your shop', items: [
     ['/retail-orders/settings', 'Shop settings', 'Pickup, shipping, labels, tax and the products you sell online'],
     ['/retail-orders/policies/shipping', 'Shipping schedule', 'Processing time, cutoff, pickups and holidays'],
-    ['/retail-orders/policies', 'Policies', 'Cancelling, returns, restocking fees, refunds'],
+    ['/retail-orders/policies', 'Policies', 'Canceling, returns, restocking fees, refunds'],
     ['/retail-orders/designer', 'Shop designer', 'How your shop page looks'],
     ['/retail-orders/offers', 'Bundles and kits', 'Kits, build-your-own boxes, shoppable looks and bought-together picks'],
     ['/retail-orders/discovery', 'Search and assistants', 'How you show up on Google and to AI assistants, and your Google Shopping feed'],

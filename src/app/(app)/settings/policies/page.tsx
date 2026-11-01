@@ -31,7 +31,7 @@ const Ctx = React.createContext<CtxT>({ save: () => {}, isMgr: false, busy: null
 const Badge = ({ s }: { s: Source }) => <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${s === 'default' ? 'bg-secondary text-muted-foreground' : 'bg-primary/10 text-primary'}`}>{sourceLabel(s)}</span>;
 const Soon = () => <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">{NEXT}</span>;
 const Row = ({ label, note, children, source, soon }: { label: string; note?: string; children: React.ReactNode; source?: Source; soon?: boolean }) => (
-  <div className="space-y-1.5 border-t py-4 first:border-t-0 first:pt-0">
+  <div data-setting-row={label} className="space-y-1.5 border-t py-4 first:border-t-0 first:pt-0">
     <p className="text-sm font-semibold">{label}{source && <Badge s={source} />}{soon && <Soon />}</p>
     {note && <p className="text-xs text-muted-foreground">{note}</p>}
     <div className="flex flex-wrap items-center gap-2">{children}</div>
@@ -179,10 +179,10 @@ export default function BookingPoliciesPage() {
             <Row label="Late cancellation" note="Inside your cancellation window." source={P.cancel.lateConsequence.source}>
               <Choice field="bookingPolicies.lateCancelConsequence" value={P.cancel.lateConsequence.value} label="Late cancellation" options={[['both', 'Fee — the deposit counts toward it'], ['fee', 'Fee only — deposit becomes credit'], ['deposit', 'Keep the deposit, no fee']]} />
             </Row>
-            <Row label="Cancellation window" note="Cancelling inside this is a late cancellation." source={P.cancel.windowHours.source}>
+            <Row label="Cancellation window" note="Canceling inside this is a late cancellation." source={P.cancel.windowHours.source}>
               <Num field="cancellationWindowHours" value={P.cancel.windowHours.value} unit="hours before" label="Cancellation window" max={720} />
             </Row>
-            <Row label="Cancelling online" note="Closer than this, clients are asked to call you instead." source="business">
+            <Row label="Canceling online" note="Closer than this, clients are asked to call you instead." source="business">
               <Num field="bookingPolicies.onlineCancelCutoffHours" value={Number(t.bookingPolicies?.onlineCancelCutoffHours) || 0} unit="hours before (0 = right up to the start)" label="Online cancel cut-off" max={168} />
             </Row>
             <Row label="Late-cancellation fee" source={P.cancel.feeMode.source}>
@@ -245,7 +245,7 @@ export default function BookingPoliciesPage() {
             <Row label="Holding unpaid bookings" source={P.holds.holdMinutes.source}>
               <Num field="bookingMode.holdMinutes" value={P.holds.holdMinutes.value} unit="minutes while paying online" label="Hold time" max={1440} />
               <Num field="bookingMode.paymentGraceHours" value={P.holds.paymentGraceHours.value} unit="hours when a card fails / a link is sent" label="Payment grace" max={168} />
-              <Num field="bookingMode.depositProtectHours" value={t?.bookingMode?.depositProtectHours !== undefined && Number.isFinite(Number(t.bookingMode.depositProtectHours)) ? Number(t.bookingMode.depositProtectHours) : 18} unit="hours before the visit: never cancelled for an unpaid deposit — the desk decides" label="Protect the visit" max={72} />
+              <Num field="bookingMode.depositProtectHours" value={t?.bookingMode?.depositProtectHours !== undefined && Number.isFinite(Number(t.bookingMode.depositProtectHours)) ? Number(t.bookingMode.depositProtectHours) : 18} unit="hours before the visit: never canceled for an unpaid deposit — the desk decides" label="Protect the visit" max={72} />
               <Num field="voiceAgent.holdHours" value={Number(t.voiceAgent?.holdHours) || 24} unit="hours for a phone-assistant booking to pay its deposit" label="Phone hold" min={1} max={168} />
               <span className="w-full text-xs text-muted-foreground">Optional texts (waitlist offers, “could you come earlier?”, opportunities) — never more than this per client a day:</span>
               <Num field="textBudget.perDay" value={Number(t.textBudget?.perDay) || 2} unit="a day (confirmations, reminders and pay links aren’t counted)" label="Text allowance" min={1} max={10} />
@@ -254,7 +254,7 @@ export default function BookingPoliciesPage() {
             </Row>
             <Row label="Client texts">
               <Choice field="bookingPolicies.textAssist" value={t.bookingPolicies?.textAssist !== false} label="Answer client texts automatically" options={[[true, 'Answer clear requests straight away'], [false, 'A person answers every text']]} />
-              <span className="w-full text-xs text-muted-foreground">When a client texts to cancel, reschedule, confirm or say they’re running late, they get a reply in seconds with their link opened to that action. Nothing is cancelled from a text alone: any fee is shown before they confirm. Questions, complaints and anything unclear wait in your Inbox for a person.</span>
+              <span className="w-full text-xs text-muted-foreground">When a client texts to cancel, reschedule, confirm or say they’re running late, they get a reply in seconds with their link opened to that action. Nothing is canceled from a text alone: any fee is shown before they confirm. Questions, complaints and anything unclear wait in your Inbox for a person.</span>
             </Row>
             <Row label="When a provider can’t come in">
               <span className="w-full text-xs text-muted-foreground">Their clients choose first: the same time with a colleague, one of the provider’s next times (kept for them), first in line, or cancel with no fee. Choose by:</span>
@@ -308,7 +308,7 @@ export default function BookingPoliciesPage() {
                 ['all_now', 'Every visit’s deposit, taken when booked'], ['none', 'Card on file only — no deposits']]} />
               {(t.bookingPolicies?.seriesDeposit || 'first') === 'before_each' && <Num field="bookingPolicies.seriesDepositDaysBefore" value={Number(t.bookingPolicies?.seriesDepositDaysBefore) || 7} unit="days before each visit" label="Days before" min={1} max={30} />}
             </Row>
-            <Row label="Repeat bookings: a visit holding the deposit is cancelled in good time" note="Clients and the desk can also cancel “this and all later visits” — later visits are cancelled with no fees.">
+            <Row label="Repeat bookings: a visit holding the deposit is canceled in good time" note="Clients and the desk can also cancel “this and all later visits” — later visits are canceled with no fees.">
               <Choice field="bookingPolicies.seriesMoveDeposit" value={t.bookingPolicies?.seriesMoveDeposit !== false} label="Move the series deposit" options={[[true, 'Move the deposit to the next visit (kept as credit)'], [false, 'Follow your normal refund or credit rule']]} />
             </Row>
             {(t.bookingPolicies?.seriesDeposit || 'first') === 'before_each' && <Row label="If a repeat visit’s deposit can’t be taken" note="Only that visit is affected — never the rest of the series. It also shows in POS → Needs attention.">

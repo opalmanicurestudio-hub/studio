@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import { NAV_AREAS } from '@/components/shared/AppSidebar';
 import { visibleGroups } from '@/lib/settings-registry';
+import { useRowSearch, announceFind } from '@/components/settings/use-row-search';
 import { useTenant } from '@/context/TenantContext';
 import { pageVisible } from '@/lib/modules';
 
@@ -16,18 +17,22 @@ export function AppSearch() {
   const router = useRouter(); const { selectedTenant } = useTenant() as any;
   const [q, setQ] = React.useState(''); const [open, setOpen] = React.useState(false); const [sel, setSel] = React.useState(0);
   const box = React.useRef<HTMLInputElement>(null);
+  const { hits: settingHits, loading: settingsLoading } = useRowSearch(selectedTenant, q, 6);
   const all = React.useMemo<Hit[]>(() => {
     const pages = NAV_AREAS.flatMap((a) => a.items.filter((i) => pageVisible(selectedTenant, i.href)).map((i) => ({ title: i.label, where: a.area, href: i.href, hay: `${i.label} ${a.area}`.toLowerCase() })));
     const settings = (selectedTenant ? visibleGroups(selectedTenant) : []).flatMap((g) => g.pages.map((p) => ({ title: p.title, where: `Settings · ${g.title}`, href: p.href, hay: `${p.title} ${p.meaning} ${p.words || ''} ${g.title}`.toLowerCase() })));
     const seen = new Set<string>(); return [...pages, ...settings].filter((h) => (seen.has(h.href + h.title) ? false : (seen.add(h.href + h.title), true)));
   }, [selectedTenant]);
   const hits = React.useMemo(() => { const n = q.trim().toLowerCase(); if (n.length < 2) return [];
-    const words = n.split(/\s+/); return all.filter((h) => words.every((w) => h.hay.includes(w)))
-      .sort((a, b) => Number(!a.title.toLowerCase().startsWith(n)) - Number(!b.title.toLowerCase().startsWith(n))).slice(0, 8); }, [q, all]);
+    const words = n.split(/\s+/); const pageHits = all.filter((h) => words.every((w) => h.hay.includes(w)))
+      .sort((a, b) => Number(!a.title.toLowerCase().startsWith(n)) - Number(!b.title.toLowerCase().startsWith(n))).slice(0, 6);
+    // Single settings on a page ("tips at checkout"): open the page on that row.
+    const rowHits = settingHits.map((r) => ({ title: r.label, where: `Settings · ${r.page.title}`, href: r.href, hay: '' }));
+    return [...pageHits, ...rowHits].slice(0, 10); }, [q, all, settingHits]);
   React.useEffect(() => { const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); box.current?.focus(); setOpen(true); } };
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, []);
   React.useEffect(() => setSel(0), [q]);
-  const go = (h: Hit) => { setOpen(false); setQ(''); box.current?.blur(); router.push(h.href); };
+  const go = (h: Hit) => { setOpen(false); setQ(''); box.current?.blur(); if (h.href.includes('find=')) announceFind(h.title); router.push(h.href); };
   return (
     <div className="relative w-full max-w-[420px]">
       <label className="flex h-10 items-center gap-2.5 rounded-full px-4" style={{ background: 'hsl(var(--secondary))' }}>
@@ -45,7 +50,7 @@ export function AppSearch() {
             <button key={h.href + h.title} type="button" role="option" aria-selected={i === sel} onMouseDown={(e) => { e.preventDefault(); go(h); }} onMouseEnter={() => setSel(i)}
               className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left" style={i === sel ? { background: 'hsl(var(--secondary))' } : undefined}>
               <span className="truncate text-[14.5px] font-medium">{h.title}</span><span className="shrink-0 text-[12px] text-muted-foreground">{h.where}</span>
-            </button>)) : <p className="px-4 py-3 text-[14px] text-muted-foreground">Nothing matches “{q}”. Try another word.</p>}
+            </button>)) : <p className="px-4 py-3 text-[14px] text-muted-foreground">{settingsLoading ? 'Looking…' : <>Nothing matches “{q}”. Try another word.</>}</p>}
         </div>)}
     </div>
   );

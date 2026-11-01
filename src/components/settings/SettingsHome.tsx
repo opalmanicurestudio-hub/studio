@@ -11,6 +11,7 @@ import { getAuth } from 'firebase/auth';
 import { deviceId } from '@/lib/device';
 import { attentionItems } from '@/lib/settings-map';
 import { visibleGroups, searchPages } from '@/lib/settings-registry';
+import { useRowSearch, announceFind } from '@/components/settings/use-row-search';
 import { C, LargeTitle } from '@/components/orders/ui';
 import { GroupIcon, AwayArrow } from '@/components/settings/SettingsShell';
 
@@ -28,9 +29,9 @@ function Rows({ children }: { children: React.ReactNode }) {
   return <div className="overflow-hidden rounded-2xl" style={{ background: C.soft }}>{children}</div>;
 }
 
-function LinkRow({ href, lead, title, note, away, last }: { href: string; lead?: React.ReactNode; title: string; note?: string; away?: boolean; last?: boolean }) {
+function LinkRow({ href, lead, title, note, away, last, prefetch, onClick }: { href: string; lead?: React.ReactNode; title: string; note?: string; away?: boolean; last?: boolean; prefetch?: boolean; onClick?: () => void }) {
   return (
-    <Link href={href} className="flex min-h-[60px] items-center gap-3 pl-4 transition-colors hover:brightness-[0.98]">
+    <Link href={href} prefetch={prefetch} onClick={onClick} className="flex min-h-[60px] items-center gap-3 pl-4 transition-colors hover:brightness-[0.98]">
       {lead}
       <span className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-3 pr-4" style={last ? undefined : { borderBottom: `1px solid ${C.line}` }}>
         <span className="min-w-0 flex-1"><span className="block text-[17px] tracking-[-0.01em]" style={{ color: C.ink }}>{title}</span>{note && <span className="mt-0.5 block text-[13px] leading-snug" style={{ color: C.muted }}>{note}</span>}</span>
@@ -53,18 +54,22 @@ export function SettingsHome({ tenant }: { tenant: any }) {
     ...(tenant ? attentionItems(tenant) : []).map((a) => ({ title: a.warning || `${a.label} isn’t set up`, href: a.href })),
   ].filter(Boolean) as { title: string; href: string }[];
   const hits = React.useMemo(() => (tenant ? searchPages(tenant, q) : []), [tenant, q]);
+  const { hits: rowHits, loading: rowsLoading } = useRowSearch(tenant, q, 10);
 
   return (
     <div className="cf-settings min-h-full"><div className="mx-auto w-full max-w-3xl px-4 pb-24 pt-5 md:px-10 md:pt-10" style={{ color: C.ink }}>
       <LargeTitle title="Settings" sub="Grouped by the decisions you make. Only what your tools use is here." />
-      <label className="mt-5 flex h-11 items-center gap-2.5 rounded-xl px-3.5 lg:hidden" style={{ background: C.soft }}>
+      <label className="cf-search mt-5 flex h-11 items-center gap-2.5 rounded-xl px-3.5 lg:hidden" style={{ background: C.soft }}>
         <Search className="h-4 w-4 shrink-0" style={{ color: C.muted }} aria-hidden />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search settings" aria-label="Search settings" className="h-full min-w-0 flex-1 bg-transparent text-[16px] outline-none" style={{ color: C.ink }} />
       </label>
       {q.trim().length >= 2 ? (
         <section aria-label="Search results" className="mt-6">
-          {hits.length === 0 ? <p className="text-[15px]" style={{ color: C.muted }}>Nothing matches “{q}”. Try another word, like “deposit” or “delivery”.</p> : (
-            <Rows>{hits.map((h, i) => <LinkRow key={h.group.id + h.page.id} href={h.page.href} lead={<GroupIcon id={h.group.id} />} title={h.page.title} note={h.group.title} away={h.page.inShell === false} last={i === hits.length - 1} />)}</Rows>)}
+          {hits.length === 0 && rowHits.length === 0 ? (rowsLoading ? null : <p className="text-[15px]" style={{ color: C.muted }}>Nothing matches “{q}”. Try another word, like “deposit” or “delivery”.</p>) : (<>
+            {hits.length > 0 && <Rows>{hits.map((h, i) => <LinkRow key={h.group.id + h.page.id} href={h.page.href} lead={<GroupIcon id={h.group.id} />} title={h.page.title} note={h.group.title} away={h.page.inShell === false} last={i === hits.length - 1} />)}</Rows>}
+            {rowHits.length > 0 && <p className="px-4 pb-2 pt-6 text-[13px] font-semibold" style={{ color: C.muted }}>Settings on a page</p>}
+            {rowHits.length > 0 && <Rows>{rowHits.map((r, i) => <LinkRow key={r.href} href={r.href} prefetch={false} onClick={() => announceFind(r.label)} lead={<GroupIcon id={r.group.id} />} title={r.label} note={r.page.title === r.group.title ? r.page.title : `${r.page.title} · ${r.group.title}`} last={i === rowHits.length - 1} />)}</Rows>}
+          </>)}
         </section>
       ) : (
         <>

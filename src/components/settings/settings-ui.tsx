@@ -25,7 +25,7 @@ export function Section({ title, help, children, id }: { title: string; help?: R
 /** One setting: the question, one line of help, and the control. Side-by-side when the control is small. */
 export function Row({ label, help, children, inline }: { label: string; help?: React.ReactNode; children: React.ReactNode; inline?: boolean }) {
   return (
-    <div className={`px-5 py-4 [&+&]:border-t ${inline ? 'flex flex-wrap items-center justify-between gap-x-4 gap-y-2' : 'space-y-2.5'}`} style={{ borderColor: 'var(--line)' }}>
+    <div data-setting-row={label} className={`px-5 py-4 [&+&]:border-t ${inline ? 'flex flex-wrap items-center justify-between gap-x-4 gap-y-2' : 'space-y-2.5'}`} style={{ borderColor: 'var(--line)' }}>
       <div className={inline ? 'min-w-[11rem] flex-1' : 'min-w-0'}><p className="text-[15px] font-medium">{label}</p>{help && <p className="mt-0.5 text-[13.5px] leading-snug cf-muted">{help}</p>}</div>
       <div className={inline ? 'shrink-0' : ''}>{children}</div>
     </div>
@@ -58,7 +58,7 @@ export function More({ label = 'More options', help, children }: { label?: strin
   const [open, setOpen] = React.useState(false);
   return (
     <section className="space-y-3">
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 rounded-2xl px-1 py-2 text-left">
+      <button type="button" data-settings-more="" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between gap-3 rounded-2xl px-1 py-2 text-left">
         <span><span className="block text-[16px] font-semibold">{label}</span>{help && <span className="block text-[13.5px] cf-muted">{help}</span>}</span>
         <ChevronDown className={`h-5 w-5 shrink-0 cf-muted transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>

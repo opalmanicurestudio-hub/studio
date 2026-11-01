@@ -17,6 +17,7 @@ import { SettingsPage, Section, Row, Toggle as CfToggle } from '@/components/set
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { ArrowLeft, Clock, Lock, Mail, MapPin, MessageSquare, Moon, Pencil, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,20 @@ import {
 import { cn } from '@/lib/utils';
 
 const GROUPS = ['Booking', 'Money', 'Reminders', 'After the visit', 'Your team', 'Retail', 'Renters', 'Account'] as const;
+
+/** Opened from the replies playbook (Settings → Replies) or a search for one message: straight to its group, whenever
+ *  the address names one, including a search made while this page is open. Picking the same result again (the address
+ *  doesn't change) says so with cf-find. */
+function FollowGroup({ onGroup }: { onGroup: (g: string) => void }) {
+  const params = useSearchParams();
+  const group = params?.get('group') || ''; const find = params?.get('find') || ''; const address = params?.toString() || '';
+  useEffect(() => { if (group) onGroup(group); }, [group, address, onGroup]);
+  useEffect(() => {
+    const again = (e: Event) => { if (group && String((e as CustomEvent).detail || '').trim().toLowerCase() === find.trim().toLowerCase()) onGroup(group); };
+    window.addEventListener('cf-find', again); return () => window.removeEventListener('cf-find', again);
+  }, [group, find, onGroup]);
+  return null;
+}
 
 export default function MessageSettingsPage() {
   const { firestore } = useFirebase();
@@ -51,10 +66,7 @@ export default function MessageSettingsPage() {
   };
 
   const [group, setGroup] = useState<typeof GROUPS[number]>('Booking');
-  // Opened from the replies playbook (Settings → Replies): straight to the shop's messages.
-  useEffect(() => {
-    try { const q = new URLSearchParams(window.location.search).get('group'); if (q && (GROUPS as readonly string[]).includes(q)) setGroup(q as typeof GROUPS[number]); } catch { /* the first group */ }
-  }, []);
+  const pickGroup = React.useCallback((q: string) => { if ((GROUPS as readonly string[]).includes(q)) setGroup(q as typeof GROUPS[number]); }, []);
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [offsetDraft, setOffsetDraft] = useState<Record<string, string>>({});
@@ -114,6 +126,7 @@ export default function MessageSettingsPage() {
   return (
     <SettingsPage title="Messages" help={`Every automatic message — what goes out, when, and in your words.${isMgr ? '' : ' (View only.)'}`}
       actions={<Link href="/message-log" className="inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[14px] font-medium" style={{ background: 'var(--soft)' }}><Mail className="h-4 w-4" aria-hidden />Delivery log</Link>}>
+      <React.Suspense fallback={null}><FollowGroup onGroup={pickGroup} /></React.Suspense>
       {(() => { const cn = (selectedTenant as any)?.clientNotify || {}; const d = Number.isFinite(Number(cn.daysBefore)) ? Number(cn.daysBefore) : 1;
         const when = d === 0 ? 'the same day' : d === 1 ? 'the day before' : d === 7 ? 'a week before' : `${d} days before`;
         return (<Link href="/settings/automations#sw:appt-reminders" className="cf-sheet cf-row" style={{ borderRadius: 18 }}>
@@ -263,7 +276,7 @@ export default function MessageSettingsPage() {
           const isEditing = editing === k.id;
 
           return (
-            <Card key={k.id} className="border-2 rounded-[2rem] bg-card">
+            <Card key={k.id} data-setting-row={k.label} className="border-2 rounded-[2rem] bg-card">
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">

@@ -335,7 +335,7 @@ export default function RetailSettingsPage() {
         <section className="space-y-3" id="open">
           <button
             type="button"
-            onClick={() => setOpenGroup(openGroup === 'open' ? null : 'open')}
+            data-settings-more="" onClick={() => setOpenGroup(openGroup === 'open' ? null : 'open')}
             aria-expanded={openGroup === 'open'}
             className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'open' ? 'border-primary/40' : 'hover:border-primary/20')}
@@ -397,7 +397,7 @@ export default function RetailSettingsPage() {
         <section className="space-y-3" id="get">
           <button
             type="button"
-            onClick={() => setOpenGroup(openGroup === 'get' ? null : 'get')}
+            data-settings-more="" onClick={() => setOpenGroup(openGroup === 'get' ? null : 'get')}
             aria-expanded={openGroup === 'get'}
             className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'get' ? 'border-primary/40' : 'hover:border-primary/20')}
@@ -722,7 +722,7 @@ export default function RetailSettingsPage() {
         <section className="space-y-3" id="money">
           <button
             type="button"
-            onClick={() => setOpenGroup(openGroup === 'money' ? null : 'money')}
+            data-settings-more="" onClick={() => setOpenGroup(openGroup === 'money' ? null : 'money')}
             aria-expanded={openGroup === 'money'}
             className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'money' ? 'border-primary/40' : 'hover:border-primary/20')}
@@ -801,7 +801,7 @@ export default function RetailSettingsPage() {
         <section className="space-y-3" id="pack">
           <button
             type="button"
-            onClick={() => setOpenGroup(openGroup === 'pack' ? null : 'pack')}
+            data-settings-more="" onClick={() => setOpenGroup(openGroup === 'pack' ? null : 'pack')}
             aria-expanded={openGroup === 'pack'}
             className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'pack' ? 'border-primary/40' : 'hover:border-primary/20')}
@@ -1055,7 +1055,7 @@ export default function RetailSettingsPage() {
         <section className="space-y-3" id="look">
           <button
             type="button"
-            onClick={() => setOpenGroup(openGroup === 'look' ? null : 'look')}
+            data-settings-more="" onClick={() => setOpenGroup(openGroup === 'look' ? null : 'look')}
             aria-expanded={openGroup === 'look'}
             className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'look' ? 'border-primary/40' : 'hover:border-primary/20')}
@@ -1255,7 +1255,7 @@ export default function RetailSettingsPage() {
         <section className="space-y-3" id="products">
           <button
             type="button"
-            onClick={() => setOpenGroup(openGroup === 'products' ? null : 'products')}
+            data-settings-more="" onClick={() => setOpenGroup(openGroup === 'products' ? null : 'products')}
             aria-expanded={openGroup === 'products'}
             className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-card px-4 py-4 text-left transition-colors',
               openGroup === 'products' ? 'border-primary/40' : 'hover:border-primary/20')}
