@@ -28,7 +28,7 @@ export function privacyOf(t: any): PrivacySettings {
 }
 
 /** Messages that are never rewritten: the code itself, and replies to "Not you?". */
-const KEEP = new Set(['verify_code', 'wrong_number_ack', 'staff_message']);
+const KEEP = new Set(['verify_code', 'wrong_number_ack', 'staff_message', 'find_booking']);   // find_booking: its own lines are already discreet (no service names)
 /** The discreet version of a message: that there is an update, and the link. */
 export function discreetVersion(msg: { kind?: string | null; text?: string; subject?: string; channel: string }, studio: string): { text: string; subject?: string } | null {
   if (msg.kind && KEEP.has(String(msg.kind))) return null;

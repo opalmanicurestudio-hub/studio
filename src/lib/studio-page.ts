@@ -9,12 +9,15 @@
 import { hasTimeZone, tenantTimeZone, todayIn } from './tenant-time';
 
 export type Mood = 'soft' | 'crisp' | 'night';
+/** Getting here, in the business's own words. video: a link to a short clip of the way in (https only). */
+export interface VisitNotes { parking?: string; entrance?: string; video?: string }
 export type SectionId = 'services' | 'offers' | 'events' | 'team' | 'work' | 'reviews' | 'about' | 'policies' | 'faqs' | 'gifts' | 'spaces' | 'visit' | 'waitlist';
 export interface Photo { url: string; path?: string; caption?: string }
 export interface Faq { q: string; a: string }
 export interface StudioSettings {
   color?: string; mood?: Mood; cover?: Photo | null; headline?: string; description?: string;
   soonest?: boolean; bookAgain?: boolean; showRating?: boolean;
+  visit?: VisitNotes;   // Getting here: parking, the entrance and a short video of the way in
   order?: SectionId[]; off?: Partial<Record<SectionId, boolean>>;
   work?: Photo[]; about?: { text?: string; photo?: Photo | null }; faqs?: Faq[];
 }
@@ -161,7 +164,7 @@ function classic(t: any) {
 
 export interface ResolvedPage {
   color: string | null; paint: string; mood: Mood; cover: Photo | null; headline: string; description: string;
-  soonest: boolean; bookAgain: boolean; showRating: boolean;
+  soonest: boolean; bookAgain: boolean; showRating: boolean; visit: VisitNotes;
   order: SectionId[]; on: Record<SectionId, boolean>;
   work: Photo[]; about: { text: string; photo: Photo | null }; faqs: Faq[];
   /** Reviews typed into the old page builder, shown only until clients' own reviews are chosen to show. */
@@ -184,12 +187,20 @@ export function studioPage(t: any): ResolvedPage {
     headline: typeof s.headline === 'string' ? s.headline.trim() : c.headline,
     description: typeof s.description === 'string' ? s.description.trim() : c.description || String(t?.description || '').trim(),
     soonest: s.soonest !== false, bookAgain: s.bookAgain !== false, showRating: s.showRating !== false,
+    visit: visitNotes(s.visit),
     order: ['services', ...order] as SectionId[], on,
     work: Array.isArray(s.work) ? s.work.filter((p) => p?.url) : c.work,
     about: s.about ? { text: String(s.about.text || '').trim(), photo: s.about.photo === null ? null : s.about.photo?.url ? s.about.photo : null } : { text: c.about.text, photo: c.about.photo },
     faqs: Array.isArray(s.faqs) ? s.faqs.filter((f) => f?.q && f?.a) : c.faqs,
     typedReviews: c.reviews,
   };
+}
+
+/** Getting here notes, cleaned: short text, and a video only as an https link. */
+export function visitNotes(v: any): VisitNotes {
+  const txt = (x: any, n: number) => (typeof x === 'string' ? x.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, n) : '');   // line breaks kept
+  const video = typeof v?.video === 'string' ? v.video.trim().slice(0, 300) : '';   // a link with a space in it is refused, never rewritten
+  return { parking: txt(v?.parking, 300), entrance: txt(v?.entrance, 300), video: /^https:\/\/[^\s]+$/i.test(video) ? video : '' };
 }
 
 /** What to save for a section's switch: off.<id> = true to hide one that shows by default, false to show an opt-in one,

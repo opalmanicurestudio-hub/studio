@@ -337,6 +337,16 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    id: 'find_booking', group: 'Booking', label: 'Find my booking',
+    when: 'A client asks for their booking links on your booking page (only sent to the phone or email they typed).',
+    channels: ['email', 'sms'], canDisable: false,
+    tokens: ['{{client_first}}', '{{visits}}', '{{studio}}'],
+    requiredTokens: ['{{visits}}'],
+    defaultSubject: 'Your visits with {{studio}}',
+    defaultBody: 'Hi {{client_first}},\n\nHere are your upcoming visits. Each link lets you see, change or cancel it:\n\n{{visits}}',
+    timing: 'immediate',
+  },
+  {
     id: 'online_purchase', group: 'Money', label: 'Bought online',
     when: 'A client buys a membership or package on your booking page.',
     channels: ['email', 'sms'], canDisable: false,

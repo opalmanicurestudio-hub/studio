@@ -17,8 +17,9 @@ import { X as XIcon, ArrowRight } from 'lucide-react';
 import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
 import { policyText } from '@/lib/package-credits';
 import { horizonDaysFor, releaseSentence } from '@/lib/booking-release';
-import { brandColor } from '@/lib/studio-page';
+import { brandColor, studioPage } from '@/lib/studio-page';
 import { StudioBookingPage } from '@/components/booking/StudioBookingPage';
+import { privacyOf } from '@/lib/health-privacy';
 import { PUBLIC_CSS, PUBLIC_FONT_HREF } from '@/components/public/kit';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
@@ -636,6 +637,11 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         if (out?.code === 'needs_longer') return { requiresPayment: true, error: out.error, code: 'needs_longer', extraMinutes: Number(out.extraMinutes) || 0 } as any;
         return { requiresPayment: true, error: out?.error || (bookRes.status === 409 ? 'That time was just taken — pick another slot.' : 'We could not hold that time. Please pick another slot.') };
       }
+      // "Welcome back" next time on this device (the studio's own page only): their first name, the service and who did
+      // it. Kept on the device, never sent anywhere; "Not Dana?" on the page forgets it.
+      if (!providerId && studioPage(tenant).bookAgain && !privacyOf(tenant).discreet) { try { const who: any = (staff || []).find((m: any) => m.id === (out.staffId || restDetails.staffId));
+        const first = String(formData.clientName || '').trim().split(/\s+/)[0].replace(/[^\p{L}\p{M}'-]/gu, '').slice(0, 40);
+        if (first) localStorage.setItem(`cf.lastVisit.${tenantId}`, JSON.stringify({ first: first[0].toUpperCase() + first.slice(1), serviceId: restDetails.serviceId, staffId: who?.id || null, at: String(out.startTime || restDetails.startTime || '') })); } catch { /* private browsing: nothing kept */ } }
       /* The SERVER decided what this booking became; the screen, the email
        * and the text all say the same thing. */
       setBookingOutcome({ status: String(out.status || 'confirmed'), notice: String(out.clientNotice || ''), depositCents: Number(out.depositCents) || 0, cardOnFile: !!out.requiresCardOnFile,

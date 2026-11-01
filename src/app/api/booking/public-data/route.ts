@@ -26,7 +26,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
-import { computeAvailability, pickStaffForSlot } from '@/lib/availability';
+import { computeAvailability, pickStaffForSlot, isCertified } from '@/lib/availability';
+import { horizonDaysFor } from '@/lib/booking-release';
 import { loadBookingData, FALLBACK_HOURS, engineFrame } from '@/lib/booking-data';
 import { maybeReleaseUnpaid } from '@/lib/release-unpaid';
 import { addDays as addDaysStr } from '@/lib/tenant-time';
@@ -133,6 +134,53 @@ export async function POST(req: NextRequest) {
   const { t, fromDay, eventsFromDay, sv, st, se, ap, sp, pt, cf, sh, sb, dof, rs, tk, mp, ce, rsv } = loaded;
 
   // ── Open times for one day (and the provider for "Any available") ──
+  // The soonest open time for each of the page's services (and for a few service + person pairs: "Book again with
+  // Maya", "Next opening" on the team), over the next two weeks. Times only, never who is booked.
+  if (b.action === 'soonest') {
+    const limited = await limitPublic(req, 'soonest', tenantId, { perHour: 300, perDay: 3000 }); if (limited) return limited;
+    const raw = (snap: any) => (snap?.docs || []).map((d: any) => ({ id: d.id, ...(d.data() || {}) }));
+    const bookable = raw(st).filter((m: any) => m.isActive !== false && !(m.isRenter && m.bookingOptOut === true));
+    const services = raw(sv).filter((x: any) => x.isActive !== false);
+    const busy = { appointments: raw(ap), events: raw(ce), staffBlocks: raw(sb), tickets: raw(tk) };
+    const rest = { scheduleProfiles: raw(sp), shifts: raw(sh), dayOffBlocks: raw(dof), resources: raw(rs), maintenancePlans: raw(mp) };
+    // The pairs first (Book again, the team), then the services.
+    const asks: { key: string; serviceId: string; staffId: string }[] = [];
+    for (const p of (Array.isArray(b.pairs) ? b.pairs : []).slice(0, 6)) { const sid = String(p?.serviceId || ''), mid = String(p?.staffId || ''); if (/^[A-Za-z0-9_-]{1,80}$/.test(sid) && /^[A-Za-z0-9_-]{1,80}$/.test(mid)) asks.push({ key: `${sid}|${mid}`, serviceId: sid, staffId: mid }); }
+    for (const id of (Array.isArray(b.serviceIds) ? b.serviceIds : []).map(String).filter((x: string) => /^[A-Za-z0-9_-]{1,80}$/.test(x)).slice(0, 12)) asks.push({ key: id, serviceId: id, staffId: 'any' });
+    const tz = tenantTimeZone(t); const today = todayIn(tz);
+    // Never past what clients can book: the business's own booking window (members aside) as well as the engine's limits.
+    const horizon = horizonDaysFor(t.bookingRelease || null, false, new Date(), tz);
+    const days = Math.max(1, Math.min(14, horizon === null ? 14 : horizon + 1));
+    const frames = new Map<string, any>(); const frame = (date: string) => { if (!frames.has(date)) frames.set(date, engineFrame(busy, tz, date)); return frames.get(date); };
+    const out: Record<string, { date: string; time: string; label: string }> = {};
+    // Only what someone could book: a service that exists, with someone who can do it.
+    const live = asks.filter((a, i) => asks.findIndex((x) => x.key === a.key) === i).map((a) => {
+      const service = services.find((x: any) => x.id === a.serviceId); if (!service) return null;
+      const pool = a.staffId === 'any' ? bookable : bookable.filter((m: any) => m.id === a.staffId);
+      const qualified = pool.filter((m: any) => (service.requiredSkills || []).every((k: string) => (m.skillSet || []).includes(k)) && isCertified(service, m.id));
+      return qualified.length ? { ...a, qualified } : null;
+    }).filter(Boolean) as (typeof asks[number] & { qualified: any[] })[];
+    // Day by day across every ask still without an answer, with one ceiling on the work for the whole request (a number
+    // of looks and a time limit): an ask answered today stops costing anything, and a day nobody works costs next to
+    // nothing, so a busy studio, or one that opens later in the week, still gets its times.
+    // The looks are the ceiling; the time is only a safety valve.
+    let budget = 260; const until = Date.now() + 1500; const done = new Set<string>();
+    for (let i = 0; i < days && budget > 0 && done.size < live.length && Date.now() < until; i++) {
+      const date = addDaysStr(today, i);
+      for (const a of live) {
+        if (done.has(a.key)) continue; if (budget <= 0 || Date.now() >= until) break; budget--;
+        try {
+          const f = frame(date);
+          const r = computeAvailability({ date, serviceId: a.serviceId, staffId: a.staffId, addOnIds: [], services, staff: a.qualified, tenant: { id: tenantId, ...t }, ...rest,
+            appointments: f.appointments, events: f.events, staffBlocks: f.staffBlocks, tickets: f.tickets, now: f.now, fallbackHours: FALLBACK_HOURS, includeUnavailable: false,
+            ...(horizon !== null ? { maxHorizonDays: horizon } : {}) } as any);
+          const first = r.slots?.[0];
+          if (first) { out[a.key] = { date, time: first.time, label: first.label }; done.add(a.key); }
+        } catch { done.add(a.key); }   // a service the engine can't work out: given up on, not retried every day
+      }
+    }
+    return NextResponse.json({ ok: true, today, soonest: out }, { headers: { 'Cache-Control': 'no-store' } });
+  }
   if (b.action === 'availability' || b.action === 'pick' || b.action === 'days') {
     const date = String(b.date || b.from || ''), serviceId = String(b.serviceId || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !serviceId) return NextResponse.json({ ok: false, error: 'Pick a service and a day.' }, { status: 400 });

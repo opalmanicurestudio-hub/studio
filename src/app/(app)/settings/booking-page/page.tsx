@@ -13,7 +13,7 @@ import { uploadImage } from '@/lib/upload-image';
 import { SettingsPage, Section, Row, Toggle, Choice, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 import { Sheet } from '@/components/orders/ui';
 import { moduleEnabled } from '@/lib/modules';
-import { studioPage, comingEvents, eventToday, sectionSwitch, SECTIONS, COLORS, MOODS, readable, whiteContrast, colorName, headlineParts, type SectionId, type Photo, type Faq, type Mood } from '@/lib/studio-page';
+import { studioPage, comingEvents, eventToday, sectionSwitch, SECTIONS, COLORS, MOODS, readable, whiteContrast, colorName, headlineParts, type SectionId, type Photo, type Faq, type Mood, type VisitNotes } from '@/lib/studio-page';
 
 const field = (k: string) => `bookingPageSettings.studio.${k}`;
 /** A value with every empty field taken out (the database refuses an empty field inside a list or a map). */
@@ -58,9 +58,9 @@ export default function BookingPageSettings() {
   const page = React.useMemo(() => studioPage(t), [t]);
   const [stamp, setStamp] = React.useState(0);
   const [pub, setPub] = React.useState<{ services: any[]; staff: any[]; events: any[] } | null>(null);
-  const [sheet, setSheet] = React.useState<'work' | 'about' | 'faqs' | null>(null);
+  const [sheet, setSheet] = React.useState<'work' | 'about' | 'faqs' | 'visit' | null>(null);
   // What's typed or uploaded in an editor stays here if it's closed without saving, and comes back when it's opened.
-  const [drafts, setDrafts] = React.useState<{ work?: Photo[]; about?: { text: string; photo: Photo | null }; faqs?: Faq[] }>({});
+  const [drafts, setDrafts] = React.useState<{ work?: Photo[]; about?: { text: string; photo: Photo | null }; faqs?: Faq[]; visit?: VisitNotes }>({});
   React.useEffect(() => { setDrafts({}); }, [tenantId]);
   const [busy, setBusy] = React.useState('');
 
@@ -130,7 +130,7 @@ export default function BookingPageSettings() {
       case 'faqs': return page.faqs.length ? plural(page.faqs.length, 'question') : 'Answer what clients ask most';
       case 'reviews': return 'Reviews you’ve chosen to show';
       case 'policies': return 'Your cancellation, late and deposit rules, in plain words';
-      case 'visit': return 'Address, phone and hours';
+      case 'visit': return page.visit.parking || page.visit.entrance || page.visit.video ? 'Address, phone, hours and getting here' : 'Address, phone and hours. Add parking and the way in';
       case 'waitlist': return 'Offered when nothing fits, and as a link at the bottom';
       case 'offers': return !page.on.offers ? 'Off. Switch on to sell your public memberships and packages online' : t?.stripeAccountId && t?.stripeChargesEnabled !== false ? 'Your public memberships and packages, bought online' : 'Shown; connect payments so clients can buy them online';
       case 'gifts': return t?.giftCardSettings?.online ? 'Sold online' : 'Turn on online gift cards to show this';
@@ -138,7 +138,7 @@ export default function BookingPageSettings() {
       default: return '';
     }
   };
-  const editors: Partial<Record<SectionId, 'work' | 'about' | 'faqs'>> = { work: 'work', about: 'about', faqs: 'faqs' };
+  const editors: Partial<Record<SectionId, 'work' | 'about' | 'faqs' | 'visit'>> = { work: 'work', about: 'about', faqs: 'faqs', visit: 'visit' };
   const shown = page.order.filter((id) => { const def = SECTIONS.find((x) => x.id === id); return def && (!def.module || useModule(def.module)); });
 
   // Reordering: drag the grip, or focus it and use the arrow keys.
@@ -238,6 +238,12 @@ export default function BookingPageSettings() {
             <Row label="Star rating" help="Your average from the reviews you show, under the headline, once there are three or more." inline>
               <Toggle label="Show the star rating" checked={page.showRating} disabled={!isMgr} onChange={(v) => void save({ showRating: v ? undefined : false }, 'Star rating')} />
             </Row>
+            <Row label="Soonest times" help="Each service shows its next open time, and each person on your team their next opening." inline>
+              <Toggle label="Show soonest times" checked={page.soonest} disabled={!isMgr} onChange={(v) => void save({ soonest: v ? undefined : false }, 'Soonest times')} />
+            </Row>
+            <Row label="Welcome back" help="Someone who booked on this phone or computer before sees their last service, with Book again." inline>
+              <Toggle label="Welcome back returning clients" checked={page.bookAgain} disabled={!isMgr} onChange={(v) => void save({ bookAgain: v ? undefined : false }, 'Welcome back')} />
+            </Row>
             <Row label="Photo" help={page.cover ? 'A photo of your space or your work.' : 'Without one, a soft glow of your color around your logo.'} inline>
               <span className="flex items-center gap-2">
                 {page.cover?.url ? <img src={page.cover.url} alt="" className="h-12 w-16 rounded-xl object-cover" /> : <span className="h-12 w-16 rounded-xl" style={{ background: `radial-gradient(circle at 50% 50%, ${page.paint}55, transparent 70%), var(--soft)` }} aria-hidden />}
@@ -290,6 +296,8 @@ export default function BookingPageSettings() {
         onSave={async (work) => { const ok = await save({ work }, 'Our work'); if (ok) setDrafts((d) => ({ ...d, work: undefined })); return ok; }} onClose={() => setSheet(null)} />}
       {sheet === 'about' && <AboutSheet about={drafts.about || page.about} unsaved={!!drafts.about} canEdit={isMgr} tenantId={tenantId} onDraft={(about) => setDrafts((d) => ({ ...d, about }))}
         onSave={async (about) => { const ok = await save({ about }, 'About us'); if (ok) setDrafts((d) => ({ ...d, about: undefined })); return ok; }} onClose={() => setSheet(null)} />}
+      {sheet === 'visit' && <VisitSheet visit={drafts.visit || page.visit} unsaved={!!drafts.visit} canEdit={isMgr} onDraft={(visit) => setDrafts((d) => ({ ...d, visit }))}
+        onSave={async (visit) => { const ok = await save({ visit }, 'Getting here'); if (ok) setDrafts((d) => ({ ...d, visit: undefined })); return ok; }} onClose={() => setSheet(null)} />}
       {sheet === 'faqs' && <FaqSheet faqs={drafts.faqs || page.faqs} unsaved={!!drafts.faqs} canEdit={isMgr} onDraft={(faqs) => setDrafts((d) => ({ ...d, faqs }))}
         onSave={async (faqs) => { const ok = await save({ faqs }, 'Questions'); if (ok) setDrafts((d) => ({ ...d, faqs: undefined })); return ok; }} onClose={() => setSheet(null)} />}
     </SettingsPage>
@@ -357,6 +365,27 @@ function AboutSheet({ about, unsaved, canEdit, tenantId, onDraft, onSave, onClos
         {err && <p role="alert" className="text-[14px] font-semibold" style={{ color: '#b45309' }}>{err}</p>}
         {(unsaved || touched) && canEdit && <Unsaved />}
         {canEdit && <div className="flex justify-end"><button type="button" disabled={busy} onClick={async () => { if (await onSave({ text: text.trim(), photo })) onClose(); }} className={`${btn} disabled:opacity-50`} style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Save</button></div>}
+      </div>
+    </Sheet>
+  );
+}
+
+function VisitSheet({ visit, unsaved, canEdit, onDraft, onSave, onClose }: { visit: VisitNotes; unsaved: boolean; canEdit: boolean; onDraft: (v: VisitNotes) => void; onSave: (v: VisitNotes) => Promise<boolean>; onClose: () => void }) {
+  const [draft, setDraft, touched] = useDraft<VisitNotes>(visit, onDraft);
+  const set = (k: keyof VisitNotes, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+  const videoBad = !!draft.video?.trim() && !/^https:\/\/[^\s]+$/i.test(draft.video.trim());
+  return (
+    <Sheet title="Getting here" sub="Shown under Visit us, with buttons for Apple Maps and Google Maps. Your address comes from your business details." onClose={onClose} closeLabel="Close">
+      <div className="space-y-4">
+        <label className={`block space-y-1.5 ${FOCUS_WITHIN} rounded-xl`}><span className="text-[14.5px] font-semibold">Parking</span>
+          <textarea value={draft.parking || ''} disabled={!canEdit} rows={2} maxLength={300} onChange={(e) => set('parking', e.target.value)} placeholder="Free lot behind the building. Street parking is 2 hours." className={`${cfInput} h-auto py-3`} style={cfInputStyle} /></label>
+        <label className={`block space-y-1.5 ${FOCUS_WITHIN} rounded-xl`}><span className="text-[14.5px] font-semibold">The entrance</span>
+          <textarea value={draft.entrance || ''} disabled={!canEdit} rows={2} maxLength={300} onChange={(e) => set('entrance', e.target.value)} placeholder="The blue door beside the bakery, then up one floor. There’s an elevator." className={`${cfInput} h-auto py-3`} style={cfInputStyle} /></label>
+        <label className={`block space-y-1.5 ${FOCUS_WITHIN} rounded-xl`}><span className="text-[14.5px] font-semibold">A short video of the way in</span>
+          <input value={draft.video || ''} disabled={!canEdit} maxLength={300} inputMode="url" onChange={(e) => set('video', e.target.value)} placeholder="https://" aria-invalid={videoBad} aria-describedby={videoBad ? 'video-bad' : undefined} className={cfInput} style={cfInputStyle} /></label>
+        {videoBad && <p id="video-bad" role="alert" className="text-[14px] font-semibold" style={{ color: '#b45309' }}>Paste a link that starts with https://</p>}
+        {(unsaved || touched) && canEdit && <Unsaved />}
+        {canEdit && <div className="flex justify-end"><button type="button" disabled={videoBad} onClick={async () => { if (await onSave({ parking: (draft.parking || '').trim(), entrance: (draft.entrance || '').trim(), video: (draft.video || '').trim() })) onClose(); }} className={`${btn} disabled:opacity-50`} style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Save</button></div>}
       </div>
     </Sheet>
   );

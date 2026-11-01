@@ -24,7 +24,8 @@ import { resolvePolicy } from '@/lib/booking-policies';
 import { releaseSentence } from '@/lib/booking-release';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { moduleEnabled } from '@/lib/modules';
-import { ChevronRight, Clock, Mail, MapPin, Minus, Phone, Plus, Tag } from 'lucide-react';
+import { privacyOf } from '@/lib/health-privacy';
+import { Car, ChevronRight, Clock, DoorOpen, Mail, MapPin, Minus, PlayCircle, Phone, Plus, RotateCcw, Tag } from 'lucide-react';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { PublicFrame, Section, PrimaryButton, QuietButton, money, minutes } from '@/components/public/kit';
@@ -43,6 +44,15 @@ const clockUp = (t: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t ||
 const depositWords = (tenant: any, s: any) => { if (tenant?.depositsLive !== true) return ''; const d = resolvePolicy(tenant, s).deposit; if (!d.required.value) return ''; const a = Number(d.amount.value) || 0;
   return d.kind.value === 'flat' && a > 0 ? `${money(a)} deposit` : d.kind.value === 'percent' && a > 0 ? `${a}% deposit` : d.kind.value === 'full' ? 'paid when you book' : 'deposit'; };
 const mins = (t: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+/** When an open time is, in words: "today 3:30 PM", "tomorrow 10:00 AM", "Thu 11:00 AM", "Mon, Nov 9 2:00 PM". */
+const whenWords = (date: string, label: string, today: string) => {
+  const d = new Date(`${date}T12:00:00`), t0 = new Date(`${today}T12:00:00`); const days = Math.round((d.getTime() - t0.getTime()) / 86400000);
+  const day = days <= 0 ? 'today' : days === 1 ? 'tomorrow' : days < 7 ? d.toLocaleDateString('en-US', { weekday: 'short' }) : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return `${day} ${label}`;
+};
+/** Who booked on this device last ("Welcome back"): first name, the service and who did it. Kept on the device only. */
+type LastVisit = { first: string; serviceId: string; staffId: string | null; at: string };
+const lastVisitKey = (tenantId: string) => `cf.lastVisit.${tenantId}`;
 /** Five stars, filled to the nearest whole star (the number beside them is exact). */
 const Stars = ({ of }: { of: number }) => { const n = Math.max(0, Math.min(5, Math.round(of))); return <span aria-hidden style={{ color: 'var(--accent)' }}>{'★'.repeat(n)}<span style={{ opacity: 0.3 }}>{'★'.repeat(5 - n)}</span></span>; };
 /** The words in the bar of sections, shorter than the section titles. */
@@ -104,6 +114,48 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   // "Book with Jessica": remember her while the client chooses a service.
   const [withId, setWithId] = useState<string | null>(null);
   const withWho = withId ? team.find((m: any) => m.id === withId) : null;
+
+  // Welcome back: who booked on this device last, while the business shows it and the service is still offered.
+  const [last, setLast] = useState<LastVisit | null>(null);
+  // Not shown by a business that keeps things discreet (a shared phone shouldn't show someone's last treatment), and
+  // forgotten after a year and a half.
+  const discreet = privacyOf(tenant).discreet;
+  useEffect(() => { if (!tenant?.id || preview) return; try { const k = lastVisitKey(tenant.id); const v = JSON.parse(localStorage.getItem(k) || 'null'); if (!v) return;
+    if (!discreet && page.bookAgain && v.serviceId && v.first && Date.now() - Date.parse(v.at || '') < 548 * 86400000) setLast(v); else localStorage.removeItem(k);   // not kept on the device once it won't be shown
+  } catch { /* none */ } }, [tenant?.id, preview, discreet, page.bookAgain]);
+  const forget = () => { try { localStorage.removeItem(lastVisitKey(tenant.id)); } catch { /* none */ } setLast(null); };
+  const againService = last && page.bookAgain ? bookable.find((s: any) => s.id === last.serviceId) || null : null;
+  const againWho = againService && last?.staffId ? team.find((m: any) => m.id === last.staffId) || null : null;
+
+  // The soonest open time for each service, for the team, and for "Book again" (over the next two weeks).
+  const [soon, setSoon] = useState<{ today: string; soonest: Record<string, { date: string; time: string; label: string; staffId: string; staffFirst: string }> } | null>(null);
+  // Asked for in the order the menu shows (the first twelve), and for each person their shortest service they can do.
+  const teamPairs = useMemo(() => {
+    const menu = groups.flatMap(([, list]) => list).filter((s: any) => s.membersOnly !== true);
+    return team.slice(0, 4).map((m: any) => { const svc = [...menu].filter((s: any) => (s.requiredSkills || []).every((k: string) => (m.skillSet || []).includes(k)) && (!(s.certifiedStaffIds || []).length || s.certifiedStaffIds.includes(m.id)))
+      .sort((a: any, b: any) => (Number(a.duration) || 60) - (Number(b.duration) || 60))[0]; return svc ? { staffId: m.id, serviceId: svc.id } : null; }).filter(Boolean) as { staffId: string; serviceId: string }[];
+  }, [groups, team]);
+  const soonAsk = useMemo(() => {
+    if (!page.soonest || preview || !tenant?.id) return null;
+    const serviceIds = groups.flatMap(([, list]) => list).filter((s: any) => s.membersOnly !== true).slice(0, 12).map((s: any) => s.id);
+    const pairs: { serviceId: string; staffId: string }[] = [];
+    if (againService && againWho) pairs.push({ serviceId: againService.id, staffId: againWho.id });
+    for (const p of teamPairs) if (!pairs.some((x) => x.serviceId === p.serviceId && x.staffId === p.staffId)) pairs.push(p);
+    if (!serviceIds.length && !pairs.length) return null;   // nothing loaded yet: nothing to ask
+    return JSON.stringify({ serviceIds, pairs: pairs.slice(0, 6) });
+  }, [page.soonest, preview, tenant?.id, groups, teamPairs, againService, againWho]);
+  useEffect(() => {
+    if (!soonAsk) { setSoon(null); return; } let live = true;
+    fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenant.id, action: 'soonest', ...JSON.parse(soonAsk) }) })
+      .then((r) => r.json()).then((d) => { if (live && d?.ok) setSoon({ today: d.today, soonest: d.soonest || {} }); }).catch(() => {});
+    return () => { live = false; };
+  }, [soonAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+  const nextFor = (key: string) => { const x = soon?.soonest?.[key]; return x ? whenWords(x.date, x.label, soon!.today) : ''; };
+  const teamNext = (m: any) => { const p = teamPairs.find((x) => x.staffId === m.id); return p ? nextFor(`${p.serviceId}|${p.staffId}`) : ''; };
+
+  // Getting here: the business's own notes on parking, the entrance and a short video of the way in.
+  const visitNotes = page.visit;
+  const [here, setHere] = useState(false);
 
   // Classes and events still to come, soonest first (the business's own day, so today's stays up all day).
   const today = eventToday(tenant);
@@ -194,7 +246,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   };
   // Asked from outside (a link or a website button for a members-only service): the sign-in opens for it.
   useEffect(() => { if (askFor?.service && onMember) askSignIn(askFor.service); }, [askFor]); // eslint-disable-line react-hooks/exhaustive-deps
-  const book = (s: any) => { if (s.membersOnly === true && member !== true && onMember) { askSignIn(s); return; } onBook(s, withId || undefined); };
+  const book = (s: any, who?: string) => { if (s.membersOnly === true && member !== true && onMember) { if (who) setWithId(who); askSignIn(s); return; } onBook(s, who || withId || undefined); };
 
   // An offer code typed on the page.
   const [codeOpen, setCodeOpen] = useState(false); const [code, setCode] = useState(''); const [codeErr, setCodeErr] = useState(''); const [codeBusy, setCodeBusy] = useState(false);
@@ -275,6 +327,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
           <div className="flex items-center gap-3">{m.avatarUrl ? <img src={m.avatarUrl} alt="" className="h-14 w-14 rounded-full object-cover" /> : <span className="flex h-14 w-14 items-center justify-center rounded-full text-lg font-semibold text-white" style={{ background: 'var(--accent)' }} aria-hidden>{String(m.name || '?').slice(0, 1)}</span>}
             <div className="min-w-0"><p className="font-semibold">{m.name}</p>{(m.specialties || []).length > 0 && <p className="truncate text-[13px] text-stone-500">{m.specialties.slice(0, 3).join(' · ')}</p>}</div></div>
           {m.bio && <p className="line-clamp-3 text-[14px] text-stone-600">{m.bio}</p>}
+          {teamNext(m) && <p className="text-[14px] font-medium" style={{ color: '#1f7a4d' }}>Next opening: {teamNext(m)}</p>}
           <button type="button" onClick={() => { setWithId(m.id); bookTop(); }} className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent)' }}>Book with {String(m.name || '').split(' ')[0]}</button>
         </div>
       ))}</div>
@@ -323,6 +376,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
           {addr && <p className="flex gap-3"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden /><span>{addr}<br /><a href={`https://maps.google.com/?q=${encodeURIComponent(addr)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent)' }}>Get directions</a></span></p>}
           {tenant?.phone && <p className="flex items-center gap-3"><Phone className="h-4 w-4 shrink-0 text-stone-500" aria-hidden /><a href={`tel:${String(tenant.phone).replace(/[^\d+]/g, '')}`} className="inline-flex min-h-11 items-center underline underline-offset-4">{tenant.phone}</a></p>}
           {tenant?.email && <p className="flex items-center gap-3"><Mail className="h-4 w-4 shrink-0 text-stone-500" aria-hidden /><a href={`mailto:${tenant.email}`} className="inline-flex min-h-11 items-center underline underline-offset-4">{tenant.email}</a></p>}
+          {(addr || visitNotes.parking || visitNotes.entrance || visitNotes.video) && <button type="button" onClick={() => setHere(true)} className="inline-flex h-11 w-full items-center justify-center rounded-full text-[15px] font-medium" style={{ background: '#f1ece6' }}>Getting here</button>}
         </div>
         {hasHours && <div className="pub-card p-5"><p className="mb-2 flex items-center gap-2 font-semibold"><Clock className="h-4 w-4 text-stone-500" aria-hidden />Hours</p><dl className="grid grid-cols-[3.5rem_1fr] gap-y-1 text-[15px]">{hours.map((h) => <div key={h.label} className="contents"><dt className="text-stone-500">{h.label}</dt><dd className={h.text === 'Closed' ? 'text-stone-400' : ''}>{h.text}</dd></div>)}</dl></div>}
       </div>
@@ -391,7 +445,17 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
               : <span className="inline-flex items-center gap-1.5"><Stars of={rv.average} /><b className="text-stone-800">{rv.average.toFixed(1)}</b> · {rv.count} reviews</span>}</p>}
             <p className="max-w-xl text-lg text-stone-600">{page.description || 'Book your next visit online in under a minute: pick a service, a time, and you’re done.'}</p>
             <div className="flex flex-wrap gap-3"><PrimaryButton onClick={bookTop}>Book an appointment</PrimaryButton>{team.length > 0 && shows('team') && <QuietButton onClick={() => go('team')}>Meet the team</QuietButton>}</div>
-            {memberPerk && member !== true && <p><button type="button" onClick={() => askSignIn()} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent)' }}>Member? Sign in</button></p>}
+            {(!preview || memberPerk) && <p className="flex flex-wrap gap-x-6">
+              {!preview && tenant?.id && <a href={`/book/${encodeURIComponent(tenant.id)}/find`} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent)' }}>Find my booking</a>}
+              {memberPerk && member !== true && <button type="button" onClick={() => askSignIn()} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent)' }}>Member? Sign in</button>}</p>}
+            {againService && last && <div className="pub-card max-w-xl p-4">
+              <div className="flex items-start gap-3"><RotateCcw className="mt-1 h-4 w-4 shrink-0 text-stone-500" aria-hidden />
+                <div className="min-w-0"><p className="text-[16px] font-semibold">Welcome back, {last.first}</p>
+                  <p className="text-[14px] text-stone-600">{againService.name}{againWho ? ` with ${String(againWho.name || '').split(' ')[0]}` : ''}{last.at && Date.parse(last.at) < Date.now() ? <> · <span className="whitespace-nowrap">last booked for {new Date(last.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tenantTimeZone(tenant) })}</span></> : null}</p>
+                  {(againWho ? nextFor(`${againService.id}|${againWho.id}`) : nextFor(againService.id)) && <p className="text-[14px] font-medium" style={{ color: '#1f7a4d' }}>{againWho ? `${String(againWho.name || '').split(' ')[0]}’s next opening` : 'Next opening'}: {againWho ? nextFor(`${againService.id}|${againWho.id}`) : nextFor(againService.id)}</p>}</div></div>
+              <div className="mt-3 flex flex-wrap items-center gap-3"><PrimaryButton onClick={() => book(againService, againWho?.id)} className="h-11 px-5">Book again</PrimaryButton>
+                <button type="button" onClick={forget} aria-label={`Not ${last.first}? Forget the visit saved on this device`} className="inline-flex min-h-11 items-center text-[14px] text-stone-500">Not {last.first}?</button></div>
+            </div>}
             {member === true && <p className="text-[15px] font-medium" style={{ color: '#1f7a4d' }} role="status">Signed in as a member{membersOnly ? ': members-only services are open' : ''}.</p>}
             {offer && offerCard}
             {boughtCard}
@@ -415,6 +479,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
                     <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><span className="text-[16px] font-semibold">{s.name}</span>{s.membersOnly === true && <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-[12px] font-medium text-stone-600">Members</span>}</span>
                       <span className="mt-0.5 block text-[13px] text-stone-500">{[minutes(s.duration), money(s.price) && `${s.priceIsFrom || (s.serviceTiers || []).length ? 'from ' : ''}${money(s.price)}`, depositWords(tenant, s)].filter(Boolean).join(' · ')}</span>
                       {giftCents > 0 && Number(s.price) > 0 && Number(s.price) * 100 <= giftCents && <span className="mt-1 inline-block rounded-full px-2.5 py-0.5 text-[12px] font-medium" style={{ background: '#e9f3ed', color: '#1f7a4d' }}>Covered by your gift card</span>}
+                      {nextFor(s.id) && <span className="mt-1 block text-[13px] font-medium" style={{ color: '#1f7a4d' }}>Next: {nextFor(s.id)}</span>}
                       {s.description && <span className="mt-1 line-clamp-2 block text-[13px] text-stone-600">{s.description}</span>}</span>
                     <span className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Book</span>
                   </button>); })}</div>
@@ -454,6 +519,20 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
             aria-invalid={!!signErr} aria-describedby={signErr ? 'member-err' : undefined} className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]" />
           {signErr && <p id="member-err" className="text-[14px] text-stone-700" role="alert">{signErr}</p>}
           <PrimaryButton onClick={() => void signInNow()} className={`w-full ${signBusy ? 'pointer-events-none opacity-60' : ''}`}>{signBusy ? 'Checking…' : 'Sign in'}</PrimaryButton>
+        </div>
+      </PublicSheet>
+      <PublicSheet open={here} onClose={() => setHere(false)} title="Getting here">
+        <div className="space-y-4 pb-2">
+          {addr && <><p className="flex gap-3 text-[15px]"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden />{addr}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <a href={`https://maps.apple.com/?q=${encodeURIComponent(addr)}`} target="_blank" rel="noreferrer" className="inline-flex h-12 items-center justify-center rounded-full bg-white text-[15px] font-medium shadow-sm">Apple Maps</a>
+            <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`} target="_blank" rel="noreferrer" className="inline-flex h-12 items-center justify-center rounded-full bg-white text-[15px] font-medium shadow-sm">Google Maps</a>
+          </div></>}
+          {(visitNotes.parking || visitNotes.entrance || visitNotes.video) && <div className="pub-card divide-y divide-stone-200 px-5 py-1">
+            {visitNotes.parking && <div className="flex gap-3 py-3"><Car className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden /><div><p className="text-[15px] font-semibold">Parking</p><p className="whitespace-pre-line text-[14px] text-stone-600">{visitNotes.parking}</p></div></div>}
+            {visitNotes.entrance && <div className="flex gap-3 py-3"><DoorOpen className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden /><div><p className="text-[15px] font-semibold">The entrance</p><p className="whitespace-pre-line text-[14px] text-stone-600">{visitNotes.entrance}</p></div></div>}
+            {visitNotes.video && <a href={visitNotes.video} target="_blank" rel="noopener noreferrer" className="flex min-h-11 gap-3 py-3"><PlayCircle className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden /><div><p className="text-[15px] font-semibold">Watch the way in</p><p className="text-[14px] text-stone-600">A short video from the street to the door.</p></div></a>}
+          </div>}
         </div>
       </PublicSheet>
       <PublicSheet open={!!buying} onClose={() => { if (!buyBusy) setBuying(null); }} title={`${buying?.kind === 'membership' ? 'Join' : 'Buy'} ${buying?.item?.name || ''}`.trim()}>
