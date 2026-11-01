@@ -97,7 +97,8 @@ export function ListRow({ onClick, lead, title, detail, trail, active }: { onCli
 
 export function Initials({ name, photo }: { name: string; photo?: string }) {
   if (photo) return <img src={photo} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" />;
-  const t = String(name || '?').split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase();
+  // Words that start with a letter or number ("Polished & Co." is PC, not P&).
+  const t = (String(name || '?').split(/\s+/).filter((x) => /^[\p{L}\p{N}]/u.test(x)).map((x) => x[0]).join('').slice(0, 2) || '?').toUpperCase();
   return <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-[13px] font-semibold" style={{ background: C.soft, color: C.muted }}>{t}</span>;
 }
 

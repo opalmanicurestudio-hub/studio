@@ -796,10 +796,18 @@ service cloud.firestore {
       allow read: if isTeam(tenantId);
       allow write: if false;
     }
-    // WHOLESALE ACCOUNTS: each buyer's code and discount. Managers only: a code is money off, so the rest of the team
-    // can't read the codes, add an account or reactivate a suspended one. Checkout reads them on the server.
+    // WHOLESALE ACCOUNTS: each buyer's code, discount, and sales tax with their resale certificates. Managers read them;
+    // nobody writes them from a browser: a code is money off and a certificate makes orders tax free, so every change
+    // goes through the server (api/retail/wholesale), which checks it's a manager and keeps who accepted each
+    // certificate and when. Checkout reads them on the server.
     match /tenants/{tenantId}/wholesaleAccounts/{accountId} {
-      allow read, write: if isManager(tenantId);
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
+    // WHOLESALE APPLICATIONS from the shop (api/retail/wholesale-apply), approved or declined on the server.
+    match /tenants/{tenantId}/wholesaleApplications/{appId} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
     }
     // SHOP OFFERS: bundles, kits, build-your-own boxes, shoppable looks and bought-together picks (lib/retail-offers).
     // A saving is money off, so only managers make or change them; the team can see them. Checkout and the shop read
@@ -833,7 +841,7 @@ service cloud.firestore {
           'chargeConsents',
           'admissions', 'cohorts', 'tuitionPlans', 'tuitionEntries',
           'academyThreads', 'academyAnnouncements', 'tutorLogs', 'tutorUsage', 'liveSessions', 'liveAttendance', 'rotations', 'translations', 'tuitionPayments', 'studentFiles', 'boardForms', 'questionBank', 'submissions', 'approvedDevices', 'materials', 'aiUsage', 'interactives', 'practiceAttempts', 'assigned', 'studentGroups', 'schoolDocs', 'docAcks', 'studentLetters', 'presentations', 'studyNotes', 'studyState', 'portfolio', 'schoolIdentity', 'schoolSite', 'websiteMessages', 'donations', 'scholarshipApplications', 'sponsors',
-          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'retailReturns', 'customerFlags', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations', 'retailReviews', 'reviews', 'replies',
+          'depositCredits', 'loyaltyLedger', 'retailOrders', 'rentLedger', 'retailSupport', 'retailClaims', 'wholesaleAccounts', 'wholesaleApplications', 'retailReturns', 'customerFlags', 'retailOffers', 'shopCache', 'entitlements', 'driverLocations', 'retailReviews', 'reviews', 'replies',
           'inventory', 'codeIndex',
           'shippingLabels', 'shippoInvoices', 'shipManifests', 'shipPickups',
           'inventoryExceptions',

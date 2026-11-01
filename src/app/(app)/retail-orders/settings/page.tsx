@@ -106,7 +106,6 @@ interface RetailSettings {
   curbsideMode?: CurbsideMode;
   curbsideSpots?: string[];
   wholesaleAccessCode?: string;
-  wholesaleTaxExempt?: boolean;
 }
 
 export default function RetailSettingsPage() {
@@ -180,7 +179,6 @@ export default function RetailSettingsPage() {
       curbsideOffered: existing.curbsideOffered !== false,
       curbsideMode: existing.curbsideMode || 'freeform',
       curbsideSpots: existing.curbsideSpots || [],
-      wholesaleTaxExempt: existing.wholesaleTaxExempt === true,
       // Printing: loaded as saved, so changing one packing-slip option keeps the others (a save writes only what changed).
       ...(existing.slip && typeof existing.slip === 'object' ? { slip: JSON.parse(JSON.stringify(existing.slip)) } : {}),
       ...(existing.labelFormat ? { labelFormat: existing.labelFormat } : {}),
@@ -789,15 +787,10 @@ export default function RetailSettingsPage() {
               <Lock className="w-4 h-4 text-primary" />
               <p className="text-[10px] font-black uppercase tracking-widest">Wholesale pricing</p>
             </div>
-            <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-              <Link href="/retail-orders/wholesale">Manage per-business accounts</Link>
+            <p className="text-xs font-bold text-muted-foreground">Buyers, their codes and tax, applications from the shop and the house code are all in Wholesale.</p>
+            <Button asChild variant="outline" size="sm" className="h-11 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+              <Link href="/retail-orders/wholesale">Open Wholesale</Link>
             </Button>
-            <RetailSecretField tenantId={tenantId} which="wholesaleAccessCode" label="House code (shared fallback; per-account codes live in Wholesale)" placeholder="e.g. OPALPRO2026" className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-sm" />
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-black uppercase tracking-widest">Wholesale orders tax-exempt</Label>
-              <Switch aria-label="Wholesale orders tax-exempt" checked={rs.wholesaleTaxExempt === true}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, wholesaleTaxExempt: v })} />
-            </div>
           </CardContent>
         </Card>
             </div>

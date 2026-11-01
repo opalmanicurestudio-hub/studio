@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { type SellableItem } from '@/lib/retail-orders';
 import { listingsOf } from '@/lib/variants';
-import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
+import { hasTimeZone, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { deliveryFrom, notReady } from '@/lib/delivery-plan';
 import { hasMapsKey } from '@/lib/geocode-server';
 import { sanitizeShopConfig } from '@/lib/shop-config';
 import { resolveWholesaleAccess } from '@/lib/retail-wholesale';
+import { shopStateOf, shopTaxInfo } from '@/lib/wholesale-tax';
+import { normalizeEmail, verifyProvenAccountToken } from '@/lib/retail-account';
 import { busyBanner, publicSchedule, scheduleFrom } from '@/lib/ship-promise';
 import { publicOffer } from '@/lib/retail-offers';
 import { catalogProducts } from '@/lib/shop-catalog';
@@ -42,6 +44,13 @@ function getAdminDb() {
 }
 
 
+/** The email the page's signed-in session proves, as checkout takes it for tax (a proven session: lib/retail-account),
+ *  or null. */
+function signedInEmail(req: NextRequest, tenantId: string): string | null {
+  const q = req.nextUrl.searchParams; const e = normalizeEmail(String(q.get('acctE') || ''));
+  return e && verifyProvenAccountToken(tenantId, e, Number(q.get('acctX')), String(q.get('acctS') || '')).ok ? e : null;
+}
+
 export async function GET(req: NextRequest) {
   try {
   const tenantId = String(req.nextUrl.searchParams.get('tenantId') || '').trim();
@@ -67,7 +76,8 @@ export async function GET(req: NextRequest) {
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
   // "Unlock wholesale" shows only for a shop that sells wholesale: a house code, an active account, or the owner turned
   // it on. (It used to show on every shop, wholesale or not.)
-  const wholesaleOffered = rs.wholesaleCodeSet === true || String(rs.wholesaleAccessCode || '').trim().length > 0 || rs.wholesaleOffered === true
+  // A shop taking applications offers it too: the box to enter a code is where "Apply for wholesale" is.
+  const wholesaleOffered = rs.wholesaleCodeSet === true || String(rs.wholesaleAccessCode || '').trim().length > 0 || rs.wholesaleOffered === true || rs.wholesaleApplyOpen === true
     || !(await db.collection(`tenants/${tenantId}/wholesaleAccounts`).where('status', '==', 'active').limit(1).get().catch(() => ({ empty: true }))).empty;
 
   const invSnap = await db.collection(`tenants/${tenantId}/inventory`)
@@ -107,7 +117,11 @@ export async function GET(req: NextRequest) {
       wholesaleUnlocked,
       wholesaleBusiness: wsAccess.account?.businessName || '',
       taxRatePercent: Number(rs.taxRatePercent) || 0,
-      wholesaleTaxExempt: rs.wholesaleTaxExempt === true,
+      // What checkout needs to say whether a wholesale order will be tax free (lib/wholesale-tax): only for the code
+      // that was entered, with no certificate numbers and no emails; with the page's signed-in session, whether that
+      // proven email is one of the buyer's.
+      wholesaleTax: wholesaleUnlocked ? shopTaxInfo(wsAccess.account ? (wsAccess.account.raw || {}) : null, rs, shopStateOf(tenant), todayIn(shopZone), signedInEmail(req, tenantId)) : null,
+      wholesaleApply: rs.wholesaleApplyOpen === true,
       flatShippingDollars: Number(rs.flatShippingDollars) || 0,
       freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
       // The ways of getting an order the shop offers (both shipping switches count, as checkout checks them).

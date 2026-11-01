@@ -1,6 +1,7 @@
 'use client';
 
 import { Loader, Package, Store } from 'lucide-react';
+import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -60,6 +61,7 @@ interface ShopInfo {
   wholesaleOffered: boolean;
   wholesaleUnlocked: boolean;
   wholesaleBusiness?: string;
+  wholesaleApply?: boolean;
   flatShippingDollars: number;
   freeShippingOverDollars: number;
   shippingOffered: boolean;
@@ -435,6 +437,11 @@ export default function ShopPage() {
             >
               {unlocking ? <Loader className="h-4 w-4 animate-spin" /> : 'Unlock wholesale pricing'}
             </Button>
+            {shop.wholesaleApply && (
+              <Link href={`/shop/${tenantId}/wholesale`} onClick={() => setUnlockOpen(false)} className="flex h-11 items-center justify-center text-sm font-bold underline underline-offset-4">
+                No code yet? Apply for wholesale
+              </Link>
+            )}
           </div>
         </DialogContent>
       </Dialog>

@@ -16,6 +16,8 @@ export interface WholesaleResolution {
     businessName: string;
     email: string;
     extraDiscountPercent: number;
+    /** The whole buyer record, for its sales tax (lib/wholesale-tax): its setting, certificates and emails. */
+    raw?: any;
   } | null;                    // null = legacy house code
 }
 
@@ -63,7 +65,7 @@ export async function resolveWholesaleAccess(
   if (!snap.empty) {
     const acct = snap.docs[0].data();
     if (acct.status !== 'active') {
-      return { unlocked: false, error: 'This wholesale account is currently suspended — contact the shop.' };
+      return { unlocked: false, error: 'This wholesale account is paused. Ask the shop about it.' };
     }
     return {
       unlocked: true,
@@ -72,6 +74,7 @@ export async function resolveWholesaleAccess(
         businessName: String(acct.businessName || ''),
         email: String(acct.email || '').toLowerCase(),
         extraDiscountPercent: clampDiscount(acct.extraDiscountPercent),
+        raw: acct,
       },
     };
   }
@@ -81,5 +84,5 @@ export async function resolveWholesaleAccess(
     return { unlocked: true, account: null };
   }
 
-  return { unlocked: false, error: 'Invalid wholesale access code' };
+  return { unlocked: false, error: 'That code isn’t one of this shop’s. Check it and try again.' };
 }

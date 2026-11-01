@@ -359,6 +359,8 @@ export async function GET(req: NextRequest) {
       priceTier: order.priceTier || 'retail',
       businessName: order.businessName || '',
       poNumber: order.poNumber || '',
+      // Sold tax free to a reseller: the certificate it was sold under, for the buyer's own records and the invoice.
+      taxFreeCert: order.taxFree === true && order.taxFreeCert ? { state: String(order.taxFreeCert.state || ''), last4: String(order.taxFreeCert.last4 || '').slice(-4) } : null,
       customerName: order.customerName || '',
       // A download bought as a gift: who it went to and when, never their email (lib/digital-gift).
       digitalGift: order.digitalGift ? { toName: String(order.digitalGift.toName || ''), sendOn: order.digitalGift.sendOn || null, sentAt: order.digitalGift.sentAt || null, failedAt: order.digitalGift.failedAt || null, message: passOk ? String(order.digitalGift.message || '') : '' } : null,

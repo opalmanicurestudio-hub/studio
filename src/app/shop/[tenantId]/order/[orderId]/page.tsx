@@ -456,6 +456,12 @@ export default function OrderStatusPage() {
       const data = await res.json();
       if (data?.code === 'pass_needed') { setVerifyOpen(true); return; }
       if (!res.ok) throw new Error(data.error || 'Could not open your account');
+      // Already signed in as this email here: that session stays (it may be the stronger kind, from a link emailed to
+      // them, which a wholesale buyer's tax-free orders need; lib/retail-account).
+      try {
+        const had = JSON.parse(window.localStorage.getItem(`cfshop-acct-${tenantId}`) || 'null');
+        if (had?.e && had?.s && Date.now() < Number(had.x) && String(had.e).toLowerCase() === String(data.email || '').toLowerCase()) { router.push(`/shop/${tenantId}/account`); return; }
+      } catch { /* below */ }
       router.push(`/shop/${tenantId}/account?e=${encodeURIComponent(data.email)}&x=${data.exp}&s=${data.sig}`);
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not open your orders', description: e?.message });

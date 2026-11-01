@@ -163,6 +163,9 @@ export type BooksSummary = {
   feesPaid: number; feesBack: number; netFees: number; feesPassedOn: number;
   operatingExpenses: number; net: number;
   shippingCharged: number; shippingCost: number;
+  /** Sales made tax free to resellers under a resale certificate (an online wholesale order's items and its shipping),
+   *  less what was refunded on those orders: the figure a sales tax return asks for as exempt sales. */
+  taxFreeSales: number;
   /** How many sales (a checkout, an online order, a visit), for the average ticket. */
   salesCount: number;
   byCategory: Record<'sales' | 'returns' | 'discounts' | 'other' | 'cogs' | 'fees' | 'opex' | 'transfer' | 'held', [string, number][]>;
@@ -188,6 +191,9 @@ export function booksSummary(txns: any[], opts: SummaryOptions = {}): BooksSumma
   const catMaps = Object.fromEntries(Object.keys(cats).map((k) => [k, new Map<string, number>()])) as Record<keyof BooksSummary['byCategory'], Map<string, number>>;
   let taxIn = 0; let taxBack = 0; let feesPaid = 0; let feesBack = 0; let feesPassedOn = 0;
   let giftCardsSold = 0; let heldForRenters = 0; let shippingCharged = 0; let shippingCost = 0; const saleKeys = new Set<string>();
+  // The orders sold tax free, wherever their sale line is (a refund this period may be for a sale before it).
+  let taxFreeSales = 0; const taxFreeOrders = new Set<string>();
+  for (const t of [...(opts.lookup || []), ...(txns || [])]) if (t?.taxFree === true && t?.retailOrderId) taxFreeOrders.add(String(t.retailOrderId));
   for (const t of txns || []) {
     if (opts.businessOnly && lc(t?.context) === 'personal') continue;
     const e = effectOf(t, byId);
@@ -196,6 +202,7 @@ export function booksSummary(txns: any[], opts: SummaryOptions = {}): BooksSumma
       // The sales tax inside a refund comes off the tax owed, not the sales; a tip inside it comes off the tips.
       const tip = e.tip || 0;
       acc.returns += e.amount - e.tax - tip; taxBack += e.tax;
+      if (t?.retailOrderId && taxFreeOrders.has(String(t.retailOrderId))) taxFreeSales -= e.amount - e.tax - tip;
       if (tip && e.tipBooked) acc.tips -= tip;
       const m = catMaps.returns; m.set(e.category, (m.get(e.category) || 0) + e.amount - e.tax - tip);
       continue;
@@ -207,6 +214,7 @@ export function booksSummary(txns: any[], opts: SummaryOptions = {}): BooksSumma
       // One sale per order or checkout: an online order's lines (its sale and its shipping) count once.
       if (e.amount > 0) saleKeys.add(String(t?.retailOrderId ? `ro:${t.retailOrderId}` : t?.checkoutSessionId || t?.appointmentId || t?.id || saleKeys.size));
       if (SHIP_CHARGED.test(e.category)) shippingCharged += e.amount;
+      if (t?.taxFree === true) taxFreeSales += e.amount;
       if (lc(e.category) === 'card processing fee') feesPassedOn += e.amount;
     }
     if (e.side === 'fees') { if (e.amount >= 0) feesPaid += e.amount; else feesBack += -e.amount; }
@@ -228,7 +236,7 @@ export function booksSummary(txns: any[], opts: SummaryOptions = {}): BooksSumma
     cogs: r2(acc.cogs), grossProfit: r2(grossProfit),
     feesPaid: r2(feesPaid), feesBack: r2(feesBack), netFees: r2(acc.fees), feesPassedOn: r2(feesPassedOn),
     operatingExpenses: r2(acc.opex), net: r2(net),
-    shippingCharged: r2(shippingCharged), shippingCost: r2(shippingCost),
+    shippingCharged: r2(shippingCharged), shippingCost: r2(shippingCost), taxFreeSales: r2(taxFreeSales),
     salesCount: saleKeys.size,
     byCategory: cats,
   };

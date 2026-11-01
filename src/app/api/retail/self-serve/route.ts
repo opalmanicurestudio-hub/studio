@@ -1,4 +1,5 @@
 import { restoreNonCardPayment } from '@/lib/cancel-restore';
+import { taxFreeMoved } from '@/lib/wholesale-tax';
 import { canChoose, feeBack, keptCents, keptFromCard, retryPayOpen } from '@/lib/delivery-retry';
 import { cancelRetryPay, refundRetryPayment, retryPaidMarks } from '@/lib/delivery-retry-server';
 import { refundWords, type AutoRefund } from '@/lib/auto-refund';
@@ -449,6 +450,8 @@ async function handle(req: NextRequest) {
         if (mode === 'direct' && forceRequest) { mode = 'request'; why = 'cost'; }
         if (mode === 'carrier') return { status: 409, error: 'It\u2019s already with the carrier, so the address can\u2019t be changed here. Their tracking page shows what they can do, like holding it for pickup.' };
         if (mode === 'none') return { status: 409, error: 'This order can\u2019t be changed any more.' };
+        // Sold tax free for its state (lib/wholesale-tax): another state's address would need the tax worked out again.
+        if (taxFreeMoved(order, clean)) return { status: 409, error: `This order was sold tax free for ${order.taxFreeCert?.state || order.shippingAddress?.state || 'its state'}, so it can only go to an address there. To send it somewhere else, message the shop from this page.` };
         const now = new Date().toISOString();
         if (sameAddress(order.shippingAddress, clean) && String(order.shippingAddress?.name || '').trim() === clean.name) {
           if (order.addressConfirm?.status === 'waiting') txn.set(orderRef, { addressConfirm: { ...order.addressConfirm, status: 'confirmed', answeredAt: now } }, { merge: true });

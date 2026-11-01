@@ -55,6 +55,8 @@ export function orderBookLines(o: any, ctx: {
     description: `${o?.priceTier === 'wholesale' ? 'Wholesale Sale' : 'Online Retail Sale'} — ${label}${o?.poNumber ? ` (PO ${o.poNumber})` : ''}`,
     amount: p.itemsCents / 100, merchandiseSubtotal: p.itemsCents / 100, grossOrderTotal: p.totalCents / 100, shippingCollected: p.shippingCents / 100,
     ...(p.promoCents ? { promoCents: p.promoCents } : {}),
+    // Sold tax free to a reseller (lib/wholesale-tax): the sales tax return asks for these, with the certificate.
+    ...(o?.taxFree === true ? { taxFree: true, ...(o.taxFreeCert ? { taxFreeCert: o.taxFreeCert } : {}) } : {}),
     paymentMethod: how, tenders: ctx.tenders,
     // The card payment this sale was paid with, so its processing fee is matched to it (lib/stripe-fee).
     ...(ctx.chargeId ? { stripeChargeId: ctx.chargeId } : {}), ...(ctx.sessionId ? { checkoutSessionId: ctx.sessionId } : {}),
@@ -63,6 +65,8 @@ export function orderBookLines(o: any, ctx: {
     ...base, id: shipLineId(ctx.orderId), type: 'income', category: 'Shipping Charged', taxBucket: 'revenue',
     description: `${o?.method === 'ship' ? 'Shipping' : 'Delivery'} charged — ${label}${o?.shippingService ? ` · ${o.shippingService}` : ''}`,
     amount: p.shippingCents / 100, paymentMethod: how,
+    // Part of a sale made tax free to a reseller, so a full refund of the order nets its tax-free sales to nothing.
+    ...(o?.taxFree === true ? { taxFree: true } : {}),
   } });
   if (p.taxCents > 0) out.push({ id: taxLineId(ctx.orderId), data: {
     ...base, id: taxLineId(ctx.orderId), type: 'income', category: 'Tax Collected', taxBucket: 'tax_collected',

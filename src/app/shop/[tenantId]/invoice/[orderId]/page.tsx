@@ -126,6 +126,7 @@ export default function InvoicePage({ params }: { params: Promise<{ tenantId: st
             {o.businessName && o.customerName ? <p className="muted">{o.customerName}</p> : null}
             {o.customerEmail ? <p className="muted">{o.customerEmail}</p> : null}
             {o.poNumber ? <p className="muted">PO: {o.poNumber}</p> : null}
+            {o.taxFreeCert?.state ? <p className="muted">Sold tax free for resale · {o.taxFreeCert.state} certificate{o.taxFreeCert.last4 ? ` ending ${o.taxFreeCert.last4}` : ''}</p> : null}
           </div>
           <div>
             <p className="lbl">{o.method === 'ship' ? 'Ship to' : o.method === 'delivery' ? 'Deliver to' : 'Fulfillment'}</p>

@@ -323,6 +323,7 @@ function buildPrintHtml(
       ${printLine('Sales tax collected', summary.taxCollected)}
       ${summary.taxRefunded ? printLine('Given back on refunds and voids', -summary.taxRefunded, 'sub') : ''}
       ${printLine('Sales tax owed', summary.taxOwed, 'total')}
+      ${summary.taxFreeSales ? printLine('Sold tax free to resellers', summary.taxFreeSales, 'sub') : ''}
       ${summary.giftCardsSold ? printLine('Gift cards sold', summary.giftCardsSold) : ''}
       ${summary.heldForRenters ? printLine('Taken for booth renters', summary.heldForRenters) : ''}
       <h3>Card fees</h3>
@@ -780,6 +781,7 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
             ))}
             {([
               ['Sales tax held', financialSummary.taxOwed],
+              ...(financialSummary.taxFreeSales ? [['Sold tax free to resellers', financialSummary.taxFreeSales]] : []),
               ...(financialSummary.giftCardsSold ? [['Gift cards sold', financialSummary.giftCardsSold]] : []),
               ...(financialSummary.heldForRenters ? [['Taken for renters', financialSummary.heldForRenters]] : []),
             ] as [string, number][]).map(([label, val]) => (
@@ -1269,7 +1271,7 @@ const LedgerTab = () => {
             value={fmtCurrency(financialSummary.taxOwed)}
             icon={AlertCircle}
             accent="bg-muted text-muted-foreground"
-            sub={financialSummary.taxRefunded > 0 ? `Held for the state · ${fmtCurrency(financialSummary.taxRefunded)} given back` : 'Held for the state, not income'}
+            sub={[financialSummary.taxRefunded > 0 ? `Held for the state · ${fmtCurrency(financialSummary.taxRefunded)} given back` : 'Held for the state, not income', financialSummary.taxFreeSales ? `${fmtCurrency(financialSummary.taxFreeSales)} sold tax free to resellers` : ''].filter(Boolean).join(' · ')}
           />
         </div>
         <OwedToClients tenantId={tenantId} />

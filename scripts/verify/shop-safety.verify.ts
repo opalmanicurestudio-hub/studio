@@ -5,7 +5,7 @@
 //   - shop settings load the packing-slip and label options as saved, so changing one keeps the others;
 //   - a return opened at the desk is worked out and saved on the server; nobody writes returns or report outcomes from
 //     a browser; asking a customer for more about a report is saved and sent from the server;
-//   - wholesale accounts are managers only, and "Unlock wholesale" shows only on shops that sell wholesale;
+//   - wholesale accounts are managers only to read and written only by the server, and "Unlock wholesale" shows only on shops that sell wholesale;
 //   - a reply to a customer with only a mobile reaches them by text.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/shop-safety.verify.ts
 import Module from 'module';
@@ -113,7 +113,7 @@ const req = (body: any, headers: Record<string, string> = {}, search = '') => ({
   const rules = src('firestore.rules');
   check('nobody writes a report’s worth, photos or outcome from a browser', /match \/tenants\/\{tenantId\}\/retailClaims\/\{claimId\} \{\s*allow read: if isTeam\(tenantId\);\s*allow create, update, delete: if false;/.test(rules));
   check('…nor a return', /match \/tenants\/\{tenantId\}\/retailReturns\/\{returnId\} \{\s*allow read: if isTeam\(tenantId\);\s*allow write: if false;/.test(rules));
-  check('wholesale accounts are managers only (codes are money off)', /match \/tenants\/\{tenantId\}\/wholesaleAccounts\/\{accountId\} \{\s*allow read, write: if isManager\(tenantId\);/.test(rules) && /'retailClaims', 'wholesaleAccounts', 'retailReturns',/.test(rules));
+  check('wholesale accounts are managers only to read, and only the server writes them (codes are money off)', /match \/tenants\/\{tenantId\}\/wholesaleAccounts\/\{accountId\} \{\s*allow read: if isManager\(tenantId\);\s*allow write: if false;/.test(rules) && /'retailClaims', 'wholesaleAccounts', 'wholesaleApplications', 'retailReturns',/.test(rules));
 
   // ── Wholesale on the shop ──
   const catalog = src('src/app/api/retail/catalog/route.ts');

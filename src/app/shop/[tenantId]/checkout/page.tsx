@@ -37,6 +37,8 @@ import { AddressReviewPanel, useAddressReview, type ReviewAddress } from '@/comp
 
 type Method = 'counter' | 'curbside' | 'ship' | 'delivery';
 
+import { taxFreeOnShop, taxNote } from '@/lib/wholesale-tax';
+
 const fmt = (cents: number) =>
   (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
@@ -258,6 +260,8 @@ export default function CheckoutPage() {
       try {
         const qs = new URLSearchParams({ tenantId });
         if (code) qs.set('wholesaleCode', code);
+        // The signed-in session, so the shop can say whether this email buys tax free (lib/wholesale-tax).
+        if (code) { try { const a = JSON.parse(localStorage.getItem(`cfshop-acct-${tenantId}`) || 'null'); if (a?.e && a?.x && a?.s && Date.now() < Number(a.x)) { qs.set('acctE', String(a.e)); qs.set('acctX', String(a.x)); qs.set('acctS', String(a.s)); } } catch { /* signed out */ } }
         const res = await fetch(`/api/retail/catalog?${qs.toString()}`);
         const text = await res.text();
         let data: any;
@@ -313,6 +317,41 @@ export default function CheckoutPage() {
   // delivery method (or an address) reads as a broken shop, and that's where
   // abandoned carts come from. The server already accepts this shape.
   const digitalOnlyCart = cartEntries.length > 0 && cartEntries.every(([key]) => lineOf(key)?.digital === true);
+  // A wholesale order's sales tax, as checkout will decide it (lib/wholesale-tax): tax free only with the buyer's own
+  // email, signed in. Nothing is said about a shipped order's state until there's one to judge.
+  const wsTax = wholesale && shop?.wholesaleTax ? taxFreeOnShop(shop.wholesaleTax, email, method, addr.state, digitalOnlyCart) : null;
+  const shipStateMissing = (method === 'ship' || method === 'delivery') && !digitalOnlyCart && !addr.state.trim();
+  // The emailed sign-in tax-free buying needs (lib/retail-account), asked for from here; the cart stays as it is.
+  const [linkSentTo, setLinkSentTo] = useState(''); const [linkErr, setLinkErr] = useState('');
+  const sendSignInLink = async () => {
+    const e = email.trim().toLowerCase(); if (!e) return;
+    setLinkErr('');
+    try {
+      const r = await fetch('/api/retail/account/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, email: e }) });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); setLinkErr(String(d.error || 'That didn’t go through. Try again in a minute.')); return; }
+      setLinkSentTo(e);
+    } catch { setLinkErr('That didn’t reach the shop. Check your connection and try again.'); }
+  };
+  // Signed in from the link in another tab or the mail app's link opened in this browser: picked up when they come back
+  // here, and the shop asked again whether this email buys tax free.
+  useEffect(() => {
+    if (!tenantId || !wholesale || !wholesaleCode) return;
+    const recheck = () => {
+      if (document.visibilityState === 'hidden') return;
+      let a: any = null;
+      try { a = JSON.parse(localStorage.getItem(`cfshop-acct-${tenantId}`) || 'null'); } catch { a = null; }
+      if (!a?.e || !a?.x || !a?.s || Date.now() >= Number(a.x) || (acctSess && acctSess.s === a.s)) return;
+      setAcctSess({ e: String(a.e), x: Number(a.x), s: String(a.s) }); setAcctEmail(String(a.e));
+      // Their store credit too, as when the page opens signed in.
+      fetch(`/api/retail/account/credit?tenantId=${encodeURIComponent(tenantId)}&e=${encodeURIComponent(a.e)}&x=${a.x}&s=${encodeURIComponent(a.s)}`)
+        .then((r) => (r.ok ? r.json() : null)).then((d) => setAcctCreditCents(d && Number.isFinite(Number(d.creditCents)) ? Number(d.creditCents) : null)).catch(() => setAcctCreditCents(null));
+      const qs = new URLSearchParams({ tenantId, wholesaleCode, acctE: String(a.e), acctX: String(a.x), acctS: String(a.s) });
+      fetch(`/api/retail/catalog?${qs.toString()}`).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.shop) setShop(d.shop); }).catch(() => {});
+    };
+    window.addEventListener('storage', recheck); document.addEventListener('visibilitychange', recheck); window.addEventListener('focus', recheck);
+    return () => { window.removeEventListener('storage', recheck); document.removeEventListener('visibilitychange', recheck); window.removeEventListener('focus', recheck); };
+  }, [tenantId, wholesale, wholesaleCode, acctSess]);
+  const wsTaxNote = wsTax && !wsTax.free && email.trim() && shop?.wholesaleTax && !shop.wholesaleTax.house && !(shipStateMissing && wsTax.why === 'state') ? taxNote(wsTax, shop.wholesaleTax.business || shop.wholesaleBusiness || '', shop.name || '') : null;
   const wantsPickupTime = !!shop && !digitalOnlyCart && (method === 'counter' || method === 'curbside');
   useEffect(() => { if (wantsPickupTime) void loadPickupTimes(); }, [wantsPickupTime, loadPickupTimes]);
   const timedPickup = wantsPickupTime && pickupTimes?.scheduled === true;
@@ -582,6 +621,8 @@ export default function CheckoutPage() {
           method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
           creditSession: applyCredit ? acctSess : undefined,
+          // Proof the email is theirs, for a wholesale buyer's tax-free order (lib/wholesale-tax).
+          accountSession: wholesale && acctSess ? acctSess : undefined,
           giftCode: giftCode.trim() || undefined,
           promoCode: promo?.code || undefined,
           storeCreditCapCents: applyCredit && creditMode === 'limit' && Number(creditLimit) > 0
@@ -1245,8 +1286,16 @@ export default function CheckoutPage() {
               </div>
             )}
             <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
-              <span>Tax</span><span>Calculated at checkout</span>
+              <span>Tax</span><span>{wsTax?.free ? 'None' : 'Calculated at checkout'}</span>
             </div>
+            {wsTax?.free && wsTax.why === 'cert' && <p className="text-right text-[11px] font-bold text-muted-foreground">Your resale certificate is on file</p>}
+            {wsTaxNote && <div role="status" className="rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-bold leading-snug text-amber-800">
+              <p className="m-0">{wsTaxNote}</p>
+              {wsTax?.why === 'verify' && (linkSentTo === email.trim().toLowerCase()
+                ? <p className="m-0 mt-1">If {email.trim()} is on file, a sign-in link is on its way. Open it in this browser, then come back to checkout.</p>
+                : <button type="button" onClick={() => void sendSignInLink()} className="mt-1 h-11 underline underline-offset-2">Email me a sign-in link</button>)}
+              {wsTax?.why === 'verify' && linkErr ? <p role="alert" className="m-0 mt-1">{linkErr}</p> : null}
+            </div>}
             <Separator />
             {ar.review ? (
               <AddressReviewPanel ar={ar} busy={placing} continueLabel="Continue to payment" onEdit={editAddress} />
@@ -1256,7 +1305,7 @@ export default function CheckoutPage() {
               onClick={() => void pay()}
               className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20"
             >
-              {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - offerCents - promoCents) + (promo?.freeShipping && method === 'ship' ? 0 : shippingCents) + tipCents)} + tax`}
+              {placing || ar.checking ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : `Pay ${fmt(Math.max(0, subtotalCents - offerCents - promoCents) + (promo?.freeShipping && method === 'ship' ? 0 : shippingCents) + tipCents)}${wsTax?.free ? '' : ' + tax'}`}
             </Button>)}
             <p className="text-[9px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
               {method === 'ship' && !digitalOnlyCart ? 'Secure payment · Tracking on your order page' : method === 'delivery' && !digitalOnlyCart ? 'Secure payment · Delivery details on your order page' : digitalOnlyCart ? (isGift ? 'Secure payment · Emailed to them on the day you chose' : 'Secure payment · Opens the moment you pay') : <>Secure payment &middot; You&apos;ll get a pickup QR code</>}

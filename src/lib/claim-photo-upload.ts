@@ -24,18 +24,23 @@ export async function uploadClaimPhotoFromDataUrl(
   claimId: string,
   dataUrl: any,
   /** Storage folder under the tenant — claims by default; booking photos use 'booking-inspiration'. */
-  folder: 'retail-claims' | 'booking-inspiration' | 'cases' | 'visit-photos' | 'signatures' | 'pack-photos' | 'delivery-photos' = 'retail-claims',
+  folder: 'retail-claims' | 'booking-inspiration' | 'cases' | 'visit-photos' | 'signatures' | 'pack-photos' | 'delivery-photos' | 'wholesale-certs' = 'retail-claims',
 ): Promise<ClaimPhotoResult> {
   try {
     const s = String(dataUrl || '');
     const m = /^data:([a-z]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(s);
-    if (!m) return { url: null, error: 'That file isn\u2019t a photo we can read.' };
+    // A resale certificate's copy (api/retail/wholesale, api/retail/wholesale-apply) may also be a PDF, checked by its
+    // first bytes as well as its type.
+    const cert = folder === 'wholesale-certs';
+    if (!m) return { url: null, error: cert ? 'That file isn\u2019t one we can read. Use a photo or a PDF.' : 'That file isn\u2019t a photo we can read.' };
     const mime = m[1].toLowerCase();
     const audio = folder === 'cases' && /^audio\/(webm|mp4|mpeg|ogg|aac|x-m4a)$/.test(mime.split(';')[0]);
-    if (!ALLOWED.has(mime) && !audio) return { url: null, error: 'Use a JPG, PNG, or WebP photo.' };
+    const pdf = cert && mime === 'application/pdf';
+    if (!ALLOWED.has(mime) && !audio && !pdf) return { url: null, error: cert ? 'Use a photo (JPG, PNG or WebP) or a PDF.' : 'Use a JPG, PNG, or WebP photo.' };
     const buf = Buffer.from(m[2], 'base64');
-    if (buf.length === 0) return { url: null, error: 'That photo came through empty \u2014 try again.' };
-    if (buf.length > MAX_PHOTO_BYTES) return { url: null, error: 'Keep photos under 3 MB.' };
+    if (buf.length === 0) return { url: null, error: cert ? 'That file came through empty. Try again.' : 'That photo came through empty \u2014 try again.' };
+    if (buf.length > MAX_PHOTO_BYTES) return { url: null, error: cert ? 'Keep the copy under 3 MB.' : 'Keep photos under 3 MB.' };
+    if (pdf && buf.subarray(0, 5).toString('latin1') !== '%PDF-') return { url: null, error: 'That file isn\u2019t a PDF we can read.' };
 
     const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1].split(';')[0].replace('x-', '');
     const path = `tenants/${tenantId}/${folder}/${claimId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
@@ -87,9 +92,9 @@ export async function uploadClaimPhotoFromDataUrl(
       } catch (err) { lastErr = err; }
     }
     console.error('[claim-photo] upload failed on every bucket candidate', Array.from(tried), lastErr);
-    return { url: null, error: 'The photo couldn\u2019t be saved \u2014 your report is still open, and you can try the photo again in a minute.' };
+    return { url: null, error: cert ? 'The copy couldn\u2019t be saved. Try again in a minute.' : 'The photo couldn\u2019t be saved \u2014 your report is still open, and you can try the photo again in a minute.' };
   } catch (err: any) {
     console.error('[claim-photo] upload failed', err);
-    return { url: null, error: 'The photo couldn\u2019t be saved \u2014 your report is still open.' };
+    return { url: null, error: folder === 'wholesale-certs' ? 'The copy couldn\u2019t be saved. Try again in a minute.' : 'The photo couldn\u2019t be saved \u2014 your report is still open.' };
   }
 }

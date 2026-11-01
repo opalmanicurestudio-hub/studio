@@ -10,6 +10,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { SHIP_DENIED, mayShip } from '@/lib/fulfilment-guard';
 import { changePolicy, oneLine, openRequest } from '@/lib/address-flow';
+import { taxFreeMoved } from '@/lib/wholesale-tax';
 import { labelDoubt, labelInDoubt } from '@/lib/label-doubt';
 import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
@@ -94,6 +95,8 @@ export async function POST(req: NextRequest) {
 
   if (action === 'approve_change') {
     if (!mayShip(actor)) return NextResponse.json({ ok: false, error: SHIP_DENIED }, { status: 403 });
+    // Sold tax free for its state (lib/wholesale-tax): another state's address would need the tax worked out again.
+    if (taxFreeMoved(o, req0.to)) return NextResponse.json({ ok: false, error: `This order was sold tax free for ${o.taxFreeCert?.state || o.shippingAddress?.state || 'its state'}, so it can only go to an address there. Keep the old address, and ${who} can place a new order for the other state.` }, { status: 409 });
     const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     if (o.holdForReview === true && changePolicy(t.retailSettings).heldNeedsManager && !actor.isManager) return NextResponse.json({ ok: false, error: 'This order is held for review, so a manager needs to approve the change.' }, { status: 403 });
     // Orders sharing one box and label (lib/ship-together) can't change address one at a time.

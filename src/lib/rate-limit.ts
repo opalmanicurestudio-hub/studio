@@ -24,7 +24,7 @@ export async function limitPublic(req: NextRequest, scope: string, tenantId: str
     const okIp = await bump(`${scope}_ip_${h(`${tenantId}|${visitorIp(req)}`)}_${hour}`, opts.perHour, 2 * 3600000);
     if (!okIp) return NextResponse.json({ ok: false, error: 'Too many tries from here — please wait a little while and try again.' }, { status: 429 });
     const okDay = await bump(`${scope}_biz_${h(tenantId)}_${day}`, opts.perDay, 2 * 86400000);
-    if (!okDay) return NextResponse.json({ ok: false, error: 'This is very busy right now — please call the business instead.' }, { status: 429 });
+    if (!okDay) return NextResponse.json({ ok: false, error: 'This is very busy right now. Please try again in a little while.' }, { status: 429 });
     return null;
   } catch { return null; }   // a counting hiccup never blocks a real customer
 }

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 
 import { limitPublic } from '@/lib/rate-limit';
 import { brandedEmail, emailButton, getEmailBrand } from '@/lib/email-shell';
@@ -31,7 +31,8 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
-const UNIFORM = { ok: true, message: 'If that email address has orders with us, a sign-in link is on its way.' };
+const UNIFORM = { ok: true, message: 'If that email address has orders or a wholesale account with us, a sign-in link is on its way.' };
+const esc = (x: any) => String(x ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 export async function POST(req: NextRequest) {
   let body: any;
@@ -56,23 +57,30 @@ export async function POST(req: NextRequest) {
   if (inWindow && (rl.count || 0) >= 3) return NextResponse.json(UNIFORM);
   await rlRef.set(inWindow ? { count: (rl.count || 0) + 1, windowStart: rl.windowStart } : { count: 1, windowStart: now });
 
-  // Only send when the email actually has orders (response stays uniform either way)
-  const [a, b] = await Promise.all([
+  // Only send when the email actually has orders, or is one of a wholesale buyer's (their own, or one the shop added
+  // for their staff, who need this link to buy tax free before they've ordered). The response stays uniform either way.
+  const [a, b, w1, w2] = await Promise.all([
     db.collection(`tenants/${tenantId}/retailOrders`).where('customerEmail', '==', email).limit(1).get(),
     db.collection(`tenants/${tenantId}/retailOrders`).where('customerEmail', '==', String(body.email || '').trim()).limit(1).get(),
+    db.collection(`tenants/${tenantId}/wholesaleAccounts`).where('email', '==', email).limit(5).get(),
+    db.collection(`tenants/${tenantId}/wholesaleAccounts`).where('taxEmails', 'array-contains', email).limit(5).get(),
   ]);
-  if (a.empty && b.empty) return NextResponse.json(UNIFORM);
+  const buyer = [...w1.docs, ...w2.docs].map((d: any) => d.data() || {}).find((x: any) => x.status === 'active');
+  if (a.empty && b.empty && !buyer) return NextResponse.json(UNIFORM);
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
   if (!RESEND_API_KEY || !RESEND_FROM) return NextResponse.json(UNIFORM); // no transport — exchange path still works
 
-  const tenantSnap = await db.collection('tenants').doc(tenantId).get();
-  const shopName = tenantSnap.exists ? ((tenantSnap.data() as any).businessName || (tenantSnap.data() as any).name || 'the shop') : 'the shop';
   const origin = req.nextUrl.origin;
   const link = accountUrl(origin, tenantId, email);
+  // The greeting's name was typed by whoever placed an order or applied: escaped before it goes in the email.
+  const hiName = esc(String(((a.docs[0] || b.docs[0])?.data() as any)?.customerName || (buyer && buyer.email === email ? buyer.contactName : '') || '').trim().split(/\s+/)[0] || 'there');
 
-  try {
+  // Sent after the answer, so how long the answer takes says nothing about whether this email is known here.
+  after(async () => { try {
+    const tenantSnap = await db.collection('tenants').doc(tenantId).get();
+    const shopName = tenantSnap.exists ? ((tenantSnap.data() as any).businessName || (tenantSnap.data() as any).name || 'the shop') : 'the shop';
     const { sendNotification } = await import('@/lib/notify');
     await sendNotification(db, {
       tenantId, channel: 'email',
@@ -81,7 +89,7 @@ export async function POST(req: NextRequest) {
         html: await (async () => {
           const emailBrand = await getEmailBrand(db, tenantId);
           return brandedEmail(emailBrand, `
-            <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0 0 10px">Hi ${String(((a.docs[0] || b.docs[0])?.data() as any)?.customerName || '').trim().split(/\s+/)[0] || 'there'},</p>
+            <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0 0 10px">Hi ${hiName},</p>
             <p style="font-size:14px;color:#0f172a;line-height:1.7;margin:0">Here is your secure sign-in link. You will find your orders, messages, store credit, and downloads all in one place.</p>
             ${emailButton(link, 'View my orders', emailBrand)}
             <p style="color:#64748b;font-size:12px;line-height:1.6;margin:0">Or paste this link into your browser:<br><span style="color:#0f172a;word-break:break-all">${link}</span></p>
@@ -93,7 +101,7 @@ export async function POST(req: NextRequest) {
     });
   } catch {
     // swallow — response stays uniform
-  }
+  } });
 
   return NextResponse.json(UNIFORM);
 }

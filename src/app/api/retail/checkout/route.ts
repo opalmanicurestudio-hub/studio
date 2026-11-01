@@ -14,7 +14,7 @@ import {
 } from '@/lib/address-validation';
 import Stripe from 'stripe';
 import { createHash } from 'crypto';
-import { normalizeEmail, verifyAccountToken } from '@/lib/retail-account';
+import { normalizeEmail, verifyAccountToken, verifyProvenAccountToken } from '@/lib/retail-account';
 import { nanoid } from 'nanoid';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
 import { asSold, choiceSale, saleUnitCents, variantIdsOf } from '@/lib/variants';
@@ -22,13 +22,14 @@ import { ensureCodeIndex } from '@/lib/code-index';
 import { shipPromiseAt } from '@/lib/retail-orders';
 import { preorderAckSnapshot } from '@/lib/preorder-terms';
 import { finalSaleFor } from '@/lib/return-eligibility';
-import { dayKey, formatDay, tenantTimeZone } from '@/lib/tenant-time';
+import { dayKey, formatDay, tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { verifyQuote, verifyRateFacts } from '@/lib/shipping-quote';
 import { dayLabel, isCalendarDay, orderPromise, scheduleFrom } from '@/lib/ship-promise';
 import { capSavings, matchOffers, savingsLabel, type MatchResult } from '@/lib/retail-offers';
 import { liveOffers } from '@/lib/retail-offers-server';
 
 import { resolveWholesaleAccess } from '@/lib/retail-wholesale';
+import { shopStateOf, taxFreeFor, taxStateOf, type TaxFree } from '@/lib/wholesale-tax';
 import {
   FULFILLMENT_METHODS,
   PRICE_TIERS,
@@ -295,7 +296,7 @@ async function handleCheckout(req: NextRequest) {
   }
 
   // ── Wholesale gate: per-account codes first, legacy house code fallback ──
-  let wsAccount: { id: string; businessName: string; email: string; extraDiscountPercent: number } | null = null;
+  let wsAccount: { id: string; businessName: string; email: string; extraDiscountPercent: number; raw?: any } | null = null;
   let wsDiscount = 0;
   if (priceTier === 'wholesale') {
     const wsAccess = await resolveWholesaleAccess(db, tenantId, { ...rsEarly, wholesaleAccessCode: (await getRetailSecrets(db, tenantId)).wholesaleAccessCode }, String(body.wholesaleCode || ''));
@@ -522,7 +523,18 @@ async function handleCheckout(req: NextRequest) {
   }
 
   const rs = tenant.retailSettings || {};
-  const taxExempt = priceTier === 'wholesale' && rs.wholesaleTaxExempt === true;
+  // A wholesale order is tax free only for the buyer's own emails, in a state they have a current resale certificate
+  // for (lib/wholesale-tax); the house code follows the shop's own switch. Kept on the order with the certificate it
+  // was sold under.
+  // The email has to be proven theirs: a session opened from a link emailed to it (lib/retail-account), for this same
+  // email. A session from an order's pass isn't enough here: whoever placed that order holds it, whatever they typed.
+  const ts = (body as any).accountSession || {};
+  const taxProven = !!customerEmail && verifyProvenAccountToken(tenantId, normalizeEmail(String(ts.e || '')), Number(ts.x), String(ts.s || '')).ok
+    && normalizeEmail(String(ts.e || '')) === normalizeEmail(customerEmail);
+  const taxFree: TaxFree | null = priceTier === 'wholesale'
+    ? taxFreeFor({ account: wsAccount ? (wsAccount.raw || {}) : null, rs, email: customerEmail, proven: taxProven, taxState: taxStateOf(method, (body.shippingAddress as any)?.state, shopStateOf(tenant)), today: todayIn(tenantTimeZone(tenant)), digitalOnly })
+    : null;
+  const taxExempt = taxFree?.free === true;
   const taxRatePercent = taxExempt ? 0 : Number(rs.taxRatePercent) || 0;
   // A single flat rate is exactly right for a pickup order — the sale happens
   // at the shop, so the shop's own rate applies. It is exactly wrong for a
@@ -771,6 +783,8 @@ async function handleCheckout(req: NextRequest) {
       ? (String(body.business?.name || '').trim() || wsAccount?.businessName || '')
       : '',
     poNumber: priceTier === 'wholesale' ? String(body.business?.poNumber || '').trim() : '',
+    // The certificate's id (its number is on the buyer, which only managers read) and its last four, for the invoice.
+    ...(taxFree ? { taxFree: taxFree.free, taxFreeWhy: taxFree.why, ...(taxFree.cert ? { taxFreeCert: { id: taxFree.cert.id, state: taxFree.cert.state, last4: taxFree.cert.number.slice(-4), endsOn: taxFree.cert.endsOn } } : {}) } : {}),
     lines,
     subtotalCents,
     ...(promo ? { promo: { code: promo.code, discountId: promo.discountId, label: promo.label, cents: promoCents, freeShipping: promo.freeShipping, shippingSavedCents } } : {}),
