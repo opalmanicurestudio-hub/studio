@@ -20,9 +20,11 @@ export interface StudioSettings {
 }
 
 /** The sections, in the order a new page shows them, with what each is called in Settings. */
-export const SECTIONS: { id: SectionId; title: string; always?: true; module?: string }[] = [
+/** optIn: off until the owner switches it on (selling memberships and packages online takes payments, so it's never
+ *  started for them). Saved as off.<id> = false when on. */
+export const SECTIONS: { id: SectionId; title: string; always?: true; module?: string; optIn?: true }[] = [
   { id: 'services', title: 'Services', always: true },
-  { id: 'offers', title: 'Memberships and packages' },
+  { id: 'offers', title: 'Memberships and packages', optIn: true },
   { id: 'events', title: 'Classes and events' },
   { id: 'team', title: 'The team' },
   { id: 'work', title: 'Our work' },
@@ -173,7 +175,7 @@ export function studioPage(t: any): ResolvedPage {
   const known = new Set(SECTIONS.map((x) => x.id));
   const saved = (Array.isArray(s.order) ? s.order : []).filter((id) => known.has(id));
   const order = [...new Set([...saved, ...SECTIONS.map((x) => x.id)])].filter((id) => id !== 'services');
-  const on = Object.fromEntries(SECTIONS.map((x) => [x.id, x.always ? true : s.off?.[x.id] !== true])) as Record<SectionId, boolean>;
+  const on = Object.fromEntries(SECTIONS.map((x) => [x.id, x.always ? true : x.optIn ? s.off?.[x.id] === false : s.off?.[x.id] !== true])) as Record<SectionId, boolean>;
   const color = pageColor(t);
   return {
     color, paint: color ? readable(color) : '#16171a',
@@ -189,6 +191,10 @@ export function studioPage(t: any): ResolvedPage {
     typedReviews: c.reviews,
   };
 }
+
+/** What to save for a section's switch: off.<id> = true to hide one that shows by default, false to show an opt-in one,
+ *  and nothing (removed) for the default. */
+export const sectionSwitch = (id: SectionId, show: boolean): boolean | undefined => (SECTIONS.find((x) => x.id === id)?.optIn ? (show ? false : undefined) : (show ? undefined : true));
 
 /** An event clients may see and reserve on the booking page: the owner switched on "Show on your booking page", it has
  *  no access PIN (private), isn't invite-only or paid (paid tickets aren't sold there yet), and is still on (upcoming

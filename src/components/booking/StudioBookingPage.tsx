@@ -53,7 +53,7 @@ const anchor = (id: SectionId) => ANCHOR[id] || id;
 
 export type PageOffer = { code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean; from?: string };
 
-export function StudioBookingPage({ tenant, services, staff, accent, onBook, focus, giftCents = 0, preview = false, events = [], renters = [], offer = null, onOfferCode, member = null, onMember, askFor = null }: {
+export function StudioBookingPage({ tenant, services, staff, accent, onBook, focus, giftCents = 0, preview = false, events = [], renters = [], offer = null, onOfferCode, member = null, onMember, askFor = null, bought = null }: {
   tenant: any; services: any[]; staff: any[]; accent: string;
   preview?: boolean;     // shown small in Settings: nothing fixed to the screen, no reviews fetched
   giftCents?: number;   // came from their gift card: the bar on top, and "Covered by your gift card" on the services it covers
@@ -66,6 +66,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   member?: boolean | null;                                   // signed in as a member: members-only services open
   onMember?: (contact: string) => Promise<boolean>;          // signs in by the email or phone on their membership (throws 'throttled' or when it can't check)
   askFor?: { service: any; at: number } | null;              // a members-only service asked for from outside the page: sign in for it
+  bought?: { kind: 'membership' | 'package'; name: string; outcome: 'given' | 'refunded' | 'pending' | 'failed' | 'slow'; reason?: string; told?: boolean } | null;   // back from paying for one
 }) {
   const name = tenant?.name || 'Book an appointment';
   const page = useMemo(() => studioPage(tenant), [tenant]);
@@ -121,7 +122,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   const [rsv, setRsv] = useState({ name: '', email: '', phone: '', places: 1, rsv_ref: '' }); const [rsvBusy, setRsvBusy] = useState(false); const [rsvErr, setRsvErr] = useState(''); const [rsvDone, setRsvDone] = useState<string | null>(null);
   const openReserve = (e: any) => { setRsvErr(''); setRsvDone(null); setRsv((r) => ({ ...r, places: 1, rsv_ref: '' })); setReserve(e); };
   const reserveNow = async () => {
-    if (!reserve || rsvBusy) return; if (!rsv.name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rsv.email.trim())) { setRsvErr('Add your name and email.'); return; }
+    if (!reserve || rsvBusy) return; if (!rsv.name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rsv.email.trim())) { setRsvErr('Add your name and email.'); document.getElementById(!rsv.name.trim() ? 'rsv-name' : 'rsv-email')?.focus(); return; }
     setRsvBusy(true); setRsvErr('');
     try {
       const r = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenant.id, action: 'event-reserve', eventId: reserve.id, name: rsv.name, email: rsv.email, phone: rsv.phone, places: rsv.places, rsv_ref: rsv.rsv_ref }) });
@@ -136,6 +137,33 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
         .then((x) => x.json()).then((x) => { if (x?.ok && x.seats && typeof x.seats[reserve.id] === 'number') setSeats((y) => ({ ...y, [reserve.id]: x.seats[reserve.id] })); }).catch(() => {});
     } catch { setRsvErr('That didn’t go through. Try again in a moment.'); } finally { setRsvBusy(false); }
   };
+
+  // Memberships and packages the business sells openly, bought here (lib/offer-sale; checkout on their own account).
+  const [offers, setOffers] = useState<{ online: boolean; memberships: any[]; packages: any[] } | null>(null);
+  useEffect(() => {
+    if (!tenant?.id || !page.on.offers) { setOffers(null); return; } let live = true;
+    fetch('/api/booking/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenant.id, action: 'list' }) })
+      .then((r) => r.json()).then((d) => { if (live && d?.ok) setOffers({ online: !!d.online, memberships: d.memberships || [], packages: d.packages || [] }); }).catch(() => {});
+    return () => { live = false; };
+  }, [tenant?.id, page.on.offers]);
+  const [buying, setBuying] = useState<{ kind: 'membership' | 'package'; item: any } | null>(null);
+  const [buyer, setBuyer] = useState({ name: '', email: '', phone: '' }); const [buyBusy, setBuyBusy] = useState(false); const [buyErr, setBuyErr] = useState('');
+  const openBuy = (kind: 'membership' | 'package', item: any) => { setBuyErr(''); setBuying({ kind, item }); };
+  const buyNow = async () => {
+    if (!buying || buyBusy) return;
+    if (!buyer.name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(buyer.email.trim())) { setBuyErr('Add your name and email.'); document.getElementById(!buyer.name.trim() ? 'buy-name' : 'buy-email')?.focus(); return; }
+    setBuyBusy(true); setBuyErr('');
+    try {
+      const r = await fetch('/api/booking/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenant.id, action: 'start', kind: buying.kind, id: buying.item.id, name: buyer.name, email: buyer.email, phone: buyer.phone }) });
+      const d = await r.json().catch(() => null);
+      if (d?.ok && d.url) { window.location.href = d.url; return; }
+      setBuyErr(d?.error || 'Checkout didn’t open. Try again in a moment.');
+    } catch { setBuyErr('Checkout didn’t open. Try again in a moment.'); }
+    setBuyBusy(false);
+  };
+  const per = (m: any) => (m.interval === 'yearly' ? 'a year' : 'a month');
+  // Back from checkout with the browser's Back button: the panel isn't left stuck on "Opening checkout".
+  useEffect(() => { const back = (e: PageTransitionEvent) => { if (e.persisted) setBuyBusy(false); }; window.addEventListener('pageshow', back); return () => window.removeEventListener('pageshow', back); }, []);
 
   // Before you book: the few rules a new client most needs, and every word of them a tap away.
   const rules = useMemo(() => pagePolicies(tenant, bookable), [tenant, bookable]);
@@ -178,13 +206,13 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
 
   // Each section of the page, shown only when switched on and with something in it.
   const giftsOn = !!(tenant?.id && tenant?.giftCardSettings?.online && tenant.giftCardSettings.onBooking !== false);
-  const counts: Partial<Record<SectionId, number>> = { team: team.length, reviews: reviews.length, gifts: giftsOn ? 1 : 0, spaces: 1, events: coming.length, policies: rules.length,
+  const counts: Partial<Record<SectionId, number>> = { offers: offers ? offers.memberships.length + offers.packages.length : 0, team: team.length, reviews: reviews.length, gifts: giftsOn ? 1 : 0, spaces: 1, events: coming.length, policies: rules.length,
     waitlist: tenant?.id ? 1 : 0, visit: addr || tenant?.phone || tenant?.email || hasHours ? 1 : 0 };
   const shows = (id: SectionId) => sectionShows(page, id, counts, (m) => moduleEnabled(tenant, m as any));
 
   // The bar of sections: the ones that show, in the page's order; the one being read is marked.
   const chips = useMemo(() => (focus ? [] : (['services', ...page.order.filter((id) => id !== 'services')] as SectionId[]).filter((id) => CHIP[id] && (id === 'services' || (shows(id) && !(preview && id === 'gifts'))))), // eslint-disable-line react-hooks/exhaustive-deps
-    [page, focus, preview, team.length, reviews.length, giftsOn, coming.length, rules.length, addr, hasHours]);
+    [page, focus, preview, offers, team.length, reviews.length, giftsOn, coming.length, rules.length, addr, hasHours]);
   const [current, setCurrent] = useState<SectionId>('services');
   const chipRow = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -214,6 +242,19 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   const part = (id: SectionId): React.ReactNode => {
     if (!shows(id)) return null;
     if (id === 'spaces') return tenant?.id && !preview ? <div id="spaces"><BoothListingsSection tenantId={tenant.id} config={{ kind: 'spaces', title: 'Book a space', subtitle: 'By the hour or the day, no appointment needed.', showMonthly: false, hideWhenEmpty: true }} /></div> : null;
+    if (id === 'offers' && offers) return <Section id="offers" eyebrow="Memberships and packages" title={<>Come back for <b>less</b></>}>
+      <div className="grid gap-3 sm:grid-cols-2">{[...offers.memberships.map((m) => ({ kind: 'membership' as const, item: m, price: `${money(m.price)} ${per(m)}`, words: m.description, perks: m.perks || [], cta: 'Join' })),
+        ...offers.packages.map((p) => ({ kind: 'package' as const, item: p, price: money(p.price), words: p.description, perks: [] as string[], cta: 'Buy' }))].map(({ kind, item, price, words, perks, cta }) => (
+        <div key={`${kind}-${item.id}`} className="pub-card flex flex-col gap-3 p-5">
+          <div><p className="text-[17px] font-semibold">{item.name}</p><p className="mt-0.5 text-[22px] font-light">{price}</p></div>
+          {words && <p className="text-[14px] leading-relaxed text-stone-600">{words}</p>}
+          {perks.length > 0 && <ul className="space-y-1 text-[14px] text-stone-600">{perks.map((x: string) => <li key={x} className="flex gap-2"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'var(--accent)' }} aria-hidden />{x}</li>)}</ul>}
+          <div className="mt-auto pt-1">{offers.online && !preview
+            ? <button type="button" onClick={() => openBuy(kind, item)} className="inline-flex h-11 items-center rounded-full px-6 text-[15px] font-medium text-white" style={{ background: 'var(--accent)' }}>{cta}<span className="sr-only"> {item.name}</span></button>
+            : preview ? <span className="inline-flex h-11 items-center rounded-full px-6 text-[15px] font-medium text-white" style={{ background: 'var(--accent)' }}>{cta}</span>
+            : <p className="text-[14px] text-stone-500">Ask about it at your next visit.</p>}</div>
+        </div>))}</div>
+    </Section>;
     if (id === 'events') return <Section id="events" eyebrow="Classes and events" title={<>Coming <b>up</b></>}>
       <div className="grid max-w-3xl gap-3">{coming.map((e: any) => {
         const d = new Date(`${e.date}T12:00:00`); const start = mins(e.time), end = mins(e.endTime);
@@ -292,6 +333,20 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   };
 
   const rating = page.showRating && rv.count >= 3 && rv.average > 0;
+  // Back from paying for a membership or package: what happened, in plain words.
+  const boughtCard = bought && <div className="pub-card max-w-xl p-4" role="status">
+    <p className="text-[16px] font-semibold" style={{ color: bought.outcome === 'given' ? '#1f7a4d' : undefined }}>{
+      bought.outcome === 'given' ? (bought.kind === 'membership' ? `Welcome to ${bought.name}` : `${bought.name} is yours`)
+      : bought.outcome === 'pending' || bought.outcome === 'slow' ? 'Your payment is being confirmed' : bought.outcome === 'refunded' ? 'Your payment was refunded' : 'We’re looking into your payment'}</p>
+    <p className="mt-0.5 text-[14px] text-stone-600">{
+      bought.outcome === 'given' ? (bought.kind === 'membership' ? 'Your membership is ready. Book as usual; your perks are applied at your visit.' : 'Your visits are ready. Book as usual; each one comes off at your visit.')
+      : bought.outcome === 'pending' ? 'It’ll be ready in a moment. You can book now; it’s applied at your visit.'
+      : bought.outcome === 'slow' ? 'It’s taking a little longer than usual. You’ll get a confirmation once it’s ready, and you can book now.'
+      : bought.outcome === 'refunded' ? (bought.reason === 'already_member' ? `You already have a membership here, so ${bought.name} couldn’t be added and the payment is on its way back to you.`
+        : bought.reason === 'blocked' ? `We couldn’t add ${bought.name} online, so the payment is on its way back to you. Please contact the business.`
+        : `${bought.name} is no longer available, so the payment is on its way back to you.`)
+      : `Your payment went through, but something needs a look on our side. ${bought.told === false ? 'Please contact the business so they can sort it out with you.' : 'The business has been told and will sort it out with you.'}`}</p>
+  </div>;
   // The offer they're booking with (from a link, a campaign or a code they typed), taken off at the visit.
   const offerCard = offer && <div className="pub-card flex max-w-xl items-start gap-3 p-4" role="status">
     <Tag className="mt-0.5 h-5 w-5 shrink-0" style={{ color: 'var(--accent)' }} aria-hidden />
@@ -339,11 +394,13 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
             {memberPerk && member !== true && <p><button type="button" onClick={() => askSignIn()} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent)' }}>Member? Sign in</button></p>}
             {member === true && <p className="text-[15px] font-medium" style={{ color: '#1f7a4d' }} role="status">Signed in as a member{membersOnly ? ': members-only services are open' : ''}.</p>}
             {offer && offerCard}
+            {boughtCard}
           </div>
           {photo && <div className="pub-rise pub-card overflow-hidden" style={{ animationDelay: '.1s' }}><img src={photo} alt="" className="aspect-[4/3] w-full object-cover" /></div>}
         </section>)}
 
         {offer && focus && <div className="mx-auto max-w-6xl px-4">{offerCard}</div>}
+        {bought && focus && <div className="mx-auto max-w-6xl px-4">{boughtCard}</div>}
 
         <Section id="services" eyebrow="Services" title={<>Choose your <b>service</b></>}>
           {withWho && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-[15px] shadow-sm" role="status"><span>Booking with <b>{withWho.name}</b>: choose a service</span><button type="button" onClick={() => setWithId(null)} className="inline-flex min-h-11 items-center text-[14px] underline underline-offset-4">Anyone is fine</button></div>}
@@ -398,6 +455,20 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
           {signErr && <p id="member-err" className="text-[14px] text-stone-700" role="alert">{signErr}</p>}
           <PrimaryButton onClick={() => void signInNow()} className={`w-full ${signBusy ? 'pointer-events-none opacity-60' : ''}`}>{signBusy ? 'Checking…' : 'Sign in'}</PrimaryButton>
         </div>
+      </PublicSheet>
+      <PublicSheet open={!!buying} onClose={() => { if (!buyBusy) setBuying(null); }} title={`${buying?.kind === 'membership' ? 'Join' : 'Buy'} ${buying?.item?.name || ''}`.trim()}>
+        {buying && <form className="space-y-3 pb-2" noValidate onSubmit={(e) => { e.preventDefault(); void buyNow(); }}>
+          <p className="text-[15px] text-stone-600"><b className="text-stone-800">{buying.item.name}</b>, {buying.kind === 'membership' ? `${money(buying.item.price)} ${per(buying.item)}, renewing each ${buying.item.interval === 'yearly' ? 'year' : 'month'} on the card you pay with until it’s canceled. To cancel, ask the business any time.` : `${money(buying.item.price)}. ${buying.item.description}`}</p>
+          <label htmlFor="buy-name" className="block text-[14px] font-medium">Your name</label>
+          <input id="buy-name" value={buyer.name} onChange={(e) => setBuyer((b) => ({ ...b, name: e.target.value }))} autoComplete="name" aria-invalid={!!buyErr && !buyer.name.trim()} aria-describedby={buyErr ? 'buy-err' : undefined} className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]" />
+          <label htmlFor="buy-email" className="block text-[14px] font-medium">Email</label>
+          <input id="buy-email" type="email" value={buyer.email} onChange={(e) => setBuyer((b) => ({ ...b, email: e.target.value }))} autoComplete="email" aria-invalid={!!buyErr && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(buyer.email.trim())} aria-describedby={buyErr ? 'buy-err' : undefined} className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]" />
+          <label htmlFor="buy-phone" className="block text-[14px] font-medium">Phone <span className="font-normal text-stone-500">(optional)</span></label>
+          <input id="buy-phone" type="tel" value={buyer.phone} onChange={(e) => setBuyer((b) => ({ ...b, phone: e.target.value }))} autoComplete="tel" className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]" />
+          <p className="text-[13px] text-stone-500">Use the email you book with, so it’s added to your visits.</p>
+          {buyErr && <p id="buy-err" className="text-[14px] text-stone-700" role="alert">{buyErr}</p>}
+          <button type="submit" disabled={buyBusy} className="inline-flex h-12 w-full items-center justify-center rounded-full px-6 text-[15px] font-medium text-white shadow-sm transition active:scale-[.98] disabled:opacity-60" style={{ background: 'var(--accent)' }}>{buyBusy ? 'Opening checkout…' : 'Continue to payment'}</button>
+        </form>}
       </PublicSheet>
       <PublicSheet open={!!reserve} onClose={() => setReserve(null)} title={rsvDone ? 'Reserved' : 'Reserve a place'}>
         {reserve && <div className="space-y-3 pb-2">

@@ -404,6 +404,25 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // server). The old design and renters' pages keep their own member checks.
   const memberLocked = (sv: any) => studioPageRef.current && sv?.membersOnly === true && studioMemberRef.current !== true;
   const [memberAsk, setMemberAsk] = useState<{ service: any; at: number } | null>(null);
+  // Back from paying for a membership or package (?offer_paid=…): finish it (once; Stripe's notice does the same) and say so.
+  const [bought, setBought] = useState<{ kind: 'membership' | 'package'; name: string; outcome: 'given' | 'refunded' | 'pending' | 'failed' | 'slow'; reason?: string; told?: boolean } | null>(null);
+  useEffect(() => {
+    if (!tenantId) return; let sid = ''; try { sid = new URLSearchParams(window.location.search).get('offer_paid') || ''; } catch { /* no-op */ }
+    if (!/^cs_[A-Za-z0-9_]{6,200}$/.test(sid)) return;
+    try { const u = new URL(window.location.href); u.searchParams.delete('offer_paid'); window.history.replaceState(null, '', u.toString()); } catch { /* no-op */ }
+    // Asked a few times while it's being finished (or after a hiccup); then said plainly that it's taking longer.
+    let tries = 0; let live = true; let timer: any = null;
+    const again = (d?: any) => { if (!live) return; if (++tries < 8) { timer = setTimeout(ask, Math.min(8000, 2000 + tries * 1000)); setBought((b) => b || { kind: d?.kind || 'membership', name: d?.name || 'your purchase', outcome: 'pending' }); }
+      else setBought((b) => ({ kind: d?.kind || b?.kind || 'membership', name: d?.name || b?.name || 'your purchase', outcome: 'slow' })); };
+    const ask = () => fetch('/api/booking/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'finish', session: sid }) })
+      .then((r) => r.json()).then((d) => { if (!live) return;
+        if (d?.ok && d.outcome !== 'pending') setBought({ kind: d.kind, name: d.name, outcome: d.outcome, reason: d.reason });
+        else if (d?.ok) again(d);
+        else if (d?.error === 'needs_attention') setBought({ kind: d.kind || 'membership', name: d.name || 'your purchase', outcome: 'failed', told: d.told !== false });
+        else if (d?.error !== 'not_found') again(d); })
+      .catch(() => again());
+    void ask(); return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [tenantId]);
   // A loyalty tier that books early: the client's own rewards link says how many extra days (components/loyalty/BookingRewards).
   const [earlyDays, setEarlyDays] = useState(0);
   useEffect(() => { const on = (e: any) => setEarlyDays(Math.max(0, Number(e?.detail) || 0)); window.addEventListener('cf-early-days', on); return () => window.removeEventListener('cf-early-days', on); }, []);
@@ -1157,7 +1176,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         focus={(() => { try { const id = new URLSearchParams(window.location.search).get('service'); return id ? services.find((sv: any) => sv.id === id) || null : null; } catch { return null; } })()}
         services={services} staff={staff} giftCents={giftCents} events={events} renters={elsewhere}
         offer={offerShown} onOfferCode={previewOnly ? undefined : (code) => checkOffer(code)}
-        member={studioMemberOk} onMember={previewOnly ? undefined : memberCheck} askFor={memberAsk}
+        member={studioMemberOk} onMember={previewOnly ? undefined : memberCheck} askFor={memberAsk} bought={bought}
         onBook={(svc, staffId) => { if (previewOnly || memberLocked(svc)) return; setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
     );
   }

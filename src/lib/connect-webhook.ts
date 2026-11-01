@@ -142,6 +142,15 @@ export async function handleConnectWebhook(req: NextRequest) {
         // A pay link the front desk sent for fees → settle exactly those fees (once, however often this arrives).
         // Before the visit: a deposit top-up after the price went up (lib/prep-check-server; safe to run twice).
         // A customer paid the shipping difference for a new address on their shop order (lib/address-pay; safe to run twice).
+        // A membership or package bought on the booking page → given to the client (lib/offer-sale; safe to run twice).
+        // Not finished yet (stopped part way, or another run still holding it): answered with an error, so Stripe sends
+        // the notice again and it's picked straight back up.
+        if (sessionType === 'studio_offer') {
+          const { finishOfferSale } = await import('@/lib/offer-sale');
+          const r = await finishOfferSale(db, stripe2, tenant.id, session.id, session);
+          if ((!r.ok && r.error === 'retry') || (r.ok && r.outcome === 'pending')) throw new Error('membership or package bought online not finished yet');
+          break;
+        }
         if (sessionType === 'address_change') {
           try { if (session.metadata?.retailOrderId) { const { finishAddressPay } = await import('@/lib/address-pay');
               await finishAddressPay(db, tenant.id, String(session.metadata.retailOrderId), session.id, { session, stripe: stripe2 }); }

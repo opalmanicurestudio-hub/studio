@@ -337,6 +337,16 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    id: 'online_purchase', group: 'Money', label: 'Bought online',
+    when: 'A client buys a membership or package on your booking page.',
+    channels: ['email', 'sms'], canDisable: false,
+    tokens: ['{{client_first}}', '{{item}}', '{{amount}}', '{{details}}', '{{studio}}'],
+    requiredTokens: ['{{item}}', '{{amount}}', '{{details}}'],
+    defaultSubject: 'You’re all set: {{item}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for buying {{item}} ({{amount}}). {{details}}\n\n{{studio}}',
+    timing: 'immediate',
+  },
+  {
     id: 'account_payment_reversed', group: 'Money', label: 'Payment reversed',
     when: 'A rent or tuition payment taken at the front desk is voided.',
     channels: ['email', 'sms'], canDisable: false,

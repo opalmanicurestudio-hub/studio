@@ -13,7 +13,7 @@ import { uploadImage } from '@/lib/upload-image';
 import { SettingsPage, Section, Row, Toggle, Choice, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 import { Sheet } from '@/components/orders/ui';
 import { moduleEnabled } from '@/lib/modules';
-import { studioPage, comingEvents, eventToday, SECTIONS, COLORS, MOODS, readable, whiteContrast, colorName, headlineParts, type SectionId, type Photo, type Faq, type Mood } from '@/lib/studio-page';
+import { studioPage, comingEvents, eventToday, sectionSwitch, SECTIONS, COLORS, MOODS, readable, whiteContrast, colorName, headlineParts, type SectionId, type Photo, type Faq, type Mood } from '@/lib/studio-page';
 
 const field = (k: string) => `bookingPageSettings.studio.${k}`;
 /** A value with every empty field taken out (the database refuses an empty field inside a list or a map). */
@@ -132,7 +132,7 @@ export default function BookingPageSettings() {
       case 'policies': return 'Your cancellation, late and deposit rules, in plain words';
       case 'visit': return 'Address, phone and hours';
       case 'waitlist': return 'Offered when nothing fits, and as a link at the bottom';
-      case 'offers': return 'What’s for sale online';
+      case 'offers': return !page.on.offers ? 'Off. Switch on to sell your public memberships and packages online' : t?.stripeAccountId && t?.stripeChargesEnabled !== false ? 'Your public memberships and packages, bought online' : 'Shown; connect payments so clients can buy them online';
       case 'gifts': return t?.giftCardSettings?.online ? 'Sold online' : 'Turn on online gift cards to show this';
       case 'spaces': return 'Spaces to book by the hour or day';
       default: return '';
@@ -266,7 +266,7 @@ export default function BookingPageSettings() {
                         <button type="button" aria-label={`Move ${def.title} down`} onClick={() => move(id, 1)} disabled={order.indexOf(id) >= order.length - 1} className="grid h-11 w-11 place-items-center cf-muted disabled:opacity-30"><ArrowDown className="h-4 w-4" aria-hidden /></button></span>}
                       <span className={`items-center gap-1 sm:flex ${reorder ? 'hidden' : 'flex'}`}>
                         {ed && <button type="button" onClick={() => setSheet(ed)} aria-label={`Edit ${def.title}`} className="grid h-11 w-11 place-items-center cf-muted"><ChevronRight className="h-5 w-5" aria-hidden /></button>}
-                        <Toggle label={`Show ${def.title}`} checked={page.on[id]} disabled={!isMgr} onChange={(v) => void save({ [`off.${id}`]: v ? undefined : true }, def.title)} /></span>
+                        <Toggle label={`Show ${def.title}`} checked={page.on[id]} disabled={!isMgr} onChange={(v) => void save({ [`off.${id}`]: sectionSwitch(id, v) }, def.title)} /></span>
                     </span>}
                 </div>); })}
             </div>

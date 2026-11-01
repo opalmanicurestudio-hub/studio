@@ -160,9 +160,13 @@ export async function enrollMembership(
   nextBilling.setMonth(nextBilling.getMonth() + intervalMonths);
   const nextBillingDate = nextBilling.toISOString();
 
-  const batch = db.batch();
-  batch.set(
-    db.doc(`tenants/${tenantId}/clients/${clientId}`),
+  // The check and the write together: two enrollments at the same moment can't both give a membership.
+  const clientRef = db.doc(`tenants/${tenantId}/clients/${clientId}`);
+  const written = await db.runTransaction(async (tx) => {
+  const cur: any = (await tx.get(clientRef)).data() || {};
+  if (cur.activeMembershipId && cur.subscription?.status === 'active') return false;
+  tx.set(
+    clientRef,
     {
       activeMembershipId: membershipId,
       subscription: {
@@ -172,15 +176,17 @@ export async function enrollMembership(
         nextBillingDate,
         perkUsage: {},
         perkLastUsed: null,
+        // The payment that started it, so a sale that's finished again can tell its own membership from another.
+        ...(stripePaymentIntentId ? { stripePaymentIntentId } : {}),
       },
-      lifetimeValue: (Number(client.lifetimeValue) || 0) + price,
+      lifetimeValue: (Number(cur.lifetimeValue) || 0) + price,
     },
     { merge: true },
   );
   if (price > 0 && !input.skipLedger && !chargedHere) {
     // Paid elsewhere: the sale's line, named after its payment (or the client, plan and day), so a retry rewrites it.
     const txnRef = db.doc(`tenants/${tenantId}/transactions/membership_${safeId(stripePaymentIntentId || `${clientId}_${membershipId}_${now.slice(0, 10)}`)}`);
-    batch.set(txnRef, {
+    tx.set(txnRef, {
       id: txnRef.id,
       tenantId,
       date: now,
@@ -196,7 +202,9 @@ export async function enrollMembership(
       hasReceipt: true,
     });
   }
-  await batch.commit();
+  return true;
+  });
+  if (!written) return { ok: false, error: 'already_enrolled', spoken: "Looks like you're already on an active membership — no need to sign up again." };
 
   return {
     ok: true,
