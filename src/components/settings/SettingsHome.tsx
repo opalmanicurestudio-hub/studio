@@ -14,6 +14,8 @@ import { visibleGroups, searchPages } from '@/lib/settings-registry';
 import { useRowSearch, announceFind } from '@/components/settings/use-row-search';
 import { C, LargeTitle } from '@/components/orders/ui';
 import { GroupIcon, AwayArrow } from '@/components/settings/SettingsShell';
+import { useSetupGuide } from '@/components/settings/SetupGuide';
+import { stepHref, guideOnShow } from '@/lib/setup-guide';
 
 const T = (tab: string) => `/settings?tab=${tab}`;
 
@@ -45,10 +47,13 @@ export function SettingsHome({ tenant }: { tenant: any }) {
   const groups = React.useMemo(() => (tenant ? visibleGroups(tenant) : []), [tenant]);
   const [q, setQ] = React.useState(''); const [autoCount, setAutoCount] = React.useState<number | null>(null);
   React.useEffect(() => { if (tenant?.id) void automationsNeedingYou(tenant.id).then(setAutoCount); }, [tenant?.id]);
+  const guide = useSetupGuide(guideOnShow(tenant));
+  const setup = guide.progress && !guide.progress.allDone ? guide.progress : null;
+  const putOff = guide.steps ? guide.steps.filter((s) => !s.done && s.skipped).length : 0;
   const todo = [
-    tenant && !tenant.logoUrl && { title: 'Add your logo', href: T('profile') },
-    tenant && !(tenant.phone && tenant.address) && { title: 'Add your phone and address', href: T('profile') },
-    tenant && !(tenant.stripeAccountId && tenant.stripeChargesEnabled !== false) && { title: 'Connect payments so clients can pay online', href: T('payments') },
+    !guide.steps && tenant && !tenant.logoUrl && { title: 'Add your logo', href: T('profile') },
+    !guide.steps && tenant && !(tenant.phone && tenant.address) && { title: 'Add your phone and address', href: T('profile') },
+    !guide.steps && tenant && !(tenant.stripeAccountId && tenant.stripeChargesEnabled !== false) && { title: 'Connect payments so clients can pay online', href: T('payments') },
     autoCount ? { title: `${autoCount} automation${autoCount === 1 ? ' needs' : 's need'} you`, href: '/settings/automations' } : null,
     // Anything switched off in a way that quietly stops something else (already limited to the business's tools).
     ...(tenant ? attentionItems(tenant) : []).map((a) => ({ title: a.warning || `${a.label} isn’t set up`, href: a.href })),
@@ -73,6 +78,20 @@ export function SettingsHome({ tenant }: { tenant: any }) {
         </section>
       ) : (
         <>
+          {setup && (
+            <section aria-label="Set up your business" className="mt-7 rounded-2xl p-5" style={{ background: C.soft }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[17px] font-semibold tracking-[-0.01em]">Set up your business</p>
+                  <p className="mt-0.5 text-[13.5px]" style={{ color: C.muted }}>{setup.doneCount} of {setup.total} done{putOff ? ` · ${putOff} for later` : ''}</p>
+                </div>
+                <Link href="/settings/setup" className="-my-1.5 inline-flex h-11 shrink-0 items-center px-1 text-[14px] font-semibold underline-offset-4 hover:underline" style={{ color: C.ink }}>All steps</Link>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full" style={{ background: C.paper }} role="progressbar" aria-valuemin={0} aria-valuemax={setup.total} aria-valuenow={setup.doneCount} aria-valuetext={`${setup.doneCount} of ${setup.total} done`} aria-label="Setup progress">
+                <div className="h-full rounded-full" style={{ width: `${(setup.doneCount / Math.max(1, setup.total)) * 100}%`, background: C.ok }} /></div>
+              {setup.next && <Link href={stepHref(setup.next)} className="mt-4 flex h-11 w-full min-w-0 items-center justify-center rounded-full px-5 text-[14.5px] font-semibold sm:inline-flex sm:w-auto" style={{ background: C.ink, color: C.paper }}><span className="truncate">{setup.doneCount ? 'Continue' : 'Start'}: {setup.next.title}</span></Link>}
+            </section>
+          )}
           {todo.length > 0 && (
             <section aria-label="Needs you" className="mt-7">
               <p className="px-4 pb-2 text-[13px] font-semibold" style={{ color: C.muted }}>Needs you</p>

@@ -1,4 +1,5 @@
 'use client';
+import * as React from 'react';
 import { VisitTicketHost } from '@/components/visit/VisitTicketHost';
 import { StepReminder } from '@/components/visit/StepReminder';
 import { KlairHost } from '@/components/klair/Klair';
@@ -15,6 +16,7 @@ import { LocationProvider } from '@/context/LocationContext';
 import { usePathname } from 'next/navigation';
 import { SettingsShell } from '@/components/settings/SettingsShell';
 import { useInSettings } from '@/components/settings/settings-place';
+import { SetupBar } from '@/components/settings/SetupGuide';
 import { isSettingsPath } from '@/lib/settings-registry';
 
 /**
@@ -47,7 +49,7 @@ function Framed({ children }: { children: React.ReactNode }) {
   return (<>
     <div className={inSettings ? 'contents lg:hidden' : 'contents'}><AppSidebar /></div>
     <SidebarInset className="bg-background">
-      <main id="main"><StaleCopyBanner />{onSettingsPath ? <SettingsShell nav={inSettings}>{children}</SettingsShell> : children}</main>
+      <main id="main"><StaleCopyBanner />{onSettingsPath ? <SettingsShell nav={inSettings}>{children}</SettingsShell> : children}<React.Suspense fallback={null}><SetupBar /></React.Suspense></main>
     </SidebarInset>
   </>);
 }

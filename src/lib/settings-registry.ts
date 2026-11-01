@@ -23,6 +23,7 @@ const T = (tab: string) => `/settings?tab=${tab}`;
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   { id: 'business', title: 'Your business', meaning: 'Details, hours, locations, your plan and privacy', pages: [
     { id: 'details', title: 'Business details', meaning: 'Name, logo, phone, email and address clients see', href: T('profile'), words: 'name logo phone email address brand time zone import clients' },
+    { id: 'setup', title: 'Set up your business', meaning: 'The steps to get going, and your booking link', href: '/settings/setup', words: 'getting started set up setup onboarding checklist steps booking link qr code starter menu' },
     { id: 'hours', title: 'Opening hours', meaning: 'When the business is open', href: T('hours'), words: 'hours open close holiday schedule closed days' },
     { id: 'locations', title: 'Locations', meaning: 'Your address and any other locations', href: T('locations'), words: 'address location map pin clock in radius geofence time zone' },
     { id: 'privacy', title: 'Privacy', meaning: 'Health details, discreet messages, signing out and how long records are kept', href: '/settings/policies#privacy', words: 'privacy health discreet hipaa retention sign out records' },

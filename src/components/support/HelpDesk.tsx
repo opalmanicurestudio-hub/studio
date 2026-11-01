@@ -125,7 +125,7 @@ export function HelpDesk() {
   };
 
   if (!open) return issuePrompt ? (
-    <div role="status" className="fixed inset-x-3 bottom-24 z-[70] mx-auto max-w-md rounded-3xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur md:bottom-6">
+    <div role="status" className="fixed inset-x-3 bottom-[calc(6rem+var(--cf-bar,0px))] z-[70] mx-auto max-w-md rounded-3xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur md:bottom-[calc(1.5rem+var(--cf-bar,0px))]">
       <p className="text-[15px] font-semibold">{issuePrompt === 'update' ? 'The app has been updated' : issuePrompt === 'data' ? 'Some information couldn’t be loaded' : 'Something went wrong on this page'}</p>
       <p className="mt-0.5 text-[13px] text-foreground/80">{issuePrompt === 'update' ? 'Reload to get the latest version — nothing is lost.' : issuePrompt === 'data' ? 'Your account may not have access to part of this page yet, or the database rules need publishing. A quick check will say which.' : 'If something looks missing, a quick check can often fix it — and you can send it to us with one tap.'}</p>
       <div className="mt-3 flex gap-2">

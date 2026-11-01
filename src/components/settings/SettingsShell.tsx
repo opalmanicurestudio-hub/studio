@@ -8,13 +8,15 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { ArrowUpRight, Building2, CalendarDays, ChevronLeft, CreditCard, DoorOpen, LayoutGrid, MessageSquare, Puzzle, RefreshCw, Search, ShoppingBag, Users, Zap } from 'lucide-react';
+import { ArrowUpRight, Building2, CalendarDays, ChevronLeft, CreditCard, DoorOpen, LayoutGrid, ListChecks, MessageSquare, Puzzle, RefreshCw, Search, ShoppingBag, Users, Zap } from 'lucide-react';
 import { useTenant } from '@/context/TenantContext';
 import { C } from '@/components/orders/ui';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { visibleGroups, settingsPageAt, searchPages, type SettingsPageEntry } from '@/lib/settings-registry';
 import { useRowSearch, announceFind } from '@/components/settings/use-row-search';
 import { RowFinder } from '@/components/settings/RowFinder';
+import { useSetupGuide } from '@/components/settings/SetupGuide';
+import { guideOnShow } from '@/lib/setup-guide';
 import { mayLeave } from '@/components/settings/settings-place';
 
 /** Every link in the list checks first that the open page has nothing unsaved (or that leaving is confirmed). A click
@@ -80,8 +82,13 @@ function SettingsNav() {
   const pathname = usePathname() || '';
   const params = useSearchParams();
   const [hash, setHash] = useHash();
+  // Set up your business sits at the top of the list until every step is done (or it's hidden); after that it's a page
+  // under Your business like any other.
+  const guide = useSetupGuide(guideOnShow(selectedTenant), false);
+  const setupOn = pathname === '/settings/setup';
+  const topSetup = !!guide.progress && !guide.progress.allDone;
   const at = settingsPageAt(pathname, params?.get('tab') || null, hash);
-  const groupId = at?.group.id || pathname.match(/^\/settings\/group\/([a-z]+)/)?.[1] || null;
+  const groupId = setupOn && topSetup ? null : at?.group.id || pathname.match(/^\/settings\/group\/([a-z]+)/)?.[1] || null;
   const groups = React.useMemo(() => (selectedTenant ? visibleGroups(selectedTenant) : []), [selectedTenant]);
   const [q, setQ] = React.useState('');
   const searching = q.trim().length >= 2;
@@ -119,6 +126,13 @@ function SettingsNav() {
             </Link>))}
         </div>
       ) : (
+        <>{topSetup && guide.progress && (
+          <Link href="/settings/setup" onClick={guard()} aria-current={setupOn ? 'page' : undefined} className="mb-2 flex min-h-[40px] [@media(pointer:coarse)]:min-h-11 items-center gap-2.5 rounded-[10px] px-2.5 text-[14.5px] transition-colors hover:bg-[var(--soft)]"
+            style={{ color: C.ink, fontWeight: setupOn ? 600 : 400, background: setupOn ? C.soft : undefined }}>
+            <span className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-lg" style={{ background: C.ink, color: C.paper }}><ListChecks className="h-[15px] w-[15px]" aria-hidden /></span>
+            <span className="min-w-0 flex-1 truncate text-[14px]">Set up your business</span>
+            {!setupOn && <><span className="shrink-0 rounded-full px-1.5 py-0.5 text-[11.5px] font-semibold tabular-nums" style={{ background: C.soft, color: C.muted }} aria-hidden="true">{guide.progress.doneCount} of {guide.progress.total}</span><span className="sr-only">, {guide.progress.doneCount} of {guide.progress.total} steps done</span></>}
+          </Link>)}
         <ul className="space-y-0.5">{groups.map((g) => {
           const open = g.id === groupId;
           const single = g.pages.length === 1;
@@ -129,9 +143,9 @@ function SettingsNav() {
                 style={{ color: C.ink, fontWeight: lit ? 600 : 400, background: lit ? C.soft : undefined }}>
                 <GroupIcon id={g.id} size={26} /><span className="min-w-0 flex-1 truncate">{g.title}</span>{single && g.pages[0].inShell === false && <AwayArrow />}
               </Link>
-              {open && !single && <div className="mt-0.5 space-y-0.5">{g.pages.map((p) => <PageLink key={p.id} page={p} on={at?.page.id === p.id && at.group.id === g.id} onPick={() => setHash(hashOfHref(p.href))} />)}</div>}
+              {open && !single && <div className="mt-0.5 space-y-0.5">{g.pages.filter((p) => !(topSetup && p.id === 'setup')).map((p) => <PageLink key={p.id} page={p} on={at?.page.id === p.id && at.group.id === g.id} onPick={() => setHash(hashOfHref(p.href))} />)}</div>}
             </li>);
-        })}</ul>
+        })}</ul></>
       )}
     </nav>
   );

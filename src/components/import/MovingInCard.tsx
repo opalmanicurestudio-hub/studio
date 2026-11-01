@@ -3,6 +3,8 @@
 // business that hasn't brought anything over yet. Opens Moving in; "I'm starting fresh" hides it for good.
 import * as React from 'react';
 import { payPost } from '@/components/pay/pay-client';
+import { useSetupGuide } from '@/components/settings/SetupGuide';
+import { guideOnShow } from '@/lib/setup-guide';
 
 const INK = 'hsl(var(--foreground))', MUTED = 'hsl(var(--muted-foreground))', LINE = 'hsl(var(--border))';
 export function MovingInCard({ tenantId, tenant, role }: { tenantId: string; tenant: any; role: string }) {
@@ -12,14 +14,14 @@ export function MovingInCard({ tenantId, tenant, role }: { tenantId: string; ten
     if (!tenantId || !isManager || tenant?.movingIn?.dismissed) return;
     payPost('/api/import', { tenantId, action: 'status' }).then((r) => { if (r.ok && !r.imports && !r.moving?.dismissed) setShow(true); });
   }, [tenantId, isManager, tenant?.movingIn?.dismissed]);
-  // Starting fresh: a short "finish setting up" card until all six steps are done (Getting started).
-  const [fresh, setFresh] = React.useState<{ done: number } | null>(null);
-  React.useEffect(() => { if (!tenantId || !isManager || !tenant?.movingIn?.fresh) return;
-    payPost('/api/getting-started', { tenantId, action: 'status' }).then((r) => { if (r.ok && r.done < 6) setFresh({ done: r.done }); }); }, [tenantId, isManager, tenant?.movingIn?.fresh]);
+  // Starting fresh: a short "finish setting up" card, the same steps and count as Set up your business, until it's
+  // finished or hidden there.
+  const guide = useSetupGuide(isManager && !!tenant?.movingIn?.fresh && guideOnShow(tenant));
+  const fresh = guide.progress && !guide.progress.allDone ? { done: guide.progress.doneCount, total: guide.progress.total } : null;
   if (fresh) return (
-    <a href="/getting-started" className="flex items-center justify-between gap-4 rounded-[22px] bg-card p-5" style={{ border: `1px solid ${LINE}`, color: INK }}>
-      <span><span className="block text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>getting started</span><span className="block text-[20px] font-normal tracking-[-0.02em]">Finish setting up — {fresh.done} of 6 done</span></span>
-      <span className="h-2 w-40 shrink-0 rounded-full bg-secondary"><span className="block h-2 rounded-full" style={{ width: `${(fresh.done / 6) * 100}%`, background: INK }} /></span></a>);
+    <a href="/settings/setup" className="flex items-center justify-between gap-4 rounded-[22px] bg-card p-5" style={{ border: `1px solid ${LINE}`, color: INK }}>
+      <span><span className="block text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>getting started</span><span className="block text-[20px] font-normal tracking-[-0.02em]">Finish setting up — {fresh.done} of {fresh.total} done</span></span>
+      <span className="h-2 w-40 shrink-0 rounded-full bg-secondary"><span className="block h-2 rounded-full" style={{ width: `${(fresh.done / Math.max(1, fresh.total)) * 100}%`, background: INK }} /></span></a>);
   if (!show) return null;
   const items = ['Clients and their notes', 'Services and prices', 'Upcoming appointments', 'Gift cards and packages', 'Products'];
   return (
@@ -28,7 +30,7 @@ export function MovingInCard({ tenantId, tenant, role }: { tenantId: string; ten
         <h2 className="mt-1 text-[26px] font-normal tracking-[-0.02em]">Moving from another app?</h2>
         <p className="mt-2 text-[14.5px] leading-relaxed" style={{ color: MUTED }}>Bring your clients, services, appointments, gift card balances and packages over in a few minutes. Nothing changes in your old app.</p>
         <div className="mt-4 flex flex-wrap gap-2"><a href="/import" className="inline-flex h-11 items-center rounded-full px-5 text-[14.5px] font-semibold text-background" style={{ background: INK }}>Start moving in</a>
-          <button type="button" onClick={async () => { setShow(false); await payPost('/api/getting-started', { tenantId, action: 'fresh' }); window.location.href = '/getting-started'; }} className="h-11 rounded-full border px-5 text-[14.5px]" style={{ borderColor: LINE }}>I’m starting fresh</button></div></div>
+          <button type="button" onClick={async () => { setShow(false); await payPost('/api/getting-started', { tenantId, action: 'fresh' }); window.location.href = '/settings/setup'; }} className="h-11 rounded-full border px-5 text-[14.5px]" style={{ borderColor: LINE }}>I’m starting fresh</button></div></div>
       <ul className="flex flex-col justify-center gap-2.5">{items.map((t) => <li key={t} className="flex items-center gap-2.5 text-[14px]"><span className="h-5 w-5 shrink-0 rounded-full" style={{ border: '1.5px dashed hsl(var(--border))' }} />{t}</li>)}</ul>
     </section>);
 }
