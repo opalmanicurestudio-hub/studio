@@ -851,7 +851,7 @@ export const MembershipLedger = () => {
                             {isGatewayActive ? "Autonomous billing protocol is online. Cards on file will be auto-debited on their renewal dates." : "Connect Stripe or Square in Settings to enable autonomous recurring billing."}
                         </p>
                         <Button variant="outline" asChild className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-card shadow-sm">
-                            <Link href="/settings?tab=integrations">Configure Gateway</Link>
+                            <Link href="/settings?tab=payments">Connect payments</Link>
                         </Button>
                     </CardContent>
                 </Card>

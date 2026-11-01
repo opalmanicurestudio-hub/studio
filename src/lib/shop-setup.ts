@@ -8,7 +8,7 @@ export function setupSteps(tenant: any, liveCount: number): SetupStep[] {
   const from = rs.shipFrom || {}; const shipReady = !!(from.street1 && from.city && from.state && from.zip);
   const paid = !!(tenant?.stripeAccountId || tenant?.stripeConnectAccountId);
   return [
-    { id: 'products', title: 'Put products online', note: liveCount ? `${liveCount} product${liveCount === 1 ? '' : 's'} in your shop` : 'Each needs a price, a photo helps', done: liveCount > 0, href: '/retail-orders/settings' },
+    { id: 'products', title: 'Put products online', note: liveCount ? `${liveCount} product${liveCount === 1 ? '' : 's'} in your shop` : 'Each needs a price, a photo helps', done: liveCount > 0, href: '/inventory' },
     { id: 'delivery', title: 'Choose pickup, shipping or both', note: ship && !shipReady ? 'Add the address you ship from' : [pickup ? 'Pickup' : '', ship ? 'shipping' : ''].filter(Boolean).join(' and ') || 'Nothing chosen yet', done: (pickup || ship) && (!ship || shipReady), href: '/retail-orders/settings' },
     { id: 'payments', title: 'Connect payments', note: paid ? 'Payments go to your Stripe account' : 'So customers can pay and you get paid', done: paid, href: '/settings?tab=payments' },
     { id: 'policies', title: 'Check your policies', note: 'Returns, refunds and what customers read', done: !!rs.policiesReviewedAt, href: '/retail-orders/policies' },

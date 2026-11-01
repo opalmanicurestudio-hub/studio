@@ -451,10 +451,10 @@ export default function TeamThreadPage() {
 
         <div className="flex items-center justify-between">
           <button
-            onClick={() => router.push('/messages')}
+            onClick={() => router.push('/team')}
             className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-indigo-600 transition-colors w-fit"
           >
-            <ArrowLeft className="w-3.5 h-3.5" /> All Conversations
+            <ArrowLeft className="w-3.5 h-3.5" /> Team
           </button>
           {!isTeamThread && otherPerson && (() => {
             const mode = otherPerson?.notificationAvailability?.mode || 'business_hours_only';

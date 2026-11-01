@@ -937,7 +937,7 @@ const QuoteTemplatesSheet = ({ open, onOpenChange, tenantId, firestore, clients 
       });
       toast({ title: 'Draft created from template', description: 'Opening quote editor…' });
       onOpenChange(false);
-      router.push(`/quotes/${ref.id}/edit`);
+      router.push(`/quotes/${ref.id}`);
     } catch (e) {
       toast({ variant: 'destructive', title: 'Failed to create from template' });
     } finally {

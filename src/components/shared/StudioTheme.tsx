@@ -1,8 +1,8 @@
 'use client';
 // src/components/shared/StudioTheme.tsx — THE APP-WIDE STUDIO LOOK.
-// Adds `studio` to <html> (see globals.css) unless the business chose the
-// Classic look, and paints buttons/active states in the business's accent —
-// only when white text on it stays readable (WCAG 4.5:1); otherwise ink.
+// Adds `studio` to <html> (see globals.css): the app has one look, for every
+// business. Paints buttons/active states in the business's accent — only when
+// white text on it stays readable (WCAG 4.5:1); otherwise ink.
 // Also applies white or true black (html.dark), this device's choice.
 import { useEffect } from 'react';
 import { useTenant } from '@/context/TenantContext';
@@ -27,7 +27,6 @@ export function accentHsl(hex: string | null): string | null {
 
 export function StudioTheme() {
   const { selectedTenant } = useTenant() as any;
-  const on = (selectedTenant as any)?.appAppearance !== 'classic';
   const hsl = accentHsl(accentOf(selectedTenant));
   const { resolved } = useDeskTheme();   // white or true black, this device's choice (lib/app-theme)
   useEffect(() => {
@@ -37,11 +36,11 @@ export function StudioTheme() {
   }, [resolved]);
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('studio', on);
+    root.classList.add('studio');
     const vars = ['--primary', '--ring', '--sidebar-primary', '--sidebar-ring'];
-    if (on && hsl) { vars.forEach((v) => root.style.setProperty(v, hsl)); root.style.setProperty('--primary-foreground', '0 0% 100%'); root.style.setProperty('--sidebar-primary-foreground', '0 0% 100%'); }
+    if (hsl) { vars.forEach((v) => root.style.setProperty(v, hsl)); root.style.setProperty('--primary-foreground', '0 0% 100%'); root.style.setProperty('--sidebar-primary-foreground', '0 0% 100%'); }
     else { vars.forEach((v) => root.style.removeProperty(v)); root.style.removeProperty('--primary-foreground'); root.style.removeProperty('--sidebar-primary-foreground'); }
     return () => { root.classList.remove('studio'); [...vars, '--primary-foreground', '--sidebar-primary-foreground'].forEach((v) => root.style.removeProperty(v)); };
-  }, [on, hsl]);
+  }, [hsl]);
   return null;
 }

@@ -5,10 +5,11 @@ import { ShieldCheck, Clock, Ban, AlertCircle } from 'lucide-react';
 import { Tenant } from '@/lib/data';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { noShowWords } from '@/lib/booth-no-show';
 
 export const BookingPolicies = ({ tenant }: { tenant: Tenant | null }) => {
   if (!tenant) return null;
-  const hasPolicies = tenant.cancellationPolicy || tenant.lateArrivalPolicy || tenant.noShowPolicy;
+  const hasPolicies = tenant.cancellationPolicy || tenant.lateArrivalPolicy || noShowWords(tenant);
 
   if (!hasPolicies) return null;
 
@@ -29,7 +30,7 @@ export const BookingPolicies = ({ tenant }: { tenant: Tenant | null }) => {
     },
     {
       title: 'No-Show Policy',
-      text: tenant.noShowPolicy,
+      text: noShowWords(tenant),
       icon: <AlertCircle className="w-5 h-5" />,
       color: 'text-destructive',
       bgColor: 'bg-destructive/5',

@@ -84,8 +84,10 @@ function TabQuerySync({ onTab, onLease, onSettings }: { onTab: (t: 'spaces' | 'o
 import {
   doc,
   updateDoc,
-  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where, writeBatch, runTransaction, arrayUnion } from 'firebase/firestore';
+  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where, writeBatch, runTransaction, arrayUnion, deleteField } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { boothNoShowPolicyOf, hasOldBoothFee } from '@/lib/booth-no-show';
+import { BoothNoShowRow } from '@/components/booths/BoothNoShowRow';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useFirebase, useUser } from '@/firebase';
@@ -2610,9 +2612,9 @@ export default function BoothsPage() {
   const [noShowEnabled, setNoShowEnabled] = useState(false);
   const [noShowFee, setNoShowFee] = useState('');
   const openNoShow = () => {
-    const p = (selectedTenant as any)?.noShowPolicy || {};
+    const p = boothNoShowPolicyOf(selectedTenant);
     setNoShowEnabled(!!p.enabled);
-    setNoShowFee(p.feeCents ? (p.feeCents / 100).toFixed(0) : '');
+    setNoShowFee(p.feeCents ? (p.feeCents / 100).toFixed(p.feeCents % 100 ? 2 : 0) : '');
     setNoShowOpen(true);
   };
   const saveNoShow = async () => {
@@ -2624,13 +2626,16 @@ export default function BoothsPage() {
     }
     setNoShowSaving(true);
     try {
-      await updateDoc(doc(firestore, 'tenants', tenantId), { noShowPolicy: { enabled: noShowEnabled, feeCents } });
+      await updateDoc(doc(firestore, 'tenants', tenantId), {
+        boothNoShowPolicy: { enabled: noShowEnabled, feeCents },
+        ...(hasOldBoothFee(selectedTenant) ? { noShowPolicy: deleteField() } : {}),
+      });
       writeBoothAudit(firestore, tenantId, {
         action: 'booth.no_show_policy_updated', targetType: 'tenant', targetId: tenantId,
-        summary: noShowEnabled ? `No-show fee turned ON — $${(feeCents / 100).toFixed(0)} charged to card on file` : 'No-show fees turned OFF (flag only)',
+        summary: noShowEnabled ? `No-show fee turned ON — $${(feeCents / 100).toFixed(feeCents % 100 ? 2 : 0)} charged to card on file` : 'No-show fees turned OFF (flag only)',
         actor: { type: 'user' },
       });
-      toast({ title: 'No-show policy saved', description: noShowEnabled ? `No-shows will be charged $${(feeCents / 100).toFixed(0)} when a card is on file.` : 'No-shows will be flagged for review — no automatic charge.' });
+      toast({ title: 'No-show policy saved', description: noShowEnabled ? `No-shows will be charged $${(feeCents / 100).toFixed(feeCents % 100 ? 2 : 0)} when a card is on file.` : 'No-shows will be flagged for review — no automatic charge.' });
       setNoShowOpen(false);
     } catch {
       toast({ variant: 'destructive', title: 'Could not save', description: 'Network error — try again.' });
@@ -6895,6 +6900,7 @@ export default function BoothsPage() {
             tenantId={tenantId}
             initial={(selectedTenant as any)?.bookingPageSettings?.dayPassPacks || []}
           />
+          <BoothNoShowRow tenant={selectedTenant} onChange={() => { setAutoSettingsOpen(false); openNoShow(); }} />
         </DialogContent>
       </Dialog>
 

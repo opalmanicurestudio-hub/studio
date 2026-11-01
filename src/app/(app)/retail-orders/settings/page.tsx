@@ -703,7 +703,7 @@ export default function RetailSettingsPage() {
                 <p className="text-xs font-black uppercase tracking-tight">Tips at checkout</p>
                 <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">10 / 15 / 20% chips on the payment sheet</p>
               </div>
-              <Switch aria-label="Max orders / 15 min (0 = off)" checked={rs.tipsEnabled === true} onCheckedChange={(v: boolean) => setRs({ ...rs, tipsEnabled: v })} />
+              <Switch aria-label="Tips at checkout" checked={rs.tipsEnabled === true} onCheckedChange={(v: boolean) => setRs({ ...rs, tipsEnabled: v })} />
             </div>
             <div className="flex items-center justify-between">
               <div>

@@ -10,7 +10,7 @@
 // can never trip it. A booking is only ever a no-show once its window is fully,
 // unambiguously gone.
 //
-// Fee (owner-controlled, default OFF): tenants/{id}.noShowPolicy = { enabled,
+// Fee (owner-controlled, default OFF): tenants/{id}.boothNoShowPolicy = { enabled,
 // feeCents }. When enabled with a fee AND a card is on file, the fee is charged
 // off-session and booked to the ledger with its paired Stripe fee. When it's not
 // enabled, or there's no card, the reservation is simply flagged for follow-up —
@@ -36,6 +36,7 @@ import Stripe from 'stripe';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logAuditAdmin } from './audit';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
+import { boothNoShowPolicyOf } from '@/lib/booth-no-show';
 
 type Db = any;
 
@@ -249,9 +250,9 @@ export async function sweepNoShows(db: Db, tenantId: string, now: Date = new Dat
   let feeCents = 0;
   try {
     const t = (await db.doc(`tenants/${tenantId}`).get()).data() as any;
-    const p = t?.noShowPolicy || {};
-    policyEnabled = !!p.enabled;
-    feeCents = Math.max(0, Math.round(Number(p.feeCents) || 0));
+    const p = boothNoShowPolicyOf(t);   // its own field (lib/booth-no-show), not the booking policy's words
+    policyEnabled = p.enabled;
+    feeCents = p.feeCents;
   } catch { /* no tenant doc → treat as flag-only */ }
 
   // Confirmed-but-not-checked-in reservations only. (checked_in / completed /

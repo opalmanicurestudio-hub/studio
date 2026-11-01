@@ -1,4 +1,5 @@
 import { settingVisible } from '@/lib/modules';
+import { boothNoShowPolicyOf } from '@/lib/booth-no-show';
 // ─── settings-map.ts ──────────────────────────────────────────────────────────
 // One description of every configurable thing in the platform: what it is, the
 // question an owner is actually asking when they go looking for it, where it
@@ -185,10 +186,10 @@ export const SETTINGS_MAP: SettingEntry[] = [
     },
   },
   {
-    group: 'change', label: 'No-show fee (booths)', href: '/booths', screen: 'Booth settings',
+    group: 'change', label: 'No-show fee (booths)', href: '/booths?settings=1', screen: 'Booth settings',
     summarise: (t) => {
-      const p = t?.noShowPolicy as any;
-      const cents = Number(p?.feeCents) || 0;
+      const p = boothNoShowPolicyOf(t);
+      const cents = p.feeCents;
       return p?.enabled && cents > 0
         ? `A booth no-show is charged ${money(cents / 100)} to the card on file; if it declines, it is added to their balance.`
         : 'Booth no-shows are flagged but never charged.';

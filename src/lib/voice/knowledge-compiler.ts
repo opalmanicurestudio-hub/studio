@@ -30,6 +30,7 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
+import { noShowWords } from '@/lib/booth-no-show';
 
 // ── Pure helpers (safe for client import) ────────────────────────────────────
 
@@ -104,8 +105,8 @@ export function derivePolicyLines(tenant: any): string[] {
     );
   }
 
-  if ((tenant?.noShowPolicy || '').trim()) {
-    lines.push(`No-shows: ${tenant.noShowPolicy.trim()}`);
+  if (noShowWords(tenant).trim()) {
+    lines.push(`No-shows: ${noShowWords(tenant).trim()}`);
   } else if (tenant?.noShowFee) {
     lines.push(`No-shows: a ${money(tenant.noShowFee)} no-show fee may apply.`);
   }

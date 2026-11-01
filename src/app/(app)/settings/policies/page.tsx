@@ -20,6 +20,7 @@ import { resolvePolicy, sourceLabel, type Source } from '@/lib/booking-policies'
 import { bookingPolicyLines } from '@/lib/policy-copy';
 import { GRACE_EVENTS, PERMIT_LABEL, graceRule } from '@/lib/grace';
 import { moduleEnabled } from '@/lib/modules';
+import { noShowWords, hasOldBoothFee, boothNoShowPolicyOf } from '@/lib/booth-no-show';
 import { privacyOf, BREACH_STEPS } from '@/lib/health-privacy';
 
 const NEXT = 'starts next update';
@@ -143,7 +144,9 @@ export default function BookingPoliciesPage() {
   const save = async (field: string, value: any, label: string) => {
     if (!firestore || !tenantId || !isMgr) return;
     setBusy(field);
-    try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { [field]: value }); toast({ title: `${label} saved` }); }
+    // Words typed over an old booth fee left at the same field: the fee moves to its own field in the same write.
+    const keepBoothFee = field === 'noShowPolicy' && hasOldBoothFee(t) && !t.boothNoShowPolicy ? { boothNoShowPolicy: boothNoShowPolicyOf(t) } : {};
+    try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { [field]: value, ...keepBoothFee }); toast({ title: `${label} saved` }); }
     catch (e: any) { toast({ variant: 'destructive', title: `Couldn’t save ${label.toLowerCase()}`, description: e?.message }); }
     finally { setBusy(null); }
   };
@@ -290,7 +293,7 @@ export default function BookingPoliciesPage() {
               <Text field="cancellationPolicy" value={t.cancellationPolicy} label="Cancellation policy" placeholder="e.g. We ask for 24 hours’ notice…" />
             </Row>
             <Row label="Late arrivals, in your words"><Text field="lateArrivalPolicy" value={t.lateArrivalPolicy} label="Late arrival policy" placeholder="e.g. After 15 minutes we may need to shorten your service…" /></Row>
-            <Row label="Missed appointments, in your words"><Text field="noShowPolicy" value={t.noShowPolicy} label="No-show policy" placeholder="e.g. Missed appointments are charged…" /></Row>
+            <Row label="Missed appointments, in your words"><Text field="noShowPolicy" value={noShowWords(t)} label="No-show policy" placeholder="e.g. Missed appointments are charged…" /></Row>
             <Row label="Offering another provider" note="When a client can’t be seen as booked, the desk sees a ranked shortlist: free for the whole visit (using each provider’s own recorded time), then a fair turn. The client always chooses.">
               <Choice field="bookingPolicies.providerOffers.who" value={t.bookingPolicies?.providerOffers?.who || 'managers'} label="Who can offer" options={[['managers', 'Managers'], ['desk', 'Managers and front desk']]} />
               <Choice field="bookingPolicies.providerOffers.employees" value={t.bookingPolicies?.providerOffers?.employees || 'assign'} label="Employees" options={[['assign', 'Assign them (the client still chooses)'], ['ask', 'Ask them first']]} />

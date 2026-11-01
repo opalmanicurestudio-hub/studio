@@ -10,6 +10,7 @@ import { settingsOf, clientPolicyLine } from '@/lib/making-it-right';
 import { resolveDepositPolicy } from '@/lib/deposit-policy';
 import { resolvePolicy, unpaidFeeLine, unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { graceLines } from '@/lib/grace';
+import { noShowWords } from '@/lib/booth-no-show';
 
 const money = (d: number) => `$${(Math.round(d * 100) / 100).toFixed(2)}`;
 const hrs = (h: number) => (h % 24 === 0 && h >= 48 ? `${h / 24} days` : `${h} hour${h === 1 ? '' : 's'}`); // "24 hours", "2 days"
@@ -64,7 +65,7 @@ export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCe
   const grace = Number(t.lateArrivalGracePeriod || 0);
   if (t.lateArrivalPolicy) out.push(`Late arrival policy: ${clip(t.lateArrivalPolicy)}`);
   else out.push(`If you're running late, please let us know from your visit link and we'll talk you through your options.${grace > 0 ? ` We can usually hold your appointment for up to ${grace} minutes.` : ''}`);
-  if (t.noShowPolicy) out.push(`Missed appointment policy: ${clip(t.noShowPolicy)}`);
+  if (noShowWords(t)) out.push(`Missed appointment policy: ${clip(noShowWords(t))}`);
   // What happens if a change fee can't be charged — only when the business charges change fees.
   if (Number(t.rescheduleFee) > 0 || resolvePolicy(t).cancel.feeMode.value !== 'none') out.push(unpaidFeeLine(unpaidFeeRuleOf(t)));
   out.push(...graceLines(t));   // the grace allowances, so clients know what flexibility exists

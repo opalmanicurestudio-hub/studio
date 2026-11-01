@@ -1216,6 +1216,7 @@ export type Tenant = {
   noShowFee?: number;
   cancellationPolicy?: string;
   noShowPolicy?: string;
+  boothNoShowPolicy?: { enabled: boolean; feeCents: number };
   lateArrivalPolicy?: string;
   defaultCancellationMode?: 'matrix' | 'flat' | 'percentage';
   /* Shop-wide ceiling on what providers may decide for themselves, plus which

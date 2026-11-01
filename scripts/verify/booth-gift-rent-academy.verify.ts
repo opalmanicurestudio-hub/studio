@@ -151,9 +151,9 @@ const linesOf = async (cat: string) => (await all(`${T}/transactions`)).filter((
   {
     const NS = await import('../../src/lib/no-show');
     const R = `${T}/boothReservations/r1`;
-    const seed = async (x: any = {}, policy: any = { enabled: true, feeCents: 2500 }) => {
+    const seed = async (x: any = {}, policy: any = { enabled: true, feeCents: 2500 }, tenantDoc?: any) => {
       await fresh();
-      await db.doc(T).set({ name: 'Opal', noShowPolicy: policy });
+      await db.doc(T).set(tenantDoc || { name: 'Opal', noShowPolicy: policy });
       await db.doc(`${T}/clients/c1`).set({ name: 'Lena Cho', outstandingBalance: 0, unpaidFees: [] });
       await db.doc(R).set({ status: 'confirmed', name: 'Lena Cho', boothName: 'Chair 2', startDate: '2026-10-20', endDate: '2026-10-20', stripeCustomerId: 'cus_1', stripePaymentMethodId: 'pm_1', clientId: 'c1', ...x });
     };
@@ -196,6 +196,12 @@ const linesOf = async (cat: string) => (await all(`${T}/transactions`)).filter((
     await seed({}, { enabled: false });
     const off = await Promise.all([sweep(), sweep()]);
     check('fee policy off: flagged once, nothing charged, one note', (await get(R)).status === 'no_show' && piCreates === 0 && (await notes()) === 1 && off[0].swept + off[1].swept === 1, off);
+    await seed({}, null, { name: 'Opal', noShowPolicy: 'Missed visits are charged in full.', boothNoShowPolicy: { enabled: true, feeCents: 2500 } });
+    await sweep();
+    check('the booth fee on its own field is charged, with the booking policy words beside it', pis.length === 1 && (await get(R)).noShowFeeStatus === 'charged' && (await linesOf('No-show Fee')).length === 1, { pis: pis.length, r: await get(R) });
+    await seed({}, null, { name: 'Opal', noShowPolicy: 'Missed visits are charged in full.' });
+    await sweep();
+    check('booking policy words alone never charge a booth no-show', piCreates === 0 && (await get(R)).status === 'no_show' && !(await get(R)).noShowFeeStatus?.startsWith('charged'), await get(R));
   }
 
   // ── 11. Booking and charging a station ────────────────────────────────────

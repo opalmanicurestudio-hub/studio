@@ -13,9 +13,6 @@ import { clientTimelineSettingsOf } from '@/lib/visit';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { Building2, CalendarDays, CreditCard, DoorOpen, SprayCan, Users, MessageSquare, Puzzle, Search, ChevronRight, Sparkles } from 'lucide-react';
 import { attentionItems } from '@/lib/settings-map';
-import { useFirebase } from '@/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
-import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { getAuth } from 'firebase/auth';
@@ -32,7 +29,6 @@ export const SETTINGS_INDEX: { question: string; icon: string; items: Item[] }[]
     { title: 'Opening hours', meaning: 'When the business is open.', href: T('hours'), words: 'hours open close holiday schedule' },
     { title: 'Locations', meaning: 'Your address and any other locations.', href: T('locations'), words: 'address location map clock in radius geofence time zone' },
     { title: 'Your plan & billing', meaning: 'Your ClarityFlow subscription, what’s included and how many locations you can have.', href: '/subscriptions', words: 'plan billing subscription invoice locations upgrade' },
-    { title: 'How the app looks (Studio or Classic)', meaning: 'Warm and calm in your colour, or the classic look.', href: '/settings#app-look', words: 'look appearance theme studio classic colour color design app' },
   ] },
   { question: 'Booking', icon: '', items: [
     { title: 'Booking policies', meaning: 'Deposits, cancellations, no-shows, rescheduling, late arrivals, how far ahead clients can book — and exactly what clients are told.', href: '/settings/policies', words: 'policy policies cancel cancellation no-show noshow late grace reschedule deposit refund credit window notice fee faq terms members limit lead time advance release horizon hold' },
@@ -89,7 +85,6 @@ function summaryFor(item: Item, t: any): string | null {
     case 'Check-in kiosk': { const n = kioskOptionsShown(t).length; return t?.kioskSettings?.enabled === false ? 'The kiosk is switched off.' : `Arriving guests choose from ${n} option${n === 1 ? '' : 's'}.`; }
     case 'Time clock': return t?.geoFenceEnabled ? 'Staff must be at a location to clock in.' : 'Staff can clock in from anywhere.';
     case 'Visit stages': return clientTimelineSettingsOf(t).on ? 'Clients can follow their visit on their link.' : 'Clients don’t see a visit timeline.';
-    case 'How the app looks (Studio or Classic)': return t?.appAppearance === 'classic' ? 'The Classic look.' : 'The Studio look, in your colour.';
     default: return null;
   }
 }
@@ -177,32 +172,9 @@ export function SettingsHome({ tenant }: { tenant: any }) {
                 <h2 className="flex items-center gap-2.5 text-[17px] font-semibold">{Icon && <Icon className="h-[18px] w-[18px] cf-muted" aria-hidden />}{g.question}</h2>
                 <div className="cf-sheet">{g.items.map((r) => <Link key={r.title} href={r.href} className="cf-row"><span className="min-w-0 flex-1"><span className="block text-[15px] font-medium">{r.title}</span><span className="mt-0.5 block text-[13.5px] leading-snug cf-muted line-clamp-2">{summaryFor(r, tenant) || r.meaning}</span></span><ChevronRight className="h-4 w-4 shrink-0 cf-muted" aria-hidden /></Link>)}</div>
               </section>); })}
-            <AppLook tenant={tenant} />
           </>}
         </div>
       </div>
     </main>
-  );
-}
-
-
-/** How the whole app looks for this business: Studio (warm, calm — like the
- *  front desk and booking page) or Classic. Saved on the business; applied by
- *  <StudioTheme/> everywhere. */
-function AppLook({ tenant }: { tenant: any }) {
-  const { firestore } = useFirebase() as any;
-  const [busy, setBusy] = React.useState(false);
-  const cur = tenant?.appAppearance === 'classic' ? 'classic' : 'studio';
-  const pick = async (v: 'studio' | 'classic') => {
-    if (!firestore || !tenant?.id || v === cur) return; setBusy(true);
-    try { await updateDoc(doc(firestore, 'tenants', tenant.id), { appAppearance: v }); } finally { setBusy(false); }
-  };
-  return (
-    <section id="app-look" aria-label="How the app looks" className="cf-sheet scroll-mt-8 flex flex-wrap items-center justify-between gap-3 p-5">
-      <div><p className="font-semibold">How the app looks</p><p className="text-sm text-muted-foreground">Studio is warm and calm, in your colour — like your front desk and booking page.</p></div>
-      <div className="flex gap-1 rounded-full bg-secondary p-1">{(['studio', 'classic'] as const).map((v) => (
-        <button key={v} type="button" disabled={busy} onClick={() => pick(v)} aria-pressed={cur === v}
-          className={`rounded-full px-4 py-1.5 text-sm transition ${cur === v ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}>{v === 'studio' ? 'Studio' : 'Classic'}</button>))}</div>
-    </section>
   );
 }
