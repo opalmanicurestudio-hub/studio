@@ -2437,17 +2437,22 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
 // ─── ReviewsSection ───────────────────────────────────────────────────────────
 /** The visit reviews this business shows (api/public/reviews): first name and last initial, stars and words. */
 export function usePublicReviews(tenantId?: string) {
-  const [rows, setRows] = useState<{ name: string; rating: number; text: string }[]>([]);
+  return usePublicReviewData(tenantId).reviews;
+}
+/** The reviews the business chose to show, with the average and how many there are (for the line under a headline). */
+export function usePublicReviewData(tenantId?: string) {
+  const [data, setData] = useState<{ reviews: { name: string; rating: number; text: string }[]; average: number; count: number }>({ reviews: [], average: 0, count: 0 });
   useEffect(() => {
     if (!tenantId) return;
     let live = true;
     fetch(`/api/public/reviews?tenantId=${encodeURIComponent(tenantId)}`).then((r) => r.json()).then((d) => {
       if (!live || !d?.ok || !Array.isArray(d.reviews)) return;
-      setRows(d.reviews.filter((r: any) => r && r.text).map((r: any) => ({ name: String(r.name || 'A client'), rating: Math.max(1, Math.min(5, Number(r.rating) || 5)), text: String(r.text) })));
+      setData({ reviews: d.reviews.filter((r: any) => r && r.text).map((r: any) => ({ name: String(r.name || 'A client'), rating: Math.max(1, Math.min(5, Number(r.rating) || 5)), text: String(r.text) })),
+        average: Math.max(0, Math.min(5, Number(d.average) || 0)), count: Math.max(0, Math.floor(Number(d.count) || 0)) });
     }).catch(() => {});
     return () => { live = false; };
   }, [tenantId]);
-  return rows;
+  return data;
 }
 
 function ReviewsSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {

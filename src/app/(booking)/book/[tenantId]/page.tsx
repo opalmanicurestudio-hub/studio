@@ -105,15 +105,18 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [offerInput, setOfferInput] = useState('');
   const [offerErr, setOfferErr] = useState('');
   const [offerOpen, setOfferOpen] = useState(false);
-  const checkOffer = async (code: string, quiet = false) => {
+  // Checks an offer code; says why it didn't work (null when it did), for the page that asked.
+  const checkOffer = async (code: string, quiet = false): Promise<string | null> => {
     setOfferErr('');
     try {
       // On a renter's page the code is checked against THAT renter's offers.
       const r = await fetch('/api/offers/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, code, ...(providerId ? { provider: providerId } : {}) }) });
       const d = await r.json().catch(() => null);
-      if (d?.ok) { setOfferShown({ code: d.code, line: d.line, amount: d.amount, until: d.until, oncePer: d.oncePer }); setCampaignRef((x) => ({ campaignId: x?.campaignId || null, code: d.code })); setOfferOpen(false); }
-      else { if (!quiet) setOfferErr(d?.error || 'That code didn’t work.'); if (quiet) setCampaignRef((x) => (x ? { ...x, code: null } : x)); }
-    } catch { if (!quiet) setOfferErr('Couldn’t check that code right now.'); }
+      if (d?.ok) { setOfferShown({ code: d.code, line: d.line, amount: d.amount, until: d.until, oncePer: d.oncePer }); setCampaignRef((x) => ({ campaignId: x?.campaignId || null, code: d.code })); setOfferOpen(false); return null; }
+      const why = d?.error || 'That code didn’t work.';
+      if (!quiet) setOfferErr(why); if (quiet) setCampaignRef((x) => (x ? { ...x, code: null } : x));
+      return why;
+    } catch { if (!quiet) setOfferErr('Couldn’t check that code right now.'); return 'Couldn’t check that code right now. Try again in a moment.'; }
   };
   useEffect(() => { if (campaignRef?.code && !offerShown) void checkOffer(campaignRef.code, true); }, [campaignRef?.code]); // eslint-disable-line react-hooks/exhaustive-deps
   // Page design: the business's choice (Settings → Booking → Page design), or
@@ -322,8 +325,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     const h = (e: Event) => {
       const d = (e as CustomEvent).detail;
-      if (d?.service) { setDialogService(d.service); setDialogOpen(true); }
-      else { if (services.length === 1) { setDialogService(services[0]); setDialogOpen(true); } else setShowPicker(true); }
+      if (d?.service) { if (memberLocked(d.service)) setMemberAsk({ service: d.service, at: Date.now() }); else { setDialogService(d.service); setDialogOpen(true); } }
+      else if (services.length === 1) { if (memberLocked(services[0])) setMemberAsk({ service: services[0], at: Date.now() }); else { setDialogService(services[0]); setDialogOpen(true); } }
+      else setShowPicker(true);
     };
     window.addEventListener('cf-book', h);
     return () => window.removeEventListener('cf-book', h);
@@ -345,13 +349,16 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       const hit = want ? services.find((sv: any) => sv.id === want) : null;
       // ?staff=… with it (a "book with Ana again" link): that person is chosen in the booking sheet.
       const who = new URLSearchParams(window.location.search).get('staff'); if (hit && who && /^[A-Za-z0-9_-]{1,80}$/.test(who)) setStudioStaffId(who);
-      if (hit) { openedServiceLink.current = true; setDialogService(hit); setDialogOpen(true); }
+      // A members-only one waits for the client to sign in (the page shows it, with its Members label).
+      if (hit) { openedServiceLink.current = true; if (memberLocked(hit)) setMemberAsk({ service: hit, at: Date.now() }); else { setDialogService(hit); setDialogOpen(true); } }
     } catch { /* no-op */ }
   }, [services]);
 
   // Derive resolved config and style
   const sections: PageSection[] = savedConfig?.sections ?? buildDefaults();
+  const studioPageRef = useRef(false);
   const studioDesign = !providerId && designParam !== 'classic' && (designParam === 'studio' || (tenant as any)?.bookingPageSettings?.design === 'studio');
+  studioPageRef.current = studioDesign;
   const resolvedStyle: StyleConfig = {
     accentColor:  savedConfig?.accentColor  ?? DS.accentColor,
     bgColor:      savedConfig?.bgColor      ?? DS.bgColor,
@@ -390,19 +397,34 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // their earlier release and members-only services. The server checks the
   // same thing at confirm; this only changes what the calendar shows.
   const [studioMemberOk, setStudioMemberOk] = useState<boolean | null>(null);
+  // The same answer, readable at once: the page books right after a sign-in, before the state above has re-rendered.
+  const studioMemberRef = useRef<boolean | null>(null);
+  // On the Studio page, a members-only service waits for the client to sign in as a member: tapped on the page, from a
+  // link or from a website button, the page asks them to sign in and then carries on (the booking re-checks on the
+  // server). The old design and renters' pages keep their own member checks.
+  const memberLocked = (sv: any) => studioPageRef.current && sv?.membersOnly === true && studioMemberRef.current !== true;
+  const [memberAsk, setMemberAsk] = useState<{ service: any; at: number } | null>(null);
   // A loyalty tier that books early: the client's own rewards link says how many extra days (components/loyalty/BookingRewards).
   const [earlyDays, setEarlyDays] = useState(0);
   useEffect(() => { const on = (e: any) => setEarlyDays(Math.max(0, Number(e?.detail) || 0)); window.addEventListener('cf-early-days', on); return () => window.removeEventListener('cf-early-days', on); }, []);
   const [studioMemberInput, setStudioMemberInput] = useState('');
   const [studioMemberBusy, setStudioMemberBusy] = useState(false);
+  const [studioMemberErr, setStudioMemberErr] = useState('');   // the check couldn't be made (not the same as "not a member")
+  // Is there an active membership behind this email or phone? (yes or no only; the booking re-checks.)
+  // Throws 'throttled' (too many tries) or 'unavailable' (couldn't check) rather than calling either a "no".
+  const memberCheck = async (contact: string): Promise<boolean> => {
+    let d: any = null;
+    try { const res = await fetch('/api/booking/member-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, contact }) }); d = await res.json().catch(() => null); }
+    catch { throw new Error('unavailable'); }
+    if (d?.throttled) throw new Error('throttled');
+    if (!d || d.ok !== true) throw new Error('unavailable');
+    studioMemberRef.current = !!d.member; setStudioMemberOk(!!d.member); return !!d.member;
+  };
   const checkStudioMember = async () => {
     const v = studioMemberInput.trim(); if (!v) return;
     setStudioMemberBusy(true);
-    try {
-      const res = await fetch('/api/booking/member-check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, contact: v }) });
-      const d = await res.json().catch(() => ({}));
-      setStudioMemberOk(!!d?.member);
-    } catch { setStudioMemberOk(false); } finally { setStudioMemberBusy(false); }
+    setStudioMemberErr('');
+    try { await memberCheck(v); } catch (e: any) { studioMemberRef.current = null; setStudioMemberOk(null); setStudioMemberErr(e?.message === 'throttled' ? 'Too many tries for now. Please try again in an hour.' : 'Couldn’t check right now. Try again in a moment.'); } finally { setStudioMemberBusy(false); }
   };
   const [memberOk, setMemberOk] = useState<boolean | null>(null);
   // A renter selling their own gift cards on their page (lib/gift-shop) — asked once; shown as a link when open.
@@ -1133,8 +1155,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     return (
       <StudioBookingPage tenant={tenant} accent={brandColor(tenant)} preview={previewOnly}
         focus={(() => { try { const id = new URLSearchParams(window.location.search).get('service'); return id ? services.find((sv: any) => sv.id === id) || null : null; } catch { return null; } })()}
-        services={services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true)} staff={staff} giftCents={giftCents}
-        onBook={(svc, staffId) => { if (previewOnly) return; setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
+        services={services} staff={staff} giftCents={giftCents} events={events} renters={elsewhere}
+        offer={offerShown} onOfferCode={previewOnly ? undefined : (code) => checkOffer(code)}
+        member={studioMemberOk} onMember={previewOnly ? undefined : memberCheck} askFor={memberAsk}
+        onBook={(svc, staffId) => { if (previewOnly || memberLocked(svc)) return; setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
     );
   }
 
@@ -1197,11 +1221,12 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                   <p className="text-[13px]">{hasRelease ? sent.everyone : ''}{sent.members ? ` ${sent.members}` : ''}{anyMembersOnly ? ' Some services are members only.' : ''}</p>
                   {memberPerk && (
                     <div className="mt-2 flex gap-2">
-                      <input value={studioMemberInput} onChange={(e) => { setStudioMemberInput(e.target.value); setStudioMemberOk(null); }} placeholder="Member? Email or phone" aria-label="Member email or phone" className="h-10 min-w-0 flex-1 rounded-xl border bg-transparent px-3 text-[13px]" />
+                      <input value={studioMemberInput} onChange={(e) => { setStudioMemberInput(e.target.value); studioMemberRef.current = null; setStudioMemberOk(null); setStudioMemberErr(''); }} placeholder="Member? Email or phone" aria-label="Member email or phone" className="h-10 min-w-0 flex-1 rounded-xl border bg-transparent px-3 text-[13px]" />
                       <button type="button" disabled={studioMemberBusy} onClick={checkStudioMember} className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">{studioMemberBusy ? '…' : 'Unlock'}</button>
                     </div>
                   )}
                   {studioMemberOk === false && <p className="mt-1 text-[11px] opacity-70">No active membership under that — check the email or phone on your membership.</p>}
+                  {studioMemberErr && <p className="mt-1 text-[11px] opacity-70" role="alert">{studioMemberErr}</p>}
                 </>
               )}
             </div>

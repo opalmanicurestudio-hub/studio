@@ -13,7 +13,7 @@ import { uploadImage } from '@/lib/upload-image';
 import { SettingsPage, Section, Row, Toggle, Choice, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 import { Sheet } from '@/components/orders/ui';
 import { moduleEnabled } from '@/lib/modules';
-import { studioPage, SECTIONS, COLORS, MOODS, readable, whiteContrast, colorName, headlineParts, type SectionId, type Photo, type Faq, type Mood } from '@/lib/studio-page';
+import { studioPage, comingEvents, eventToday, SECTIONS, COLORS, MOODS, readable, whiteContrast, colorName, headlineParts, type SectionId, type Photo, type Faq, type Mood } from '@/lib/studio-page';
 
 const field = (k: string) => `bookingPageSettings.studio.${k}`;
 /** A value with every empty field taken out (the database refuses an empty field inside a list or a map). */
@@ -116,15 +116,15 @@ export default function BookingPageSettings() {
   // Counts for each section row, from what the public page shows.
   const services = (pub?.services || []).filter((s: any) => s.isActive !== false && !s.isPrivate && s.type !== 'addon');
   const team = (pub?.staff || []).filter((m: any) => m.showOnPublicPage !== false && !(m.isRenter && m.bookingOptOut) && !m.isStudent);
-  const today = new Date().toISOString().slice(0, 10);
-  const events = (pub?.events || []).filter((e: any) => String(e.date || '') >= today);
+  const today = eventToday(t);   // the business's own date, as on the page
+  const events = comingEvents(pub?.events || [], today, 99);
   const useModule = (m: string) => moduleEnabled(t, m as any);
   const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
   const note = (id: SectionId): string => {
     switch (id) {
       case 'services': return 'Always on the page';
       case 'team': return pub ? plural(team.length, 'person', 'people') : '';
-      case 'events': return pub ? (events.length ? `${events.length} coming up` : 'Nothing coming up') : '';
+      case 'events': return pub ? (events.length ? `${events.length} coming up` : 'Events show here when “Show on your booking page” is on') : '';
       case 'work': return page.work.length ? plural(page.work.length, 'photo') : 'Add photos of your work';
       case 'about': return page.about.text ? page.about.text.slice(0, 60) + (page.about.text.length > 60 ? '…' : '') : 'A few words about you';
       case 'faqs': return page.faqs.length ? plural(page.faqs.length, 'question') : 'Answer what clients ask most';
@@ -234,6 +234,9 @@ export default function BookingPageSettings() {
             <Row label="Description" help="A line or two under the headline.">
               <textarea value={description} disabled={!isMgr} maxLength={240} rows={2} onChange={(e) => setDescription(e.target.value)} onFocus={() => { editing.current = 'description'; }}
                 onBlur={() => { editing.current = null; if (description.trim() !== page.description) void save({ description: description.trim() }, 'Description'); }} aria-label="Description" className={`${cfInput} h-auto py-3`} style={cfInputStyle} />
+            </Row>
+            <Row label="Star rating" help="Your average from the reviews you show, under the headline, once there are three or more." inline>
+              <Toggle label="Show the star rating" checked={page.showRating} disabled={!isMgr} onChange={(v) => void save({ showRating: v ? undefined : false }, 'Star rating')} />
             </Row>
             <Row label="Photo" help={page.cover ? 'A photo of your space or your work.' : 'Without one, a soft glow of your color around your logo.'} inline>
               <span className="flex items-center gap-2">

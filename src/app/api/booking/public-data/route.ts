@@ -30,6 +30,8 @@ import { computeAvailability, pickStaffForSlot } from '@/lib/availability';
 import { loadBookingData, FALLBACK_HOURS, engineFrame } from '@/lib/booking-data';
 import { maybeReleaseUnpaid } from '@/lib/release-unpaid';
 import { addDays as addDaysStr } from '@/lib/tenant-time';
+import { limitPublic, visitorIp } from '@/lib/rate-limit';
+import { publicEvent, eventCapacity, eventToday } from '@/lib/studio-page';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +44,9 @@ const STAFF_DROP = /^(pin|pinHash|pinSalt|phone|mobile|email|personalEmail|addre
 // Everything else (shifts, blocks, events, tickets): drop people's details and free text.
 const GENERAL_DROP = /^(client|customer|guestName|guestEmail|guestPhone|contact|email|phone|mobile|note|notes|reason|description|details|comment|message|reporter|reportedBy|createdBy|updatedBy|approvedBy|requestedBy|assignee|assignedTo(Name)?|photo|photos|attachments|address|card|stripe|payment(Intent|Method)|tip|consent|signature|medical|health|allerg|emergency|pin|token|secret|password|ip$|userAgent|history|messages)/i;
 
+/** What the booking page shows of a public event, and nothing else. */
+const publicEventFields = (e: any) => ({ ...keep(e, ['id', 'title', 'name', 'date', 'time', 'endTime', 'status', 'venue', 'capacity', 'showOnBookingPage']),
+  ...(e.ticketingConfig ? { ticketingConfig: keep(e.ticketingConfig, ['price', 'capacity', 'type']) } : {}) });
 const keep = (o: any, list: string[]) => { const out: any = {}; for (const k of list) if (o[k] !== undefined) out[k] = o[k]; return out; };
 const drop = (o: any, re: RegExp) => { const out: any = {}; for (const [k, v] of Object.entries(o || {})) if (!re.test(k)) out[k] = v; return out; };
 const rows = (snap: any, map: (d: any) => any) => (snap?.docs || []).map((d: any) => ({ id: d.id, ...map(d.data() || {}) }));
@@ -63,6 +68,65 @@ export async function POST(req: NextRequest) {
     const providerId = String(b.providerId || ''); if (!providerId) return NextResponse.json({ ok: true, packages: [], memberships: [] });
     const [ps, ms] = await Promise.all([db.collection(`${T}/renterPackages`).where('staffId', '==', providerId).get().catch(() => ({ docs: [] })), db.collection(`${T}/renterMemberships`).where('staffId', '==', providerId).get().catch(() => ({ docs: [] }))]);
     return NextResponse.json({ ok: true, packages: rows(ps, (x) => drop(x, GENERAL_DROP)), memberships: rows(ms, (x) => drop(x, GENERAL_DROP)) }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+  // Seats left at the business's public events, for the booking page: counts only, never who is coming. The guest
+  // list is the one the business keeps for the event (reservations from the page land on it too).
+  if (b.action === 'event-seats') {
+    const limited = await limitPublic(req, 'event-seats', tenantId, { perHour: 600, perDay: 6000 }); if (limited) return limited;
+    const ids: string[] = (Array.isArray(b.ids) ? b.ids : []).map((x: any) => String(x || '')).filter((x: string) => /^[A-Za-z0-9_-]{1,80}$/.test(x)).slice(0, 8);
+    const seats: Record<string, number> = {};
+    await Promise.all(ids.map(async (id) => {
+      try {
+        const ev: any = (await db.doc(`${T}/studioEvents/${id}`).get()).data(); if (!publicEvent(ev)) return;
+        const cap = eventCapacity(ev); if (cap <= 0) return;
+        const n = (await db.collection(`${T}/eventGuests`).where('eventId', '==', id).count().get()).data().count;
+        seats[id] = Math.max(0, cap - n);
+      } catch (e: any) { console.error('[booking:event-seats]', e?.message || e); }
+    }));
+    return NextResponse.json({ ok: true, seats }, { headers: { 'Cache-Control': 'no-store' } });
+  }
+  // A place at a public event, reserved from the booking page: added to the event's guest list (what the business sees
+  // in the event), never past its limit, once per email.
+  if (b.action === 'event-reserve') {
+    const eventId = String(b.eventId || '');
+    const name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    const email = String(b.email || '').trim().toLowerCase().slice(0, 160); const phone = String(b.phone || '').trim().slice(0, 40);
+    const places = Math.max(1, Math.min(4, Math.floor(Number(b.places) || 1)));
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(eventId) || !name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return NextResponse.json({ ok: false, error: 'Add your name and email.' }, { status: 400 });
+    // A form field people never see: filled in means a script. It's told the same as anyone, and nothing is written.
+    if (String(b.rsv_ref || '').trim()) { console.warn('[booking:event-reserve] trap field filled', tenantId, eventId); return NextResponse.json({ ok: true, title: 'the event' }, { headers: { 'Cache-Control': 'no-store' } }); }
+    const limited = await limitPublic(req, 'event-reserve', tenantId, { perHour: 10, perDay: 1000 }); if (limited) return limited;
+    // And from any one visitor, at most two reservations made for the same event a day, so no one can fill a class
+    // alone: counted inside the reservation itself (so a burst can't slip past), and only for reservations that went
+    // through (a "full" or "only 2 left" answer doesn't use a try up).
+    const { createHash } = await import('crypto');
+    const capRef = db.collection('rateLimits').doc(`event-rsv_${createHash('sha256').update(`${tenantId}|${eventId}|${visitorIp(req)}`).digest('hex').slice(0, 32)}_${Math.floor(Date.now() / 86400000)}`);
+    const tSnap = await db.doc(T).get(); const tt: any = tSnap.data(); if (!tt) return NextResponse.json({ ok: false, error: 'Unknown business.' }, { status: 404 });
+    const evRef = db.doc(`${T}/studioEvents/${eventId}`); const guests = db.collection(`${T}/eventGuests`);
+    try {
+      const r = await db.runTransaction(async (tx: any) => {
+        const ev: any = (await tx.get(evRef)).data();
+        const made = Number(((await tx.get(capRef)).data() as any)?.count) || 0;
+        if (!publicEvent(ev) || String(ev.date) < eventToday(tt)) return { ok: false, error: 'That event isn’t taking reservations.' };
+        const list = (await tx.get(guests.where('eventId', '==', eventId))).docs.map((d: any) => d.data() || {});
+        const cap = eventCapacity(ev); const left = cap > 0 ? cap - list.length : Infinity;
+        // Already on the list: told the same as a new reservation (nobody can test who's coming), nothing added.
+        if (list.some((g: any) => String(g.email || '').toLowerCase() === email)) return { ok: true, already: true, title: ev.title || ev.name || 'the event' };
+        if (left <= 0) return { ok: false, error: 'That event is full.', full: true };
+        if (places > left) return { ok: false, error: `Only ${left} ${left === 1 ? 'place is' : 'places are'} left.`, left };
+        if (made >= 2) return { ok: false, error: 'Too many reservations for this event from here today. To add more, contact the business.', capped: true };
+        const now = new Date().toISOString();
+        for (let i = 0; i < places; i++) { const g = guests.doc();
+          tx.set(g, { id: g.id, eventId, tenantId, name: i === 0 ? name : `${name} (guest ${i})`, email: i === 0 ? email : '', phone: i === 0 ? phone : '', tableId: null, tableNumber: null, seatNumber: null,
+            notes: '', allergies: [], dietaryRestrictions: [], checkedIn: false, source: 'booking page', submittedAt: now }); }
+        tx.set(evRef, { rsvpCount: (Number(ev.rsvpCount) || 0) + places }, { merge: true });
+        tx.set(capRef, { count: made + 1, expiresAt: new Date(Date.now() + 2 * 86400000) }, { merge: true });
+        return { ok: true, title: ev.title || ev.name || 'the event' };
+      });
+      if (r.ok && !(r as any).already && tt.userId) await db.collection(`${T}/notifications`).add({ userId: String(tt.userId), type: 'event_reservation', message: `${name} reserved ${places === 1 ? 'a place' : `${places} places`} at ${(r as any).title} from your booking page.`, link: `/events/${eventId}/manifest`, read: false, createdAt: new Date().toISOString() }).catch(() => undefined);
+      const { already, capped, ...out } = r as any; void already;
+      return NextResponse.json(out, { status: r.ok ? 200 : capped ? 429 : 409, headers: { 'Cache-Control': 'no-store' } });
+    } catch (e: any) { console.error('[booking:event-reserve]', e?.message || e); return NextResponse.json({ ok: false, error: 'That didn’t go through. Try again in a moment.' }, { status: 500 }); }
   }
   const loaded = await loadBookingData(db, T, { exceptHoldId: typeof b?.holdId === 'string' ? b.holdId.slice(0, 40) : null });   // the client's own held time stays open to them
   if (!loaded) return NextResponse.json({ ok: false, error: 'Unknown business.' }, { status: 404 });
@@ -127,7 +191,9 @@ export async function POST(req: NextRequest) {
 
   // Payment deadlines, enforced while the page is busy (at most every 10 min per business).
   await maybeReleaseUnpaid(db, tenantId, req.nextUrl.origin);
-  const studioEvents = rows(se, (x) => drop(x, GENERAL_DROP)).sort((a: any, c: any) => String(a.date || '').localeCompare(String(c.date || '')));
+  // Only the events the owner put on the booking page, and only what the page shows of them: never a private party,
+  // a quote's event, its PIN, costs, guests or seating.
+  const studioEvents = rows(se, (x) => x).filter(publicEvent).map(publicEventFields).sort((a: any, c: any) => String(a.date || '').localeCompare(String(c.date || '')));
   void ap; void sh; void sb; void dof; void tk; void mp; void ce; void sp; // busy data: used only by 'availability' above, never sent
   return NextResponse.json({
     ok: true, fromDay, eventsFromDay,

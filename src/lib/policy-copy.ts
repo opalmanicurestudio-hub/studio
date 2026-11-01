@@ -11,6 +11,7 @@ import { resolveDepositPolicy } from '@/lib/deposit-policy';
 import { resolvePolicy, unpaidFeeLine, unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { graceLines } from '@/lib/grace';
 import { noShowWords } from '@/lib/booth-no-show';
+import { publicService } from '@/lib/agent-access';
 
 const money = (d: number) => `$${(Math.round(d * 100) / 100).toFixed(2)}`;
 const hrs = (h: number) => (h % 24 === 0 && h >= 48 ? `${h / 24} days` : `${h} hour${h === 1 ? '' : 's'}`); // "24 hours", "2 days"
@@ -28,7 +29,7 @@ function feePhrase(tenant: any, service?: any): string | null {
 }
 
 /** The policy lines a client should see with a booking (short; plain words). */
-export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCents?: number } = {}): string[] {
+export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCents?: number; anyDeposit?: boolean } = {}): string[] {
   const t = tenant || {}; const out: string[] = [];
   const windowH = Number(service?.cancellationWindowHours || t.cancellationWindowHours || 0);
   const dep0 = Number(opts.depositCents || 0);
@@ -57,10 +58,10 @@ export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCe
     if (bits.length) out.push(`Please note: ${bits.join(', and ')}.`);
   }
   const dep = Number(opts.depositCents || 0);
-  if (dep > 0) {
+  if (dep > 0 || opts.anyDeposit) {   // anyDeposit: the booking page's full policy, said of deposits in general
     const p = resolveDepositPolicy(t);
     const early = p.onEarlyCancel === 'rollover' ? `we'll save it as credit toward your next visit${p.rolloverExpiryDays ? ` (valid for ${p.rolloverExpiryDays} days)` : ''}` : p.onEarlyCancel === 'refund' ? "we'll refund it" : "we'll keep it";
-    out.push(`Deposit policy: Your ${money(dep / 100)} deposit goes toward your total on the day of your appointment. If you cancel at least ${hrs(p.refundWindowHours)} in advance, ${early}. If you cancel later than that${p.onLateCancel === 'forfeit' ? (lc === 'fee' ? ", we'll save it as credit and the cancellation fee will apply" : lc === 'deposit' ? ", we'll keep it and there's no additional fee" : ", we'll keep it and put it toward the cancellation fee") : p.onLateCancel === 'rollover' ? ", we'll save it as credit" : ", we'll refund it"}.${p.onNoShow === 'forfeit' ? " If an appointment is missed without notice, we'll keep the deposit." : ''}`);
+    out.push(`Deposit policy: ${dep > 0 ? `Your ${money(dep / 100)} deposit` : 'A deposit'} goes toward your total on the day of your appointment. If you cancel at least ${hrs(p.refundWindowHours)} in advance, ${early}. If you cancel later than that${p.onLateCancel === 'forfeit' ? (lc === 'fee' ? ", we'll save it as credit and the cancellation fee will apply" : lc === 'deposit' ? ", we'll keep it and there's no additional fee" : ", we'll keep it and put it toward the cancellation fee") : p.onLateCancel === 'rollover' ? ", we'll save it as credit" : ", we'll refund it"}.${p.onNoShow === 'forfeit' ? " If an appointment is missed without notice, we'll keep the deposit." : ''}`);
   }
   const grace = Number(t.lateArrivalGracePeriod || 0);
   if (t.lateArrivalPolicy) out.push(`Late arrival policy: ${clip(t.lateArrivalPolicy)}`);
@@ -70,6 +71,56 @@ export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCe
   if (Number(t.rescheduleFee) > 0 || resolvePolicy(t).cancel.feeMode.value !== 'none') out.push(unpaidFeeLine(unpaidFeeRuleOf(t)));
   out.push(...graceLines(t));   // the grace allowances, so clients know what flexibility exists
   if (t.makingItRight) out.push(clientPolicyLine(settingsOf(t)));   // Making it right — agreed to with the rest when booking
+  return out;
+}
+
+/** Whether deposits are actually collected: the business's master switch (Settings › Bookings), whatever each service
+ *  says, and the services that take one. */
+export function liveDeposits(tenant: any, services: any[] = []) {
+  if (tenant?.depositsLive !== true) return [];
+  return services.filter(publicService).map((s) => resolvePolicy(tenant, s).deposit).filter((d) => d.required.value);
+}
+
+/** "Before you book" on the booking page: the few rules a new client most needs, short, from the same settings and
+ *  written policies as every message — and only the ones the business has actually set (an untouched default is never
+ *  presented as their rule). The full wording is bookingPolicyLines. */
+export function pagePolicies(tenant: any, services: any[] = []): { title: string; text: string }[] {
+  const t = tenant || {}; const out: { title: string; text: string }[] = []; const short = (x: any) => clip(x, 160);
+  const whole = (x: string) => x.replace(/\$(\d+)\.00\b/g, '$$$1');   // "$25", not "$25.00", in a short line
+  const live = services.filter(publicService);
+  const deposits = liveDeposits(t, live);
+  // Changing or canceling: their written policy, or the window (and fee) they set. A service with its own rules is noted.
+  const windowH = Number(t.cancellationWindowHours || 0); const lc = resolvePolicy(t).cancel.lateConsequence.value;
+  const own = live.some((s) => { const c = resolvePolicy(t, s).cancel; return c.windowHours.source === 'service' || c.feeMode.source === 'service' || c.feeValue.source === 'service'; });
+  const differs = own ? ' Some services have their own; you’ll see theirs when you book.' : '';
+  if (t.cancellationPolicy) out.push({ title: 'Changing or canceling', text: short(t.cancellationPolicy) });
+  else if (windowH > 0) {
+    const fee = feePhrase(t);
+    const later = lc === 'deposit' && deposits.length ? ' Later than that, a deposit is kept.' : fee ? ` Later than that, ${fee}.` : '';
+    out.push({ title: 'Changing or canceling', text: whole(`Free up to ${hrs(windowH)} before.${later}${differs}`) });
+  }
+  // Running late: their written policy, or the grace time / fee they set.
+  const late = resolvePolicy(t).late; const lateFee = Number(late.fee.value) || 0;
+  if (t.lateArrivalPolicy) out.push({ title: 'Running late', text: short(t.lateArrivalPolicy) });
+  else if (late.graceMinutes.source === 'business' || lateFee > 0) {
+    const grace = Number(late.graceMinutes.value) || 0;
+    out.push({ title: 'Running late', text: whole(`${grace > 0 ? `We hold your time for ${grace} minutes, then ${late.autoCancel.value ? 'it may be canceled' : 'may need to shorten your service'}.` : 'Please be on time; a late start may need to be shortened.'}${lateFee > 0 ? ` A ${money(lateFee)} late fee may apply.` : ''}`) });
+  }
+  // Deposits: only when they're collected. Paid in full is said as that, not as a deposit.
+  if (deposits.length) {
+    const full = deposits.filter((d) => d.kind.value === 'full'), part = deposits.filter((d) => d.kind.value !== 'full');
+    const all = deposits.length === live.length;
+    const bits: string[] = [];
+    if (part.length) {
+      const flat = part.every((d) => d.kind.value === 'flat') ? [...new Set(part.map((d) => Number(d.amount.value) || 0))] : [];
+      const amount = flat.length === 1 && flat[0] > 0 ? whole(`a ${money(flat[0])} deposit`) : 'a deposit';
+      const toward = part.every((d) => d.appliesToBalance.value !== false) ? ' It goes toward your visit.' : '';
+      bits.push(`${all && !full.length ? 'Each booking takes' : 'Some services take'} ${amount}.${toward}`);
+    }
+    if (full.length) bits.push(`${all && !part.length ? 'Each booking is' : 'Some services are'} paid in full when you book.`);
+    out.push({ title: 'Deposits', text: bits.join(' ') });
+  }
+  if (noShowWords(t)) out.push({ title: 'Missed appointments', text: short(noShowWords(t)) });
   return out;
 }
 
@@ -98,7 +149,7 @@ export function cancellationOutcomeLines(o: CancelOutcome, opts: { preview?: boo
   if (o.who !== 'studio' && fee > 0) {
     if (o.collected === 'waived') out.push(`${will ? "We'll waive" : "We've waived"} the ${money(fee)} ${o.who === 'no_show' ? 'missed appointment' : 'late cancellation'} fee this time.`);
     else {
-      out.push(o.who === 'no_show' ? `Because we weren't able to see you for your appointment, our missed appointment fee of ${money(fee)} applies.` : `Because your appointment was cancelled within our cancellation notice period, our late cancellation fee of ${money(fee)} applies.`);
+      out.push(o.who === 'no_show' ? `Because we weren't able to see you for your appointment, our missed appointment fee of ${money(fee)} applies.` : `Because your appointment was canceled within our cancellation notice period, our late cancellation fee of ${money(fee)} applies.`);
       if (applied > 0) out.push(`Your ${money(applied)} deposit goes toward this fee${due > 0 ? `, leaving ${money(due)}` : ', which covers it in full'}.`);
       if (due > 0) out.push(o.collected === 'card' ? `${will ? "We'll charge" : "We've charged"} ${money(due)} to your card${o.cardLast4 ? ` ending in ${o.cardLast4}` : ''}.` : `The ${money(due)} will be due at your next visit.`);
     }

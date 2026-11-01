@@ -115,6 +115,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             if (n.type === 'new_walk_in') {
                 icon = <Users className="h-4 w-4 text-green-500" />;
             }
+            if (n.type === 'event_reservation') icon = <Users className="h-4 w-4" style={{ color: '#1f7a4d' }} />;   // a place reserved from the booking page
             return {
                 id,
                 type: n.type,

@@ -4,20 +4,29 @@
 // THE BOOKING PAGE — one design for every business, in the same warm look as the school website (shared kit:
 // src/components/public/kit.tsx). What makes it theirs comes from Settings › Bookings › Booking page (lib/studio-page):
 // their color, the headline and cover photo, which sections show and in what order, and the photos, about words and
-// questions in a few of them. Services by category, the team, real reviews only, and "Visit us" with hours worked out
-// from the team's actual schedules (so they always agree with the times clients can book). A section with nothing in it
-// stays hidden. Booking itself is the same flow, with deposits, forms, text consent, memberships and packages unchanged.
+// questions in a few of them. Services by category, classes and events, the team, real reviews only, the rules a new
+// client most needs (from the same settings every message uses), and "Visit us" with hours worked out from the team's
+// actual schedules (so they always agree with the times clients can book). A section with nothing in it stays hidden.
+// A bar of the sections that show follows the page. Offer codes, member sign-in and members-only services work here
+// the same as everywhere else; booking itself is the same flow, with deposits, forms, text consent, memberships and
+// packages unchanged.
 
 import { GiftCoverBar } from '@/components/gift/GiftCoverBar';
 import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
 import { GiftCardShowcase } from '@/components/gift/GiftCardShowcase';
+import { PublicSheet } from '@/components/public/PublicSheet';
 import { catSlug } from '@/lib/share-links';
-import { usePublicReviews } from '@/lib/booking-sections';
-import { studioPage, headlineParts, sectionShows, type SectionId } from '@/lib/studio-page';
+import { usePublicReviewData } from '@/lib/booking-sections';
+import { studioPage, headlineParts, sectionShows, comingEvents, eventCapacity, eventToday, type SectionId } from '@/lib/studio-page';
+import { bookingPolicyLines, pagePolicies, liveDeposits } from '@/lib/policy-copy';
+import { publicService } from '@/lib/agent-access';
+import { resolvePolicy } from '@/lib/booking-policies';
+import { releaseSentence } from '@/lib/booking-release';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { moduleEnabled } from '@/lib/modules';
-import { Clock, Mail, MapPin, Minus, Phone, Plus } from 'lucide-react';
+import { ChevronRight, Clock, Mail, MapPin, Minus, Phone, Plus, Tag } from 'lucide-react';
 import * as React from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PublicFrame, Section, PrimaryButton, QuietButton, money, minutes } from '@/components/public/kit';
 
 const DAYS: [string, string][] = [['monday', 'Mon'], ['tuesday', 'Tue'], ['wednesday', 'Wed'], ['thursday', 'Thu'], ['friday', 'Fri'], ['saturday', 'Sat'], ['sunday', 'Sun']];
@@ -29,21 +38,43 @@ function addressLine(a: any): string {
   return '';
 }
 const clock = (t: string) => { const [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'pm' : 'am'; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, '0')}${ap}` : `${hh}${ap}`; };
+const clockUp = (t: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); if (!m) return ''; const h = Number(m[1]); return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
+/** "$20 deposit" or "50% deposit" on a service that takes one (the same rule the booking charges by). */
+const depositWords = (tenant: any, s: any) => { if (tenant?.depositsLive !== true) return ''; const d = resolvePolicy(tenant, s).deposit; if (!d.required.value) return ''; const a = Number(d.amount.value) || 0;
+  return d.kind.value === 'flat' && a > 0 ? `${money(a)} deposit` : d.kind.value === 'percent' && a > 0 ? `${a}% deposit` : d.kind.value === 'full' ? 'paid when you book' : 'deposit'; };
+const mins = (t: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+/** Five stars, filled to the nearest whole star (the number beside them is exact). */
+const Stars = ({ of }: { of: number }) => { const n = Math.max(0, Math.min(5, Math.round(of))); return <span aria-hidden style={{ color: 'var(--accent)' }}>{'★'.repeat(n)}<span style={{ opacity: 0.3 }}>{'★'.repeat(5 - n)}</span></span>; };
+/** The words in the bar of sections, shorter than the section titles. */
+const CHIP: Partial<Record<SectionId, string>> = { services: 'Services', offers: 'Memberships', events: 'Events', team: 'Team', work: 'Our work', reviews: 'Reviews', about: 'About', policies: 'Good to know', faqs: 'Questions', gifts: 'Gift cards', visit: 'Visit us' };
+/** Where each section sits on the page. */
+const ANCHOR: Partial<Record<SectionId, string>> = { faqs: 'questions', gifts: 'gift-cards' };
+const anchor = (id: SectionId) => ANCHOR[id] || id;
 
-export function StudioBookingPage({ tenant, services, staff, accent, onBook, focus, giftCents = 0, preview = false }: {
+export type PageOffer = { code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean; from?: string };
+
+export function StudioBookingPage({ tenant, services, staff, accent, onBook, focus, giftCents = 0, preview = false, events = [], renters = [], offer = null, onOfferCode, member = null, onMember, askFor = null }: {
   tenant: any; services: any[]; staff: any[]; accent: string;
   preview?: boolean;     // shown small in Settings: nothing fixed to the screen, no reviews fetched
-  giftCents?: number;   // came from their gift card: the bar on top + a ✓ on the services it covers
+  giftCents?: number;   // came from their gift card: the bar on top, and "Covered by your gift card" on the services it covers
   onBook: (service: any, staffId?: string) => void;
   focus?: any | null;   // a shared link to ONE service → the page is about that service (from a website, a QR code, a bio)
+  events?: any[];       // the business's public classes and events
+  renters?: any[];      // renters here who take bookings on their own site ("Also here")
+  offer?: PageOffer | null;                                  // the offer they're booking with (a link, a campaign, a code)
+  onOfferCode?: (code: string) => Promise<string | null>;    // checks a typed code: null when it worked, else what to say
+  member?: boolean | null;                                   // signed in as a member: members-only services open
+  onMember?: (contact: string) => Promise<boolean>;          // signs in by the email or phone on their membership (throws 'throttled' or when it can't check)
+  askFor?: { service: any; at: number } | null;              // a members-only service asked for from outside the page: sign in for it
 }) {
   const name = tenant?.name || 'Book an appointment';
   const page = useMemo(() => studioPage(tenant), [tenant]);
   const [plain, bold] = headlineParts(page.headline);
   // Clients' own reviews the business chose to show (Reviews → Visits); the ones typed in the old page builder until then.
-  const real = usePublicReviews(page.on.reviews && !preview ? tenant?.id : undefined);
+  const rv = usePublicReviewData((page.on.reviews || page.showRating) && !preview ? tenant?.id : undefined);
+  const real = rv.reviews;
   const reviews = page.on.reviews ? (real.length ? real.slice(0, 6) : page.typedReviews) : [];
-  const bookable = services.filter((s) => s.isActive !== false);
+  const bookable = useMemo(() => services.filter(publicService), [services]);
   const groups = useMemo(() => {
     const m = new Map<string, any[]>(); const ordered = [...bookable].sort((a: any, b: any) => (Number.isFinite(a.menuOrder) ? a.menuOrder : 1e9) - (Number.isFinite(b.menuOrder) ? b.menuOrder : 1e9) || String(a.name).localeCompare(String(b.name)));   // the owner's menu order
     for (const s of ordered) { const k = s.category || 'Services'; m.set(k, [...(m.get(k) || []), s]); } return [...m.entries()];
@@ -61,18 +92,143 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   const addr = addressLine(tenant?.address);
   const [allWork, setAllWork] = useState(false);
   const [openFaq, setOpenFaq] = useState(0);
-  const bookTop = () => document.getElementById('services')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Scrolls a section to just under the header and the bar of sections.
+  const top = useRef<HTMLElement>(null);
+  const go = (id: string) => {
+    const el = document.getElementById(id); if (!el) return;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - (top.current?.offsetHeight || 64) - 8, behavior: reduce ? 'auto' : 'smooth' });
+  };
+  const bookTop = () => go('services');
   // "Book with Jessica": remember her while the client chooses a service.
   const [withId, setWithId] = useState<string | null>(null);
   const withWho = withId ? team.find((m: any) => m.id === withId) : null;
 
+  // Classes and events still to come, soonest first (the business's own day, so today's stays up all day).
+  const today = eventToday(tenant);
+  const coming = useMemo(() => comingEvents(events, today), [events, today]);
+  const [seats, setSeats] = useState<Record<string, number>>({});
+  const seatIds = coming.filter((e: any) => eventCapacity(e) > 0).map((e: any) => e.id).join(',');
+  useEffect(() => {
+    if (!tenant?.id || !seatIds || preview) return; let live = true;
+    fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenant.id, action: 'event-seats', ids: seatIds.split(',') }) })
+      .then((r) => r.json()).then((d) => { if (live && d?.ok && d.seats) setSeats(d.seats); }).catch(() => {});
+    return () => { live = false; };
+  }, [tenant?.id, seatIds, preview]);
+
+  // Reserving a place at an event, right here (it lands on the event's guest list).
+  const [reserve, setReserve] = useState<any | null>(null);
+  const [rsv, setRsv] = useState({ name: '', email: '', phone: '', places: 1, rsv_ref: '' }); const [rsvBusy, setRsvBusy] = useState(false); const [rsvErr, setRsvErr] = useState(''); const [rsvDone, setRsvDone] = useState<string | null>(null);
+  const openReserve = (e: any) => { setRsvErr(''); setRsvDone(null); setRsv((r) => ({ ...r, places: 1, rsv_ref: '' })); setReserve(e); };
+  const reserveNow = async () => {
+    if (!reserve || rsvBusy) return; if (!rsv.name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rsv.email.trim())) { setRsvErr('Add your name and email.'); return; }
+    setRsvBusy(true); setRsvErr('');
+    try {
+      const r = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenant.id, action: 'event-reserve', eventId: reserve.id, name: rsv.name, email: rsv.email, phone: rsv.phone, places: rsv.places, rsv_ref: rsv.rsv_ref }) });
+      const d = await r.json().catch(() => null);
+      // How many places are left now: the choice of places follows it, so what's shown is what's sent.
+      const now = d?.full ? 0 : typeof d?.left === 'number' ? d.left : undefined;
+      if (now !== undefined) { setSeats((x) => ({ ...x, [reserve.id]: now })); setRsv((x) => ({ ...x, places: Math.max(1, Math.min(x.places, now)) })); }
+      if (!d?.ok) { setRsvErr(d?.error || 'That didn’t go through. Try again in a moment.'); return; }
+      // Said the same for a new reservation and one already made (to change places, the business does it).
+      setRsvDone('You’re on the list. See you there. To change how many are coming, contact the business.');
+      fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenant.id, action: 'event-seats', ids: [reserve.id] }) })
+        .then((x) => x.json()).then((x) => { if (x?.ok && x.seats && typeof x.seats[reserve.id] === 'number') setSeats((y) => ({ ...y, [reserve.id]: x.seats[reserve.id] })); }).catch(() => {});
+    } catch { setRsvErr('That didn’t go through. Try again in a moment.'); } finally { setRsvBusy(false); }
+  };
+
+  // Before you book: the few rules a new client most needs, and every word of them a tap away.
+  const rules = useMemo(() => pagePolicies(tenant, bookable), [tenant, bookable]);
+  const [fullPolicy, setFullPolicy] = useState(false);
+
+  // Members: members-only services show with a label, and booking one asks them to sign in first.
+  const membersOnly = bookable.some((s: any) => s.membersOnly === true);
+  const release = useMemo(() => releaseSentence(tenant?.bookingRelease || null, new Date(), tenantTimeZone(tenant)), [tenant]);
+  const memberPerk = !!onMember && (membersOnly || !!release.members);
+  const [signIn, setSignIn] = useState<{ then?: any } | null>(null);
+  const [contact, setContact] = useState(''); const [signBusy, setSignBusy] = useState(false); const [signErr, setSignErr] = useState('');
+  // Each opening of the sign-in is its own attempt: an answer that arrives after it was closed (or opened again for
+  // another service) opens nothing.
+  const attempt = useRef(0);
+  const askSignIn = (then?: any) => { attempt.current += 1; setSignErr(''); setSignIn(then ? { then } : {}); };
+  const signInNow = async () => {
+    const v = contact.trim(); if (!v || !onMember || signBusy) return;
+    const mine = attempt.current; const then = signIn?.then;
+    setSignBusy(true); setSignErr('');
+    let ok = false;
+    try { ok = await onMember(v); }
+    catch (e: any) { setSignBusy(false); if (mine === attempt.current) setSignErr(e?.message === 'throttled' ? 'Too many tries for now. Please try again in an hour.' : 'We couldn’t check right now. Try again in a moment.'); return; }
+    setSignBusy(false);
+    if (mine !== attempt.current) return;   // closed, or opened again for something else, while checking
+    if (!ok) { setSignErr('We couldn’t find an active membership under that. Check the email or phone on your membership.'); return; }
+    attempt.current += 1; setSignIn(null);
+    if (then && !preview) onBook(then, withId || undefined);
+  };
+  // Asked from outside (a link or a website button for a members-only service): the sign-in opens for it.
+  useEffect(() => { if (askFor?.service && onMember) askSignIn(askFor.service); }, [askFor]); // eslint-disable-line react-hooks/exhaustive-deps
+  const book = (s: any) => { if (s.membersOnly === true && member !== true && onMember) { askSignIn(s); return; } onBook(s, withId || undefined); };
+
+  // An offer code typed on the page.
+  const [codeOpen, setCodeOpen] = useState(false); const [code, setCode] = useState(''); const [codeErr, setCodeErr] = useState(''); const [codeBusy, setCodeBusy] = useState(false);
+  const applyCode = async () => {
+    const v = code.trim(); if (!v || !onOfferCode) return;
+    setCodeBusy(true); setCodeErr('');
+    try { const err = await onOfferCode(v); if (err) setCodeErr(err); else { setCodeOpen(false); setCode(''); } } finally { setCodeBusy(false); }
+  };
+
   // Each section of the page, shown only when switched on and with something in it.
   const giftsOn = !!(tenant?.id && tenant?.giftCardSettings?.online && tenant.giftCardSettings.onBooking !== false);
-  const counts: Partial<Record<SectionId, number>> = { team: team.length, reviews: reviews.length, gifts: giftsOn ? 1 : 0, spaces: 1, visit: addr || tenant?.phone || tenant?.email || hasHours ? 1 : 0 };
+  const counts: Partial<Record<SectionId, number>> = { team: team.length, reviews: reviews.length, gifts: giftsOn ? 1 : 0, spaces: 1, events: coming.length, policies: rules.length,
+    waitlist: tenant?.id ? 1 : 0, visit: addr || tenant?.phone || tenant?.email || hasHours ? 1 : 0 };
+  const shows = (id: SectionId) => sectionShows(page, id, counts, (m) => moduleEnabled(tenant, m as any));
+
+  // The bar of sections: the ones that show, in the page's order; the one being read is marked.
+  const chips = useMemo(() => (focus ? [] : (['services', ...page.order.filter((id) => id !== 'services')] as SectionId[]).filter((id) => CHIP[id] && (id === 'services' || (shows(id) && !(preview && id === 'gifts'))))), // eslint-disable-line react-hooks/exhaustive-deps
+    [page, focus, preview, team.length, reviews.length, giftsOn, coming.length, rules.length, addr, hasHours]);
+  const [current, setCurrent] = useState<SectionId>('services');
+  const chipRow = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (chips.length < 2) return; let raf = 0;
+    const read = () => { raf = 0; const line = (top.current?.offsetHeight || 64) + 24; let on: SectionId = chips[0];
+      for (const id of chips) { const el = document.getElementById(anchor(id)); if (el && el.getBoundingClientRect().top <= line) on = id; }
+      setCurrent((c) => (c === on ? c : on)); };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(read); };
+    read(); window.addEventListener('scroll', onScroll, { passive: true }); window.addEventListener('resize', onScroll);
+    return () => { if (raf) cancelAnimationFrame(raf); window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
+  }, [chips]);
+  useEffect(() => {   // keeps the marked chip in view inside the bar, without moving the page
+    const row = chipRow.current; const el = row?.querySelector<HTMLElement>(`[data-chip="${current}"]`); if (!row || !el) return;
+    const left = el.offsetLeft - 16, right = el.offsetLeft + el.offsetWidth + 16; const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    if (left < row.scrollLeft) row.scrollTo({ left, behavior }); else if (right > row.scrollLeft + row.clientWidth) row.scrollTo({ left: right - row.clientWidth, behavior });
+  }, [current]);
+
+  const rentersHere = renters.filter((m: any) => m?.externalBookingUrl && /^https?:\/\//i.test(String(m.externalBookingUrl)));
+  const alsoHere = rentersHere.length > 0 && <div className="mt-3 space-y-3">{rentersHere.map((m: any) => (
+    <a key={m.id} href={m.externalBookingUrl} target="_blank" rel="noopener noreferrer" className="pub-card flex min-h-16 items-center gap-3 p-4">
+      {m.photoUrl || m.avatarUrl ? <img src={m.photoUrl || m.avatarUrl} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" /> : <span className="h-11 w-11 shrink-0 rounded-full" style={{ background: 'color-mix(in srgb, var(--accent) 18%, #fff)' }} aria-hidden />}
+      <span className="min-w-0 flex-1"><span className="block truncate text-[15px] font-semibold">Also here: {m.name}{(m.specialties || [])[0] ? `, ${String(m.specialties[0]).toLowerCase()}` : ''}</span>
+        <span className="block text-[13px] text-stone-500">Books on their own site</span></span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-stone-400" aria-hidden /><span className="sr-only">(opens their booking site)</span>
+    </a>))}</div>;
+
   const part = (id: SectionId): React.ReactNode => {
-    if (!sectionShows(page, id, counts, (m) => moduleEnabled(tenant, m as any))) return null;
+    if (!shows(id)) return null;
     if (id === 'spaces') return tenant?.id && !preview ? <div id="spaces"><BoothListingsSection tenantId={tenant.id} config={{ kind: 'spaces', title: 'Book a space', subtitle: 'By the hour or the day, no appointment needed.', showMonthly: false, hideWhenEmpty: true }} /></div> : null;
-    if (id === 'team') return team.length > 0 ? <Section id="team" eyebrow="The team" title={<>Meet the <b>people</b></>}>
+    if (id === 'events') return <Section id="events" eyebrow="Classes and events" title={<>Coming <b>up</b></>}>
+      <div className="grid max-w-3xl gap-3">{coming.map((e: any) => {
+        const d = new Date(`${e.date}T12:00:00`); const start = mins(e.time), end = mins(e.endTime);
+        const left = seats[e.id]; const full = left === 0;
+        const meta = [clockUp(e.time), start !== null && end !== null && end > start ? minutes(end - start) : '', e.venue ? String(e.venue) : '', left !== undefined && left > 0 ? `${left} ${left === 1 ? 'place' : 'places'} left` : ''].filter(Boolean).join(' · ');
+        return (
+          <div key={e.id} className="pub-card flex items-center gap-4 p-4">
+            <div className="w-12 shrink-0 text-center" aria-hidden><p className="text-[12px] font-semibold tracking-wide" style={{ color: 'var(--accent)', textTransform: 'uppercase' }}>{d.toLocaleDateString('en-US', { month: 'short' })}</p><p className="text-[24px] font-light leading-none">{d.getDate()}</p></div>
+            <div className="min-w-0 flex-1"><p className="text-[16px] font-semibold"><span className="sr-only">{d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}: </span>{e.title || e.name || 'Event'}</p>{meta && <p className="mt-0.5 text-[13px] text-stone-500">{meta}</p>}</div>
+            {full ? <span className="shrink-0 rounded-full bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-500">Full</span>
+              : preview ? <span className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Reserve</span>
+              : <button type="button" onClick={() => openReserve(e)} className="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Reserve<span className="sr-only"> a place at {e.title || e.name || 'this event'}</span></button>}
+          </div>); })}</div>
+    </Section>;
+    if (id === 'team') return <Section id="team" eyebrow="The team" title={<>Meet the <b>people</b></>}>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{team.map((m: any) => (
         <div key={m.id} className="pub-card space-y-3 p-5">
           <div className="flex items-center gap-3">{m.avatarUrl ? <img src={m.avatarUrl} alt="" className="h-14 w-14 rounded-full object-cover" /> : <span className="flex h-14 w-14 items-center justify-center rounded-full text-lg font-semibold text-white" style={{ background: 'var(--accent)' }} aria-hidden>{String(m.name || '?').slice(0, 1)}</span>}
@@ -81,8 +237,8 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
           <button type="button" onClick={() => { setWithId(m.id); bookTop(); }} className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent)' }}>Book with {String(m.name || '').split(' ')[0]}</button>
         </div>
       ))}</div>
-    </Section> : null;
-    if (id === 'work') return page.work.length > 0 ? <Section id="work" eyebrow="Our work" title={<>Recent <b>work</b></>}>
+    </Section>;
+    if (id === 'work') return <Section id="work" eyebrow="Our work" title={<>Recent <b>work</b></>}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{(allWork ? page.work : page.work.slice(0, 4)).map((w, i) => (
         <figure key={w.url + i} className="relative overflow-hidden rounded-[1.25rem] bg-white">
           <img src={w.url} alt={w.caption ? `${w.caption}, by ${name}` : `Work by ${name}, photo ${i + 1}`} loading="lazy" className="aspect-square w-full object-cover" />
@@ -90,30 +246,37 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
         </figure>
       ))}</div>
       {page.work.length > 4 && <button type="button" onClick={() => setAllWork((v) => !v)} className="mt-3 inline-flex min-h-11 items-center text-[14px] font-medium" style={{ color: 'var(--accent)' }}>{allWork ? 'Show fewer' : `See all ${page.work.length} photos`}</button>}
-    </Section> : null;
-    if (id === 'reviews') return reviews.length > 0 ? <Section id="reviews" eyebrow="Kind words" title={<>What clients <b>say</b></>}>
+    </Section>;
+    if (id === 'reviews') return <Section id="reviews" eyebrow="Kind words" title={<>What clients <b>say</b></>}>
+      {real.length > 0 && rv.count >= 3 && rv.average > 0 && <p className="-mt-2 mb-4 text-[15px] text-stone-600"><Stars of={rv.average} /> <b className="text-stone-800">{rv.average.toFixed(1)}</b> · {rv.count} reviews</p>}
       <div className="grid gap-3 sm:grid-cols-3">{reviews.map((r, i) => (
         <figure key={i} className="pub-card space-y-3 p-5"><p aria-label={`${r.rating} out of 5 stars`} style={{ color: 'var(--accent)' }}>{'★'.repeat(Math.max(1, Math.min(5, Number(r.rating) || 5)))}</p><blockquote className="text-[15px] text-stone-700">“{r.text}”</blockquote><figcaption className="text-[14px] font-semibold">{r.name}</figcaption></figure>
       ))}</div>
-    </Section> : null;
-    if (id === 'about') return page.about.text ? <Section id="about" eyebrow="About us" title={<>About <b>{name}</b></>}>
+    </Section>;
+    if (id === 'about') return <Section id="about" eyebrow="About us" title={<>About <b>{name}</b></>}>
       <div className="grid items-start gap-6 md:grid-cols-2">
         {page.about.photo?.url && <img src={page.about.photo.url} alt="" loading="lazy" className="aspect-[4/3] w-full rounded-[1.5rem] object-cover" />}
         <div className="space-y-4 text-[16px] leading-relaxed text-stone-700">{page.about.text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</div>
       </div>
-    </Section> : null;
-    if (id === 'faqs') return page.faqs.length > 0 ? <Section id="questions" eyebrow="Questions" title={<>Asked <b>often</b></>}>
+    </Section>;
+    if (id === 'policies') return <Section id="policies" eyebrow="Before you book" title={<>Good to <b>know</b></>}>
+      <div className="pub-card max-w-3xl px-5 py-2">
+        <dl className="divide-y divide-stone-200">{rules.map((r) => <div key={r.title} className="py-3"><dt className="text-[15px] font-semibold">{r.title}</dt><dd className="mt-0.5 text-[14px] leading-relaxed text-stone-600">{r.text}</dd></div>)}</dl>
+        <div className="border-t border-stone-200 py-2"><button type="button" onClick={() => setFullPolicy(true)} className="inline-flex min-h-11 items-center text-[14px] font-medium" style={{ color: 'var(--accent)' }}>Read our full policy</button></div>
+      </div>
+    </Section>;
+    if (id === 'faqs') return <Section id="questions" eyebrow="Questions" title={<>Asked <b>often</b></>}>
       <div className="max-w-3xl divide-y divide-stone-200 border-y border-stone-200">{page.faqs.map((f, i) => { const open = openFaq === i; return (
         <div key={i}>
           <h3><button type="button" aria-expanded={open} aria-controls={`faq-${i}`} onClick={() => setOpenFaq(open ? -1 : i)} className="flex min-h-14 w-full items-center justify-between gap-4 py-3 text-left text-[16px] font-medium">
             <span>{f.q}</span>{open ? <Minus className="h-4 w-4 shrink-0 text-stone-500" aria-hidden /> : <Plus className="h-4 w-4 shrink-0 text-stone-500" aria-hidden />}</button></h3>
           <p id={`faq-${i}`} hidden={!open} className="pb-4 text-[15px] leading-relaxed text-stone-600">{f.a}</p>
         </div>); })}</div>
-    </Section> : null;
-    if (id === 'gifts') return tenant?.id && tenant?.giftCardSettings?.online && tenant.giftCardSettings.onBooking !== false && !preview ? <Section id="gift-cards" eyebrow="Gift cards" title={<>Give the gift of a <b>visit</b></>}>
+    </Section>;
+    if (id === 'gifts') return giftsOn && !preview ? <Section id="gift-cards" eyebrow="Gift cards" title={<>Give the gift of a <b>visit</b></>}>
       <GiftCardShowcase tenantId={tenant.id} brand={{ name, logo: tenant?.logoUrl || null, accent }} items={tenant.giftCardSettings.showcase || null} services={bookable} offered={tenant.giftCardSettings.designs || null} />
     </Section> : null;
-    if (id === 'visit') return (addr || tenant?.phone || tenant?.email || hasHours) ? <Section id="visit" eyebrow="Visit us" title={<>Find <b>us</b></>}>
+    if (id === 'visit') return <Section id="visit" eyebrow="Visit us" title={<>Find <b>us</b></>}>
       <div className="grid gap-3 md:grid-cols-2">
         <div className="pub-card space-y-3 p-5 text-[15px]">
           {addr && <p className="flex gap-3"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden /><span>{addr}<br /><a href={`https://maps.google.com/?q=${encodeURIComponent(addr)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent)' }}>Get directions</a></span></p>}
@@ -122,18 +285,35 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
         </div>
         {hasHours && <div className="pub-card p-5"><p className="mb-2 flex items-center gap-2 font-semibold"><Clock className="h-4 w-4 text-stone-500" aria-hidden />Hours</p><dl className="grid grid-cols-[3.5rem_1fr] gap-y-1 text-[15px]">{hours.map((h) => <div key={h.label} className="contents"><dt className="text-stone-500">{h.label}</dt><dd className={h.text === 'Closed' ? 'text-stone-400' : ''}>{h.text}</dd></div>)}</dl></div>}
       </div>
-    </Section> : null;
+      {alsoHere}
+    </Section>;
+    if (id === 'waitlist') return <p className="mx-auto max-w-6xl px-4 py-6 text-center text-[15px] text-stone-600">Can’t find a time? {preview ? <span className="font-medium" style={{ color: 'var(--accent)' }}>Join the waitlist</span> : <a href={`/w/${encodeURIComponent(tenant.id)}`} className="inline-flex min-h-11 items-center font-medium underline-offset-4 hover:underline" style={{ color: 'var(--accent)' }}>Join the waitlist</a>}</p>;
     return null;
   };
 
+  const rating = page.showRating && rv.count >= 3 && rv.average > 0;
+  // The offer they're booking with (from a link, a campaign or a code they typed), taken off at the visit.
+  const offerCard = offer && <div className="pub-card flex max-w-xl items-start gap-3 p-4" role="status">
+    <Tag className="mt-0.5 h-5 w-5 shrink-0" style={{ color: 'var(--accent)' }} aria-hidden />
+    <div className="min-w-0"><p className="text-[16px] font-semibold">{offer.amount || offer.line}</p>
+      <p className="text-[13.5px] text-stone-500">{[offer.from ? `From ${offer.from}’s link` : `Code ${offer.code}`, offer.until ? `until ${offer.until}` : '', offer.oncePer ? 'one per client' : ''].filter(Boolean).join(' · ')}. Taken off at your visit.</p></div>
+  </div>;
   return (
     <PublicFrame accent={accent}>
-      <header className="sticky top-0 z-30 border-b border-stone-200/70 bg-[#faf8f5]/90 backdrop-blur" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+      <header ref={top} className="sticky top-0 z-30 border-b border-stone-200/70 bg-[#faf8f5]/90 backdrop-blur" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 items-center gap-2.5">{tenant?.logoUrl && <img src={tenant.logoUrl} alt="" className="h-9 w-9 rounded-xl object-contain" />}<span className="truncate text-[17px] font-semibold">{name}</span></div>
-          <div className="flex shrink-0 items-center gap-2">{tenant?.giftCardSettings?.online && tenant?.id && <a href={tenant.giftCardSettings.onBooking !== false ? '#gift-cards' : `/gift/${tenant.id}`} className="inline-flex h-10 items-center rounded-full px-4 text-sm font-medium text-stone-700 hover:bg-stone-100">Gift cards</a>}
+          <div className="flex shrink-0 items-center gap-2">{tenant?.giftCardSettings?.online && tenant?.id && <a href={giftsOn && shows('gifts') ? '#gift-cards' : `/gift/${tenant.id}`} onClick={(e) => { if (giftsOn && shows('gifts')) { e.preventDefault(); go('gift-cards'); } }} className="inline-flex h-10 items-center rounded-full px-4 text-sm font-medium text-stone-700 hover:bg-stone-100">Gift cards</a>}
           <PrimaryButton onClick={bookTop} className="h-10 px-5 text-sm">Book</PrimaryButton></div>
         </div>
+        {chips.length > 1 && <nav aria-label="Sections of this page" className="border-t border-stone-200/60">
+          <div ref={chipRow} className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {chips.map((id) => { const on = current === id; return (
+              <a key={id} data-chip={id} href={`#${anchor(id)}`} aria-current={on ? 'location' : undefined} onClick={(e) => { e.preventDefault(); setCurrent(id); go(anchor(id)); }} className="inline-flex h-11 shrink-0 items-center">
+                <span className="inline-flex h-9 items-center rounded-full px-4 text-[14px] font-medium transition-colors"
+                  style={on ? { background: '#1c1917', color: '#fff' } : { background: '#fff', color: '#44403c', boxShadow: 'inset 0 0 0 1px rgba(28,25,23,.08)' }}>{CHIP[id]}</span></a>); })}
+          </div>
+        </nav>}
       </header>
 
       <main id="main">
@@ -144,7 +324,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
               <h1 className="text-4xl leading-[1.08] sm:text-6xl">{focus.name}</h1>
               <p className="text-lg text-stone-700">{focus.duration ? `${focus.duration} min · ` : ''}{(focus.priceIsFrom || (focus.serviceTiers || []).length ? 'from ' : '')}${(Number(focus.price) || 0).toFixed(0)}</p>
               {focus.description && <p className="max-w-xl text-lg text-stone-600">{focus.description}</p>}
-              <div className="flex flex-wrap items-center gap-3"><PrimaryButton onClick={() => onBook(focus)}>Book {focus.name}</PrimaryButton><QuietButton href="#services">See all services</QuietButton></div>
+              <div className="flex flex-wrap items-center gap-3"><PrimaryButton onClick={() => book(focus)}>Book {focus.name}</PrimaryButton><QuietButton onClick={bookTop}>See all services</QuietButton></div>
             </div>
             {(focus.imageUrl || photo) && <div className="pub-rise pub-card overflow-hidden" style={{ animationDelay: '.1s' }}><img src={focus.imageUrl || photo} alt="" className="aspect-[4/3] w-full object-cover" /></div>}
           </section>
@@ -152,40 +332,95 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
         <section className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-12 sm:py-20 md:grid-cols-2">
           <div className="pub-rise space-y-5">
             <h1 className="text-4xl leading-[1.08] sm:text-6xl">{page.headline ? <>{plain}{bold && <> <b>{bold}</b></>}</> : <>Welcome to <b>{name}</b></>}</h1>
+            {rating && <p className="text-[15px] text-stone-600">{shows('reviews') ? <a href="#reviews" onClick={(e) => { e.preventDefault(); go('reviews'); }} className="inline-flex min-h-11 items-center gap-1.5"><Stars of={rv.average} /><b className="text-stone-800">{rv.average.toFixed(1)}</b> · {rv.count} reviews</a>
+              : <span className="inline-flex items-center gap-1.5"><Stars of={rv.average} /><b className="text-stone-800">{rv.average.toFixed(1)}</b> · {rv.count} reviews</span>}</p>}
             <p className="max-w-xl text-lg text-stone-600">{page.description || 'Book your next visit online in under a minute: pick a service, a time, and you’re done.'}</p>
-            <div className="flex flex-wrap gap-3"><PrimaryButton onClick={bookTop}>Book an appointment</PrimaryButton>{team.length > 0 && <QuietButton href="#team">Meet the team</QuietButton>}</div>
+            <div className="flex flex-wrap gap-3"><PrimaryButton onClick={bookTop}>Book an appointment</PrimaryButton>{team.length > 0 && shows('team') && <QuietButton onClick={() => go('team')}>Meet the team</QuietButton>}</div>
+            {memberPerk && member !== true && <p><button type="button" onClick={() => askSignIn()} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent)' }}>Member? Sign in</button></p>}
+            {member === true && <p className="text-[15px] font-medium" style={{ color: '#1f7a4d' }} role="status">Signed in as a member{membersOnly ? ': members-only services are open' : ''}.</p>}
+            {offer && offerCard}
           </div>
           {photo && <div className="pub-rise pub-card overflow-hidden" style={{ animationDelay: '.1s' }}><img src={photo} alt="" className="aspect-[4/3] w-full object-cover" /></div>}
         </section>)}
 
+        {offer && focus && <div className="mx-auto max-w-6xl px-4">{offerCard}</div>}
+
         <Section id="services" eyebrow="Services" title={<>Choose your <b>service</b></>}>
-          {withWho && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-[15px] shadow-sm" role="status"><span>Booking with <b>{withWho.name}</b> — choose a service</span><button type="button" onClick={() => setWithId(null)} className="text-[14px] underline underline-offset-4">Anyone is fine</button></div>}
-          {giftCents > 0 && <div className="mb-5"><GiftCoverBar studio cents={giftCents} services={bookable} accent={accent} onPick={(s) => onBook(s, withId || undefined)} /></div>}
-          {bookable.length === 0 ? <p className="text-stone-600">Online booking is coming soon — please check back shortly.</p> : (
+          {withWho && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-[15px] shadow-sm" role="status"><span>Booking with <b>{withWho.name}</b>: choose a service</span><button type="button" onClick={() => setWithId(null)} className="inline-flex min-h-11 items-center text-[14px] underline underline-offset-4">Anyone is fine</button></div>}
+          {giftCents > 0 && <div className="mb-5"><GiftCoverBar studio cents={giftCents} services={bookable.filter((s: any) => s.membersOnly !== true || member === true)} accent={accent} onPick={(s) => book(s)} /></div>}
+          {bookable.length === 0 ? <p className="text-stone-600">Online booking is coming soon. Please check back shortly.</p> : (
             <div className="space-y-8">{groups.map(([cat, list]) => (
-              <div key={cat} id={`cat-${catSlug(cat)}`} className="space-y-3 scroll-mt-24">
+              <div key={cat} id={`cat-${catSlug(cat)}`} className="space-y-3 scroll-mt-32">
                 {groups.length > 1 && <h3 className="text-lg font-semibold">{cat}</h3>}
-                <div className="grid gap-3 sm:grid-cols-2">{list.map((s: any, i: number) => (
-                  <button key={s.id} type="button" onClick={() => onBook(s, withId || undefined)} className="pub-rise pub-card flex w-full items-center gap-4 p-4 text-left transition hover:-translate-y-0.5" style={{ animationDelay: `${Math.min(i, 8) * 0.04}s` }} aria-label={`Book ${s.name}`}>
+                <div className="grid gap-3 sm:grid-cols-2">{list.map((s: any, i: number) => { const locked = s.membersOnly === true && member !== true; return (
+                  <button key={s.id} type="button" onClick={() => book(s)} className="pub-rise pub-card flex w-full items-center gap-4 p-4 text-left transition hover:-translate-y-0.5" style={{ animationDelay: `${Math.min(i, 8) * 0.04}s` }} aria-label={`Book ${s.name}${locked ? ', for members' : ''}`}>
                     {s.imageUrl && <img src={s.imageUrl} alt="" className="h-16 w-16 shrink-0 rounded-2xl object-cover" />}
-                    <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">{s.name}</span>
-                      <span className="mt-0.5 block text-[13px] text-stone-500">{[minutes(s.duration), money(s.price) && `${s.priceIsFrom || (s.serviceTiers || []).length ? 'from ' : ''}${money(s.price)}`].filter(Boolean).join(' · ')}</span>
+                    <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><span className="text-[16px] font-semibold">{s.name}</span>{s.membersOnly === true && <span className="rounded-full bg-stone-100 px-2.5 py-0.5 text-[12px] font-medium text-stone-600">Members</span>}</span>
+                      <span className="mt-0.5 block text-[13px] text-stone-500">{[minutes(s.duration), money(s.price) && `${s.priceIsFrom || (s.serviceTiers || []).length ? 'from ' : ''}${money(s.price)}`, depositWords(tenant, s)].filter(Boolean).join(' · ')}</span>
                       {giftCents > 0 && Number(s.price) > 0 && Number(s.price) * 100 <= giftCents && <span className="mt-1 inline-block rounded-full px-2.5 py-0.5 text-[12px] font-medium" style={{ background: '#e9f3ed', color: '#1f7a4d' }}>Covered by your gift card</span>}
                       {s.description && <span className="mt-1 line-clamp-2 block text-[13px] text-stone-600">{s.description}</span>}</span>
                     <span className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-medium text-white" style={{ background: 'var(--accent)' }}>Book</span>
-                  </button>
-                ))}</div>
+                  </button>); })}</div>
               </div>
             ))}</div>
           )}
+          {onOfferCode && !offer && <div className="mt-6">
+            {!codeOpen ? <button type="button" onClick={() => setCodeOpen(true)} className="inline-flex min-h-11 items-center gap-2 text-[15px] font-medium" style={{ color: 'var(--accent)' }}><Tag className="h-4 w-4" aria-hidden />Have an offer code?</button>
+              : <div className="max-w-md">
+                <label htmlFor="offer-code" className="mb-1.5 block text-[14px] font-medium">Offer code</label>
+                <div className="flex gap-2">
+                  <input id="offer-code" value={code} autoFocus autoComplete="off" autoCapitalize="characters" onChange={(e) => { setCode(e.target.value.toUpperCase()); setCodeErr(''); }} onKeyDown={(e) => { if (e.key === 'Enter') void applyCode(); }}
+                    aria-invalid={!!codeErr} aria-describedby={codeErr ? 'offer-code-err' : undefined} className="h-12 min-w-0 flex-1 rounded-2xl border border-stone-200 bg-white px-4 text-[15px] tracking-[0.08em]" />
+                  <button type="button" disabled={codeBusy || !code.trim()} onClick={() => void applyCode()} className="h-12 shrink-0 rounded-full px-5 text-[15px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>{codeBusy ? 'Checking…' : 'Apply'}</button>
+                </div>
+                {codeErr && <p id="offer-code-err" className="mt-2 text-[14px] text-stone-700" role="alert">{codeErr}</p>}
+              </div>}
+          </div>}
         </Section>
         {page.order.filter((id) => id !== 'services').map((id) => <React.Fragment key={id}>{part(id)}</React.Fragment>)}
+        {!shows('visit') && alsoHere && <div className="mx-auto max-w-6xl px-4 pb-6">{alsoHere}</div>}
       </main>
 
       <footer className="mx-auto max-w-6xl px-4 pb-28 pt-8 text-[13px] text-stone-500 md:pb-10">© {new Date().getFullYear()} {name} · Online booking by ClarityFlow</footer>
       {!preview && <div className="pub-safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-stone-200/70 bg-[#faf8f5]/95 px-4 pt-3 backdrop-blur md:hidden">
         <PrimaryButton onClick={bookTop} className="w-full">Book an appointment</PrimaryButton>
       </div>}
+
+      <PublicSheet open={fullPolicy} onClose={() => setFullPolicy(false)} title="Our policies">
+        <div className="space-y-3 pb-2 text-[15px] leading-relaxed text-stone-700">{bookingPolicyLines(tenant, undefined, { anyDeposit: liveDeposits(tenant, bookable).length > 0 }).map((l, i) => <p key={i}>{l}</p>)}</div>
+      </PublicSheet>
+      <PublicSheet open={!!signIn} onClose={() => { attempt.current += 1; setSignIn(null); }} title="Member sign-in">
+        <div className="space-y-3 pb-2">
+          <p className="text-[15px] text-stone-600">{signIn?.then ? `${signIn.then.name} is for members. ` : ''}Enter the email or phone on your membership{membersOnly ? ' to open members-only services' : ''}.{release.members ? ` ${release.members}` : ''}</p>
+          <label htmlFor="member-contact" className="block text-[14px] font-medium">Email or phone</label>
+          <input id="member-contact" value={contact} onChange={(e) => { setContact(e.target.value); setSignErr(''); }} onKeyDown={(e) => { if (e.key === 'Enter') void signInNow(); }} autoComplete="email"
+            aria-invalid={!!signErr} aria-describedby={signErr ? 'member-err' : undefined} className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]" />
+          {signErr && <p id="member-err" className="text-[14px] text-stone-700" role="alert">{signErr}</p>}
+          <PrimaryButton onClick={() => void signInNow()} className={`w-full ${signBusy ? 'pointer-events-none opacity-60' : ''}`}>{signBusy ? 'Checking…' : 'Sign in'}</PrimaryButton>
+        </div>
+      </PublicSheet>
+      <PublicSheet open={!!reserve} onClose={() => setReserve(null)} title={rsvDone ? 'Reserved' : 'Reserve a place'}>
+        {reserve && <div className="space-y-3 pb-2">
+          <p className="text-[15px] text-stone-600"><b className="text-stone-800">{reserve.title || reserve.name || 'Event'}</b>, {new Date(`${reserve.date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}{reserve.time ? ` at ${clockUp(reserve.time)}` : ''}.</p>
+          {rsvDone ? <><p className="text-[15px] font-medium" style={{ color: '#1f7a4d' }} role="status">{rsvDone}</p><PrimaryButton onClick={() => setReserve(null)} className="w-full">Done</PrimaryButton></>
+          : seats[reserve.id] === 0 ? <><p className="text-[15px] text-stone-700" role="alert">This event is full.</p><PrimaryButton onClick={() => setReserve(null)} className="w-full">Close</PrimaryButton></>
+          : <form className="space-y-3" noValidate onSubmit={(e) => { e.preventDefault(); void reserveNow(); }}>
+            <label htmlFor="rsv-name" className="block text-[14px] font-medium">Your name</label>
+            <input id="rsv-name" value={rsv.name} onChange={(e) => setRsv((r) => ({ ...r, name: e.target.value }))} autoComplete="name" aria-invalid={!!rsvErr && !rsv.name.trim()} aria-describedby={rsvErr ? 'rsv-err' : undefined} className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]" />
+            <label htmlFor="rsv-email" className="block text-[14px] font-medium">Email</label>
+            <input id="rsv-email" type="email" value={rsv.email} onChange={(e) => setRsv((r) => ({ ...r, email: e.target.value }))} autoComplete="email" aria-invalid={!!rsvErr && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rsv.email.trim())} aria-describedby={rsvErr ? 'rsv-err' : undefined} className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]" />
+            <label htmlFor="rsv-phone" className="block text-[14px] font-medium">Phone <span className="font-normal text-stone-500">(optional)</span></label>
+            <input id="rsv-phone" type="tel" value={rsv.phone} onChange={(e) => setRsv((r) => ({ ...r, phone: e.target.value }))} autoComplete="tel" className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]" />
+            <label htmlFor="rsv-places" className="block text-[14px] font-medium">Places</label>
+            <select id="rsv-places" value={rsv.places} onChange={(e) => setRsv((r) => ({ ...r, places: Number(e.target.value) }))} className="h-12 w-full rounded-2xl border border-stone-200 bg-white px-4 text-[15px]">
+              {[1, 2, 3, 4].filter((n) => seats[reserve.id] === undefined || n <= seats[reserve.id]).map((n) => <option key={n} value={n}>{n === 1 ? 'Just me' : `Me and ${n - 1} ${n === 2 ? 'guest' : 'guests'}`}</option>)}
+            </select>
+            <input name="rsv_ref" value={rsv.rsv_ref} onChange={(e) => setRsv((r) => ({ ...r, rsv_ref: e.target.value }))} tabIndex={-1} autoComplete="off" inputMode="none" aria-hidden className="absolute -left-[9999px] h-px w-px opacity-0" />
+            {rsvErr && <p id="rsv-err" className="text-[14px] text-stone-700" role="alert">{rsvErr}</p>}
+            <button type="submit" disabled={rsvBusy} className="inline-flex h-12 w-full items-center justify-center rounded-full px-6 text-[15px] font-medium text-white shadow-sm transition active:scale-[.98] disabled:opacity-60" style={{ background: 'var(--accent)' }}>{rsvBusy ? 'Reserving…' : 'Reserve'}</button>
+          </form>}
+        </div>}
+      </PublicSheet>
     </PublicFrame>
   );
 }

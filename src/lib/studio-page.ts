@@ -6,6 +6,8 @@
 // gallery, about text, questions) is read from there until they change it here, so nothing is lost. Pure: no React,
 // no Firebase, safe on the server.
 
+import { hasTimeZone, tenantTimeZone, todayIn } from './tenant-time';
+
 export type Mood = 'soft' | 'crisp' | 'night';
 export type SectionId = 'services' | 'offers' | 'events' | 'team' | 'work' | 'reviews' | 'about' | 'policies' | 'faqs' | 'gifts' | 'spaces' | 'visit' | 'waitlist';
 export interface Photo { url: string; path?: string; caption?: string }
@@ -187,6 +189,25 @@ export function studioPage(t: any): ResolvedPage {
     typedReviews: c.reviews,
   };
 }
+
+/** An event clients may see and reserve on the booking page: the owner switched on "Show on your booking page", it has
+ *  no access PIN (private), isn't invite-only or paid (paid tickets aren't sold there yet), and is still on (upcoming
+ *  or under way; never a draft, finished, called off or closed). A quote turned into an event, or a private party, never shows by itself. */
+export function publicEvent(e: any): boolean {
+  return !!e && e.showOnBookingPage === true && !e.accessPin && e.ticketingConfig?.type !== 'comp_only' && !(Number(e.ticketingConfig?.price) > 0)
+    && ['upcoming', 'active'].includes(String(e.status || 'upcoming')) && /^\d{4}-\d{2}-\d{2}$/.test(String(e.date || ''));
+}
+/** Seats an event has, if it has a limit. */
+export const eventCapacity = (e: any) => Math.max(0, Math.floor(Number(e?.ticketingConfig?.capacity || e?.capacity) || 0));
+/** The public classes and events still to come, soonest first (today's stays up all day). `today` is the business's
+ *  own date (YYYY-MM-DD). */
+export function comingEvents(events: any[], today: string, max = 6): any[] {
+  return (events || []).filter((e: any) => publicEvent(e) && String(e.date) >= today)
+    .sort((a: any, b: any) => `${a.date} ${a.time || '99:99'}`.localeCompare(`${b.date} ${b.time || '99:99'}`)).slice(0, max);
+}
+/** The business's date for "still to come": their own zone, or, before they've set one, the latest US zone, so
+ *  tonight's class never disappears early. */
+export const eventToday = (tenant: any, now = new Date()) => todayIn(hasTimeZone(tenant) ? tenantTimeZone(tenant) : 'Pacific/Honolulu', now);
 
 /** A section shows when it's switched on, the business uses its tool, and it has something in it, so a new page never
  *  looks empty. counts: how many things each section would show (services, packages, events, people, reviews…). */

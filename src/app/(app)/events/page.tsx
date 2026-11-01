@@ -27,12 +27,13 @@ type EventFormData = {
   capacity: string;
   menuNote: string;
   eventType: string;
+  showOnBookingPage: boolean;
 };
 
 const BLANK_FORM: EventFormData = {
   title: '', date: '', time: '19:00', venue: '', description: '',
   accessPin: '', orderingDeadlineDate: '', orderingDeadlineTime: '17:00',
-  capacity: '', menuNote: '', eventType: 'dinner',
+  capacity: '', menuNote: '', eventType: 'dinner', showOnBookingPage: false,
 };
 
 const EVENT_TYPES = [
@@ -108,6 +109,7 @@ export default function EventsPage() {
       capacity: event.capacity ? String(event.capacity) : '',
       menuNote: event.menuNote || '',
       eventType: event.eventType || 'dinner',
+      showOnBookingPage: event.showOnBookingPage === true && !event.accessPin,
     });
     setIsDialogOpen(true);
   };
@@ -133,6 +135,8 @@ export default function EventsPage() {
       capacity: form.capacity ? parseInt(form.capacity) : null,
       menuNote: form.menuNote.trim() || null,
       eventType: form.eventType,
+      // Listed on the booking page (anyone can reserve a place) only when the owner says so, and never with a PIN.
+      showOnBookingPage: form.showOnBookingPage && !form.accessPin.trim(),
       tenantId,
     };
 
@@ -222,6 +226,9 @@ export default function EventsPage() {
                         <span className="flex items-center gap-1 text-[8px] font-black uppercase text-muted-foreground">
                           <Lock className="w-2.5 h-2.5" /> Private
                         </span>
+                      )}
+                      {event.showOnBookingPage === true && !event.accessPin && (
+                        <span className="text-[11px] font-semibold" style={{ color: '#1f7a4d' }}>On your booking page</span>
                       )}
                     </div>
                     <div className="flex items-center gap-3 mt-0.5 flex-wrap">
@@ -328,6 +335,15 @@ export default function EventsPage() {
                   placeholder="Leave blank for public" className="h-12 rounded-xl border-2 tracking-widest text-center font-black" />
               </div>
             </div>
+
+            <label className={cn('flex min-h-11 items-start gap-3 rounded-xl border-2 p-3', form.accessPin ? 'opacity-50' : 'cursor-pointer')}>
+              <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={form.showOnBookingPage && !form.accessPin} disabled={!!form.accessPin}
+                onChange={e => setForm(p => ({ ...p, showOnBookingPage: e.target.checked }))} />
+              <span>
+                <span className="block text-[14px] font-semibold text-foreground">Show on your booking page</span>
+                <span className="block text-[13px] text-muted-foreground">{form.accessPin ? 'Private events (with a PIN) are never listed.' : 'Clients can see it under Classes and events and reserve a place. Leave off for private parties.'}</span>
+              </span>
+            </label>
 
             <div className="space-y-1.5">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
