@@ -10,7 +10,7 @@ import { viaWords, dollars } from '@/lib/pay-via';
 import { SplitBill } from '@/components/pos/SplitBill';
 import { saleProfileOf } from '@/lib/sale-profile';
 import { PosCatalog } from '@/components/pos/PosCatalog';
-import { useClientScreen } from '@/components/pos/ClientScreen';
+import { useClientScreen, useVisitScreen } from '@/components/pos/ClientScreen';
 import { SaleComplete } from '@/components/pos/SaleComplete';
 import { DESK_CSS, Icon as DIcon, Ring, deskAccent } from '@/components/pos/desk/kit';
 import { HeldStockGate } from '@/components/pos/desk/HeldStockGate';
@@ -906,6 +906,8 @@ export const CheckoutHub = ({
   // Reset card mode when payment tab changes
   // ── The client screen (an iPad at the desk): live ticket, tip, card-on-file approval, thank-you ──
   const cs = useClientScreen(tenantId);
+  // ── The client's own phone, through their visit link (no iPad needed: a solo provider uses it from their phone) ──
+  const vs = useVisitScreen(tenantId);
   // ── What kind of sale is this? (lib/sale-profile) — tip, rebooking, moments and signatures follow it ──
   const profile = useMemo(() => {
     const csS = (selectedTenant as any)?.clientScreen || {};
@@ -941,8 +943,8 @@ export const CheckoutHub = ({
       ...((it as any).type === 'giftcard' && (it as any).gift ? { note: (it as any).gift.sendVia === 'text' ? `texted${(it as any).gift.sendAt ? ` ${new Date((it as any).gift.sendAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}` : (it as any).gift.sendVia === 'email' ? `emailed${(it as any).gift.sendAt ? ` ${new Date((it as any).gift.sendAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}` : (it as any).gift.sendVia === 'print' ? 'printed' : null,
         gift: { design: (it as any).gift.design || null, line: (it as any).gift.line || null, to: (it as any).gift.recipientName || null, amount: safeNumber(it.price) } } : {}) });   // the iPad shows the card being bought
     for (const id of Array.from(appliedAdjustments || [])) { const f = (clients || []).flatMap((c: any) => c.unpaidFees || []).find((x: any) => x.feeId === id); if (f) lines.push({ label: f.reason || 'Owed balance', amount: safeNumber(f.feeAmount) }); }
-    return { clientFirst: String(selectedClient?.name || '').split(' ')[0], lines, moments: profile.moments ? momentLines : [], context: profile.context, subtotal: safeNumber(subtotal), discount: safeNumber(totalDiscount) + safeNumber(recoveryAmount), tax: safeNumber(tax), taxLabel: taxLabel || 'Sales tax', tip: safeNumber(tipAmount), giftCard: safeNumber(giftUsed), total: safeNumber(finalTotal) + safeNumber(totalPaidDeposits), paid: safeNumber(totalPaidDeposits), due: safeNumber(isCardTab ? amountToCharge : finalTotal) };
-  }, [profile, moments, isCartEmpty, appointmentsData, cart, appliedAdjustments, clients, services, staff, redeemedOffer, selectedClient, selectedClientId, subtotal, totalDiscount, recoveryAmount, tax, taxLabel, tipAmount, finalTotal, totalPaidDeposits, isCardTab, amountToCharge, giftUsed]);
+    return { clientFirst: String(selectedClient?.name || '').split(' ')[0], lines, moments: profile.moments ? momentLines : [], context: profile.context, subtotal: safeNumber(subtotal), discount: safeNumber(totalDiscount) + safeNumber(recoveryAmount), tax: safeNumber(tax), taxLabel: taxLabel || 'Sales tax', tip: safeNumber(tipAmount), giftCard: safeNumber(giftUsed), credit: safeNumber(creditUsed), fee: isCardTab ? safeNumber(cardSurcharge) : 0, total: safeNumber(finalTotal) + safeNumber(totalPaidDeposits), paid: safeNumber(totalPaidDeposits), due: safeNumber(isCardTab ? amountToCharge : finalTotal) };
+  }, [profile, moments, isCartEmpty, appointmentsData, cart, appliedAdjustments, clients, services, staff, redeemedOffer, selectedClient, selectedClientId, subtotal, totalDiscount, recoveryAmount, tax, taxLabel, tipAmount, finalTotal, totalPaidDeposits, isCardTab, amountToCharge, giftUsed, creditUsed, cardSurcharge]);
   const screenTicketKey = JSON.stringify(screenTicket);
   useEffect(() => { if (!cs.connected || (lastSale && isCartEmpty)) return; const t = setTimeout(() => { cs.push(screenTicket); }, 500); return () => clearTimeout(t); }, [cs.connected, screenTicketKey, !!lastSale]); // eslint-disable-line react-hooks/exhaustive-deps
   const thankedRef = useRef<string | null>(null);
@@ -997,28 +999,98 @@ export const CheckoutHub = ({
   const [payReq, setPayReq] = useState<{ id: string; amount: number } | null>(null);
   const [payAfterTip, setPayAfterTip] = useState(false);
   const payOnIpadOn = cs.connected && csSet.payOnScreen !== false || cs.connected && csSet.payOnPhone !== false;
+  // Where the payment being waited for was sent: the iPad, or the client's own phone (their visit link).
+  const [payVia, setPayVia] = useState<'screen' | 'visit'>('screen');
+  const pt = payVia === 'visit' ? vs : cs;
+  // Their visit (the one this sale is for) — the visit link it can be sent to: one that has a link that's on, and isn't a
+  // renter's own booking (paid to the renter), with card payments connected.
+  const visitAppt: any = ((appointmentsData || []).find((d: any) => d.appointment?.id && (!selectedClientId || d.appointment.clientId === selectedClientId))?.appointment) || null;
+  const visitApptId: string | null = visitAppt?.id || null;
+  const payOnVisitOn = csSet.payOnVisitLink !== false && !!visitApptId && !!selectedClient && !!(selectedTenant as any)?.stripeAccountId
+    && !!visitAppt?.checkInToken && !visitAppt?.linkRevokedAt && !visitAppt?.isRenterBooking && !visitAppt?.renterProviderId;
+  // How the link reaches them, said on the row before it's sent.
+  const reachBy = selectedClient?.phone && !(selectedClient as any)?.smsOptOut && (selectedClient as any)?.smsConsent !== false ? 'text' : selectedClient?.email ? 'email' : null;
+  // One payment asked for at a time: while one is on its way the rows wait (and say so), and a second tap does nothing.
+  const sending = useRef(false); const canceling = useRef(false); const [sendingVia, setSendingVia] = useState<'screen' | 'visit' | 'cancel' | null>(null);
   // One request: the iPad runs review → tip → pay by itself (the tip is added to the payment on the server).
-  const sendPayToScreen = async () => { const amount = Math.round(safeNumber(amountToCharge) * 100) / 100; const askTip = autoTipOn && safeNumber(tipAmount) === 0;
+  const sendPayToScreen = async (via: 'screen' | 'visit' = 'screen') => { if (sending.current || canceling.current) return; sending.current = true; setSendingVia(via);
+    try { await sendPayToScreenNow(via); } finally { sending.current = false; setSendingVia(null); } };
+  const sendPayToScreenNow = async (via: 'screen' | 'visit') => { const amount = Math.round(safeNumber(amountToCharge) * 100) / 100;
+    // What it was sent for: if the desk moves to another client or changes the sale while it's on its way, the answer is
+    // for a sale that's no longer on screen, so it's called off rather than waited for.
+    const forKey = ticketKey;
+    // The tip is asked for on the screen they pay on (unless one's already set here); never on a sale that isn't tipped.
+    const askTip = via === 'visit' ? csSet.autoTip !== false && !studentsNoTips && profile.tip.ask && safeNumber(tipAmount) === 0 : autoTipOn && safeNumber(tipAmount) === 0;
     // The sale is saved as its started ticket first, as it is now, so the payment is never without one.
     const pendingId = (prepareNow ? await prepareNow({ paymentMethod: 'card', amountTendered: amount, cardSurcharge }) : null) || getPendingId?.() || null;
     if (getTicketPaid?.()) { paidAlready(); return; }
     // Never asked for without its ticket: the payment would have no sale to be recorded on.
     if (!pendingId) { toast({ variant: 'destructive', title: 'The sale couldn’t be saved first', description: 'Check the internet connection and try again. Nothing was charged.' }); return; }
-    const r: any = await (cs.askFull || cs.ask)('pay', { amount, clientId: selectedClient?.id || null, pendingId, askTip, tipBase, providers: tipPeople.length > 1 && (selectedTenant as any)?.tipSharing?.mode !== 'pool' ? tipPeople.map((p) => ({ id: p.id, name: p.name })) : [] });
+    const payload = { amount, clientId: selectedClient?.id || null, pendingId, askTip, tipBase, providers: tipPeople.length > 1 && (selectedTenant as any)?.tipSharing?.mode !== 'pool' ? tipPeople.map((p) => ({ id: p.id, name: p.name })) : [] };
+    let r: any;
+    if (via === 'visit') {
+      const o: any = visitApptId ? await vs.open(visitApptId) : null;
+      if (!o?.ok) { toast({ title: 'It couldn’t be sent to their phone', description: o?.error || 'Check the connection, or take the card another way. Nothing was charged.' }); return; }
+      await vs.push(screenTicket, o.screenId);   // the bill they see, line by line
+      if (ticketKeyRef.current !== forKey) return;
+      r = await vs.askFull('pay', payload, o.screenId);
+      if (r?.ok && ticketKeyRef.current !== forKey) { void vs.askFull('idle', {}, o.screenId);
+        toast({ title: 'The sale changed while it was being sent', description: `So it was called off on their phone${r.notified ? ' (they may still see the message)' : ''}. Nothing was charged; send it again if it’s still theirs.` }); return; }
+    } else r = await (cs.askFull || cs.ask)('pay', payload);
     const id = typeof r === 'string' ? r : r?.ok ? r.requestId : null;
-    if (id) { setPayReq({ id, amount }); return; }
+    if (id) { setPayVia(via); setPayReq({ id, amount });
+      if (via === 'visit') { const who = firstOf(selectedClient?.name) || 'the client';
+        toast(r?.notified === 'text' ? { title: `We texted ${who} their link`, description: 'They choose a tip and pay from their visit link. The sale completes by itself once it’s paid.' }
+          : r?.notified === 'email' ? { title: `We emailed ${who} their link`, description: 'They choose a tip and pay from their visit link. The sale completes by itself once it’s paid.' }
+          : { title: `It’s on ${who}’s visit link`, description: 'We couldn’t text or email them, so ask them to open their visit link. The sale completes by itself once it’s paid.' }); }
+      return; }
     // The server wouldn't start it: the sale is already paid (on another screen), being split, or a card reader payment is still going.
     if (r?.code === 'ticket_paid' && r.paidWith) { setTicketPaid?.({ pendingId, ...r.paidWith, paidPayload: r.paidPayload || null }); paidAlready(); return; }
     if (r?.code === 'ticket_split') { setSplitActive?.(true); toast({ variant: 'destructive', title: 'Part of this bill is already paid', description: r.error || 'Finish it in Split the bill.' }); return; }
     if (r?.code === 'sale_done' || r?.code === 'sale_discarded' || r?.code === 'no_ticket') { if (prepareNow) await prepareNow(); toast({ variant: 'destructive', title: r.code === 'sale_done' ? 'That sale was already saved' : 'Start the sale again', description: `${r.error || ''} Check the cart, then ask for the payment again.`.trim() }); return; }
     if (r?.code === 'reader_open' || r?.code === 'reader_unknown') { toast({ variant: 'destructive', title: 'Check the card reader payment first', description: r.error }); return; }
+    if (r?.code === 'screen_processing') { toast({ title: 'A payment is still going through', description: r.error }); return; }
+    if (r?.code === 'screen_unknown') { toast({ title: 'Try again in a moment', description: r.error }); return; }
+    if (via === 'visit') { toast({ title: 'It couldn’t be sent to their phone', description: r?.error || 'Check the connection, or take the card another way. Nothing was charged.' }); return; }
     toast({ variant: 'destructive', title: 'The client screen couldn’t start the payment', description: r?.error || 'Check Stripe is connected, or take the card another way.' }); };
-  const startPayOnIpad = () => { if (payBlockedNow()) return; tipAskedFor.current = ticketKey; sendPayToScreen(); };
+  const ticketKeyRef = useRef(''); ticketKeyRef.current = ticketKey;
+  // Calling off the payment on the iPad or their phone. Only the server saying it's done counts: one going through at the
+  // bank, or one that couldn't be reached, is still open, so the desk keeps waiting (and can try again). Nothing new is
+  // sent while it's being called off.
+  const cancelPayOn = async (via: 'screen' | 'visit', keep: { id: string; amount: number } | null) => {
+    canceling.current = true; setSendingVia('cancel');
+    try {
+      const r: any = via === 'visit' ? await vs.askFull('idle') : await (cs.askFull ? cs.askFull('idle') : cs.ask('idle').then((id: any) => ({ ok: !!id })));
+      if (r?.ok) return true;
+      if (keep) { setPayVia(via); setPayReq(keep); }
+      const where = via === 'visit' ? 'their phone' : cs.name || 'the client screen';
+      toast(r?.code === 'screen_processing' ? { title: 'Their payment is still going through', description: 'It can’t be called off now. The sale completes by itself once it’s through.' }
+        : { title: 'It couldn’t be called off just now', description: `The payment is still open on ${where}. ${keep ? 'Tap Cancel again in a moment.' : via === 'visit' ? 'It closes by itself within half an hour, and can’t be paid once the sale is saved.' : 'It can’t be paid once the sale is saved.'}` });
+      return false;
+    } finally { canceling.current = false; setSendingVia(null); } };
+  // Leaving checkout while they're paying on their phone calls it off, so it can't be paid after the desk has moved on.
+  const leaveRef = useRef<null | (() => void)>(null);
+  leaveRef.current = payVia === 'visit' && payReq && vs.screenId ? () => { void vs.askFull('idle'); } : null;
+  useEffect(() => () => { leaveRef.current?.(); }, []);
+  // Open on their phone for a while (lib/client-screen VISIT_PAY_MINUTES), then called off here as well as on the server.
+  useEffect(() => { if (payVia !== 'visit' || !payReq) return; const at = Date.parse(vs.request?.id === payReq.id ? vs.request?.expiresAt || '' : '');
+    if (!Number.isFinite(at)) return; const req = payReq;
+    // Not called off yet (still going through at the bank, or not reached): asked again every 30 seconds.
+    let t: any = null; let live = true;
+    const tryClose = async () => { const r: any = await vs.askFull('idle'); if (!live) return;
+      if (!r?.ok) { t = setTimeout(tryClose, 30000); return; }
+      if (r.paymentClosed === 'paid') return;   // it went through as it closed: the late-payment notice handles it
+      setPayReq((p) => (p && p.id === req.id ? null : p)); setPayVia('screen');
+      toast({ title: 'The payment on their phone timed out', description: 'Nothing was charged. Send it again, or take the card another way.' }); };
+    t = setTimeout(tryClose, Math.max(0, at - Date.now()) + 1500);
+    return () => { live = false; clearTimeout(t); }; }, [payVia, payReq?.id, vs.request?.expiresAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  const startPayOnIpad = () => { if (payBlockedNow()) return; tipAskedFor.current = ticketKey; sendPayToScreen('screen'); };
+  const startPayOnPhone = () => { if (payBlockedNow()) return; tipAskedFor.current = ticketKey; sendPayToScreen('visit'); };
   // Whether the sale on the screen still comes to what the paid ticket was charged (if not, something was added or
   // changed since: "Save the paid sale" saves it as it was paid, and keeps what was added as a new sale).
   const surchargeAny = cardSurchargeEnabled && finalTotal > 0 ? Number((finalTotal * cardSurchargeRate).toFixed(2)) : 0;
   const ticketDueCents = ticketPaid ? Math.round((finalTotal + surchargeAny + safeNumber(ticketPaid.tip)) * 100) : 0;
-  useEffect(() => { const r = cs.response; if (!r || !payReq || r.requestId !== payReq.id || r.kind !== 'pay' || !r.paid) return;
+  useEffect(() => { const r = pt.response; if (!r || !payReq || r.requestId !== payReq.id || r.kind !== 'pay' || !r.paid) return;
     const amt = payReq.amount; setPayReq(null);
     // A sale is only ever saved with the payment that paid for it: without its reference, the ticket is checked again.
     if (!r.paymentIntentId) { if (prepareNow) void prepareNow(); toast({ variant: 'destructive', duration: 20000, title: 'Check this sale before charging again', description: 'The client screen says it was paid. If the sale shows as paid, save the paid sale; nothing more should be charged.' }); return; }
@@ -1028,24 +1100,25 @@ export const CheckoutHub = ({
       tipAllocationsOverride: (() => { const all = Math.round((safeNumber(tipAmount) + safeNumber(r.tip)) * 100) / 100; if (!(all > 0) || !tipPeople.length) return {};
         const extra = r.tipAllocations && Object.keys(r.tipAllocations).length ? r.tipAllocations : splitTip(safeNumber(r.tip), tipPeople, tipMode === 'even' ? 'even' : 'value');
         const out: Record<string, number> = { ...(tipAllocations || {}) }; for (const [k, v] of Object.entries(extra)) out[k] = Math.round(((out[k] || 0) + Number(v)) * 100) / 100; return out; })() } as any);
-  }, [cs.response?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cs.response?.requestId, vs.response?.requestId, vs.response?.paid]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCofReq(null); setCofSkip(false); setTipReq(null); setChangeReq(null); setPayReq(null); setPayAfterTip(false); setSignReq(null); cashShown.current = ''; changeDoneFor.current = null; }, [selectedClientId, lastSale?.receiptId]);   // never carry one client's approval to the next
   // ── When things change, nothing is left hanging on the iPad ──
   // Another client → cancel whatever was waiting (a tip, an approval, a payment — cancelled at Stripe).
   const prevClientRef = useRef<string | null>(selectedClientId || null);
   useEffect(() => { const prev = prevClientRef.current; prevClientRef.current = selectedClientId || null;
-    if (cs.connected && prev && prev !== (selectedClientId || null) && !lastSale) cs.ask('idle'); }, [selectedClientId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (cs.connected && prev && prev !== (selectedClientId || null) && !lastSale) { if (payReq && payVia === 'screen') void cancelPayOn('screen', null); else cs.ask('idle'); }
+    if (payVia === 'visit' && vs.screenId && prev && prev !== (selectedClientId || null) && !lastSale) { void cancelPayOn('visit', null); setPayVia('screen'); } }, [selectedClientId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Another payment type while they were paying on the iPad → cancel that payment (cash sends its own screen).
-  useEffect(() => { if (!payReq) return; if (paymentTab !== 'card' || cardMode !== 'select') { setPayReq(null); if (paymentTab !== 'cash') cs.ask('idle'); } }, [paymentTab, cardMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!payReq) return; if (paymentTab !== 'card' || cardMode !== 'select') { const keep = payReq; const via = payVia; setPayReq(null); setPayVia('screen'); if (via === 'visit' || paymentTab !== 'cash') void cancelPayOn(via, null).then((ok) => { if (!ok) { setPaymentTab('card'); setCardMode('select'); setPayVia(via); setPayReq(keep); } }); } }, [paymentTab, cardMode]); // eslint-disable-line react-hooks/exhaustive-deps
   // What the iPad reports back: they walked away (cancelled), or a payment went through after the desk moved on.
-  useEffect(() => { const r = cs.response; if (!r || r.kind !== 'pay') return;
-    if (r.abandoned && payReq && r.requestId === payReq.id) { setPayReq(null); toast({ title: 'They didn’t finish paying', description: 'The payment on the iPad was cancelled — nothing was charged.' }); } }, [cs.response?.requestId, cs.response?.abandoned]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const r = pt.response; if (!r || r.kind !== 'pay') return;
+    if (r.abandoned && payReq && r.requestId === payReq.id) { setPayReq(null); toast({ title: 'They didn’t finish paying', description: payVia === 'visit' ? 'The payment on their phone was canceled. Nothing was charged.' : 'The payment on the iPad was canceled. Nothing was charged.' }); } }, [cs.response?.requestId, cs.response?.abandoned, vs.response?.requestId, vs.response?.abandoned]); // eslint-disable-line react-hooks/exhaustive-deps
   // A payment that went through on the iPad just as it was cancelled or replaced: it's on its sale (a split share is on
   // the split, which Split the bill shows), so it's never taken again. This sale paid that way shows as paid here.
   const prepareRef = useRef(prepareNow); prepareRef.current = prepareNow;
   useEffect(() => { const late = (e: any) => { const d = e?.detail || null; if (d?.share) return;
       if (prepareRef.current) void prepareRef.current();
-      toast({ variant: 'destructive', duration: 20000, title: 'A payment went through on the iPad', description: 'It went through just as it was cancelled, so don’t charge again. If this sale now shows as paid, save the paid sale; if it was another client’s, it waits in Needs attention, under Sales not recorded.' }); };
+      toast({ duration: 20000, title: d?.via === 'visit' ? 'A payment went through on their phone' : 'A payment went through on the iPad', description: 'It went through just as it was canceled, so don’t charge again. If this sale now shows as paid, save the paid sale; if it was another client’s, it waits in Needs attention, under Sales not recorded.' }); };
     window.addEventListener('cf:screen-late-payment', late); return () => window.removeEventListener('cf:screen-late-payment', late); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Membership terms: sent to the iPad to sign as soon as a membership is on the ticket.
   const [signReq, setSignReq] = useState<{ id: string | null; ref: string; status: 'waiting' | 'signed' | 'paper' } | null>(null);
@@ -1094,7 +1167,7 @@ export const CheckoutHub = ({
   const inputStyle = { background: 'var(--paper)', border: '1px solid var(--line)', color: 'var(--ink)' } as React.CSSProperties;
   const pill = (on: boolean) => `rounded-full px-3.5 py-2 text-[13px] font-medium transition ${on ? '' : ''}`;
   const pillStyle = (on: boolean) => (on ? { background: 'var(--accent)', color: 'var(--accent-ink)' } : { background: 'var(--soft)', color: 'var(--ink)' }) as React.CSSProperties;
-  const rowBtn = 'flex w-full items-center justify-between gap-3 rounded-2xl p-4 text-left transition active:scale-[.99]';
+  const rowBtn = 'flex w-full items-center justify-between gap-3 rounded-2xl p-4 text-left transition active:scale-[.99] disabled:opacity-60';
   const dueNow = isCardTab ? amountToCharge : finalTotal;
   const payBlocked = isCartEmpty || (isGroupCheckout && !selectedClientId) || (isOverAutonomy && !isOverrideUnlocked);
   const accentVar = pageAccent(selectedTenant);
@@ -1359,13 +1432,17 @@ export const CheckoutHub = ({
             {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && <p className="text-[13px]" style={muted}>Card fee {(cardSurchargeRate * 100).toFixed(1)}% · +{coMoney(cardSurcharge)}</p>}
             <AnimatePresence mode="wait">
               {paymentTab === 'card' && cardMode === 'select' && (payReq || payAfterTip) && <div className="space-y-2 rounded-2xl p-4" style={{ background: 'var(--soft)' }}>
-                <p className="text-[15px] font-semibold">{`${firstOf(selectedClient?.name) || 'The client'} is paying on ${cs.name}…`}</p>
-                <p className="text-[13px]" style={muted}>They check the total, choose a tip{safeNumber(tipAmount) > 0 ? ' (you’ve already set one, so they won’t be asked)' : ''}, then pay by card on the iPad or on their phone. The sale completes by itself once it’s paid.</p>
-                <button type="button" onClick={() => { setPayReq(null); setPayAfterTip(false); setTipReq(null); cs.ask('idle'); }} className="h-11 rounded-full px-4 text-[14px]" style={{ background: 'var(--card)' }}>Cancel</button>
+                <p className="text-[15px] font-semibold">{payVia === 'visit' ? `${firstOf(selectedClient?.name) || 'The client'} is paying from their visit link…` : `${firstOf(selectedClient?.name) || 'The client'} is paying on ${cs.name}…`}</p>
+                <p className="text-[13px]" style={muted}>{payVia === 'visit'
+                  ? `They check the total, choose a tip${safeNumber(tipAmount) > 0 ? ' (you’ve already set one, so they won’t be asked)' : ''}, then pay with Apple Pay, Google Pay or a card on their phone. The sale completes by itself once it’s paid.`
+                  : `They check the total, choose a tip${safeNumber(tipAmount) > 0 ? ' (you’ve already set one, so they won’t be asked)' : ''}, then pay by card on the iPad or on their phone. The sale completes by itself once it’s paid.`}</p>
+                <button type="button" onClick={() => { const keep = payReq; setPayReq(null); setPayAfterTip(false); setTipReq(null); const via = payVia; setPayVia('screen'); void cancelPayOn(via, keep); }} className="h-11 rounded-full px-4 text-[14px]" style={{ background: 'var(--card)' }}>Cancel</button>
               </div>}
               {paymentTab === 'card' && cardMode === 'select' && !payReq && !payAfterTip && <div className="grid gap-2">
-                {payOnIpadOn && <button type="button" onClick={startPayOnIpad} disabled={isCartEmpty || amountToCharge <= 0} className={rowBtn} style={{ background: 'color-mix(in srgb, var(--accent) 10%, var(--soft))' }}>
+                {payOnIpadOn && <button type="button" onClick={startPayOnIpad} disabled={isCartEmpty || amountToCharge <= 0 || !!sendingVia} className={rowBtn} style={{ background: 'color-mix(in srgb, var(--accent) 10%, var(--soft))' }}>
                   <span><span className="block text-[15px] font-semibold">Client pays on {cs.name}</span><span className="block text-[13px]" style={muted}>Card on the iPad, or Apple Pay / Google Pay on their phone{csSet.offerSaveCard !== false && selectedClient ? ' · they can save their card' : ''}</span></span><DIcon name="chevron" size={17} /></button>}
+                {payOnVisitOn && <button type="button" onClick={startPayOnPhone} disabled={isCartEmpty || amountToCharge <= 0 || !!sendingVia} aria-busy={sendingVia === 'visit'} className={rowBtn} style={{ background: payOnIpadOn ? 'var(--soft)' : 'color-mix(in srgb, var(--accent) 10%, var(--soft))' }}>
+                  <span><span className="block text-[15px] font-semibold">Send to {firstOf(selectedClient?.name) ? `${firstOf(selectedClient?.name)}’s` : 'their'} phone</span><span className="block text-[13px]" style={muted}>{sendingVia === 'visit' ? 'Sending their total…' : sendingVia === 'cancel' ? 'Calling off the open payment…' : `${reachBy === 'text' ? 'We text them their visit link' : reachBy === 'email' ? 'We email them their visit link' : 'It opens on their visit link'}: they add a tip, then pay with Apple Pay, Google Pay or a card${csSet.offerSaveCard !== false ? ' · they can save their card' : ''}`}</span></span><DIcon name="chevron" size={17} /></button>}
                 {hasCardOnFile && <button type="button" onClick={() => { if (!payBlockedNow()) setCardMode('cof_tip'); }} className={rowBtn} style={{ background: 'var(--soft)' }}>
                   <span><span className="block text-[15px] font-semibold">{String(selectedClient?.cardOnFile?.brand || 'Card').replace(/^./, (c: string) => c.toUpperCase())} ending {String(selectedClient?.cardOnFile?.last4 || '••••')}</span><span className="block text-[13px]" style={muted}>Card on file — they choose a tip, then you charge</span></span><DIcon name="chevron" size={17} /></button>}
                 <button type="button" onClick={readerConnected ? handleTerminalPayment : () => setCardMode('reader')} disabled={!terminal} className={rowBtn} style={{ background: 'var(--soft)', opacity: terminal ? 1 : 0.55 }}>

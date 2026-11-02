@@ -13,12 +13,13 @@ import { usePublicStaff } from '@/lib/use-public-staff';
 
 import { TooEarlyView, CompletedView, CheckedInView, AllSetView, VisitLoading, VisitNotFound } from '@/components/visit/VisitStages';
 import { VisitLounge } from '@/components/visit/VisitLounge';
+import { VisitPay } from '@/components/visit/VisitPay';
 import { CancelledView, NotificationPreferencesView, StaleAppointmentView, CompletionGateView, CancelGateView, RescheduleGateView } from '@/components/visit/VisitGates';
 import { freeUntilWords } from '@/lib/policy-copy';
 import { wallDate } from '@/lib/tenant-time';
 import { deadlineStart } from '@/lib/change-rules';
 import { placeOf } from '@/lib/service-place';
-import { VisitShell, VisitCard, VisitButton, VisitFooter, brandOf } from '@/components/booking/VisitShell';
+import { VisitShell, VisitCard, VisitButton, VisitFooter, VisitTop, brandOf } from '@/components/booking/VisitShell';
 import { PassCode } from '@/components/booking/VisitHero';
 import { DayOfView } from '@/components/booking/DayOfView';
 import { VisitMessages } from '@/components/booking/VisitMessages';
@@ -78,10 +79,12 @@ export default function CheckInPage() {
     const [notMeMsg, setNotMeMsg] = useState<string | null>(null);
     const [trust, setTrust] = useState<'unknown' | 'trusted' | 'untrusted'>('unknown');
     const [viewNonce, setViewNonce] = useState(0);
+    const fastPoll = React.useRef(false);
     useEffect(() => {
         if (!token) return; let stop = false; let t: any = null;
         const pull = async () => { try { const r = await fetch(`/api/visit-view?token=${encodeURIComponent(token)}&device=${encodeURIComponent(visitDevice())}`, { cache: 'no-store' }); const d = await r.json(); if (!stop && d?.revoked) { setRevokedBiz({ name: d.businessName || null, phone: d.businessPhone || null }); setRevoked(true); return; } if (!stop && d?.ok) setLiveView(d.view); } catch { /* keep the copy */ } finally { if (!stop) setLiveTried(true); }
-            if (!stop) t = setTimeout(pull, document.visibilityState === 'hidden' ? 60000 : 20000); };
+            // Every 8 seconds while they're in (so a total sent from checkout shows quickly), otherwise every 20.
+            if (!stop) t = setTimeout(pull, document.visibilityState === 'hidden' ? 60000 : fastPoll.current ? 8000 : 20000); };
         pull(); return () => { stop = true; clearTimeout(t); };
     }, [token, viewNonce, (copyData as any)?.status, (copyData as any)?.checkInStatus, (copyData as any)?.stage, (copyData as any)?.visitUpdatedAt]);
     // The server's view is the source (whitelisted fields only); the public copy is a fallback while it loads.
@@ -89,6 +92,20 @@ export default function CheckInPage() {
     const [liveTried, setLiveTried] = useState(false);
     useEffect(() => { if (liveView) setLiveTried(true); const t = setTimeout(() => setLiveTried(true), 8000); return () => clearTimeout(t); }, [liveView]);
     const visitLoading = !liveView && !copyData && (appointmentLoading || !liveTried);
+    {
+        const a: any = appointmentData; const done = Date.parse(a?.completedAt || a?.endTime || ''); const start = Date.parse(a?.startTime || '');
+        // In, or around the visit's own time (a solo provider may never mark them in): a total sent from checkout shows quickly.
+        const around = Number.isFinite(start) && Date.now() > start - 15 * 60000 && Date.now() < (Number.isFinite(done) ? done : start) + 3 * 3600e3;
+        fastPoll.current = !!a && (a.checkInStatus === 'arrived' || a.status === 'servicing' || around || (a.status === 'completed' && Number.isFinite(done) && Date.now() - done < 3 * 3600e3));
+    }
+    // PAY AND TIP from this link: checkout sent their total here (api/client-screen visit_screen). Once it opens, it
+    // stays until they tap Done, so the thank-you isn't snatched away when the payment closes.
+    const [payScreen, setPayScreen] = useState<string | null>(null);
+    const payInfo: any = (appointmentData as any)?.pay || null;
+    const payOpen = payInfo?.open === true ? String(payInfo.screenId || '') : '';
+    // Each payment sent opens once by itself; after "Back to your visit", "Pay now" at the top opens it again.
+    const payKey = payOpen ? `${payOpen}|${String(payInfo?.requestId || '')}` : '';
+    useEffect(() => { if (payOpen) setPayScreen(payOpen); }, [payKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const tenantId = appointmentData?.tenantId;
     const clientId = appointmentData?.clientId;
@@ -103,7 +120,8 @@ export default function CheckInPage() {
         const ap: any = appointmentData; if (!ap?.id || !tenantId) return;
         const st = String(ap.status || ''); const end = Date.parse(ap.endTime || ap.startTime || '');
         const over = ['completed', 'no_show', 'noshow'].includes(st) || (['cancelled', 'canceled'].includes(st) && Date.now() - Date.parse(ap.cancelledAt || '') > 30 * 60000) || (Number.isFinite(end) && Date.now() - end > 3 * 3600e3);
-        if (!over || verifyFirst || revoked) return; let live = true;
+        // Never while they're paying (or their total is waiting): the thank-you stays until they tap Done.
+        if (!over || verifyFirst || revoked || payScreen || payOpen) return; let live = true;
         // Only on a phone that has confirmed a code: the server answers nothing otherwise (see the footer's "Is this you?").
         fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'next_link', tenantId, apptId: ap.id, k: token, device: visitDevice() }) })
             .then((r) => r.json()).then((d) => {
@@ -114,7 +132,7 @@ export default function CheckInPage() {
                 else if (followAsked.current) setNoNext(true);
             }).catch(() => {});
         return () => { live = false; };
-    }, [appointmentData?.id, (appointmentData as any)?.status, tenantId, token, verifyFirst, revoked, trust]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [appointmentData?.id, (appointmentData as any)?.status, tenantId, token, verifyFirst, revoked, trust, payScreen, payOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const tenantDocRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
     const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
@@ -338,7 +356,17 @@ export default function CheckInPage() {
             <div className="text-center"><NotMeLink {...linkOf} businessName={bizName} onDone={(m) => setNotMeMsg(m)} onRevoked={() => setRevoked(true)} /></div>
         </div>
     ) : null;
-    const withFooter = (node: React.ReactNode) => <VisitFooter.Provider value={footer}>{node}</VisitFooter.Provider>;
+    // Their total, waiting at the top of every screen once they've stepped back from paying.
+    const payTop = payOpen && !payScreen ? (
+        <VisitCard>
+            <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0"><p className="text-[15.5px] font-semibold">Your total is ready</p>
+                    <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{Number(payInfo?.amount) > 0 ? `$${Number(payInfo.amount).toFixed(2)} · ` : ''}Add a tip and pay from here.</p></div>
+                <div className="w-[120px] shrink-0"><VisitButton onClick={() => setPayScreen(payOpen)}>Pay now</VisitButton></div>
+            </div>
+        </VisitCard>
+    ) : null;
+    const withFooter = (node: React.ReactNode) => <VisitFooter.Provider value={footer}><VisitTop.Provider value={payTop}>{node}</VisitTop.Provider></VisitFooter.Provider>;
 
     if (visitLoading || clientLoading || serviceLoading || tenantLoading || staffLoading || completionLoading) return <VisitLoading />;
 
@@ -372,6 +400,15 @@ export default function CheckInPage() {
             </VisitShell>
         );
     }
+    if (payScreen && tenantId && appointmentData?.id) {
+        return withFooter(
+            <VisitPay brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} screenId={payScreen}
+                first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || null}
+                provider={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
+                onClose={() => { setPayScreen(null); setViewNonce((n) => n + 1); }} />
+        );
+    }
+
     if (showMessages && tenantId && appointmentData?.id) {
         return (
             <VisitMessages

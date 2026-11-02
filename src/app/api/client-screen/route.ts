@@ -8,22 +8,31 @@
 //   respond { screenId, requestId, … } (public, from the screen) — the client's answer; a signature is saved as a consent record
 //   receipt { screenId, channel, to } (public, from the screen) — "text / email my receipt" after a sale
 //   unpair { screenId } (staff)
+//   visit_screen { appointmentId } (staff) — the client's own phone, through their visit link: a screen that belongs to
+//                one visit (no iPad needed — a solo provider checking out on their phone uses it too). A payment asked
+//                for on it texts or emails them their visit link, which shows the Pay screen (lib: components/visit/VisitPay).
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
 import { linkOrigin } from '@/lib/app-origin';
-import { clientScreenSettingsOf, rebookSettingsOf } from '@/lib/client-screen';
+import { clientScreenSettingsOf, rebookSettingsOf, VISIT_PAY_MINUTES } from '@/lib/client-screen';
 import { rebookStart, rebookDay, rebookBook, rebookWaitlist } from '@/lib/rebook-actions';
 import { readerStripe, safeId, ticketBlocks } from '@/lib/reader-sale';
-import { closeOpenPayment, closedAnswer, paidOnScreen, recordCardShare } from '@/lib/screen-pay';
+import { closeOpenPayment, closedAnswer, closeScreenPaymentsFor, paidOnScreen, recordCardShare, stillOpen } from '@/lib/screen-pay';
 import { pageAccent } from '@/lib/studio-page';
+import { sendTotalReady } from '@/lib/visit-pay-notice';
 
 export const dynamic = 'force-dynamic';
 const now = () => new Date().toISOString();
 const rid = () => crypto.randomBytes(8).toString('hex');
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const still = 'Their payment is still going through at the bank, so it can’t be called off or sent again yet. Wait a moment: the sale completes by itself once it’s through.';
+// A change Stripe refused because the payment has moved on (paid, or going through): said plainly. Anything else (Stripe
+// not reached): try again.
+const lockedOrRetry = (e: any) => /unexpected_state/.test(String(e?.code || e?.raw?.code || '')) || /cannot update|status of (succeeded|processing)/i.test(String(e?.message || ''));
+const unreached = 'Card payments couldn’t be reached, so the open payment couldn’t be called off. Try again in a moment; nothing new was charged.';
 
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}));
@@ -77,10 +86,24 @@ export async function POST(req: NextRequest) {
     if (screenId.length < 30) return NextResponse.json({ ok: false, error: 'Unknown screen.' }, { status: 404 });
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
     const q = s?.request;
-    if (!s?.tenantId || q?.kind !== 'pay' || q.id !== String(b.requestId || '')) return NextResponse.json({ ok: false, error: 'This payment is no longer open.' }, { status: 409 });
+    if (!s?.tenantId || q?.kind !== 'pay' || q.id !== String(b.requestId || '')) {
+      // Paid, then closed (the sale was saved, or it timed out just as they paid): it went through, and the answer says so.
+      if (action === 'pay_done' && s?.response?.kind === 'pay' && s.response.paid && s.response.requestId === String(b.requestId || '')) return NextResponse.json({ ok: true, already: true });
+      return NextResponse.json({ ok: false, code: 'closed', error: 'This payment is no longer open.' }, { status: 409 });
+    }
     const T = `tenants/${s.tenantId}`; const t: any = ((await db.doc(T).get()).data() as any) || {};
     const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Card payments are not set up for this business.' }, { status: 400 });
     const stripe: any = readerStripe();   // the same card payments client as the rest of the desk (lib/reader-sale)
+    // Sent to their phone a while ago and never paid: it's called off now (one that went through goes on its sale, and one
+    // still going through at the bank stays). Confirming a payment they've already made always goes ahead.
+    if (action !== 'pay_done' && !q.answeredAt && q.expiresAt && Date.parse(q.expiresAt) < Date.now()) {
+      const r = await closeOpenPayment(db, s, 'it timed out on their phone');
+      if (r === 'unknown') return NextResponse.json({ ok: false, error: 'We couldn’t reach card payments just now. Please try again in a moment.' }, { status: 503 });
+      if (r !== 'processing') { await ref.update({ request: null, phase: 'ticket', response: closedAnswer(q, r), updatedAt: now() });
+        return NextResponse.json({ ok: false, code: 'expired', error: r === 'paid' ? 'This is already paid. Thank you.' : 'This payment has timed out. Nothing was charged; the team can send it again.' }, { status: 409 }); }
+      // Still going through at the bank: it can be looked at and confirmed, never changed.
+      if (action !== 'pay_view') return NextResponse.json({ ok: false, code: 'processing', error: 'Your payment is already going through, so it can’t be changed now.' }, { status: 409 });
+    }
     if (action === 'pay_view') return NextResponse.json({ ok: true, clientSecret: q.clientSecret, publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '', stripeAccount: acct,
       amount: num(q.amount), business: t.name || 'Payment', allowSave: !!q.allowSave, paid: !!q.answeredAt, accent: pageAccent(t) || t.brandColor || null });
     if (q.answeredAt) return NextResponse.json({ ok: true, already: true });
@@ -92,20 +115,26 @@ export async function POST(req: NextRequest) {
       const offered = new Set<string>(((q.providers || []) as any[]).map((p: any) => String(p.id)));
       const split = b.tipAllocations && typeof b.tipAllocations === 'object' ? Object.fromEntries(Object.entries(b.tipAllocations).filter(([k, v]) => offered.has(k) && num(v) >= 0).slice(0, 10).map(([k, v]) => [k, Math.round(num(v) * 100) / 100])) : null;
       // The tip goes on the payment itself too, so a sale recorded from Stripe's notice alone still has it.
-      await stripe.paymentIntents.update(q.paymentIntentId, { amount: Math.round(total * 100), metadata: { tipCents: String(Math.round(tip * 100)), tipAllocations: split ? JSON.stringify(split).slice(0, 480) : '' } } as any, { stripeAccount: acct } as any);
+      // Already paid, or on its way at the bank, the payment can't be changed: they're told, never "couldn't connect".
+      const moved = await stripe.paymentIntents.update(q.paymentIntentId, { amount: Math.round(total * 100), metadata: { tipCents: String(Math.round(tip * 100)), tipAllocations: split ? JSON.stringify(split).slice(0, 480) : '' } } as any, { stripeAccount: acct } as any).then(() => true).catch((e: any) => (lockedOrRetry(e) ? 'locked' : 'retry'));
+      if (moved === 'locked') return NextResponse.json({ ok: false, code: 'locked', error: 'Your payment is already on its way, so the tip can’t be changed now.' }, { status: 409 });
+      if (moved !== true) return NextResponse.json({ ok: false, error: 'We couldn’t add the tip just now. Please try again in a moment.' }, { status: 503 });
       await ref.update({ 'request.tip': tip, 'request.amount': total, 'request.tipChosen': true, 'request.tipAllocations': split });
       return NextResponse.json({ ok: true, amount: total });
     }
     if (action === 'pay_save') {   // the client's own "save my card for next time" — applied before they pay
       if (!q.allowSave) return NextResponse.json({ ok: false, error: 'Saving a card is not available here.' }, { status: 400 });
-      await stripe.paymentIntents.update(q.paymentIntentId, { setup_future_usage: b.save === true ? 'off_session' : ('' as any) } as any, { stripeAccount: acct } as any);
+      const moved = await stripe.paymentIntents.update(q.paymentIntentId, { setup_future_usage: b.save === true ? 'off_session' : ('' as any) } as any, { stripeAccount: acct } as any).then(() => true).catch((e: any) => (lockedOrRetry(e) ? 'locked' : 'retry'));
+      if (moved === 'locked') return NextResponse.json({ ok: false, code: 'locked', error: 'Your payment is already on its way, so this can’t be changed now.' }, { status: 409 });
+      if (moved !== true) return NextResponse.json({ ok: false, error: 'We couldn’t reach card payments just now. Please try again in a moment.' }, { status: 503 });
       await ref.update({ 'request.saveCard': b.save === true });
       return NextResponse.json({ ok: true });
     }
     // pay_done — trust Stripe, never the screen
     const pi: any = await stripe.paymentIntents.retrieve(q.paymentIntentId, { stripeAccount: acct } as any);
-    if (pi.status !== 'succeeded') return NextResponse.json({ ok: false, error: pi.status === 'processing' ? 'Your payment is still processing. Thank you for your patience.' : 'The payment was not completed.' }, { status: 409 });
-    if (pi.amount !== Math.round(num(q.amount) * 100)) return NextResponse.json({ ok: false, error: 'The payment amount does not match.' }, { status: 409 });
+    // Why it isn't paid, so the page knows whether to keep waiting: still going through, not paid (try again), or neither yet.
+    if (pi.status !== 'succeeded') return NextResponse.json({ ok: false, code: pi.status === 'processing' ? 'processing' : ['requires_payment_method', 'canceled'].includes(pi.status) ? 'not_paid' : 'pending', error: pi.status === 'processing' ? 'Your payment is still processing. Thank you for your patience.' : 'The payment was not completed.' }, { status: 409 });
+    if (pi.amount !== Math.round(num(q.amount) * 100)) return NextResponse.json({ ok: false, code: 'mismatch', error: 'The payment amount does not match.' }, { status: 409 });
     let saved = false;
     if (q.saveCard && q.clientId && pi.payment_method) {   // their card, saved because THEY ticked the box
       try { const pm: any = await stripe.paymentMethods.retrieve(String(pi.payment_method), { stripeAccount: acct } as any);
@@ -130,6 +159,7 @@ export async function POST(req: NextRequest) {
     const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
     if (!s?.tenantId || s.request?.kind !== 'pay' || s.request.id !== String(b.requestId || '')) return NextResponse.json({ ok: true });
     const r = await closeOpenPayment(db, s, 'it timed out on the screen');
+    if (stillOpen(r)) return NextResponse.json({ ok: true, result: r });   // still going through, or not known to be called off: it stays open
     // Paid just as it timed out: the desk hears with the payment itself, so it saves the sale with it (never charges again).
     await ref.update({ request: null, phase: 'ticket', response: closedAnswer(s.request, r) });
     return NextResponse.json({ ok: true, result: r });
@@ -220,8 +250,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, screenId: hit.id, name });
   }
   if (action === 'list') {
-    const rows = (await db.collection('clientScreens').where('tenantId', '==', tenantId).get()).docs.map((d: any) => { const x: any = d.data(); return { id: d.id, name: x.name, lastSeen: x.lastSeen || null, pairedAt: x.pairedAt || null }; });
+    const rows = (await db.collection('clientScreens').where('tenantId', '==', tenantId).get()).docs.filter((d: any) => (d.data() as any).kind !== 'visit').map((d: any) => { const x: any = d.data(); return { id: d.id, name: x.name, lastSeen: x.lastSeen || null, pairedAt: x.pairedAt || null }; });
     return NextResponse.json({ ok: true, screens: rows });
+  }
+  if (action === 'visit_screen') {   // one visit's screen: the client's phone, through their visit link
+    const apptId = safeId(b.appointmentId); if (!apptId) return NextResponse.json({ ok: false, error: 'Choose the visit first.' }, { status: 400 });
+    const aRef = db.doc(`tenants/${tenantId}/appointments/${apptId}`); const a: any = (await aRef.get()).data();
+    if (!a) return NextResponse.json({ ok: false, error: 'That visit couldn’t be found.' }, { status: 404 });
+    if (!a.checkInToken) return NextResponse.json({ ok: false, code: 'no_link', error: 'This visit doesn’t have a visit link, so it can’t be sent to their phone. Take the card another way.' }, { status: 409 });
+    if (a.linkRevokedAt) return NextResponse.json({ ok: false, code: 'link_off', error: 'Their visit link has been turned off (“Not you?”), so it can’t be sent there.' }, { status: 409 });
+    // A renter's own booking is paid to the renter, never through this business's checkout.
+    if (a.isRenterBooking || a.renterProviderId) return NextResponse.json({ ok: false, code: 'renter', error: 'This is a renter’s booking, so it can’t be sent to the client’s phone from here.' }, { status: 409 });
+    const pt: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+    if (!clientScreenSettingsOf(pt).payOnVisitLink) return NextResponse.json({ ok: false, error: 'Paying from the visit link is turned off (Settings → Client screen).' }, { status: 403 });
+    const first = String(a.clientName || '').trim().split(' ')[0];
+    const brandNow = { name: pt.name || pt.businessName || '', logo: pt.logoUrl || pt.bookingPageSettings?.cfPageConfig?.logoUrl || null, accent: pageAccent(pt) || pt.brandColor || null };
+    // One screen per visit link, the same one however many times (or from however many desks) it's asked for: its id comes
+    // from the link's own secret, so it can't be guessed, and a new link (after "Not you?") gets a new screen.
+    const id = crypto.createHash('sha256').update(`visit-screen|${tenantId}|${apptId}|${String(a.checkInToken)}`).digest('hex');
+    const cur: any = (await db.doc(`clientScreens/${id}`).get()).data();
+    // Made once: a second desk asking at the same moment never overwrites what the first one has started on it.
+    const made = cur ? true : await db.doc(`clientScreens/${id}`).create({ id, kind: 'visit', tenantId, appointmentId: apptId, name: first ? `${first}’s phone` : 'their phone', phase: 'idle', request: null, response: null, ticket: null,
+      brand: brandNow, createdAt: now(), pairedAt: now(), pairedBy: auth.actor.name || 'Staff' }).then(() => true).catch((e: any) => e?.code === 6 || /already exists/i.test(String(e?.message || '')));
+    if (!made) return NextResponse.json({ ok: false, error: 'Their phone couldn’t be set up for this just now. Try again in a moment, or take the card another way.' }, { status: 503 });
+    if (a.payScreenId !== id) await aRef.set({ payScreenId: id }, { merge: true });
+    return NextResponse.json({ ok: true, screenId: id, name: first ? `${first}’s phone` : 'their phone' });
   }
   const ref = db.doc(`clientScreens/${screenId}`); const s: any = (await ref.get()).data();
   if (!s || s.tenantId !== tenantId) return NextResponse.json({ ok: false, error: 'That screen is not paired with this business.' }, { status: 404 });
@@ -232,7 +285,7 @@ export async function POST(req: NextRequest) {
   if (action === 'push') {
     const tk = b.ticket || null;
     const ticket = tk ? { clientFirst: String(tk.clientFirst || '').slice(0, 40), moments: (Array.isArray(tk.moments) ? tk.moments : []).slice(0, 2).map((m: any) => String(m).slice(0, 90)), context: (Array.isArray(tk.context) ? tk.context : []).slice(0, 3).map((c: any) => String(c).slice(0, 90)), lines: (Array.isArray(tk.lines) ? tk.lines : []).slice(0, 40).map((l: any) => ({ label: String(l.label || '').slice(0, 80), amount: num(l.amount), note: l.note ? String(l.note).slice(0, 60) : null, ...(l.gift && typeof l.gift === 'object' ? { gift: { design: /^[a-z0-9-]{2,30}$/.test(String(l.gift.design || '')) ? String(l.gift.design) : null, line: l.gift.line ? String(l.gift.line).slice(0, 30) : null, to: l.gift.to ? String(l.gift.to).slice(0, 60) : null, amount: num(l.gift.amount) } } : {}) })),
-      subtotal: num(tk.subtotal), discount: num(tk.discount), tax: num(tk.tax), taxLabel: String(tk.taxLabel || 'Tax').slice(0, 60), tip: num(tk.tip), giftCard: num(tk.giftCard), total: num(tk.total), paid: num(tk.paid), due: num(tk.due) } : null;
+      subtotal: num(tk.subtotal), discount: num(tk.discount), tax: num(tk.tax), taxLabel: String(tk.taxLabel || 'Tax').slice(0, 60), tip: num(tk.tip), giftCard: num(tk.giftCard), credit: num(tk.credit), fee: num(tk.fee), total: num(tk.total), paid: num(tk.paid), due: num(tk.due) } : null;
     // A new ticket replaces a finished sale's thank-you screen.
     await ref.update({ deskAliveAt: now(), ticket, brand, settings: { welcome: settings.welcome, reviewTicket: settings.reviewTicket, motion: settings.motion, confetti: settings.confetti }, updatedAt: now(), ...(ticket ? (s.request?.kind === 'thanks' ? { request: null, response: null, phase: 'ticket' } : {}) : { phase: 'idle' }) });
     return NextResponse.json({ ok: true });
@@ -248,14 +301,33 @@ export async function POST(req: NextRequest) {
     // sale already paid, finished, discarded, being split (for the whole bill), or with a card reader payment still going.
     // Checked before anything on the screen changes.
     const payTicket = kind === 'pay' ? safeId(b.pendingId) || safeId(b.splitPendingId) : ''; const payShare = kind === 'pay' && !safeId(b.pendingId) && !!safeId(b.splitPendingId);
+    // A visit's own screen is the client's phone: only that visit's client is asked to pay on it, and only while its link is on.
+    let va: any = null;
+    if (s.kind === 'visit') {
+      va = ((await db.doc(`tenants/${tenantId}/appointments/${String(s.appointmentId || '')}`).get()).data() as any) || null;
+      if (kind === 'pay') {
+        if (!va?.checkInToken || va.linkRevokedAt) return NextResponse.json({ ok: false, code: 'link_off', error: 'Their visit link isn’t available, so it can’t be sent there. Take the card another way; nothing was charged.' }, { status: 409 });
+        if (va.clientId && String(b.clientId || '') !== String(va.clientId)) return NextResponse.json({ ok: false, code: 'other_client', error: 'This sale is for someone else, so it can’t be sent to this client’s phone.' }, { status: 409 });
+      }
+    }
     if (kind === 'pay') {
       if (!payTicket) return NextResponse.json({ ok: false, code: 'no_ticket', error: 'The sale wasn’t saved before the payment. Try again; nothing was charged.' }, { status: 400 });
       if (t.stripeAccountId && process.env.STRIPE_SECRET_KEY) {
         const block = await ticketBlocks(db, tenantId, payTicket, { share: payShare, stripe: readerStripe(), acct: t.stripeAccountId });
         if (block) return NextResponse.json({ ok: false, code: block.code, error: block.error, ...(block.paidWith ? { paidWith: block.paidWith, paidPayload: block.paidPayload } : {}) }, { status: block.status });
+        // One live payment per sale: one still open for it on another screen (the iPad, or the client's phone) is called
+        // off first. One that went through means the sale is paid (checked again below); one still going through waits.
+        const others = await closeScreenPaymentsFor(db, tenantId, payTicket, { except: screenId, why: 'the desk asked for it on another screen', keepShares: payShare });
+        if (others.failed || others.unknown) return NextResponse.json({ ok: false, code: 'screen_unknown', error: others.failed ? 'The other client screens couldn’t be checked, so the payment wasn’t started. Try again in a moment; nothing was charged.' : unreached }, { status: 503 });
+        if (others.processing) return NextResponse.json({ ok: false, code: 'screen_processing', error: `A payment for this sale is still going through on ${others.names[0] || 'another screen'}. Wait a moment for it to finish.` }, { status: 409 });
+        if (others.paid) { const again = await ticketBlocks(db, tenantId, payTicket, { share: payShare, stripe: readerStripe(), acct: t.stripeAccountId });
+          if (again) return NextResponse.json({ ok: false, code: again.code, error: again.error, ...(again.paidWith ? { paidWith: again.paidWith, paidPayload: again.paidPayload } : {}) }, { status: again.status }); }
       }
     }
-    const closed = await closeOpenPayment(db, s, kind === 'idle' ? 'the desk cancelled it' : 'the desk moved on');
+    const closed = await closeOpenPayment(db, s, kind === 'idle' ? 'the desk canceled it' : 'the desk moved on');
+    // Still going through at the bank: it may yet be paid, so nothing replaces it (the desk waits for it).
+    if (closed === 'processing') return NextResponse.json({ ok: false, code: 'screen_processing', paymentClosed: closed, error: still }, { status: 409 });
+    if (closed === 'unknown') return NextResponse.json({ ok: false, code: 'screen_unknown', paymentClosed: closed, error: unreached }, { status: 503 });
     // What the desk hears about the payment just closed: paid (with the payment), so the desk never takes it again.
     const closedResp = closed === 'paid' && s.request ? closedAnswer(s.request, closed) : null;
     // The payment just closed went through, and it paid for this very sale: it isn't asked for again.
@@ -295,11 +367,25 @@ export async function POST(req: NextRequest) {
       q.phoneUrl = `${linkOrigin(t, req.nextUrl.origin)}/pay/${screenId}?r=${q.id}`;
       q.payOnScreen = settings.payOnScreen; q.payOnPhone = settings.payOnPhone; q.timeoutMin = settings.payTimeoutMin;
       q.shareLabel = b.shareLabel ? String(b.shareLabel).slice(0, 60) : null; q.splitPendingId = b.splitPendingId ? String(b.splitPendingId) : null; if (q.splitPendingId) q.pendingId = null;
+      // "Tips go to Mia in full" is only said when tips go straight to the provider (not pooled or tipped out).
+      q.tipsDirect = String(t.tipSharing?.mode || 'direct') === 'direct';
+      // On the client's own phone it's open for a while, then called off (they may never open the link).
+      if (s.kind === 'visit') { q.expiresAt = new Date(Date.now() + VISIT_PAY_MINUTES * 60000).toISOString(); q.payOnScreen = true; q.payOnPhone = false; q.phoneUrl = null; }
     }
     if (kind === 'change') { q.due = num(b.due); q.tendered = num(b.tendered); q.change = num(b.change); q.offerKeep = (t?.clientScreen?.offerKeepChange !== false); }
     if (kind === 'thanks') { const rs = rebookSettingsOf(t); q.rebookCtx = rs.on && b.rebook?.clientId && b.rebook?.serviceId ? { clientId: String(b.rebook.clientId), serviceId: String(b.rebook.serviceId), staffId: b.rebook.staffId ? String(b.rebook.staffId) : null, addOnIds: Array.isArray(b.rebook.addOnIds) ? b.rebook.addOnIds.slice(0, 6).map(String) : [], appointmentId: b.rebook.appointmentId ? String(b.rebook.appointmentId) : null } : null; q.rebookFirst = b.rebookFirst === true; q.returnAfter = Math.max(5, Math.min(120, Number(t?.clientScreen?.returnAfter) || 20)); q.receiptId = b.receiptId || null; q.offerReceipt = settings.offerReceipt; q.total = num(b.total); q.clientFirst = String(b.clientFirst || '').slice(0, 40); }
     await ref.update({ phase: kind === 'idle' ? 'idle' : kind, request: kind === 'idle' ? null : q, response: closedResp, brand, ...(kind === 'idle' || kind === 'thanks' ? { ticket: null } : {}), updatedAt: now() });   // replace, never merge
-    return NextResponse.json({ ok: true, requestId: q.id, paymentClosed: closed, ...(closedResp ? { closedAnswer: closedResp } : {}) });
+    // A visit's own screen is the client's phone: tell them their total is ready (their visit link opens on it; an open
+    // link checks every few seconds while they're in).
+    let notified: string | null = null;
+    if (s.kind === 'visit' && kind === 'pay' && b.notify !== false && va?.checkInToken) {
+      const a: any = va;
+      const cl: any = a.clientId ? (((await db.doc(`tenants/${tenantId}/clients/${a.clientId}`).get()).data() as any) || {}) : {};
+      notified = await sendTotalReady(db, { tenantId, business: t.name || t.businessName || 'us', url: `${linkOrigin(t, req.nextUrl.origin)}/check-in/${a.checkInToken}?do=pay`, amount: num(q.amount),
+        appointmentId: String(s.appointmentId || ''), clientId: a.clientId || null, name: cl.name || a.clientName || null, phone: cl.phone || a.clientPhone || null, email: cl.email || a.clientEmail || null,
+        textOff: !!(cl.smsOptOut || cl.smsConsent === false) });
+    }
+    return NextResponse.json({ ok: true, requestId: q.id, paymentClosed: closed, ...(closedResp ? { closedAnswer: closedResp } : {}), ...(s.kind === 'visit' ? { notified } : {}) });
   }
   if (action === 'unpair') {
     await ref.set({ tenantId: null, name: null, phase: 'unpaired', request: null, response: null, ticket: null }, { merge: true });

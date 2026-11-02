@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
-import { clientScreenSettingsOf } from '@/lib/client-screen';
+import { clientScreenSettingsOf, VISIT_PAY_MINUTES } from '@/lib/client-screen';
 import { momentSettingsOf } from '@/lib/moments';
 import { rebookSettingsOf } from '@/lib/client-screen';
 
@@ -78,6 +78,7 @@ export function ClientScreenCard({ tenantId, tenant, canEdit }: { tenantId: stri
         {check('payOnScreen', 'Let clients pay on the iPad', 'Stripe’s secure card form — card details never touch your system')}
         {check('payOnPhone', 'Let clients pay on their phone', 'a QR code on the iPad; Apple Pay and Google Pay on their own phone')}
         {check('offerSaveCard', 'Offer “Save my card for next time”', 'their own tick box — recorded as their consent')}
+        {check('payOnVisitLink', 'Let clients pay from their visit link', `checkout can send the total to their own phone: they add a tip, then pay with Apple Pay, Google Pay or a card. No iPad needed. It stays open for ${VISIT_PAY_MINUTES} minutes`)}
         <div className="flex flex-wrap items-center gap-2">If they walk away, cancel the payment after <input type="number" min={2} max={30} value={s.payTimeoutMin} disabled={!canEdit} onChange={(e) => save({ ...s, payTimeoutMin: Math.max(2, Math.min(30, Number(e.target.value) || 5)) })} className="h-10 w-16 rounded-xl border px-2 text-right" aria-label="Minutes before an unfinished payment is canceled" /> minutes</div>
         <p className="text-xs text-muted-foreground">Needs Stripe connected (Settings → Payments). Switching payment type, switching client or closing checkout always cancels an unfinished payment — nothing is charged. Your Stripe card reader works from the desk as before.</p>
       </div>

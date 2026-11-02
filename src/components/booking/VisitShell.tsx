@@ -29,9 +29,11 @@ export function brandOf(tenant: any, tenantId?: string | null, serviceId?: strin
 
 /** What sits at the foot of every visit screen ("Not you?", the way to the next booking): set once by the page. */
 export const VisitFooter = React.createContext<React.ReactNode>(null);
+/** What sits at the top of every visit screen, under its title (their total, waiting to be paid): set by the page. */
+export const VisitTop = React.createContext<React.ReactNode>(null);
 
 export function VisitShell({ brand, title, subtitle, kicker, chip, children }: { brand: VisitBrand; title?: React.ReactNode; subtitle?: React.ReactNode; kicker?: React.ReactNode; chip?: string | null; children?: React.ReactNode }) {
-  const footer = React.useContext(VisitFooter);
+  const footer = React.useContext(VisitFooter); const top = React.useContext(VisitTop);
   const name = String(brand.studioName || '').trim();
   return (
     <PublicFrame accent={brand.accent} mood={brand.mood || 'soft'}>
@@ -50,6 +52,7 @@ export function VisitShell({ brand, title, subtitle, kicker, chip, children }: {
           {title && <h1 className="text-[31px] leading-[1.12]">{title}</h1>}
           {subtitle && <p className="pt-0.5 text-[14.5px] leading-snug" style={{ color: 'var(--muted)' }}>{subtitle}</p>}
         </div>}
+        {top}
         {children}
         {footer}
       </main>

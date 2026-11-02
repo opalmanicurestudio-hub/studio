@@ -35,6 +35,25 @@ export function useClientScreen(tenantId?: string | null) {
   return { screenId, setScreenId, screen, connected, online, name: screen?.name || null, request: screen?.request || null, response: screen?.response || null, push, ask: request, askFull: requestFull, alive };
 }
 
+/** THE CLIENT'S OWN PHONE, through their visit link: a screen that belongs to one visit, opened on demand (no iPad and
+ *  no pairing — a solo provider checking out on their phone uses it too). It speaks the same requests as the iPad
+ *  (push the ticket, ask for a payment, hear the answer), so the checkout handles it the same way. */
+export function useVisitScreen(tenantId?: string | null) {
+  const { firestore } = useFirebase() as any;
+  const [screenId, setScreenId] = React.useState<string | null>(null);
+  const [screen, setScreen] = React.useState<any>(null);
+  React.useEffect(() => { if (!firestore || !screenId) { setScreen(null); return; } return onSnapshot(doc(firestore, 'clientScreens', screenId), (s) => setScreen(s.exists() ? s.data() : null), () => setScreen(null)); }, [firestore, screenId]);
+  /** This visit's screen (made the first time), ready for a request. */
+  const open = React.useCallback(async (appointmentId: string): Promise<any> => { if (!tenantId) return null; const r: any = await call({ tenantId, action: 'visit_screen', appointmentId }); if (r?.ok && r.screenId) setScreenId(r.screenId); return r; }, [tenantId]);
+  const requestFull = React.useCallback(async (kind: string, extra: any = {}, id?: string | null): Promise<any> => { const sid = id || screenId; if (!sid || !tenantId) return null;
+    const r: any = await call({ tenantId, action: 'request', screenId: sid, kind, ...extra });
+    if (r?.paymentClosed === 'paid') window.dispatchEvent(new CustomEvent('cf:screen-late-payment', { detail: r?.closedAnswer ? { ...r.closedAnswer, via: 'visit' } : { via: 'visit' } }));
+    return r || null; }, [screenId, tenantId]);
+  const request = React.useCallback(async (kind: string, extra: any = {}) => { const r: any = await requestFull(kind, extra); return r?.ok ? r.requestId : null; }, [requestFull]);
+  const push = React.useCallback((ticket: any, id?: string | null) => { const sid = id || screenId; return sid && tenantId ? call({ tenantId, action: 'push', screenId: sid, ticket }) : Promise.resolve(null); }, [screenId, tenantId]);
+  return { screenId, screen, open, name: screen?.name || 'their phone', request: screen?.request || null, response: screen?.response || null, connected: !!screenId, push, ask: request, askFull: requestFull };
+}
+
 /** Pair an iPad, choose which screen this desk uses, or disconnect. */
 export function ClientScreenPanel({ tenantId }: { tenantId: string }) {
   const cs = useClientScreen(tenantId);

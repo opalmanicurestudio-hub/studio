@@ -47,8 +47,14 @@ export async function recordCardShare(db: any, tenantId: string, pendingId: stri
 /** Close an unfinished payment on the screen before anything replaces it — cancel it at Stripe, so the client can't pay
  *  for a sale the desk has moved on from. If Stripe says it had already gone through, it goes on its sale (or its split)
  *  as above. `why`: what happened, in words for the sale's note ("the desk moved on"). Returns 'none' | 'cancelled' |
- *  'paid'. */
-export async function closeOpenPayment(db: any, s: any, why: string): Promise<'none' | 'cancelled' | 'paid'> {
+ *  'paid' | 'processing' — still going through at the bank (some cards and wallets take a moment): it can't be called off
+ *  and may yet be paid, so the caller leaves it open (Stripe's notice puts it on its sale if it goes through) | 'unknown'
+ *  — it couldn't be called off and Stripe couldn't say why (unreachable, say): it may still be paid on the form already
+ *  open, so it's left open too and the caller says to try again. Only Stripe saying it's canceled counts as called off. */
+export type Closed = 'none' | 'cancelled' | 'paid' | 'processing' | 'unknown';
+/** Left open: still going through, or not known to be called off. */
+export const stillOpen = (r: Closed) => r === 'processing' || r === 'unknown';
+export async function closeOpenPayment(db: any, s: any, why: string): Promise<Closed> {
   const q = s?.request; if (!q || q.kind !== 'pay' || q.answeredAt || !q.paymentIntentId || !s.tenantId) return 'none';
   const t: any = ((await db.doc(`tenants/${s.tenantId}`).get()).data() as any) || {};
   const stripe: any = readerStripe();
@@ -63,28 +69,46 @@ export async function closeOpenPayment(db: any, s: any, why: string): Promise<'n
       else if (q.pendingId) await paidOnScreen(db, s.tenantId, String(q.pendingId), c.pi, q, { note: `Paid on the client screen after ${why}` }).catch(() => {});
       return 'paid';
     }
-    return 'none';
+    if (c?.status === 'processing') return 'processing';
+    // Refunded, or not this sale's: nothing of it is left to pay here.
+    if (c && c.status !== 'unknown' && c.status !== 'not_paid') return 'none';
+    // Not paid, and it wouldn't be called off: called off only once Stripe says it's canceled.
+    const st = (c as any)?.pi?.status || await stripe.paymentIntents.retrieve(String(q.paymentIntentId), {}, { stripeAccount: t.stripeAccountId } as any).then((p: any) => p?.status).catch(() => null);
+    return st === 'canceled' ? 'cancelled' : st === 'processing' ? 'processing' : 'unknown';
   }
 }
 
 /** The answer the desk hears when a screen payment is closed: paid (with the payment, so the desk can save the sale
  *  with it) or not. */
-export function closedAnswer(q: any, result: 'none' | 'cancelled' | 'paid') {
+export function closedAnswer(q: any, result: Closed) {
   return { requestId: q.id, kind: 'pay', paid: result === 'paid', abandoned: result !== 'paid', late: result === 'paid',
     ...(result === 'paid' ? { paymentIntentId: q.paymentIntentId || null, amount: num(q.amount), tip: num(q.tip), tipAllocations: q.tipAllocations || null, ...(q.splitPendingId ? { share: true, shareLabel: q.shareLabel || null } : {}) } : {}), at: now() };
 }
 
-/** Before a manager records or discards a sale: any client-screen payment still open for it is closed first (one that
- *  went through goes on the sale), so the client can't pay for it after it's been settled another way. */
-export async function closeScreenPaymentsFor(db: any, tenantId: string, pendingId: string): Promise<number> {
-  const snap = await db.collection('clientScreens').where('tenantId', '==', tenantId).get().catch(() => ({ docs: [] as any[] }));
-  let paid = 0;
+/** Any client-screen payment still open for a sale is closed (one that went through goes on the sale), so the client
+ *  can't pay for it after it's been settled another way: before a manager records or discards it, once the sale is saved,
+ *  and before the desk asks for it on another screen (`except`: that screen — an iPad and the client's own phone never
+ *  both hold a live payment for one sale). One still going through at the bank, or not known to be called off, is left
+ *  open (see closeOpenPayment) and listed, so the desk can wait or try again. `keepShares`: split shares on other screens
+ *  stay (two people can pay their shares at once). `exceptPi`: the payment the sale is being saved with stays.
+ *  `failed`: the screens couldn't be looked up, so nothing is known to be closed. */
+export type ScreenClose = { paid: number; processing: number; unknown: number; failed: boolean; names: string[]; open: { name: string; at: string | null; state: Closed }[] };
+export async function closeScreenPaymentsFor(db: any, tenantId: string, pendingId: string, o: { except?: string; why?: string; keepShares?: boolean; exceptPi?: string | null } = {}): Promise<ScreenClose> {
+  const out: ScreenClose = { paid: 0, processing: 0, unknown: 0, failed: false, names: [], open: [] };
+  // Only screens with a payment on them; the business's screens all over again if that lookup can't be made.
+  const snap = await db.collection('clientScreens').where('tenantId', '==', tenantId).where('request.kind', '==', 'pay').get()
+    .catch(() => db.collection('clientScreens').where('tenantId', '==', tenantId).get()).catch(() => null);
+  if (!snap) { out.failed = true; return out; }
   for (const d of snap.docs) {
+    if (o.except && d.id === o.except) continue;
     const s: any = d.data() || {}; const q = s.request;
     if (!q || q.kind !== 'pay' || q.answeredAt || (String(q.pendingId || '') !== pendingId && String(q.splitPendingId || '') !== pendingId)) continue;
-    const r = await closeOpenPayment(db, s, 'a manager settled the sale');
-    if (r === 'paid') paid++;
+    if (o.keepShares && q.splitPendingId) continue;
+    if (o.exceptPi && q.paymentIntentId === o.exceptPi) continue;
+    const r = await closeOpenPayment(db, s, o.why || 'a manager settled the sale');
+    if (stillOpen(r)) { if (r === 'processing') out.processing++; else out.unknown++; out.names.push(String(s.name || 'the client screen')); out.open.push({ name: String(s.name || 'the client screen'), at: q.at || null, state: r }); continue; }
+    if (r === 'paid') out.paid++;
     await d.ref.update({ request: null, phase: 'ticket', response: closedAnswer(q, r), updatedAt: now() }).catch(() => {});
   }
-  return paid;
+  return out;
 }

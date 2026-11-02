@@ -335,7 +335,13 @@ export async function POST(req: NextRequest) {
     // its card reader payments are settled: recording captures an approved hold, unless the manager says it was paid
     // another way (then the hold is released, never taken on top); discarding releases it.
     const wasPaid = !!ticketPayment(pc);
-    await closeScreenPaymentsFor(db, tenantId, ref.id).catch(() => 0);
+    { const sp = await closeScreenPaymentsFor(db, tenantId, ref.id).catch(() => null);
+      // A payment for it still going through on a client screen: settled once that's through, never under it. One that's
+      // been going through for hours (a bank transfer, say) doesn't hold the sale up: if it lands, it's kept apart to refund.
+      const recent = (sp?.open || []).find((x) => x.state === 'processing' && Date.now() - Date.parse(x.at || '') < 2 * 3600e3);
+      if (recent) return NextResponse.json({ ok: false, code: 'screen_processing', error: `A payment for this sale is still going through on ${recent.name}. Wait a minute, then try again.` }, { status: 409 });
+      const unknown = (sp?.open || []).find((x) => x.state === 'unknown');
+      if (!sp || sp.failed || unknown) return NextResponse.json({ ok: false, code: 'screen_unknown', error: `The payment open on ${unknown?.name || 'a client screen'} couldn’t be called off just now. Try again in a moment.` }, { status: 503 }); }
     { const s = await settleTicketReader(db, tenantId, ref.id, action, { release: action === 'record' && !!paidAs });
       if (!s.ok) return NextResponse.json({ ok: false, code: 'reader_open', error: s.error }, { status: s.status === 'unknown' ? 503 : 409 });
       pc = (await ref.get()).data() || pc; }
@@ -508,6 +514,18 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
     const s = await settleTicketReader(db, tenantId, pendingRef.id, 'pay');
     if (!s.ok) return json({ ok: false, code: s.status === 'unknown' ? 'reader_unknown' : 'reader_open', error: s.error }, s.status === 'unknown' ? 503 : 409);
     ticket0 = (await pendingRef.get()).data() || ticket0;
+  }
+  // A payment still open for it on a client screen (the iPad, or the client's own phone) while it's being saved: called
+  // off first, so the client can't pay it on top (the payment it's being saved with stays). One that went through just
+  // now pays for it (checked just below); one still going through, or not known to be called off, stops the save.
+  if (pendingRef && ticket0) {
+    const sp = await closeScreenPaymentsFor(db, tenantId, pendingRef.id, { why: 'the desk took the payment another way', exceptPi: incomingPi || null });
+    // As when a manager settles it: one going through for hours (a bank transfer, say) doesn't hold the sale up; if it
+    // lands later, it's kept apart for a manager to refund.
+    const recent = sp.open.find((x) => x.state === 'processing' && Date.now() - Date.parse(x.at || '') < 2 * 3600e3);
+    if (recent) return json({ ok: false, code: 'screen_processing', pendingId: pendingRef.id, error: `A payment for this sale is still going through on ${recent.name}, so it wasn’t saved another way. Wait a moment: it completes by itself once it’s through.` }, 409);
+    if (sp.unknown || sp.failed) return json({ ok: false, code: 'screen_unknown', pendingId: pendingRef.id, error: `The payment open on ${sp.names[0] || 'a client screen'} couldn’t be called off just now, so the sale wasn’t saved. Try again in a moment; nothing was recorded.` }, 503);
+    if (sp.paid) ticket0 = (await pendingRef.get()).data() || ticket0;
   }
   // A sale already paid is finished with THAT payment, never with another on top: cash, a card or a split here would take
   // the money twice. A second card payment that already went through is kept apart for a manager to refund, and the
@@ -1193,6 +1211,15 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // say): it's on this receipt now, so it's off that list and never refunded or kept a second time.
   if (verified) { const forT = deskPaymentOf(verified.pi, tenantId)?.pendingId || (pendingRef ? pendingRef.id : '');
     if (forT) await clearExtraOnReceipt(db, tenantId, forT, verified.id).catch(() => {}); }
+  // Nothing is left open on a client screen for a sale that's saved: a payment still open for it on the iPad or the
+  // client's phone is called off (one that went through anyway is kept apart for a manager, lib/screen-pay). The client's
+  // phone lets go of the sale too: its bill and the payment's details are cleared, and its thank-you stays.
+  if (pendingRef) await closeScreenPaymentsFor(db, tenantId, pendingRef.id, { why: 'the sale was saved' }).catch(() => null);
+  for (const aid of apptIds) { try {
+    const sid = String(((await db.doc(`tenants/${tenantId}/appointments/${aid}`).get()).data() as any)?.payScreenId || ''); if (!sid) continue;
+    const sRef = db.doc(`clientScreens/${sid}`); const sc: any = (await sRef.get()).data();
+    if (sc?.kind === 'visit' && sc.tenantId === tenantId && (!sc.request || sc.request.answeredAt)) await sRef.update({ request: null, ticket: null, phase: 'idle', updatedAt: new Date().toISOString() });
+  } catch { /* the phone's screen tidies itself next time it's used */ } }
   // Loyalty extras given on this sale: recorded at no points, with what each cost (reward first, then these, as discounted).
   if (clientId && loyaltyGifts.length) { try { const { recordGift } = await import('@/lib/loyalty-server'); const all = Math.round(num((calc as any).loyaltyDiscount) * 100); let left = all - Math.min(all, loyaltyRw ? loyaltyRwCents : 0);
     for (const g of loyaltyGifts) { const c = Math.max(0, Math.min(g.cents, left)); left -= c; if (c > 0) await recordGift(db, tenantId, { kind: g.kind, clientId, saleId: checkoutSessionId, name: g.name, cents: c, costCents: Math.min(g.costCents, c), by: auth.actor.name || 'Front desk', surpriseId: g.surpriseId || null }); } } catch (e) { console.error('[checkout] loyalty gifts', e); } }

@@ -218,7 +218,10 @@ service cloud.firestore {
       allow write: if false;
     }
     match /clientScreens/{screenId} {
-      allow read: if true;
+      // One screen, opened by its long random id (the iPad, or one visit's own screen on the client's visit link).
+      // Never listed: a list would show every business's screens, with client names and totals.
+      allow get: if true;
+      allow list: if false;
       allow write: if false;
     }
     match /tenants/{tenantId}/approvals/{approvalId} {

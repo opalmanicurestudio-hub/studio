@@ -564,6 +564,17 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     timing: 'immediate',
   },
   {
+    id: 'visit_pay', group: 'Money', label: 'Your total is ready',
+    when: 'Checkout sends the total to the client’s own phone, so they can add a tip and pay from their visit link.',
+    channels: ['email', 'sms'], canDisable: false,
+    mandatoryNote: 'The client is waiting to pay: without it they can’t open the payment on their phone.',
+    tokens: ['{{client_first}}', '{{amount}}', '{{studio}}', '{{link}}'],
+    requiredTokens: ['{{link}}'],
+    defaultSubject: 'Your total from {{studio}}',
+    defaultBody: 'Hi {{client_first}}, your total from {{studio}} is ready. You can add a tip and pay here: {{link}}',
+    timing: 'immediate',
+  },
+  {
     id: 'receipt', group: 'Money', label: 'Receipt',
     when: 'A sale is completed and the client asks for it by email.',
     channels: ['email'], canDisable: true,

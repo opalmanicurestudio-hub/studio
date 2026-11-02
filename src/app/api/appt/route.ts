@@ -143,6 +143,12 @@ export async function POST(req: NextRequest) {
       if (!a.clientId) return NextResponse.json({ ok: true });
       const V = await import('@/lib/client-verify');
       await V.notMe(db, tenantId, { clientId: String(a.clientId), via: 'link' });
+      // A payment open on this link (checkout sent the total here) is called off, and its bill is cleared off the link.
+      if (a.payScreenId) { try { const sRef = db.doc(`clientScreens/${String(a.payScreenId)}`); const sc: any = (await sRef.get()).data();
+        if (sc?.kind === 'visit' && sc.tenantId === tenantId) { const { closeOpenPayment, closedAnswer, stillOpen } = await import('@/lib/screen-pay');
+          const r = sc.request?.kind === 'pay' && !sc.request.answeredAt ? await closeOpenPayment(db, sc, 'the visit link was turned off') : 'none';
+          if (!stillOpen(r)) await sRef.update({ request: null, ticket: null, phase: 'idle', ...(sc.request?.kind === 'pay' && !sc.request.answeredAt ? { response: closedAnswer(sc.request, r) } : {}), updatedAt: new Date().toISOString() }); }
+      } catch { /* the desk can still cancel it */ } }
       return NextResponse.json({ ok: true, message: 'Thank you for letting us know. We’ve stopped messages to this number, and this link no longer works.' });
     }
 

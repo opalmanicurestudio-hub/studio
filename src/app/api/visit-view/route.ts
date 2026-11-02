@@ -64,7 +64,20 @@ export async function GET(req: NextRequest) {
   const { publicVisitCopy } = await import('@/lib/public-visit-copy');
   // The aftercare page (lib/aftercare), once one has been sent for this visit: the visit page links to it instead of old text.
   let aftercareUrl: string | null = null; if (a.aftercareDocId) { const { aftercarePath } = await import('@/lib/visit-feedback'); aftercareUrl = aftercarePath(tenantId, id); }
-  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl };
+  // Paying from the visit link: the desk asked this visit's own screen for a payment (api/client-screen visit_screen).
+  // The page then follows that screen itself (its id is unguessable, and only this link learns it).
+  let pay: any = null;
+  if (a.payScreenId) {
+    const sc: any = (await db.doc(`clientScreens/${String(a.payScreenId)}`).get().catch(() => null))?.data();
+    if (sc && sc.tenantId === tenantId && sc.appointmentId === id) {
+      const q = sc.request; const r = sc.response;
+      // Open until it's paid, called off, or past its time (then the screen calls it off the next time it's looked at).
+      const live = !q?.expiresAt || Date.parse(q.expiresAt) > Date.now();
+      if (q?.kind === 'pay' && !q.answeredAt && live) pay = { screenId: String(a.payScreenId), open: true, requestId: String(q.id || ''), amount: Number(q.amount) || 0 };
+      else if (r?.kind === 'pay' && r.paid && Date.now() - Date.parse(r.at || '') < 6 * 3600e3) pay = { screenId: String(a.payScreenId), paid: true, at: r.at };
+    }
+  }
+  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl, pay };
   // keep the copies in step as a courtesy for anything else that still reads them
   if (miss || copy.stage !== view.stage || copy.status !== view.status) await Promise.all([db.doc(`appointmentCheckIns/${token}`).set(view, { merge: true }), db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(view, { merge: true })]).catch(() => {});
   return NextResponse.json({ ok: true, view: full }, noStore);
