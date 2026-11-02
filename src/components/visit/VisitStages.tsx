@@ -130,7 +130,7 @@ export function AllSetView({ brand, startTime, businessName }: { brand: VisitBra
 }
 
 // ── Checked in (when the business doesn't offer the waiting lounge) ───────────
-function CopyButton({ text, label }: { text: string; label: string }) {
+export function CopyButton({ text, label }: { text: string; label: string }) {
   const [done, setDone] = React.useState(false);
   return <button type="button" aria-label={label} onClick={async () => { try { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1800); } catch { /* the password is on screen */ } }}
     className="v-pill pub-press" style={{ minHeight: 44 }}>{done ? 'Copied' : 'Copy'}</button>;

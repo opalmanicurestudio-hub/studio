@@ -61,8 +61,10 @@ export const VisitCard = ({ children, tone }: { children: React.ReactNode; tone?
   <section className="pub-card space-y-3 p-5" style={tone === 'warn' ? { boxShadow: 'inset 0 0 0 2px var(--warn)' } : tone === 'ok' ? { boxShadow: 'inset 0 0 0 2px var(--good)' } : undefined}>{children}</section>
 );
 
-export function VisitButton({ children, onClick, href, quiet, good, disabled, target, expanded }: { children: React.ReactNode; onClick?: () => void; href?: string | null; quiet?: boolean; good?: boolean; disabled?: boolean; target?: string; expanded?: boolean }) {
-  const cls = `v-btn pub-press ${quiet ? 'v-btn-quiet' : good ? 'v-btn-good' : ''}`;
+/** The visit link's buttons: the business color, `quiet` (card), `good` (green, for checking in), or `danger` (a quiet
+ *  button in red, for the one destructive choice on a screen). */
+export function VisitButton({ children, onClick, href, quiet, good, danger, disabled, target, expanded }: { children: React.ReactNode; onClick?: () => void; href?: string | null; quiet?: boolean; good?: boolean; danger?: boolean; disabled?: boolean; target?: string; expanded?: boolean }) {
+  const cls = `v-btn pub-press ${danger ? 'v-btn-quiet v-danger' : quiet ? 'v-btn-quiet' : good ? 'v-btn-good' : ''}`;
   return href ? <a href={href} target={target} rel={target ? 'noreferrer' : undefined} className={cls}>{children}</a> : <button type="button" className={cls} onClick={onClick} disabled={disabled} aria-expanded={expanded}>{children}</button>;
 }
 
@@ -120,6 +122,20 @@ export function VisitChange({ freeUntil, onReschedule, onCancel }: { freeUntil?:
   );
 }
 
+/** A tick box with its words, the whole row tappable (44px or more). */
+export function VisitCheckRow({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: React.ReactNode }) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-start gap-3 py-1.5 text-[15px] leading-snug">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0" style={{ accentColor: 'var(--accent)' }} />
+      <span className="min-w-0 flex-1">{children}</span>
+    </label>
+  );
+}
+
+/** A plain line said back to the client: amber when something didn't go through, green-ish when it did. */
+export const VisitSaid = ({ text, ok }: { text?: string | null; ok?: boolean }) => text
+  ? <p className="px-1 text-[14px] leading-snug" role={ok ? 'status' : 'alert'} style={{ color: ok ? 'var(--good)' : 'var(--warn)' }}>{text}</p> : null;
+
 /** Choice pills — one of a few options. */
 export function VisitChoice<T extends string | number>({ value, onChange, options, cols }: { value: T; onChange: (v: T) => void; options: [T, string][]; cols?: 2 | 3 | 4 }) {
   return (
@@ -174,7 +190,7 @@ export const VISIT_CSS = String.raw`
 .v-soft{background:var(--soft)}
 .v-note{background:var(--soft);border-radius:18px;padding:14px 16px;font-size:15px;line-height:1.45;color:var(--ink)}
 .pub[data-mood=crisp] .v-note{border-radius:12px}
-.v-danger{color:#b42318}.pub[data-mood=night] .v-danger{color:#f4a39a}
+.v-danger,.v-btn-quiet.v-danger{color:#b42318}.pub[data-mood=night] .v-danger{color:#f4a39a}
 @keyframes vPop{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:none}}
 @keyframes vDraw{to{stroke-dashoffset:0}}
 .v-check{width:64px;height:64px;border-radius:50%;background:var(--good-soft);color:var(--good);display:inline-grid;place-items:center;animation:vPop .5s cubic-bezier(.2,.8,.2,1) both}

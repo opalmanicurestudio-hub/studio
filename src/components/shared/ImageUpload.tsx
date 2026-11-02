@@ -94,8 +94,9 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
         const path = `tenants/${tenantId}/${storageFolder}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
         const url = await uploadImageBlob(path, dataUrlToBlob(dataUrl));
         return url;
-      } catch {
-        toast({ variant: 'destructive', title: 'Upload to storage failed', description: 'Saved inline instead — check Storage rules.' });
+      } catch (e) {
+        console.warn('[image-upload] storage upload failed, kept inline instead (check the Storage rules)', e);
+        toast({ title: 'Photo kept with the form', description: 'It couldn’t be stored on its own just now, so it’s saved with the form instead.' });
       }
     }
     return dataUrl; // legacy fallback

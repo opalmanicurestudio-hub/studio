@@ -11,6 +11,7 @@
 //   review    { token, rating 1–5, text }             once per visit
 //   viewed    { token }                                first open, for the timeline
 //   prefs     { token, confirmationChannel, reminderChannel, reminderHoursBefore }
+//   prefs_get { token }                                 what's set now (to show it)
 //   complete  { token, tenantId, signedForms, fileSubmissions, policyAcceptance,
 //               guardianByForm, profileDocuments, marketingConsent,
 //               emergencyContact, acknowledgments, skipCardStep }
@@ -86,12 +87,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  if (action === 'prefs') {
+  // How and when the business reaches them: read (to show what's set) and saved. Only when the business lets clients
+  // choose (Settings › Notifications: allowClientOverride). A reminder can be a phone call ('voice'), which is also
+  // what an unset choice means to the reminder calls.
+  if (action === 'prefs' || action === 'prefs_get') {
     const x = await fromCheckIn(db, token); if (!x) return bad('This link isn’t valid.', 404);
-    if (!x.appt.clientId) return bad('We couldn’t find your client record — please ask the studio.', 409);
-    const ch = (v: any) => (['email', 'sms', 'both', 'none'].includes(String(v)) ? String(v) : 'email');
+    if (!x.appt.clientId) return bad('We couldn’t find your client record. Please message us and we’ll sort it out.', 409);
+    const t = ((await db.doc(`tenants/${x.tenantId}`).get()).data()) || {};
+    if (t.notificationDefaults?.allowClientOverride === false) return bad('This business chooses how it reaches clients, so this can’t be changed here.', 403);
+    const cRef = db.doc(`tenants/${x.tenantId}/clients/${x.appt.clientId}`);
+    if (action === 'prefs_get') {
+      const p = (((await cRef.get()).data()) || {}).notificationPreferences || {};
+      return NextResponse.json({ ok: true, prefs: { confirmationChannel: p.confirmationChannel || 'both', reminderChannel: p.reminderChannel || 'voice', reminderHoursBefore: Number(p.reminderHoursBefore) || 48 } });
+    }
+    const ch = (v: any) => (['email', 'sms', 'both', 'none'].includes(String(v)) ? String(v) : 'both');
+    const rch = (v: any) => (['voice', 'email', 'sms', 'both', 'none'].includes(String(v)) ? String(v) : 'voice');
     const hours = Math.max(1, Math.min(168, Math.round(Number(b.reminderHoursBefore) || 24)));
-    await db.doc(`tenants/${x.tenantId}/clients/${x.appt.clientId}`).set({ notificationPreferences: { confirmationChannel: ch(b.confirmationChannel), reminderChannel: ch(b.reminderChannel), reminderHoursBefore: hours, updatedAt: nowIso, source: 'check-in link' } }, { merge: true });
+    await cRef.set({ notificationPreferences: { confirmationChannel: ch(b.confirmationChannel), reminderChannel: rch(b.reminderChannel), reminderHoursBefore: hours, updatedAt: nowIso, source: 'check-in link' } }, { merge: true });
     return NextResponse.json({ ok: true });
   }
 

@@ -92,9 +92,9 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field, val
           <Label className="text-base">{field.label}</Label>
           <RadioGroup value={value} onValueChange={onChange}>
             {(field.options || []).map((option, index) => (
-              <div key={index} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50 border border-transparent hover:border-border transition-colors">
+              <div key={index} className="flex min-h-11 items-center space-x-3 px-2 rounded-lg hover:bg-muted/50 border border-transparent hover:border-border transition-colors">
                 <RadioGroupItem value={option} id={`${field.id}-${index}`} />
-                <Label htmlFor={`${field.id}-${index}`} className="flex-1 cursor-pointer font-normal">{option}</Label>
+                <Label htmlFor={`${field.id}-${index}`} className="flex-1 cursor-pointer py-3 text-[15px] font-normal leading-snug">{option}</Label>
               </div>
             ))}
           </RadioGroup>
@@ -108,13 +108,13 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field, val
             {(field.options || []).map((option, index) => {
                 const isChecked = Array.isArray(value) && value.includes(option);
                 return (
-                    <div key={index} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-muted/50 border border-transparent hover:border-border transition-colors">
+                    <div key={index} className="flex min-h-11 items-center space-x-3 px-2 rounded-lg hover:bg-muted/50 border border-transparent hover:border-border transition-colors">
                         <Checkbox 
                             id={`${field.id}-${index}`} 
                             checked={isChecked}
                             onCheckedChange={(checked) => handleCheckboxChange(option, !!checked)}
                         />
-                        <Label htmlFor={`${field.id}-${index}`} className="flex-1 cursor-pointer font-normal">{option}</Label>
+                        <Label htmlFor={`${field.id}-${index}`} className="flex-1 cursor-pointer py-3 text-[15px] font-normal leading-snug">{option}</Label>
                     </div>
                 )
             })}
@@ -128,11 +128,13 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field, val
                 <ImageUpload onImageUploaded={(url) => onChange?.(url)} initialImage={value} enableMarkup />
             </div>
         )
+    // A paper-white pad and dark ink in every look (Night included): the signature is kept as an image and read on
+    // white later, by the team and on the client's records.
     case 'signature':
       return (
         <div className="space-y-2">
           <Label className="text-base">{field.label}</Label>
-           <div className={cn("relative rounded-xl border-2 border-dashed border-input w-full h-48 bg-muted/20 overflow-hidden")}>
+           <div className={cn("cf-paper relative rounded-xl border-2 border-dashed border-input w-full h-48 overflow-hidden")} style={{ background: '#fff', color: '#16171a' }}>
             {signatureDataUrl ? (
                  <div className="relative w-full h-full p-4">
                     <Image src={signatureDataUrl} alt="signature" layout="fill" objectFit="contain" />
@@ -141,23 +143,23 @@ export const FormFieldRenderer: React.FC<FormFieldRendererProps> = ({ field, val
                 <>
                     <SignatureCanvas
                         ref={sigCanvas}
-                        penColor="currentColor"
-                        canvasProps={{ className: 'w-full h-full rounded-md text-foreground' }}
+                        penColor="#16171a"
+                        canvasProps={{ className: 'w-full h-full rounded-md' }}
                         onEnd={handleSignatureEnd}
                     />
-                    <div className="absolute bottom-6 left-6 right-6 flex items-center gap-3 pointer-events-none opacity-20">
-                        <span className="text-muted-foreground text-2xl font-bold">X</span>
-                        <div className="flex-1 border-b-2 border-dashed border-muted-foreground"></div>
+                    <div className="absolute bottom-6 left-6 right-6 flex items-center gap-3 pointer-events-none" style={{ opacity: 0.3, color: '#16171a' }}>
+                        <span className="text-2xl font-bold">X</span>
+                        <div className="flex-1 border-b-2 border-dashed" style={{ borderColor: '#16171a' }}></div>
                     </div>
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-10">
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none" style={{ opacity: 0.1, color: '#16171a' }}>
                         <Signature className="w-20 h-20" />
                     </div>
                 </>
             )}
             </div>
           <div className="flex justify-end pt-1">
-            <Button type="button" variant="ghost" size="sm" onClick={clearSignature} className="text-xs text-muted-foreground">
-                {signatureDataUrl ? 'Clear & Sign Again' : 'Clear Signature'}
+            <Button type="button" variant="ghost" onClick={clearSignature} className="min-h-11 text-[14px] text-muted-foreground">
+                {signatureDataUrl ? 'Clear and sign again' : 'Clear signature'}
             </Button>
           </div>
         </div>

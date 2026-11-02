@@ -109,7 +109,8 @@ const day = (p: any = {}) => text(html(<DayOfView brand={brand} first="Dana" ser
   ok(!day({ minutesAway: -60, startTime: inMin(-60) }).includes('starting now') && day({ minutesAway: -2, startTime: inMin(-2) }).includes('starting now'), 'an hour past the start doesn’t say “starting now”');
   ok(src('src/components/referrals/CircleMember.tsx').includes("qrSvg(link, 200, '#16171a')"), 'the share QR is drawn in solid ink, scannable in every mood');
   ok(src('src/components/public/kit.tsx').includes('[style*="background: var(--accent,"]') && src('src/components/booking/VisitShell.tsx').includes('.v-pill[aria-pressed=true],.v-mark'), 'on Night, buttons and chosen pills in the business color keep a ring, even in a dark color');
-  ok(page.includes('chip="Canceled"') && !/<b>cancelled<\/b>|is cancelled|Cancelling…/.test(page + src('src/components/booking/DayOfView.tsx') + src('src/components/booking/DisruptionCard.tsx')), 'US spelling: canceled, canceling');
+  const gates = src('src/components/visit/VisitGates.tsx');
+  ok(gates.includes('chip="Canceled"') && !/<b>cancelled<\/b>|is cancelled|Cancelling…/.test(page + gates + src('src/components/booking/DayOfView.tsx') + src('src/components/booking/DisruptionCard.tsx')), 'US spelling: canceled, canceling');
   ok(!/uppercase/.test(src('src/components/referrals/CircleMember.tsx') + src('src/components/referrals/CreatorCampaigns.tsx') + src('src/components/booking/VisitHero.tsx').split('export function PassCode')[0]), 'no all-caps labels in the wallet’s circle and campaigns or the visit hero');
 
   const dv = src('src/components/booking/DayOfView.tsx');

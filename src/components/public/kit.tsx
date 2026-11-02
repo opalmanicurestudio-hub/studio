@@ -88,7 +88,7 @@ export const PUBLIC_CSS = String.raw`
 .pub-ui{--background:36 33% 97%;--foreground:24 10% 10%;--card:0 0% 100%;--card-foreground:24 10% 10%;--popover:0 0% 100%;--popover-foreground:24 10% 10%;--muted:30 14% 93%;--muted-foreground:25 5% 38%;
   --border:30 12% 88%;--input:30 12% 88%;--primary:var(--accent-hsl,24 10% 10%);--primary-foreground:0 0% 100%;--ring:var(--accent-hsl,24 10% 10%);--radius:1rem;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:hsl(var(--foreground))}
 .pub[data-mood=crisp] .pub-ui{--background:0 0% 100%;--border:240 5% 93%;--input:240 5% 90%;--radius:.625rem}
-.pub[data-mood=night] .pub-ui{--background:228 8% 9%;--foreground:240 5% 96%;--card:225 6% 14%;--card-foreground:240 5% 96%;--popover:225 6% 14%;--popover-foreground:240 5% 96%;
+.pub[data-mood=night] .pub-ui{--glass-surface:34 35 38;--background:228 8% 9%;--foreground:240 5% 96%;--card:225 6% 14%;--card-foreground:240 5% 96%;--popover:225 6% 14%;--popover-foreground:240 5% 96%;
   --muted:228 6% 18%;--muted-foreground:240 4% 65%;--border:228 6% 21%;--input:228 6% 26%}
 `;
 export const PUBLIC_FONT_HREF = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap';
