@@ -1,31 +1,23 @@
 // ─── src/lib/email-shell.ts ──────────────────────────────────────────────────
-// ONE branded shell for every customer email ClarityFlow sends on a tenant's
-// behalf — receipt, cart recovery, claim decisions, return labels, and
-// whatever comes next. The point is multi-tenancy done properly:
+// THE SHOP'S EMAILS (receipts, cart recovery, claim decisions, return labels, and whatever comes next), drawn by the
+// same frame as every other email the business sends (lib/email-template emailFrame, ClientEmails board 15G): the
+// shop's color in a line across the top and on the button, its logo and name, the news in big type, and its name
+// at the foot. Multi-tenancy done properly:
 //
-//   · The brand is THE TENANT'S, resolved per send from their own document —
-//     shop name from businessName, header/button color from their storefront
-//     theme. Never ClarityFlow's brand, never a cached other tenant's.
-//   · Button/header text color is COMPUTED from the brand color's luminance,
-//     so a shop with a pale-lemon brand doesn't send white-on-yellow email.
-//   · Email clients are hostile terrain: table-free simple divs, inline
-//     styles, 560px column, colors that survive dark-mode inversion. Type
-//     is Jakarta-first (her one-typeface rule): Apple Mail loads it via
-//     @import; Gmail/Outlook strip webfonts and fall back to the system
-//     stack — the email is branded where possible, clean everywhere.
+//   · The brand is THE TENANT'S, resolved per send from their own document: shop name from businessName, color
+//     from their storefront theme. Never ClarityFlow's brand, never a cached other tenant's.
+//   · Button text color is COMPUTED from the brand color's luminance, so a shop with a pale-lemon brand doesn't
+//     send white-on-yellow email; words in its color turn ink when the color is too pale to read on white.
+//   · Email clients are hostile terrain: tables, inline styles, a 560px column. Jakarta first; clients that strip
+//     webfonts (Gmail, Outlook) fall back to the system stack.
 //
-// Senders build only their BODY html and hand it here. One place to change
-// the look; zero drift between senders.
+// Senders build only their BODY html and hand it here. One place to change the look; zero drift between senders.
 
 import { brandOf } from '@/lib/shop-site';
+import { EMAIL_FONT, emailFrame, emailPill, readableOn } from '@/lib/email-template';
 
-/** logoUrl: the logo that reads on the brand-colored header (its light version on a dark color); show: as the shop shows it. */
+/** logoUrl: the shop's logo (the header is white, so its regular version); show: as the shop shows it. */
 export type EmailBrand = { shopName: string; brandColor: string; logoUrl?: string; show?: 'mark+name' | 'mark' | 'name' };
-
-// Jakarta-first everywhere. Clients that honor webfonts (Apple Mail — most
-// phone inboxes) render the brand typeface; clients that strip them (Gmail,
-// Outlook) fall back to the system stack. The @import lives in the shell.
-const EMAIL_FONT = "'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
 
 /** Per-send tenant brand lookup. Fallbacks keep emails sending when a tenant
  *  has no theme: ink header, honest name. */
@@ -39,11 +31,9 @@ export function brandFromTenant(t: any): EmailBrand {
     shopName = String(t?.businessName || t?.name || shopName);
     const c = t?.retailSettings?.shopTheme?.brand;
     if (typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.trim())) brandColor = c.trim();
-    // The shop's logo on the header: its light version on a dark brand color, when it has one; a dark logo on a dark
-    // header without a light version would vanish, so then the name shows alone.
-    const b = brandOf(t); const darkHeader = readableTextOn(brandColor) === '#ffffff';
-    const logo = darkHeader ? b.darkLogoUrl : b.logoUrl;
-    if (logo && b.show !== 'name') return { shopName, brandColor, logoUrl: logo, show: b.show };
+    // The shop's logo by its name, on the white header (so its regular version, never the light one).
+    const b = brandOf(t);
+    if (b.logoUrl && b.show !== 'name') return { shopName, brandColor, logoUrl: b.logoUrl, show: b.show };
   } catch { /* never block an email on cosmetics */ }
   return { shopName, brandColor };
 }
@@ -60,24 +50,12 @@ export async function getEmailBrand(db: any, tenantId: string): Promise<EmailBra
 
 /** White or ink, whichever actually reads on the given background. */
 export function readableTextOn(bgHex: string): string {
-  try {
-    const h = bgHex.replace('#', '');
-    const r = parseInt(h.slice(0, 2), 16) / 255;
-    const g = parseInt(h.slice(2, 4), 16) / 255;
-    const b = parseInt(h.slice(4, 6), 16) / 255;
-    const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
-    const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-    return L > 0.35 ? '#16171a' : '#ffffff';
-  } catch {
-    return '#ffffff';
-  }
+  return readableOn(bgHex);
 }
 
+/** The one button, in the shop's color. href may arrive escaped already (&amp;); it's escaped once either way. */
 export function emailButton(href: string, label: string, brand: EmailBrand): string {
-  const fg = readableTextOn(brand.brandColor);
-  return `<p style="text-align:center;margin:26px 0">
-    <a href="${href}" style="background:${brand.brandColor};color:${fg};padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px;display:inline-block">${label}</a>
-  </p>`;
+  return emailPill(String(href || '').replace(/&amp;/g, '&'), String(label || '').replace(/&amp;/g, '&'), brand.brandColor);
 }
 
 /**
@@ -86,33 +64,14 @@ export function emailButton(href: string, label: string, brand: EmailBrand): str
  * (the claim-decision sender already does).
  */
 export function brandedEmail(brand: EmailBrand, bodyHtml: string, opts?: { preheader?: string; title?: string; tag?: string }): string {
-  const esc = (v: string) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c]);
-  const headerFg = readableTextOn(brand.brandColor);
-  const pre = opts?.preheader
-    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${opts.preheader}</div>`
-    : '';
-  /* Optional HEADLINE BAND: when a sender passes a title, the brand header
-   * carries the news itself — "Out for delivery today" in the shop's color —
-   * instead of burying it in the body. tag is the small line above it
-   * (usually the order number). Callers that pass neither render exactly as
-   * before. */
-  const titleBlock = opts?.title
-    ? `${opts?.tag ? `<span style="display:block;font-size:10px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;opacity:0.75;margin-bottom:6px">${opts.tag}</span>` : ''}<span style="display:block;font-size:21px;font-weight:800;letter-spacing:-0.02em;line-height:1.25">${opts.title}</span>`
-    : '';
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');</style>
-</head><body style="margin:0;padding:0">${pre}<div style="background:#f4f4f5;padding:24px 12px">
-  <div style="max-width:560px;margin:0 auto">
-    <div style="background:${brand.brandColor};color:${headerFg};border-radius:16px 16px 0 0;padding:18px 24px;font-family:${EMAIL_FONT}">
-      ${brand.logoUrl ? `<img src="${esc(brand.logoUrl)}" alt="${brand.show === 'mark' ? esc(brand.shopName) : ''}" height="${opts?.title ? 26 : 32}" style="height:${opts?.title ? 26 : 32}px;width:auto;max-width:180px;vertical-align:middle;border:0${brand.show === 'mark' ? '' : ';margin-right:10px'}">` : ''}${brand.logoUrl && brand.show === 'mark' ? '' : `<span style="font-size:${opts?.title ? '11px' : '15px'};font-weight:800;letter-spacing:0.06em;text-transform:uppercase;vertical-align:middle${opts?.title ? ';opacity:0.85' : ''}">${esc(brand.shopName)}</span>`}
-      ${titleBlock ? `<div style="margin-top:10px">${titleBlock}</div>` : ''}
-    </div>
-    <div style="background:#ffffff;border-radius:0 0 16px 16px;padding:26px 24px;font-family:${EMAIL_FONT}">
-      ${bodyHtml}
-    </div>
-    <p style="font-family:${EMAIL_FONT};font-size:11px;color:#94a3b8;text-align:center;margin:14px 0 0">
-      Sent by ${esc(brand.shopName)}
-    </p>
-  </div>
-</div></body></html>`;
+  const accent = /^#[0-9a-f]{6}$/i.test(String(brand.brandColor || '').trim()) ? String(brand.brandColor).trim() : '#16171a';
+  /* The news itself in big type ("Out for delivery today") when a sender passes a title, with the small line above it
+   * in the shop's color (usually the order number). Callers that pass neither get the body under the shop's name.
+   * title and tag are trusted markup from our own senders, as before; the preheader is plain text (it can quote a
+   * customer's message), so it's escaped here. */
+  return emailFrame({
+    look: { name: brand.shopName || 'Your shop', accent, logoUrl: brand.logoUrl || null, show: brand.show },
+    preheader: String(opts?.preheader || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c]), eyebrowHtml: opts?.tag || '', titleHtml: opts?.title || '',
+    contentHtml: `<div style="margin:${opts?.title ? 14 : 0}px 0 0;font-family:${EMAIL_FONT};font-size:15px;line-height:1.6;color:#2c2d31">${bodyHtml}</div>`,
+  });
 }

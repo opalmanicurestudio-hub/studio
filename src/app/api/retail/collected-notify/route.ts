@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         <p style="font-size:14px;color:#334155;line-height:1.6">${esc(line)}</p>
         <p style="font-size:13px;color:#6d7075;line-height:1.6">Weren’t expecting this? Send us a message on your order page and we’ll look into it straight away.</p>
         ${emailButton(link, 'View my order', brand)}`,
-        { title: 'Your order was collected', tag: `Order ${num}`, preheader: esc(line) });
+        { title: 'Your order was collected', tag: `Order ${num}`, preheader: line });
       const r = await sendNotification(db, { tenantId, channel: 'email', to: String(o.customerEmail), subject: `Your order ${num} was collected`, html, kind: 'order_collected', recipientType: 'client', recipientId: orderId, recipientName: o.customerName || null });
       emailed = r.ok === true; if (r.status === 'failed') failed = true;
     }

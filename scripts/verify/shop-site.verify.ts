@@ -40,16 +40,16 @@ ok(sb.show === 'mark+name' && sb.place === 'left' && sb.size === 'medium' && sb.
 
 // ── the logo on order emails
 const eLight = brandFromTenant({ businessName: 'Opal', logoUrl: 'https://cdn/l.png', retailSettings: { shopTheme: { brand: '#f5e9d8' } } });
-ok(eLight.logoUrl === 'https://cdn/l.png', 'a light brand color: the logo goes on the email header');
+ok(eLight.logoUrl === 'https://cdn/l.png', 'the logo goes on the email header');
 const eDarkNoLight = brandFromTenant({ businessName: 'Opal', logoUrl: 'https://cdn/l.png', retailSettings: { shopTheme: { brand: '#16171a' } } });
-ok(!eDarkNoLight.logoUrl, 'a dark header with no light logo: the name alone (a dark logo would vanish)');
+ok(eDarkNoLight.logoUrl === 'https://cdn/l.png', 'a dark brand color: still the regular logo (the header is white now, board 15G)');
 const eDark = brandFromTenant({ businessName: 'Opal', logoUrl: 'https://cdn/l.png', retailSettings: { shopTheme: { brand: '#16171a' }, shopBrand: { darkLogoUrl: 'https://cdn/light.png', show: 'mark' } } });
-ok(eDark.logoUrl === 'https://cdn/light.png' && eDark.show === 'mark', 'a dark header with a light logo: the light logo');
+ok(eDark.logoUrl === 'https://cdn/l.png' && eDark.show === 'mark', 'never the light logo on the white header');
 const html = brandedEmail(eDark, '<p>Hi</p>');
-ok(html.includes('src="https://cdn/light.png"') && html.includes('alt="Opal"') && !/>Opal<\/span>/.test(html), 'logo only: the image, named for screen readers, without the name repeated');
+ok(html.includes('src="https://cdn/l.png"') && html.includes('alt="Opal"') && !/>Opal<\/td>/.test(html), 'logo only: the image, named for screen readers, without the name repeated');
 const html2 = brandedEmail(eLight, '<p>Hi</p>');
-ok(html2.includes('src="https://cdn/l.png"') && /OPAL|Opal<\/span>/.test(html2), 'logo and name: both');
-ok(!brandedEmail({ shopName: 'Opal', brandColor: '#16171a' }, '<p>x</p>').includes('<img'), 'no logo: as before');
+ok(html2.includes('src="https://cdn/l.png"') && />Opal<\/td>/.test(html2), 'logo and name: both');
+ok(!brandedEmail({ shopName: 'Opal', brandColor: '#16171a' }, '<p>x</p>').includes('<img'), 'no logo: the letter and the name');
 
 // ── wiring
 const src = (p: string) => fs.readFileSync(p, 'utf8');
@@ -87,6 +87,6 @@ ok(/min-h-\[44px\]/.test(chromeSrc) && /<nav aria-label=\{title\}/.test(chromeSr
 ok(/flex min-w-0 items-center lg:shrink-0/.test(src('src/components/shop/ShopChrome.tsx')), 'long shop names truncate on phones instead of pushing the bag off the screen (second review)');
 ok(/\[data-shop-theme\] \.bg-neutral-50 \{/.test(src('src/app/globals.css')) && /\[data-shop-theme\] :is\(\.text-neutral-500, \.text-neutral-600\)/.test(src('src/app/globals.css')), 'the box panel and its small print follow dark presets (second review)');
 ok(/setTrade\(!!readWholesaleCode/.test(src('src/components/shop/ShopChrome.tsx')) && /<span className="line-clamp-2">\{site\.announcement\}/.test(src('src/components/shop/ShopChrome.tsx')), 'wholesale buyers never see the announcement; it takes at most two lines (second review)');
-ok(/<h1[^>]*>Restocking in progress<\/h1>/.test(src('src/app/shop/[tenantId]/page.tsx')) && /Sent by \$\{esc\(brand\.shopName\)\}/.test(src('src/lib/email-shell.ts')), 'the paused page has its heading; the email escapes the name everywhere (second review)');
+ok(/<h1[^>]*>Restocking in progress<\/h1>/.test(src('src/app/shop/[tenantId]/page.tsx')) && /esc\(o\.look\.name \|\| ''\)/.test(src('src/lib/email-template.ts')) && brandedEmail({ shopName: 'A<b>', brandColor: '#16171a' }, '<p>x</p>').includes('A&lt;b&gt;'), 'the paused page has its heading; the email escapes the name everywhere (second review)');
 
 console.log(bad ? `${bad} failed` : 'all good'); if (bad) process.exit(1);

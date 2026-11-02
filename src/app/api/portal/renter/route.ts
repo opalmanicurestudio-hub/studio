@@ -2487,8 +2487,8 @@ export async function POST(req: NextRequest) {
         cancellationAudit: { actorType: 'studio', actorId: st.id, actorName: st.name || 'Provider', reason: 'provider_cancel', note, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' },
       }, { merge: true });
       if (body.tellClient !== false) {
-        await tellClient(a, st, 'Your appointment has been cancelled',
-          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} has been cancelled.${note ? ` ${note}` : ''}`, 'I apologize for any inconvenience. Nothing has been charged. If you have any questions, please reply to this message, and you are welcome to rebook at any time.'], 'renter_client_cancelled');
+        await tellClient(a, st, 'Your appointment has been canceled',
+          [`Your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)} has been canceled.${note ? ` ${note}` : ''}`, 'I apologize for any inconvenience. Nothing has been charged. If you have any questions, please reply to this message, and you are welcome to rebook at any time.'], 'renter_client_cancelled');
       }
       return NextResponse.json({ ok: true, creditNote });
     }
@@ -3821,7 +3821,7 @@ export async function POST(req: NextRequest) {
             patch.status = 'cancelled'; patch.cancelledAt = nowIso;
             patch.cancellationAudit = { actorType: 'studio', actorId: st.id, actorName: st.name || renterName, reason: 'closure', note: rec.title, feeAmount: 0, feeWaived: true, paymentStatus: 'paid', timestamp: nowIso, via: 'renter_portal' };
             cancelled++;
-            await tellClient(a, st, `Your appointment on ${fmtWhen(a.startTime)} has been cancelled`,
+            await tellClient(a, st, `Your appointment on ${fmtWhen(a.startTime)} has been canceled`,
               [`Unfortunately, the studio is unexpectedly closed (${rec.title}), so I have to cancel your ${a.renterServiceName || 'appointment'} on ${fmtWhen(a.startTime)}. I sincerely apologize for the inconvenience.`, 'Nothing has been charged. As soon as we reopen, I would be glad to see you. Please reply to this message or book again at any time.'],
               'renter_client_cancelled');
           }

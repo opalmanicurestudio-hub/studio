@@ -40,8 +40,8 @@ export async function renterAftercareSweep(db: any, tenantId: string, tenant: an
       let phone = a.clientPhone || a.phone || null, email = a.clientEmail || a.email || null;
       if ((!phone || !email) && a.clientId) { try { const c: any = (await db.doc(`${T}/clients/${a.clientId}`).get()).data() || {}; phone = phone || c.phone || null; email = email || c.email || null; } catch { /* none */ } }
       const send = async (text: string, subject: string, kind: string) => { let ok = false;
-        if (phone && smsConfigured()) ok = (await sendTenantSms(db, tenantId, phone, text, { email, subject })).ok;
-        if (!ok && email) ok = (await sendNotification(db, { tenantId, channel: 'email', to: email, subject, text, kind, appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' } as any)).ok;
+        if (phone && smsConfigured()) ok = (await sendTenantSms(db, tenantId, phone, text, { email, subject, fromName: brand.name })).ok;
+        if (!ok && email) ok = (await sendNotification(db, { tenantId, channel: 'email', to: email, subject, text, fromName: brand.name, kind, appointmentId: d.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' } as any)).ok;
         return ok; };
       const url = `${base}${aftercarePath(tenantId, d.id)}`; const svc = String(a.serviceName || a.renterServiceName || 'visit').toLowerCase();
       if (!a.aftercareSentAt && !a.followUpSentAt) {

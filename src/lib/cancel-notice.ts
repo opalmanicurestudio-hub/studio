@@ -13,7 +13,7 @@ export async function sendCancellationNotice(db: any, tenantId: string, appointm
   const first = String(a.clientName || cl.name || '').split(' ')[0] || 'there';
   const when = a.startTime ? new Date(a.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenant.timezone || undefined }) : 'your appointment';
   const book = `${base}/book/${tenantId}${a.serviceId ? `?service=${encodeURIComponent(String(a.serviceId))}` : ''}`;
-  const head = o.who === 'no_show' ? `We missed you at your appointment on ${when}.` : o.who === 'studio' ? `We're sorry to let you know that we've had to cancel your appointment on ${when}.` : `Your appointment on ${when} has been cancelled.`;
+  const head = o.who === 'no_show' ? `We missed you at your appointment on ${when}.` : o.who === 'studio' ? `We're sorry to let you know that we've had to cancel your appointment on ${when}.` : `Your appointment on ${when} has been canceled.`;
   const lines = cancellationOutcomeLines(o);
   const body = [`Hi ${first},`, head, ...lines, o.who === 'no_show' ? "We hope everything is all right, and we'd be glad to see you again soon." : 'We hope to see you again soon.', "If you have any questions, just reply to this email and we'll be happy to help.", 'Kind regards,', studio];
   const told = { email: false, sms: false };
@@ -22,9 +22,9 @@ export async function sendCancellationNotice(db: any, tenantId: string, appointm
   try {
     const { sendNotification } = await import('@/lib/notify');
     const { brandedEmailHtml } = await import('@/lib/email-template');
-    const subject = o.who === 'no_show' ? `We missed you at ${studio}` : `Your appointment at ${studio} has been cancelled`;
+    const subject = o.who === 'no_show' ? `We missed you at ${studio}` : `Your appointment at ${studio} has been canceled`;
     if (email.includes('@')) told.email = !!(await sendNotification(db, { tenantId, channel: 'email', to: email, subject, kind: 'appointment_cancelled', tokens,
-      html: brandedEmailHtml({ studioName: studio, title: o.who === 'no_show' ? 'We missed you' : 'Appointment cancelled', bodyLines: body, cta: { label: 'Book again', url: book } }),
+      html: brandedEmailHtml({ studioName: studio, title: o.who === 'no_show' ? 'We missed you' : 'Appointment canceled', bodyLines: body, cta: { label: 'Book again', url: book } }),
       appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;
     if (phone) told.sms = !!(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'appointment_cancelled', tokens,
       text: `Hi ${first}, ${head.charAt(0).toLowerCase()}${head.slice(1)} ${lines.join(' ')} Whenever you're ready, you can book a new time here: ${book}`, appointmentId, clientId: a.clientId || null, clientName: a.clientName || null } as any))?.ok;

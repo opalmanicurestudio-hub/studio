@@ -52,11 +52,13 @@ export interface SmsResult { ok: boolean; sid?: string; error?: string; via?: 's
 // email via Resend instead of dying. Needs RESEND_API_KEY (and ideally
 // NOTIFY_FROM_EMAIL) in the environment; without them this quietly
 // declines and callers keep their owner-inbox fallback as the last net.
-async function sendFallbackEmail(toEmail: string, subject: string, body: string, studioName: string): Promise<boolean> {
+async function sendFallbackEmail(toEmail: string, subject: string, body: string, studioName: string, tenant?: any, fromName?: string | null, plain = false): Promise<boolean> {
   try {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey || !toEmail || !/@/.test(toEmail)) return false;
-    const { brandedEmailHtml } = await import('./email-template');
+    const { brandedEmailHtml, applyEmailBrand, emailLookOf } = await import('./email-template');
+    let discreet = false;
+    try { const { privacyOf } = await import('./health-privacy'); discreet = !!tenant && privacyOf(tenant).discreet; } catch { /* the font stays */ }
     // Lift a link out of the message body into a proper CTA button.
     const linkMatch = body.match(/https?:\/\/\S+/);
     const textOnly = linkMatch ? body.replace(linkMatch[0], '').replace(/\s{2,}/g, ' ').trim() : body;
@@ -68,13 +70,20 @@ async function sendFallbackEmail(toEmail: string, subject: string, body: string,
         to: [toEmail],
         subject: subject || `${studioName || 'Studio'} — notification`,
         text: `${body}\n\n— ${studioName || 'The studio'} (sent by email because your phone couldn't receive our text)`,
-        html: brandedEmailHtml({
-          studioName: studioName || 'Studio',
-          title: subject || 'Notification',
-          bodyLines: [textOnly],
-          cta: linkMatch ? { label: 'Open', url: linkMatch[0] } : null,
-          footerNote: `Sent by email because your phone couldn't receive our text. You're receiving this because you have an account or booking with ${studioName || 'the studio'}.`,
-        }),
+        html: (() => {
+          // The shared shell (lib/email-template): in the business's look, or plain in a renter's name.
+          const h = brandedEmailHtml({
+            studioName: String(fromName || '').trim() || studioName || 'Studio',
+            title: subject || 'Notification',
+            bodyLines: [textOnly],
+            cta: linkMatch ? { label: 'Open', url: linkMatch[0] } : null,
+            footerNote: `Sent by email because your phone couldn’t receive our text.`,
+          });
+          let out = h;
+          if (!fromName && !plain && tenant) { try { out = applyEmailBrand(h, emailLookOf(tenant)); } catch { out = h; } }
+          // Discreet businesses (health privacy mode): no web font, as in lib/notify.
+          return discreet ? out.replace(/<style>@import url\('https:\/\/fonts\.googleapis\.com[^<]*<\/style>/g, '') : out;
+        })(),
       }),
     });
     return res.ok;
@@ -173,15 +182,16 @@ async function resolveRecipient(db: any, tenantId: string, e164: string | null) 
 export async function sendTenantSms(
   db: any, tenantId: string, to: string, body: string,
   // Secondary method: pass an email and the message survives SMS failure.
-  fallback?: { email?: string | null; subject?: string },
+  fallback?: { email?: string | null; subject?: string; fromName?: string | null },
   meta?: SmsMeta,
 ): Promise<SmsResult> {
   let studioName = '';
   let from: string | undefined;
   let messagingServiceSid: string | undefined;
+  let tenantDoc: any = null;
   try {
     const t = await db.doc(`tenants/${tenantId}`).get();
-    const data = (t.data() as any) || {};
+    const data = (t.data() as any) || {}; tenantDoc = data;
     studioName = data.name || data.businessName || '';
     from = data?.sms?.fromNumber || undefined;
     messagingServiceSid = data?.sms?.messagingServiceSid || undefined;
@@ -192,7 +202,7 @@ export async function sendTenantSms(
   if (e164) {
     try { const out = ((await db.doc(`tenants/${tenantId}/private/smsOptOuts`).get()).data() as any) || {};
       if (out[e164.replace(/[^\d]/g, '')]) {
-        if (fallback?.email) { const emailed = await sendFallbackEmail(fallback.email, fallback.subject || (studioName ? `${studioName} — notification` : 'Notification'), body, studioName); if (emailed) return { ok: true, via: 'email', error: 'opted out of texts — delivered by email' } as SmsResult; }
+        if (fallback?.email) { const emailed = await sendFallbackEmail(fallback.email, fallback.subject || (studioName ? `${studioName} — notification` : 'Notification'), body, studioName, tenantDoc, fallback?.fromName || null, !!(meta as any)?.renterId); if (emailed) return { ok: true, via: 'email', error: 'opted out of texts — delivered by email' } as SmsResult; }
         return { ok: false, error: 'They replied STOP, so texts to this number are off.' } as SmsResult; } } catch { /* the carrier's own STOP still protects */ }
   }
   let firstContact = false;
@@ -213,7 +223,7 @@ export async function sendTenantSms(
 
   // SMS failed → try the secondary method before giving up.
   if (!result.ok && fallback?.email) {
-    const emailed = await sendFallbackEmail(fallback.email, fallback.subject || (studioName ? `${studioName} — notification` : 'Notification'), body, studioName);
+    const emailed = await sendFallbackEmail(fallback.email, fallback.subject || (studioName ? `${studioName} — notification` : 'Notification'), body, studioName, tenantDoc, fallback?.fromName || null, !!(meta as any)?.renterId);
     if (emailed) result = { ok: true, via: 'email', error: `sms failed (${result.error}) — delivered by email` };
   }
 

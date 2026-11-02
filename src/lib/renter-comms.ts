@@ -43,7 +43,7 @@ export async function tellClient(db: any, v: RenterVoice, to: { email?: string |
   if (!email && !phone) return;
   try {
     if (email.includes('@')) {
-      await sendNotification(db, { tenantId: v.tenantId, channel: 'email', to: email, subject,
+      await sendNotification(db, { tenantId: v.tenantId, channel: 'email', to: email, subject, fromName: v.renterName,
         html: brandedEmailHtml({ studioName: v.renterName, title: subject, bodyLines: [...lines, `Kind regards, ${v.renterName}`], footerNote: `Sent by ${v.renterName}, renting at ${v.studioName}.` }),
         kind, recipientType: 'client', recipientId: to.clientId || null, recipientName: to.name || null } as any);
     }

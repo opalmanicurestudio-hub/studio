@@ -61,7 +61,7 @@ async function alertSchool(tenantId: string, t: any, subject: string, lines: str
   const db = getAdminDb(); const id = await getIdentity(tenantId, t).catch(() => null);
   const to = t.notificationEmail || id?.email || t.email; if (!to) return;
   const html = brandedEmailHtml({ studioName: id?.displayName || t.name || 'Your school', title: subject, bodyLines: lines, cta: { label: 'Open in ClarityFlow', url: link } });
-  await sendNotification(db, { tenantId, channel: 'email', to, subject, html, kind: 'school_website_alert', recipientType: 'other', recipientId: tenantId, recipientName: null }).catch(() => null);
+  await sendNotification(db, { tenantId, channel: 'email', to, subject, html, kind: 'school_website_alert', recipientType: 'other', recipientId: tenantId, recipientName: 'Owner' }).catch(() => null);
 }
 
 export async function POST(req: NextRequest) {

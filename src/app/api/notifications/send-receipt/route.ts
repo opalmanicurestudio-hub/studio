@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { staffOrServer } from '@/lib/route-guard';
-import { brandedEmail, getEmailBrand, type EmailBrand } from '@/lib/email-shell';
+import { brandedEmailHtml } from '@/lib/email-template';
+import { isPlaceholderName } from '@/lib/visit-email';
 
 // ─── /api/notifications/send-receipt/route.ts ─────────────────────────────────
 // Sends a cash/card receipt by email (Resend) or SMS (Twilio).
@@ -44,44 +45,27 @@ type ReceiptPayload = {
   date:          string;
 };
 
-function buildEmailHtml(r: ReceiptPayload, brand: EmailBrand): string {
-  const lineItemsHtml = r.lineItems
-    .map(l => `<tr>
-      <td style="padding:6px 0; color:#374151;">${l.label}${l.staff ? ` <span style="color:#9ca3af; font-size:12px;">· ${l.staff}</span>` : ''}</td>
-      <td style="padding:6px 0; text-align:right; font-family:monospace; color:#111827;">$${l.amount.toFixed(2)}</td>
-    </tr>`)
-    .join('');
-
-  /* SAME CLOTHES AS THE RETAIL MAIL. The receipt used a hardcoded violet
-   * header no matter what color the shop actually is; it now rides the
-   * shared shell, so a client who buys online and in person gets one
-   * consistent-looking business. */
-  return brandedEmail(brand, `
-      <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        ${lineItemsHtml}
-      </table>
-
-      <div style="border-top:1px dashed #e5e7eb;margin:16px 0;padding-top:12px;">
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
-          <tr><td style="padding:3px 0;color:#6b7280;">Subtotal</td><td style="text-align:right;color:#6b7280;font-family:monospace;">$${r.subtotal.toFixed(2)}</td></tr>
-          ${r.discount > 0 ? `<tr><td style="padding:3px 0;color:#7c3aed;">Discount</td><td style="text-align:right;color:#7c3aed;font-family:monospace;">-$${r.discount.toFixed(2)}</td></tr>` : ''}
-          ${r.recovery > 0 ? `<tr><td style="padding:3px 0;color:#d97706;">Service adjustment</td><td style="text-align:right;color:#d97706;font-family:monospace;">-$${r.recovery.toFixed(2)}</td></tr>` : ''}
-          <tr><td style="padding:3px 0;color:#6b7280;">Tax (7%)</td><td style="text-align:right;color:#6b7280;font-family:monospace;">$${r.tax.toFixed(2)}</td></tr>
-          ${r.tip > 0 ? `<tr><td style="padding:3px 0;color:#6b7280;">Gratuity</td><td style="text-align:right;color:#6b7280;font-family:monospace;">$${r.tip.toFixed(2)}</td></tr>` : ''}
-          <tr style="border-top:1px solid #111827;">
-            <td style="padding:10px 0 3px;font-weight:700;font-size:15px;color:#111827;">Total</td>
-            <td style="text-align:right;font-weight:700;font-size:15px;color:#111827;font-family:monospace;padding:10px 0 3px;">$${r.total.toFixed(2)}</td>
-          </tr>
-          <tr><td style="padding:3px 0;color:#6b7280;">${r.paymentMethod} tendered</td><td style="text-align:right;color:#6b7280;font-family:monospace;">$${r.tendered.toFixed(2)}</td></tr>
-          ${r.change > 0.005 ? `<tr><td style="padding:3px 0;color:#166534;font-weight:600;">Change returned</td><td style="text-align:right;color:#166534;font-weight:600;font-family:monospace;">$${r.change.toFixed(2)}</td></tr>` : ''}
-        </table>
-      </div>
-      <div style="border-top:1px solid #f3f4f6;margin-top:16px;padding-top:14px;text-align:center;">
-        ${r.cashierName ? `<p style="color:#9ca3af;font-size:12px;margin:0 0 4px;">Served by ${r.cashierName}</p>` : ''}
-        <p style="color:#6b7280;font-size:12px;margin:0 0 4px;">Questions? We&#39;re happy to help.</p>
-        ${r.studioPhone ? `<p style="color:#0f172a;font-size:13px;font-weight:600;margin:0;">${r.studioPhone}</p>` : ''}
-      </div>`,
-    { preheader: `Your receipt \u2014 $${r.total.toFixed(2)} on ${r.date}`, title: `Thank you, ${r.clientName.split(' ')[0]}!`, tag: r.date });
+/* THE SAME EMAIL AS EVERY OTHER RECEIPT (api/receipts, board 15G): the shared shell, its rows, and the business's look,
+ * which the sender puts on from its settings (lib/notify). */
+function buildEmailHtml(r: ReceiptPayload, when: string): string {
+  const $ = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
+  const full = String(r.clientName || '').trim();
+  const first = full && !isPlaceholderName(full) ? full.split(/\s+/)[0] : '';   // a walk-in's placeholder is no name
+  const rows: { label: string; value: string; strong?: boolean; muted?: boolean }[] = [
+    ...(r.lineItems || []).map((l) => ({ label: `${l.label}${l.staff ? ` (${l.staff})` : ''}`, value: $(l.amount) })),
+    { label: 'Subtotal', value: $(r.subtotal), muted: true },
+    ...(r.discount > 0 ? [{ label: 'Discount', value: `−${$(r.discount)}`, muted: true }] : []),
+    ...(r.recovery > 0 ? [{ label: 'Service adjustment', value: `−${$(r.recovery)}`, muted: true }] : []),
+    { label: 'Tax', value: $(r.tax), muted: true },
+    ...(r.tip > 0 ? [{ label: 'Tip', value: $(r.tip), muted: true }] : []),
+    { label: 'Total', value: $(r.total), strong: true },
+    { label: r.paymentMethod ? `${r.paymentMethod} tendered` : 'Tendered', value: $(r.tendered), muted: true },
+    ...(r.change > 0.005 ? [{ label: 'Change returned', value: $(r.change), muted: true }] : []),
+  ];
+  return brandedEmailHtml({ studioName: r.studioName || 'Your studio', eyebrow: 'Receipt', title: first ? 'Thanks for coming in,' : 'Thanks for coming in', titleBold: first,
+    preheader: `Your receipt for ${$(r.total)}, ${when}`,
+    details: { big: when, lines: r.cashierName ? [`Served by ${r.cashierName}`] : [] },
+    amounts: rows });
 }
 
 function buildSmsText(r: ReceiptPayload): string {
@@ -100,7 +84,7 @@ function buildSmsText(r: ReceiptPayload): string {
     `Total: $${r.total.toFixed(2)}`,
     r.change > 0.005 ? `Change: $${r.change.toFixed(2)}`        : null,
     ``,
-    `Thank you, ${r.clientName.split(' ')[0]}!`,
+    (() => { const n = String(r.clientName || '').trim(); return n && !isPlaceholderName(n) ? `Thank you, ${n.split(/\s+/)[0]}!` : 'Thank you!'; })(),
     r.cashierName ? `Served by ${r.cashierName}` : null,
     r.studioPhone ? r.studioPhone : null,
   ].filter(Boolean).join('\n');
@@ -142,7 +126,11 @@ export async function POST(req: NextRequest) {
       const sent = await sendNotification(getAdminDb(), {
         tenantId: String(tenantId), channel: 'email', to: contact,
         subject: `Your receipt from ${receipt.studioName}`,
-        html: buildEmailHtml(receipt, await getEmailBrand(getAdminDb(), tenantId)),
+        // The time of the sale in the business's own time zone (the screen's date string can be in any format).
+        html: buildEmailHtml(receipt, await (async () => { try {
+          const { tenantTimeZone, formatShortDay, formatTime } = await import('@/lib/tenant-time');
+          const z = tenantTimeZone(((await getAdminDb().doc(`tenants/${tenantId}`).get()).data() as any) || {}); const now = new Date();
+          return `${formatShortDay(now, z)} · ${formatTime(now, z)}`; } catch { return 'Today'; } })()),
         kind: 'receipt',
         recipientType: 'client',
         recipientName: receipt.clientName || null,

@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   try {
     const { tenantId, appointmentId, imageUrl, note, clientEmail } = await req.json();
     if (!(await staffOrServer(req, String(tenantId || '')))) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });   // staff, or our own server — never the public
-    if (!tenantId || !imageUrl || typeof imageUrl !== 'string' || !/^https:\/\//.test(imageUrl)) {
+    if (!tenantId || !imageUrl || typeof imageUrl !== 'string' || !/^https:\/\/[^\s"'<>]+$/.test(imageUrl)) {
       return NextResponse.json({ ok: false, reason: 'Missing or invalid image.' }, { status: 400 });
     }
     const db = getAdminDb();
@@ -40,12 +40,13 @@ export async function POST(req: NextRequest) {
     const firstName = String(apt?.clientName || '').split(' ')[0] || 'there';
     const safeNote = note ? String(note).slice(0, 500) : '';
 
+    const esc = (v: any) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c]);
+    const img = String(imageUrl);   // checked above: https, nothing that could break out of the tag
     const html = emailShell(studioName, `
-      <p style="margin:0 0 12px;">Hi ${firstName},</p>
-      <p style="margin:0 0 16px;">Here's the photo from your visit${safeNote ? ':' : ' — for your records.'}</p>
-      ${safeNote ? `<p style="margin:0 0 16px;padding:12px 14px;background:#f8fafc;border-radius:10px;color:#334155;">${safeNote}</p>` : ''}
-      <img src="${imageUrl}" alt="Your photo" style="width:100%;border-radius:12px;border:1px solid #e2e8f0;" />
-    `);
+      <p style="margin:14px 0 0;font-size:15px;line-height:1.6;color:#2c2d31">Hi ${esc(firstName)}, here’s the photo from your visit${safeNote ? '.' : ', for your records.'}</p>
+      ${safeNote ? `<p style="margin:14px 0 0;padding:14px 16px;background:#f5f5f7;border-radius:14px;font-size:15px;line-height:1.6;color:#2c2d31">${esc(safeNote)}</p>` : ''}
+      <img src="${esc(img)}" alt="Your photo" style="display:block;width:100%;margin:16px 0 0;border-radius:16px;border:0" />
+    `, 'Your photo');
 
     const result = await sendNotification(db, {
       tenantId, channel: 'email', to,

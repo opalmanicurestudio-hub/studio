@@ -1043,63 +1043,81 @@ export async function POST(req: NextRequest) {
           } catch (e) { console.error('[book] renter confirmation', e); /* fall through to the studio's */ }
         }
 
-        // Email — branded either way; the CONTENT matches the state.
+        // Email — the shared shell (lib/email-template, board 15G); the CONTENT matches the state.
         if (!renterConfirmed && email.includes('@')) {
-          const { brandedEmailHtml } = await import('@/lib/email-template');
+          const { brandedEmailHtml, fullAddressOf } = await import('@/lib/email-template');
+          const { seeYouDay, wallWhen, whatLine } = await import('@/lib/visit-email');
+          const { resolveAddressPolicy, resolveAddressForMessage } = await import('@/lib/message-policy');
+          const at = wallWhen(local);
+          const minutes = Math.round((Date.parse(r.placedEndIso) - Date.parse(r.placedStartIso)) / 60000);
+          // Where: an online, phone or at-home visit says so; a studio visit gets the address the business shares
+          // (or its area, and when the full address comes, per its message settings).
+          const studioVisit = placeOf(placeSvc).kind === 'studio';
+          // A business that never chose an address setting gets its area here, as in its email footer; the street goes
+          // out only under the setting it chose.
+          const addressFor = (confirmed: boolean) => { if (!studioVisit) return null;
+            try { const pol = resolveAddressPolicy(tAny); if (!tAny.addressPolicy?.mode) return pol.areaLabel || null;
+              return resolveAddressForMessage(pol, { fullAddress: fullAddressOf(tAny), confirmed, eventStartIso: r.placedStartIso }).text || null; } catch { return null; } };
+          // A request or a held time shows what and when only: a video link, a call-in number or the address of the
+          // client's own home goes out once the visit is confirmed (the studio's address follows its own setting).
+          const detailsFor = (confirmed: boolean) => ({ big: at.big, lines: [whatLine(svcLabel, staffName, minutes), confirmed ? (where || addressFor(true)) : addressFor(false)].filter(Boolean) as string[] });
           const html = isRequest
             ? brandedEmailHtml({
               studioName,
               /* A REQUEST is not a booking, and the email must never let
                * someone believe otherwise — no confirmation code, no
                * "you're booked", and the honest charge position up front. */
-              title: 'Request received',
+              eyebrow: 'Request received',
+              title: 'Not booked',
+              titleBold: 'yet',
+              preheader: `We’ll confirm your request for ${at.big} as soon as we can.`,
               bodyLines: [
-                `Hi ${firstName},`,
-                `Thank you for your request for ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.`,
-                'Please note that this time is not booked yet. We review every request personally, and you will hear from us shortly. There is nothing you need to do in the meantime.',
+                `Hi ${firstName}, thanks for your request. We review every request personally, and you’ll hear from us shortly. There’s nothing you need to do in the meantime.`,
                 ...(r.plan?.depositCents > 0
                   ? [r.plan?.requiresCardOnFile
-                    ? `You have not been charged. Your card has been saved securely. If we accept your request, the $${(r.plan.depositCents / 100).toFixed(2)} deposit will be charged to it automatically and your appointment will be confirmed. If the card is declined, we will send you a link to pay within ${graceHoursOf(tenant)} hours; if the deposit is not received by then, the time will be released.`
-                    : `You have not been charged. If we accept your request, we will ask for the $${(r.plan.depositCents / 100).toFixed(2)} deposit to confirm your appointment.`]
+                    ? `You haven’t been charged. Your card has been saved securely. If we accept your request, the $${(r.plan.depositCents / 100).toFixed(2)} deposit will be charged to it automatically and your appointment will be confirmed. If the card is declined, we’ll send you a link to pay within ${graceHoursOf(tenant)} hours; if the deposit isn’t received by then, the time will be released.`
+                    : `You haven’t been charged. If we accept your request, we’ll ask for the $${(r.plan.depositCents / 100).toFixed(2)} deposit to confirm your appointment.`]
                   : []),
-                `Kind regards, ${studioName}`,
               ],
+              details: detailsFor(false),
               cta: { label: 'View my request', url: portalUrl },
-              footerNote: `We will confirm your request or suggest another time as soon as we can. Sent by ${studioName}.`,
+              smallPrint: 'We’ll confirm your request or suggest another time as soon as we can.',
             })
             : isHold
             ? brandedEmailHtml({
               studioName,
-              title: 'One more step to confirm your booking',
+              eyebrow: 'One more step',
+              title: 'Finish your',
+              titleBold: 'booking',
+              preheader: `We’re holding ${at.big} for you.`,
               bodyLines: [
-                `Hi ${firstName},`,
-                `Thank you for booking with us. We are holding ${whenStr} for your ${svcLabel}${staffName ? ` with ${staffName}` : ''}.`,
-                'To confirm your appointment, please use the button below to complete your deposit and any required forms. You will receive your confirmation as soon as this is done.',
-                ...(depCents > 0 ? [r.plan?.fullPayment ? `Payment: ${money$(depCents)}. This is payment in full, and nothing more will be due.` : `Deposit: ${money$(depCents)}. This will be deducted from your total on the day of your visit.`] : []),
-                ...((r as any).balanceCollectCents > 0 ? [`Your ${money$((r as any).balanceCollectCents)} balance from a previous visit will be collected together with the deposit, for a total of ${money$(depCents + (r as any).balanceCollectCents)}. The balance is not part of the deposit.`] : []),
-                holdLine(tAny, trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now() ? new Date(body.holdUntil) : null),
-                'If you have any questions, please reply to this email.',
-                `Kind regards, ${studioName}`,
+                `Hi ${firstName}, we’re holding this time for you. To confirm it, please complete your deposit and any forms with the button below. Your confirmation follows as soon as that’s done.`,
+                ...((r as any).balanceCollectCents > 0 ? ['Your balance from a previous visit is collected together with the deposit. It isn’t part of the deposit.'] : []),
               ],
+              details: detailsFor(false),
+              amounts: depCents > 0 ? ((r as any).balanceCollectCents > 0
+                ? [{ label: r.plan?.fullPayment ? 'Payment in full' : 'Deposit', value: money$(depCents) },
+                   { label: 'Balance from a previous visit', value: money$((r as any).balanceCollectCents) },
+                   { label: 'To pay now', value: money$(depCents + (r as any).balanceCollectCents), strong: true }]
+                : [{ label: r.plan?.fullPayment ? 'Payment in full' : 'Deposit to pay', value: money$(depCents), strong: true }]) : null,
               cta: { label: 'Complete my booking', url: checkInUrl },
-              footerNote: `Your appointment time is held for a limited time. Sent by ${studioName}.`,
+              smallPrint: [depCents > 0 ? (r.plan?.fullPayment ? 'This is payment in full, and nothing more will be due.' : 'Your deposit comes off your total on the day of your visit.') : '',
+                holdLine(tAny, trust && typeof body.holdUntil === 'string' && Date.parse(body.holdUntil) > Date.now() ? new Date(body.holdUntil) : null)].filter(Boolean).join(' '),
             })
             : brandedEmailHtml({
               studioName,
-              title: 'Your appointment is confirmed',
-              bodyLines: [
-                `Hi ${firstName},`,
-                `Thank you for booking with us. Your appointment is confirmed: ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.`,
-                ...(where ? [where] : []),
-                ...(depCents > 0 && trust && body.depositPaid === true ? [r.plan?.fullPayment ? `We have received your ${money$(depCents)} payment in full.` : `We have received your ${money$(depCents)} deposit. It will be deducted from your total on the day of your visit.`] : []),
-                arrivalLine(placeSvc),
-                ...policyLines,
-                `Kind regards, ${studioName}`,
-              ],
-              bigCode: r.shortCode ? String(r.shortCode).toUpperCase() : undefined,
-              cta: { label: 'Check in or manage my visit', url: portalUrl },
-              secondaryCta: calendarUrl ? { label: 'Add to calendar', url: calendarUrl } : null,
-              footerNote: `If you are running late, need to make a change, or would like anything during your visit, please use the button above. Sent by ${studioName}.`,
+              eyebrow: 'Booking confirmed',
+              title: 'See you',
+              titleBold: seeYouDay(local, new Date(Date.now() + tzOffset * 60000)),
+              preheader: `${at.big}: ${whatLine(svcLabel, staffName)}`,
+              bodyLines: [`Hi ${firstName}, thanks for booking with us. You’re all set.`],
+              details: detailsFor(true),
+              amounts: depCents > 0 && trust && body.depositPaid === true ? [{ label: r.plan?.fullPayment ? 'Paid in full' : 'Deposit paid', value: money$(depCents), strong: !!r.plan?.fullPayment }] : null,
+              ...(r.shortCode && studioVisit ? { bigCode: String(r.shortCode).toUpperCase(), codeLabel: 'Your check-in code', codeNote: 'Show it when you arrive to check in.' } : {}),
+              cta: { label: 'See or change your booking', url: portalUrl },
+              links: [...(calendarUrl ? [{ label: 'Add to calendar', url: calendarUrl }] : []), { label: 'Running late', url: `${portalUrl}?do=late` }],
+              smallPrint: [depCents > 0 && trust && body.depositPaid === true && !r.plan?.fullPayment ? 'Your deposit comes off your total on the day of your visit.' : '', studioVisit ? '' : arrivalLine(placeSvc)].filter(Boolean).join(' '),
+              notes: policyLines.length ? { title: 'Good to know', lines: policyLines } : null,
             });
           const er = await sendNotification(db, {
             tenantId, channel: 'email', to: email,

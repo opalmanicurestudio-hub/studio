@@ -23,6 +23,7 @@
 
 import { hideCodes } from './code-redact';
 import { logAuditAdmin } from './audit';
+import { brandedEmailHtml } from './email-template';
 
 // ── Appointment ACTION-TOKEN — the key inside every Cancel/Reschedule
 // button. Minted lazily on the appointment doc; senders call this to
@@ -82,6 +83,9 @@ export type NotifyInput = {
    * the unconfirmed treatment, which is the safe direction to be wrong in. */
   eventConfirmed?: boolean;
   eventStartIso?: string | null;
+  /** Email only: the name the email is in, when it isn't the business's own (a renter writing to their clients). It
+   *  heads the email, and the email keeps the plain look rather than the business's (lib/email-template). */
+  fromName?: string | null;
   /** Email only: mail headers to add. Only the unsubscribe pair is passed on (lib/campaigns unsubHeaders). */
   headers?: Record<string, string>;
 };
@@ -281,23 +285,37 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       result = { ok: false, status: 'skipped_no_provider', error: 'RESEND_API_KEY not set' };
     } else {
       try {
-        // EVERY email wears the brand. Callers that pass no custom html get
-        // the branded template automatically — masthead, card, CTA button —
-        // so a booking confirmation and a sign-in code look like siblings.
+        // EVERY email wears the business's look (lib/email-template, board 15G). Callers that pass no html get the
+        // shared shell around their words; either way the business's color, logo and footer go on here, from its own
+        // settings, so a confirmation, a receipt and a sign-in code look like siblings of its booking page.
         let html = input.html;
+        let biz: any = tenantDoc;
+        if (!biz) { try { biz = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; } catch { biz = {}; } }
+        const { applyEmailBrand, emailLookOf } = await import('./email-template');
+        // In someone else's name (a renter's): their name on top, and none of the business's look. (An email a sender
+        // drew in another name stays plain anyway: applyEmailBrand only touches the business's own.)
+        const voice = String(input.fromName || '').trim();
+        const renterVoice = !!voice;
         if (!html) {
-          let studioName = 'Your studio';
-          try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
-          const { brandedEmailHtml } = await import('./email-template');
+          const studioName = voice || String(biz?.name || '') || 'Your studio';
           const text = input.text || '';
           const linkMatch = text.match(/https?:\/\/\S+/);
           html = brandedEmailHtml({
             studioName,
             title: input.subject || 'A note from your studio',
-            bodyLines: [linkMatch ? text.replace(linkMatch[0], '').replace(/\s{2,}/g, ' ').trim() : text],
+            bodyLines: (linkMatch ? text.replace(linkMatch[0], '') : text).split(/\n{2,}/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean),
             cta: linkMatch ? { label: 'Open', url: linkMatch[0] } : null,
           });
         }
+        const replyTo = await replyToFor(db, tenantId, input);
+        // The business's look goes on emails in its own name. "Reply to reach us" and its place line are for the people
+        // it serves, not its own team (staff and maintenance get the look, without either).
+        const team = input.recipientType === 'staff' || input.recipientType === 'maintenance' || (input.recipientType === 'other' && /^owner$/i.test(String(input.recipientName || '')));
+        if (!renterVoice) {
+          try { html = applyEmailBrand(html, emailLookOf(biz), { replies: !!replyTo && !team, place: !team }); } catch { /* cosmetic: the plain look */ }
+        }
+        // Discreet businesses (health privacy mode): no web font, so opening the email tells no one else.
+        try { const { privacyOf } = await import('./health-privacy'); if (privacyOf(biz).discreet) html = String(html).replace(/<style>@import url\('https:\/\/fonts\.googleapis\.com[^<]*<\/style>/g, ''); } catch { /* the font stays */ }
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -310,7 +328,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
             ...(mailHeaders(input.headers) ? { headers: mailHeaders(input.headers) } : {}),
             // Replies come back to the business, never to the shared sending address: into the app when receiving is
             // set up (INBOUND_EMAIL_DOMAIN, see /api/webhooks/resend), otherwise to the business's own email.
-            ...(await replyToFor(db, tenantId, input) ? { reply_to: await replyToFor(db, tenantId, input) } : {}),
+            ...(replyTo ? { reply_to: replyTo } : {}),
           }),
         });
         const body: any = await res.json().catch(() => null);
@@ -415,16 +433,9 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
 }
 
 // ── Shared email shell — simple, renders everywhere, studio name on top ──
-export function emailShell(studioName: string, bodyHtml: string): string {
-  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">
-  <div style="max-width:520px;margin:0 auto;padding:32px 20px;">
-    <p style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#94a3b8;text-align:center;margin:0 0 16px;">${studioName}</p>
-    <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;padding:28px 24px;color:#0f172a;font-size:15px;line-height:1.6;">
-      ${bodyHtml}
-    </div>
-    <p style="font-size:11px;color:#cbd5e1;text-align:center;margin:16px 0 0;">Sent by ${studioName} via ClarityFlow</p>
-  </div>
-</body></html>`;
+export function emailShell(studioName: string, bodyHtml: string, title = ''): string {
+  // The shared shell (lib/email-template); the sender adds the business's look.
+  return brandedEmailHtml({ studioName, title, bodyHtml });
 }
 
 

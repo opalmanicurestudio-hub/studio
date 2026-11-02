@@ -8,22 +8,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { linkOrigin } from '@/lib/app-origin';
+import { isPlaceholderName } from '@/lib/visit-email';
 
 
 const $ = (n: any) => `$${(Number(n) || 0).toFixed(2)}`;
-/** The receipt in a few plain lines for the email body (the link has the full printable version). */
-function receiptSummary(r: any): string[] {
+/** The receipt as label and amount rows for the email (the link has the full printable version). */
+function receiptRows(r: any): { label: string; value: string; strong?: boolean; muted?: boolean }[] {
   const D = r?.detail; if (!D || r.voided) return [];
-  const out: string[] = [];
-  for (const l of D.lines || []) if (l.kind !== 'note') out.push(`${l.kind === 'addon' ? '+ ' : ''}${l.label}${l.qty > 1 ? ` × ${l.qty}` : ''}${l.staff ? ` (${l.staff})` : ''} — ${l.redeemed ? 'included' : $(l.amount)}`);
-  for (const f of D.fees || []) out.push(`${f.label} — ${$(f.amount)}`);
-  for (const d of r.discounts || []) out.push(`${d.label} — −${$(d.amount)}`);
-  if (Number(r.tax) > 0) out.push(`${r.taxLabel || 'Tax'} — ${$(r.tax)}`);
-  if (Number(r.tip) > 0) out.push(`Tip — ${$(r.tip)}${(D.tipShares || []).length > 1 ? ` (${D.tipShares.map((t: any) => `${t.name} ${$(t.amount)}`).join(', ')})` : ''}`);
-  if (Number(D.depositUsed) > 0) out.push(`Deposit already paid — −${$(D.depositUsed)}`);
-  if (Number(D.storeCredit) > 0) out.push(`Store credit used — −${$(D.storeCredit)}`);
-  out.push(`Total — ${$(r.total)}`);
-  for (const a of D.accounts || []) out.push(a.kind === 'rent' ? `Rent — ${Number(a.owedAfterCents) > 0 ? `still owed ${$(a.owedAfterCents / 100)}` : Number(a.creditCents) > 0 ? `${$(a.creditCents / 100)} paid ahead` : 'all paid up'}` : `Tuition — ${Number(a.remainingCents) > 0 ? `remaining ${$(a.remainingCents / 100)}` : 'paid in full'}`);
+  const out: { label: string; value: string; strong?: boolean; muted?: boolean }[] = [];
+  for (const l of D.lines || []) if (l.kind !== 'note') out.push({ label: `${l.kind === 'addon' ? '+ ' : ''}${l.label}${l.qty > 1 ? ` × ${l.qty}` : ''}${l.staff ? ` (${l.staff})` : ''}`, value: l.redeemed ? 'Included' : $(l.amount) });
+  for (const f of D.fees || []) out.push({ label: String(f.label || 'Fee'), value: $(f.amount) });
+  for (const d of r.discounts || []) out.push({ label: String(d.label || 'Discount'), value: `−${$(d.amount)}` });
+  if (Number(r.tax) > 0) out.push({ label: r.taxLabel || 'Tax', value: $(r.tax), muted: true });
+  if (Number(r.tip) > 0) out.push({ label: `Tip${(D.tipShares || []).length > 1 ? ` (${D.tipShares.map((t: any) => `${t.name} ${$(t.amount)}`).join(', ')})` : ''}`, value: $(r.tip), muted: true });
+  if (Number(D.depositUsed) > 0) out.push({ label: 'Deposit already paid', value: `−${$(D.depositUsed)}`, muted: true });
+  if (Number(D.storeCredit) > 0) out.push({ label: 'Store credit used', value: `−${$(D.storeCredit)}`, muted: true });
+  out.push({ label: 'Total', value: $(r.total), strong: true });
+  for (const a of D.accounts || []) out.push(a.kind === 'rent'
+    ? { label: 'Rent', value: Number(a.owedAfterCents) > 0 ? `${$(a.owedAfterCents / 100)} still owed` : Number(a.creditCents) > 0 ? `${$(a.creditCents / 100)} paid ahead` : 'All paid up', muted: true }
+    : { label: 'Tuition', value: Number(a.remainingCents) > 0 ? `${$(a.remainingCents / 100)} remaining` : 'Paid in full', muted: true });
   return out;
 }
 
@@ -81,14 +84,24 @@ export async function POST(req: NextRequest) {
     const to = String(b.to || (channel === 'email' ? c.email : c.phone) || '').trim();
     if (!to || (channel === 'email' && !to.includes('@'))) return NextResponse.json({ ok: false, error: channel === 'email' ? 'There is no email address on file for this client. Please enter one.' : 'There is no mobile number on file for this client. Please enter one.' }, { status: 400 });
     const studio = t.name || t.businessName || 'Our team';
-    const first = String(r.clientName || c.name || '').trim().split(/\s+/)[0] || 'there';
+    const full = String(r.clientName || c.name || '').trim();
+    const first = full && !isPlaceholderName(full) ? full.split(/\s+/)[0] : 'there';   // a walk-in's placeholder is no name
     const what = r.voided ? (r.voidRefunded ? 'your refund slip' : r.cashReturned ? 'your void slip (cash returned)' : 'your void slip') : 'your receipt';
     const { sendNotification } = await import('@/lib/notify');
     let sent: any;
     if (channel === 'email') { const { brandedEmailHtml } = await import('@/lib/email-template');
       const replyTo = String(t.email || t.contactEmail || '').trim();
       sent = await sendNotification(db, { tenantId, channel: 'email', to, subject: `${studio}: ${r.voided ? 'your void slip' : 'your receipt'}`, kind: r.voided ? 'void_slip' : 'receipt',
-        html: brandedEmailHtml({ studioName: studio, title: r.voided ? 'Your sale was voided' : 'Your receipt', bodyLines: [`Hi ${first},`, `${r.voided ? 'Here is' : 'Thank you for your business. Here is'} ${what}${r.total ? ` for $${Number(r.total).toFixed(2)}` : ''}.`, ...receiptSummary(r), r.voided && r.voidRefunded ? 'The refund will be returned to your card and usually appears within 5 to 10 business days.' : '', 'If you have any questions, please reply to this email.', `Kind regards, ${studio}`].filter(Boolean), cta: { label: r.voided ? 'View the slip' : 'View your receipt', url } } as any),
+        html: brandedEmailHtml(r.voided
+          ? { studioName: studio, eyebrow: r.voidRefunded ? 'Refund slip' : 'Void slip', title: 'Your sale was', titleBold: 'voided',
+              bodyLines: [`Hi ${first}, here is ${what}${r.total ? ` for $${Number(r.total).toFixed(2)}` : ''}.`, r.voidRefunded ? 'The refund will be returned to your card and usually appears within 5 to 10 business days.' : ''],
+              cta: { label: 'View the slip', url } }
+          : { studioName: studio, eyebrow: 'Receipt', title: first === 'there' ? 'Thanks for coming in' : 'Thanks for coming in,', titleBold: first === 'there' ? '' : first,
+              preheader: r.total ? `Your receipt for $${Number(r.total).toFixed(2)}` : 'Your receipt',
+              amounts: receiptRows(r), ...(receiptRows(r).length ? {} : { bodyLines: [`Here is your receipt${r.total ? ` for $${Number(r.total).toFixed(2)}` : ''}.`] }),
+              cta: { label: 'View your receipt', url },
+              // "Book again" when the sale was a visit (never on a shop-only sale, or rent and tuition).
+              links: (r.detail?.lines || []).some((l: any) => l.kind === 'service') ? [{ label: 'Book again', url: `${linkOrigin(t, req.nextUrl.origin)}/book/${encodeURIComponent(tenantId)}` }] : null }),
         ...(replyTo.includes('@') ? { replyTo } : {}), clientId: r.clientId || null, clientName: r.clientName || null } as any);
     } else sent = await sendNotification(db, { tenantId, channel: 'sms', to, kind: r.voided ? 'void_slip' : 'receipt', text: `Hi ${first}, here is ${what}: ${url}`, clientId: r.clientId || null, clientName: r.clientName || null } as any);
     await ref.set({ sends: [...(r.sends || []), { at: new Date().toISOString(), channel, to, by: auth.actor.name, ok: !!sent?.ok }].slice(-20) }, { merge: true });

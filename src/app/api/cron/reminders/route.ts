@@ -43,6 +43,10 @@ import {
   addDays, dayKey, formatShortDay, formatTime, hourIn, isValidTimeZone, tenantTimeZone,
 } from '@/lib/tenant-time';
 
+/** A booking still waiting on the business (a request, a call-in booking awaiting approval, or one marked pending
+ *  approval) isn't reminded as one (lib/booking-approval approvalChannel and lib/confirm-ask, without browser imports). */
+const awaitingApproval = (a: any) => a?.status === 'requested' || a?.voiceApproval === 'pending' || a?.approvalStatus === 'pending';
+
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -133,7 +137,7 @@ export async function GET(req: NextRequest) {
         const own = await db.collection(`tenants/${tid}/appointments`).where('ownReminder', '==', true).get();
         for (const d of own.docs) {
           const a: any = d.data();
-          if (a.reminderSentAt || !a.startTime || ['cancelled', 'canceled', 'no_show', 'completed', 'declined', 'expired'].includes(String(a.status || ''))) continue;
+          if (a.reminderSentAt || !a.startTime || ['cancelled', 'canceled', 'no_show', 'completed', 'declined', 'expired'].includes(String(a.status || '')) || awaitingApproval(a) || a.isRenterBooking) continue;   // a renter's client hears from the renter (below)
           const start = Date.parse(a.startTime); const hrs = Math.min(168, Math.max(1, Number(a.reminderHoursBefore) || 0));
           if (!(start > nowMs) || nowMs < start - hrs * 3600000) continue;
           const cl: any = a.clientId ? (((await db.doc(`tenants/${tid}/clients/${a.clientId}`).get()).data() as any) || {}) : {};
@@ -293,8 +297,9 @@ export async function GET(req: NextRequest) {
         const a = aDoc.data() as any;
         try {
           if (!a.startTime || a.reminderSentAt) continue;
-          if (a.ownReminder === true) continue;   // reminded on its own timing (above); older bookings keep the daily reminder
-          if (['cancelled', 'canceled', 'no_show', 'completed'].includes(String(a.status || ''))) continue;
+          if (a.ownReminder === true && !a.isRenterBooking) continue;   // reminded on its own timing (above); older bookings keep the daily reminder
+          // A request not yet accepted (or one declined or lapsed) isn't a booking, so it's never reminded as one.
+          if (['cancelled', 'canceled', 'no_show', 'completed', 'declined', 'expired'].includes(String(a.status || '')) || awaitingApproval(a)) continue;
           // The appointment's LOCAL day must match the target day.
           const at = new Date(a.startTime);
           if (dayOfLocal(at) !== targetDay) continue;
@@ -312,8 +317,8 @@ export async function GET(req: NextRequest) {
             const signoff = String(rp.comms.signoff || '').trim();
             const text = `Hi ${firstNameOf(a.clientName)}, we're looking forward to your ${svc} with ${rp.name} ${daysBefore === 0 ? `today, ${when}` : daysBefore === 1 ? `tomorrow, ${when}` : `on ${when}`}.${signoff ? ` ${signoff}` : " If you need to make a change, just reply to this message."}`;
             let ok = false;
-            if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Reminder from ${rp.name}` })).ok;
-            if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Reminder from ${rp.name}`, text, kind: 'renter_client_reminder', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
+            if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Reminder from ${rp.name}`, fromName: rp.name })).ok;
+            if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Reminder from ${rp.name}`, text, fromName: rp.name, kind: 'renter_client_reminder', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
             if (ok) { try { await aDoc.ref.set({ reminderSentAt: new Date().toISOString(), reminderSentAs: rp.renterId }, { merge: true }); } catch { /* next */ } sent++; } else skipped++;
             continue;
           }
@@ -338,7 +343,7 @@ export async function GET(req: NextRequest) {
           const token = b.items.find((i) => i.a.checkInToken)?.a.checkInToken || null;
           const link = token && base ? `${base}/check-in/${token}` : '';
           const formsDue = b.items.some((i) => i.a.completionStatus && i.a.completionStatus !== 'completed');
-          const depositDue = b.items.some((i) => i.a.status === 'pending_payment');
+          const depositDue = b.items.some((i) => i.a.status === 'pending_payment' || i.a.status === 'deposit_pending');
           const manage = link ? ` ${depositDue ? "Please note that we haven't received your deposit yet. You can pay it here" : formsDue ? 'Please complete your forms before you arrive' : 'For details, check-in or any changes, you can use your visit link'}: ${link}` : '';
           // Ask them to confirm (lib/confirm-ask): one tap, or "reply YES".
           const ask = askOn(tdata) && b.items.some((i) => needsConfirm(i.a));
@@ -375,16 +380,37 @@ export async function GET(req: NextRequest) {
             delivered = r.ok;
           }
           if (!delivered && b.email) {
+            // The shared shell (lib/email-template, board 15G): when and what up top, one button for what's needed.
             const { brandedEmailHtml } = await import('@/lib/email-template');
+            const { whatLine } = await import('@/lib/visit-email');
             const tRem: any = (await db.doc(`tenants/${tid}`).get()).data() || {};
-            const graceRem = Number(tRem.lateArrivalGracePeriod || 0);
-            const html = brandedEmailHtml({ studioName: tRem.name || tRem.businessName || 'Your studio', title: daysBefore === 0 ? 'Your appointment is today' : 'Your upcoming appointment',
-              bodyLines: [msg.replace(manage, '').trim(),
-                ...(depositDue ? ["Please note that we haven't received your deposit yet. To keep this appointment time, please pay it using the button below."] : formsDue ? ['Please complete your forms before you arrive. It only takes a minute using the button below.'] : ask ? ['Please let us know you’re coming. It takes one tap using the button below.'] : []),
-                // Same policy wording as every other message (change/cancel + running late).
-                ...bookingPolicyLines(tRem).filter((l, i) => i === 0 || /running late/i.test(l)),
-                'Kind regards,', tRem.name || tRem.businessName || 'Your studio'],
-              cta: link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Complete my forms' : ask ? 'Confirm I’m coming' : 'View my visit', url: !depositDue && !formsDue && ask ? confirmLink(base, token) : link } : null });
+            const one = b.items.length === 1;
+            const svcOf = (i: any) => svcNames.get(String(i.a.serviceId || '')) || 'Appointment';
+            const minsOf = (i: any) => { const e = Date.parse(String(i.a.endTime || '')); return Number.isFinite(e) ? Math.round((e - i.at.getTime()) / 60000) : 0; };
+            const whereRem = one ? placeLine(svcById.get(String(first.a.serviceId || '')), null, first.a, { timeZone: tRem.timezone || null, clientPhone: b.phone || null, businessPhone: tRem.phone || tRem.twilioPhoneNumber || null }) : null;
+            const needLine = depositDue ? 'We haven’t received your deposit yet. To keep this time, please pay it with the button below.'
+              : formsDue ? 'Please complete your forms before you arrive. It only takes a minute.'
+              : ask ? 'Please let us know you’re coming. It takes one tap.' : '';
+            const cta = link ? { label: depositDue ? 'Pay deposit' : formsDue ? 'Complete my forms' : ask ? 'Confirm I’m coming' : 'See or change your visit', url: !depositDue && !formsDue && ask ? confirmLink(base, token) : link } : null;
+            // A held time still waiting on its deposit isn't "see you" yet: it says what's needed up top.
+            const dayWord = daysBefore === 0 ? 'today' : daysBefore === 1 ? 'tomorrow' : dayOf(first.at);
+            const group = new Set(b.items.map((x) => String(x.a.clientName || '').trim().toLowerCase())).size > 1;
+            const nameOf = (i: any) => { const n = String(i.a.clientName || '').trim().split(/\s+/)[0]; return n ? ` (${n})` : ''; };
+            const fn = String(first.a.clientName || '').trim().split(/\s+/)[0];
+            const html = brandedEmailHtml({ studioName: tRem.name || tRem.businessName || 'Your studio',
+              eyebrow: depositDue ? 'Deposit needed' : daysBefore === 0 ? 'Today' : daysBefore === 1 ? 'Tomorrow' : 'Coming up',
+              title: one ? `${depositDue ? 'Held for you' : 'See you'} ${dayWord} at` : (daysBefore === 0 ? 'Your visits' : 'Your visits on'),
+              titleBold: one ? timeOf(first.at) : (daysBefore === 0 ? 'today' : dayOf(first.at)),
+              preheader: one ? `${dayOf(first.at)} at ${timeOf(first.at)}: ${whatLine(svcOf(first), first.a.staffName || null)}` : `${b.items.length} visits, ${dayOf(first.at)}`,
+              bodyLines: [group ? 'Hello, here are your group’s visits.' : `${fn ? `Hi ${fn}, w` : 'W'}e’re looking forward to seeing you.`, needLine],
+              details: one
+                ? { big: `${dayOf(first.at)} · ${timeOf(first.at)}`, lines: [whatLine(svcOf(first), first.a.staffName || null, minsOf(first)), whereRem].filter(Boolean) as string[] }
+                : { big: dayOf(first.at), lines: b.items.map((i) => `${timeOf(i.at)} · ${whatLine(svcOf(i), i.a.staffName || null)}${group ? nameOf(i) : ''}`) },
+              cta,
+              // Running late and changes act on one visit's link, so they're offered when the email is about one person.
+              links: link && !group ? [{ label: 'Running late', url: `${link}?do=late` }, ...(cta && cta.label !== 'See or change your visit' ? [{ label: 'Change or cancel', url: link }] : [])] : null,
+              // Same policy wording as every other message (change/cancel + running late).
+              notes: { title: 'Good to know', lines: bookingPolicyLines(tRem).filter((l, i) => i === 0 || /running late/i.test(l)) } });
             const r = await sendNotification(db, {
               tenantId: tid, channel: 'email', to: b.email,
               subject: daysBefore === 0 ? 'Your appointment today' : 'Appointment reminder',
@@ -443,8 +469,8 @@ export async function GET(req: NextRequest) {
               const reviewUrl = base && a.checkInToken ? `${base}/review/${tid}/${aDoc.id}?k=${encodeURIComponent(String(a.checkInToken))}` : '';
               const text = `Hi ${firstNameOf(a.clientName)}, thank you for your visit with ${rp.name} yesterday. It was a pleasure to see you.${reviewUrl ? ` We'd love to hear how your visit went: ${reviewUrl}` : ''}${rp.bookingUrl ? ` You can book your next visit here: ${rp.bookingUrl}` : ''}${signoff ? ` ${signoff}` : ''}`;
               let ok = false;
-              if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Thank you from ${rp.name}` })).ok;
-              if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Thank you from ${rp.name}`, text, kind: 'renter_client_thanks', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
+              if (phone && smsConfigured()) ok = (await sendTenantSms(db, tid, phone, asRenter(rp.name, text), { email, subject: `Thank you from ${rp.name}`, fromName: rp.name })).ok;
+              if (!ok && email) ok = (await sendNotification(db, { tenantId: tid, channel: 'email', to: email, subject: `Thank you from ${rp.name}`, text, fromName: rp.name, kind: 'renter_client_thanks', appointmentId: aDoc.id, clientId: a.clientId || null, clientName: a.clientName || null, recipientType: 'client' })).ok;
               if (ok) { try { await aDoc.ref.set({ followUpSentAt: new Date().toISOString(), followUpSentAs: rp.renterId }, { merge: true }); } catch { /* next */ } followUps++; }
               continue;
             }
@@ -649,7 +675,7 @@ export async function GET(req: NextRequest) {
             bookingUrl: rp.bookingUrl, signer: rp.name, stopUrl: stopFor,
             send: async (to, text, subject, kind) => {
               if (to.phone && to.smsOk && smsConfigured() && (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'sms';
-              if (to.email && (await sendNotification(db, { tenantId: tid, channel: 'email', to: to.email, subject: `${subject} — ${rp.name}`, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'email';
+              if (to.email && (await sendNotification(db, { tenantId: tid, channel: 'email', to: to.email, subject: `${subject} — ${rp.name}`, text, fromName: rp.name, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'email';
               return false;
             },
           });
