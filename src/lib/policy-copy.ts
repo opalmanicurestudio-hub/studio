@@ -10,6 +10,7 @@ import { settingsOf, clientPolicyLine } from '@/lib/making-it-right';
 import { resolveDepositPolicy } from '@/lib/deposit-policy';
 import { resolvePolicy, unpaidFeeLine, unpaidFeeRuleOf } from '@/lib/booking-policies';
 import { graceLines } from '@/lib/grace';
+import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
 import { noShowWords } from '@/lib/booth-no-show';
 import { publicService } from '@/lib/agent-access';
 
@@ -55,6 +56,26 @@ function dayAt(ms: number, nowMs: number | null): string {
   const wd = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
   const day = days === 0 ? 'today' : days === 1 ? 'tomorrow' : days > 1 && days < 7 ? wd : `${wd}, ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`;
   return `${day} at ${time}`;
+}
+
+/** Beside "Change or cancel" on a visit link: until when it's free ("free until Thu 3:30 PM"), 'late' once that has
+ *  passed, or '' when the business has its own written policy (their policy page says it in their words). The window
+ *  is the one the server enforces (Booking policies, 24 hours unless set), counted from `startIso` — pass the deadline
+ *  start (change-rules deadlineStart) so a moved booking counts from its original time when the business says so. The
+ *  time is the business's clock when it has set its zone, otherwise this device's (as the rest of the screen). */
+export function freeUntilWords(tenant: any, service: any, startIso: string, now: Date = new Date()): string {
+  const t = tenant || {};
+  if (t.cancellationPolicy) return '';
+  const windowH = Number(resolvePolicy(t, service).cancel.windowHours.value) || 24;
+  const start = Date.parse(startIso || ''); if (!Number.isFinite(start)) return '';
+  const cut = start - windowH * 3600000;
+  if (cut <= now.getTime()) return 'late';
+  const zone = hasTimeZone(t) ? tenantTimeZone(t) : undefined;
+  const fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', { ...(zone ? { timeZone: zone } : {}), ...o }).format(new Date(cut));
+  const dayKey = (d: number) => new Intl.DateTimeFormat('en-CA', zone ? { timeZone: zone } : {}).format(new Date(d));
+  const days = Math.round((Date.parse(dayKey(cut)) - Date.parse(dayKey(now.getTime()))) / 86400000);
+  const day = days === 0 ? 'today' : days === 1 ? 'tomorrow' : days < 7 ? fmt({ weekday: 'short' }) : fmt({ weekday: 'short', month: 'short', day: 'numeric' });
+  return `free until ${day} ${fmt({ hour: 'numeric', minute: '2-digit' })}`;
 }
 
 /** The policy lines a client should see with a booking (short; plain words). */

@@ -1,20 +1,43 @@
 'use client';
-// src/components/booking/DayOfView.tsx — the client's visit link, ON THE DAY.
+// src/components/booking/DayOfView.tsx — the client's visit link, ON THE DAY (ClientVisit board, "On the day").
+// "Hi Dana — See you at 3:30", what and with whom, then the one thing to do next: "I'm on my way" (or "I'm here" once
+// they're close), with "Running a few minutes late" beside it. Getting here (the address, parking, the way in, a
+// video) from the business's own notes, the pass for the desk, and changing or canceling with until when it's free.
+// Everything that can come up on the day is answered right here: running past the grace time (shorter visit, another
+// provider, a new time), the provider running behind, another provider offered, a disruption, a message from the
+// business, sharing the trip (distance only, ends at check-in), online and phone appointments, and visits at home.
 import type { ServicePlace } from '@/lib/service-place';
+import type { VisitNotes } from '@/lib/studio-page';
 import React, { useState } from 'react';
 import { format } from 'date-fns';
-import { PublicFrame } from '@/components/public/kit';
+import { wallDate } from '@/lib/tenant-time';
+import { MessageSquare, Bell, User } from 'lucide-react';
 import { DisruptionCard } from '@/components/booking/DisruptionCard';
-import { VisitHero, VisitActions } from '@/components/booking/VisitHero';
+import { VisitShell, VisitRows, VisitButton, VisitGettingHere, VisitChange, type VisitBrand } from '@/components/booking/VisitShell';
 
 const safeDate = (v: any): Date => { try { const d = v?.toDate ? v.toDate() : new Date(v); return isNaN(d.getTime()) ? new Date() : d; } catch { return new Date(); } };
-// ── YOUR VISIT, ON THE DAY (Studio look) ───────────────────────────────────
-// One calm screen: when and where, "I'm here", on my way, running late (with
-// the business's grace period answered straight back and "Reschedule instead"
-// when it's past it), optional trip sharing (distance only; ends at check-in),
-// and the ways to change it. Replaces the old "Enter Studio / Portal Active" screens.
 const LATE_CHOICES = [5, 10, 15, 20, 30, 45];
-export const DayOfView = ({ hero, place, callNumber, lateChoices, onLateChoice, accent, studioName, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel, onMessage, openLate, notice }: {
+/** "in 2 hours", "in 25 minutes", "now" — how soon, said simply. */
+const soonWords = (m: number | null) => {
+    if (m === null || !Number.isFinite(m)) return '';
+    if (m < -5) return '';
+    if (m <= 0) return 'starting now';
+    if (m < 60) return `in ${m} minute${m === 1 ? '' : 's'}`;
+    if (m >= 180) return '';
+    const h = Math.round(m / 30) / 2; return h === 1 ? 'in an hour' : `in ${h} hours`;
+};
+
+export const DayOfView = ({ brand, visit, freeUntil, pass, minutesAway, place, callNumber, lateChoices, onLateChoice, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel, onMessage, openLate, notice }: {
+    /** The business's header, color and mood. */
+    brand: VisitBrand;
+    /** Getting here, in the business's own words (Settings › Booking page › Visit us). */
+    visit?: VisitNotes | null;
+    /** Beside Change or cancel: "free until Thu 3:30 PM", 'late', or ''. */
+    freeUntil?: string;
+    /** The pass the desk scans. */
+    pass?: React.ReactNode;
+    /** Minutes until it starts (negative once it has). */
+    minutesAway?: number | null;
     /** Where it happens — online (with a link) or at the client's place skip check-in, directions and trips. */
     place?: ServicePlace | null;
     /** The studio's number, for phone appointments where the client calls. */
@@ -22,7 +45,7 @@ export const DayOfView = ({ hero, place, callNumber, lateChoices, onLateChoice, 
     /** Running late past the grace time — the options we sent them. */
     lateChoices?: { status?: string; choice?: string | null; options?: string[]; dropNames?: string[]; toStaffName?: string | null; etaAt?: string } | null;
     onLateChoice?: (choice: 'condense' | 'switch' | 'reschedule') => Promise<any>;
-    accent: string; studioName?: string; first: string; serviceName?: string; startTime?: string; provider?: { name?: string; avatarUrl?: string } | null; address?: string | null; graceMinutes: number;
+    first: string; serviceName?: string; startTime?: string; provider?: { name?: string; avatarUrl?: string } | null; address?: string | null; graceMinutes: number;
     onArrived: () => Promise<any>; onMyWay: () => Promise<any>; onLate: (mins: number, note: string) => Promise<any>;
     onReschedule?: () => void; onCancel?: () => void; portalHref?: string | null; onNotifications?: () => void;
     trip: { tenantId: string; token: string; appointmentId: string } | null;
@@ -47,9 +70,9 @@ export const DayOfView = ({ hero, place, callNumber, lateChoices, onLateChoice, 
     openLate?: boolean;
     /** A short notice under the greeting (e.g. "you're confirmed"). */
     notice?: React.ReactNode;
-    /** The hybrid hero (design canvas RF26): photo, time, the visit's steps and the pass code. When given, "I'm here" sits in it. */
-    hero?: { photo?: string | null; minutesAway?: number | null; pass?: React.ReactNode } | null;
 }) => {
+    // Every time shown is the business's own clock (when it has set its zone).
+    const at = (v: any) => wallDate(safeDate(v), brand.zone);
     const [lateOpen, setLateOpen] = useState(!!openLate); const [mins, setMins] = useState<number | null>(null); const [note, setNote] = useState('');
     const [said, setSaid] = useState<string | null>(null); const [past, setPast] = useState(false); const [busy, setBusy] = useState(false);
     const [sharing, setSharing] = useState(false); const [tripMsg, setTripMsg] = useState<string | null>(null);
@@ -65,142 +88,144 @@ export const DayOfView = ({ hero, place, callNumber, lateChoices, onLateChoice, 
             if (Date.now() - lastSent.current < 45000) return; lastSent.current = Date.now();
             const d = await sendTrip({ trip: { lat: pos.coords.latitude, lng: pos.coords.longitude } });
             if (d?.distanceKm != null) setDist(Number(d.distanceKm));
-            if (d?.distanceKm != null) setTripMsg(`We can see you’re about ${d.distanceKm} km away${d.etaMin ? ` (~${d.etaMin} min)` : ''}. Only the distance is shared — it stops when you check in.`);
-        }, () => { setSharing(false); setTripMsg('Location is off — that’s fine, we’ll see you soon.'); }, { enableHighAccuracy: false, maximumAge: 30000, timeout: 20000 });
+            if (d?.distanceKm != null) setTripMsg(`We can see you’re about ${d.distanceKm} km away${d.etaMin ? ` (about ${d.etaMin} min)` : ''}. Only the distance is shared, and it stops when you check in.`);
+        }, () => { setSharing(false); setTripMsg('Location is off. That’s fine, we’ll see you soon.'); }, { enableHighAccuracy: false, maximumAge: 30000, timeout: 20000 });
     };
     React.useEffect(() => () => { if (watchRef.current !== null && typeof navigator !== 'undefined') navigator.geolocation?.clearWatch(watchRef.current); }, []);
     const askedToMove = reply?.kind === 'move' || disruption?.status === 'pending';
     const isStudio = !place || place.kind === 'studio';
+    const who = provider?.name ? String(provider.name).split(' ')[0] : '';
     const [lcBusy, setLcBusy] = useState<string | null>(null); const [lcMsg, setLcMsg] = useState<string | null>(null);
     const lcOpen = lateChoices?.status === 'sent' && !lateChoices.choice;
     const pickLate = async (c: 'condense' | 'switch' | 'reschedule') => { if (!onLateChoice) return; setLcBusy(c); const d = await onLateChoice(c); setLcBusy(null);
-        if (!d?.ok) { setLcMsg(d?.error || 'That didn’t go through — please try again.'); return; }
-        setLcMsg(c === 'condense' ? 'Thanks — we’ll do a shorter visit so you finish on time.' : c === 'switch' ? (d.accepted ? `Done — ${String(lateChoices?.toStaffName || 'our team').split(' ')[0]} will see you.` : d.error || 'That time has just gone — we’ll be in touch.') : 'Pick a new time below.'); };
+        if (!d?.ok) { setLcMsg(d?.error || 'That didn’t go through. Please try again.'); return; }
+        setLcMsg(c === 'condense' ? 'Thanks. We’ll do a shorter visit so you finish on time.' : c === 'switch' ? (d.accepted ? `Done. ${String(lateChoices?.toStaffName || 'Our team').split(' ')[0]} will see you.` : d.error || 'That time has just gone. We’ll be in touch.') : 'Choose a new time below.'); };
     const [pdBusy, setPdBusy] = useState<string | null>(null); const [pdMsg, setPdMsg] = useState<string | null>(null); const [pdConfirmCancel, setPdConfirmCancel] = useState(false);
     const pdOpen = !!providerDelay && !providerDelay.reply;
     const [poBusy, setPoBusy] = useState<string | null>(null); const [poMsg, setPoMsg] = useState<string | null>(null);
     const poOpen = providerOffer?.status === 'pending';
-    const poTime = providerOffer?.startAt ? format(safeDate(providerOffer.startAt), 'h:mm a') : '';
+    const poTime = providerOffer?.startAt ? format(at(providerOffer.startAt), 'h:mm a') : '';
     const poWho = String(providerOffer?.toStaffName || 'Another of our team').split(' ')[0];
     const poSend = async (c: 'accept' | 'decline') => { if (!onOfferReply) return; setPoBusy(c); const d = await onOfferReply(c); setPoBusy(null);
-        setPoMsg(d?.ok ? (c === 'accept' ? `Done — ${poWho} will see you at ${poTime}.` : 'No problem — we’ll be in touch with what happens next.') : (d?.error || 'That didn’t send — please try again.')); };
-    const pdTime = providerDelay?.newStartAt ? format(safeDate(providerDelay.newStartAt), 'h:mm a') : '';
+        setPoMsg(d?.ok ? (c === 'accept' ? `Done. ${poWho} will see you at ${poTime}.` : 'No problem. We’ll be in touch with what happens next.') : (d?.error || 'That didn’t send. Please try again.')); };
+    const pdTime = providerDelay?.newStartAt ? format(at(providerDelay.newStartAt), 'h:mm a') : '';
     const pdSend = async (c: 'keep' | 'cancel') => { if (!onProviderReply) return; setPdBusy(c); const d = await onProviderReply(c); setPdBusy(null);
-        setPdMsg(d?.ok ? (c === 'keep' ? `Thanks — we’ll see you around ${pdTime}.${Number(d.creditCents) > 0 ? ` We’ve added $${(Number(d.creditCents) / 100).toFixed(2)} credit to your account as a thank-you.` : ''}` : `Cancelled — no fee.${d.depositRefund ? ' Your deposit will be returned.' : ''}`) : (d?.error || 'That didn’t send — please try again.')); };
+        setPdMsg(d?.ok ? (c === 'keep' ? `Thanks. We’ll see you around ${pdTime}.${Number(d.creditCents) > 0 ? ` We’ve added $${(Number(d.creditCents) / 100).toFixed(2)} credit to your account as a thank-you.` : ''}` : `Canceled, with no fee.${d.depositRefund ? ' Your deposit will be returned.' : ''}`) : (d?.error || 'That didn’t send. Please try again.')); };
     // We've asked them to choose a new time → stop sharing the trip.
     React.useEffect(() => { if (askedToMove && watchRef.current !== null) stopTrip(true); }, [askedToMove]); // eslint-disable-line react-hooks/exhaustive-deps
-    const when = startTime ? format(safeDate(startTime), 'EEEE · h:mm a') : '';
-    const btn = 'inline-flex h-12 w-full items-center justify-center rounded-full px-6 text-[15px] transition active:scale-[.98] disabled:opacity-60';
+
+    const time = startTime ? format(at(startTime), 'h:mm') : '';
+    const ampm = startTime ? format(at(startTime), 'a') : '';
+    const told = status === 'on_my_way' || status === 'running_late';
+    // The next thing to do: on the way first, then "I'm here" once they've said so or it's nearly time.
+    const [toldNow, setToldNow] = useState(false);
+    const hereFirst = told || toldNow || (minutesAway !== null && minutesAway !== undefined && minutesAway <= 20);
+    // Anything that didn't go through is said here, in amber, beside the buttons (no pop-ups).
+    const [actErr, setActErr] = useState('');
+    const failed = (d: any) => !d || d.ok === false;
+    const DIDNT = 'That didn’t send. Please try again, or let the front desk know when you arrive.';
+    // Trip sharing ends once they're checked in (not before: if check-in doesn't go through, it keeps going).
+    const arrive = async () => { setBusy(true); setActErr(''); const d: any = await onArrived(); setBusy(false); if (failed(d)) { setActErr(d?.error || DIDNT); return; } setConfirmHere(false); if (sharing) await stopTrip(true); };
+    const checkIn = async () => { if (dist != null && dist > 1) { setConfirmHere(true); return; } await arrive(); };
+    const sayOnWay = async () => { setBusy(true); setActErr(''); const d: any = await onMyWay(); setBusy(false); if (failed(d)) { setActErr(d?.error || DIDNT); return; } { setToldNow(true); setSaid(`Thanks. ${who || 'The team'} knows you’re on your way.`); if (trip && !sharing) setTripNudge(true); } };
+    const accentCard = { boxShadow: 'inset 0 0 0 2px var(--accent-text, var(--accent))' };
+    const chip = askedToMove ? 'Needs you' : status === 'running_late' ? 'Running late' : status === 'on_my_way' ? 'On the way' : 'Today';
+
     return (
-        <PublicFrame accent={accent} app={!!hero}>
-            <main className="mx-auto max-w-md space-y-4 px-4 py-8 pub-safe-bottom">
-                {hero ? <>
-                <header className="pub-rise flex items-end justify-between gap-3 px-1">
-                    <div><p className="text-[13px]" style={{ color: 'var(--muted)' }}>Today</p><h1 className="text-[30px] leading-tight">{status === 'running_late' ? 'On your way' : `See you soon, ${first}`}</h1></div>
-                    {studioName && <p className="shrink-0 pb-1.5 text-[12px] uppercase tracking-[0.24em]">{String(studioName).slice(0, 18)}</p>}
-                </header>
-                {notice}
-                <VisitHero photo={hero.photo} kicker={`Today${provider?.name ? ` · with ${String(provider.name).split(' ')[0]}` : ''}`} big={hero.minutesAway != null && hero.minutesAway > 0 && hero.minutesAway < 180 ? `In ${hero.minutesAway < 60 ? `${hero.minutesAway} min` : `${Math.floor(hero.minutesAway / 60)} hr ${hero.minutesAway % 60 ? `${hero.minutesAway % 60} min` : ''}`.trim()}` : (startTime ? format(safeDate(startTime), 'h:mm a') : 'Today')}
-                    sub={[serviceName, startTime ? format(safeDate(startTime), 'h:mm a') : null, address && isStudio ? String(address).split(',')[0] : null].filter(Boolean).join(' · ')} step={2}>
-                    {isStudio && selfCheckIn && !askedToMove && !confirmHere ? <div className="flex items-center gap-2.5">
-                        <button type="button" disabled={busy} className="h-[52px] flex-1 rounded-full text-[16px] font-bold text-white disabled:opacity-60" style={{ background: '#1f7a4d' }}
-                            onClick={async () => { if (dist != null && dist > 1) { setConfirmHere(true); return; } setBusy(true); if (sharing) await stopTrip(true); await onArrived(); setBusy(false); }}>{busy ? 'Checking you in…' : 'I’m here'}</button>
-                        {hero.pass}</div> : hero.pass ? <div className="flex items-center gap-2.5"><span className="flex-1 text-[13px] opacity-85">Show this at the desk</span>{hero.pass}</div> : null}
-                </VisitHero>
-                <VisitActions items={[address && isStudio && { label: 'Directions', icon: 'pin', href: `https://maps.apple.com/?q=${encodeURIComponent(address)}` }, onMessage && { label: 'Message', icon: 'chat', onClick: onMessage }, onReschedule && { label: 'Reschedule', icon: 'cal', onClick: onReschedule }]} />
-                </> : <><header className="pub-rise space-y-1 px-1">
-                    <p className="text-[13px] font-semibold tracking-wide" style={{ color: 'var(--accent)' }}>{studioName || 'Your visit'}</p>
-                    <h1 className="text-4xl">Hi <b>{first}</b></h1>
-                    <p className="text-[15px]" style={{ color: 'var(--muted)' }}>Your visit today</p>
-                </header>
-                {notice}
-                <section className="pub-card pub-rise space-y-3 p-5">
-                    <p className="text-[18px] font-semibold">{serviceName || 'Your appointment'}</p>
-                    <p className="text-[15px]" style={{ color: 'var(--muted)' }}>{when}</p>
-                    {provider?.name && <div className="flex items-center gap-3">{provider.avatarUrl ? <img src={provider.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white" style={{ background: 'var(--accent)' }}>{provider.name.slice(0, 1)}</span>}<p className="text-[15px]">with <b>{provider.name.split(' ')[0]}</b></p></div>}
-                    {address && isStudio && <p className="text-[14px]" style={{ color: 'var(--muted)' }}>{address} · <a className="underline underline-offset-2" style={{ color: 'var(--ink)' }} target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`}>Directions</a></p>}
-                </section>
-</>}
-                {lateChoices && (lcOpen || lcMsg) && onLateChoice && <section className="pub-card space-y-3 p-5" style={{ boxShadow: 'inset 0 0 0 2px var(--accent)' }} aria-live="polite">
-                    <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>Your options for today</p>
-                    {lcMsg ? <p className="text-[15px]">{lcMsg}</p> : <>
-                        <p className="text-[15px]">You’re running past our grace time, so your full visit won’t fit. Choose what works for you:</p>
-                        {(lateChoices.options || []).includes('condense') && <button type="button" disabled={!!lcBusy} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={() => pickLate('condense')}>{lcBusy === 'condense' ? 'Saving…' : `Shorter visit today${lateChoices.dropNames?.length ? ` (without ${lateChoices.dropNames.join(' and ')})` : ''}`}</button>}
-                        {(lateChoices.options || []).includes('switch') && <button type="button" disabled={!!lcBusy} className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={() => pickLate('switch')}>{lcBusy === 'switch' ? 'Saving…' : `See ${String(lateChoices.toStaffName || 'another of our team').split(' ')[0]}${lateChoices.etaAt ? ` at ${format(safeDate(lateChoices.etaAt), 'h:mm a')}` : ''}`}</button>}
-                        {onReschedule && <button type="button" disabled={!!lcBusy} className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={async () => { await pickLate('reschedule'); onReschedule(); }}>Pick a new time</button>}
-                    </>}
-                </section>}
-                {onDisruptionCancel && <DisruptionCard disruption={disruption} hasDeposit={!!hasDeposit} onReschedule={onReschedule} onCancel={onDisruptionCancel} />}
-                {providerOffer && (poOpen || poMsg) && <section className="pub-card space-y-3 p-5" style={{ boxShadow: 'inset 0 0 0 2px var(--accent)' }} aria-live="polite">
-                    <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>Another option for today</p>
-                    {poMsg ? <p className="text-[15px]">{poMsg}</p> : <>
-                        <p className="text-[15px]">To fit you in, <b>{poWho}</b> can see you at <b>{poTime}</b>{providerOffer.fromStaffName ? <> instead of {String(providerOffer.fromStaffName).split(' ')[0]}</> : null}. Would that work?</p>
-                        <div className="grid grid-cols-2 gap-2">
-                            <button type="button" disabled={!!poBusy} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={() => poSend('accept')}>{poBusy === 'accept' ? 'Saving…' : 'Accept'}</button>
-                            <button type="button" disabled={!!poBusy} className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={() => poSend('decline')}>{poBusy === 'decline' ? 'Sending…' : 'No thanks'}</button>
-                        </div>
-                    </>}
-                </section>}
-                {providerDelay && (pdOpen || pdMsg) && <section className="pub-card space-y-3 p-5" style={{ boxShadow: 'inset 0 0 0 2px var(--accent)' }} aria-live="polite">
-                    <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>A quick update</p>
-                    {pdMsg ? <p className="text-[15px]">{pdMsg}</p> : <>
-                        <p className="text-[15px]">{provider?.name ? provider.name.split(' ')[0] : 'Your provider'} is running about <b>{providerDelay.minutes} minutes</b> behind, so your appointment would start around <b>{pdTime}</b>. Choose what works for you:</p>
-                        <button type="button" disabled={!!pdBusy} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={() => pdSend('keep')}>{pdBusy === 'keep' ? 'Sending…' : `Keep my appointment (~${pdTime})`}</button>
-                        {onReschedule && <button type="button" className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={onReschedule}>Reschedule — no fee</button>}
-                        {!pdConfirmCancel ? <button type="button" className="w-full text-center text-[14px] underline underline-offset-2" style={{ color: 'var(--muted)' }} onClick={() => setPdConfirmCancel(true)}>Cancel — no fee</button>
-                          : <button type="button" disabled={!!pdBusy} className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={() => pdSend('cancel')}>{pdBusy === 'cancel' ? 'Cancelling…' : 'Yes, cancel it (no fee)'}</button>}
-                    </>}
-                </section>}
-                {reply?.message && <section className="pub-card space-y-3 p-5" style={askedToMove ? { boxShadow: 'inset 0 0 0 2px var(--accent)' } : undefined} aria-live="polite">
-                    <p className="text-[13px] font-semibold" style={{ color: 'var(--accent)' }}>{askedToMove ? 'Let’s find a new time' : `A message from ${studioName || 'us'}`}</p>
-                    <p className="text-[15px]">{reply.message}</p>
-                    {askedToMove && onReschedule && <button type="button" className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={onReschedule}>Choose a new time</button>}
-                </section>}
-                {!askedToMove && status === 'running_late' && !said && <section className="pub-card p-5"><p className="text-[15px]">You told us you’re about <b>{Number(lateMinutes) || '?'} minutes</b> late{etaAt ? <> — arriving about <b>{format(safeDate(etaAt), 'h:mm a')}</b></> : null}. {provider?.name ? provider.name.split(' ')[0] : 'The team'} knows.</p></section>}
-                {!askedToMove && status === 'on_my_way' && !said && <section className="pub-card p-5"><p className="text-[15px]">You’re on your way — {provider?.name ? provider.name.split(' ')[0] : 'the team'} knows.</p></section>}
-                {!askedToMove && <section className="space-y-2">
-                    {place?.kind === 'online' ? (place.meetingLink
-                        ? <a href={place.meetingLink} target="_blank" rel="noreferrer" className={`${btn} font-semibold text-white shadow-sm`} style={{ background: 'var(--accent)' }}>Join your appointment</a>
-                        : <div className="pub-card p-4 text-center"><p className="text-[15px]">This is an online appointment — your link will be here before it starts.</p></div>)
-                    : place?.kind === 'phone' ? (place.phoneWho === 'they_call'
-                        ? (callNumber ? <a href={`tel:${callNumber.replace(/[^\d+]/g, '')}`} className={`${btn} font-semibold text-white shadow-sm`} style={{ background: 'var(--accent)' }}>Call {callNumber}</a>
-                            : <div className="pub-card p-4 text-center"><p className="text-[15px]">This is a phone appointment. Please call the studio at your appointment time.</p></div>)
-                        : <div className="pub-card p-4 text-center"><p className="text-[15px]">This is a phone call — we’ll call you at your appointment time. Keep your phone nearby.</p></div>)
-                    : place?.kind === 'client' ? <div className="pub-card p-4 text-center"><p className="text-[15px]">We’ll come to you{provider?.name ? ` — ${String(provider.name).split(' ')[0]} will let you know when they’re on the way` : ''}.</p></div>
-                    : !selfCheckIn ? <div className="pub-card p-4 text-center"><p className="text-[15px]">Please check in at the front desk when you arrive.</p></div> : confirmHere ? (
-                        <div className="pub-card space-y-2 p-4"><p className="text-[15px]">Looks like you’re about {dist} km away — check in anyway?</p>
-                            <div className="grid grid-cols-2 gap-2"><button type="button" disabled={busy} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={async () => { setBusy(true); if (sharing) await stopTrip(true); await onArrived(); setBusy(false); }}>Yes, I’m here</button>
-                                <button type="button" className={`${btn} bg-white shadow-sm`} onClick={() => setConfirmHere(false)}>Not yet</button></div></div>
-                    ) : hero ? null : <button type="button" disabled={busy} className={`${btn} font-semibold text-white shadow-sm`} style={{ background: 'var(--accent)' }}
-                        onClick={async () => { if (dist != null && dist > 1) { setConfirmHere(true); return; } setBusy(true); if (sharing) await stopTrip(true); await onArrived(); setBusy(false); }}>{busy ? 'Checking you in…' : 'I’m here'}</button>}
+        <VisitShell brand={brand} chip={chip} kicker={`Hi ${first}`}
+            title={status === 'running_late' ? <>On your <b>way</b></> : time ? <>See you at <b>{time}</b><span className="text-[20px]" style={{ fontWeight: 400 }}> {ampm}</span></> : <>See you <b>today</b></>}
+            subtitle={[serviceName, who ? `with ${who}` : '', soonWords(minutesAway ?? null)].filter(Boolean).join(' · ')}>
+            {notice}
+            {lateChoices && (lcOpen || lcMsg) && onLateChoice && <section className="pub-card space-y-3 p-5" style={accentCard} aria-live="polite">
+                <p className="pub-accent-text text-[13px] font-semibold">Your options for today</p>
+                {lcMsg ? <p className="text-[15px]">{lcMsg}</p> : <>
+                    <p className="text-[15px]">You’re running past our grace time, so your full visit won’t fit. Choose what works for you:</p>
+                    {(lateChoices.options || []).includes('condense') && <VisitButton disabled={!!lcBusy} onClick={() => pickLate('condense')}>{lcBusy === 'condense' ? 'Saving…' : `Shorter visit today${lateChoices.dropNames?.length ? ` (without ${lateChoices.dropNames.join(' and ')})` : ''}`}</VisitButton>}
+                    {(lateChoices.options || []).includes('switch') && <VisitButton quiet disabled={!!lcBusy} onClick={() => pickLate('switch')}>{lcBusy === 'switch' ? 'Saving…' : `See ${String(lateChoices.toStaffName || 'another of our team').split(' ')[0]}${lateChoices.etaAt ? ` at ${format(at(lateChoices.etaAt), 'h:mm a')}` : ''}`}</VisitButton>}
+                    {onReschedule && <VisitButton quiet disabled={!!lcBusy} onClick={async () => { await pickLate('reschedule'); onReschedule(); }}>Choose a new time</VisitButton>}
+                </>}
+            </section>}
+            {onDisruptionCancel && <DisruptionCard disruption={disruption} hasDeposit={!!hasDeposit} onReschedule={onReschedule} onCancel={onDisruptionCancel} />}
+            {providerOffer && (poOpen || poMsg) && <section className="pub-card space-y-3 p-5" style={accentCard} aria-live="polite">
+                <p className="pub-accent-text text-[13px] font-semibold">Another option for today</p>
+                {poMsg ? <p className="text-[15px]">{poMsg}</p> : <>
+                    <p className="text-[15px]">To fit you in, <b>{poWho}</b> can see you at <b>{poTime}</b>{providerOffer.fromStaffName ? <> instead of {String(providerOffer.fromStaffName).split(' ')[0]}</> : null}. Would that work?</p>
                     <div className="grid grid-cols-2 gap-2">
-                        <button type="button" hidden={!isStudio} disabled={busy || status === 'on_my_way'} aria-pressed={status === 'on_my_way'} className={`${btn} bg-white shadow-sm`}
-                            onClick={async () => { setBusy(true); const d: any = await onMyWay(); setBusy(false); if (d !== null) { setSaid(`Thanks — ${provider?.name ? provider.name.split(' ')[0] : 'the team'} knows you’re on your way.`); if (trip && !sharing) setTripNudge(true); } }}>{status === 'on_my_way' ? '✓ On my way' : 'On my way'}</button>
-                        <button type="button" className={`${btn} bg-white shadow-sm`} aria-expanded={lateOpen} onClick={() => setLateOpen((v) => !v)}>{status === 'running_late' ? 'Update lateness' : 'Running late?'}</button>
+                        <VisitButton disabled={!!poBusy} onClick={() => poSend('accept')}>{poBusy === 'accept' ? 'Saving…' : 'Accept'}</VisitButton>
+                        <VisitButton quiet disabled={!!poBusy} onClick={() => poSend('decline')}>{poBusy === 'decline' ? 'Sending…' : 'No thanks'}</VisitButton>
                     </div>
-                </section>}
-                {lateOpen && !askedToMove && <section className="pub-card space-y-3 p-5">
-                    <p className="text-[15px] font-semibold">About how late?</p>
-                    <div className="flex flex-wrap gap-2">{LATE_CHOICES.map((m) => <button key={m} type="button" aria-pressed={mins === m} onClick={() => setMins(m)} className="h-10 rounded-full px-4 text-[14px]" style={mins === m ? { background: 'var(--accent)', color: '#fff' } : { background: '#f1ece6' }}>{m === 45 ? '45+ min' : `${m} min`}</button>)}</div>
-                    <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="Anything we should know? (optional)" className="h-11 w-full rounded-xl px-3 text-[14px] outline-none" style={{ background: '#f1ece6' }} />
-                    <button type="button" disabled={!mins || busy || (status === 'running_late' && mins === Number(lateMinutes))} className={`${btn} font-semibold text-white`} style={{ background: 'var(--accent)' }} onClick={async () => {
-                        if (!mins) return; setBusy(true); const d = await onLate(mins, note.trim()); setBusy(false); setLateOpen(false);
-                        const g = Number(d?.graceMinutes ?? graceMinutes) || 0; const over = g > 0 ? mins > g : false; setPast(over);
-                        setSaid(over ? `Thanks for telling us. ${mins} minutes is past our ${g}-minute grace period, so we may need to shorten your service or move it — ${provider?.name ? provider.name.split(' ')[0] : 'we'}’ll let you know.` : `Thanks — we’ve let ${provider?.name ? provider.name.split(' ')[0] : 'the team'} know.${g > 0 ? ` We can hold your time for up to ${g} minutes.` : ''}`);
-                    }}>Let them know</button>
-                </section>}
-                {said && !reply?.message && <section className="pub-card space-y-3 p-5"><p className="text-[15px]">{said}</p>{past && onReschedule && <button type="button" className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={onReschedule}>Reschedule instead</button>}</section>}
-                {trip && isStudio && selfCheckIn && !askedToMove && <section className="pub-card space-y-2 p-5">
-                    <div className="flex items-center justify-between gap-3"><p className="text-[15px] font-semibold">Share my trip</p>
-                        <button type="button" onClick={() => (sharing ? stopTrip() : startTrip())} className="h-9 rounded-full px-4 text-[14px]" style={sharing ? { background: '#f1ece6' } : { background: 'var(--accent)', color: '#fff' }}>{sharing ? 'Stop' : 'Start'}</button></div>
-                    <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{tripMsg || (tripNudge ? 'On your way? Tap Start and we’ll see roughly how far away you are — only the distance, and it stops when you check in.' : 'Let us see roughly how far away you are until you arrive. Only the distance is shared, and it stops when you check in.')}</p>
-                </section>}
-                {onMessage && !hero && <button type="button" className={`${btn} bg-white shadow-sm`} style={{ border: '1px solid #e7e2dc' }} onClick={onMessage}>Message us</button>}
-                <section className="space-y-2 px-1 pt-2 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
-                    {(onReschedule || onCancel) && <p>Need to change it? {onReschedule && <button type="button" className="underline underline-offset-2" onClick={onReschedule}>Reschedule</button>}{onReschedule && onCancel && ' · '}{onCancel && <button type="button" className="underline underline-offset-2" onClick={onCancel}>Cancel</button>}</p>}
-                    <p>{portalHref && <a className="underline underline-offset-2" href={portalHref}>Your account</a>}{portalHref && onNotifications && ' · '}{onNotifications && <button type="button" className="underline underline-offset-2" onClick={onNotifications}>Message settings</button>}</p>
-                </section>
-            </main>
-        </PublicFrame>
+                </>}
+            </section>}
+            {providerDelay && (pdOpen || pdMsg) && <section className="pub-card space-y-3 p-5" style={accentCard} aria-live="polite">
+                <p className="pub-accent-text text-[13px] font-semibold">A quick update</p>
+                {pdMsg ? <p className="text-[15px]">{pdMsg}</p> : <>
+                    <p className="text-[15px]">{who || 'Your provider'} is running about <b>{providerDelay.minutes} minutes</b> behind, so your appointment would start around <b>{pdTime}</b>. Choose what works for you:</p>
+                    <VisitButton disabled={!!pdBusy} onClick={() => pdSend('keep')}>{pdBusy === 'keep' ? 'Sending…' : `Keep my appointment (about ${pdTime})`}</VisitButton>
+                    {onReschedule && <VisitButton quiet onClick={onReschedule}>Choose a new time, no fee</VisitButton>}
+                    {!pdConfirmCancel ? <button type="button" className="inline-flex min-h-11 w-full items-center justify-center text-[14px] underline underline-offset-2" style={{ color: 'var(--muted)' }} onClick={() => setPdConfirmCancel(true)}>Cancel, no fee</button>
+                        : <VisitButton quiet disabled={!!pdBusy} onClick={() => pdSend('cancel')}>{pdBusy === 'cancel' ? 'Canceling…' : 'Yes, cancel it (no fee)'}</VisitButton>}
+                </>}
+            </section>}
+            {reply?.message && <section className="pub-card space-y-3 p-5" style={askedToMove ? accentCard : undefined} aria-live="polite">
+                <p className="pub-accent-text text-[13px] font-semibold">{askedToMove ? 'Let’s find a new time' : `A message from ${brand.studioName || 'us'}`}</p>
+                <p className="text-[15px]">{reply.message}</p>
+                {askedToMove && onReschedule && <VisitButton onClick={onReschedule}>Choose a new time</VisitButton>}
+            </section>}
+            {!askedToMove && status === 'running_late' && !said && <p className="v-note">You told us you’re about <b>{Number(lateMinutes) || '?'} minutes</b> late{etaAt ? <>, arriving about <b>{format(at(etaAt), 'h:mm a')}</b></> : null}. {who || 'The team'} knows.</p>}
+            {!askedToMove && status === 'on_my_way' && !said && <p className="v-note">You’re on your way. {who || 'The team'} knows.</p>}
+
+            {!askedToMove && <section className="space-y-2.5">
+                {place?.kind === 'online' ? (place.meetingLink
+                    ? <VisitButton href={place.meetingLink} target="_blank">Join your appointment</VisitButton>
+                    : <p className="v-note">This is an online appointment. Your link will be here before it starts.</p>)
+                : place?.kind === 'phone' ? (place.phoneWho === 'they_call'
+                    ? (callNumber ? <VisitButton href={`tel:${callNumber.replace(/[^\d+]/g, '')}`}>Call {callNumber}</VisitButton> : <p className="v-note">This is a phone appointment. Please call at your appointment time.</p>)
+                    : <p className="v-note">This is a phone call. We’ll call you at your appointment time, so keep your phone nearby.</p>)
+                : place?.kind === 'client' ? <p className="v-note">We’ll come to you{who ? `. ${who} will let you know when they’re on the way` : ''}.</p>
+                : confirmHere ? <div className="pub-card space-y-3 p-4"><p className="text-[15px]">Looks like you’re about {dist} km away. Check in anyway?</p>
+                    <div className="grid grid-cols-2 gap-2"><VisitButton good disabled={busy} onClick={arrive}>Yes, I’m here</VisitButton>
+                        <VisitButton quiet onClick={() => setConfirmHere(false)}>Not yet</VisitButton></div></div>
+                : !selfCheckIn ? <>
+                    {!told && !toldNow && <VisitButton disabled={busy} onClick={sayOnWay}>I’m on my way</VisitButton>}
+                    <p className="v-note">Please check in at the front desk when you arrive.</p>
+                </> : hereFirst ? <VisitButton good disabled={busy} onClick={checkIn}>{busy ? 'Checking you in…' : 'I’m here'}</VisitButton>
+                : <VisitButton disabled={busy} onClick={sayOnWay}>{busy ? 'Sending…' : 'I’m on my way'}</VisitButton>}
+                {<VisitButton quiet expanded={lateOpen} onClick={() => { setActErr(''); setLateOpen((v) => !v); }}>{status === 'running_late' ? 'Update how late I’ll be' : 'Running a few minutes late'}</VisitButton>}
+                {actErr && !lateOpen && <p className="px-1 text-[14px]" role="alert" style={{ color: 'var(--warn)' }}>{actErr}</p>}
+                {isStudio && selfCheckIn && !hereFirst && !confirmHere && <button type="button" disabled={busy} onClick={checkIn} className="inline-flex min-h-11 w-full items-center justify-center text-[14.5px] font-semibold pub-accent-text">Already here? Check in</button>}
+            </section>}
+
+            {lateOpen && !askedToMove && <section className="pub-card space-y-3 p-5" aria-label="Running late">
+                <p className="text-[15px] font-semibold">About how late?</p>
+                <div className="flex flex-wrap gap-2">{LATE_CHOICES.map((m) => <button key={m} type="button" aria-pressed={mins === m} onClick={() => setMins(m)} className="v-pill pub-press">{m === 45 ? '45+ min' : `${m} min`}</button>)}</div>
+                <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="Anything we should know? (optional)" aria-label="A note about running late" className="v-field h-12" />
+                <VisitButton disabled={!mins || busy || (status === 'running_late' && mins === Number(lateMinutes))} onClick={async () => {
+                    if (!mins) return; setBusy(true); setActErr(''); const d = await onLate(mins, note.trim()); setBusy(false);
+                    if (failed(d)) { setActErr(d?.error || DIDNT); return; }
+                    setLateOpen(false);
+                    const g = Number(d?.graceMinutes ?? graceMinutes) || 0; const over = g > 0 ? mins > g : false; setPast(over);
+                    setSaid(over ? `Thanks for telling us. ${mins} minutes is past our ${g}-minute grace period, so we may need to shorten your service or move it. ${who || 'We'}’ll let you know.` : `Thanks. We’ve let ${who || 'the team'} know.${g > 0 ? ` We can hold your time for up to ${g} minutes.` : ''}`);
+                }}>Let them know</VisitButton>
+                {actErr && <p className="text-[14px]" role="alert" style={{ color: 'var(--warn)' }}>{actErr}</p>}
+            </section>}
+            {said && !reply?.message && <section className="pub-card space-y-3 p-5" aria-live="polite"><p className="text-[15px]">{said}</p>{past && onReschedule && <VisitButton quiet onClick={onReschedule}>Choose a new time instead</VisitButton>}</section>}
+
+            {pass && isStudio && <div className="v-grp"><div className="v-row"><span className="min-w-0 flex-1 py-3"><span className="block text-[15.5px] font-semibold">Your pass</span><span className="block text-[13px]" style={{ color: 'var(--muted)' }}>Show it at the desk, or tap it to make it big.</span></span>{pass}</div></div>}
+
+            {isStudio && <VisitGettingHere address={address} notes={visit} />}
+
+            {trip && isStudio && selfCheckIn && !askedToMove && <section className="pub-card space-y-2 p-5">
+                <div className="flex items-center justify-between gap-3"><p className="text-[15px] font-semibold">Share my trip</p>
+                    <button type="button" onClick={() => (sharing ? stopTrip() : startTrip())} aria-pressed={sharing} className="v-pill pub-press">{sharing ? 'Stop' : 'Start'}</button></div>
+                <p className="text-[13.5px]" style={{ color: 'var(--muted)' }}>{tripMsg || (tripNudge ? 'On your way? Tap Start and we’ll see roughly how far away you are. Only the distance, and it stops when you check in.' : 'Let us see roughly how far away you are until you arrive. Only the distance is shared, and it stops when you check in.')}</p>
+            </section>}
+
+            <VisitChange freeUntil={freeUntil} onReschedule={onReschedule} onCancel={onCancel} />
+            <VisitRows rows={[
+                onMessage && { key: 'm', icon: <MessageSquare className="h-[18px] w-[18px]" />, text: 'Message us', onClick: onMessage },
+                onNotifications && { key: 'n', icon: <Bell className="h-[18px] w-[18px]" />, text: 'How we reach you', onClick: onNotifications },
+                portalHref && { key: 'y', icon: <User className="h-[18px] w-[18px]" />, text: 'Your account', href: portalHref },
+            ]} />
+        </VisitShell>
     );
 };

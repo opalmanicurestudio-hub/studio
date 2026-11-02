@@ -117,6 +117,15 @@ export function wallParts(date: Date, timeZone?: string | null): WallParts {
   };
 }
 
+/** For showing only: the same wall-clock reading as `date` in the zone, as a Date in this runtime's zone, so a
+ *  formatter (date-fns `format`) prints the zone's time. Never use the result for arithmetic or to save. No zone →
+ *  the date unchanged (this device's own time). */
+export function wallDate(date: Date, timeZone?: string | null): Date {
+  if (!timeZone || !isValidTimeZone(timeZone) || isNaN(date.getTime())) return date;
+  const w = wallParts(date, timeZone);
+  return new Date(w.year, w.month - 1, w.day, w.hour, w.minute, w.second);
+}
+
 /** Offset of the zone from UTC at that instant, in ms. EDT = -14400000. */
 export function tzOffsetMs(timeZone: string | null | undefined, date: Date): number {
   const p = wallParts(date, timeZone);

@@ -11,7 +11,9 @@ import { VisitInput } from '@/components/booking/VisitShell';
 import { CircleMember } from '@/components/referrals/CircleMember';
 import { CreatorCampaigns } from '@/components/referrals/CreatorCampaigns';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d';
+// The page's mood colors (Soft, Crisp or Night on the visit link), with the app's own as fallbacks elsewhere.
+const INK = 'var(--ink, #16171a)', MUTED = 'var(--muted, #6d7075)', LINE = 'var(--line, #ececee)', SOFT = 'var(--soft, #f3f3f5)', GREEN = 'var(--good, #1f7a4d)';
+const CARD = 'var(--card, #fff)', ACCENT = 'var(--accent, #16171a)', WARN = 'var(--warn, #b45309)', GOOD_SOFT = 'var(--good-soft, #e8f3ec)';
 const ease = [0.22, 1, 0.36, 1] as const;
 const call = (body: any) => fetch('/api/referrals/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'That didn’t work. Please try again.' }));
 const money = (c: number) => { const d = (Number(c) || 0) / 100; return `$${d % 1 ? d.toFixed(2) : d}`; };
@@ -64,7 +66,7 @@ export function ReferralCard({ token, preview, tenantId }: { token: string; prev
   const cardFace = (c: Card, big = false) => (
     <div className="relative h-full overflow-hidden rounded-[22px] p-[18px] text-white" style={{ background: c.bg, boxShadow: '0 18px 36px -20px rgba(22,23,26,.7)' }}>
       <span aria-hidden="true" className="absolute -right-10 -top-10 h-36 w-36 rounded-full" style={{ background: 'rgba(255,255,255,.10)' }} />
-      <div className="flex justify-between text-[11px] tracking-[0.18em] opacity-90"><span>{c.label}</span><span>{String(d.business || '').toUpperCase().slice(0, 16)}</span></div>
+      <div className="flex justify-between gap-3 text-[11px] tracking-[0.18em] opacity-90"><span className="shrink-0">{c.label}</span><span className="min-w-0 truncate text-right">{String(d.business || '').toUpperCase().slice(0, 16)}</span></div>
       <p className={`${big ? 'mt-4 text-[44px]' : 'mt-3 text-[36px]'} font-light leading-none tracking-[-0.03em]`}>{c.key === 'c' && big ? <Count to={d.creditCents} still={still} /> : c.big}</p>
       <p className="mt-1 text-[12.5px] opacity-90">{c.sub}</p>
       {c.tag && <span className="absolute bottom-4 right-4 rounded-full px-2.5 py-1 text-[11px]" style={{ background: 'rgba(255,255,255,.22)' }}>{c.tag}</span>}
@@ -81,9 +83,9 @@ export function ReferralCard({ token, preview, tenantId }: { token: string; prev
               style={{ zIndex: i + 1 }} initial={still ? { top: i * step } : { top: (cards.length - 1) * step * 0.9 + i * 4 }} animate={{ top: i * step }} transition={{ duration: 0.45, ease, delay: still ? 0 : 0.1 + i * 0.05 }} layoutId={still ? undefined : `card-${c.key}`}>{cardFace(c)}</motion.button>)}
           </motion.div> : <motion.div key="open" initial={false} className="space-y-3">
             <motion.div layoutId={still ? undefined : `card-${sel.key}`} className="h-[200px]" transition={{ duration: 0.4, ease }}>{cardFace(sel, true)}</motion.div>
-            <div className="space-y-2.5 rounded-[18px] bg-white p-4">{sel.detail.map((x, i) => <div key={i} className="flex justify-between gap-3 text-[14px]" style={{ color: x.warn ? '#b45309' : INK }}><span>{x.a}</span><span className="text-right">{x.b}</span></div>)}</div>
-            {sel.key === 'c' && <p className="rounded-[18px] bg-white p-4 text-[13px] leading-[1.5]" style={{ color: MUTED }}>It’s used soonest-ending first. A month before referral credit ends, we’ll send you one gentle reminder.</p>}
-            <button type="button" onClick={() => setOpenCard(null)} className="h-11 w-full rounded-full border bg-white text-[14px] font-semibold" style={{ borderColor: LINE }}>Back to my wallet</button>
+            <div className="space-y-2.5 rounded-[18px] p-4" style={{ background: CARD }}>{sel.detail.map((x, i) => <div key={i} className="flex justify-between gap-3 text-[14px]" style={{ color: x.warn ? WARN : INK }}><span>{x.a}</span><span className="text-right">{x.b}</span></div>)}</div>
+            {sel.key === 'c' && <p className="rounded-[18px] p-4 text-[13px] leading-[1.5]" style={{ color: MUTED, background: CARD }}>It’s used soonest-ending first. A month before referral credit ends, we’ll send you one gentle reminder.</p>}
+            <button type="button" onClick={() => setOpenCard(null)} className="h-11 w-full rounded-full border text-[14px] font-semibold" style={{ borderColor: LINE, background: CARD, color: INK }}>Back to my wallet</button>
           </motion.div>}
         </AnimatePresence>
         {(d.creditCents > 0 || (w.gift || []).length > 0) && <p className="text-center text-[12.5px]" style={{ color: MUTED }}>Comes off at checkout by itself. Nothing to ask for.</p>}
@@ -93,27 +95,27 @@ export function ReferralCard({ token, preview, tenantId }: { token: string; prev
 
       {d.on && d.circle && <CircleMember m={d.circle} link={d.link || null} friendCents={d.friendCents} business={d.business} token={token} preview={!!preview} onShareText={(t) => { void share(t); }} />}
 
-      {d.on && <div className="space-y-3 rounded-[20px] bg-white p-4">
+      {d.on && <div className="space-y-3 rounded-[20px] p-4" style={{ background: CARD }}>
         <p className="text-[20px] font-light tracking-[-0.02em]">{(d.friends || []).length ? 'Friends you’ve sent' : 'Share with a friend'}</p>
         <p className="text-[13.5px] leading-[1.5]" style={{ color: MUTED }}>Give a friend {money(d.friendCents)} off their first visit. {d.unlock === 'paid' ? 'When they’ve been in' : 'When they book'}, you get {money(d.rewardCents)} toward your next one.</p>
         {(d.friends || []).map((f: any, i: number) => <Seen key={i} id={`${token}-${f.first}-${f.step}`}>{(fresh) => <div className="space-y-2">
-          <div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[17px] font-light text-white" style={{ background: f.step >= 4 ? GREEN : f.step >= 2 ? INK : '#9a9ca3' }} aria-hidden="true">{String(f.first)[0]}</span>
+          <div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[17px] font-light text-white" style={{ background: f.step >= 4 ? '#1f7a4d' : f.step >= 2 ? ACCENT : '#9a9ca3' }} aria-hidden="true">{String(f.first)[0]}</span>
             <div className="min-w-0 flex-1"><div className="flex justify-between text-[14px]"><b>{f.first}</b><span className="text-[12.5px]" style={{ color: f.step >= 4 ? GREEN : MUTED }}>{f.line}</span></div>
               <div className="mt-1.5 flex gap-1" aria-label={`Step ${Math.max(0, f.step)} of 4`}>{[0, 1, 2, 3].map((k) => <span key={k} className="h-1 flex-1 overflow-hidden rounded-full" style={{ background: LINE }}>
-                <motion.span className="block h-full" style={{ background: f.step >= 4 ? GREEN : INK }} initial={still ? false : { width: '0%' }} animate={{ width: k < f.step ? '100%' : '0%' }} transition={{ duration: 0.4, ease, delay: still ? 0 : 0.2 + k * 0.12 }} /></span>)}</div></div></div>
-          {fresh && f.step >= 4 && <motion.div className="flex items-center gap-3 rounded-[16px] p-3" style={{ background: '#e8f3ec' }} initial={still ? false : { scale: 0.96, opacity: 0 }} animate={{ scale: [0.96, 1.02, 1], opacity: 1 }} transition={{ duration: 0.6, ease, delay: 0.7 }}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={GREEN} strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10" strokeOpacity=".25" /><motion.path d="M7 12.5l3.2 3.2L17 9" initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5, ease, delay: 0.9 }} /></svg>
+                <motion.span className="block h-full" style={{ backgroundColor: f.step >= 4 ? GREEN : ACCENT }} initial={still ? false : { width: '0%' }} animate={{ width: k < f.step ? '100%' : '0%' }} transition={{ duration: 0.4, ease, delay: still ? 0 : 0.2 + k * 0.12 }} /></span>)}</div></div></div>
+          {fresh && f.step >= 4 && <motion.div className="flex items-center gap-3 rounded-[16px] p-3" style={{ background: GOOD_SOFT }} initial={still ? false : { scale: 0.96, opacity: 0 }} animate={{ scale: [0.96, 1.02, 1], opacity: 1 }} transition={{ duration: 0.6, ease, delay: 0.7 }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" style={{ color: GREEN, flexShrink: 0 }}><circle cx="12" cy="12" r="10" strokeOpacity=".25" /><motion.path d="M7 12.5l3.2 3.2L17 9" initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5, ease, delay: 0.9 }} /></svg>
             <span className="text-[14px]"><b>{f.first} came in!</b> {money(d.rewardCents)} just landed in your wallet.</span></motion.div>}
         </div>}</Seen>)}
-        {d.link && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => { void share(); }} className="h-11 rounded-full text-[14px] font-semibold text-white" style={{ background: INK }}>Share my link</button>
-          <button type="button" onClick={() => setGift(!gift)} className="h-11 rounded-full border text-[14px] font-semibold" style={{ borderColor: INK }}>Gift a friend</button></div>}
+        {d.link && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => { void share(); }} className="h-11 rounded-full text-[14px] font-semibold text-white" style={{ background: ACCENT }}>Share my link</button>
+          <button type="button" onClick={() => setGift(!gift)} aria-expanded={gift} className="h-11 rounded-full border text-[14px] font-semibold" style={{ borderColor: INK, color: INK }}>Gift a friend</button></div>}
         <AnimatePresence>{gift && <motion.div className="space-y-2 overflow-hidden" initial={still ? false : { height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease }}>
           <VisitInput label="Their first name" value={first} onChange={setFirst} placeholder="Their first name" />
           <VisitInput label="Their mobile" value={phone} onChange={setPhone} placeholder="Their mobile" />
-          <button type="button" onClick={sendGift} disabled={busy} className="h-11 w-full rounded-full text-[14px] font-semibold text-white disabled:opacity-60" style={{ background: INK }}>{busy ? 'One moment…' : 'Send from my phone'}</button>
+          <button type="button" onClick={sendGift} disabled={busy} className="h-11 w-full rounded-full text-[14px] font-semibold text-white disabled:opacity-60" style={{ background: ACCENT }}>{busy ? 'One moment…' : 'Send from my phone'}</button>
           <p className="text-[12.5px]" style={{ color: MUTED }}>Opens your messages with a note from you. We never text your friend.</p></motion.div>}</AnimatePresence>
-        {msg && <p className="text-[13.5px] font-semibold" style={{ color: msg.ok ? GREEN : '#b42318' }}>{msg.t}</p>}
-        {d.link && <a href={d.link.replace(/\/ref\/([^/]+)\/.*/, '/ref/$1/terms')} className="block text-[12.5px] underline underline-offset-2" style={{ color: MUTED }}>Terms · credit lasts {d.months} months</a>}
+        {msg && <p className="text-[13.5px] font-semibold" role={msg.ok ? 'status' : 'alert'} style={{ color: msg.ok ? GREEN : WARN }}>{msg.t}</p>}
+        {d.link && <a href={d.link.replace(/\/ref\/([^/]+)\/.*/, '/ref/$1/terms')} className="inline-flex min-h-11 items-center text-[12.5px] underline underline-offset-2" style={{ color: MUTED }}>Terms · credit lasts {d.months} months</a>}
       </div>}
     </section>);
 }

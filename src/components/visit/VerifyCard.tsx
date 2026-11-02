@@ -7,8 +7,11 @@
 // Also here: the phone's own id (one per browser, sent with every private request), the "Not you?" link with its
 // confirm sheet, and the calm full-page notices for a link that has been turned off.
 import * as React from 'react';
+import { VisitShell, type VisitBrand } from '@/components/booking/VisitShell';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', RED = '#b42318';
+// The page's mood colors (the visit link's Soft, Crisp or Night; the booking sheet's), with the app's own as fallbacks.
+const INK = 'var(--ink, #16171a)', MUTED = 'var(--muted, #6d7075)', LINE = 'var(--line, #ececee)', SOFT = 'var(--soft, #f3f3f5)', GREEN = 'var(--good, #1f7a4d)';
+const CARD = 'var(--card, #fff)', ACCENT = 'var(--accent, #16171a)', WARN = 'var(--warn, #b45309)', RED = '#b42318';
 const FONT = "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif";
 const RESEND_AFTER = 30;
 
@@ -55,15 +58,15 @@ const platformOf = () => { if (typeof navigator === 'undefined') return 'Other';
 const telOf = (p?: string | null) => String(p || '').replace(/[^\d+]/g, '');
 
 // ── Small pieces in the visit look ────────────────────────────────────────────
-const cardStyle: React.CSSProperties = { background: '#fff', borderRadius: 18, border: `1px solid ${LINE}`, color: INK, fontFamily: FONT, boxShadow: '0 1px 2px rgba(22,23,26,.04)' };
+const cardStyle: React.CSSProperties = { background: CARD, borderRadius: 18, border: `1px solid ${LINE}`, color: INK, fontFamily: FONT, boxShadow: '0 1px 2px rgba(22,23,26,.04)' };
 function Pill({ children, onClick, disabled, tone = 'solid', type = 'button' }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean; tone?: 'solid' | 'soft' | 'danger'; type?: 'button' | 'submit' }) {
-  const style: React.CSSProperties = tone === 'solid' ? { background: INK, color: '#fff' } : tone === 'danger' ? { background: RED, color: '#fff' } : { background: SOFT, color: INK };
+  const style: React.CSSProperties = tone === 'solid' ? { background: ACCENT, color: '#fff' } : tone === 'danger' ? { background: RED, color: '#fff' } : { background: SOFT, color: INK };
   return <button type={type} onClick={onClick} disabled={disabled} className="inline-flex min-h-12 w-full items-center justify-center rounded-full px-6 py-3 text-[15px] font-semibold transition active:scale-[.98] disabled:opacity-50" style={style}>{children}</button>;
 }
 const Muted = ({ children }: { children: React.ReactNode }) => <p className="text-[14px] leading-relaxed" style={{ color: MUTED }}>{children}</p>;
-const ErrorLine = ({ text }: { text: string }) => text ? <p className="text-[14px]" role="alert" style={{ color: RED }}>{text}</p> : null;
+const ErrorLine = ({ text }: { text: string }) => text ? <p className="text-[14px]" role="alert" style={{ color: WARN }}>{text}</p> : null;
 const TextLink = ({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) => (
-  <button type="button" onClick={onClick} disabled={disabled} className="text-[14px] underline underline-offset-4 disabled:no-underline disabled:opacity-60" style={{ color: MUTED }}>{children}</button>
+  <button type="button" onClick={onClick} disabled={disabled} className="inline-flex min-h-11 items-center text-[14px] underline underline-offset-4 disabled:no-underline disabled:opacity-60" style={{ color: MUTED }}>{children}</button>
 );
 
 // ── "Is this you?" ─────────────────────────────────────────────────────────────
@@ -178,7 +181,7 @@ export function VerifyCard(p: VerifyCardProps) {
         <Muted>{p.channels?.length === 1 && p.channels[0] === 'sms'
           ? `We can’t send a text to the number on your booking. If you’d like to update it, please contact ${biz}.`
           : `We don’t have a phone number or email we can send a code to. Please contact ${biz} and we’ll be happy to help.`}</Muted>
-        {call && <a href={`tel:${call}`} className="block text-[15px] font-semibold underline underline-offset-4">Call {p.businessPhone}</a>}
+        {call && <a href={`tel:${call}`} className="inline-flex min-h-11 items-center text-[15px] font-semibold underline underline-offset-4">Call {p.businessPhone}</a>}
       </>}
 
       {stage === 'choose' && <>
@@ -197,7 +200,7 @@ export function VerifyCard(p: VerifyCardProps) {
           <input ref={codeRef} value={code} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={6} aria-invalid={!!err}
             onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); setErr(''); if (v.length === 6) void check(v); }}
             className="h-14 w-full rounded-full px-5 text-center text-[22px] font-semibold tracking-[0.4em] outline-none"
-            style={{ background: SOFT, border: `1px solid ${err ? RED : LINE}`, color: INK, fontFamily: FONT }} />
+            style={{ background: SOFT, border: `1px solid ${err ? WARN : LINE}`, color: INK, fontFamily: FONT }} />
         </label>
         <ErrorLine text={err} />
         <Pill type="submit" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Confirm'}</Pill>
@@ -209,7 +212,7 @@ export function VerifyCard(p: VerifyCardProps) {
       </form>}
 
       {stage === 'done' && <div className="flex items-start gap-3" role="status">
-        <span aria-hidden className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[13px] text-white" style={{ background: GREEN }}>✓</span>
+        <span aria-hidden className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[13px] text-white" style={{ background: '#1f7a4d' }}>✓</span>
         <p className="text-[15px] font-semibold" style={{ color: GREEN }}>Thank you, this phone is now confirmed for 90 days.</p>
       </div>}
 
@@ -241,10 +244,10 @@ export function NotMeLink(p: Link & { businessName?: string | null; onDone: (mes
   };
 
   return <>
-    <button type="button" onClick={() => { setErr(''); setOpen(true); }} className="text-[13px] underline underline-offset-4" style={{ color: MUTED, fontFamily: FONT }}>Not you? Let us know</button>
+    <button type="button" onClick={() => { setErr(''); setOpen(true); }} className="inline-flex min-h-11 items-center text-[13px] underline underline-offset-4" style={{ color: MUTED, fontFamily: FONT }}>Not you? Let us know</button>
     {open && <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" style={{ background: 'rgba(22,23,26,.45)', fontFamily: FONT }} onClick={() => { if (!busy) setOpen(false); }}>
       <div role="dialog" aria-modal="true" aria-labelledby="notme-title" onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md space-y-4 p-6 text-left" style={{ background: '#fff', color: INK, borderRadius: '18px 18px 0 0', paddingBottom: 'calc(env(safe-area-inset-bottom,0px) + 24px)' }}>
+        className="w-full max-w-md space-y-4 p-6 text-left" style={{ background: CARD, color: INK, borderRadius: '18px 18px 0 0', paddingBottom: 'calc(env(safe-area-inset-bottom,0px) + 24px)' }}>
         <p id="notme-title" className="text-[18px] font-semibold">Not you?</p>
         <p className="text-[15px] leading-relaxed" style={{ color: MUTED }}>This will stop messages to this number and turn off this link. {p.businessName || 'The business'} will be told so they can fix it.</p>
         <ErrorLine text={err} />
@@ -259,22 +262,20 @@ export function NotMeLink(p: Link & { businessName?: string | null; onDone: (mes
 
 // ── Full-page notices ─────────────────────────────────────────────────────────
 /** A calm full page: a turned-off link, or the thank-you after "Not you?". */
-export function VisitNotice({ title, body, businessName, businessPhone }: { title: string; body: React.ReactNode; businessName?: string | null; businessPhone?: string | null }) {
+export function VisitNotice({ title, body, businessName, businessPhone, brand }: { title: string; body: React.ReactNode; businessName?: string | null; businessPhone?: string | null; brand?: VisitBrand }) {
   const call = telOf(businessPhone);
   return (
-    <div className="flex min-h-dvh items-center justify-center px-4 py-10" style={{ background: '#ffffff', color: INK, fontFamily: FONT }}>
-      <main className="w-full max-w-md space-y-4 p-6 text-center" style={cardStyle}>
-        {businessName && <p className="text-[13px] font-semibold" style={{ color: MUTED }}>{businessName}</p>}
-        <h1 className="text-[22px] font-semibold">{title}</h1>
+    <VisitShell brand={{ ...(brand || { accent: '#16171a' }), studioName: brand?.studioName || businessName || null }} title={title}>
+      <section className="space-y-4 p-5" style={cardStyle}>
         <div className="text-[15px] leading-relaxed" style={{ color: MUTED }}>{body}</div>
         {call && <a href={`tel:${call}`} className="inline-flex min-h-12 w-full items-center justify-center rounded-full px-6 text-[15px] font-semibold" style={{ background: SOFT, color: INK }}>Call {businessPhone}</a>}
-      </main>
-    </div>
+      </section>
+    </VisitShell>
   );
 }
 
-export function LinkOffView({ businessName, businessPhone }: { businessName?: string | null; businessPhone?: string | null }) {
-  return <VisitNotice title="This link has been turned off" businessName={businessName} businessPhone={businessPhone}
+export function LinkOffView({ businessName, businessPhone, brand }: { businessName?: string | null; businessPhone?: string | null; brand?: VisitBrand }) {
+  return <VisitNotice title="This link has been turned off" businessName={businessName} businessPhone={businessPhone} brand={brand}
     body={<>Please contact {businessName || 'us'} for a new one.</>} />;
 }
 

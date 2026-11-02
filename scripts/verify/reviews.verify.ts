@@ -504,8 +504,8 @@ const fresh = async (rs: any = {}) => {
   check('the countdown: 14 days from when it arrived or was edited, never before the rule began', R.autoShowInDays({ createdAt: ago(3) }, NOW) === 11 && R.autoShowInDays({ createdAt: ago(30) }, NOW, NOW - 2 * DAY) === 12 && R.autoShowInDays({ createdAt: ago(10), editedAt: ago(1) }, NOW) === 13
     && R.autoShowInDays({ createdAt: ago(30), autoShowWarnedAt: ago(3) }, NOW) === 0 && R.autoShowInDays({ createdAt: ago(30), autoShowWarnedAt: ago(1) }, NOW) === 2 && R.autoShowInDays({ createdAt: ago(30) }, NOW) === 3
     && R.autoShowInDays({ createdAt: ago(30), editedAt: ago(2), autoShowWarnedAt: ago(5) }, NOW) === 12);
-  const visitForm = fs.readFileSync('src/app/check-in/[token]/page.tsx', 'utf8');
-  check('the visit review form says it may be shown, and says so when it sends one', /Your review may be shown publicly, with your first name and last initial\./.test(visitForm) && /rating, text: reviewText, noticeShown: true \}/.test(visitForm));
+  const visitForm = fs.readFileSync('src/components/visit/VisitStages.tsx', 'utf8');
+  check('the visit review form says it may be shown, and says so when it sends one', /Your review may be shown publicly, with your first name and last initial\./.test(visitForm) && /rating, text, noticeShown: true \}/.test(visitForm));
   check('the nightly job runs it for every business', /sweepWaitingReviews\(db, tDoc\.id, \{ tenant: tDoc\.data\(\) \}\)/.test(fs.readFileSync('src/app/api/cron/nightly/route.ts', 'utf8')));
 
   console.log('the wiring');

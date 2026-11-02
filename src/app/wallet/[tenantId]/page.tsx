@@ -5,12 +5,14 @@
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { ReferralCard } from '@/components/visit/ReferralCard';
+import { VISIT_CSS } from '@/components/booking/VisitShell';
 
 export default function WalletPreview() {
   const p = useParams() as any; const tenantId = String(p?.tenantId || ''); const [preview, setPreview] = React.useState<string | null>(null);
   React.useEffect(() => { try { setPreview(new URLSearchParams(window.location.search).get('p') || ''); } catch { setPreview(''); } }, []);
   return (
-    <main className="mx-auto min-h-screen max-w-[480px] space-y-4 px-4 py-6" style={{ color: '#16171a', background: '#fff', fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }}>
+    <main className="mx-auto min-h-screen max-w-[480px] space-y-4 px-4 py-6" style={{ color: '#16171a', background: '#fff', fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif', ['--ink' as any]: '#16171a', ['--muted' as any]: '#6d7075', ['--line' as any]: '#ececee', ['--soft' as any]: '#f3f3f5', ['--card' as any]: '#fff', ['--accent' as any]: '#16171a' }}>
+      <style>{VISIT_CSS}</style>
       <p className="rounded-2xl px-4 py-3 text-[13px]" style={{ background: '#fdf6ec', color: '#b45309' }}>Preview: this is what the client sees on their visit link. Gifts sent from here are real.</p>
       {preview === null ? null : preview ? <ReferralCard token="" preview={preview} tenantId={tenantId} /> : <p style={{ color: '#6d7075' }}>This preview link isn’t valid. Open it again from Referrals.</p>}
     </main>);

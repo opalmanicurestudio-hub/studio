@@ -64,7 +64,7 @@ export function ClientNotifyCard({ tenantId, api, hideWhenOn }: { tenantId: stri
       {view === 'on' ? <>
         <div className="flex items-center justify-between gap-3">
           <p className="text-[15px]">Notifications are on for this phone.</p>
-          <button type="button" disabled={busy} onClick={turnOff} className="shrink-0 text-[14px] underline underline-offset-2 disabled:opacity-50" style={{ color: 'var(--muted)' }}>{busy ? 'Turning off…' : 'Turn off'}</button>
+          <button type="button" disabled={busy} onClick={turnOff} className="inline-flex min-h-11 shrink-0 items-center text-[14px] underline underline-offset-2 disabled:opacity-50" style={{ color: 'var(--muted)' }}>{busy ? 'Turning off…' : 'Turn off'}</button>
         </div>
       </> : <>
         <p className="text-[16px] font-semibold">Get updates here, not by text</p>
@@ -75,7 +75,7 @@ export function ClientNotifyCard({ tenantId, api, hideWhenOn }: { tenantId: stri
             <VisitButton quiet onClick={turnOn} disabled={busy}>{busy ? 'Turning on…' : 'Turn on notifications'}</VisitButton>
           </>}
       </>}
-      {err && <p className="text-[14px]" style={{ color: '#b42318' }}>{err}</p>}
+      {err && <p className="text-[14px]" role="alert" style={{ color: 'var(--warn)' }}>{err}</p>}
     </VisitCard>
   );
 }

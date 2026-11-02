@@ -28,13 +28,13 @@ import { usePublicStaff } from '@/lib/use-public-staff';
  *   day-of arrival (Hello + status buttons)
  */
 
-import { VisitTimeline } from '@/components/visit/VisitTimeline';
-import { VisitRebook } from '@/components/visit/VisitRebook';
-import { ReferralCard } from '@/components/visit/ReferralCard';
+import { TooEarlyView, CompletedView, CheckedInView, AllSetView, VisitLoading, VisitNotFound } from '@/components/visit/VisitStages';
+import { freeUntilWords } from '@/lib/policy-copy';
+import { wallDate } from '@/lib/tenant-time';
+import { deadlineStart } from '@/lib/change-rules';
 import { placeOf } from '@/lib/service-place';
-import { DisruptionCard } from '@/components/booking/DisruptionCard';
-import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
-import { VisitHero, VisitActions, PassCode, greeting } from '@/components/booking/VisitHero';
+import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, VisitFooter, brandOf, type VisitBrand } from '@/components/booking/VisitShell';
+import { VisitHero, PassCode } from '@/components/booking/VisitHero';
 import { DayOfView } from '@/components/booking/DayOfView';
 import { VisitMessages } from '@/components/booking/VisitMessages';
 import { ClientNotifyCard, isStandalone } from '@/components/booking/ClientNotifyCard';
@@ -117,7 +117,7 @@ import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
 import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
-import { pageAccent } from '@/lib/studio-page';
+import { studioPage } from '@/lib/studio-page';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -223,7 +223,7 @@ const CancelledView = ({
 
     const why = String(reason || '').replace(/_/g, ' ').trim();
     return (
-        <VisitShell brand={brand} title={<>This appointment is <b>cancelled</b></>} subtitle={why && !/protocol|void/i.test(why) ? `Reason: ${why}` : undefined}>
+        <VisitShell brand={brand} chip="Canceled" title={<>This appointment is <b>canceled</b></>} subtitle={why && !/protocol|void/i.test(why) ? `Reason: ${why}` : undefined}>
             {owesFee && (
                 <VisitCard tone="warn">
                     <p className="text-[15px] font-semibold">Cancellation fee: ${feeAmount.toFixed(2)}</p>
@@ -233,7 +233,7 @@ const CancelledView = ({
                         </EmbeddedCheckoutProvider>
                     ) : (
                         <>
-                            {paymentError && <p className="text-[13px] font-semibold text-red-700">{paymentError}</p>}
+                            {paymentError && <p className="text-[14px] font-semibold" role="alert" style={{ color: 'var(--warn)' }}>{paymentError}</p>}
                             <VisitButton onClick={handleStartPayment} disabled={isStartingPayment}>{isStartingPayment ? 'Opening…' : 'Pay the fee'}</VisitButton>
                         </>
                     )}
@@ -363,111 +363,6 @@ const StaleAppointmentView = ({ brand }: { brand: VisitBrand; tenantName?: strin
 // add-to-calendar) live right here. The studio's change-window and
 // cancellation-fee policies are enforced by the flows these open — this
 // screen just gets clients to them.
-// "Come in sooner" — the same waitlist (lib/waitlist-server): if an earlier time opens with the same provider, they get
-// a text; tapping it moves this booking (same deposit). Nothing changes unless they say yes.
-const ComeInSooner = ({ tenantId, token, on: on0 }: { tenantId: string; token: string; on: boolean }) => {
-    const [on, setOn] = useState(on0); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
-    const flip = async () => { setBusy(true); setErr(''); try { const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'sooner', token, on: !on }) }).then((x) => x.json());
-        if (r.ok) setOn(!!r.on); else setErr(r.error || 'That didn’t work — try again.'); } catch { setErr('No connection — try again.'); } setBusy(false); };
-    return (<VisitCard>
-        <div className="flex items-center justify-between gap-3"><div><p className="text-[16px] font-semibold">Come in sooner?</p><VisitMuted>{on ? 'We’ll text you if an earlier time opens. Your time stays unless you say yes.' : 'If an earlier time opens, we’ll text you first.'}</VisitMuted></div>
-            <button type="button" role="switch" aria-checked={on} aria-label="Come in sooner" disabled={busy} onClick={flip} className="relative h-7 w-12 shrink-0 rounded-full disabled:opacity-50" style={{ background: on ? 'var(--ink, #16171a)' : '#dcdde0' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: on ? 23 : 3 }} /></button></div>
-        {err && <p className="pt-1 text-[13px]" style={{ color: '#b42318' }}>{err}</p>}
-    </VisitCard>);
-};
-const TooEarlyView = ({
-    startTime, serviceName, onReschedule, onCancel, calendarUrl, brand, providerName, disruption, hasDeposit, onDisruptionCancel, sooner, onMessage, notice, notify, first, photo,
-}: {
-    first?: string | null; photo?: string | null;
-    sooner?: { tenantId: string; token: string; on: boolean } | null;
-    onMessage?: () => void; notice?: React.ReactNode; notify?: React.ReactNode;
-    startTime: string; serviceName?: string;
-    onReschedule?: () => void; onCancel?: () => void; calendarUrl?: string | null;
-    brand: VisitBrand; providerName?: string | null;
-    disruption?: any; hasDeposit?: boolean; onDisruptionCancel?: (d: 'refund' | 'credit' | 'keep' | null, extra?: any) => Promise<any>;
-}) => (
-    <VisitShell brand={brand} kicker={greeting()} title={first || <>You’re <b>booked</b></>}>
-        {notice}
-        {onDisruptionCancel && <DisruptionCard disruption={disruption} hasDeposit={!!hasDeposit} onReschedule={onReschedule} onCancel={onDisruptionCancel} />}
-        <VisitHero photo={photo} kicker="Your next visit" big={format(safeDate(startTime), 'EEE h:mm a')} sub={[format(safeDate(startTime), 'MMMM d'), serviceName, providerName ? `with ${providerName}` : null].filter(Boolean).join(' · ')} step={2} />
-        <p className="px-1 text-center text-[13px]" style={{ color: 'var(--muted)' }}>You’re all set. Check in from this link on the day.</p>
-        <VisitActions items={[onMessage && { label: 'Message', icon: 'chat', onClick: onMessage }, onReschedule && { label: 'Reschedule', icon: 'cal', onClick: onReschedule }, calendarUrl && { label: 'Calendar', icon: 'bell', href: calendarUrl }]} />
-        {sooner && <ComeInSooner tenantId={sooner.tenantId} token={sooner.token} on={sooner.on} />}
-        {notify}
-        {(onReschedule || onCancel) && (
-            <p className="px-1 pt-1 text-center text-[14px]" style={{ color: 'var(--muted)' }}>
-                Need to change it?{' '}
-                {onReschedule && <button type="button" className="underline underline-offset-2" onClick={onReschedule}>Reschedule</button>}
-                {onReschedule && onCancel && ' · '}
-                {onCancel && <button type="button" className="underline underline-offset-2" onClick={onCancel}>Cancel</button>}
-            </p>
-        )}
-    </VisitShell>
-);
-const CompletedView = ({ tenant, client, appointment, service, brand }: { brand: VisitBrand; tenant: Tenant | null, client: Client | null, appointment: Appointment, service: Service | null, staff: Staff | null }) => {
-    const { firestore } = useFirebase();
-    const { toast } = useToast();
-    const [rating, setRating] = useState(0);
-    const [reviewText, setReviewText] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submitted, setSubmitted] = useState(!!appointment.reviewSubmittedAt);
-
-    const handleReviewSubmit = async () => {
-        // Saved on the server (the link is the proof of the visit). It used to be
-        // written from the browser, which the rules refuse — reviews were lost.
-        if (rating === 0 || !appointment) return;
-        setIsSubmitting(true);
-        try {
-            const res = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'review', token: (appointment as any).checkInToken || (typeof window !== 'undefined' ? window.location.pathname.split('/').pop() : ''), rating, text: reviewText, noticeShown: true }) });
-            const d = await res.json().catch(() => ({}));
-            if (!d?.ok) { toast({ variant: 'destructive', title: 'Couldn’t send your review', description: d?.error || 'Please try again.' }); return; }
-            toast({ title: 'Thank you', description: 'Your review has been sent.' });
-            setSubmitted(true);
-        } catch {
-            toast({ variant: 'destructive', title: 'Couldn’t send your review', description: 'Check your connection and try again.' });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <VisitShell brand={brand} kicker="Thank you" title={String((client as any)?.name || '').split(' ')[0] ? <>Thanks, <b>{String((client as any)?.name).split(' ')[0]}</b></> : <>Thanks for <b>visiting</b></>}>
-            <VisitHero photo={(service as any)?.imageUrl || ((tenant as any)?.referrals?.photos || [])[0] || null} kicker="Your visit" big={service?.name || (appointment as any)?.serviceName || 'Your visit'}
-                sub={[appointment?.startTime ? format(safeDate(appointment.startTime), 'EEEE, MMMM d') : null, (appointment as any)?.staffName ? `with ${String((appointment as any).staffName).split(' ')[0]}` : null].filter(Boolean).join(' · ')} step={3} done />
-            {!submitted ? (
-                <VisitCard>
-                    <p className="text-[15px] font-semibold">How was it?</p>
-                    <div className="flex gap-1" role="radiogroup" aria-label="Your rating">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                            <button key={star} type="button" role="radio" aria-checked={rating === star} aria-label={`${star} star${star === 1 ? '' : 's'}`} onClick={() => setRating(star)}
-                                className="text-[32px] leading-none" style={{ color: rating >= star ? 'var(--accent)' : '#d6d0c8' }}>★</button>
-                        ))}
-                    </div>
-                    <textarea value={reviewText} onChange={(e) => setReviewText(e.target.value)} rows={3} maxLength={1000} placeholder="Anything you’d like to tell us? (optional)"
-                        className="w-full rounded-xl p-3 text-[14px] outline-none" style={{ background: '#f1ece6' }} />
-                    <VisitMuted>Your review may be shown publicly, with your first name and last initial.</VisitMuted>
-                    <VisitButton onClick={handleReviewSubmit} disabled={rating === 0 || isSubmitting}>{isSubmitting ? 'Sending…' : 'Send'}</VisitButton>
-                </VisitCard>
-            ) : (
-                <VisitCard tone="ok"><p className="text-[15px]">Thank you — we’ve received your review.</p></VisitCard>
-            )}
-            {(appointment as any).aftercareUrl ? <VisitCard><p className="text-[15px] font-semibold">Caring for it at home</p><VisitMuted>What’s normal, what to watch for, and your provider’s note.</VisitMuted><VisitButton href={(appointment as any).aftercareUrl}>Open your aftercare</VisitButton></VisitCard> : null}
-            {(() => { if ((appointment as any).aftercareUrl) return null; const mir = (tenant as any)?.makingItRight; if (!mir) return null; const sid = (appointment as any).serviceId; const care = String((sid && mir.aftercare?.byService?.[sid]) || mir.aftercare?.text || '').trim();
-                return care ? <VisitCard><p className="text-[15px] font-semibold">Caring for it at home</p><p className="whitespace-pre-line text-[14.5px]">{care}</p></VisitCard> : null; })()}
-            {(() => { const mir = (tenant as any)?.makingItRight; const tok = (appointment as any).checkInToken; const tid = (tenant as any)?.id; const aid = (appointment as any).id;
-                if (!mir || mir.channels?.visitLink === false || !tok || !tid || !aid) return null;
-                const href = `/how/${tid}/${aid}?t=${encodeURIComponent(String(tok))}&from=visit&start=report`;
-                return submitted && rating > 0 && rating <= 3
-                    ? <VisitCard><p className="text-[15px] font-semibold">Sorry it wasn’t perfect.</p><VisitMuted>Tell us what happened and we’ll make it right.</VisitMuted><VisitButton href={href}>Tell the team</VisitButton></VisitCard>
-                    : <p className="px-1 text-center text-[14px]" style={{ color: 'var(--muted)' }}>Not quite right? <a href={href} className="underline underline-offset-2">Tell us privately</a></p>; })()}
-            {(tenant as any)?.visitTimelineForClients !== false && <VisitTimeline items={(appointment as any).timelinePublic} showTimes={(appointment as any).timelineShowTimes !== false} />}
-            {(appointment as any).checkInToken ? <VisitRebook token={String((appointment as any).checkInToken)} bookHref={brand.bookHref || null} />
-                : brand.bookHref && <VisitButton quiet={!submitted} href={brand.bookHref}>Book your next visit</VisitButton>}
-            {(appointment as any).checkInToken && !(submitted && rating > 0 && rating <= 3) && <ReferralCard token={String((appointment as any).checkInToken)} />}
-        </VisitShell>
-    );
-};
-
 // ── Lounge amenity shape ─────────────────────────────────────────────────────
 // What /api/guest-lounge hands back for each orderable item. Deliberately
 // narrower than InventoryItem: a guest never receives cost, supplier, margin or
@@ -2079,7 +1974,7 @@ const CancelGateView = ({
         if (!tenantId || !appointmentId) return;
         // v9 — truthful errors: tell the difference between "the studio's
         // cancellation service isn't deployed" and "this appointment can't
-        // be cancelled" instead of one vague message for everything.
+        // be canceled" instead of one vague message for everything.
         fetch(`/api/appointments/self-cancel?tenantId=${tenantId}&appointmentId=${appointmentId}&k=${encodeURIComponent(accessKey)}`)
             .then(async (res) => {
                 let data: any = null;
@@ -2140,13 +2035,13 @@ const CancelGateView = ({
 
     if (result) {
         return (
-            <VisitShell brand={brand} title={<>You’re <b>cancelled</b></>} subtitle={result.alreadyCancelled ? 'This appointment was already cancelled.' : undefined}>
+            <VisitShell brand={brand} title={<>You’re <b>canceled</b></>} subtitle={result.alreadyCancelled ? 'This appointment was already canceled.' : undefined}>
                 {!result.alreadyCancelled && <VisitCard tone="ok">
                     {Array.isArray(result.lines) && result.lines.length ? result.lines.map((l: string) => <p key={l} className="text-[15px]">{l}</p>)
                         : <p className="text-[15px]">{result.feeCharged ? `Because this was within ${details?.windowHours} hours of your appointment, our cancellation fee of $${Number(result.feeAmount).toFixed(2)} applies.` : 'There’s no cancellation fee. Thank you for letting us know in advance.'}</p>}
                 </VisitCard>}
                 {(Number(result.laterCancelled) > 0 || result.depositMovedTo) && <VisitCard tone="ok">
-                    {Number(result.laterCancelled) > 0 && <p className="text-[15px]">Your {result.laterCancelled} later visit{result.laterCancelled === 1 ? ' is' : 's are'} cancelled too, with no fees.</p>}
+                    {Number(result.laterCancelled) > 0 && <p className="text-[15px]">Your {result.laterCancelled} later visit{result.laterCancelled === 1 ? ' is' : 's are'} canceled too, with no fees.</p>}
                     {result.depositMovedTo && <p className="text-[15px]">Your deposit has moved to your next visit.</p>}
                 </VisitCard>}
                 {result.undoUntil && Date.parse(result.undoUntil) > Date.now() && <VisitCard>
@@ -2189,7 +2084,7 @@ const CancelGateView = ({
             {Number(details?.series?.later) > 0 && <VisitCard>
                 <VisitLabel>This is part of a repeat booking</VisitLabel>
                 <VisitChoice cols={2} value={scope} onChange={setScope as any} options={[['one', 'This visit only'], ['series', `This and all later visits (${details.series.later})`]]} />
-                {scope === 'series' && <VisitMuted>Your {details.series.later} later visit{details.series.later === 1 ? '' : 's'} will be cancelled too, with no fee for {details.series.later === 1 ? 'it' : 'them'}.</VisitMuted>}
+                {scope === 'series' && <VisitMuted>Your {details.series.later} later visit{details.series.later === 1 ? '' : 's'} will be canceled too, with no fee for {details.series.later === 1 ? 'it' : 'them'}.</VisitMuted>}
                 {scope === 'one' && details.series.depositMoves && !details?.isLate && <VisitMuted>Your deposit moves to your next visit.</VisitMuted>}
             </VisitCard>}
             <VisitCard>
@@ -2198,7 +2093,7 @@ const CancelGateView = ({
             </VisitCard>
             {details?.feeBlock && !(graced && Number(g?.due) === 0) && <VisitCard tone="warn"><p className="text-[15px]">{details.feeBlock}</p></VisitCard>}
             {error && <VisitCard tone="warn"><p className="text-[15px]">{error}</p></VisitCard>}
-            <VisitButton onClick={handleCancel} disabled={isSubmitting || (!!details?.feeBlock && !(graced && Number(g?.due) === 0))}>{isSubmitting ? 'Cancelling…' : 'Yes, cancel my appointment'}</VisitButton>
+            <VisitButton onClick={handleCancel} disabled={isSubmitting || (!!details?.feeBlock && !(graced && Number(g?.due) === 0))}>{isSubmitting ? 'Canceling…' : 'Yes, cancel my appointment'}</VisitButton>
             <VisitButton quiet onClick={onBack}>Keep my appointment</VisitButton>
         </VisitShell>
     );
@@ -2341,13 +2236,13 @@ const RescheduleGateView = ({
                         : slotDays.length === 0 ? <VisitMuted>There are no open times online in the next two weeks.{brand.bookHref ? ' You can look further ahead on our booking page.' : ''}</VisitMuted>
                         : <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{slotDays.map((x) => { const on = x.date === newDate; const d = safeDate(`${x.date}T12:00:00`);
                             return <button key={x.date} type="button" aria-pressed={on} onClick={() => { setNewDate(x.date); setNewTime(''); }} className="min-w-[4.5rem] shrink-0 rounded-2xl px-3 py-2 text-center transition active:scale-[.98]"
-                                style={on ? { background: 'var(--accent)', color: '#fff' } : { background: '#fff', border: '1px solid #e7e2dc' }}>
+                                style={on ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--card)', color: 'var(--ink)', boxShadow: 'inset 0 0 0 1px var(--line)' }}>
                                 <span className="block text-[12px]">{format(d, 'EEE')}</span><span className="block text-[17px] font-semibold">{format(d, 'd')}</span><span className="block text-[11px]">{format(d, 'MMM')}</span></button>; })}</div>}
                     {newDate && <>
                         <VisitLabel>Choose a time</VisitLabel>
                         <div className="grid grid-cols-3 gap-2">{dayTimes.map((tm) => { const on = tm === newTime;
                             return <button key={tm} type="button" aria-pressed={on} onClick={() => setNewTime(tm)} className="h-11 rounded-full text-[14px] transition active:scale-[.98]"
-                                style={on ? { background: 'var(--accent)', color: '#fff', fontWeight: 600 } : { background: '#fff', border: '1px solid #e7e2dc' }}>{clockLabel(tm)}</button>; })}</div>
+                                style={on ? { background: 'var(--accent)', color: '#fff', fontWeight: 600 } : { background: 'var(--card)', color: 'var(--ink)', boxShadow: 'inset 0 0 0 1px var(--line)' }}>{clockLabel(tm)}</button>; })}</div>
                     </>}
                 </VisitCard>
                 {error && <VisitCard tone="warn"><p className="text-[15px]">{error}</p></VisitCard>}
@@ -2593,23 +2488,21 @@ export default function CheckInPage() {
         <VisitCard tone={confirmNote.ok ? 'ok' : 'warn'}>
             <div className="flex items-start justify-between gap-3">
                 <p className="text-[15px]" role="status">{confirmNote.text}</p>
-                <button type="button" aria-label="Dismiss" onClick={() => setConfirmNote(null)} className="shrink-0 text-[14px] underline underline-offset-2" style={{ color: 'var(--muted)' }}>Close</button>
+                <button type="button" onClick={() => setConfirmNote(null)} className="inline-flex min-h-11 shrink-0 items-center text-[14px] underline underline-offset-2" style={{ color: 'var(--muted)' }}>Close</button>
             </div>
         </VisitCard>
     ) : null;
 
+    // Arrived, on my way, running late. The server checks the token, the business's rules (e.g. online check-in off →
+    // front desk) and duplicates. Its answer goes back to the screen, which says what went wrong in its own words; we
+    // never write around it from the browser. Once it's through, the live view is asked again straight away.
     const updateStatus = async (status: string, lateMinutes?: number, lateNote?: string): Promise<any> => {
-        if (!firestore || !token || !appointmentData) return null;
+        const failed = (error: string) => ({ ok: false, error });
+        if (!firestore || !token || !appointmentData || !tenantId) return failed('That didn’t send. Please let the front desk know when you arrive.');
         const updates: any = { checkInStatus: status };
         if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
         if (lateNote) updates.lateNote = lateNote;
         try {
-            // Server write path — lands in the scoped collection (with audit
-            // entry) and mirrors to the legacy one during the migration window.
-            // Every update goes through the server — it checks the token, the business's
-            // rules (e.g. online check-in off → front desk) and duplicates. If it says no,
-            // we show why; we never write around it from the browser.
-            if (!tenantId) { toast({ variant: 'destructive', title: 'That didn’t send', description: 'Please let the front desk know directly.' }); return null; }
             const res = await fetch('/api/checkins', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2620,23 +2513,20 @@ export default function CheckInPage() {
                 }),
             });
             const d = await res.json().catch(() => ({}));
-            if (!res.ok || !d?.ok) {
-                toast({ variant: 'destructive', title: d?.error ? 'Not sent' : 'That didn’t send', description: d?.error || 'Please let the front desk know directly.' });
-                return null;
-            }
-            if (status === 'arrived') toast({ title: 'You’re checked in', description: 'We’ve let the team know you’re here.' });
+            if (!res.ok || !d?.ok) return failed(d?.error || 'That didn’t send. Please let the front desk know when you arrive.');
+            setViewNonce((n) => n + 1);
             return d;
         } catch {
-            toast({ variant: 'destructive', title: 'That didn’t send', description: 'Please check your connection, or let the front desk know directly.' });
-            return null;
+            return failed('That didn’t send. Please check your connection, or let the front desk know when you arrive.');
         }
     };
 
     // ── "Is this you?", "Not you?", and a link that's been turned off ──
     const bizName: string | null = (tenant as any)?.name || (tenant as any)?.businessName || (liveView as any)?.businessName || revokedBiz?.name || null;
     const bizPhone: string | null = (tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || revokedBiz?.phone || null;
-    if (revoked) return <LinkOffView businessName={bizName} businessPhone={bizPhone} />;
-    if (notMeMsg) return <VisitNotice title="This link is now turned off" body={notMeMsg} businessName={bizName} businessPhone={bizPhone} />;
+    const noticeBrand = tenant ? brandOf(tenant, tenantId, null) : undefined;
+    if (revoked) return <LinkOffView businessName={bizName} businessPhone={bizPhone} brand={noticeBrand} />;
+    if (notMeMsg) return <VisitNotice title="This link is now turned off" body={notMeMsg} businessName={bizName} businessPhone={bizPhone} brand={noticeBrand} />;
     const linkOf = tenantId && appointmentData?.id ? { tenantId, apptId: appointmentData.id, k: token } : null;
     const verifyShared = { businessName: bizName, businessPhone: bizPhone, onRevoked: () => setRevoked(true), onNotMe: (m: string) => setNotMeMsg(m) };
     // Notifications: on a phone that hasn't confirmed a code, "Is this you?" comes first (where the phone could turn them on).
@@ -2651,50 +2541,25 @@ export default function CheckInPage() {
         const st = String(ap.status || ''); const end = Date.parse(ap.endTime || ap.startTime || '');
         return ['completed', 'no_show', 'noshow'].includes(st) || (['cancelled', 'canceled'].includes(st) && Date.now() - Date.parse(ap.cancelledAt || '') > 30 * 60000) || (Number.isFinite(end) && Date.now() - end > 3 * 3600e3);
     })();
+    // Rendered at the foot of the visit screen itself (VisitShell reads it), in the business's look.
     const footer = linkOf && clientId ? (
-        <div style={{ background: '#ffffff', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
-            <div className="mx-auto max-w-md space-y-4 px-4 pb-10 pt-2">
-                {visitOver && trust === 'untrusted' && <VerifyCard {...linkOf} {...verifyShared} onNotMe={undefined}
-                    onVerified={() => { followAsked.current = true; setTrust('trusted'); }}
-                    prompt={{ title: 'Looking for your next appointment?', text: 'For your privacy, please confirm it’s you, and we’ll take you straight there.', button: 'Confirm it’s me' }} />}
-                {noNext && <p className="text-center text-[14px]" role="status" style={{ color: '#6d7075' }}>You don’t have another appointment booked with us yet.</p>}
-                <div className="text-center"><NotMeLink {...linkOf} businessName={bizName} onDone={(m) => setNotMeMsg(m)} onRevoked={() => setRevoked(true)} /></div>
-            </div>
+        <div className="space-y-4 pt-4">
+            {visitOver && trust === 'untrusted' && <VerifyCard {...linkOf} {...verifyShared} onNotMe={undefined}
+                onVerified={() => { followAsked.current = true; setTrust('trusted'); }}
+                prompt={{ title: 'Looking for your next appointment?', text: 'For your privacy, please confirm it’s you, and we’ll take you straight there.', button: 'Confirm it’s me' }} />}
+            {noNext && <p className="text-center text-[14px]" role="status" style={{ color: 'var(--muted)' }}>You don’t have another appointment booked with us yet.</p>}
+            <div className="text-center"><NotMeLink {...linkOf} businessName={bizName} onDone={(m) => setNotMeMsg(m)} onRevoked={() => setRevoked(true)} /></div>
         </div>
     ) : null;
-    const withFooter = (node: React.ReactNode) => <>{node}{footer}</>;
+    const withFooter = (node: React.ReactNode) => <VisitFooter.Provider value={footer}>{node}</VisitFooter.Provider>;
 
-    if (visitLoading || clientLoading || serviceLoading || tenantLoading || staffLoading || completionLoading) {
-        return (
-            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-background text-center text-left">
-                <Loader className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60 mt-4">Initializing Studio Pulse...</p>
-            </div>
-        );
-    }
+    if (visitLoading || clientLoading || serviceLoading || tenantLoading || staffLoading || completionLoading) return <VisitLoading />;
 
-    if (!appointmentData) {
-        return (
-            <ViewContainer>
-                <div className="p-16 text-center space-y-8">
-                    <XCircle className="w-20 h-20 text-destructive mx-auto opacity-40" />
-                    <div className="space-y-2">
-                        <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Record Expired</h2>
-                        <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-center px-8">
-                            This digital key is no longer valid or could not be verified in our manifest.
-                        </p>
-                    </div>
-                    <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                        <Link href="/">Back to Studio</Link>
-                    </Button>
-                </div>
-            </ViewContainer>
-        );
-    }
+    if (!appointmentData) return <VisitNotFound />;
 
     // A contact not confirmed or used in 12 months: just the business and the date, and "Is this you?" first.
     if (verifyFirst && linkOf) {
-        const at = appointmentData?.startTime ? safeDate(appointmentData.startTime) : null;
+        const at = appointmentData?.startTime ? wallDate(safeDate(appointmentData.startTime), brandOf(tenant).zone) : null;
         return (
             <VisitShell brand={brandOf(tenant, tenantId, null)} title={<>Your <b>appointment</b></>}>
                 {at && <VisitCard>
@@ -2733,12 +2598,11 @@ export default function CheckInPage() {
 
     if (appointmentData?.status === 'completed') {
         return withFooter(
-            <CompletedView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} 
-                tenant={tenant || null} 
-                client={client || null} 
-                appointment={appointmentData} 
+            <CompletedView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)}
+                tenant={tenant ? { ...(tenant as any), id: (tenant as any).id || tenantId } : null}
+                client={client || null}
+                appointment={appointmentData}
                 service={service || null}
-                staff={assignedStaff || null}
             />
         );
     }
@@ -2776,21 +2640,7 @@ export default function CheckInPage() {
     }
 
     if (completionJustDone === false) {
-        return (
-            <ViewContainer>
-                <ViewHeader title="You're All Set" subtitle="Booking secured" icon={CheckCircle2} />
-                <CardContent className="p-10 md:p-16 text-center space-y-6">
-                    <div className="w-20 h-20 bg-green-50 rounded-[2rem] flex items-center justify-center mx-auto">
-                        <CheckCircle2 className="w-10 h-10 text-green-500" />
-                    </div>
-                    <p className="text-sm font-medium text-slate-500 leading-relaxed max-w-sm mx-auto">
-                        Your appointment with {tenant?.name || 'the studio'} on{' '}
-                        <strong className="text-slate-900">{format(safeDate(appointmentData.startTime), 'EEEE, MMM d')}</strong>{' '}
-                        is confirmed. We'll see you then — this link will bring you back to check in on the day of your visit.
-                    </p>
-                </CardContent>
-            </ViewContainer>
-        );
+        return withFooter(<AllSetView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} startTime={appointmentData.startTime as any} businessName={tenant?.name || null} />);
     }
     
     // v3 — NEW: cancellation flow. Reachable via a "Can't make it?" link on
@@ -2840,26 +2690,19 @@ export default function CheckInPage() {
     // business choice — OFF unless turned on in Settings, so guests are never
     // pointed to a concierge who isn't there. Off → a calm "you're checked in".
     if (isArrivedOrServicing && (tenant as any)?.guestExperienceEnabled !== true) {
-        const who = (assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null;
-        const at = appointmentData?.startTime ? safeDate(appointmentData.startTime) : null;
-        const inService = appointmentData?.status === 'servicing';
         return withFooter(
-            <div className="flex min-h-dvh items-center justify-center p-6" style={{ background: '#ffffff', color: '#1c1917', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
-                <div className="w-full max-w-sm space-y-5 text-center">
-                    <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-white text-3xl shadow" aria-hidden>✓</div>
-                    <div className="space-y-2">
-                        <h1 className="text-3xl font-light">{inService ? <>You’re <b>all set</b></> : <>You’re <b>checked in</b></>}</h1>
-                        <p className="text-[15px] text-stone-600">{inService ? 'Enjoy your appointment.' : `${who ? `${who} knows you’re here` : 'We know you’re here'} and will be with you ${at ? `for your ${format(at, 'h:mm a')} appointment` : 'shortly'}.`}</p>
-                    </div>
-                    <div className="rounded-3xl bg-white p-5 text-left text-[15px] shadow-sm">
-                        <p className="font-semibold">{tenant?.name || 'Your appointment'}</p>
-                        {appointmentData?.serviceName && <p className="text-stone-600">{appointmentData.serviceName}{who ? ` with ${who}` : ''}</p>}
-                        {at && <p className="text-stone-600">{format(at, 'EEEE, MMMM d · h:mm a')}</p>}
-                    </div>
-                    {(tenant as any)?.visitTimelineForClients !== false && <VisitTimeline items={(appointmentData as any)?.timelinePublic} showTimes={(appointmentData as any)?.timelineShowTimes !== false} />}
-                    {(tenant as any)?.phone && <a href={`tel:${String((tenant as any).phone).replace(/[^\d+]/g, '')}`} className="inline-block text-[14px] underline underline-offset-4">Need something? Call {tenant?.name || 'us'}</a>}
-                </div>
-            </div>
+            <CheckedInView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)}
+                first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || null}
+                inService={appointmentData?.status === 'servicing'}
+                who={(assignedStaff as any)?.name || null}
+                startTime={appointmentData?.startTime as any}
+                serviceName={service?.name || appointmentData?.serviceName || null}
+                businessName={tenant?.name || null}
+                phone={(tenant as any)?.phone || null}
+                wifi={(tenant as any)?.wifiNetwork ? { network: (tenant as any).wifiNetwork, password: (tenant as any).wifiPassword || null } : null}
+                timeline={(tenant as any)?.visitTimelineForClients !== false ? { items: (appointmentData as any)?.timelinePublic, showTimes: (appointmentData as any)?.timelineShowTimes !== false } : null}
+                onMessage={() => setShowMessages(true)}
+            />
         );
     }
 
@@ -2906,18 +2749,26 @@ export default function CheckInPage() {
     // is completely normal and shouldn't be blocked, but any DIFFERENT
     // calendar day (a week out, tomorrow, whenever) should not show live
     // arrival buttons at all.
+    // "Is it the day?" on the business's own clock, the same one the screens speak in.
+    const dayZone = brandOf(tenant).zone;
     const isTooEarly = appointmentData?.startTime
-        ? !isSameDay(safeDate(appointmentData.startTime), new Date())
+        ? !isSameDay(wallDate(safeDate(appointmentData.startTime), dayZone), wallDate(new Date(), dayZone))
             && safeDate(appointmentData.startTime).getTime() > Date.now()
         : false;
+
+    // Where it happens, getting here (the business's own notes) and until when changing it is free.
+    const place = placeOf(service, appointmentData);
+    const visitNotes = tenant ? studioPage(tenant).visit : null;
+    const address: string | null = (tenant as any)?.studioAddress || null;
+    const freeUntil = appointmentData?.startTime ? freeUntilWords(tenant, service, deadlineStart(tenant, appointmentData, service).toISOString()) : '';
 
     if (isTooEarly) {
         return withFooter(
             <TooEarlyView disruption={(appointmentData as any)?.disruption || null} hasDeposit={(appointmentData as any)?.depositStatus === 'paid'} onDisruptionCancel={async (dep, extra) => { try { const r = await fetch('/api/appt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(extra?.action ? { tenantId, apptId: appointmentData?.id, k: token, ...extra } : { action: 'disruption_reply', tenantId, apptId: appointmentData?.id, k: token, choice: extra?.choice || (dep === 'keep' ? 'keep' : 'cancel'), deposit: dep === 'keep' ? null : dep }) }); return await r.json(); } catch { return { ok: false }; } }} brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} providerName={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
                 startTime={appointmentData!.startTime}
-                serviceName={service?.name}
+                serviceName={service?.name || appointmentData?.serviceName || null}
                 first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || null}
-                photo={(service as any)?.imageUrl || ((tenant as any)?.referrals?.photos || [])[0] || null}
+                place={place} visit={visitNotes} address={address} freeUntil={freeUntil}
                 onReschedule={() => setShowRescheduleFlow(true)}
                 onCancel={() => setShowCancelFlow(true)}
                 onMessage={() => setShowMessages(true)}
@@ -2933,11 +2784,13 @@ export default function CheckInPage() {
 
     return withFooter(
         <DayOfView
-            hero={{ photo: (service as any)?.imageUrl || ((tenant as any)?.referrals?.photos || [])[0] || null,
-                minutesAway: appointmentData?.startTime ? Math.round((safeDate(appointmentData.startTime).getTime() - Date.now()) / 60000) : null,
-                pass: placeOf(service, appointmentData)?.kind && placeOf(service, appointmentData)?.kind !== 'studio' ? null : <PassCode token={token} code={(appointmentData as any)?.shortCode || null} name={String(client?.name || appointmentData?.clientName || 'Your visit').split(' ')[0]}
-                    when={appointmentData?.startTime ? format(safeDate(appointmentData.startTime), 'h:mm a') : ''} service={service?.name || null} business={tenant?.name || null} /> }}
-            place={placeOf(service, appointmentData)}
+            brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)}
+            visit={visitNotes}
+            freeUntil={freeUntil}
+            minutesAway={appointmentData?.startTime ? Math.round((safeDate(appointmentData.startTime).getTime() - Date.now()) / 60000) : null}
+            pass={place?.kind && place.kind !== 'studio' ? null : <PassCode token={token} code={(appointmentData as any)?.shortCode || null} name={String(client?.name || appointmentData?.clientName || 'Your visit').split(' ')[0]}
+                when={appointmentData?.startTime ? format(wallDate(safeDate(appointmentData.startTime), brandOf(tenant).zone), 'h:mm a') : ''} service={service?.name || null} business={tenant?.name || null} />}
+            place={place}
             callNumber={(tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null}
             lateChoices={(appointmentData as any)?.lateChoices || null}
             onLateChoice={async (choice) => {
@@ -2946,13 +2799,11 @@ export default function CheckInPage() {
                 if (d?.ok && d.next === 'accept_offer') { const acc = await call({ action: 'provider_offer_reply', choice: 'accept' }); return { ...d, accepted: !!acc?.ok, error: acc?.ok ? undefined : acc?.error }; }
                 return d;
             }}
-            accent={pageAccent(tenant) || (tenant as any)?.brandColor || '#7c3aed'}
-            studioName={tenant?.name}
             first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || 'there'}
-            serviceName={service?.name}
+            serviceName={service?.name || appointmentData?.serviceName || undefined}
             startTime={appointmentData?.startTime as any}
             provider={assignedStaff ? { name: assignedStaff.name, avatarUrl: (assignedStaff as any).avatarUrl } : null}
-            address={(tenant as any)?.studioAddress || null}
+            address={address}
             graceMinutes={Number(resolvePolicy(tenant).late.graceMinutes.value) || 0}
             onArrived={() => updateStatus('arrived')}
             onMyWay={() => updateStatus('on_my_way')}

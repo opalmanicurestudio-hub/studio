@@ -26,7 +26,7 @@ import { PublicMotion } from './PublicMotion';
 export type PublicMood = 'soft' | 'crisp' | 'night';
 
 export const PUBLIC_CSS = String.raw`
-.pub{--ink:#1c1917;--muted:#57534e;--paper:#faf8f5;--card:#fff;--line:#e7e5e4;--good:#1f7a4d;--good-soft:#e9f3ed;--r-card:1.5rem;color:var(--ink);background:var(--paper);font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+.pub{--ink:#1c1917;--muted:#57534e;--paper:#faf8f5;--card:#fff;--line:#e7e5e4;--soft:#f1ece6;--good:#1f7a4d;--good-soft:#e9f3ed;--warn:#b45309;--warn-soft:#fdf3e7;--r-card:1.5rem;color:var(--ink);background:var(--paper);font-family:'Plus Jakarta Sans',system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
 .pub h1,.pub h2{letter-spacing:-.02em;font-weight:300}.pub h1 b,.pub h2 b{font-weight:650}
 .pub-accent-text{color:var(--accent-text,var(--accent))}
 .pub-bar{background:var(--paper)}
@@ -53,7 +53,7 @@ export const PUBLIC_CSS = String.raw`
 @media (prefers-reduced-motion:reduce){.pub-rise,.pub-sheet,.pub-scrim,.pub-breathe{animation:none}.pub-press,.pub-press:active{transform:none;transition:none}
   .pub-js .pub-reveal,.pub-js .pub-reveal .pub-stagger{opacity:1!important;transform:none!important;transition:none!important;animation:none!important}}
 @media print{.pub-js .pub-reveal,.pub-js .pub-reveal .pub-stagger{opacity:1!important;transform:none!important;animation:none!important;transition:none!important}}
-.pub[data-mood=crisp]{--paper:#fff;--line:#ececee;--r-card:.75rem}
+.pub[data-mood=crisp]{--paper:#fff;--line:#ececee;--soft:#f3f3f5;--r-card:.75rem}
 .pub[data-mood=crisp] .pub-card{box-shadow:0 1px 2px rgba(22,23,26,.04);border:1px solid var(--line)}
 .pub[data-mood=crisp] .bg-white.shadow-sm{box-shadow:inset 0 0 0 1px var(--line),0 1px 2px rgba(22,23,26,.04)}
 .pub[data-mood=crisp] :is(button,a,span).rounded-full:not(.pub-round){border-radius:.625rem}
@@ -62,7 +62,7 @@ export const PUBLIC_CSS = String.raw`
 .pub[data-mood=crisp] .rounded-xl{border-radius:.5rem}
 .pub[data-mood=crisp] .rounded-t-\[1\.75rem\]{border-top-left-radius:.875rem;border-top-right-radius:.875rem}
 @media (min-width:640px){.pub[data-mood=crisp] .sm\:rounded-\[1\.75rem\]{border-radius:.875rem}}
-.pub[data-mood=night]{--ink:#f5f5f7;--muted:#a1a1aa;--paper:#16171a;--card:#222326;--line:#2e2f34;--good:#7fd1a5;--good-soft:rgba(127,209,165,.14);color-scheme:dark}
+.pub[data-mood=night]{--ink:#f5f5f7;--muted:#a1a1aa;--paper:#16171a;--card:#222326;--line:#2e2f34;--soft:#2a2b2f;--good:#7fd1a5;--good-soft:rgba(127,209,165,.14);--warn:#f5c08a;--warn-soft:rgba(180,83,9,.2);color-scheme:dark}
 .pub[data-mood=night] .pub-card{box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
 .pub[data-mood=night] .bg-white{background-color:var(--card)}
 .pub[data-mood=night] .bg-white\/90{background-color:rgba(34,35,38,.9)}
@@ -77,7 +77,7 @@ export const PUBLIC_CSS = String.raw`
 .pub[data-mood=night] .shadow-sm,.pub[data-mood=night] .shadow-xl{box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
 .pub[data-mood=night] :is(input,select,textarea){color:var(--ink)}
 .pub[data-mood=night] .bg-stone-900\/40{background-color:rgba(0,0,0,.6)}
-.pub[data-mood=night] :is([style*="background: var(--accent)"],[style*="background:var(--accent)"]):not(.cf-splash){box-shadow:inset 0 0 0 1px rgb(255 255 255/.28)}
+.pub[data-mood=night] :is([style*="background: var(--accent)"],[style*="background:var(--accent)"],[style*="background: var(--accent,"],[style*="background:var(--accent,"]):not(.cf-splash){box-shadow:inset 0 0 0 1px rgb(255 255 255/.28)}
 .pub[data-mood=night] .pub-plate{background:#fff;color:#1c1917;border-radius:var(--r-card);color-scheme:light}
 .pub[data-mood=night] .pub-plate .bg-white{background-color:#fff}
 .pub[data-mood=night] .pub-plate :is(input,select,textarea){color:#1c1917}

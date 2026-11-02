@@ -8,7 +8,9 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { MetalCard } from '@/components/referrals/MetalCard';
 import { qrSvg } from '@/lib/scan-codes';
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', GREEN = '#1f7a4d', MINT = '#7fd1a5';
+// The page's mood colors (the visit link's Soft, Crisp or Night), with the app's own as fallbacks elsewhere.
+const INK = 'var(--ink, #16171a)', MUTED = 'var(--muted, #6d7075)', LINE = 'var(--line, #ececee)', SOFT = 'var(--soft, #f3f3f5)', GREEN = 'var(--good, #1f7a4d)', MINT = '#7fd1a5';
+const CARD = 'var(--card, #fff)';
 const money = (c: number) => { const d = (Number(c) || 0) / 100; return `$${d % 1 ? d.toFixed(2) : d}`; };
 const endsIn = (iso: string) => { const h = Math.max(1, Math.round((Date.parse(iso) - Date.now()) / 3600e3)); return h < 48 ? `${h} hour${h === 1 ? '' : 's'}` : `${Math.round(h / 24)} days`; };
 
@@ -34,7 +36,7 @@ export function CircleMember({ m, link, friendCents, business, token, preview, o
   const toNext = m.next ? Math.min(1, m.friends / Math.max(1, m.next.at)) : 1;
   const R = 46, Cc = 2 * Math.PI * R;
   const shareText = `I love ${business} and thought you would too. Use my code ${m.code} for ${money(friendCents)} off your first visit (I get credit if you book):`;
-  const qrHtml = React.useMemo(() => (link ? qrSvg(link, 200, INK) : ''), [link]);
+  const qrHtml = React.useMemo(() => (link ? qrSvg(link, 200, '#16171a') : ''), [link]);
   const flip = async (on: boolean) => { setOptIn(on); if (preview || !token) return; try { await fetch('/api/referrals/public', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'optin', token, on }) }); } catch { /* fine */ } };
   const story = async () => { setMsg(''); const b = await storyImage({ business, offer: `${money(friendCents)} off`, code: m.code, link: link || '' }); if (!b) { setMsg('Your phone couldn’t make the image.'); return; }
     const file = new File([b], `${m.code}.png`, { type: 'image/png' });
@@ -45,19 +47,19 @@ export function CircleMember({ m, link, friendCents, business, token, preview, o
       : <button type="button" onClick={onClick} className={cls} style={st}><span>{label}</span><span className="text-[12.5px]" style={{ color: MUTED }}>{right}</span></button>; };
   return (
     <div className="space-y-4" style={{ color: INK }}>
-      <div className="flex items-baseline justify-between"><p className="text-[22px] font-light tracking-[-0.02em]">{m.name}</p>{m.circleUrl && <a href={m.circleUrl} className="text-[12.5px] underline underline-offset-2" style={{ color: MUTED }}>See the {m.program}</a>}</div>
+      <div className="flex items-baseline justify-between"><p className="text-[22px] font-light tracking-[-0.02em]">{m.name}</p>{m.circleUrl && <a href={m.circleUrl} className="inline-flex min-h-11 items-center text-[12.5px] underline underline-offset-2" style={{ color: MUTED }}>See the {m.program}</a>}</div>
       <MetalCard look={look} program={m.name} tier={m.creator ? 'Creator' : m.tier?.name || 'Member to be'} name={m.memberName || 'You'} sub={m.creator ? `Code ${m.code}` : `${m.friends} friend${m.friends === 1 ? '' : 's'}${m.since ? ` · since ${new Date(m.since).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}` : ''}`} />
-      {m.next && <div className="flex items-center gap-4 rounded-[18px] bg-white p-4">
-        <div className="relative h-[108px] w-[108px] shrink-0"><svg width="108" height="108" viewBox="0 0 108 108" aria-hidden="true"><circle cx="54" cy="54" r={R} stroke={SOFT} strokeWidth="8" fill="none" />
-          <motion.circle cx="54" cy="54" r={R} stroke={GREEN} strokeWidth="8" fill="none" strokeLinecap="round" strokeDasharray={Cc} transform="rotate(-90 54 54)" initial={still ? false : { strokeDashoffset: Cc }} animate={{ strokeDashoffset: Cc * (1 - toNext) }} transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }} /></svg>
+      {m.next && <div className="flex items-center gap-4 rounded-[18px] p-4" style={{ background: CARD }}>
+        <div className="relative h-[108px] w-[108px] shrink-0"><svg width="108" height="108" viewBox="0 0 108 108" aria-hidden="true"><circle cx="54" cy="54" r={R} strokeWidth="8" fill="none" style={{ stroke: SOFT }} />
+          <motion.circle cx="54" cy="54" r={R} style={{ stroke: GREEN }} strokeWidth="8" fill="none" strokeLinecap="round" strokeDasharray={Cc} transform="rotate(-90 54 54)" initial={still ? false : { strokeDashoffset: Cc }} animate={{ strokeDashoffset: Cc * (1 - toNext) }} transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }} /></svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-[26px] font-light">{m.friends}</span><span className="text-[10.5px]" style={{ color: MUTED }}>of {m.next.at}</span></div></div>
         <div><p className="text-[17px] font-light">{m.next.need} more friend{m.next.need === 1 ? '' : 's'} to <b className="font-semibold">{m.next.name}</b></p>
           <p className="mt-1 text-[12.5px] leading-[1.45]" style={{ color: MUTED }}>{money(m.next.rewardCents)} for every friend{m.next.perks?.[1] ? `, ${String(m.next.perks[1]).charAt(0).toLowerCase()}${String(m.next.perks[1]).slice(1)}` : ''}.</p></div></div>}
       {m.boost && <div className="rounded-[16px] p-3.5" style={{ background: 'rgba(127,209,165,.14)', border: '1px solid rgba(31,122,77,.25)' }}><p className="text-[14px] font-semibold" style={{ color: GREEN }}>{m.boost.name}</p>
         <p className="text-[12.5px]" style={{ color: MUTED }}>Friends who visit while it’s on earn you {m.boost.multiplier}× credit. Ends in {endsIn(m.boost.end)}.</p></div>}
-      <div className="grid grid-cols-3 gap-2">{[[m.month.opens, 'link opens'], [m.month.booked, 'booked'], [money(m.month.earnedCents), 'earned']].map(([v, l]: any) => <div key={l} className="rounded-[14px] bg-white p-3"><p className="text-[22px] font-light">{v}</p><p className="text-[11px]" style={{ color: MUTED }}>{l} this month</p></div>)}</div>
-      <div className="rounded-[18px] bg-white px-4 pb-1 pt-3">
-        <p className="text-[11px] uppercase tracking-[0.14em]" style={{ color: MUTED }}>Share kit</p>
+      <div className="grid grid-cols-3 gap-2">{[[m.month.opens, 'link opens'], [m.month.booked, 'booked'], [money(m.month.earnedCents), 'earned']].map(([v, l]: any) => <div key={l} className="rounded-[14px] p-3" style={{ background: CARD }}><p className="text-[22px] font-light">{v}</p><p className="text-[11px]" style={{ color: MUTED }}>{l} this month</p></div>)}</div>
+      <div className="rounded-[18px] px-4 pb-1 pt-3" style={{ background: CARD }}>
+        <p className="text-[13px] font-semibold" style={{ color: MUTED }}>Share kit</p>
         {row(`Your code: ${m.code}`, 'Copy', async () => { try { await navigator.clipboard.writeText(m.code); setMsg('Code copied.'); } catch { setMsg(m.code); } })}
         {link && row('Share my link', 'Message', () => onShareText(shareText))}
         {link && row('Save a story image', '9:16', story)}
@@ -66,10 +68,10 @@ export function CircleMember({ m, link, friendCents, business, token, preview, o
         {qr && qrHtml && <div className="flex justify-center py-3"><div className="rounded-[14px] p-2" style={{ border: `1px solid ${LINE}` }} dangerouslySetInnerHTML={{ __html: qrHtml }} /></div>}
         {msg && <p className="py-2 text-[13px] font-semibold" style={{ color: GREEN }}>{msg}</p>}
       </div>
-      {(m.board || []).length > 0 && <div className="rounded-[18px] bg-white p-4"><p className="text-[11px] uppercase tracking-[0.14em]" style={{ color: MUTED }}>The {m.program} this season</p>
+      {(m.board || []).length > 0 && <div className="rounded-[18px] p-4" style={{ background: CARD }}><p className="text-[13px] font-semibold" style={{ color: MUTED }}>The {m.program} this season</p>
         <ol className="mt-2">{m.board.slice(0, 6).map((x: any) => <li key={x.rank} className="flex items-center gap-3 border-b py-2 text-[14px]" style={{ borderColor: LINE, fontWeight: x.me ? 700 : 400 }}>
           <span className="w-4 text-[12px]" style={{ color: MUTED }}>{x.rank}</span><span className="flex-1">{x.name}{x.me ? ' (you)' : ''}</span><span className="text-[12px]" style={{ color: MUTED }}>{x.tier ? `${x.tier} · ` : ''}{x.friends} friend{x.friends === 1 ? '' : 's'}</span></li>)}</ol></div>}
       {(m.tier || m.creator) && <label className="flex items-center justify-between gap-3 px-1 text-[13.5px]"><span>Show me on the {m.program} page<span className="block text-[12px]" style={{ color: MUTED }}>Your first name and last initial</span></span>
-        <button type="button" role="switch" aria-checked={optIn} aria-label={`Show me on the ${m.program} page`} onClick={() => flip(!optIn)} className="relative h-7 w-12 shrink-0 rounded-full" style={{ background: optIn ? GREEN : '#d4d5d9' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: optIn ? 23 : 3 }} /></button></label>}
+        <button type="button" role="switch" aria-checked={optIn} aria-label={`Show me on the ${m.program} page`} onClick={() => flip(!optIn)} className="inline-flex h-11 w-14 shrink-0 items-center justify-center"><span className="relative block h-7 w-12 rounded-full" style={{ background: optIn ? '#1f7a4d' : 'color-mix(in srgb, var(--muted, #6d7075) 38%, transparent)' }}><span className="absolute top-[3px] h-[22px] w-[22px] rounded-full transition-all" style={{ left: optIn ? 23 : 3, background: '#fff' }} /></span></button></label>}
     </div>);
 }

@@ -20,7 +20,7 @@ export function VisitHero({ photo, kicker, big, sub, step, done = false, childre
       <div className="absolute inset-0" style={photo ? { backgroundImage: `url(${photo})`, backgroundSize: 'cover', backgroundPosition: 'center' } : { background: 'radial-gradient(90% 70% at 20% 10%, #6b6e76 0%, transparent 60%), linear-gradient(160deg,#3a3d44,#16171a 70%)' }} />
       <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(22,23,26,.05) 15%, rgba(22,23,26,.88) 72%)' }} />
       <div className="relative flex min-h-[280px] flex-col justify-end p-4 text-white">
-        <p className="text-[11px] uppercase tracking-[0.18em] opacity-80">{kicker}</p>
+        <p className="text-[13px] font-semibold opacity-85">{kicker}</p>
         <p className="text-[32px] font-light leading-tight tracking-[-0.02em]">{big}</p>
         {sub && <p className="text-[13px] opacity-85">{sub}</p>}
         <ol className="mt-3 flex gap-1.5" aria-label="Your visit, step by step">
@@ -46,7 +46,7 @@ export function PassCode({ token, code, name, when, service, business }: { token
     <button type="button" onClick={() => setOpen(true)} aria-label="Show my pass to the front desk" className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[14px] bg-white p-1" dangerouslySetInnerHTML={{ __html: small }} />
     {open && typeof document !== 'undefined' && createPortal(<div role="dialog" aria-modal="true" aria-label="Your pass" className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(22,23,26,.86)' }} onClick={() => setOpen(false)}>
       <div className="w-full max-w-[360px] rounded-[28px] bg-white p-6 text-center" style={{ color: '#16171a', fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }} onClick={(e) => e.stopPropagation()}>
-        {business && <p className="text-[12px] uppercase tracking-[0.28em]">{business}</p>}
+        {business && <p className="text-[14px] font-semibold" style={{ color: '#6d7075' }}>{business}</p>}
         <p className="mt-3 text-[30px] font-light tracking-[-0.02em]">{name}</p>
         <p className="text-[14px]" style={{ color: '#6d7075' }}>{[service, when].filter(Boolean).join(' · ')}</p>
         <div className="mx-auto mt-5 w-fit rounded-[18px] p-3" style={{ border: '1px solid #ececee' }} dangerouslySetInnerHTML={{ __html: big }} />
