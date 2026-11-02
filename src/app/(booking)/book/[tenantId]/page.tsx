@@ -10,24 +10,22 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
 import { doc, setDoc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
-import { type PageSection, type PageBuilderConfig } from '@/lib/data';
+import { type PageBuilderConfig } from '@/lib/data';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { resolveBookingPlan } from '@/lib/deposit-policy';
-import { X as XIcon, ArrowRight } from 'lucide-react';
 import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
 import { policyText } from '@/lib/package-credits';
 import { horizonDaysFor, releaseSentence } from '@/lib/booking-release';
-import { brandColor, studioPage } from '@/lib/studio-page';
+import { brandColor, studioPage, lifted } from '@/lib/studio-page';
 import { StudioBookingPage } from '@/components/booking/StudioBookingPage';
 import { privacyOf } from '@/lib/health-privacy';
-import { PUBLIC_CSS, PUBLIC_FONT_HREF } from '@/components/public/kit';
+import { PUBLIC_CSS, PUBLIC_FONT_HREF, PublicFrame } from '@/components/public/kit';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
-  StyleConfig, PageData,
-  DS, ac, hf, bf, br, hexToHsl, injectFonts,
-  SectionWrapper, SectionRenderer, Footer,
-  isBuilderConfig, buildDefaults,
+  StyleConfig,
+  DS, hexToHsl, injectFonts,
+  isBuilderConfig,
 } from '@/lib/booking-sections';
 
 // ─── Font loading ─────────────────────────────────────────────────────────────
@@ -120,14 +118,16 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     } catch { if (!quiet) setOfferErr('Couldn’t check that code right now.'); return 'Couldn’t check that code right now. Try again in a moment.'; }
   };
   useEffect(() => { if (campaignRef?.code && !offerShown) void checkOffer(campaignRef.code, true); }, [campaignRef?.code]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Page design: the business's choice (Settings → Booking → Page design), or
-  // ?design=studio / ?design=classic to preview either before switching.
-  const [designParam, setDesignParam] = useState('');
+  // A renter link (?provider=) that matches nobody (they left, or the link was mistyped): the business's own page, with
+  // a note saying so, rather than an empty or broken one.
+  const [staleProvider, setStaleProvider] = useState(false);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);   // the provider (or '') the loaded data is for
+  // The menu couldn't be loaded (a slow or failed answer): the page says so, with Try again, never "coming soon".
+  const [loadFailed, setLoadFailed] = useState(false); const [loadTry, setLoadTry] = useState(0);
   const [studioStaffId, setStudioStaffId] = useState<string | undefined>(undefined);
   // The appointment we're holding for a deposit — a retry pays for THIS one
   // instead of booking the same time again.
   const heldPay = useRef<{ key: string; appointmentId: string } | null>(null);
-  useEffect(() => { try { setDesignParam(new URLSearchParams(window.location.search).get('design') || ''); } catch { /* no preview */ } }, []);
   useEffect(() => {
     if (!reschedule || rescheduleOpened || services.length === 0) return;
     const svc = services.find((x: any) => x.id === reschedule.serviceId) || services.find((x: any) => x.name === reschedule.serviceName);
@@ -179,16 +179,19 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [dialogService,   setDialogService]   = useState<any>(null);
   const [giftCents, setGiftCents] = useState(0);   // came from their gift card (lib/gift-visit) — mark what it covers
   useEffect(() => { setGiftCents(giftCentsFor(String(tenantId || ''))); }, [tenantId]);
-  const [showPicker,      setShowPicker]      = useState(false);
 
-  const [loadingStyle] = useState<StyleConfig>(() => {
+  // While the page loads: the paper and color this business's page had last time on this device (the same look Find
+  // my booking remembers), so the first thing a returning visitor sees is already theirs.
+  // (Read after the first paint, so the server's page and the browser's agree.)
+  const [look, setLook] = useState<{ accent: string; paper: string } | null>(null);
+  useEffect(() => {
     try {
-      if (typeof window === 'undefined') return DS;
-      const raw = localStorage.getItem(`cf-style-${tenantId}`);
-      if (raw) return { ...DS, ...JSON.parse(raw) };
-    } catch {}
-    return DS;
-  });
+      const k = JSON.parse(localStorage.getItem(`cf.look.${tenantId}`) || 'null'); if (!k?.accent) return;
+      const night = k.mood === 'night'; const accent = String(k.accent);
+      setLook({ accent: night ? lifted(accent) : accent, paper: night ? '#16171a' : k.mood === 'crisp' ? '#ffffff' : '#faf8f5' });
+    } catch { /* none */ }
+  }, [tenantId]);
+  useEffect(() => { if (!tenant || !tenantId) return; try { localStorage.setItem(`cf.look.${tenantId}`, JSON.stringify({ name: tenant.name || '', accent: brandColor(tenant), mood: studioPage(tenant).mood, logoUrl: tenant.logoUrl || null })); } catch { /* none */ } }, [tenant, tenantId]);
 
   const getDb = useCallback(() => {
     try { return getFirestore(getApp()); } catch { return null; }
@@ -216,17 +219,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           const t = { id: tSnap.id, ...tSnap.data() } as any;
           setTenant(t);
           const pc = t?.bookingPageSettings?.cfPageConfig;
-          if (isBuilderConfig(pc)) {
-            setSavedConfig(pc as PageBuilderConfig);
-            try {
-              localStorage.setItem(`cf-style-${tenantId}`, JSON.stringify({
-                accentColor: pc.accentColor, bgColor: pc.bgColor,
-                headingFont: pc.headingFont, bodyFont: pc.bodyFont,
-                borderRadius: pc.borderRadius, buttonStyle: pc.buttonStyle,
-                density: pc.density,
-              }));
-            } catch {}
-          }
+          if (isBuilderConfig(pc)) setSavedConfig(pc as PageBuilderConfig);   // a renter's booking flow still takes its look from it
         }
       } catch (e) { console.warn('[booking:config]', e); }
       if (!cancelled) setConfigReady(true);
@@ -237,10 +230,14 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   // Phase 2: Load services, staff, events (non-blocking)
   useEffect(() => {
-    if (!tenantId || !configReady) return;
+    if (!configReady) return;
+    if (!tenantId) { setLoadedFor(providerId); return; }
     let cancelled = false;
+    // Never more than a few seconds of waiting, for the answer and its body alike; a page that's left (or a provider
+    // that changes) stops its load.
+    const ctl = new AbortController(); let giveUp = 0; let doneFor = providerId;
     const run = async () => {
-      const db = getDb(); if (!db) return;
+      const db = getDb(); if (!db) { if (!cancelled) setLoadedFor(providerId); return; }
       // THE LOWER BOUND ON EVERY "from today" QUERY BELOW.
       // It used to be the VISITOR's day. That is the wrong direction of wrong:
       // when the browser is a day AHEAD of the studio — anyone booking in the
@@ -259,8 +256,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         // directly — the route returns only what they may see (busy times,
         // never other clients' details). Same shape as before, so the page's
         // availability logic is unchanged.
-        const res = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId }) });
+        giveUp = window.setTimeout(() => ctl.abort(), 8000);
+        const res = await fetch('/api/booking/public-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId }), signal: ctl.signal });
         const pd: any = await res.json().catch(() => null);
+        window.clearTimeout(giveUp);
         if (!pd?.ok) throw new Error(pd?.error || 'Could not load the booking page.');
         const asSnap = (arr: any[]) => ({ docs: (arr || []).map((x: any) => { const { id, ...rest } = x || {}; return { id, data: () => rest }; }) });
         const [svSnap, stSnap, evSnap, aptSnap, spSnap, ptSnap, cfSnap, shSnap, sbSnap, doSnap, rsSnap, tkSnap, mpSnap, ceSnap, rsvSnap] =
@@ -279,6 +278,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             : null;
           if (optedOut) setAwayProvider(optedOut);
           const provider: any = providerId ? allStaff.find((m: any) => m.id === providerId && m.isRenter) : null;
+          if (providerId && !provider && !optedOut) {
+            setStaleProvider(true); setProviderId(''); doneFor = '';   // the business's own data is loaded below already: show it now
+            try { const u = new URL(window.location.href); u.searchParams.delete('provider'); window.history.replaceState(window.history.state, '', u.toString()); } catch { /* the note still shows */ }
+          }
           if (provider) {
             // Their menu, their prices, their durations — never mixed with the
             // house list, so a client never sees one service priced two ways.
@@ -315,12 +318,15 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           setMaintTickets((tkSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
           setMaintenancePlans((mpSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
           setCalendarEvents((ceSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
+          setLoadFailed(false);
         }
-      } catch (e) { console.warn('[booking:data]', e); }
+      } catch (e) { console.warn('[booking:data]', e); if (!cancelled) setLoadFailed(true); }
+      window.clearTimeout(giveUp);
+      if (!cancelled) setLoadedFor(doneFor);   // loaded or not, never left waiting
     };
     run();
-    return () => { cancelled = true; };
-  }, [tenantId, configReady, getDb, providerId]);
+    return () => { cancelled = true; window.clearTimeout(giveUp); ctl.abort(); };
+  }, [tenantId, configReady, getDb, providerId, loadTry]);
 
   // Booking events
   useEffect(() => {
@@ -328,7 +334,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       const d = (e as CustomEvent).detail;
       if (d?.service) { if (memberLocked(d.service)) setMemberAsk({ service: d.service, at: Date.now() }); else { setDialogService(d.service); setDialogOpen(true); } }
       else if (services.length === 1) { if (memberLocked(services[0])) setMemberAsk({ service: services[0], at: Date.now() }); else { setDialogService(services[0]); setDialogOpen(true); } }
-      else setShowPicker(true);
+      else { const el = document.getElementById('services'); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 120 }); }   // no service named: the menu, under the header
     };
     window.addEventListener('cf-book', h);
     return () => window.removeEventListener('cf-book', h);
@@ -356,9 +362,11 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   }, [services]);
 
   // Derive resolved config and style
-  const sections: PageSection[] = savedConfig?.sections ?? buildDefaults();
   const studioPageRef = useRef(false);
-  const studioDesign = !providerId && designParam !== 'classic' && (designParam === 'studio' || (tenant as any)?.bookingPageSettings?.design === 'studio');
+  // Every business's page is the Studio page. Only a renter's own link shows their page (or, when they book on their
+  // own site, where to find them), in their own look.
+  const renterLink = !!providerId && (!!awayProvider || staff.some((m: any) => m.id === providerId && m.isRenter));
+  const studioDesign = !renterLink;
   studioPageRef.current = studioDesign;
   const resolvedStyle: StyleConfig = {
     accentColor:  savedConfig?.accentColor  ?? DS.accentColor,
@@ -369,11 +377,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     buttonStyle:  savedConfig?.buttonStyle  ?? DS.buttonStyle,
     density:      savedConfig?.density      ?? DS.density,
   };
-
-  // Only render sections that are enabled AND not hidden from visitors
-  const activeSections = sections
-    .filter(s => s.enabled && s.visible !== false)
-    .sort((a, b) => a.order - b.order);
 
   useEffect(() => { injectFonts(resolvedStyle.headingFont, resolvedStyle.bodyFont); }, [resolvedStyle.headingFont, resolvedStyle.bodyFont]);
   // The renter's page: splash-then-app state, and their typeface loaded the
@@ -402,7 +405,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const studioMemberRef = useRef<boolean | null>(null);
   // On the Studio page, a members-only service waits for the client to sign in as a member: tapped on the page, from a
   // link or from a website button, the page asks them to sign in and then carries on (the booking re-checks on the
-  // server). The old design and renters' pages keep their own member checks.
+  // server). Renters' pages keep their own member checks.
   const memberLocked = (sv: any) => studioPageRef.current && sv?.membersOnly === true && studioMemberRef.current !== true;
   const [memberAsk, setMemberAsk] = useState<{ service: any; at: number } | null>(null);
   // Back from paying for a membership or package (?offer_paid=…): finish it (once; Stripe's notice does the same) and say so.
@@ -499,24 +502,12 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     root.style.setProperty('--booking-heading-font', STACKS[resolvedStyle.headingFont] || STACKS.jakarta);
     root.style.setProperty('--booking-body-font',    STACKS[resolvedStyle.bodyFont]    || STACKS.jakarta);
     root.style.setProperty('--radius', `${resolvedStyle.borderRadius}px`);
-    // The Studio page and its flow paint with the business color from Settings › Booking page; the old design keeps its own.
+    // The Studio page and its flow paint with the business color from Settings › Booking page; a renter's flow keeps theirs.
     // A reschedule always opens the Studio flow, so it takes the business color too.
     const studioFlow = studioDesign || (!!reschedule && !providerId);
     try { root.style.setProperty('--primary', hexToHsl(studioFlow ? brandColor(tenant) : resolvedStyle.accentColor)); } catch {}
   }, [resolvedStyle, studioDesign, tenant, reschedule, providerId]);
 
-  const data: PageData = {
-    tenant,
-    // Members-only services stay off the studio's page until a member unlocks.
-    services: services.filter((sv: any) => sv.membersOnly !== true || studioMemberOk === true),
-    staff, events, tenantId,
-    // Everything the booking sheet needs to reach the same verdict as the
-    // server. Passed through in one object so there is exactly one place to
-    // keep in step when a new blocking source is added.
-    appointments, scheduleProfiles, shifts, staffBlocks, dayOffBlocks,
-    resources, tickets: maintTickets, maintenancePlans, calendarEvents,
-    pricingTiers, consentForms,
-  };
 
   /* ── THIS HOOK MUST STAY ABOVE EVERY `return` ─────────────────────────
    * It was placed further down, below the loading-spinner early return. On
@@ -533,12 +524,16 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     if (dialogOpen) window.scrollTo({ top: 0, behavior: 'auto' });
   }, [dialogOpen]);
 
-  // Loading spinner
-  if (!configReady) {
+  // Loading: the business's own paper, and (only if it takes a moment) a soft dot in their color, never a spinner. The
+  // page waits for its services and team, so it never says "coming soon" for a moment, and a renter's link never
+  // flashes the business's page before theirs.
+  if (!configReady || loadedFor !== providerId) {
     return (
-      <div className="w-full min-h-dvh flex items-center justify-center" style={{ background: loadingStyle.bgColor }}>
-        <div className="w-7 h-7 border-2 border-t-transparent rounded-full animate-spin"
-             style={{ borderColor: loadingStyle.accentColor }}/>
+      <div className="flex min-h-dvh w-full items-center justify-center" style={{ background: look?.paper || '#faf8f5' }} aria-busy="true">
+        <style>{`@keyframes cfWaitIn{from{opacity:0}to{opacity:1}}@keyframes cfWait{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(.7);opacity:.45}}
+.cf-wait{width:10px;height:10px;border-radius:999px;animation:cfWaitIn .3s ease-out .4s both,cfWait 1.4s ease-in-out .4s infinite}@media (prefers-reduced-motion:reduce){.cf-wait{animation:cfWaitIn .3s ease-out .4s both}}`}</style>
+        <span className="cf-wait" style={{ background: look?.accent || '#16171a' }} />
+        <span className="sr-only">Loading</span>
       </div>
     );
   }
@@ -1137,201 +1132,42 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   }
 
   if (awayProvider) {
+    // A renter who takes bookings on their own site: where to find them, in the business's page look.
+    const first = String(awayProvider.name || '').split(' ')[0] || 'them';
     return (
-      <div className="w-full min-h-dvh flex items-center justify-center p-6"
-           style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-        <div className="w-full max-w-sm bg-white p-8 text-center space-y-4"
-             style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25` }}>
-          {awayProvider.photoUrl && (
-            <img src={awayProvider.photoUrl} alt={awayProvider.name || 'Provider'}
-                 className="w-20 h-20 rounded-full object-cover mx-auto" />
-          )}
-          <div>
-            <p className="text-xl font-light" style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>
-              {awayProvider.name || 'This provider'}
-            </p>
-            <p className="text-[11px] font-black uppercase tracking-widest mt-1" style={{ color: ac(resolvedStyle) + '80' }}>
-              Books on their own site
-            </p>
+      <PublicFrame accent={brandColor(tenant)} mood={studioPage(tenant).mood}>
+        <main id="main" className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">
+          <div className="pub-card pub-rise space-y-4 p-7 text-center">
+            {awayProvider.photoUrl && <img src={awayProvider.photoUrl} alt="" className="mx-auto h-20 w-20 rounded-full object-cover" />}
+            <div>
+              <h1 className="text-[26px] leading-tight">{awayProvider.name || 'This provider'}</h1>
+              <p className="mt-1 text-[14px] text-stone-500">Books on their own site{tenant?.name ? ` · at ${tenant.name}` : ''}</p>
+            </div>
+            {awayProvider.bio && <p className="text-[15px] text-stone-600">{awayProvider.bio}</p>}
+            {awayProvider.externalBookingUrl
+              ? <a href={awayProvider.externalBookingUrl} target="_blank" rel="noopener noreferrer" className="pub-press inline-flex h-12 w-full items-center justify-center rounded-full px-6 text-[15px] font-medium text-white shadow-sm" style={{ background: 'var(--accent)' }}>Book with {first}<span className="sr-only"> (opens their booking site)</span></a>
+              : <div className="space-y-2"><p className="text-[15px] text-stone-600">{first} takes bookings directly, not on this page.{tenant?.email || tenant?.phone ? ` ${tenant?.name || 'The studio'} can put you in touch:` : ''}</p>
+                {(tenant?.email || tenant?.phone) && <p className="flex flex-wrap justify-center gap-x-5">
+                  {tenant?.email && <a href={`mailto:${tenant.email}`} className="inline-flex min-h-11 items-center text-[15px] underline underline-offset-4">{tenant.email}</a>}
+                  {tenant?.phone && <a href={`tel:${String(tenant.phone).replace(/[^\d+]/g, '')}`} className="inline-flex min-h-11 items-center text-[15px] underline underline-offset-4">{tenant.phone}</a>}</p>}</div>}
+            <a href={`/book/${encodeURIComponent(tenantId)}`} className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent-text, var(--accent))' }}>See everyone else here</a>
           </div>
-          {awayProvider.bio && <p className="text-sm text-slate-600">{awayProvider.bio}</p>}
-          {awayProvider.externalBookingUrl ? (
-            <a href={awayProvider.externalBookingUrl} target="_blank" rel="noopener noreferrer"
-               className="block w-full py-4 text-white text-[11px] font-black uppercase tracking-widest"
-               style={{ background: ac(resolvedStyle), borderRadius: br(resolvedStyle) }}>
-              Book with {String(awayProvider.name || '').split(' ')[0] || 'them'}
-            </a>
-          ) : (
-            <p className="text-sm text-slate-600">
-              They take bookings directly — contact the studio and we&apos;ll point you their way.
-            </p>
-          )}
-          <a href={`/book/${tenantId}`} className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
-            See everyone else here
-          </a>
-        </div>
-      </div>
+        </main>
+      </PublicFrame>
     );
   }
 
   // Shown small in Settings › Booking page: the real page, but nothing can be booked from it.
   const previewOnly = (() => { try { return new URLSearchParams(window.location.search).get('preview') === '1'; } catch { return false; } })();
-  if (studioDesign) {
-    return (
-      <StudioBookingPage tenant={tenant} accent={brandColor(tenant)} preview={previewOnly}
-        focus={(() => { try { const id = new URLSearchParams(window.location.search).get('service'); return id ? services.find((sv: any) => sv.id === id) || null : null; } catch { return null; } })()}
-        services={services} staff={staff} giftCents={giftCents} events={events} renters={elsewhere}
-        offer={offerShown} onOfferCode={previewOnly ? undefined : (code) => checkOffer(code)}
-        member={studioMemberOk} onMember={previewOnly ? undefined : memberCheck} askFor={memberAsk} bought={bought}
-        onBook={(svc, staffId) => { if (previewOnly || memberLocked(svc)) return; setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
-    );
-  }
-
   return (
-    <div className="w-full min-h-dvh overflow-x-hidden"
-         style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-
-      {showPicker && (
-        <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowPicker(false)}/>
-          <div className="relative w-full sm:max-w-lg sm:mx-4 bg-white overflow-hidden"
-               style={{ borderRadius: '24px 24px 0 0', maxHeight: '80dvh' }}>
-            <div className="flex items-center justify-between px-5 py-4 border-b"
-                 style={{ borderColor: ac(resolvedStyle) + '20' }}>
-              <p className="font-black text-sm uppercase tracking-widest"
-                 style={{ fontFamily: bf(resolvedStyle), color: ac(resolvedStyle) }}>Select a Service</p>
-              <button onClick={() => setShowPicker(false)}
-                      className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                <XIcon className="w-4 h-4"/>
-              </button>
-            </div>
-            <div className="overflow-y-auto p-4 space-y-2" style={{ maxHeight: '60dvh' }}>
-              {services.map((s: any) => (
-                <button key={s.id}
-                        onClick={() => { setDialogService(s); setShowPicker(false); setDialogOpen(true); }}
-                        className="w-full flex items-center justify-between p-4 text-left hover:shadow-md transition-all"
-                        style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25`, background: 'white' }}>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate"
-                       style={{ fontFamily: bf(resolvedStyle) }}>{s.name}</p>
-                    {s.duration && <p className="text-[10px] font-black uppercase tracking-widest mt-0.5"
-                                      style={{ color: ac(resolvedStyle) + '80' }}>{s.duration} min</p>}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-4">
-                    {s.price && <span className="text-xl font-light"
-                                      style={{ fontFamily: hf(resolvedStyle), color: ac(resolvedStyle) }}>${s.price}</span>}
-                    <ArrowRight className="w-4 h-4 text-slate-300"/>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {(() => {
-        const rel = (tenant as any)?.bookingRelease || null;
-        const hasRelease = !!rel && (rel.mode || 'off') !== 'off';
-        const anyMembersOnly = services.some((sv: any) => sv.membersOnly === true);
-        if (!hasRelease && !anyMembersOnly) return null;
-        const sent = releaseSentence(rel, new Date(), (tenant as any)?.timezone || 'America/New_York');
-        const memberPerk = !!sent.members || anyMembersOnly;
-        return (
-          <div className="mx-auto w-full max-w-3xl px-4 pt-4">
-            <div className="rounded-2xl border px-4 py-3" style={{ borderColor: studioMemberOk ? 'currentColor' : 'rgba(120,113,108,0.3)' }}>
-              {studioMemberOk ? (
-                <p className="text-[13px]">✓ Member — {sent.members ? sent.members.replace(/^Members /, 'you ') : 'welcome back.'}{anyMembersOnly ? ' Members-only services are unlocked below.' : ''}</p>
-              ) : (
-                <>
-                  <p className="text-[13px]">{hasRelease ? sent.everyone : ''}{sent.members ? ` ${sent.members}` : ''}{anyMembersOnly ? ' Some services are members only.' : ''}</p>
-                  {memberPerk && (
-                    <div className="mt-2 flex gap-2">
-                      <input value={studioMemberInput} onChange={(e) => { setStudioMemberInput(e.target.value); studioMemberRef.current = null; setStudioMemberOk(null); setStudioMemberErr(''); }} placeholder="Member? Email or phone" aria-label="Member email or phone" className="h-10 min-w-0 flex-1 rounded-xl border bg-transparent px-3 text-[13px]" />
-                      <button type="button" disabled={studioMemberBusy} onClick={checkStudioMember} className="h-10 shrink-0 rounded-xl bg-slate-900 px-4 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50">{studioMemberBusy ? '…' : 'Unlock'}</button>
-                    </div>
-                  )}
-                  {studioMemberOk === false && <p className="mt-1 text-[11px] opacity-70">No active membership under that — check the email or phone on your membership.</p>}
-                  {studioMemberErr && <p className="mt-1 text-[11px] opacity-70" role="alert">{studioMemberErr}</p>}
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-      <div className="mx-auto w-full max-w-3xl px-4 pt-4">
-        {offerShown ? (
-          <div className="glass relative overflow-hidden rounded-[1.75rem] p-4 sm:p-5 shadow-[0_10px_40px_-12px_rgba(15,23,42,0.18)]" role="status" aria-live="polite">
-            <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-gradient-to-br from-amber-200/70 via-rose-200/60 to-violet-300/50 blur-2xl" />
-            <div aria-hidden className="pointer-events-none absolute -bottom-14 -left-10 h-32 w-32 rounded-full bg-gradient-to-tr from-sky-200/50 to-emerald-200/40 blur-2xl" />
-            <div className="relative flex items-center gap-4">
-              <div className="glass flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-2xl shadow-sm" aria-hidden>🎁</div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] opacity-60">{offerShown.from ? `${offerShown.from} recommended you` : 'Your offer'}</p>
-                <p className="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{offerShown.amount || offerShown.line}</p>
-                <p className="mt-0.5 text-[12px] opacity-70">{offerShown.until ? `Until ${offerShown.until}` : 'Applied at your visit'}{offerShown.oncePer ? ' · one per client' : ''}</p>
-              </div>
-              <span className="hidden shrink-0 rounded-xl border border-dashed border-slate-400/60 px-3 py-1.5 font-mono text-[12px] font-semibold tracking-[0.18em] opacity-80 sm:inline-block">{offerShown.code}</span>
-            </div>
-            <div className="relative mt-3 flex items-center justify-between gap-3 border-t border-white/50 pt-3">
-              <p className="text-[12px] opacity-75">Saved with your booking and taken off at your visit — nothing to enter later.</p>
-              <span className="shrink-0 rounded-lg border border-dashed border-slate-400/60 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.15em] opacity-80 sm:hidden">{offerShown.code}</span>
-            </div>
-          </div>
-        ) : offerOpen ? (
-          <div className="glass rounded-[1.5rem] p-3 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.15)]">
-            <div className="flex gap-2">
-              <input value={offerInput} onChange={(e) => { setOfferInput(e.target.value.toUpperCase()); setOfferErr(''); }} onKeyDown={(e) => { if (e.key === 'Enter') void checkOffer(offerInput); }}
-                placeholder="Enter your offer code" aria-label="Offer code" autoFocus
-                className="h-11 min-w-0 flex-1 rounded-2xl border border-white/60 bg-white/50 px-4 font-mono text-sm tracking-[0.12em] outline-none focus:ring-2 focus:ring-slate-400/40" />
-              <button type="button" onClick={() => checkOffer(offerInput)} className="h-11 shrink-0 rounded-2xl bg-slate-900 px-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-white shadow-sm active:scale-[0.98]">Apply</button>
-            </div>
-            {offerErr && <p className="px-1 pt-2 text-[12px] opacity-80">{offerErr}</p>}
-          </div>
-        ) : (
-          <button type="button" onClick={() => setOfferOpen(true)} className="glass inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium shadow-sm active:scale-[0.98]">
-            <span aria-hidden>🎁</span> Have an offer code?
-          </button>
-        )}
-        {tenant?.giftCardSettings?.online && (
-          <a href={`/gift/${tenantId}`} className="glass ml-2 inline-flex items-center gap-2 rounded-full px-4 py-2 text-[12px] font-medium shadow-sm active:scale-[0.98]">Buy a gift card</a>
-        )}
-      </div>
-      {giftCents > 0 && <div className="mx-auto max-w-3xl px-4 pt-3"><GiftCoverBar cents={giftCents} services={services.filter((sv: any) => sv.membersOnly !== true)} accent={resolvedStyle.accentColor} onPick={(sv) => { setDialogService(sv); setDialogOpen(true); }} /></div>}
-      {activeSections.map(section => (
-        <SectionWrapper key={section.id} section={section} isPreview={false}
-          onEdit={() => {}} onFieldTap={() => {}}>
-          <SectionRenderer section={section} style={resolvedStyle} data={data}
-            isPreview={false} onFieldTap={() => {}}/>
-        </SectionWrapper>
-      ))}
-
-      {elsewhere.length > 0 && (
-        <div className="px-5 py-8 max-w-lg mx-auto w-full">
-          <p className="text-[10px] font-black uppercase tracking-widest text-center mb-3"
-             style={{ color: ac(resolvedStyle) + '80' }}>Also at this studio</p>
-          <div className="space-y-2">
-            {elsewhere.map((m: any) => (
-              <a key={m.id} href={m.externalBookingUrl} target="_blank" rel="noopener noreferrer"
-                 className="flex items-center gap-3 p-4 bg-white hover:shadow-md transition-all"
-                 style={{ borderRadius: br(resolvedStyle), border: `2px solid ${ac(resolvedStyle)}25` }}>
-                {m.photoUrl
-                  ? <img src={m.photoUrl} alt={m.name || ''} className="w-10 h-10 rounded-full object-cover shrink-0" />
-                  : <div className="w-10 h-10 rounded-full bg-slate-100 shrink-0" />}
-                <div className="flex-1 min-w-0">
-                  <p className="font-black text-sm text-slate-900 truncate">{m.name}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: ac(resolvedStyle) + '80' }}>
-                    Books on their own site
-                  </p>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-300 shrink-0"/>
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <Footer tenant={tenant} style={resolvedStyle}/>
-    </div>
+    <StudioBookingPage tenant={tenant} accent={brandColor(tenant)} preview={previewOnly}
+      focus={(() => { try { const id = new URLSearchParams(window.location.search).get('service'); return id ? services.find((sv: any) => sv.id === id) || null : null; } catch { return null; } })()}
+      services={services} staff={staff} giftCents={giftCents} events={events} renters={elsewhere}
+      offer={offerShown} onOfferCode={previewOnly ? undefined : (code) => checkOffer(code)}
+      member={studioMemberOk} onMember={previewOnly ? undefined : memberCheck} askFor={memberAsk} bought={bought}
+      loadFailed={loadFailed} onRetry={() => { setLoadFailed(false); setLoadedFor(null); setLoadTry((n) => n + 1); }}
+      note={staleProvider ? 'The booking link you used isn’t active anymore, so here’s everyone you can book with.' : rescheduleNote || null}
+      onBook={(svc, staffId) => { if (previewOnly || memberLocked(svc)) return; setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
   );
 }
 

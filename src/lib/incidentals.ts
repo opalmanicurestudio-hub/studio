@@ -71,3 +71,9 @@ export function validateIncidental(
   const description = (cleanNote ? `${cat.label}: ${cleanNote}` : cat.label).slice(0, 200);
   return { ok: true, category: cat, description };
 }
+
+/** The incidentals a guest authorizes, as the lines of the rental agreement (the page, online booking and the kiosk). */
+export function incidentalScheduleText(cats: { label: string; capCents: number }[]): string {
+  if (!Array.isArray(cats) || cats.length === 0) return '(No incidental charges configured.)';
+  return cats.map((c) => (c.capCents > 0 ? `• ${c.label} — up to $${(c.capCents / 100).toFixed(0)}` : `• ${c.label}`)).join('\n');
+}

@@ -21,7 +21,7 @@ import { brandedEmailHtml } from '@/lib/email-template';
 import { sendNotification } from '@/lib/notify';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
-import { resolveIncidentalPolicy } from '@/lib/incidentals';
+import { resolveIncidentalPolicy, incidentalScheduleText } from '@/lib/incidentals';
 import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
 import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { requireRole } from '@/lib/route-guard';
@@ -42,22 +42,22 @@ const freshClaim = (at: any) => !!at && Date.now() - (Date.parse(String(at)) || 
 const stripeRefused = (e: any) => saidNo(e);
 const NO_ANSWER = 'Stripe didn’t answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.';
 
-// Build the exact day-use agreement text for a reservation, using the owner's
-// custom booking terms if set (else the built-in protective default) and the
-// studio's incidentals caps. Same resolver the online booking route uses, so
+// Build the exact day-use agreement text for a reservation: the built-in
+// protective agreement, filled in with the booking and the studio's incidentals
+// caps. Same resolver the online booking route uses, so
 // the guest sees identical terms whether they booked online or walked in.
 async function buildDayUseAgreement(db: FirebaseFirestore.Firestore, tenantId: string, r: any): Promise<{ title: string; text: string }> {
   let tenantData: any = {};
   try { tenantData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; } catch { /* defaults below */ }
-  const custom = await findAgreement(db, tenantId);
+  // The built-in day-use agreement, always: it carries the payment and incidentals terms the guest is authorizing, and
+  // it's the text the booking page shows them. (A business's own application terms are for lease applications only.)
+  const custom = '';
   const isHourly = r.bookingType === 'hourly';
   const bookingWindow = isHourly
     ? `${r.startDate} · ${r.startTime}–${r.endTime}`
     : (r.startDate === r.endDate ? r.startDate : `${r.startDate} → ${r.endDate}`);
   const cats = resolveIncidentalPolicy(tenantData);
-  const incidentalsSchedule = (Array.isArray(cats) && cats.length)
-    ? cats.map((c: any) => c.capCents > 0 ? `• ${c.label} — up to $${(c.capCents / 100).toFixed(0)}` : `• ${c.label}`).join('\n')
-    : '(No incidental charges configured.)';
+  const incidentalsSchedule = incidentalScheduleText(cats);
   return resolveDayUseAgreement(custom, {
     // The date printed on a signed agreement is the studio's date. A UTC one
     // would date an 8pm signature to tomorrow, on a document the guest signed
@@ -116,30 +116,6 @@ async function loadRules(db: FirebaseFirestore.Firestore, tenantId: string): Pro
   } catch { return DEFAULTS; }
 }
 
-async function findAgreement(db: FirebaseFirestore.Firestore, tenantId: string): Promise<string> {
-  // The booking page's application agreement lives in the page-builder
-  // config. Try the plausible locations defensively; a miss is fine —
-  // the kiosk falls back to reconfirmation language.
-  const candidates = [
-    `tenants/${tenantId}/settings/bookingPage`,
-    `tenants/${tenantId}/bookingPageSettings/config`,
-    `tenants/${tenantId}`,
-  ];
-  for (const path of candidates) {
-    try {
-      const snap = await db.doc(path).get();
-      if (!snap.exists) continue;
-      const data = snap.data() as any;
-      const cfg = data?.cfPageConfig || data;
-      const sections: any[] = Array.isArray(cfg?.sections) ? cfg.sections : [];
-      for (const s of sections) {
-        const txt = s?.config?.applicationAgreement;
-        if (typeof txt === 'string' && txt.trim()) return txt.trim();
-      }
-    } catch { /* keep trying */ }
-  }
-  return '';
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -232,7 +208,7 @@ export async function POST(req: NextRequest) {
       if (matches.length === 0) {
         return NextResponse.json({ ok: false, error: "No booking found for today with that number. Double-check the digits, or see the front desk." });
       }
-      const agreement = await findAgreement(db, tenantId);
+      const agreement = '';   // check-in reconfirms the rental agreement; the stay page shows the full text to sign
       return NextResponse.json({
         ok: true,
         agreement,
@@ -546,14 +522,14 @@ export async function POST(req: NextRequest) {
       if (digits(r.phone).slice(-4) !== last4) {
         return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
       }
-      const agreement = await findAgreement(db, tenantId);
+      const agreement = '';   // check-in reconfirms the rental agreement; the stay page shows the full text to sign
       let studioName = 'The studio';
       try {
         const t = await db.doc(`tenants/${tenantId}`).get();
         studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
       } catch { /* cosmetic */ }
-      // The full day-use agreement to type-sign at check-in (owner's custom
-      // terms or the built-in protective default), plus whether it's already
+      // The full day-use agreement to type-sign at check-in (the built-in
+      // protective agreement), plus whether it's already
       // signed so the stay page can show a receipt instead of re-prompting.
       const dayUseAgreement = await buildDayUseAgreement(db, tenantId, r);
       return NextResponse.json({

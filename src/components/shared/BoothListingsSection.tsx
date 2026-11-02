@@ -31,7 +31,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getFirestore, collection, query, where, getDocs, doc, setDoc, type Firestore } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { AGREEMENT_TEMPLATES } from '@/lib/esign';
+import { AGREEMENT_TEMPLATES, resolveDayUseAgreement } from '@/lib/esign';
+import { incidentalScheduleText } from '@/lib/incidentals';
 import { SmsConsent } from '@/components/shared/SmsConsent';
 
 const FREQ_LABEL: Record<string, string> = { monthly: '/mo', weekly: '/wk', daily: '/day', hourly: '/hr' };
@@ -174,8 +175,14 @@ function leaseRatesOf(b: any): { frequency: string; amountCents: number }[] {
 // gates each date against the space's open weekdays, its blackout dates and
 // everything already booked, so a partially-let space can safely sell what is
 // left. An exclusive lease ('occupied') and anything in maintenance cannot.
-function dayRatesOf(b: any): { frequency: string; amountCents: number }[] {
+/** Hours as booking bills them: to the nearest half hour (the booking route's rule), so every price shown is the one charged. */
+const billedHours = (start: string, end: string) => { const m = (t: string) => { const [h, mm] = String(t || '').split(':').map(Number); return (h || 0) * 60 + (mm || 0); }; return Math.max(0, Math.round(((m(end) - m(start)) / 60) * 2) / 2); };
+
+function dayRatesOf(b: any, today = new Date().toISOString().slice(0, 10)): { frequency: string; amountCents: number }[] {
   if (b?.status !== 'vacant' && b?.status !== 'partial') return [];
+  // Only a space set up for day use (or a renter's sublet still to come, by the business's own date): the booking
+  // route refuses anything else.
+  if (!b?.dayUseEnabled && !(typeof b?.subletUntil === 'string' && b.subletUntil >= today)) return [];
   return ratesOfBooth(b).filter((r) => !LEASE_FREQUENCIES.includes(r.frequency));
 }
 
@@ -208,11 +215,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // them (see the tour-slots fetch below). config.tourSchedule stays readable
   // by older pages; nothing in this component reads it now.
   const agreementText: string = typeof config.applicationAgreement === 'string' ? config.applicationAgreement.trim() : '';
-  // A paid day/hourly guest ALWAYS signs real terms: the owner's custom
-  // booking terms if written, else the built-in protective default. (The
+  // A paid day/hourly guest ALWAYS signs the built-in day-use agreement (payment,
+  // incidentals, care of the space), the same text the booking route and the
+  // kiosk record; the business's own terms are for lease applications. (The
   // authoritative, filled-in copy is snapshotted server-side on booking —
   // this is what the guest reads and signs here.)
-  const dayUseTermsPreview: string = agreementText || AGREEMENT_TEMPLATES.day_use.body;
+  const dayUseTermsBody: string = AGREEMENT_TEMPLATES.day_use.body;
   const [tourSlot, setTourSlot] = useState('');
   const [tourStartIso, setTourStartIso] = useState('');
   const [tourEndIso, setTourEndIso] = useState('');
@@ -438,7 +446,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     if (config.kind === 'spaces' && b.kind !== 'space') return false;
     if (config.kind === 'booths' && b.kind === 'space') return false;
     const hasLease = leaseRatesOf(b).length > 0;
-    const hasDay = dayRatesOf(b).length > 0;
+    const hasDay = dayRatesOf(b, config.today).length > 0;
     return (hasLease && config.showMonthly !== false) || (hasDay && config.showDaily !== false);
   }), [booths, config.showMonthly, config.showDaily, config.locationId, config.kind]);
 
@@ -459,7 +467,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // v50 — multi-pricing: pricingOptions[] is authoritative when present;
   // legacy base fields remain the fallback so old assets render unchanged.
   const leaseRates = leaseRatesOf;
-  const dayRates = dayRatesOf;
+  const dayRates = (b: any) => dayRatesOf(b, config.today);
   const dailyRateOf = (b: any) => dayRates(b).find((r: any) => r.frequency === 'daily' && r.amountCents > 0);
   const hourlyRateOf = (b: any) => dayRates(b).find((r: any) => r.frequency === 'hourly' && r.amountCents > 0);
   // Everything a visitor can actually buy on this space today. A partly-let
@@ -520,6 +528,28 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // Matches the reserve/checkout trigger exactly (application + day mode) so
   // the signed agreement is captured for precisely the bookings that pay.
   const isPaidDayBooking = inquiryKind === 'application' && applyMode === 'day';
+  // The rental agreement as it will be signed: filled in with this booking the way the booking route fills it (the
+  // route's copy, with the final amount, is the one kept).
+  const dayUseTermsPreview: string = (() => {
+    if (!applyFor) return dayUseTermsBody;
+    const hourly = granularity === 'hourly';
+    let cents = 0;
+    if (hourly && pickedSlot) cents = Number(pickedSlot.amountCents) || 0;
+    else if (hourly && form.startTime && form.endTime && hourlyRateOf(applyFor)) cents = Math.round((hourlyRateOf(applyFor)?.amountCents || 0) * billedHours(form.startTime, form.endTime));
+    else if (!hourly && form.startDate && form.endDate && dailyRateOf(applyFor)) cents = (dailyRateOf(applyFor)?.amountCents || 0) * Math.max(0, Math.round((new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 86400000) + 1);
+    const when = hourly ? (form.startDate && form.startTime && form.endTime ? `${form.startDate} · ${form.startTime}–${form.endTime}` : 'the time you choose')
+      : (form.startDate ? (!form.endDate || form.startDate === form.endDate ? form.startDate : `${form.startDate} → ${form.endDate}`) : 'the days you choose');
+    return resolveDayUseAgreement('', {
+      date: config.today || new Date().toISOString().slice(0, 10),
+      studioName: config.studioName || 'The Studio',
+      signerName: signName.trim() || form.name.trim() || 'the guest',
+      boothName: applyFor.name || 'the space',
+      bookingWindow: when,
+      // A renter discount or pass days are worked out when booking: the amount is said only when it's the one charged.
+      amount: cents > 0 && !(recog?.discountPercent > 0) && !(recog?.passDaysLeft > 0) ? `$${(cents / 100).toFixed(2)}` : 'the amount shown before you pay',
+      incidentalsSchedule: incidentalScheduleText(Array.isArray(config.incidentals) ? config.incidentals : []),
+    }).text;
+  })();
   const signOk = signName.trim().length >= 2;
   const agreementSatisfied = isPaidDayBooking
     ? (signWaived || signOk)
@@ -1393,7 +1423,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                         const priceLine = () => {
                           if (useTime && pickedSlot) return `$${(pickedSlot.amountCents / 100).toFixed(pickedSlot.amountCents % 100 === 0 ? 0 : 2)}`;
                           if (useTime && form.startTime && form.endTime && hourlyRateOf(applyFor)) {
-                            const hrs = (new Date(`2000-01-01T${form.endTime}:00`).getTime() - new Date(`2000-01-01T${form.startTime}:00`).getTime()) / 3600000;
+                            const hrs = billedHours(form.startTime, form.endTime);
                             return hrs > 0 ? `$${((hourlyRateOf(applyFor).amountCents * hrs) / 100).toFixed(2)}` : '';
                           }
                           if (!useTime && form.startDate && form.endDate && dailyRateOf(applyFor)) {
@@ -1573,7 +1603,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                     let totalCents = 0;
                                     if (useTime && pickedSlot) totalCents = pickedSlot.amountCents;
                                     else if (useTime && form.startTime && form.endTime && hourlyRateOf(applyFor)) {
-                                      const hrs = (toMin(form.endTime) - toMin(form.startTime)) / 60;
+                                      const hrs = billedHours(form.startTime, form.endTime);
                                       if (hrs > 0) totalCents = Math.round(hourlyRateOf(applyFor).amountCents * hrs);
                                     } else if (!useTime && form.startDate && form.endDate && dailyRateOf(applyFor)) {
                                       const days = Math.round((new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 86400000) + 1;

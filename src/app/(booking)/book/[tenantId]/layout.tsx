@@ -4,6 +4,8 @@ import React from 'react';
 
 import { bookingJsonLd, clip, seoDescription, SEO_DESC_MAX } from '@/lib/shop-seo';
 import { faqJsonLd } from '@/lib/shop-seo';
+import { studioPage } from '@/lib/studio-page';
+import { publicService } from '@/lib/agent-access';
 
 // ─── /(booking)/book/[tenantId]/layout.tsx ───────────────────────────────────
 // The booking page is the most-shared link a salon owns — it goes in bios, on
@@ -52,16 +54,17 @@ async function loadBookingContext(tenantId: string) {
     const services = svcSnap.docs
       .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
       // Private services are internal arrangements, not an advertised menu.
-      .filter((sv: any) => sv?.isPrivate !== true && sv?.type !== 'addon' && sv?.name)
+      .filter(publicService)   // the same services the page itself shows
       .map((sv: any) => ({
         name: String(sv.name),
         description: String(sv.description || ''),
         price: Number(sv.price) || 0,
         duration: Number(sv.duration) || 0,
       }));
+    const page = studioPage(t);
     return {
       shopName: String(t?.businessName || t?.name || '').trim(),
-      tagline: String(t?.retailSettings?.shopTagline || t?.tagline || '').trim(),
+      tagline: String(page.description || t?.retailSettings?.shopTagline || t?.tagline || '').trim(),
       telephone: String(t?.phone || t?.sms?.fromNumber || '').trim(),
       logoUrl: String(t?.logoUrl || t?.retailSettings?.logoUrl || '').trim(),
       address: t?.address && typeof t.address === 'object' ? {
@@ -72,8 +75,9 @@ async function loadBookingContext(tenantId: string) {
         country: String(t.address.country || 'US'),
       } : null,
       services,
-      // The questions the shop already answers on this page.
-      faqs: Array.isArray(t?.bookingPageConfig?.faqs) ? t.bookingPageConfig.faqs : [],
+      // The questions the business answers on its page (Settings › Booking page › Questions), only while that section
+      // shows: a search engine is told exactly what a visitor can read.
+      faqs: page.on.faqs ? page.faqs : [],
     };
   } catch {
     // Metadata is decoration; never let it stop someone booking.

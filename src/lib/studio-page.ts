@@ -7,10 +7,12 @@
 // no Firebase, safe on the server.
 
 import { hasTimeZone, tenantTimeZone, todayIn } from './tenant-time';
+import type { SpacesSettings } from './spaces-section';
 
 export type Mood = 'soft' | 'crisp' | 'night';
-/** Getting here, in the business's own words. video: a link to a short clip of the way in (https only). */
-export interface VisitNotes { parking?: string; entrance?: string; video?: string }
+/** Visit us, in the business's own words: getting here (parking, the entrance, a short video of the way in), hours in
+ *  their own words (instead of the team's schedules), social links and a quote request link. Links are https only. */
+export interface VisitNotes { parking?: string; entrance?: string; video?: string; hours?: string; social?: { label: string; url: string }[]; quote?: string }
 export type SectionId = 'services' | 'offers' | 'events' | 'team' | 'work' | 'reviews' | 'about' | 'policies' | 'faqs' | 'gifts' | 'spaces' | 'visit' | 'waitlist';
 export interface Photo { url: string; path?: string; caption?: string }
 export interface Faq { q: string; a: string }
@@ -19,6 +21,8 @@ export interface StudioSettings {
   soonest?: boolean; bookAgain?: boolean; showRating?: boolean;
   splash?: boolean;   // the opening splash: the color, the logo and the name for under a second, the first time a visitor opens the page
   visit?: VisitNotes;   // Getting here: parking, the entrance and a short video of the way in
+  spaces?: SpacesSettings;   // Spaces to rent: what's listed, the terms, what applicants are asked (lib/spaces-section)
+  oldPageNoted?: boolean;    // the owner has read what their old page showed that this design doesn't
   order?: SectionId[]; off?: Partial<Record<SectionId, boolean>>;
   work?: Photo[]; about?: { text?: string; photo?: Photo | null }; faqs?: Faq[];
 }
@@ -127,12 +131,14 @@ export function headlineParts(h: string): [string, string] {
 // What the old page builder left behind, read once so nothing a business wrote there is lost. Only sections that were
 // switched on and shown, and never the builder's own sample words (it filled every new section with them).
 const SAMPLE = new Set([
+  'Need Something Bigger?', 'Planning a wedding, bridal party, or corporate event?',
   'Book Your Experience', 'A sanctuary of craft, curated for those who appreciate the details.',
   'Opal was born from a belief that nail care is more than maintenance.',
   'How do I book an appointment?', 'Use the Book Now button above or select any service.', 'What is your cancellation policy?',
   'We require 24 hours notice to avoid a cancellation fee.', 'Do you accept walk-ins?', 'Yes! Walk-ins welcome based on availability.',
   'Do you offer gift cards?', 'Absolutely — gift cards available in any amount.',
   'Sarah M.', 'Jessica T.', 'Priya K.', 'Absolutely incredible experience.', 'Every visit exceeds my expectations.', 'Luxurious yet so welcoming.',
+  'Monday – Saturday: 9am – 7pm\nSunday: 10am – 5pm', '@opalmanicure',
 ].map((x) => x.toLowerCase()));
 const text = (v: any) => (typeof v === 'string' ? v.trim() : '');
 const sample = (s: string) => SAMPLE.has(s.toLowerCase());
@@ -163,6 +169,35 @@ function classic(t: any) {
   };
 }
 
+/** Other things the old page showed that the new one keeps: hours typed in by hand (shown instead of the team's
+ *  schedules), social links (and the Instagram handle), and a quote button that went to the business's own form.
+ *  Plus, for Settings, the old sections the new design doesn't have, so the owner knows what's no longer shown. */
+export interface OldPageExtras { hours: string; social: { label: string; url: string }[]; quoteUrl: string; gone: string[] }
+export function oldPageExtras(t: any): OldPageExtras {
+  // A business that already used this design never showed its old page's leftovers, so none of it is brought back.
+  if (t?.bookingPageSettings?.design === 'studio') return { hours: '', social: [], quoteUrl: '', gone: [] };
+  const sections: any[] = Array.isArray(t?.bookingPageSettings?.cfPageConfig?.sections) ? t.bookingPageSettings.cfPageConfig.sections : [];
+  const live = sections.filter((x) => x && !!x.enabled && x.visible !== false);
+  const cfg = (type: string) => live.find((x) => x.type === type)?.config || null;
+  const contact = cfg('contact'); const nav = cfg('nav'); const ig = cfg('instagram'); const quote = cfg('quote');
+  const hours = contact && contact.showHours !== false ? own(contact.customHours).slice(0, 400) : '';
+  const https = (u: any) => { const x = text(u); return /^https:\/\/[^\s]+$/i.test(x) && x.length <= 300 ? x : ''; };
+  const NAMES: Record<string, string> = { instagram: 'Instagram', facebook: 'Facebook', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', x: 'X', twitter: 'X', linkedin: 'LinkedIn', yelp: 'Yelp', threads: 'Threads' };
+  const social: { label: string; url: string }[] = [];
+  const add = (label: string, url: string) => { if (url && !social.some((x) => x.url === url) && social.length < 6) social.push({ label, url }); };
+  for (const l of [...(contact && contact.showSocial !== false && Array.isArray(contact.socialLinks) ? contact.socialLinks : []), ...(Array.isArray(nav?.socialLinks) ? nav.socialLinks : [])]) {
+    const p = text(l?.platform).toLowerCase(); add(NAMES[p] || (p ? p[0].toUpperCase() + p.slice(1) : 'Link'), https(l?.url));
+  }
+  const handle = own(ig?.handle).replace(/^@/, '');
+  if (/^[A-Za-z0-9._]{1,30}$/.test(handle)) add('Instagram', `https://www.instagram.com/${handle}/`);
+  const link = text(quote?.ctaLink);
+  const quoteUrl = https(link) || (link === 'url' ? https(quote?.ctaUrl) : '');
+  const GONE: Record<string, string> = { trust: 'the trust strip', newclient: 'the new client offer', referral: 'the referral panel', instagram: 'the Instagram photos', quote: 'the quote request panel', memberships: 'memberships', packages: 'packages' };
+  // The quote panel every old page started with counts only when the owner made it theirs.
+  const gone = [...new Set(live.filter((x) => x.type !== 'quote' || own(x.config?.heading) || own(x.config?.subheading)).map((x) => GONE[x.type]).filter(Boolean))];
+  return { hours, social, quoteUrl, gone };
+}
+
 export interface ResolvedPage {
   color: string | null; paint: string; mood: Mood; cover: Photo | null; headline: string; description: string;
   soonest: boolean; bookAgain: boolean; showRating: boolean; splash: boolean; visit: VisitNotes;
@@ -188,7 +223,7 @@ export function studioPage(t: any): ResolvedPage {
     headline: typeof s.headline === 'string' ? s.headline.trim() : c.headline,
     description: typeof s.description === 'string' ? s.description.trim() : c.description || String(t?.description || '').trim(),
     soonest: s.soonest !== false, bookAgain: s.bookAgain !== false, showRating: s.showRating !== false, splash: s.splash !== false,
-    visit: visitNotes(s.visit),
+    visit: visitWithOld(t, s.visit),
     order: ['services', ...order] as SectionId[], on,
     work: Array.isArray(s.work) ? s.work.filter((p) => p?.url) : c.work,
     about: s.about ? { text: String(s.about.text || '').trim(), photo: s.about.photo === null ? null : s.about.photo?.url ? s.about.photo : null } : { text: c.about.text, photo: c.about.photo },
@@ -198,10 +233,16 @@ export function studioPage(t: any): ResolvedPage {
 }
 
 /** Getting here notes, cleaned: short text, and a video only as an https link. */
+const httpsOnly = (x: any) => { const u = typeof x === 'string' ? x.trim().slice(0, 300) : ''; return /^https:\/\/[^\s]+$/i.test(u) ? u : ''; };   // a link with a space in it is refused, never rewritten
 export function visitNotes(v: any): VisitNotes {
   const txt = (x: any, n: number) => (typeof x === 'string' ? x.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, n) : '');   // line breaks kept
-  const video = typeof v?.video === 'string' ? v.video.trim().slice(0, 300) : '';   // a link with a space in it is refused, never rewritten
-  return { parking: txt(v?.parking, 300), entrance: txt(v?.entrance, 300), video: /^https:\/\/[^\s]+$/i.test(video) ? video : '' };
+  const social = Array.isArray(v?.social) ? v.social.map((x: any) => ({ label: txt(x?.label, 30) || 'Link', url: httpsOnly(x?.url) })).filter((x: any) => x.url).slice(0, 6) : [];
+  return { parking: txt(v?.parking, 300), entrance: txt(v?.entrance, 300), video: httpsOnly(v?.video), hours: txt(v?.hours, 400), social, quote: httpsOnly(v?.quote) };
+}
+/** Visit us as the page shows it: what the owner saved here, or what their old page showed until they change it. */
+function visitWithOld(t: any, saved: any): VisitNotes {
+  const v = visitNotes(saved); const old = oldPageExtras(t);
+  return { ...v, hours: typeof saved?.hours === 'string' ? v.hours : old.hours, social: Array.isArray(saved?.social) ? v.social : old.social, quote: typeof saved?.quote === 'string' ? v.quote : old.quoteUrl };
 }
 
 /** What to save for a section's switch: off.<id> = true to hide one that shows by default, false to show an opt-in one,

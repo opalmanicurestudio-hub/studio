@@ -13,6 +13,7 @@
 
 import { GiftCoverBar } from '@/components/gift/GiftCoverBar';
 import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
+import { spacesListings } from '@/lib/spaces-section';
 import { GiftCardShowcase } from '@/components/gift/GiftCardShowcase';
 import { PublicSheet } from '@/components/public/PublicSheet';
 import { catSlug } from '@/lib/share-links';
@@ -21,7 +22,7 @@ import { studioPage, headlineParts, sectionShows, comingEvents, eventCapacity, e
 import { bookingPolicyLines, pagePolicies, liveDeposits } from '@/lib/policy-copy';
 import { publicService } from '@/lib/agent-access';
 import { resolvePolicy } from '@/lib/booking-policies';
-import { releaseSentence } from '@/lib/booking-release';
+import { releaseSentence, cleanRelease } from '@/lib/booking-release';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { moduleEnabled } from '@/lib/modules';
 import { privacyOf } from '@/lib/health-privacy';
@@ -64,7 +65,7 @@ const anchor = (id: SectionId) => ANCHOR[id] || id;
 
 export type PageOffer = { code: string; line: string; amount?: string; until?: string | null; oncePer?: boolean; from?: string };
 
-export function StudioBookingPage({ tenant, services, staff, accent, onBook, focus, giftCents = 0, preview = false, events = [], renters = [], offer = null, onOfferCode, member = null, onMember, askFor = null, bought = null }: {
+export function StudioBookingPage({ tenant, services, staff, accent, onBook, focus, giftCents = 0, preview = false, events = [], renters = [], offer = null, onOfferCode, member = null, onMember, note = null, loadFailed = false, onRetry, askFor = null, bought = null }: {
   tenant: any; services: any[]; staff: any[]; accent: string;
   preview?: boolean;     // shown small in Settings: nothing fixed to the screen, no reviews fetched
   giftCents?: number;   // came from their gift card: the bar on top, and "Covered by your gift card" on the services it covers
@@ -78,6 +79,8 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
   onMember?: (contact: string) => Promise<boolean>;          // signs in by the email or phone on their membership (throws 'throttled' or when it can't check)
   askFor?: { service: any; at: number } | null;              // a members-only service asked for from outside the page: sign in for it
   bought?: { kind: 'membership' | 'package'; name: string; outcome: 'given' | 'refunded' | 'pending' | 'failed' | 'slow'; reason?: string; told?: boolean } | null;   // back from paying for one
+  note?: string | null;                                      // something to say about how they arrived (a link that's no longer active)
+  loadFailed?: boolean; onRetry?: () => void;                // the menu couldn't be loaded: say so, with Try again
 }) {
   const name = tenant?.name || 'Book an appointment';
   const page = useMemo(() => studioPage(tenant), [tenant]);
@@ -100,6 +103,9 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
     return { label, text: `${clock(start)} – ${clock(end)}` };
   });
   const hasHours = hours.some((h) => h.text !== 'Closed');
+  // Hours in the business's own words, social links and a quote link (Settings › Booking page › Visit us; until then,
+  // what their old page showed).
+  const extras = { hours: page.visit.hours || '', social: page.visit.social || [], quoteUrl: page.visit.quote || '' };
   const photo = page.cover?.url || null;
   // The opening splash (first open only); the top of the page rises in as it lifts.
   const [splash, endSplash0] = useSplash(preview ? undefined : tenant?.id, page.splash);
@@ -268,8 +274,8 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
 
   // Each section of the page, shown only when switched on and with something in it.
   const giftsOn = !!(tenant?.id && tenant?.giftCardSettings?.online && tenant.giftCardSettings.onBooking !== false);
-  const counts: Partial<Record<SectionId, number>> = { offers: offers ? offers.memberships.length + offers.packages.length : 0, team: team.length, reviews: reviews.length, gifts: giftsOn ? 1 : 0, spaces: 1, events: coming.length, policies: rules.length,
-    waitlist: tenant?.id ? 1 : 0, visit: addr || tenant?.phone || tenant?.email || hasHours ? 1 : 0 };
+  const counts: Partial<Record<SectionId, number>> = { offers: offers ? offers.memberships.length + offers.packages.length : 0, team: team.length, reviews: reviews.length, gifts: giftsOn ? 1 : 0, spaces: preview ? 0 : spacesListings(tenant).length, events: coming.length, policies: rules.length,
+    waitlist: tenant?.id ? 1 : 0, visit: addr || tenant?.phone || tenant?.email || hasHours || extras.hours || extras.social.length || extras.quoteUrl ? 1 : 0 };
   const shows = (id: SectionId) => sectionShows(page, id, counts, (m) => moduleEnabled(tenant, m as any));
 
   // The bar of sections: the ones that show, in the page's order; the one being read is marked.
@@ -303,7 +309,8 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
 
   const part = (id: SectionId): React.ReactNode => {
     if (!shows(id)) return null;
-    if (id === 'spaces') return tenant?.id && !preview ? <div id="spaces" className="pub-plate"><BoothListingsSection tenantId={tenant.id} config={{ kind: 'spaces', title: 'Book a space', subtitle: 'By the hour or the day, no appointment needed.', showMonthly: false, hideWhenEmpty: true }} /></div> : null;
+    if (id === 'spaces') { const listings = tenant?.id && !preview ? spacesListings(tenant) : [];   // what the owner set in Settings, and anything from the old page
+      return listings.length ? <div id="spaces" className="pub-plate">{listings.map((c, i) => <BoothListingsSection key={i} tenantId={tenant.id} config={c} />)}</div> : null; }
     if (id === 'offers' && offers) return <Section id="offers" eyebrow="Memberships and packages" title={<>Come back for <b>less</b></>}>
       <div className="grid gap-3 sm:grid-cols-2">{[...offers.memberships.map((m) => ({ kind: 'membership' as const, item: m, price: `${money(m.price)} ${per(m)}`, words: m.description, perks: m.perks || [], cta: 'Join' })),
         ...offers.packages.map((p) => ({ kind: 'package' as const, item: p, price: money(p.price), words: p.description, perks: [] as string[], cta: 'Buy' }))].map(({ kind, item, price, words, perks, cta }) => (
@@ -386,9 +393,12 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
           {addr && <p className="flex gap-3"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" aria-hidden /><span>{addr}<br /><a href={`https://maps.google.com/?q=${encodeURIComponent(addr)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center text-[14px] font-medium underline underline-offset-4" style={{ color: 'var(--accent-text, var(--accent))' }}>Get directions</a></span></p>}
           {tenant?.phone && <p className="flex items-center gap-3"><Phone className="h-4 w-4 shrink-0 text-stone-500" aria-hidden /><a href={`tel:${String(tenant.phone).replace(/[^\d+]/g, '')}`} className="inline-flex min-h-11 items-center underline underline-offset-4">{tenant.phone}</a></p>}
           {tenant?.email && <p className="flex items-center gap-3"><Mail className="h-4 w-4 shrink-0 text-stone-500" aria-hidden /><a href={`mailto:${tenant.email}`} className="inline-flex min-h-11 items-center underline underline-offset-4">{tenant.email}</a></p>}
+          {extras.quoteUrl && !preview && <p><a href={extras.quoteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[15px] font-medium" style={{ color: 'var(--accent-text, var(--accent))' }}>Request a quote<span className="sr-only"> (opens in a new tab)</span></a></p>}
+          {extras.social.length > 0 && <p className="flex flex-wrap gap-x-5">{extras.social.map((x) => <a key={x.url} href={x.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-4">{x.label}<span className="sr-only"> (opens in a new tab)</span></a>)}</p>}
           {(addr || visitNotes.parking || visitNotes.entrance || visitNotes.video) && <button type="button" onClick={() => setHere(true)} className="inline-flex h-11 w-full items-center justify-center rounded-full text-[15px] font-medium" style={{ background: 'color-mix(in srgb, var(--ink) 7%, transparent)' }}>Getting here</button>}
         </div>
-        {hasHours && <div className="pub-card p-5"><p className="mb-2 flex items-center gap-2 font-semibold"><Clock className="h-4 w-4 text-stone-500" aria-hidden />Hours</p><dl className="grid grid-cols-[3.5rem_1fr] gap-y-1 text-[15px]">{hours.map((h) => <div key={h.label} className="contents"><dt className="text-stone-500">{h.label}</dt><dd className={h.text === 'Closed' ? 'text-stone-400' : ''}>{h.text}</dd></div>)}</dl></div>}
+        {extras.hours ? <div className="pub-card p-5"><p className="mb-2 flex items-center gap-2 font-semibold"><Clock className="h-4 w-4 text-stone-500" aria-hidden />Hours</p><p className="whitespace-pre-line text-[15px]">{extras.hours}</p></div>
+        : hasHours && <div className="pub-card p-5"><p className="mb-2 flex items-center gap-2 font-semibold"><Clock className="h-4 w-4 text-stone-500" aria-hidden />Hours</p><dl className="grid grid-cols-[3.5rem_1fr] gap-y-1 text-[15px]">{hours.map((h) => <div key={h.label} className="contents"><dt className="text-stone-500">{h.label}</dt><dd className={h.text === 'Closed' ? 'text-stone-400' : ''}>{h.text}</dd></div>)}</dl></div>}
       </div>
       {alsoHere}
     </Section>;
@@ -437,6 +447,7 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
       </header>
 
       <main id="main">
+        {note && <div className="mx-auto max-w-6xl px-4 pt-6"><p className="pub-card max-w-xl px-5 py-4 text-[15px] text-stone-700" role="status">{note}</p></div>}
         {focus ? (
           <section className="mx-auto grid max-w-6xl items-center gap-8 px-4 py-12 sm:py-20 md:grid-cols-2" aria-label={`Book ${focus.name}`}>
             <div className="pub-rise space-y-5" style={{ animationDelay: `${lift}s` }}>
@@ -487,9 +498,13 @@ export function StudioBookingPage({ tenant, services, staff, accent, onBook, foc
         {bought && focus && <div className="mx-auto max-w-6xl px-4">{boughtCard}</div>}
 
         <Section id="services" eyebrow="Services" title={<>Choose your <b>service</b></>}>
+          {release.everyone && cleanRelease(tenant?.bookingRelease).mode !== 'off' && <p className="-mt-2 mb-5 max-w-xl text-[15px] text-stone-600">{release.everyone.replace(/\b(C|c)lients can book\b/g, (_m, c) => (c === 'C' ? 'You can book' : 'you can book'))}</p>}
           {withWho && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 text-[15px] shadow-sm" role="status"><span>Booking with <b>{withWho.name}</b>: choose a service</span><button type="button" onClick={() => setWithId(null)} className="inline-flex min-h-11 items-center text-[14px] underline underline-offset-4">Anyone is fine</button></div>}
           {giftCents > 0 && <div className="mb-5"><GiftCoverBar studio cents={giftCents} services={bookable.filter((s: any) => s.membersOnly !== true || member === true)} accent={accent} onPick={(s) => book(s)} /></div>}
-          {bookable.length === 0 ? <p className="text-stone-600">Online booking is coming soon. Please check back shortly.</p> : (
+          {bookable.length === 0 ? (loadFailed
+            ? <div className="pub-card max-w-xl space-y-3 p-5" role="alert"><p className="text-[15px] text-stone-700">We couldn’t load the services just now. It’s usually a moment’s hiccup.</p>
+              {onRetry && <button type="button" onClick={onRetry} className="pub-press inline-flex h-11 items-center rounded-full px-5 text-[15px] font-medium text-white" style={{ background: 'var(--accent)' }}>Try again</button>}</div>
+            : <p className="text-stone-600">Online booking is coming soon. Please check back shortly.</p>) : (
             <div className="space-y-8">{groups.map(([cat, list]) => (
               <div key={cat} id={`cat-${catSlug(cat)}`} className="space-y-3 scroll-mt-32">
                 {groups.length > 1 && <h3 className="text-lg font-semibold">{cat}</h3>}

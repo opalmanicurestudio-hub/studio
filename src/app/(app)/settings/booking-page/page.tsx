@@ -13,6 +13,8 @@ import { uploadImage } from '@/lib/upload-image';
 import { SettingsPage, Section, Row, Toggle, Choice, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
 import { Sheet } from '@/components/orders/ui';
 import { moduleEnabled } from '@/lib/modules';
+import { spacesSettings, SPACES_LIMITS } from '@/lib/spaces-section';
+import { oldPageExtras } from '@/lib/studio-page';
 import { studioPage, comingEvents, eventToday, sectionSwitch, SECTIONS, COLORS, MOODS, readable, whiteContrast, colorName, headlineParts, type SectionId, type Photo, type Faq, type Mood, type VisitNotes } from '@/lib/studio-page';
 
 const field = (k: string) => `bookingPageSettings.studio.${k}`;
@@ -58,9 +60,9 @@ export default function BookingPageSettings() {
   const page = React.useMemo(() => studioPage(t), [t]);
   const [stamp, setStamp] = React.useState(0);
   const [pub, setPub] = React.useState<{ services: any[]; staff: any[]; events: any[] } | null>(null);
-  const [sheet, setSheet] = React.useState<'work' | 'about' | 'faqs' | 'visit' | null>(null);
+  const [sheet, setSheet] = React.useState<'work' | 'about' | 'faqs' | 'visit' | 'spaces' | null>(null);
   // What's typed or uploaded in an editor stays here if it's closed without saving, and comes back when it's opened.
-  const [drafts, setDrafts] = React.useState<{ work?: Photo[]; about?: { text: string; photo: Photo | null }; faqs?: Faq[]; visit?: VisitNotes }>({});
+  const [drafts, setDrafts] = React.useState<{ work?: Photo[]; about?: { text: string; photo: Photo | null }; faqs?: Faq[]; visit?: VisitNotes; spaces?: SpacesDraft }>({});
   React.useEffect(() => { setDrafts({}); }, [tenantId]);
   const [busy, setBusy] = React.useState('');
 
@@ -130,15 +132,30 @@ export default function BookingPageSettings() {
       case 'faqs': return page.faqs.length ? plural(page.faqs.length, 'question') : 'Answer what clients ask most';
       case 'reviews': return 'Reviews you’ve chosen to show';
       case 'policies': return 'Your cancellation, late and deposit rules, in plain words';
-      case 'visit': return page.visit.parking || page.visit.entrance || page.visit.video ? 'Address, phone, hours and getting here' : 'Address, phone and hours. Add parking and the way in';
+      case 'visit': return page.visit.parking || page.visit.entrance || page.visit.video ? 'Address, phone, hours and getting here' : 'Address, phone and hours. Add parking, the way in and your social links';
       case 'waitlist': return 'Offered when nothing fits, and as a link at the bottom';
       case 'offers': return !page.on.offers ? 'Off. Switch on to sell your public memberships and packages online' : t?.stripeAccountId && t?.stripeChargesEnabled !== false ? 'Your public memberships and packages, bought online' : 'Shown; connect payments so clients can buy them online';
       case 'gifts': return t?.giftCardSettings?.online ? 'Sold online' : 'Turn on online gift cards to show this';
-      case 'spaces': return 'Spaces to book by the hour or day';
+      case 'spaces': { const sp = spacesSettings(t); return !sp.showLeases && !sp.showDayUse ? 'Nothing listed. Choose what to rent out' : [sp.showLeases && 'Leases', sp.showDayUse && 'by the hour or day'].filter(Boolean).join(', ').replace(/^b/, 'B') + (sp.terms ? ', with your terms' : ''); }
       default: return '';
     }
   };
-  const editors: Partial<Record<SectionId, 'work' | 'about' | 'faqs' | 'visit'>> = { work: 'work', about: 'about', faqs: 'faqs', visit: 'visit' };
+  // What the business's old page showed that this design doesn't, said once until they've read it.
+  const leftovers = React.useMemo(() => {
+    if (t?.bookingPageSettings?.studio?.oldPageNoted === true) return '';
+    const x = oldPageExtras(t); const gone = x.gone.filter((g) => !((g === 'memberships' || g === 'packages') && page.on.offers));
+    // What carried over and still shows from the old page (not yet changed in Visit us).
+    const saved = t?.bookingPageSettings?.studio?.visit || {};
+    const kept = [typeof saved.hours !== 'string' && x.hours && 'your hours', !Array.isArray(saved.social) && x.social.length && 'your social links', typeof saved.quote !== 'string' && x.quoteUrl && 'your quote button'].filter(Boolean) as string[];
+    if (!gone.length && !kept.length) return '';
+    const sell = gone.some((g) => g === 'memberships' || g === 'packages');
+    const rest = gone.filter((g) => g !== 'memberships' && g !== 'packages');
+    const say = (a: string[]) => (a.length > 1 ? `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}` : a[0]);
+    return [rest.length ? `Your old page also showed ${say(rest)}, which this design doesn’t have.` : '',
+      sell ? 'To sell memberships and packages here, switch on Memberships and packages below.' : '',
+      kept.length ? `${say(kept)[0].toUpperCase()}${say(kept).slice(1)} carried over to Visit us, where you can change them.` : ''].filter(Boolean).join(' ');
+  }, [t, page.on.offers]);
+  const editors: Partial<Record<SectionId, 'work' | 'about' | 'faqs' | 'visit' | 'spaces'>> = { work: 'work', about: 'about', faqs: 'faqs', visit: 'visit', spaces: 'spaces' };
   const shown = page.order.filter((id) => { const def = SECTIONS.find((x) => x.id === id); return def && (!def.module || useModule(def.module)); });
 
   // Reordering: drag the grip, or focus it and use the arrow keys.
@@ -191,18 +208,12 @@ export default function BookingPageSettings() {
   };
 
   if (!t) return <SettingsPage title="Booking page"><p className="cf-muted">Loading…</p></SettingsPage>;
-  const designIsOld = t?.bookingPageSettings?.design !== 'studio';
-
   return (
     <SettingsPage wide title="Booking page" help={`What clients see when they book with you. One design, in your color.${isMgr ? '' : ' Only the business owner can change it.'}`}
       actions={<a href={`/book/${tenantId}`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-full px-5 text-[15px] font-semibold" style={{ background: 'var(--soft)', color: 'var(--ink)' }}>View your page<ExternalLink className="h-4 w-4" aria-hidden /></a>}>
       <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-8 md:space-y-10">
-          {designIsOld && isMgr && <div className="cf-sheet flex flex-wrap items-center justify-between gap-3 px-5 py-4" role="status">
-            <p className="max-w-[52ch] text-[14.5px]"><b>Your page still uses the old design.</b> These choices show on the new one, which replaces the old design for every business soon. The preview shows the new one now.</p>
-            <button type="button" onClick={async () => { try { await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { 'bookingPageSettings.design': 'studio' }); toast({ title: 'Your page uses the new design' }); setStamp((n) => n + 1); } catch { toast({ variant: 'destructive', title: 'That didn’t save. Try again.' }); } }}
-              className="inline-flex h-11 shrink-0 items-center rounded-full px-5 text-[14.5px] font-semibold" style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Use it now</button>
-          </div>}
+
 
           <Section title="Your page">
             <Row label="Link" inline><span className="flex items-center gap-2"><span className="hidden max-w-[16rem] truncate text-[14px] cf-muted sm:inline">{link.replace(/^https?:\/\//, '')}</span>
@@ -257,6 +268,10 @@ export default function BookingPageSettings() {
             </Row>
           </Section>
 
+          {isMgr && leftovers && <div className="cf-sheet flex flex-wrap items-start justify-between gap-3 px-5 py-4" role="status">
+            <p className="max-w-[60ch] text-[14.5px]">{leftovers}</p>
+            <button type="button" onClick={() => void save({ oldPageNoted: true }, 'Page note')} className="inline-flex h-11 shrink-0 items-center rounded-full px-4 text-[14px] font-semibold" style={{ background: 'var(--soft)' }}>Got it</button>
+          </div>}
           <section aria-label="Sections" className="space-y-3">
             <div className="flex items-center justify-between gap-3"><h2 className="text-[19px] font-semibold tracking-tight">Sections</h2>
               {isMgr && <button type="button" onClick={() => setReorder((v) => !v)} className="inline-flex h-11 items-center rounded-full px-4 text-[14px] font-semibold sm:hidden" style={{ background: reorder ? 'var(--ink)' : 'var(--soft)', color: reorder ? 'var(--paper)' : 'var(--ink)' }}>{reorder ? 'Done' : 'Change order'}</button>}</div>
@@ -288,7 +303,7 @@ export default function BookingPageSettings() {
           <p className="mb-2 text-[13.5px] font-semibold cf-muted">Preview</p>
           <div className="overflow-hidden rounded-[44px] p-[10px]" style={{ background: '#16171a', width: 300, boxShadow: '0 0 0 1px var(--line)' }}>
             <div className="overflow-hidden rounded-[34px] bg-white" style={{ width: 280, height: 580 }}>
-              {tenantId && <iframe key={stamp} title="Your booking page" src={`/book/${tenantId}?design=studio&preview=1`} style={{ width: 390, height: 808, border: 0, transform: `scale(${280 / 390})`, transformOrigin: 'top left' }} />}
+              {tenantId && <iframe key={stamp} title="Your booking page" src={`/book/${tenantId}?preview=1`} style={{ width: 390, height: 808, border: 0, transform: `scale(${280 / 390})`, transformOrigin: 'top left' }} />}
             </div>
           </div>
           <p className="mt-3 max-w-[300px] text-[13.5px] cf-muted">Changes show here as you make them, and on your page right away.</p>
@@ -300,7 +315,20 @@ export default function BookingPageSettings() {
       {sheet === 'about' && <AboutSheet about={drafts.about || page.about} unsaved={!!drafts.about} canEdit={isMgr} tenantId={tenantId} onDraft={(about) => setDrafts((d) => ({ ...d, about }))}
         onSave={async (about) => { const ok = await save({ about }, 'About us'); if (ok) setDrafts((d) => ({ ...d, about: undefined })); return ok; }} onClose={() => setSheet(null)} />}
       {sheet === 'visit' && <VisitSheet visit={drafts.visit || page.visit} unsaved={!!drafts.visit} canEdit={isMgr} onDraft={(visit) => setDrafts((d) => ({ ...d, visit }))}
-        onSave={async (visit) => { const ok = await save({ visit }, 'Getting here'); if (ok) setDrafts((d) => ({ ...d, visit: undefined })); return ok; }} onClose={() => setSheet(null)} />}
+        onSave={async (visit) => { const ok = await save({ visit }, 'Visit us'); if (ok) setDrafts((d) => ({ ...d, visit: undefined })); return ok; }} onClose={() => setSheet(null)} />}
+      {sheet === 'spaces' && <SpacesSheet spaces={drafts.spaces || spacesDraftOf(t)} unsaved={!!drafts.spaces} canEdit={isMgr} onDraft={(spaces) => setDrafts((d) => ({ ...d, spaces }))}
+        onSave={async (next) => {
+          // Only what changed is saved: an old booth section keeps its own choices until the owner changes that setting.
+          const was = spacesDraftOf(t); const now = { ...was, ...next };
+          const patch: Record<string, any> = {};
+          if (now.showLeases !== was.showLeases) patch['spaces.showLeases'] = now.showLeases;
+          if (now.showDayUse !== was.showDayUse) patch['spaces.showDayUse'] = now.showDayUse;
+          if (now.terms.trim() !== was.terms.trim()) patch['spaces.terms'] = now.terms.trim().slice(0, SPACES_LIMITS.terms);
+          if (now.docs.trim() !== was.docs.trim()) patch['spaces.requiredDocs'] = lines(now.docs, SPACES_LIMITS.docs);
+          if (now.docsAfterApproval !== was.docsAfterApproval) patch['spaces.docsAfterApproval'] = now.docsAfterApproval;
+          if (now.qualifiers !== was.qualifiers) patch['spaces.qualifiers'] = now.qualifiers;
+          if (now.niches.trim() !== was.niches.trim()) patch['spaces.niches'] = lines(now.niches, SPACES_LIMITS.niches);
+          const ok = Object.keys(patch).length ? await save(patch, 'Spaces to rent') : true; if (ok) setDrafts((d) => ({ ...d, spaces: undefined })); return ok; }} onClose={() => setSheet(null)} />}
       {sheet === 'faqs' && <FaqSheet faqs={drafts.faqs || page.faqs} unsaved={!!drafts.faqs} canEdit={isMgr} onDraft={(faqs) => setDrafts((d) => ({ ...d, faqs }))}
         onSave={async (faqs) => { const ok = await save({ faqs }, 'Questions'); if (ok) setDrafts((d) => ({ ...d, faqs: undefined })); return ok; }} onClose={() => setSheet(null)} />}
     </SettingsPage>
@@ -373,22 +401,85 @@ function AboutSheet({ about, unsaved, canEdit, tenantId, onDraft, onSave, onClos
   );
 }
 
+const KNOWN_SOCIAL: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', facebook: 'Facebook', youtube: 'YouTube', linkedin: 'LinkedIn', pinterest: 'Pinterest', x: 'X', twitter: 'X', yelp: 'Yelp', threads: 'Threads' };
+/** Social links as the sheet edits them: one per line, a name and an https link ("Instagram https://…"). */
+const socialText = (list: { label: string; url: string }[] | undefined) => (list || []).map((x) => `${x.label} ${x.url}`).join('\n');
+function socialFrom(text: string): { list: { label: string; url: string }[]; bad: boolean } {
+  const list: { label: string; url: string }[] = []; let bad = false;
+  const all = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (all.length > 6) bad = true;   // never dropped quietly: the sheet asks for six or fewer
+  for (const line of all) {
+    const m = /(https:\/\/\S+)/i.exec(line); if (!m) { bad = true; continue; }
+    const label = line.replace(m[1], '').trim().slice(0, 30) || (() => { try { const h = new URL(m[1]).hostname.replace(/^www\./, '').split('.')[0].toLowerCase(); return KNOWN_SOCIAL[h] || h[0].toUpperCase() + h.slice(1); } catch { return 'Link'; } })();
+    list.push({ label, url: m[1].slice(0, 300) });
+  }
+  return { list: list.slice(0, 6), bad };
+}
+
 function VisitSheet({ visit, unsaved, canEdit, onDraft, onSave, onClose }: { visit: VisitNotes; unsaved: boolean; canEdit: boolean; onDraft: (v: VisitNotes) => void; onSave: (v: VisitNotes) => Promise<boolean>; onClose: () => void }) {
-  const [draft, setDraft, touched] = useDraft<VisitNotes>(visit, onDraft);
-  const set = (k: keyof VisitNotes, v: string) => setDraft((d) => ({ ...d, [k]: v }));
-  const videoBad = !!draft.video?.trim() && !/^https:\/\/[^\s]+$/i.test(draft.video.trim());
+  type D = VisitNotes & { socialLines?: string };
+  const [draft, setDraft, touched] = useDraft<D>({ ...visit, socialLines: (visit as D).socialLines ?? socialText(visit.social) }, onDraft);
+  const set = (k: keyof D, v: string) => setDraft((d) => ({ ...d, [k]: v }));
+  const https = (x?: string) => !x?.trim() || /^https:\/\/[^\s]+$/i.test(x.trim());
+  const videoBad = !https(draft.video); const quoteBad = !https(draft.quote);
+  const social = socialFrom(draft.socialLines || '');
+  const label = (id: string, title: string, el: React.ReactNode, help?: string) => (
+    <div className="space-y-1.5"><label htmlFor={id} className="block text-[14.5px] font-semibold">{title}</label>{el}{help && <p id={`${id}-help`} className="text-[13.5px] cf-muted">{help}</p>}</div>);
   return (
-    <Sheet title="Getting here" sub="Shown under Visit us, with buttons for Apple Maps and Google Maps. Your address comes from your business details." onClose={onClose} closeLabel="Close">
+    <Sheet title="Visit us" sub="Your address, phone and email come from your business details. Getting here shows with buttons for Apple Maps and Google Maps." onClose={onClose} closeLabel="Close">
       <div className="space-y-4">
-        <label className={`block space-y-1.5 ${FOCUS_WITHIN} rounded-xl`}><span className="text-[14.5px] font-semibold">Parking</span>
-          <textarea value={draft.parking || ''} disabled={!canEdit} rows={2} maxLength={300} onChange={(e) => set('parking', e.target.value)} placeholder="Free lot behind the building. Street parking is 2 hours." className={`${cfInput} h-auto py-3`} style={cfInputStyle} /></label>
-        <label className={`block space-y-1.5 ${FOCUS_WITHIN} rounded-xl`}><span className="text-[14.5px] font-semibold">The entrance</span>
-          <textarea value={draft.entrance || ''} disabled={!canEdit} rows={2} maxLength={300} onChange={(e) => set('entrance', e.target.value)} placeholder="The blue door beside the bakery, then up one floor. There’s an elevator." className={`${cfInput} h-auto py-3`} style={cfInputStyle} /></label>
-        <label className={`block space-y-1.5 ${FOCUS_WITHIN} rounded-xl`}><span className="text-[14.5px] font-semibold">A short video of the way in</span>
-          <input value={draft.video || ''} disabled={!canEdit} maxLength={300} inputMode="url" onChange={(e) => set('video', e.target.value)} placeholder="https://" aria-invalid={videoBad} aria-describedby={videoBad ? 'video-bad' : undefined} className={cfInput} style={cfInputStyle} /></label>
+        {label('visit-parking', 'Parking', <textarea id="visit-parking" value={draft.parking || ''} disabled={!canEdit} rows={2} maxLength={300} onChange={(e) => set('parking', e.target.value)} placeholder="Free lot behind the building. Street parking is 2 hours." className={`${cfInput} h-auto py-3`} style={cfInputStyle} />)}
+        {label('visit-entrance', 'The entrance', <textarea id="visit-entrance" value={draft.entrance || ''} disabled={!canEdit} rows={2} maxLength={300} onChange={(e) => set('entrance', e.target.value)} placeholder="The blue door beside the bakery, then up one floor. There’s an elevator." className={`${cfInput} h-auto py-3`} style={cfInputStyle} />)}
+        {label('visit-video', 'A short video of the way in', <input id="visit-video" value={draft.video || ''} disabled={!canEdit} maxLength={300} inputMode="url" onChange={(e) => set('video', e.target.value)} placeholder="https://" aria-invalid={videoBad} aria-describedby={videoBad ? 'video-bad' : undefined} className={cfInput} style={cfInputStyle} />)}
         {videoBad && <p id="video-bad" role="alert" className="text-[14px] font-semibold" style={{ color: '#b45309' }}>Paste a link that starts with https://</p>}
+        {label('visit-hours', 'Hours, in your words', <textarea id="visit-hours" value={draft.hours || ''} disabled={!canEdit} rows={3} maxLength={400} onChange={(e) => set('hours', e.target.value)} placeholder={'Tuesday to Saturday, 10am to 6pm\nSunday and Monday, closed'} aria-describedby="visit-hours-help" className={`${cfInput} h-auto py-3`} style={cfInputStyle} />,
+          'Leave it empty to show hours from your team’s schedules, which stay up to date on their own.')}
+        {label('visit-social', 'Social links', <textarea id="visit-social" value={draft.socialLines || ''} disabled={!canEdit} rows={3} maxLength={1200} onChange={(e) => set('socialLines', e.target.value)} placeholder={'Instagram https://www.instagram.com/yourname\nTikTok https://www.tiktok.com/@yourname'} aria-invalid={social.bad} aria-describedby="visit-social-help" className={`${cfInput} h-auto py-3`} style={cfInputStyle} />,
+          'One per line, up to 6: a name, then the link.')}
+        {social.bad && <p role="alert" className="text-[14px] font-semibold" style={{ color: '#b45309' }}>{(draft.socialLines || '').split('\n').filter((l) => l.trim()).length > 6 ? 'Up to 6 links, one per line.' : 'Each line needs a link that starts with https://'}</p>}
+        {label('visit-quote', 'Quote request link', <input id="visit-quote" value={draft.quote || ''} disabled={!canEdit} maxLength={300} inputMode="url" onChange={(e) => set('quote', e.target.value)} placeholder="https://" aria-invalid={quoteBad} aria-describedby="visit-quote-help" className={cfInput} style={cfInputStyle} />,
+          'For events and bigger bookings: a link to your own form. It shows as Request a quote.')}
+        {quoteBad && <p role="alert" className="text-[14px] font-semibold" style={{ color: '#b45309' }}>Paste a link that starts with https://</p>}
         {(unsaved || touched) && canEdit && <Unsaved />}
-        {canEdit && <div className="flex justify-end"><button type="button" disabled={videoBad} onClick={async () => { if (await onSave({ parking: (draft.parking || '').trim(), entrance: (draft.entrance || '').trim(), video: (draft.video || '').trim() })) onClose(); }} className={`${btn} disabled:opacity-50`} style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Save</button></div>}
+        {canEdit && <div className="flex justify-end"><button type="button" disabled={videoBad || quoteBad || social.bad} onClick={async () => { if (await onSave({ parking: (draft.parking || '').trim(), entrance: (draft.entrance || '').trim(), video: (draft.video || '').trim(), hours: (draft.hours || '').trim(), social: social.list, quote: (draft.quote || '').trim() })) onClose(); }} className={`${btn} disabled:opacity-50`} style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Save</button></div>}
+      </div>
+    </Sheet>
+  );
+}
+
+type SpacesDraft = { showLeases: boolean; showDayUse: boolean; terms: string; docs: string; docsAfterApproval: boolean; qualifiers: boolean; niches: string };
+/** What the sheet edits: the settings as they stand (including anything from the old page builder), lists as lines. */
+const spacesDraftOf = (t: any): SpacesDraft => { const s = spacesSettings(t); return { showLeases: s.showLeases, showDayUse: s.showDayUse, terms: s.terms, docs: s.requiredDocs.join('\n'), docsAfterApproval: s.docsAfterApproval, qualifiers: s.qualifiers, niches: s.niches.join('\n') }; };
+const lines = (x: string, max: number) => [...new Set(x.split('\n').map((v) => v.trim().slice(0, SPACES_LIMITS.item)).filter(Boolean))].slice(0, max);
+
+function SpacesSheet({ spaces, unsaved, canEdit, onDraft, onSave, onClose }: { spaces: SpacesDraft; unsaved: boolean; canEdit: boolean; onDraft: (v: SpacesDraft) => void; onSave: (v: SpacesDraft) => Promise<boolean>; onClose: () => void }) {
+  const [draft, setDraft, touched] = useDraft<SpacesDraft>(spaces, onDraft);
+  const set = <K extends keyof SpacesDraft>(k: K, v: SpacesDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
+  const labeled = (id: string, label: string, help: string, el: React.ReactNode) => (
+    <div className="space-y-1.5"><label htmlFor={id} className="block text-[14.5px] font-semibold">{label}</label>{el}<p id={`${id}-help`} className="text-[13.5px] cf-muted">{help}</p></div>);
+  const area = (id: string, k: 'terms' | 'docs' | 'niches', rows: number, max: number, placeholder: string) => (
+    <textarea id={id} value={draft[k]} disabled={!canEdit} rows={rows} maxLength={max} onChange={(e) => set(k, e.target.value)} placeholder={placeholder} aria-describedby={`${id}-help`} className={`${cfInput} h-auto py-3`} style={cfInputStyle} />);
+  return (
+    <Sheet title="Spaces to rent" sub="Booths and spaces you rent to other professionals: what your page lists, and what people agree to. Rates, photos and availability are set on each space in Booths." onClose={onClose} closeLabel="Close">
+      <div className="space-y-5">
+        <div className="cf-sheet divide-y [&>*]:[border-color:var(--line)]">
+          <div className="flex items-center justify-between gap-3 px-4 py-3"><div><p className="text-[15px] font-medium">Leases by the month</p><p className="text-[13.5px] cf-muted">People apply, and you approve them</p></div>
+            <Toggle label="List leases by the month" checked={draft.showLeases} disabled={!canEdit} onChange={(v) => set('showLeases', v)} /></div>
+          <div className="flex items-center justify-between gap-3 px-4 py-3"><div><p className="text-[15px] font-medium">By the hour or the day</p><p className="text-[13.5px] cf-muted">Booked and paid for online</p></div>
+            <Toggle label="List spaces by the hour or the day" checked={draft.showDayUse} disabled={!canEdit} onChange={(v) => set('showDayUse', v)} /></div>
+        </div>
+        {labeled('spaces-terms', 'Your application terms', 'Shown as a box to tick on a lease application; with none, there’s no box. Anyone renting by the hour or the day signs the standard rental agreement, which covers payment, care of the space and any incidental charges.',
+          area('spaces-terms', 'terms', 6, SPACES_LIMITS.terms, 'What applicants agree to: their information is accurate, a background or license check, how you choose renters.'))}
+        {labeled('spaces-docs', 'Documents applicants upload', 'One per line, up to 8, like a license or proof of insurance.', area('spaces-docs', 'docs', 3, 600, 'Cosmetology license\nProof of insurance'))}
+        <div className="cf-sheet divide-y [&>*]:[border-color:var(--line)]">
+          <div className="flex items-center justify-between gap-3 px-4 py-3"><div><p className="text-[15px] font-medium">Ask for documents after approval</p><p className="text-[13.5px] cf-muted">A lighter first application</p></div>
+            <Toggle label="Ask for documents after approval" checked={draft.docsAfterApproval} disabled={!canEdit} onChange={(v) => set('docsAfterApproval', v)} /></div>
+          <div className="flex items-center justify-between gap-3 px-4 py-3"><div><p className="text-[15px] font-medium">Qualifying questions</p><p className="text-[13.5px] cf-muted">Licensed, their own clients, years of experience</p></div>
+            <Toggle label="Ask qualifying questions" checked={draft.qualifiers} disabled={!canEdit} onChange={(v) => set('qualifiers', v)} /></div>
+        </div>
+        {labeled('spaces-niches', 'Specialties applicants choose from', 'One per line, up to 16. Leave it empty for the usual list: hair, nails, esthetics, massage and more.', area('spaces-niches', 'niches', 3, 1200, 'Hair\nNails\nEsthetics'))}
+        {(unsaved || touched) && canEdit && <Unsaved />}
+        {canEdit && <div className="flex justify-end"><button type="button" onClick={async () => { if (await onSave(draft)) onClose(); }} className={btn} style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}>Save</button></div>}
       </div>
     </Sheet>
   );

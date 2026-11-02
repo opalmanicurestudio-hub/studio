@@ -28,7 +28,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { requireCan } from '@/lib/route-guard';
 import { recordBoothIncidental, recordBoothOverage, recordBoothRefund } from '@/lib/booth-money';
-import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
+import { resolveIncidentalPolicy, validateIncidental, incidentalScheduleText } from '@/lib/incidentals';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
 import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
 import { sendReservationConfirmation } from '@/lib/reservation-notify';
@@ -36,30 +36,7 @@ import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { subletOpenOn } from '@/lib/leave-policy';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 
-// The owner's custom booking terms, if they wrote any, from the booking-page
-// config. A miss is fine — resolveDayUseAgreement falls back to the built-in
-// protective default, so a guest always signs real terms.
-function findBookingTerms(tenantData: any): string {
-  try {
-    const roots = [tenantData?.cfPageConfig, tenantData?.bookingPageSettings, tenantData];
-    for (const cfg of roots) {
-      if (!cfg) continue;
-      if (typeof cfg.applicationAgreement === 'string' && cfg.applicationAgreement.trim()) return cfg.applicationAgreement.trim();
-      const sections: any[] = Array.isArray(cfg.sections) ? cfg.sections : [];
-      for (const s of sections) {
-        const txt = s?.config?.applicationAgreement;
-        if (typeof txt === 'string' && txt.trim()) return txt.trim();
-      }
-    }
-  } catch { /* fall back to default template */ }
-  return '';
-}
 
-// The incidentals caps the guest is authorizing, rendered for the agreement.
-function incidentalScheduleText(cats: { label: string; capCents: number }[]): string {
-  if (!Array.isArray(cats) || cats.length === 0) return '(No incidental charges configured.)';
-  return cats.map((c) => c.capCents > 0 ? `• ${c.label} — up to $${(c.capCents / 100).toFixed(0)}` : `• ${c.label}`).join('\n');
-}
 
 // Persist the signed day-use agreement to the append-only, write-once legal
 // store — the SAME collection leases and staff agreements use. Idempotent:
@@ -803,7 +780,7 @@ export async function POST(req: NextRequest) {
     const bookingWindow = isHourly
       ? `${startDate} · ${startTime}–${endTime}`
       : (startDate === endDate ? startDate : `${startDate} → ${endDate}`);
-    const agreement = resolveDayUseAgreement(findBookingTerms(tenantData), {
+    const agreement = resolveDayUseAgreement('', {   // the built-in day-use agreement (lib/spaces-section), the text the page shows
       // Same rule as the walk-in kiosk: the date on a signed agreement is the
       // studio's date, not the server's.
       date: todayIn(tenantTimeZone(tenantData)),
