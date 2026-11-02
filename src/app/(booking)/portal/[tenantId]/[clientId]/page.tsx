@@ -6,7 +6,7 @@ import { hasRealCard } from '@/lib/card-on-file';
 import { checkChange, chainAfterMove } from '@/lib/change-rules';
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { bookThroughEngine, type ConfirmResult } from '@/lib/booking/engine-confirm';
+import { bookThroughEngine, releaseHeld, type HeldPay, type ConfirmResult } from '@/lib/booking/engine-confirm';
 import { useFirebase, useDoc, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { doc, collection, query, where, writeBatch, increment, arrayUnion, deleteField, getDocs } from 'firebase/firestore';
 import { setDoc as setDocCR } from 'firebase/firestore';
@@ -125,7 +125,7 @@ export default function ClientPortalPage() {
     const [appointmentToReschedule, setAppointmentToReschedule] = useState<Appointment | null>(null);
     const [isSettlementOpen, setIsSettlementOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number } | null>(null);
+    const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; visitUrl?: string | null; earlier?: boolean } | null>(null);
     const [settlementSuccess, setSettlementSuccess] = useState(false);
     const [payNote, setPayNote] = useState('');
     const [expandedImage, setExpandedImage] = useState<string | null>(null);
@@ -364,7 +364,7 @@ export default function ClientPortalPage() {
     // Booking goes through the shared engine (availability, booking mode, change
     // rules, upcoming limit, deposits, card-on-file, messages, signed forms) —
     // the same path as the public booking page. Never written from the browser.
-    const heldPortalPay = useRef<{ key: string; appointmentId: string } | null>(null);
+    const heldPortalPay = useRef<HeldPay | null>(null);
     const handleConfirmDirectBooking = async (
         formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
         appointmentDetails: any,
@@ -378,7 +378,7 @@ export default function ClientPortalPage() {
                 tenantId, source: 'client-portal',
                 formData: { ...formData, clientName: formData.clientName || client?.name || '', clientEmail: formData.clientEmail || client?.email || '', clientPhone: formData.clientPhone || client?.phone || '' },
                 apptDetails: appointmentDetails, signedForms, setStep: setBookingStep,
-                onOutcome: (x) => setBookingOutcome({ status: x.status, notice: x.notice, depositCents: x.depositCents }),
+                onOutcome: (x) => setBookingOutcome({ status: x.status, notice: x.notice, depositCents: x.depositCents, cardOnFile: x.cardOnFile, visitUrl: x.visitUrl || null, earlier: !!x.earlier }),
                 held: heldPortalPay,
             });
         } finally {
@@ -884,6 +884,10 @@ export default function ClientPortalPage() {
             {selectedServiceForBooking && (
                 <BookingSheet
           tenantId={tenantId}
+                    partyOk={false}
+                    prefillClient={client ? { clientName: client.name || '', clientEmail: client.email || '', clientPhone: (client as any).phone || '' } : null}
+                    onReleaseHold={() => releaseHeld(String(tenantId || ''), heldPortalPay)}
+                    onSettled={() => { heldPortalPay.current = null; }}
                     open={isBookingSheetOpen}
                     onOpenChange={setIsBookingSheetOpen}
                     service={selectedServiceForBooking}

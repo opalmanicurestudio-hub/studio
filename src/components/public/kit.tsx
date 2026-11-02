@@ -16,8 +16,8 @@
 // breathes beside a time that's today (.pub-breathe). When a phone asks for less
 // motion, everything simply appears in place; printing shows everything too.
 //
-// .pub-flow re-themes the booking flow (BookingSheet), which takes its look
-// from CSS variables — so it matches without touching any booking logic.
+// .pub-ui carries the mood into the app's own form parts (a form's questions, a signature box) wherever a public page
+// uses them: inside it, they take the page's paper, ink and lines, light or dark.
 
 import type { ReactNode } from 'react';
 import { lifted } from '@/lib/studio-page';
@@ -85,22 +85,40 @@ export const PUBLIC_CSS = String.raw`
 .pub[data-mood=night] .pub-plate .text-stone-700{color:#44403c}.pub[data-mood=night] .pub-plate .text-stone-800{color:#292524}
 .pub[data-mood=night] .pub-plate .shadow-sm{box-shadow:0 1px 2px 0 rgb(0 0 0/.05)}
 .pub[data-mood=night] .gcs-cta{box-shadow:inset 0 0 0 1px rgb(255 255 255/.28)!important}
-.pub-flow{--background:36 33% 97%;--foreground:24 10% 10%;--card:0 0% 100%;--card-foreground:24 10% 10%;--muted:30 14% 93%;--muted-foreground:25 5% 38%;
-  --border:30 12% 88%;--input:30 12% 88%;--radius:1rem;--booking-heading-font:'Plus Jakarta Sans',system-ui,sans-serif;--booking-body-font:'Plus Jakarta Sans',system-ui,sans-serif;
-  font-family:'Plus Jakarta Sans',system-ui,sans-serif}
+.pub-ui{--background:36 33% 97%;--foreground:24 10% 10%;--card:0 0% 100%;--card-foreground:24 10% 10%;--popover:0 0% 100%;--popover-foreground:24 10% 10%;--muted:30 14% 93%;--muted-foreground:25 5% 38%;
+  --border:30 12% 88%;--input:30 12% 88%;--primary:var(--accent-hsl,24 10% 10%);--primary-foreground:0 0% 100%;--ring:var(--accent-hsl,24 10% 10%);--radius:1rem;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:hsl(var(--foreground))}
+.pub[data-mood=crisp] .pub-ui{--background:0 0% 100%;--border:240 5% 93%;--input:240 5% 90%;--radius:.625rem}
+.pub[data-mood=night] .pub-ui{--background:228 8% 9%;--foreground:240 5% 96%;--card:225 6% 14%;--card-foreground:240 5% 96%;--popover:225 6% 14%;--popover-foreground:240 5% 96%;
+  --muted:228 6% 18%;--muted-foreground:240 4% 65%;--border:228 6% 21%;--input:228 6% 26%}
 `;
 export const PUBLIC_FONT_HREF = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap';
 
 /** Wraps a public page in the kit's look, with the business's accent and mood. */
+/** The accent colors a public surface paints with, for its mood: buttons keep the accent itself (with a light edge on
+ *  Night so their shape shows), and text in the accent (links, eyebrows) is lifted on a dark page so it stays readable
+ *  on its cards too. --accent-hsl carries the accent into the app's own form parts (inside .pub-ui). What PublicFrame
+ *  uses, and anything that sits outside it (a panel opened over the page). */
+export function moodStyle(accent: string, mood: PublicMood = 'soft'): Record<string, string> {
+  const paint = accent || '#7c3aed';
+  return { '--accent': paint, '--accent-text': mood === 'night' ? lifted(paint, '#222326') : paint, '--accent-hsl': hslOf(paint) };
+}
+
+/** '#8b5e57' as the 'h s% l%' the app's form parts read. */
+function hslOf(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim()); if (!m) return '24 10% 10%';
+  const n = parseInt(m[1], 16); const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2; const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  const h = d === 0 ? 0 : max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return `${Math.round(((h * 60) + 360) % 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
 export function PublicFrame({ accent, children, className = '', app = false, mood = 'soft' }: { accent: string; children: ReactNode; className?: string; app?: boolean; mood?: PublicMood }) {
   // app: the app's own neutral palette (soft grey paper, ink, muted) — the client's visit link uses it.
   const palette = app ? { ['--paper' as any]: '#f3f3f5', ['--ink' as any]: '#16171a', ['--muted' as any]: '#6d7075' } : {};
   const night = !app && mood === 'night';
-  const paint = accent || '#7c3aed';
-  // Text in the accent (links, eyebrows) is lifted on a dark page so it stays readable on its cards too; buttons keep
-  // the accent itself, with a light edge so their shape shows on the dark.
   return (
-    <div className={`pub min-h-dvh ${className}`} data-mood={app ? undefined : mood} style={{ ['--accent' as any]: paint, ['--accent-text' as any]: night ? lifted(paint, '#222326') : paint, ...palette }}>
+    <div className={`pub min-h-dvh ${className}`} data-mood={app ? undefined : mood} style={{ ...moodStyle(accent, app ? 'soft' : mood), ...palette } as any}>
       <style>{PUBLIC_CSS}</style>
       <link rel="stylesheet" href={PUBLIC_FONT_HREF} />
       <PublicMotion reveal={!app} night={night} />

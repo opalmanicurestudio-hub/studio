@@ -1,137 +1,32 @@
 'use client';
+// src/components/booking/BookingSheet.tsx — THE BOOKING FLOW'S LOGIC, for every way in: the booking page, a link to
+// one service, a reschedule, a renter's own page and the client portal. StudioFlow draws it; this file decides it:
+// open times from the server, who takes "Anyone", the price and what's due today, identity checks, forms, the exact
+// consent wording, card on file, payment, and what the server made of the booking.
 
-import { quietBonus, loyaltyOf } from '@/lib/loyalty';
-import { ConfirmNumberCard } from '@/components/visit/VerifyCard';
 import { emptyParty, partyHasMore, type Party } from '@/components/booking/PartyBuilder';
 import { groupPolicy } from '@/lib/group-policy';
-import { placeOptionsOf, PLACE_LABEL } from '@/lib/service-place';
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  type Service,
-  type Staff,
-  type Appointment,
-  type Event,
-  type Tenant,
-  type ConsentForm,
-  type PricingTier,
-  type Client,
-  getServicePrice,
-} from '@/lib/data';
-import { Progress } from '@/components/ui/progress';
-import Image from 'next/image';
-import { AlertTriangle, ArrowDown, ArrowLeft, ArrowRight, Award, Ban, Calendar, CalendarCheck, Check, CheckCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock, CreditCard, FileImage, FileSignature, Fingerprint, Flame, Info, ListChecks, Loader, Lock, Mail, MapPin, MessageSquare, Phone, RefreshCw, ShieldCheck, Sparkles, Star, User, Users, Wallet, X as XIcon, Zap } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { cn, safeNumber } from '@/lib/utils';
-import { computeDepositCents, isPoorHistory } from '@/lib/deposit-policy';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card';
-import {
-  startOfWeek, addDays, isSameDay, format, setHours, setMinutes,
-  startOfDay, areIntervalsOverlapping, addMinutes, isBefore, isToday,
-  parseISO, subWeeks, addWeeks, eachDayOfInterval, differenceInMinutes,
-  subMinutes, differenceInHours,
-} from 'date-fns';
-import { nanoid } from 'nanoid';
-import { useForm, FormProvider, Controller } from 'react-hook-form';
+import { placeOptionsOf } from '@/lib/service-place';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { type Service, type Staff, type Appointment, type Event, type Tenant, type ConsentForm, type PricingTier, type Client } from '@/lib/data';
+import { computeDepositCents, isPoorHistory, resolveBookingPlan } from '@/lib/deposit-policy';
+import { format, setHours, setMinutes, startOfDay, addMinutes } from 'date-fns';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PhoneInput } from '../ui/phone-input';
-import { useToast } from '@/hooks/use-toast';
-import { StudioFlow } from './StudioFlow';
+import { StudioFlow, type FlowLook } from './StudioFlow';
 import { DepositGiftCard } from '@/components/gift/DepositGiftCard';
 import type { InspoPhoto } from './PhotoMarkup';
-import { FormFieldRenderer } from '../consents/FormFieldRenderer';
-import { Separator } from '../ui/separator';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useFirebase } from '@/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { ImageUpload } from '../shared/ImageUpload';
-import { Textarea } from '../ui/textarea';
-import { Checkbox } from '../ui/checkbox';
 import { useServerAvailability, pickProvider } from '@/hooks/useServerAvailability';
-import { resolveBookingPlan } from '@/lib/deposit-policy';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const safeDate = (val: any): Date => {
-  if (!val) return new Date();
-  if (val instanceof Date) return val;
-  if (typeof val === 'string') { try { return parseISO(val); } catch { return new Date(val); } }
-  if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-  return new Date(val);
-};
-
-const timeStringToDate = (timeStr: string, date: Date): Date => {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  if (!timeStr) return d;
-  const [time, period] = timeStr.split(' ');
-  let [hours, minutes] = time.split(':').map(Number);
-  if (period === 'PM' && hours < 12) hours += 12;
-  if (period === 'AM' && hours === 12) hours = 0;
-  d.setHours(hours, minutes);
-  return d;
-};
-
-// ─── Theme-aware style helpers ────────────────────────────────────────────────
-const useThemeStyles = () => {
-  const headingFont = 'var(--booking-heading-font, system-ui, sans-serif)';
-  const bodyFont    = 'var(--booking-body-font, system-ui, sans-serif)';
-  const r  = 'var(--radius)';
-  const r2 = 'calc(var(--radius) * 2)';
-  const r3 = 'calc(var(--radius) * 2.5)';
-  return { headingFont, bodyFont, r, r2, r3 };
-};
-
-// ─── Staff card ───────────────────────────────────────────────────────────────
-const StaffSelectionCard = ({
-  staff, isSelected, disabled, r,
-}: {
-  staff: Staff | { id: string; name: string; avatarUrl: string };
-  isSelected: boolean;
-  disabled?: boolean;
-  r: string;
-}) => {
-  const isAnyStaff = staff.id === 'any';
-  return (
-    <label htmlFor={`staff-sheet-${staff.id}`} className={cn('block cursor-pointer', disabled && 'cursor-not-allowed opacity-50')}>
-      <div
-        style={{ borderRadius: r }}
-        className={cn(
-          'relative transition-all duration-300 border-2 p-3 flex flex-col items-center gap-2',
-          isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30',
-          disabled && 'bg-muted/5 border-dashed',
-        )}
-      >
-        <Avatar className={cn('w-12 h-12 border-4 shadow-sm transition-transform duration-500', isSelected ? 'border-primary scale-110' : 'border-background')}>
-          {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
-          <AvatarFallback className="text-muted-foreground bg-muted">
-            {isAnyStaff ? <Users className="w-6 h-6 md:w-7 md:h-7" /> : staff.name.charAt(0)}
-          </AvatarFallback>
-        </Avatar>
-        <p className="font-black uppercase tracking-tight text-[9px] text-center truncate w-full">{staff.name}</p>
-        <RadioGroupItem value={staff.id} id={`staff-sheet-${staff.id}`} className="sr-only" disabled={disabled} />
-        {isSelected && (
-          <div className="absolute top-1.5 right-1.5 bg-primary text-white rounded-full p-0.5">
-            <Check className="w-3 h-3" />
-          </div>
-        )}
-      </div>
-    </label>
-  );
-};
+import { brandColor, studioPage } from '@/lib/studio-page';
+import { privacyOf } from '@/lib/health-privacy';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 const bookingSchema = z.object({
-  clientName:  z.string().min(1, 'Name is required.'),
-  clientEmail: z.string().email('Invalid email address.'),
+  clientName:  z.string().trim().min(1, 'Add your name.'),
+  clientEmail: z.string().trim().email('Add an email we can send your booking to.'),
   clientPhone: z.string().optional(),
   notes:       z.string().optional(),
   // Deliberately left unrefined. `methods.trigger([...])` in handleNextStep
@@ -153,7 +48,7 @@ export const smsConsentWording = (studioName?: string | null) =>
 
 // Marketing is a SEPARATE yes. The reminders consent above does not cover
 // offers or "we miss you" texts, and US carriers / the TCPA treat the two
-// differently — so it's its own box, unticked by default, with its own words.
+// differently — so it's its own switch, off by default, with its own words.
 export const smsMarketingWording = (studioName?: string | null) =>
   `Also text me occasional offers, openings and check-ins from ${studioName || 'this studio'}. Up to 4 a month. Message and data rates may apply. Reply STOP to opt out. Not required to book.`;
 
@@ -164,6 +59,25 @@ type ConfirmResult =
   | { requiresPayment: true; error: string }
   | void;
 
+// ─── The client this device knows ─────────────────────────────────────────────
+// What they booked with last time on this device, so a returning client finds their details filled in ("Welcome
+// back, Dana"). Kept on the device only, never by a business that keeps things discreet, forgotten after a year and
+// a half, and forgotten at once by "Not you?".
+type KnownClient = { name: string; email: string; phone: string; sms: boolean; at: string };
+const knownKey = (tenantId: string) => `cf.me.${tenantId}`;
+function readKnown(tenantId: string): KnownClient | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(knownKey(tenantId)) || 'null');
+    if (v && typeof v.email === 'string' && v.email.includes('@') && typeof v.name === 'string' && Date.now() - Date.parse(v.at || '') < 548 * 86400000) return v;
+    if (v) localStorage.removeItem(knownKey(tenantId));
+  } catch { /* storage blocked: nothing known */ }
+  return null;
+}
+/** A saved number the way the phone field takes it ('+15125550148'): US numbers as 10 or 11 digits, others as saved with +. */
+const phoneForField = (raw: any): string => { const s = String(raw || '').trim(); const d = s.replace(/\D/g, '');
+  return s.startsWith('+') && d.length >= 8 ? `+${d}` : d.length === 10 ? `+1${d}` : d.length === 11 && d[0] === '1' ? `+${d}` : ''; };
+const firstName = (name: string) => { const f = String(name || '').trim().split(/\s+/)[0].replace(/[^\p{L}\p{M}'-]/gu, '').slice(0, 40); return f ? f[0].toUpperCase() + f.slice(1) : ''; };
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface BookingSheetProps {
   open:           boolean;
@@ -171,13 +85,11 @@ interface BookingSheetProps {
   service:        Service;
   staff:          Staff[];
   pricingTiers:   PricingTier[];
+  /** Who the client chose before opening ("Book with Maya"): chosen to start with, and they can change it. */
   initialStaffId?: string;
   /**
    * The provider is the page. On a renter's own booking link there is nobody
-   * to choose between — "Choose who" with "any available" beside their name
-   * asks a question that has no answer. Locked: the step is removed from the
-   * flow (not skipped, removed — the rail counts without it), the selection
-   * cannot change, and the header says who.
+   * to choose between, so who does it can't change and the time step says who.
    */
   lockedStaffId?: string;
   /** Client details to start the form with — a returning client rescheduling from their email. */
@@ -186,11 +98,18 @@ interface BookingSheetProps {
   initialSlot?: { date: string; time: string; staffId?: string | null } | null;
   /** The business — from the page's web address (sturdier than the loaded record). */
   tenantId?: string;
-  /** Studio design: three simple steps — When (who + time), You (details, forms,
-   *  summary, one Confirm), then Pay only if a deposit is due. */
-  simple?: boolean;
-  /** The visit being moved (client reschedule) — shown as a banner in the Studio flow. */
+  /** The visit being moved (client reschedule) — said at the top of the time step. */
   rescheduleOf?: { serviceName?: string | null; startTime?: string | null } | null;
+  /** A line about a time held for the client (an assistant's hold), shown at the top. */
+  holdNote?: string | null;
+  /** The color and mood the sheet comes in: the page's own. Unset: the business's. */
+  look?: FlowLook | null;
+  /** Whether this way in can send guests, extra services and who recommended them (the client portal can't yet). */
+  partyOk?: boolean;
+  /** The client stepped back from paying a deposit: let the time their booking was holding go. */
+  onReleaseHold?: () => Promise<'released' | 'paid' | 'kept' | void> | void;
+  /** The booking is made (booked, sent, or paid): whatever the page kept about a held booking is done with. */
+  onSettled?: () => void;
   appointments:   Appointment[];
   /**
    * The studio's MARKETING events, rendered on the public page. This is NOT
@@ -201,32 +120,17 @@ interface BookingSheetProps {
   services:       Service[];
   consentForms:   ConsentForm[];
   tenant:         Tenant | null;
-  /**
-   * Availability context. All optional: omit one and that constraint simply
-   * isn't applied, so an older caller or a preview still works. But every one
-   * of these IS enforced by the booking route, so a caller that leaves them
-   * out will offer times the server then refuses.
-   */
+  /** Availability context, kept for callers that still pass it; open times come from the server. */
   shifts?:          any[];
   staffBlocks?:     any[];
   dayOffBlocks?:    any[];
   resources?:       any[];
   tickets?:         any[];
   maintenancePlans?: any[];
-  /** Real calendar occupancy — what the engine treats as `events`. */
   calendarEvents?:  any[];
   /** What the SERVER made of the booking. Absent = an older caller, in
    *  which case the sheet keeps its original confirmed wording. */
-  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; prepUrl?: string | null } | null;
-  /** 'page' renders the flow as an ordinary page instead of a floating panel.
-   *
-   * Every mobile failure this component had came from being a floating box:
-   * fixed positioning defeated by transformed ancestors, heights computed
-   * against a viewport that changes as the URL bar collapses, a footer that
-   * had to be kept on screen by arithmetic. A page has none of those
-   * problems, because the browser is already very good at laying out pages.
-   * Sticky bars in normal document flow simply work. */
-  variant?: 'overlay' | 'page';
+  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean } | null;
   onConfirm: (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'> & { depositAmount?: number; depositStatus?: string },
@@ -235,52 +139,41 @@ interface BookingSheetProps {
   ) => Promise<ConfirmResult> | void;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-/* Step names the client would use, not the ones the code uses. "dateTime" is
- * a variable; "Pick a time" is what the person is doing. The header shows this
- * so someone who put their phone down mid-booking knows where they are. */
-const SIMPLE_TITLES: Record<string, string> = { dateTime: 'When would you like to come?', details: 'Your details', checkout: 'Pay your deposit', confirmation: 'You’re booked' };
-const STEP_TITLES: Record<string, string> = {
-  staff: 'Choose who',
-  dateTime: 'Pick a time',
-  details: 'Your details',
-  consents: 'Before we start',
-  checkout: 'Pay your deposit',
-  summary: 'Check and confirm',
-  confirmation: 'Done',
-};
+export type FlowNote = { tone: 'info' | 'warn'; text: string } | null;
 
+// ─── Component ────────────────────────────────────────────────────────────────
 export const BookingSheet: React.FC<BookingSheetProps> = ({
   open, onOpenChange, service, staff, pricingTiers, initialStaffId, lockedStaffId, prefillClient, initialSlot = null,
-  appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm, tenantId: tenantIdProp, simple = false, rescheduleOf = null,
-  shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
+  scheduleProfiles, services, consentForms, tenant, onConfirm, tenantId: tenantIdProp, rescheduleOf = null, holdNote = null, look = null, partyOk = true, onReleaseHold, onSettled,
   bookingOutcome,
-  variant = 'overlay',
 }) => {
-  const asPage = variant === 'page';
-  const isMobile = useIsMobile();
-  const { headingFont, bodyFont, r, r2, r3 } = useThemeStyles();
+  const tid = String(tenantIdProp || (tenant as any)?.id || '');
+  const discreet = privacyOf(tenant).discreet;
 
   const [selectedStaffId,      setSelectedStaffId]      = useState(lockedStaffId || initialStaffId || 'any');
   const [selectedTierId,       setSelectedTierId]        = useState<string>('any');
   const [date,                 setDate]                  = useState(new Date());
   const [selectedTime,         setSelectedTime]          = useState<string | null>(null);
-  // ADD-ONS the client can add to this visit (the service's "offered with it" list) — chosen on the When step; they
+  // ADD-ONS the client can add to this visit (the service's "offered with it" list) — chosen on the service step; they
   // lengthen the visit (availability accounts for them) and add to the price.
   const [addOnIds, setAddOnIds] = useState<string[]>([]);
   // Guests and more services (online groups) — sent as one request when anything's added.
   const [party, setParty] = useState<Party>(emptyParty);
   const groupPol = useMemo(() => groupPolicy(tenant), [tenant]);
   const addOns = useMemo(() => ((service as any)?.compatibleAddOnIds || []).map((id: string) => (services || []).find((x: any) => x.id === id)).filter((x: any) => x && x.status !== 'archived'), [service, services]);
-  const toggleAddOn = (id: string) => setAddOnIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  // A different visit length means different open times: the time is chosen again.
+  const toggleAddOn = (id: string) => { setAddOnIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id])); setSelectedTime(null); };
   useEffect(() => { setAddOnIds([]); }, [service?.id]);
   const addOnTotal = addOns.filter((a: any) => addOnIds.includes(a.id)).reduce((n: number, a: any) => n + (Number(a.price) || 0), 0);
+  const addOnMinutes = addOns.filter((a: any) => addOnIds.includes(a.id)).reduce((n: number, a: any) => n + (Number(a.duration) || 0), 0);
   const [formAnswers,          setFormAnswers]           = useState<Record<string, Record<string, any>>>({});
   const [bookedStaffId,        setBookedStaffId]         = useState<string | null>(null);
-  const [inspirationPhotoUrl,  setInspirationPhotoUrl]   = useState<string>('');
-  // Studio design: up to 4 marked-up photos, each with a note (PhotoMarkup).
+  // Up to 4 marked-up photos, each with a note (PhotoMarkup).
   const [inspoPhotos,          setInspoPhotos]           = useState<InspoPhoto[]>([]);
-  const { toast }     = useToast();
+  // What to tell the client on the step they're on: a check that didn't pass, or what the server said.
+  const [flowNote, setFlowNote] = useState<FlowNote>(null);
+  // Who this device knows (their first name), while their details are the ones filled in.
+  const [known, setKnown] = useState<string | null>(null);
   const { firestore } = useFirebase();
 
   const methods = useForm<BookingFormData>({ resolver: zodResolver(bookingSchema) });
@@ -288,16 +181,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const placeOpts = placeOptionsOf(service);
   const [placeChoice, setPlaceChoice] = React.useState<string>(placeOpts[0]);
   React.useEffect(() => { setPlaceChoice(placeOptionsOf(service)[0]); }, [service?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const placeChooser = placeOpts.length > 1 ? (
-    <div className="space-y-2">
-      <p className="text-[15px] font-semibold">How would you like to meet?</p>
-      <div className="grid grid-cols-2 gap-2">{placeOpts.map((k) => { const on = placeChoice === k;
-        return <button key={k} type="button" aria-pressed={on} onClick={() => setPlaceChoice(k)} className="h-11 rounded-full px-3 text-[14px] transition active:scale-[.98]"
-          style={on ? { background: 'var(--accent, #1c1917)', color: '#fff', fontWeight: 600 } : { background: '#fff', border: '1px solid #e7e2dc' }}>{PLACE_LABEL[k]}</button>; })}</div>
-      {(placeChoice === 'online' || placeChoice === 'phone') && tenant?.depositsLive && (tenant as any)?.bookingPolicies?.remotePayInFull !== false && <p className="text-[13px]" style={{ color: '#78716c' }}>{placeChoice === 'online' ? 'Video calls' : 'Phone calls'} are paid in full when you book.</p>}
-    </div>
-  ) : null;
-  const { handleSubmit, watch } = methods;
+  const { watch } = methods;
   const clientEmail = watch('clientEmail');
   const clientPhone = watch('clientPhone');
 
@@ -306,22 +190,24 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [matchedClient,             setMatchedClient]             = useState<Client | null>(null);
   const [isResolvingIdentity,       setIsResolvingIdentity]       = useState(false);
 
-  // ── Embedded checkout state ───────────────────────────────────────────────
+  // ── Payment, opened on the review step once the booking holds the time ─────
   const [depositClientSecret,    setDepositClientSecret]    = useState<string | null>(null);
   const [depositApptId, setDepositApptId] = useState<string | null>(null);   // the held visit — a gift card can pay its deposit instead
-  // The SERVER can require a deposit the page couldn't predict (e.g. a client
-  // with missed visits). Then the payment step is added and shown.
-  const [serverNeedsPayment,     setServerNeedsPayment]     = useState(false);
   const [depositStripeAccountId, setDepositStripeAccountId] = useState<string | null>(null);
-  const [depositLoading,         setDepositLoading]         = useState(false);
   const [depositError,           setDepositError]           = useState<string | null>(null);
   // Try again after the card form failed to load → reload the form only (never re-book).
   const [mountTry,               setMountTry]               = useState(0);
   const embeddedMountRef         = useRef<HTMLDivElement>(null);
   const embeddedCheckoutRef      = useRef<any>(null);
+  // Paid (by card or a gift card) on this screen: the booked screen says booked, not "almost there".
+  const [paid, setPaid] = useState(false);
+  const resetPay = () => { setDepositClientSecret(null); setDepositStripeAccountId(null); setDepositApptId(null); setDepositError(null); };
 
-  const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
-    if (!firestore || !tenant || (!email && !phone)) return;
+  // What the lookup found, handed back too, so the check right after it reads this answer rather than the last one.
+  type Found = { matched: Client | null; banned: Client | null; balance: Client | null };
+  const resolveIdentity = async (email?: string, phone?: string): Promise<Found | null> => {
+    if (!firestore || !tenant || (!email && !phone)) return null;
+    const mine = ++lookupSeq.current;   // only the latest lookup's answer counts
     setIsResolvingIdentity(true);
     try {
       const clientsRef = collection(firestore, 'tenants', tenant.id, 'clients');
@@ -332,23 +218,31 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       const allDocs    = snapshots.flatMap(s => s.docs).filter(d => !(d.data() as any)?.ownerRenterId);
       if (allDocs.length > 0) {
         const clientData = allDocs[0].data() as Client;
-        setMatchedClient(clientData);
-        if (clientData.status === 'banned') { setBannedClient(clientData); setExistingClientWithBalance(null); }
-        else if (clientData.outstandingBalance && clientData.outstandingBalance > 0) { setExistingClientWithBalance(clientData); setBannedClient(null); }
-        else { setBannedClient(null); setExistingClientWithBalance(null); }
-      } else { setBannedClient(null); setExistingClientWithBalance(null); setMatchedClient(null); }
-    } catch (e) { console.error('Identity resolution failed', e); }
-    finally { setIsResolvingIdentity(false); }
-  }, [firestore, tenant]);
+        const banned = clientData.status === 'banned' ? clientData : null;
+        const balance = !banned && clientData.outstandingBalance && clientData.outstandingBalance > 0 ? clientData : null;
+        if (mine === lookupSeq.current) { setMatchedClient(clientData); setBannedClient(banned); setExistingClientWithBalance(balance); }
+        return { matched: clientData, banned, balance };
+      }
+      if (mine === lookupSeq.current) { setBannedClient(null); setExistingClientWithBalance(null); setMatchedClient(null); }
+      return { matched: null, banned: null, balance: null };
+    } catch (e) {
+      // Couldn't look (the server checks again when booking): no old warning is left standing.
+      if (mine === lookupSeq.current) { setBannedClient(null); setExistingClientWithBalance(null); }
+      return null;
+    }
+    finally { if (mine === lookupSeq.current) setIsResolvingIdentity(false); }
+  };
+  const resolveRef = useRef(resolveIdentity); resolveRef.current = resolveIdentity;
+  const lookupSeq = useRef(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       if ((clientEmail && clientEmail.includes('@')) || (clientPhone && clientPhone.length > 5)) {
-        resolveIdentity(clientEmail, clientPhone);
+        void resolveRef.current(clientEmail, clientPhone);
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [clientEmail, clientPhone, resolveIdentity]);
+  }, [clientEmail, clientPhone, firestore, (tenant as any)?.id]);
 
   const qualifiedStaff = useMemo(() => {
     if (!service?.requiredSkills || service.requiredSkills.length === 0) return staff;
@@ -360,13 +254,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     const tiersWithStaff = new Set(qualifiedStaff.map(s => s.pricingTierId).filter(Boolean));
     return service.serviceTiers
       .filter(st => tiersWithStaff.has(st.tierId))
-      .map(st => ({ ...st, name: pricingTiers.find(pt => pt.id === st.tierId)?.name || 'Tier' }));
+      .map(st => ({ ...st, id: st.tierId, name: pricingTiers.find(pt => pt.id === st.tierId)?.name || 'Tier' }));
   }, [service, qualifiedStaff, pricingTiers]);
 
-  const weekStart = useMemo(() => startOfWeek(date, { weekStartsOn: 0 }), [date]);
-  const weekDays  = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const publicScheduleProfile = useMemo(() => scheduleProfiles?.find(p => p.isActive), [scheduleProfiles]);
-
   const activeDaySchedule = useMemo(() => {
     const dayName = format(date, 'eeee').toLowerCase();
     return publicScheduleProfile?.week?.[dayName] || null;
@@ -374,58 +265,54 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   const dateKey = useMemo(() => format(date, 'yyyy-MM-dd'), [date]);
 
-  // Slot generation runs through the SAME engine the booking route uses to
-  // verify. This replaces a hand-rolled scan that knew about staff hours,
-  // appointments and 'blocked' events only — it had no idea about the
-  // published shift roster, approved days off, chair capacity, urgent
-  // maintenance or staff holds, all of which the route enforces. That gap is
-  // why guests could tap a time and get refused.
-  // Open times come from the SERVER, worked out with the same engine the
-  // booking route verifies with — the browser never receives other people's
-  // appointments, shifts or days off. (Was: useSmartAvailability in the
-  // browser, fed with busy-time data sent to every visitor.)
+  // Open times come from the SERVER, worked out with the same engine the booking route verifies with — the browser
+  // never receives other people's appointments, shifts or days off.
   // A returning client whose visits usually run longer: once the booking engine says so, show only times that fit.
   const [clientExtra, setClientExtra] = useState(0);
   // A charge for their usual extra time: shown, agreed, then booked — never added silently.
   const [extraOffer, setExtraOffer] = useState<{ minutes: number; cents: number; text: string } | null>(null); const [acceptExtraCents, setAcceptExtraCents] = useState(0);
+  const providerId = (service as any)?.renterProviderId || null;
+  const currentStepRef = useRef<string>('');
   const availability = useServerAvailability({
-    tenantId: tenantIdProp || (tenant as any)?.id,
+    tenantId: tid,
     date: dateKey,
     serviceId: service?.id || '',
     staffId: selectedStaffId,
     tierId: selectedStaffId === 'any' && selectedTierId !== 'any' ? selectedTierId : undefined,
-    providerId: (service as any)?.renterProviderId || null,
+    providerId,
     addOnIds,
     extraMinutes: clientExtra,
   });
-  // "Any available": ask the server who takes the chosen time, as soon as it's tapped.
+  // "Anyone": ask the server who takes the chosen time, as soon as it's tapped (for the visit as chosen, add-ons and
+  // their usual extra time included).
   const [anyPick, setAnyPick] = useState<{ key: string; staffId?: string; error?: string } | null>(null);
   const anyPickRef = useRef<{ key: string; staffId?: string; error?: string } | null>(null);
   useEffect(() => { anyPickRef.current = anyPick; }, [anyPick]);
+  const pickKey = `${dateKey}|${selectedTime}|${service?.id || ''}|${selectedTierId}|${addOnIds.join(',')}|${clientExtra}`;
+  const pickInput = () => ({ tenantId: tid, date: dateKey, time: String(selectedTime || ''), serviceId: service.id, tierId: selectedTierId !== 'any' ? selectedTierId : undefined, providerId, addOnIds, extraMinutes: clientExtra });
   /** "Anyone": make sure the server's pick for THIS time is in hand before
-   *  confirming — if it hasn't arrived yet (slow connection), ask now and wait,
-   *  instead of telling the client to tap again. */
+   *  booking — if it hasn't arrived yet (slow connection), ask now and wait. */
   const ensureAnyPick = async () => {
-    if (selectedStaffId !== 'any' || !selectedTime || !service?.id) return;
+    if (selectedStaffId !== 'any' || !selectedTime || !service?.id || !tid) return;
     const cur = anyPickRef.current; if (cur && cur.key === pickKey && (cur.staffId || cur.error)) return;
-    const tid = tenantIdProp || (tenant as any)?.id; if (!tid) return;
-    const r = await pickProvider({ tenantId: tid, date: dateKey, time: selectedTime, serviceId: service.id, tierId: selectedTierId !== 'any' ? selectedTierId : undefined, providerId: (service as any)?.renterProviderId || null });
+    const r = await pickProvider(pickInput());
     const next = r.ok ? { key: pickKey, staffId: r.staffId } : { key: pickKey, error: r.error };
     anyPickRef.current = next; setAnyPick(next);
   };
-  const pickKey = `${dateKey}|${selectedTime}|${service?.id || ''}|${selectedTierId}`;
   useEffect(() => {
-    const tid = tenantIdProp || (tenant as any)?.id;
     if (selectedStaffId !== 'any' || !selectedTime || !service?.id || !tid) { setAnyPick(null); return; }
     let live = true; setAnyPick({ key: pickKey });
-    void pickProvider({ tenantId: tid, date: dateKey, time: selectedTime, serviceId: service.id, tierId: selectedTierId !== 'any' ? selectedTierId : undefined, providerId: (service as any)?.renterProviderId || null })
-      .then((r) => { if (live) setAnyPick(r.ok ? { key: pickKey, staffId: r.staffId } : { key: pickKey, error: r.error }); });
+    void pickProvider(pickInput()).then((r) => { if (live) setAnyPick(r.ok ? { key: pickKey, staffId: r.staffId } : { key: pickKey, error: r.error }); });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickKey, selectedStaffId]);
 
   const timeSlots = availability.times;
-
+  // While choosing: a time that isn't open on the day as now loaded (another day, a longer visit) is chosen again.
+  useEffect(() => {
+    if (availability.loading || !selectedTime || (currentStepRef.current !== 'dateTime' && currentStepRef.current !== 'service')) return;
+    if (!availability.times.includes(selectedTime)) setSelectedTime(null);
+  }, [availability.loading, availability.times]); // eslint-disable-line react-hooks/exhaustive-deps
   const hotSlotMap = useMemo(() => {
     const m = new Map<string, boolean>();
     for (const t of availability.hotTimes) m.set(t, true);
@@ -469,118 +356,90 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
   /**
    * A DEPOSIT EXISTING IS NOT THE SAME AS A DEPOSIT BEING DUE NOW.
-   *
-   * This used to route into checkout whenever the service had a deposit, which
-   * is right for a shop taking money at booking and wrong for every other
-   * timing. In approval mode the plan says chargeTiming: 'on_approval' — the
-   * deposit is taken WHEN THE STUDIO ACCEPTS — and the client was charged at
-   * booking anyway. They paid for an appointment the studio had not yet agreed
-   * to, and would have had to be refunded if it were declined.
-   *
    * The plan decides now. Money is collected here only when the plan says
    * at_booking; on_approval and on_penalty book without payment, and the
    * decide route charges the card or sends a pay link at the moment it
    * becomes real.
    */
+  const bookingPreview = useMemo(() => {
+    if (!tenant || !service) return null;
+    try {
+      return resolveBookingPlan({ tenant, service, price: price || 0 } as any);
+    } catch {
+      return null;
+    }
+  }, [tenant, service, price]);
   const chargeDueNow = useMemo(() => {
     if (depositAmount <= 0) return false;
     /* No plan resolvable (a service or tenant we could not read) → fall back
      * to the old behaviour rather than silently skipping a payment the shop
      * expects. */
-    if (!tenant || !service) return true;
-    try {
-      return resolveBookingPlan({ tenant, service, price: price || 0 } as any).chargeTiming === 'at_booking';
-    } catch {
-      return true;
-    }
-  }, [depositAmount, tenant, service, price]);
-
+    if (!tenant || !service || !bookingPreview) return true;
+    return bookingPreview.chargeTiming === 'at_booking';
+  }, [depositAmount, tenant, service, bookingPreview]);
   /**
-   * A CARD IS REQUIRED, SO IT IS COLLECTED — not stamped and hoped for.
-   *
-   * requireCardOnFile used to write requiresCardOnFile onto the appointment
-   * and collect nothing. A card only ever arrived as a side effect of paying
-   * a deposit, so the two timings that take no money at booking produced
-   * bookings with no card at all, and accepting one could only send a pay
-   * link. When the shop says a card is required, the flow now asks for one —
-   * in setup mode, so the issuer authorises it and nothing is charged.
-   *
-   * Never both screens: paying already vaults the card.
+   * A CARD IS REQUIRED, SO IT IS COLLECTED — in setup mode, so the issuer
+   * authorizes it and nothing is charged. Never both: paying already keeps the card.
    */
-  const cardSetupDueNow = useMemo(() => {
-    if (chargeDueNow) return false;
-    if (!tenant || !service) return false;
-    try {
-      return resolveBookingPlan({ tenant, service, price: price || 0 } as any).requiresCardOnFile === true;
-    } catch {
-      return false;
+  const cardSetupDueNow = !chargeDueNow && bookingPreview?.requiresCardOnFile === true;
+
+  // What happens to the money, in the client's words (said on the review step).
+  const previewLines = useMemo(() => {
+    if (!bookingPreview) return [] as string[];
+    const out: string[] = [];
+    const amount = Number(bookingPreview.depositCents || 0) / 100;
+    const money = `$${amount % 1 ? amount.toFixed(2) : amount}`;
+    if (bookingPreview.status === 'requested') out.push(`This sends a request. ${(tenant as any)?.name || 'The business'} confirms before it’s booked.`);
+    if (amount > 0) {
+      if (bookingPreview.chargeTiming === 'on_approval') out.push(`The ${money} deposit is taken only once your request is accepted.`);
+      else if (bookingPreview.chargeTiming === 'on_penalty') out.push(`Nothing is taken now. ${money} applies only if you miss the visit or cancel late.`);
     }
-  }, [chargeDueNow, tenant, service, price]);
+    if (bookingPreview.requiresCardOnFile && bookingPreview.chargeTiming !== 'at_booking') out.push('You’ll add a card when you book. Nothing is charged to it today.');
+    return out;
+  }, [bookingPreview, tenant]);
 
-  const steps = useMemo(() => {
-    if (simple) {
-      // When (who + time) → You (details + forms + summary) → [Pay] → Done
-      const flow = ['dateTime', 'details'];
-      if (chargeDueNow || cardSetupDueNow || serverNeedsPayment) flow.push('checkout');
-      flow.push('confirmation');
-      return flow;
-    }
-    const flow = lockedStaffId ? ['dateTime', 'details'] : ['staff', 'dateTime', 'details'];
-    if (requiredForms.length > 0) flow.push('consents');
-    flow.push(chargeDueNow || cardSetupDueNow || serverNeedsPayment ? 'checkout' : 'summary');
-    flow.push('confirmation');
-    return flow;
-  }, [requiredForms.length, chargeDueNow, cardSetupDueNow, lockedStaffId, simple, serverNeedsPayment]);
-
-  /* The pinned bars are measured rather than estimated. Their height changes
-   * with the safe-area inset, the step rail, and how long the service name
-   * wraps — a hardcoded padding would be wrong on some phones and clip the
-   * first or last control. ResizeObserver keeps the body's clearance exact. */
-  const headerRef = useRef<HTMLDivElement | null>(null);
-  const footerRef = useRef<HTMLDivElement | null>(null);
-  const panelRef = useRef<HTMLDivElement | null>(null);
-
-  /* Portalling needs document, which does not exist during SSR. */
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const currentStep = steps[currentStepIndex];
+  // ── The steps ───────────────────────────────────────────────────────────────
+  // The service step shows only when there's something to choose on it (add-ons, where to meet); a reschedule moves
+  // the visit it already is. Paying happens on the review step, once the booking holds the time.
+  const serviceStep = !rescheduleOf && (addOns.length > 0 || placeOpts.length > 1);
+  const steps = useMemo(() => [...(serviceStep ? ['service'] : []), 'dateTime', 'details', 'review', 'confirmation'], [serviceStep]);
+  // The step is kept by its name, so the booked screen stays the booked screen even if the list of steps changes
+  // underneath it (a reschedule finishing, the menu changing while the sheet is open).
+  const [stepName, setStepName] = useState<string>(steps[0]);
+  const [direction, setDirection] = useState<'fwd' | 'back'>('fwd');
+  const currentStep = steps.includes(stepName) ? stepName : steps[0];
+  const currentStepIndex = steps.indexOf(currentStep);
+  const stepsRef = useRef(steps); stepsRef.current = steps; currentStepRef.current = currentStep;
+  const goTo = (name: string) => { if (stepsRef.current.includes(name)) { setDirection('fwd'); setFlowNote(null); setStepName(name); } };
+  const goToRef = useRef(goTo); goToRef.current = goTo;
 
   useEffect(() => {
     if (!open) return;
-    const panel = panelRef.current;
-    if (!panel) return;
-    const sync = () => {
-      panel.style.setProperty('--sheet-header-h', `${headerRef.current?.offsetHeight ?? 108}px`);
-      panel.style.setProperty('--sheet-footer-h', `${footerRef.current?.offsetHeight ?? 104}px`);
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    if (headerRef.current) ro.observe(headerRef.current);
-    if (footerRef.current) ro.observe(footerRef.current);
-    window.addEventListener('resize', sync);
-    return () => { ro.disconnect(); window.removeEventListener('resize', sync); };
-  }, [open, currentStep, steps.length]);
-  const progress    = useMemo(() => ((currentStepIndex) / (steps.length - 1)) * 100, [currentStepIndex, steps.length]);
+    setSelectedStaffId(lockedStaffId || initialStaffId || 'any');
+    setSelectedTierId('any'); setSelectedTime(null); setDate(new Date()); setDirection('fwd'); setStepName(steps[0]);
+    setAddOnIds([]); setClientExtra(0); setPaid(false); setMatchedClient(null); setBannedClient(null); setExistingClientWithBalance(null);
+    // Their details: a reschedule's or an assistant's hold first, else what this device used last time.
+    const me = !prefillClient && tid && !discreet ? readKnown(tid) : null;
+    setKnown(me ? firstName(me.name) || null : null);
+    methods.reset(prefillClient ? { clientName: prefillClient.clientName || '', clientEmail: prefillClient.clientEmail || '', clientPhone: phoneForField(prefillClient.clientPhone) } as any
+      : me ? { clientName: me.name, clientEmail: me.email, clientPhone: phoneForField(me.phone) } as any : undefined);   // consent is always theirs to give on this booking
+    setFormAnswers({}); setBookedStaffId(null); setInspoPhotos([]); setParty(emptyParty);
+    resetPay(); setFlowNote(null); setExtraOffer(null); setAcceptExtraCents(0);
+    if (initialSlot && /^\d{4}-\d{2}-\d{2}$/.test(initialSlot.date)) { const [y, m, d] = initialSlot.date.split('-').map(Number);
+      setSelectedStaffId(lockedStaffId || initialSlot.staffId || 'any'); setDate(new Date(y, m - 1, d)); setSelectedTime(initialSlot.time); setStepName('details'); }
+    // The page passes a fresh copy of its details on every render: this runs when the sheet opens, or what it opens on changes.
+  }, [open, initialStaffId, lockedStaffId, methods, initialSlot?.date, initialSlot?.time, initialSlot?.staffId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (open) {
-      if (lockedStaffId) { setSelectedStaffId(lockedStaffId); setCurrentStepIndex(0); }
-      else if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
-      else { setSelectedStaffId('any'); setCurrentStepIndex(0); }
-      setSelectedTime(null); setSelectedTierId('any'); setDate(new Date());
-      methods.reset(prefillClient ? { clientName: prefillClient.clientName || '', clientEmail: prefillClient.clientEmail || '', clientPhone: prefillClient.clientPhone || '' } as any : undefined); setFormAnswers({});
-      setBookedStaffId(null); setInspirationPhotoUrl('');
-      setDepositClientSecret(null); setDepositStripeAccountId(null);
-      setDepositLoading(false); setDepositError(null);
-      if (initialSlot && /^\d{4}-\d{2}-\d{2}$/.test(initialSlot.date)) { const [y, m, d] = initialSlot.date.split('-').map(Number);
-        setSelectedStaffId(lockedStaffId || initialSlot.staffId || 'any'); setDate(new Date(y, m - 1, d)); setSelectedTime(initialSlot.time); setCurrentStepIndex(Math.max(0, steps.indexOf('details'))); }
-    }
-  }, [open, initialStaffId, lockedStaffId, methods, initialSlot]);   // eslint-disable-line react-hooks/exhaustive-deps
+  /** "Not you?": forget this device's client and clear what was filled in. */
+  const forgetMe = () => {
+    try { localStorage.removeItem(knownKey(tid)); localStorage.removeItem(`cf.lastVisit.${tid}`); } catch { /* none */ }
+    setKnown(null); methods.reset({ clientName: '', clientEmail: '', clientPhone: '', smsConsent: false, smsMarketing: false, notes: methods.getValues('notes') || '' } as any);
+    setMatchedClient(null); setBannedClient(null); setExistingClientWithBalance(null);
+  };
 
-  // ── Shared booking-payload builder ──────────────────────────────────────────
-  const resolveBookingPayload = useCallback(():
+  // ── What gets booked ─────────────────────────────────────────────────────────
+  // A plain function, read when the client books, so it always has everything they chose.
+  const resolveBookingPayload = ():
     | { error: string }
     | {
         finalStaffId: string;
@@ -592,26 +451,21 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (!service || !selectedTime) return null;
     const [hours, minutes] = selectedTime.split(':').map(Number);
     const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
-    const endDateTime   = addMinutes(startDateTime, service.duration);
+    const endDateTime   = addMinutes(startDateTime, (Number(service.duration) || 0) + addOnMinutes + clientExtra);
 
     let finalStaffId = selectedStaffId;
     if (finalStaffId === 'any') {
-      // The engine's rotation, not a local sort. The old code here ordered by
-      // `lastServedTimestamp` — a field nothing in the codebase ever writes —
-      // so every candidate compared equal and 'Any Available' silently handed
-      // every online booking to whoever happened to be first in the array.
-      // Chosen by the server when the time was tapped (same rotation rules);
-      // the booking route re-checks it when the booking is made.
+      // Chosen by the server when the time was tapped (the engine's rotation); the booking route re-checks it.
       const ap = anyPickRef.current;
       if (!ap || ap.key !== pickKey || (!ap.staffId && !ap.error)) {
-        return { error: 'Still matching you with a professional for that time — tap again in a moment.' };
+        return { error: 'Still matching you with someone for that time. Tap again in a moment.' };
       }
-      if (!ap.staffId) return { error: ap.error || 'No professionals are available for this window. Please pick another time.' };
+      if (!ap.staffId) return { error: ap.error || 'Nobody is free for that time anymore. Please choose another.' };
       finalStaffId = ap.staffId;
     }
 
     const formValues   = methods.getValues();
-    const clientData   = { clientName: formValues.clientName, clientEmail: formValues.clientEmail, clientPhone: formValues.clientPhone, notes: formValues.notes };
+    const clientData   = { clientName: String(formValues.clientName || '').trim(), clientEmail: String(formValues.clientEmail || '').trim(), clientPhone: formValues.clientPhone, notes: formValues.notes };
     const signedForms  = requiredForms.map(form => ({ formId: form.id, formTitle: form.title, formData: formAnswers[form.id] || {} }));
 
     return {
@@ -619,11 +473,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       clientData,
       signedForms,
       appointmentDetails: {
-        serviceId: service.id, staffId: finalStaffId, addOnIds, ...(partyHasMore(party) ? { party } : {}), ...(acceptExtraCents > 0 ? { acceptExtraCents } : {}),
+        serviceId: service.id, serviceName: service.name, staffId: finalStaffId, addOnIds, ...(partyHasMore(party) ? { party } : {}), ...(acceptExtraCents > 0 ? { acceptExtraCents } : {}),
         ...(placeOpts.length > 1 ? { place: placeChoice } : {}),
         startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
         status: 'confirmed', isWalkIn: false, source: 'online',
-        inspirationPhotoUrl: inspoPhotos[0]?.url || inspirationPhotoUrl || undefined, notes: formValues.notes,
+        inspirationPhotoUrl: inspoPhotos[0]?.url || undefined, notes: formValues.notes,
         ...(inspoPhotos.length ? { inspirationPhotos: inspoPhotos.map(({ url, note }) => ({ url, note })) } : {}),
         depositAmount,
         depositStatus: chargeDueNow ? 'pending' : 'none',
@@ -641,136 +495,46 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         ...(String(formValues.referrerFirst || '').trim() && String(formValues.referrerPhone || '').replace(/\D/g, '').length >= 10 ? { referredBy: { firstName: String(formValues.referrerFirst).trim().slice(0, 40), phone: String(formValues.referrerPhone).slice(0, 30) } } : {}),
       },
     };
-  }, [service, selectedTime, dateKey, date, selectedStaffId, selectedTierId, qualifiedStaff, services, appointments, calendarEvents, scheduleProfiles, tenant, shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, methods, requiredForms, formAnswers, inspirationPhotoUrl, depositAmount]);
+  };
 
-  /**
-   * WHAT PRESSING THE BUTTON WILL ACTUALLY DO.
-   *
-   * The same resolver the booking route runs, run here so the client is told
-   * before they commit rather than after. Until this existed the flow asked
-   * for a decision and only explained it on the confirmation screen — a shop
-   * requiring a card on file collected the slot first and mentioned the card
-   * afterwards, which is exactly the order that produces a dead card and an
-   * argument.
-   *
-   * The client record is unknown at this point on a public booking, and the
-   * only thing it can change is to make the plan STRICTER (a poor history
-   * forces the deposit up front). So this can under-promise and never
-   * over-promise, and the server's own notice still shows at the end.
-   */
-  const bookingPreview = useMemo(() => {
-    if (!tenant || !service) return null;
-    try {
-      return resolveBookingPlan({ tenant, service, price: price || 0 } as any);
-    } catch {
-      return null;
-    }
-  }, [tenant, service, price]);
-
-  const previewLines = useMemo(() => {
-    if (!bookingPreview) return [] as string[];
-    const out: string[] = [];
-    const money = `$${(Number(bookingPreview.depositCents || 0) / 100).toFixed(2)}`;
-
-    if (bookingPreview.status === 'requested') {
-      out.push('This sends a request. The studio confirms before it is booked.');
-    }
-    if (Number(bookingPreview.depositCents || 0) > 0) {
-      if (bookingPreview.chargeTiming === 'at_booking') {
-        out.push(`${money} is taken now and comes off your final total.`);
-      } else if (bookingPreview.chargeTiming === 'on_approval') {
-        out.push(`${money} is taken only once the studio accepts.`);
-      } else if (bookingPreview.chargeTiming === 'on_penalty') {
-        out.push(`Nothing is taken now. ${money} only applies if you no-show or cancel late.`);
-      }
-    }
-    if (bookingPreview.requiresCardOnFile) {
-      out.push('A card is kept on file. You will add it right after booking — nothing is charged to it today.');
-    }
-    return out;
-  }, [bookingPreview]);
-
-  // ── No-deposit finalize (used at the 'summary' step) ────────────────────────
+  // ── Booking it ───────────────────────────────────────────────────────────────
+  // One button on the review step. The server decides what the booking becomes; when money or a card is due, the
+  // secure form opens right there for THAT booking, and anything the server needs first is said in its own words.
   const [confirming, setConfirming] = useState(false);
-  const handleConfirmBooking = async () => {
-    await ensureAnyPick();
-    const payload = resolveBookingPayload();
-    if (!payload) return;
-    if ('error' in payload) { toast({ variant: 'destructive', title: 'No staff available', description: payload.error }); return; }
-    setBookedStaffId(payload.finalStaffId);
-    // The server's answer was being thrown away here: a refused booking —
-    // time just taken, provider without hours, outside their lease window —
-    // returned an error object and this button did nothing at all. Now it
-    // says what happened, in the server's own words.
-    setConfirming(true);
+  const submit = async () => {
+    if (confirming || leavingRef.current) return;
+    setFlowNote(null); setDepositError(null); setConfirming(true);
     try {
-      const result = await onConfirm(payload.clientData, payload.appointmentDetails, payload.signedForms, (s: string) => setCurrentStepIndex(steps.indexOf(s)));
-      if (result && 'clientSecret' in result && result.clientSecret) {
+      await ensureAnyPick();
+      const payload = resolveBookingPayload();
+      if (!payload) return;
+      if ('error' in payload) { setFlowNote({ tone: 'warn', text: payload.error }); return; }
+      setBookedStaffId(payload.finalStaffId);
+      const result: any = await onConfirm(payload.clientData, payload.appointmentDetails, payload.signedForms, (s: string) => goToRef.current(s === 'checkout' ? 'review' : s));
+      if (result && result.clientSecret) {
         setDepositClientSecret(result.clientSecret);
-        setDepositStripeAccountId((result as any).stripeAccountId || null);
-        setServerNeedsPayment(true); // the effect below moves to the payment step
+        setDepositStripeAccountId(result.stripeAccountId || null); setDepositApptId(result.appointmentId || null);
         return;
       }
-      if (result && (result as any).code === 'confirm_extra') {
-        setExtraOffer({ minutes: Number((result as any).extraMinutes) || 0, cents: Number((result as any).extraCents) || 0, text: String((result as any).error || '') });
+      if (result?.code === 'confirm_extra') { setExtraOffer({ minutes: Number(result.extraMinutes) || 0, cents: Number(result.extraCents) || 0, text: String(result.error || '') }); return; }
+      if (result?.code === 'needs_longer') {
+        setClientExtra(Number(result.extraMinutes) || 0); setSelectedTime(null); setDirection('back'); setStepName('dateTime');
+        setFlowNote({ tone: 'info', text: String(result.error || 'Your visits usually take a little longer, so here are the times that fit.') });
         return;
       }
-      if (result && (result as any).code === 'needs_longer') {
-        setClientExtra(Number((result as any).extraMinutes) || 0); setSelectedTime(null as any);
-        setCurrentStepIndex(Math.max(0, steps.findIndex((x: string) => /date|time|when/i.test(x))));
-        toast({ title: 'A little more time for you', description: String((result as any).error) });
-        return;
-      }
-      if (result && 'error' in result && result.error) {
-        toast({ variant: 'destructive', title: 'Could not book that', description: String(result.error) });
-      }
+      if (result && result.error) { setFlowNote({ tone: 'warn', text: String(result.error) }); return; }
+      goToRef.current('confirmation');
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Could not book that', description: e?.message || 'Please try again.' });
+      setFlowNote({ tone: 'warn', text: e?.message ? `That didn’t go through: ${String(e.message).slice(0, 160)}` : 'That didn’t go through. Please try again.' });
     } finally { setConfirming(false); }
   };
   // After they agree to the extra-time charge, book again — with their agreement to that exact amount attached.
   const [rebookTick, setRebookTick] = useState(0);
-  useEffect(() => { if (rebookTick) void handleConfirmBooking(); }, [rebookTick]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Deposit checkout init (used at the 'checkout' step) ─────────────────────
-  const initiateCheckout = useCallback(async () => {
-    setDepositLoading(true);
-    setDepositError(null);
-    await ensureAnyPick();
-    const payload = resolveBookingPayload();
-    if (!payload) { setDepositLoading(false); return; }
-    if ('error' in payload) { setDepositError(payload.error); setDepositLoading(false); return; }
-    setBookedStaffId(payload.finalStaffId);
-    try {
-      const result = await onConfirm(payload.clientData, payload.appointmentDetails, payload.signedForms, () => {});
-      if (result && 'requiresPayment' in result && result.requiresPayment) {
-        if ('clientSecret' in result && result.clientSecret) {
-          setDepositClientSecret(result.clientSecret);
-          setDepositStripeAccountId(result.stripeAccountId || null); setDepositApptId((result as any).appointmentId || null);
-        } else if ('error' in result) {
-          setDepositError(result.error);
-        }
-      } else {
-        setCurrentStepIndex(steps.indexOf('confirmation'));
-      }
-    } catch (e) {
-      console.error(e);
-      setDepositError('Something went wrong starting checkout. Please try again.');
-    } finally {
-      setDepositLoading(false);
-    }
-  }, [resolveBookingPayload, onConfirm, steps]);
+  useEffect(() => { if (rebookTick) void submit(); }, [rebookTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (currentStep === 'checkout' && !depositClientSecret && !depositLoading && !depositError) {
-      initiateCheckout();
-    }
-  }, [currentStep, depositClientSecret, depositLoading, depositError, initiateCheckout]);
-
-  useEffect(() => {
-    const payTenantId = tenantIdProp || tenant?.id; // the page's own id — doesn't wait on the loaded record
-    if (!depositClientSecret || !payTenantId) return;
-    let cancelled = false;
+    if (!depositClientSecret || !tid) return;
+    let stopped = false;
     let instance: any;
 
     const mount = async () => {
@@ -780,23 +544,23 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         await new Promise<void>((resolve, reject) => {
           const s = document.createElement('script');
           s.src = 'https://js.stripe.com/v3/';
-          const t = setTimeout(() => reject(new Error('Stripe’s secure payment took too long to load — check your connection and try again.')), 15000);
+          const t = setTimeout(() => reject(new Error('The secure payment form took too long to load. Check your connection and try again.')), 15000);
           s.onload = () => { clearTimeout(t); resolve(); };
-          s.onerror = () => { clearTimeout(t); s.remove(); reject(new Error('Stripe’s secure payment script couldn’t load — check your connection or any content blocker, then try again.')); };
+          s.onerror = () => { clearTimeout(t); s.remove(); reject(new Error('The secure payment form couldn’t load. Check your connection or any content blocker, then try again.')); };
           document.head.appendChild(s);
         });
       }
-      if (cancelled) return;
+      if (stopped) return;
 
       const keyRes = await fetch('/api/stripe/publishable-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId: payTenantId }),
+        body: JSON.stringify({ tenantId: tid }),
       });
       const { publishableKey, stripeAccountId } = await keyRes.json();
-      if (!publishableKey) throw new Error('Stripe isn’t set up for online payments on this site yet (missing publishable key).');
-      if (!(window as any).Stripe) throw new Error('Stripe’s secure payment script didn’t load — check your connection or any content blocker.');
-      if (cancelled) return;
+      if (!publishableKey) throw new Error('Online payments aren’t set up for this business yet.');
+      if (!(window as any).Stripe) throw new Error('The secure payment form didn’t load. Check your connection or any content blocker.');
+      if (stopped) return;
 
       const stripe = (window as any).Stripe(publishableKey, {
         // The account the PAYMENT was created on comes first (a renter's own
@@ -805,782 +569,132 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       });
       instance = await stripe.initEmbeddedCheckout({
         clientSecret: depositClientSecret,
-        onComplete: () => {
-          setCurrentStepIndex(steps.indexOf('confirmation'));
-        },
+        onComplete: () => { setPaid(true); goToRef.current('confirmation'); },
       });
-      if (cancelled) { instance.destroy(); return; }
+      if (stopped) { instance.destroy(); return; }
       embeddedCheckoutRef.current = instance;
-      // The payment screen can appear a moment after the details arrive — wait
+      // The payment form can appear a moment after the details arrive — wait
       // for its box (up to 2s) so the card form is never silently skipped.
-      for (let i = 0; i < 40 && !embeddedMountRef.current && !cancelled; i++) await new Promise((r) => setTimeout(r, 50));
-      if (cancelled) { try { instance.destroy(); } catch {} return; }
+      for (let i = 0; i < 40 && !embeddedMountRef.current && !stopped; i++) await new Promise((r) => setTimeout(r, 50));
+      if (stopped) { try { instance.destroy(); } catch {} return; }
       if (embeddedMountRef.current) instance.mount(embeddedMountRef.current);
-      else setDepositError('Could not load secure checkout. Please try again.');
+      else setDepositError('The secure payment form couldn’t open. Please try again.');
     };
 
     mount().catch((e) => {
       console.error('[embedded-checkout]', e);
       // Say WHY, so a screenshot tells the business exactly what went wrong.
-      if (!cancelled) setDepositError(`Could not load secure checkout. ${String(e?.message || e || '').slice(0, 160)}`.trim());
+      if (!stopped) setDepositError(`The secure payment form couldn’t open. ${String(e?.message || e || '').slice(0, 160)}`.trim());
     });
 
     return () => {
-      cancelled = true;
+      stopped = true;
       try { embeddedCheckoutRef.current?.destroy(); } catch {}
       embeddedCheckoutRef.current = null;
     };
-  }, [depositClientSecret, depositStripeAccountId, tenant?.id, tenantIdProp, steps, mountTry]);
+  }, [depositClientSecret, depositStripeAccountId, tid, mountTry]);
+
+  // A form is done when every question on it has an answer (headings and text aren't questions).
+  const formOpen = (form: ConsentForm) => (form.fields || []).some((f) => {
+    if (f.type === 'heading' || f.type === 'paragraph') return false;
+    const ans = formAnswers[form.id]?.[f.id];
+    return ans === undefined || ans === null || ans === '' || (Array.isArray(ans) && ans.length === 0);
+  });
 
   const handleNextStep = async () => {
-    if (currentStep === 'dateTime' && !selectedTime) { toast({ variant: 'destructive', title: 'Please select a time.' }); return; }
+    setFlowNote(null);
+    if (currentStep === 'dateTime' && !selectedTime) { setFlowNote({ tone: 'warn', text: 'Choose a time to go on.' }); return; }
     if (currentStep === 'details') {
-      const valid = await methods.trigger(['clientName', 'clientEmail']);
+      const valid = await methods.trigger(['clientName', 'clientEmail'], { shouldFocus: true });
       if (!valid) return;
       // Consent without a number to text is a dead record — and worse, it looks
       // like permission the studio does not actually have.
       const consentPhone = (watch('clientPhone') || '').replace(/\D/g, '');
-      if (watch('smsConsent') && consentPhone.length < 10) {
-        toast({
-          variant: 'destructive',
-          title: 'Mobile number needed',
-          description: 'Add the mobile number you want texts sent to, or uncheck text reminders.',
-        });
-        return;
-      }
-      await resolveIdentity(watch('clientEmail'), watch('clientPhone'));
-      if (bannedClient || existingClientWithBalance) return;
+      if (watch('smsConsent') && consentPhone.length < 10) { setFlowNote({ tone: 'warn', text: 'Add the mobile number for your reminders, or turn text reminders off.' }); return; }
+      if (watch('smsMarketing') && consentPhone.length < 10) { setFlowNote({ tone: 'warn', text: 'Add the mobile number for news and offers, or turn them off.' }); return; }
+      const found = await resolveIdentity(watch('clientEmail'), watch('clientPhone'));
+      const who = found ? found.matched : matchedClient;
+      if (found ? found.banned || found.balance : bannedClient || existingClientWithBalance) return;
       const dayAccess = activeDaySchedule?.accessTier || 'all';
       if (dayAccess === 'members') {
-        const isClientMember        = !!(matchedClient?.activeMembershipId || matchedClient?.subscription);
-        const isClientPackageHolder = (matchedClient?.activePackages?.length || 0) > 0;
-        if (!isClientMember && !isClientPackageHolder) { toast({ variant: 'destructive', title: 'Access Restricted', description: 'This day is reserved for Club Members and Package holders.' }); return; }
+        const isClientMember        = !!(who?.activeMembershipId || who?.subscription);
+        const isClientPackageHolder = (who?.activePackages?.length || 0) > 0;
+        if (!isClientMember && !isClientPackageHolder) { setFlowNote({ tone: 'warn', text: 'That day is kept for members and package holders. Please choose another day.' }); return; }
       } else if (dayAccess === 'returning') {
-        if (!matchedClient) { toast({ variant: 'destructive', title: 'Priority Access Only', description: 'This day is reserved for returning guests.' }); return; }
+        if (!who) { setFlowNote({ tone: 'warn', text: 'That day is kept for returning clients. Please choose another day.' }); return; }
       }
+      const unanswered = requiredForms.find(formOpen);
+      if (unanswered) { setFlowNote({ tone: 'warn', text: `Please answer every question on ${unanswered.title || 'the form'}.` }); return; }
     }
-    if (currentStep === 'consents' || (simple && currentStep === 'details' && requiredForms.length > 0)) {
-      const allCompleted = requiredForms.every(form => {
-        const answers = formAnswers[form.id] || {};
-        return (form.fields || []).every(f => {
-          if (f.type === 'heading' || f.type === 'paragraph') return true;
-          const ans = answers[f.id];
-          return ans !== undefined && ans !== null && ans !== '';
-        });
-      });
-      if (!allCompleted) { toast({ variant: 'destructive', title: 'Incomplete Forms', description: 'Please fill out all required fields and sign all forms.' }); return; }
-    }
-    if (currentStep === 'summary' || (simple && currentStep === 'details' && steps[currentStepIndex + 1] !== 'checkout')) { handleConfirmBooking(); return; }
-    setCurrentStepIndex(currentStepIndex + 1);
+    if (currentStep === 'review') { void submit(); return; }
+    setDirection('fwd');
+    setStepName(steps[Math.min(currentStepIndex + 1, steps.length - 1)]);
   };
 
-  useEffect(() => {
-    if (!serverNeedsPayment || !depositClientSecret) return;
-    const i = steps.indexOf('checkout');
-    if (i >= 0 && currentStepIndex !== i) setCurrentStepIndex(i);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverNeedsPayment, depositClientSecret, steps]);
-
-  const handlePrevStep = () => { if (currentStepIndex > 0) setCurrentStepIndex(currentStepIndex - 1); };
+  // Stepping back. Never while a booking is on its way (its answer would land on the wrong step). From paying a
+  // deposit: the time the booking was holding is let go first, so whatever they change can be booked. Once a booking
+  // is made and only a card is left to add, there's no going back to make it again.
+  const [leaving, setLeaving] = useState(false); const leavingRef = useRef(false); leavingRef.current = leaving;
+  const payKindCard = !!depositClientSecret && (bookingOutcome ? bookingOutcome.status !== 'pending_payment' && !!bookingOutcome.cardOnFile : cardSetupDueNow);
+  const canGoBack = currentStepIndex > 0 && currentStep !== 'confirmation' && !confirming && !leaving && !payKindCard;
+  const handlePrevStep = async () => {
+    if (!canGoBack) return;
+    const to = steps[Math.max(0, currentStepIndex - 1)];
+    if (currentStep === 'review') {
+      // The payment form goes first, so nothing more can be paid on it while the time is let go.
+      resetPay(); setExtraOffer(null); setLeaving(true); leavingRef.current = true;
+      let said: any = null;
+      try { said = await onReleaseHold?.(); } catch { /* it's let go on its own shortly */ } finally { setLeaving(false); leavingRef.current = false; }
+      resetPay();
+      // Paid in that very moment (by card or gift card): it's booked.
+      if (said === 'paid') { setPaid(true); goToRef.current('confirmation'); return; }
+      if (currentStepRef.current !== 'review') return;
+    }
+    setFlowNote(null); setDirection('back'); setStepName(to);
+  };
+  // Closing the sheet while a deposit form is open lets the held time go too (unless it was paid, or only a card was left).
+  const closeSheet = (o: boolean) => {
+    if (!o && currentStep === 'review' && !paid && !payKindCard) void onReleaseHold?.();   // nothing held: nothing happens
+    onOpenChange(o);
+  };
 
   const handleStaffSelect = (staffId: string) => {
-    if (initialStaffId || lockedStaffId) return;
+    if (lockedStaffId) return;
     setSelectedStaffId(staffId);
-    if (simple) { setSelectedTime(null); return; } // who + time share the "When" screen
-    if (staffId !== 'any') { setCurrentStepIndex(1); setSelectedTime(null); }
+    setSelectedTime(null);
   };
 
   const bookedStaff   = useMemo(() => staff.find(s => s.id === bookedStaffId), [staff, bookedStaffId]);
   const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
 
-  /* ── ONE CHROME, TWO SHELLS ───────────────────────────────────────────────
-   * The header, body and action bar are written once. Where they live is the
-   * only difference between the two variants:
-   *
-   *   page     ordinary document flow. Sticky bars, browser-managed
-   *            scrolling, nothing fixed, no portal, no height arithmetic.
-   *            Immune to transformed ancestors and to the iOS URL bar.
-   *   overlay  the floating panel, portalled to <body> so `fixed` is
-   *            viewport-relative rather than trapped inside an animated
-   *            section.
-   *
-   * Page mode exists because every mobile failure this flow had came from
-   * being a floating box on a phone. A page is what phones are for. */
-  /* ── WHY THIS IS A FUNCTION AND NOT A COMPONENT ───────────────────────────
-   * This was `const Shell: React.FC = ({children}) => ...`, declared inside
-   * the render body. A component defined during render is a BRAND NEW
-   * component type on every render, so React cannot match it to the previous
-   * tree — it unmounts everything inside and mounts it again. In a form, that
-   * means the focused input is destroyed and recreated after every keystroke,
-   * which is felt as being able to type only one character at a time.
-   *
-   * A plain function that returns elements has no such identity: the elements
-   * it returns are reconciled normally, and the inputs keep their focus. */
-  const wrapInShell = (children: React.ReactNode) => {
-    if (asPage) {
-      return (
-        <div
-          ref={panelRef}
-          style={{
-            fontFamily: bodyFont,
-            backgroundColor: 'hsl(var(--background, 240 6% 97%))',
-            color: 'hsl(var(--foreground, 240 10% 4%))',
-          }}
-          className="min-h-[100dvh] w-full"
-        >
-          {children}
-        </div>
-      );
-    }
-    return createPortal(
-      <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-label="Book an appointment">
-        <div className="absolute inset-0 bg-black/60" onClick={() => onOpenChange(false)} aria-hidden="true" />
-        <div
-          ref={panelRef}
-          style={{
-            fontFamily: bodyFont,
-            backgroundColor: 'hsl(var(--background, 240 6% 97%))',
-            color: 'hsl(var(--foreground, 240 10% 4%))',
-          }}
-          className="absolute top-0 bottom-0 left-0 right-0 sm:left-auto sm:w-full sm:max-w-md sm:border-l sm:shadow-2xl overflow-hidden"
-        >
-          {children}
-        </div>
-      </div>,
-      document.body,
-    );
-  };
+  // Booked: the page is done with any held booking, and this device remembers the details for next time (never for a
+  // business that keeps things discreet).
+  useEffect(() => { if (currentStep === 'confirmation') onSettled?.(); }, [currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (currentStep !== 'confirmation' || !tid || discreet) return;
+    const v = methods.getValues(); const email = String(v.clientEmail || '').trim(); if (!email.includes('@')) return;
+    try { localStorage.setItem(knownKey(tid), JSON.stringify({ name: String(v.clientName || '').trim().slice(0, 80), email: email.slice(0, 120), phone: String(v.clientPhone || '').slice(0, 30), sms: !!v.smsConsent, at: new Date().toISOString() })); } catch { /* private browsing: nothing kept */ }
+  }, [currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Render ────────────────────────────────────────────────────────────────
-  if (simple) {
-    return wrapInShell(<StudioFlow c={{
-      placeChooser,
-      service, tenant, tenantId: tenantIdProp || (tenant as any)?.id, steps, currentStep, currentStepIndex, setCurrentStepIndex, handleNextStep, handlePrevStep, onOpenChange,
-      qualifiedStaff, lockedStaffId, selectedStaffId, handleStaffSelect, selectedStaff, bookedStaff, availableTiersForService, selectedTierId, setSelectedTierId,
-      clientExtra, party, setParty, groupPol, allServices: services, date, setDate, weekStart, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn,
-      methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance,
-      requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, accentHex: 'var(--accent, #7c3aed)',
-      price, previewLines, bookingPreview, confirming, depositAmount, depositClientSecret, depositLoading, depositError, embeddedMountRef, initiateCheckout, bookingOutcome,
-      giftPay: depositApptId && !(service as any)?.renterProviderId ? <DepositGiftCard tenantId={String(tenantIdProp || (tenant as any)?.id || '')} appointmentId={depositApptId} studio onPaid={() => setCurrentStepIndex(steps.indexOf('confirmation'))} /> : null,
-      rescheduleOf, providerId: (service as any)?.renterProviderId || null,
-      retryPayment: () => { setDepositError(null); if (depositClientSecret) setMountTry((n) => n + 1); else void initiateCheckout(); },
-    }} />);
-  }
+  const flowLook: FlowLook = look || { accent: brandColor(tenant), mood: studioPage(tenant).mood };
 
-  return (
-    /* ── NO MODAL PRIMITIVE ───────────────────────────────────────────────
-     * This was a Radix Sheet. Three separate attempts to make it behave on a
-     * phone failed, and each failure came from the primitive rather than from
-     * this component: a `side` variant chosen by a JS hook that is undefined
-     * on first render, a bottom variant shipping no height, `inset-x-0
-     * bottom-0` fighting whatever height we set, a transform-based slide
-     * animation, and a portal whose stacking we do not control.
-     *
-     * None of that machinery earns its place here. A booking panel is a fixed
-     * box pinned to four edges with a scrolling middle. So that is what this
-     * is now — one div, no variants, no portal, no transform. There is
-     * nothing left to be undefined on first render and nothing to fight over
-     * the height.
-     *
-     * Everything inside is unchanged; only the container is different. */
-    !open || (!asPage && !mounted) ? null : (
-    wrapInShell(<>
-        <div
-          ref={headerRef}
-          className={cn(
-            'z-20 border-b bg-background/95 backdrop-blur-xl text-left px-4 pb-3',
-            // Sticky in a page, pinned in a panel. Sticky needs no measuring.
-            asPage ? 'sticky top-0' : 'absolute top-0 left-0 right-0',
-          )}
-          style={{ paddingTop: 'max(0.875rem, env(safe-area-inset-top))' }}
-        >
-          <div className="flex items-center gap-2">
-            {currentStepIndex > 0 && currentStep !== 'confirmation' ? (
-              <button
-                type="button"
-                onClick={handlePrevStep}
-                aria-label="Go back a step"
-                className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted active:scale-95"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-            ) : (
-              <span className="w-1" />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">
-                {service?.name || 'Booking'}{lockedStaffId ? ` · with ${staff.find((m) => m.id === lockedStaffId)?.name || 'your provider'}` : ''}
-              </p>
-              <h2 style={{ fontFamily: headingFont }} className="truncate text-base font-black uppercase tracking-tighter leading-tight">
-                {((simple && SIMPLE_TITLES[currentStep]) || STEP_TITLES[currentStep]) || 'Book'}
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              aria-label="Close booking"
-              className="-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted active:scale-95"
-            >
-              <XIcon className="h-5 w-5" />
-            </button>
-          </div>
-
-          {currentStep !== 'confirmation' && (
-            <div className="mt-2.5 flex items-center gap-1.5" aria-hidden="true">
-              {steps.slice(0, -1).map((st, i) => (
-                <span
-                  key={st}
-                  className={cn(
-                    'h-1 flex-1 rounded-full transition-colors duration-300',
-                    i < currentStepIndex ? 'bg-primary'
-                      : i === currentStepIndex ? 'bg-primary/50'
-                        : 'bg-muted'
-                  )}
-                />
-              ))}
-            </div>
-          )}
-          <p className="sr-only" aria-live="polite">
-            Step {currentStepIndex + 1} of {steps.length - 1}: {((simple && SIMPLE_TITLES[currentStep]) || STEP_TITLES[currentStep])}
-          </p>
-        </div>
-
-        <div
-          className={cn(
-            'text-left',
-            asPage
-              // Page: just content. The browser scrolls the document; there
-              // is nothing to size and nothing to keep in view by hand.
-              ? ''
-              : 'absolute inset-0 overflow-y-auto overscroll-contain',
-          )}
-          style={asPage ? undefined : ({ paddingTop: 'var(--sheet-header-h, 7.5rem)', paddingBottom: 'var(--sheet-footer-h, 6.5rem)', WebkitOverflowScrolling: 'touch' } as React.CSSProperties)}
-        >
-          {extraOffer && <div className="mx-4 my-3 space-y-3 rounded-2xl border bg-white p-4 shadow-sm" role="alertdialog" aria-label="Extra time">
-            <p className="text-[15px] leading-relaxed">{extraOffer.text}</p>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={confirming} onClick={() => { setAcceptExtraCents(extraOffer.cents); setExtraOffer(null); setRebookTick((t) => t + 1); }} className="h-11 rounded-full bg-stone-900 px-5 text-[15px] font-semibold text-white disabled:opacity-50">Agree and book</button>
-              <button type="button" onClick={() => { setExtraOffer(null); setAcceptExtraCents(0); setSelectedTime(null); setCurrentStepIndex(Math.max(0, steps.findIndex((x: string) => /date|time|when/i.test(x)))); }} className="h-11 rounded-full border px-4 text-[15px]">Choose something else</button>
-            </div>
-          </div>}
-          <div className="px-4 pt-2 pb-2 space-y-5 text-left">
-            <React.Fragment>
-
-              {currentStep === 'confirmation' ? (
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-8 space-y-7" key="confirmation">
-                  <div className="w-20 h-20 bg-green-500/10 flex items-center justify-center mx-auto shadow-xl shadow-green-500/5 rotate-6" style={{ borderRadius: r3 }}>
-                    <CheckCircle2 className="w-10 h-10 text-green-500 -rotate-6" />
-                  </div>
-                  <div className="space-y-2">
-                    <h2 style={{ fontFamily: headingFont }} className="text-2xl font-black uppercase tracking-tighter">
-                      {bookingOutcome?.status === 'requested' ? 'Request Sent'
-                        : bookingOutcome?.status === 'pending_payment' ? 'Almost There'
-                          : "You're All Set!"}
-                    </h2>
-                    <p className="text-muted-foreground text-sm font-medium max-w-sm mx-auto leading-relaxed">
-                      {bookingOutcome?.status === 'requested'
-                        ? <>Your request for <strong className="text-foreground">{service?.name}</strong> is with the studio. It is not booked yet — you will hear back shortly.</>
-                        : bookingOutcome?.status === 'pending_payment'
-                          ? <>Your time for <strong className="text-foreground">{service?.name}</strong> is held. Check your email to finish and lock it in.</>
-                          : <>Your appointment for <strong className="text-foreground">{service?.name}</strong> is confirmed. We&apos;ve sent the details to your email.</>}
-                    </p>
-                    {bookingOutcome?.notice && (
-                      <p className="mx-auto max-w-sm rounded-2xl border-2 border-dashed px-3 py-2 text-[11px] font-bold leading-relaxed text-muted-foreground">
-                        {bookingOutcome.notice}
-                      </p>
-                    )}
-                  </div>
-                  <div className="grid gap-4 max-sm mx-auto text-left">
-                    {bookedStaff && (
-                      <div className="p-5 border-2 bg-card/50 backdrop-blur-sm shadow-lg flex flex-col items-center gap-3" style={{ borderRadius: r3 }}>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-primary">Your Professional</p>
-                        <Avatar className="w-16 h-16 border-4 border-background shadow-xl">
-                          <AvatarImage src={bookedStaff.avatarUrl} className="object-cover" />
-                          <AvatarFallback>{bookedStaff.name.charAt(0)}</AvatarFallback>
-                        </Avatar>
-                        <div className="text-center">
-                          <p style={{ fontFamily: headingFont }} className="font-black text-base uppercase tracking-tight">{bookedStaff.name}</p>
-                        </div>
-                      </div>
-                    )}
-                    <div className="p-5 border-2 bg-muted/20 text-left shadow-inner space-y-3" style={{ borderRadius: r3 }}>
-                      <div className="flex items-start gap-3">
-                        <Calendar className="w-4 h-4 mt-0.5 text-primary opacity-40" />
-                        <div className="space-y-0.5 text-left">
-                          <p style={{ fontFamily: headingFont }} className="font-black uppercase text-xs">{format(date, 'EEEE, MMM d, yyyy')}</p>
-                          <p className="text-xs font-bold text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-3 pt-3 border-t border-dashed">
-                        <MapPin className="w-4 h-4 mt-0.5 text-primary opacity-40" />
-                        <div className="space-y-0.5 text-left">
-                          <p style={{ fontFamily: headingFont }} className="font-black uppercase text-xs">{tenant?.name || 'Studio'}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mx-auto max-w-sm text-left"><ConfirmNumberCard verify={bookingOutcome?.verify} businessName={tenant?.name} /></div>
-                  {bookingOutcome?.prepUrl && bookingOutcome.status !== 'pending_payment' && <a href={bookingOutcome.prepUrl} className="mx-auto block max-w-sm rounded-2xl border p-4 text-left">
-                    <span className="block text-[15px] font-semibold">A few quick questions</span><span className="block text-[13px] opacity-70">Answer now so we can plan the right time for you. It takes about a minute. We’ll also remind you before your visit.</span></a>}
-                  <Button style={{ borderRadius: r2 }} className="w-full h-12 text-sm font-black uppercase tracking-widest shadow-xl shadow-primary/20" variant="outline" onClick={() => onOpenChange(false)}>Finish</Button>
-                </motion.div>
-
-              ) : (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} key={currentStep} className="space-y-8">
-
-                  {currentStep !== 'checkout' && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-1.5">
-                          <Zap className="w-3 h-3" />Selection
-                        </h3>
-                        {currentStep !== 'staff' && (
-                          <Button variant="ghost" size="sm" onClick={() => setCurrentStepIndex(0)} className="h-auto p-0 text-[9px] font-black uppercase tracking-widest underline decoration-2 underline-offset-4">Change</Button>
-                        )}
-                      </div>
-                      <Card style={{ borderRadius: r3 }} className="overflow-hidden border-2 bg-card/50 backdrop-blur-xl shadow-lg shadow-primary/5">
-                        <CardContent className="p-4 flex gap-4 items-center">
-                          <div className="relative w-14 h-14 overflow-hidden bg-muted shadow-inner shrink-0" style={{ borderRadius: r }}>
-                            <Image src={service?.imageUrl || `https://picsum.photos/seed/${service?.id}/200/200`} alt={service?.name} fill className="object-cover" />
-                          </div>
-                          <div className="flex-1 min-w-0 text-left">
-                            <p style={{ fontFamily: headingFont }} className="font-black text-base uppercase tracking-tighter leading-none mb-1.5 truncate">{service?.name}</p>
-                            <div className="flex items-center gap-4">
-                              <span className="text-[10px] font-bold text-muted-foreground">{service?.duration} min</span>
-                              <span className="text-xs font-black text-primary">{priceRange ? `From $${priceRange.min}` : `$${price?.toFixed(2)}`}</span>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  )}
-
-                  {(currentStep === 'staff' || (simple && currentStep === 'dateTime' && !lockedStaffId)) && (
-                    <div className="space-y-6">
-                      <div className="space-y-1 text-left">
-                        <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
-                          <Users className="w-4 h-4 text-primary" />Select Provider
-                        </h3>
-                      </div>
-                      <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-3 gap-2.5">
-                        <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} isSelected={selectedStaffId === 'any'} disabled={!!initialStaffId} r={r2} />
-                        {qualifiedStaff.map(s => (
-                          <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} disabled={!!initialStaffId && s.id !== initialStaffId} r={r2} />
-                        ))}
-                      </RadioGroup>
-                      {selectedStaffId === 'any' && availableTiersForService.length > 0 && (
-                        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-6 border-t border-dashed text-left">
-                          <h4 style={{ fontFamily: headingFont }} className="font-black uppercase tracking-tight text-xs text-left">Tiered Preference</h4>
-                          <RadioGroup value={selectedTierId} onValueChange={setSelectedTierId} className="grid grid-cols-1 gap-2">
-                            <label htmlFor="tier-any" style={{ borderRadius: r2 }} className="flex items-center justify-between p-3.5 border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                              <div className="flex items-center gap-2.5">
-                                <RadioGroupItem value="any" id="tier-any" />
-                                <span className="text-xs font-black uppercase tracking-tight">First Available</span>
-                              </div>
-                            </label>
-                            {availableTiersForService.map(tier => (
-                              <label key={tier.tierId} htmlFor={`tier-${tier.tierId}`} style={{ borderRadius: r2 }} className="flex items-center justify-between p-3.5 border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                                <div className="flex items-center gap-2.5">
-                                  <RadioGroupItem value={tier.tierId} id={`tier-${tier.tierId}`} />
-                                  <span className="text-xs font-black uppercase tracking-tight">{tier.name}</span>
-                                </div>
-                                <span className="font-black text-primary text-sm tracking-tighter">${tier.price.toFixed(2)}</span>
-                              </label>
-                            ))}
-                          </RadioGroup>
-                        </motion.div>
-                      )}
-                    </div>
-                  )}
-
-                  {currentStep === 'dateTime' && (
-                    <div className="space-y-6 text-left">
-                      {addOns.length > 0 && <div className="space-y-2 rounded-2xl border p-4" aria-label="Add to your visit">
-                        <p className="text-[14px] font-semibold">Add to your visit <span className="font-normal text-muted-foreground">(optional)</span></p>
-                        <div className="flex flex-wrap gap-2">{addOns.map((a: any) => { const on = addOnIds.includes(a.id); return (
-                          <button key={a.id} type="button" aria-pressed={on} onClick={() => toggleAddOn(a.id)} className={`rounded-full border px-3 py-1.5 text-[13px] font-semibold ${on ? 'bg-primary text-primary-foreground border-primary' : ''}`}>{a.name} · +${(Number(a.price) || 0).toFixed(0)}{a.duration ? ` · +${a.duration} min` : ''}</button>); })}</div>
-                      </div>}
-                      <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
-                        <Calendar className="w-4 h-4 text-primary" />Timing
-                      </h3>
-                      {activeDaySchedule?.accessTier && activeDaySchedule.accessTier !== 'all' && (
-                        <Alert style={{ borderRadius: r2 }} className="bg-indigo-50 border-indigo-200 p-4 border-2 shadow-sm text-left">
-                          <Award className="h-4 w-4 text-indigo-600" />
-                          <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1 text-indigo-700">Priority Access Only</AlertTitle>
-                          <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left text-indigo-600">
-                            Reserved for {activeDaySchedule.accessTier === 'members' ? 'Members & Package Holders' : 'Returning Guests'}.
-                          </AlertDescription>
-                        </Alert>
-                      )}
-                      <div className="p-5 border-2 bg-muted/10 space-y-6 shadow-inner text-center" style={{ borderRadius: r3 }}>
-                        <div className="flex items-center justify-between">
-                          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full bg-background shadow-sm border-none" onClick={() => setDate(prev => addDays(prev, -7))}>
-                            <ChevronLeft className="w-4 h-4" />
-                          </Button>
-                          <span style={{ fontFamily: headingFont }} className="font-black uppercase tracking-widest text-xs">{format(weekStart, 'MMMM yyyy')}</span>
-                          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full bg-background shadow-sm border-none" onClick={() => setDate(prev => addDays(prev, 7))}>
-                            <ChevronRight className="w-4 h-4" />
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-7 gap-1.5">
-                          {weekDays.map(day => (
-                            <button
-                              key={day.toString()}
-                              onClick={() => setDate(day)}
-                              disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)}
-                              style={{ borderRadius: r }}
-                              className={cn(
-                                'flex flex-col items-center justify-center p-2 border-2 transition-all aspect-square',
-                                isSameDay(day, date) ? 'bg-primary text-primary-foreground border-primary shadow-lg scale-105' : 'bg-background border-transparent hover:border-primary/30',
-                                (isBefore(day, startOfDay(new Date())) && !isToday(day)) && 'opacity-20 cursor-not-allowed'
-                              )}
-                              type="button"
-                            >
-                              <span className="text-[8px] uppercase font-black opacity-60 mb-0.5">{format(day, 'EEE')}</span>
-                              <span className="font-black text-sm tracking-tighter">{format(day, 'd')}</span>
-                            </button>
-                          ))}
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 pt-6 border-t border-dashed">
-                          {timeSlots.map(time => {
-                            const isHotSlot = hotSlotMap.get(time);
-                            return (
-                              <Button
-                                key={time}
-                                variant={selectedTime === time ? 'default' : 'outline'}
-                                /* Choosing a time IS the decision — the extra
-                                 * Continue tap afterwards added nothing, and
-                                 * on a small screen where the button sits far
-                                 * from the slot you just tapped it reads as
-                                 * "nothing happened". The brief pause lets the
-                                 * selected state register before the step
-                                 * changes, so the tap still feels acknowledged
-                                 * rather than teleporting you. */
-                                onClick={() => {
-                                  setSelectedTime(time);
-                                  window.setTimeout(() => {
-                                    setCurrentStepIndex((i) => Math.min(i + 1, steps.length - 1));
-                                  }, 180);
-                                }}
-                                style={{ borderRadius: r }}
-                                className={cn(
-                                  'h-12 font-black uppercase text-[10px] tracking-widest border-2 transition-all relative overflow-hidden active:scale-95',
-                                  selectedTime === time ? 'shadow-lg shadow-primary/20' : 'bg-background',
-                                  isHotSlot && 'border-amber-500/50 bg-amber-500/5 text-amber-700'
-                                )}
-                              >
-                                {isHotSlot && <div className="absolute top-0 right-0 p-0.5 bg-amber-500 rounded-bl-md shadow-sm"><Flame className="w-2 h-2 text-white" /></div>}
-                                {format(timeStringToDate(time, new Date()), 'h:mm a')}
-                                {!isHotSlot && (() => { const qb = quietBonus(loyaltyOf(tenant), (date || new Date()).getDay(), Number(String(time).split(':')[0]) * 60 + Number(String(time).split(':')[1] || 0), service?.id || null); return qb ? <span className="absolute right-0 top-0 rounded-bl-md px-1 text-[8px] normal-case tracking-normal" style={{ background: '#e9f5ee', color: '#1f7a4d' }}>+{qb.points} pts</span> : null; })()}
-                              </Button>
-                            );
-                          })}
-                          {availability.loading && timeSlots.length === 0 && (
-                            <div style={{ borderRadius: r2 }} className="col-span-full text-center py-8 px-4 border-2 border-dashed" role="status">
-                              <Clock className="w-6 h-6 text-muted-foreground/30 mx-auto mb-1.5 animate-pulse" />
-                              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Finding open times…</p>
-                            </div>
-                          )}
-                          {!availability.loading && timeSlots.length === 0 && (
-                            <div style={{ borderRadius: r2 }} className="col-span-full text-center py-8 px-4 border-2 border-dashed">
-                              <Clock className="w-6 h-6 text-muted-foreground/30 mx-auto mb-1.5" />
-                              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">No availability for this preference</p>
-                              {(tenantIdProp || (tenant as any)?.id) && !(service as any)?.renterProviderId && <a href={`/w/${encodeURIComponent(tenantIdProp || (tenant as any)?.id)}?service=${encodeURIComponent(service?.id || '')}${selectedStaffId && selectedStaffId !== 'any' ? `&provider=${encodeURIComponent(selectedStaffId)}` : ''}`} className="mt-3 inline-block text-[13px] font-semibold underline underline-offset-4">Nothing fits? Join the waitlist — we’ll text you when it opens</a>}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {currentStep === 'details' && (
-                    <FormProvider {...methods}>
-                      <form id="booking-details-form" onSubmit={handleSubmit(handleNextStep)} className="space-y-7 text-left">
-                        {placeChooser}
-                        <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
-                          <User className="w-4 h-4 text-primary" />Guest Profile
-                        </h3>
-                        <div className="space-y-4 text-left">
-                          <div className="space-y-2">
-                            <Label htmlFor="name" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Full Name</Label>
-                            <Input id="name" {...methods.register('clientName')} style={{ borderRadius: r2 }} className="h-11 border-2 font-bold shadow-inner" placeholder="Enter your full name" />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="email" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Email</Label>
-                            <Input id="email" type="email" {...methods.register('clientEmail')} style={{ borderRadius: r2 }} className="h-11 border-2 font-bold shadow-inner" placeholder="jane@example.com" />
-                          </div>
-                          <div className="space-y-2">
-                            <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile</Label>
-                            <PhoneInput name="clientPhone" label="" className="h-11 kiosk-phone-input" />
-                          </div>
-                          <Controller
-                            name="smsConsent"
-                            control={methods.control}
-                            render={({ field }) => (
-                              <div style={{ borderRadius: r2 }} className="flex items-start gap-3 border-2 border-dashed bg-muted/5 p-3">
-                                <Checkbox
-                                  id="sms-consent"
-                                  checked={!!field.value}
-                                  onCheckedChange={v => field.onChange(v === true)}
-                                  className="mt-0.5 shrink-0"
-                                />
-                                <Label htmlFor="sms-consent" className="cursor-pointer text-[11px] font-medium leading-relaxed text-muted-foreground">
-                                  {smsConsentWording(tenant?.name)}
-                                </Label>
-                              </div>
-                            )}
-                          />
-                          <Controller
-                            name="smsMarketing"
-                            control={methods.control}
-                            render={({ field }) => (
-                              <div style={{ borderRadius: r2 }} className="flex items-start gap-3 border-2 border-dashed bg-muted/5 p-3">
-                                <Checkbox id="sms-marketing" checked={!!field.value} onCheckedChange={v => field.onChange(v === true)} className="mt-0.5 shrink-0" />
-                                <Label htmlFor="sms-marketing" className="cursor-pointer text-[11px] font-medium leading-relaxed text-muted-foreground">
-                                  {smsMarketingWording(tenant?.name)}
-                                </Label>
-                              </div>
-                            )}
-                          />
-                          <div className="space-y-2 pt-3 border-t border-dashed">
-                            <Label htmlFor="booking-notes" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
-                              <MessageSquare className="w-3 h-3 opacity-40" />Notes (optional)
-                            </Label>
-                            <Textarea id="booking-notes" {...methods.register('notes')} style={{ borderRadius: r2 }} className="border-2 bg-muted/5 min-h-[72px] p-3 text-sm font-medium leading-relaxed" placeholder="Any specific requests..." />
-                          </div>
-                          {(tenant as any)?.referrals?.on === true && !(typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('ref')) && (
-                            <details className="pt-3 border-t border-dashed">
-                              <summary className="cursor-pointer text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Have a friend’s code, or who recommended you? (optional)</summary>
-                              <Input {...methods.register('friendCode')} aria-label="A friend’s code" placeholder="A friend’s code, like HANNAH15" autoCapitalize="characters" style={{ borderRadius: r2 }} className="mt-2 h-11 border-2 uppercase" />
-                              <p className="ml-1 mt-2 text-[11px] text-muted-foreground">No code? Their first name and mobile number. We’ll thank them for you. No names are ever shown.</p>
-                              <div className="mt-2 grid grid-cols-2 gap-2">
-                                <Input {...methods.register('referrerFirst')} aria-label="Their first name" placeholder="Their first name" style={{ borderRadius: r2 }} className="h-11 border-2" />
-                                <Input {...methods.register('referrerPhone')} aria-label="Their mobile number" placeholder="Their mobile" inputMode="tel" style={{ borderRadius: r2 }} className="h-11 border-2" />
-                              </div>
-                            </details>
-                          )}
-                        </div>
-                        <div className="space-y-2 pt-3 border-t border-dashed text-left">
-                          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
-                            <FileImage className="w-3 h-3 opacity-40" />Inspiration photo (optional)
-                          </Label>
-                          <ImageUpload onImageUploaded={setInspirationPhotoUrl} initialImage={inspirationPhotoUrl} tenantId={tenant?.id} storageFolder="booking-inspiration" />
-                        </div>
-                        <AnimatePresence>
-                          {isResolvingIdentity && (
-                            <motion.div key="resolving" className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.2em] text-primary animate-pulse">
-                              <Loader className="w-3 h-3 animate-spin" /> Verifying...
-                            </motion.div>
-                          )}
-                          {bannedClient && (
-                            <motion.div key="banned" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                              <Alert variant="destructive" style={{ borderRadius: r2 }} className="bg-destructive/10 border-destructive shadow-lg border-4 p-4 text-left">
-                                <Ban className="h-5 w-5" />
-                                <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Check-in Restricted</AlertTitle>
-                                <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
-                                  {bannedClient.banMessage || 'Your account is currently restricted. Please see the front desk.'}
-                                </AlertDescription>
-                              </Alert>
-                            </motion.div>
-                          )}
-                          {existingClientWithBalance && !bannedClient && (
-                            <motion.div key="balance" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                              <Alert variant="destructive" style={{ borderRadius: r2 }} className="bg-destructive/5 border-destructive/20 border-2 p-4 shadow-lg text-left">
-                                <Wallet className="h-5 w-5" />
-                                <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Balance Detected</AlertTitle>
-                                <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
-                                  Account balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Please settle at the desk.
-                                </AlertDescription>
-                              </Alert>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </form>
-                    </FormProvider>
-                  )}
-
-                  {(currentStep === 'consents' || (simple && currentStep === 'details' && requiredForms.length > 0)) && (
-                    <div className="space-y-7 text-left">
-                      <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
-                        <FileSignature className="w-4 h-4 text-primary" />Agreements
-                      </h3>
-                      <div className="space-y-8">
-                        {requiredForms.map(form => (
-                          <div key={form.id} style={{ borderRadius: r3 }} className="space-y-6 p-6 border-2 border-card/50 bg-card/60 backdrop-blur-2xl shadow-xl">
-                            <div style={{ fontFamily: headingFont }} className="flex items-center gap-3 text-lg font-black uppercase tracking-tighter pb-3 border-b border-dashed">
-                              <ListChecks className="w-5 h-5 text-primary" />{form.title}
-                            </div>
-                            <div className="space-y-7">
-                              {form.fields?.map(field => (
-                                <FormFieldRenderer
-                                  key={field.id}
-                                  field={field}
-                                  value={formAnswers[form.id]?.[field.id]}
-                                  onChange={(val) => setFormAnswers(prev => ({ ...prev, [form.id]: { ...(prev[form.id] || {}), [field.id]: val } }))}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {(currentStep === 'summary' || (simple && currentStep === 'details')) && (
-                    <div className="space-y-6 text-left">
-                      <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-primary" />Review
-                      </h3>
-                      <Card style={{ borderRadius: r3 }} className="bg-primary/5 border-primary/20 overflow-hidden shadow-xl border-2">
-                        <CardContent className="p-6 space-y-4 text-left">
-                          <div className="flex justify-between items-center gap-4">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Professional</span>
-                            <span style={{ fontFamily: headingFont }} className="font-black text-xs uppercase tracking-tight truncate">{selectedStaffId === 'any' ? 'First Available' : selectedStaff?.name}</span>
-                          </div>
-                          <div className="flex justify-between items-center gap-4">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Schedule</span>
-                            <span style={{ fontFamily: headingFont }} className="font-black text-xs uppercase tracking-tight truncate">{format(date, 'MMM d, yyyy')} · {selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
-                          </div>
-                          <Separator className="bg-primary/10 border-dashed" />
-                          <div className="flex justify-between items-center text-xl font-black uppercase tracking-tighter text-left">
-                            <span style={{ fontFamily: headingFont }}>Total</span>
-                            <span style={{ fontFamily: headingFont }}>${price?.toFixed(2)}</span>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {previewLines.length > 0 && (
-                        <div style={{ borderRadius: r2 }} className="border-2 border-dashed p-4 space-y-1.5">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What happens next</p>
-                          {previewLines.map((line, i) => (
-                            <p key={i} className="text-[11px] font-bold leading-relaxed text-foreground">{line}</p>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {currentStep === 'checkout' && (
-                    <div className="space-y-5 text-left">
-                      <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
-                        <CreditCard className="w-4 h-4 text-primary" />Secure Your Spot
-                      </h3>
-
-                      <Card style={{ borderRadius: r3 }} className="bg-primary/5 border-primary/20 overflow-hidden shadow-lg border-2">
-                        <CardContent className="p-5 space-y-3 text-left">
-                          <div className="flex justify-between items-center gap-4">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Schedule</span>
-                            <span style={{ fontFamily: headingFont }} className="font-black text-[11px] uppercase tracking-tight truncate">{format(date, 'MMM d, yyyy')} · {selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
-                          </div>
-                          <Separator className="bg-primary/10 border-dashed" />
-                          <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-700">
-                              {cardSetupDueNow ? 'Card On File Required' : 'Deposit Due Today'}
-                            </span>
-                            <span style={{ fontFamily: headingFont }} className="text-2xl font-black text-primary tracking-tighter">${depositAmount.toFixed(2)}</span>
-                          </div>
-                          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">
-                            {cardSetupDueNow
-                              ? 'Nothing is charged today — your card is only kept on file'
-                              : 'Applied to your final total at checkout'}
-                          </p>
-                        </CardContent>
-                      </Card>
-
-                      {previewLines.length > 0 && (
-                        <div style={{ borderRadius: r2 }} className="border-2 border-dashed p-4 space-y-1.5">
-                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">What happens next</p>
-                          {previewLines.map((line, i) => (
-                            <p key={i} className="text-[11px] font-bold leading-relaxed text-foreground">{line}</p>
-                          ))}
-                        </div>
-                      )}
-
-                      {depositError ? (
-                        <Alert variant="destructive" style={{ borderRadius: r2 }} className="p-5 border-2">
-                          <AlertTriangle className="h-4 w-4" />
-                          <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Couldn't start checkout</AlertTitle>
-                          <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 mb-3">{depositError}</AlertDescription>
-                          <Button onClick={initiateCheckout} disabled={depositLoading} size="sm" className="h-9 rounded-xl font-black uppercase text-[10px] tracking-widest">
-                            <RefreshCw className={cn('w-3.5 h-3.5 mr-1.5', depositLoading && 'animate-spin')} /> Try Again
-                          </Button>
-                        </Alert>
-                      ) : (<>
-                        {depositApptId && !(service as any)?.renterProviderId && <DepositGiftCard tenantId={String(tenantIdProp || (tenant as any)?.id || '')} appointmentId={depositApptId} onPaid={() => setCurrentStepIndex(steps.indexOf('confirmation'))} />}
-                        <div className="rounded-2xl border-2 bg-white shadow-inner overflow-hidden relative" style={{ minHeight: 320 }}>
-                          {(depositLoading || !depositClientSecret) && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-white z-10">
-                              <Loader className="w-5 h-5 animate-spin text-primary" />
-                              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Preparing secure checkout…</p>
-                            </div>
-                          )}
-                          <div ref={embeddedMountRef} />
-                        </div>
-                      </>)}
-
-                      <div className="flex items-center gap-2.5 p-3 bg-muted/20 text-[10px] text-muted-foreground font-medium italic rounded-xl">
-                        <Lock className="w-3.5 h-3.5 shrink-0" />
-                        Payments are processed securely by Stripe. Card details are never stored on our servers.
-                      </div>
-                    </div>
-                  )}
-
-                </motion.div>
-              )}
-            </React.Fragment>
-          </div>
-        </div>
-
-        {currentStep !== 'confirmation' && currentStep !== 'checkout' && (
-          <div
-            ref={footerRef}
-            className={cn(
-              'z-20 px-4 pt-3 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]',
-              asPage ? 'sticky bottom-0' : 'absolute bottom-0 left-0 right-0',
-            )}
-            /* Safe-area padding: without it the primary button sits under the
-               iPhone home indicator and reads as unresponsive. */
-            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-          >
-            <Button
-              onClick={handleNextStep}
-              disabled={confirming || (currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity))}
-              style={{ borderRadius: r3, fontFamily: headingFont }}
-              className="group h-[52px] w-full font-black uppercase tracking-widest text-[11px] shadow-lg shadow-primary/20 transition-all active:scale-[0.99]"
-            >
-              {simple && currentStep === 'details' ? (steps[currentStepIndex + 1] === 'checkout' ? 'Continue to payment' : 'Confirm booking')
-                : currentStep === 'summary' ? 'Confirm booking'
-                : currentStep === 'staff' ? 'Choose a time'
-                  : currentStep === 'dateTime' ? (selectedTime ? 'Add your details' : 'Pick a time above')
-                    : currentStep === 'consents' ? 'Agree and continue'
-                      : 'Continue'}
-              <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
-            </Button>
-          </div>
-        )}
-
-        {currentStep === 'checkout' && (
-          <div
-            ref={footerRef}
-            className={cn(
-              'z-20 px-4 pt-3 border-t bg-background/95 backdrop-blur-xl shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.25)]',
-              asPage ? 'sticky bottom-0' : 'absolute bottom-0 left-0 right-0',
-            )}
-            /* Safe-area padding: without it the primary button sits under the
-               iPhone home indicator and reads as unresponsive. */
-            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-          >
-            <Button
-              variant="ghost"
-              onClick={handlePrevStep}
-              style={{ borderRadius: r3 }}
-              className="w-full h-11 font-black uppercase tracking-tighter text-[10px] text-muted-foreground"
-            >
-              ← Back to Details
-            </Button>
-          </div>
-        )}
-    </>)
-    )
-  );
+  if (!open) return null;
+  return <StudioFlow c={{
+    look: flowLook, holdNote,
+    service, tenant, tenantId: tid, steps, currentStep, currentStepIndex, direction, handleNextStep, handlePrevStep, canGoBack, leaving, goTo, onOpenChange: closeSheet, partyOk, paid,
+    qualifiedStaff, lockedStaffId, selectedStaffId, handleStaffSelect, selectedStaff, bookedStaff, availableTiersForService, selectedTierId, setSelectedTierId,
+    clientExtra, party, setParty, groupPol, allServices: services, date, setDate, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn, addOnMinutes,
+    placeOpts, placeChoice, setPlaceChoice, activeDaySchedule,
+    methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance, known, forgetMe,
+    requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos,
+    price, priceRange, previewLines, bookingPreview, chargeDueNow, cardSetupDueNow, confirming, depositAmount, bookingOutcome, flowNote,
+    extraOffer, acceptExtra: () => { if (!extraOffer) return; setAcceptExtraCents(extraOffer.cents); setExtraOffer(null); setRebookTick((t) => t + 1); },
+    declineExtra: () => { setExtraOffer(null); setAcceptExtraCents(0); setSelectedTime(null); setDirection('back'); setStepName('dateTime'); },
+    pay: {
+      secret: depositClientSecret, error: depositError, mountRef: embeddedMountRef,
+      retry: () => { if (leavingRef.current) return; setDepositError(null); if (depositClientSecret) setMountTry((n) => n + 1); else void submit(); },
+      gift: depositApptId && !providerId ? <DepositGiftCard tenantId={tid} appointmentId={depositApptId} studio onPaid={() => { setPaid(true); goToRef.current('confirmation'); }} /> : null,
+    },
+    rescheduleOf, providerId,
+  }} />;
 };

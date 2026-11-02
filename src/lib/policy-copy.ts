@@ -28,6 +28,35 @@ function feePhrase(tenant: any, service?: any): string | null {
   return null;
 }
 
+/** The cancellation rule for ONE booking, in a sentence, for the review before booking: "Free to cancel until Fri at
+ *  3:30 PM, 24 hours before. After that, a $25 cancellation fee applies." Worked out exactly as bookingPolicyLines says
+ *  it (the words the client agrees to), with the visit's own time. `start` and `now` are wall-clock times in the
+ *  business's day ('2026-11-06T15:30'). '' when the business wrote its own cancellation policy (their words show). */
+export function freeChangeLine(tenant: any, service: any, start: string, now: string, depositCents = 0): string {
+  const t = tenant || {};
+  if (t.cancellationPolicy) return '';
+  const windowH = Number(service?.cancellationWindowHours || t.cancellationWindowHours || 0);
+  if (!(windowH > 0)) return 'You can cancel any time from your visit link.';
+  const s = wallMs(start), n = wallMs(now); if (s === null) return '';
+  const kept = resolvePolicy(t, service).cancel.lateConsequence.value === 'deposit' && depositCents > 0;
+  const fee = kept ? '' : feePhrase(t, service);
+  const after = kept ? `the ${money(depositCents / 100)} deposit stays with ${String(t.name || '').trim() || 'the business'}` : fee ? `${fee} applies` : '';
+  const cut = s - windowH * 3600000;
+  const line = n !== null && cut <= n ? `It’s less than ${hrs(windowH)} away, so canceling after you book counts as late${after ? `: ${after}` : ''}.`
+    : `Free to cancel until ${dayAt(cut, n)}, ${hrs(windowH)} before.${after ? ` After that, ${after}.` : ''}`;
+  return line.replace(/\$(\d+)\.00\b/g, '$$$1');   // "$25", as the prices beside it are written
+}
+const wallMs = (x: string): number | null => { const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(String(x || '')); if (!m) return null; const v = Date.parse(`${m[1]}T${m[2]}:${m[3]}:00Z`); return Number.isFinite(v) ? v : null; };
+/** A wall-clock moment said from today: "today at 3:30 PM", "tomorrow at 9:00 AM", "Fri at 3:30 PM", "Fri, Nov 13 at 3:30 PM". */
+function dayAt(ms: number, nowMs: number | null): string {
+  const d = new Date(ms); const h = d.getUTCHours(), mi = d.getUTCMinutes();
+  const time = `${h % 12 || 12}:${String(mi).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+  const days = nowMs === null ? 99 : Math.round((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Math.floor(nowMs / 86400000) * 86400000) / 86400000);
+  const wd = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+  const day = days === 0 ? 'today' : days === 1 ? 'tomorrow' : days > 1 && days < 7 ? wd : `${wd}, ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`;
+  return `${day} at ${time}`;
+}
+
 /** The policy lines a client should see with a booking (short; plain words). */
 export function bookingPolicyLines(tenant: any, service?: any, opts: { depositCents?: number; anyDeposit?: boolean } = {}): string[] {
   const t = tenant || {}; const out: string[] = [];

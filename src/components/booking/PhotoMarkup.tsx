@@ -3,10 +3,10 @@
 //
 // Clients add up to 4 photos (camera or library) and mark each one up so the
 // provider sees exactly what they mean:
-//   Move · Pen (smoothed) · Highlight · Arrow · Circle · Text · Stamps · Colour picker
+//   Move · Pen (smoothed) · Highlight · Arrow · Circle · Text · Stamps · Color picker
 //   Stamps: heart, star, sparkle, tick, cross + nail-shape guides (square,
 //           round, almond, coffin, stiletto) to show shape and length
-//   Colour picker: tap the photo to grab that exact shade → "Colours I love",
+//   Color picker: tap the photo to grab that exact shade → "Colors I love",
 //           added to the photo's note automatically (#hex)
 //   Move any mark (drag), resize stamps/text (Size), delete; Undo / Redo
 //   Pinch or +/− to zoom, two fingers to pan; "Hold to see original"
@@ -24,7 +24,7 @@ type Mark = { id: string; tool: Exclude<Tool, 'move' | 'pick'>; color: string; s
 
 const PALETTE = ['#e11d48', '#f472b6', '#f59e0b', '#16a34a', '#2563eb', '#7c3aed', '#ffffff', '#111827'];
 const SIZES: [string, number][] = [['S', 0.006], ['M', 0.012], ['L', 0.022]];
-const TOOLS: [Tool, string][] = [['move', 'Move'], ['pen', 'Pen'], ['highlight', 'Highlight'], ['arrow', 'Arrow'], ['circle', 'Circle'], ['text', 'Text'], ['stamp', 'Stamps'], ['pick', 'Pick colour']];
+const TOOLS: [Tool, string][] = [['move', 'Move'], ['pen', 'Pen'], ['highlight', 'Highlight'], ['arrow', 'Arrow'], ['circle', 'Circle'], ['text', 'Text'], ['stamp', 'Stamps'], ['pick', 'Pick color']];
 const STAMPS: [string, string][] = [['heart', 'Heart'], ['star', 'Star'], ['sparkle', 'Sparkle'], ['tick', 'Tick'], ['cross', 'Cross'],
   ['nail-square', 'Square nail'], ['nail-round', 'Round nail'], ['nail-almond', 'Almond nail'], ['nail-coffin', 'Coffin nail'], ['nail-stiletto', 'Stiletto nail']];
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -165,42 +165,42 @@ function Editor({ src, onDone, onCancel, accent, initialNote = '', initialColour
   };
   const zoom = (f: number) => setView((v) => { const k = Math.min(5, Math.max(1, v.k * f)); return k === 1 ? { k: 1, x: 0, y: 0 } : { ...v, k }; });
   const resizeSel = (f: number) => { if (!sel) return; commit(marks.map((m) => (m.id === sel ? { ...m, size: Math.min(0.06, Math.max(0.003, m.size * f)) } : m))); };
-  const done = () => { const c = canvas.current; if (!c) return; setSel(null); setPeek(false); requestAnimationFrame(() => { render(); const extra = colours.length ? `${note.trim() ? '\n' : ''}Colours I picked: ${colours.join(', ')}` : ''; onDone(c.toDataURL('image/jpeg', 0.86), (note.trim() + extra).slice(0, 400), colours); }); };
+  const done = () => { const c = canvas.current; if (!c) return; setSel(null); setPeek(false); requestAnimationFrame(() => { render(); const extra = colours.length ? `${note.trim() ? '\n' : ''}Colors I picked: ${colours.join(', ')}` : ''; onDone(c.toDataURL('image/jpeg', 0.86), (note.trim() + extra).slice(0, 400), colours); }); };
 
-  const chip = (on: boolean) => `h-10 shrink-0 rounded-full px-3.5 text-[13px] font-medium transition active:scale-95 ${on ? 'text-white shadow' : 'bg-white text-stone-700'}`;
+  const chip = (on: boolean) => `h-11 shrink-0 rounded-full px-3.5 text-[13px] font-medium transition active:scale-95 ${on ? 'text-white shadow' : 'bg-white text-stone-700'}`;
   return (
     <div className="fixed inset-0 z-[400] flex flex-col bg-[#1c1917]" role="dialog" aria-label="Mark up your photo" style={{ paddingTop: 'env(safe-area-inset-top,0px)', paddingBottom: 'env(safe-area-inset-bottom,0px)' }}>
       <div className="flex items-center justify-between gap-2 px-4 py-3 text-white">
-        <button type="button" onClick={onCancel} className="text-[15px]">Cancel</button>
+        <button type="button" onClick={onCancel} className="inline-flex min-h-11 items-center px-1 text-[15px]">Cancel</button>
         <div className="flex items-center gap-1.5">
-          <button type="button" onClick={undo} disabled={!hist.current.length} aria-label="Undo" className="h-9 w-9 rounded-full bg-white/10 disabled:opacity-30">↶</button>
-          <button type="button" onClick={redoOne} disabled={!redo.length} aria-label="Redo" className="h-9 w-9 rounded-full bg-white/10 disabled:opacity-30">↷</button>
-          <button type="button" onPointerDown={() => setPeek(true)} onPointerUp={() => setPeek(false)} onPointerLeave={() => setPeek(false)} aria-label="Hold to see the original" className="h-9 rounded-full bg-white/10 px-3 text-[12px]">Hold: original</button>
+          <button type="button" onClick={undo} disabled={!hist.current.length} aria-label="Undo" className="h-11 w-11 rounded-full bg-white/10 disabled:opacity-30">↶</button>
+          <button type="button" onClick={redoOne} disabled={!redo.length} aria-label="Redo" className="h-11 w-11 rounded-full bg-white/10 disabled:opacity-30">↷</button>
+          <button type="button" onPointerDown={() => setPeek(true)} onPointerUp={() => setPeek(false)} onPointerLeave={() => setPeek(false)} aria-label="Hold to see the original" className="h-11 rounded-full bg-white/10 px-3 text-[12px]">Hold: original</button>
         </div>
-        <button type="button" onClick={done} className="rounded-full px-4 py-1.5 text-[15px] font-medium text-white" style={{ background: accent }}>Done</button>
+        <button type="button" onClick={done} className="inline-flex min-h-11 items-center rounded-full px-5 text-[15px] font-medium text-white" style={{ background: accent }}>Done</button>
       </div>
       <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3">
         <canvas ref={canvas} className="max-h-full max-w-full touch-none rounded-xl shadow-2xl" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, transformOrigin: 'center', cursor: tool === 'move' ? 'grab' : tool === 'pick' ? 'copy' : tool === 'text' || tool === 'stamp' ? 'cell' : 'crosshair' }}
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} aria-label="Your photo — draw on it" />
-        <div className="absolute bottom-3 right-3 flex flex-col gap-1.5"><button type="button" onClick={() => zoom(1.4)} aria-label="Zoom in" className="h-9 w-9 rounded-full bg-white/90 text-lg">+</button><button type="button" onClick={() => zoom(1 / 1.4)} aria-label="Zoom out" className="h-9 w-9 rounded-full bg-white/90 text-lg">−</button></div>
-        {tool === 'pick' && <p className="pointer-events-none absolute top-2 rounded-full bg-black/60 px-3 py-1 text-[12px] text-white">Tap the photo to pick that exact colour</p>}
+        <div className="absolute bottom-3 right-3 flex flex-col gap-1.5"><button type="button" onClick={() => zoom(1.4)} aria-label="Zoom in" className="h-11 w-11 rounded-full bg-white/90 text-lg">+</button><button type="button" onClick={() => zoom(1 / 1.4)} aria-label="Zoom out" className="h-11 w-11 rounded-full bg-white/90 text-lg">−</button></div>
+        {tool === 'pick' && <p className="pointer-events-none absolute top-2 rounded-full bg-black/60 px-3 py-1 text-[12px] text-white">Tap the photo to pick that exact color</p>}
       </div>
-      <div className="space-y-2.5 rounded-t-3xl bg-[#faf8f5] px-4 pb-3 pt-3">
+      <div className="max-h-[45dvh] space-y-2.5 overflow-y-auto rounded-t-3xl bg-[#faf8f5] px-4 pb-3 pt-3">
         <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5">{TOOLS.map(([k, l]) => <button key={k} type="button" onClick={() => { setTool(k); setSel(null); buzz(); }} aria-pressed={tool === k} className={chip(tool === k)} style={tool === k ? { background: accent } : undefined}>{l}</button>)}</div>
-        {tool === 'stamp' && <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1">{STAMPS.map(([k, l]) => <button key={k} type="button" onClick={() => { setStamp(k); buzz(); }} aria-pressed={stamp === k} className={`h-9 shrink-0 rounded-full px-3 text-[12px] ${stamp === k ? 'bg-stone-800 text-white' : 'bg-white'}`}>{l}</button>)}</div>}
-        {tool === 'text' && <input value={text} onChange={(e) => setText(e.target.value.slice(0, 40))} placeholder="Type a label, then tap the photo to place it" className="h-10 w-full rounded-xl border border-stone-300 bg-white px-3 text-[15px]" aria-label="Label text" />}
+        {tool === 'stamp' && <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1">{STAMPS.map(([k, l]) => <button key={k} type="button" onClick={() => { setStamp(k); buzz(); }} aria-pressed={stamp === k} className={`h-11 shrink-0 rounded-full px-3.5 text-[12px] ${stamp === k ? 'bg-stone-800 text-white' : 'bg-white'}`}>{l}</button>)}</div>}
+        {tool === 'text' && <input value={text} onChange={(e) => setText(e.target.value.slice(0, 40))} placeholder="Type a label, then tap the photo to place it" className="h-11 w-full rounded-xl border border-stone-300 bg-white px-3 text-[15px]" aria-label="Label text" />}
         {tool === 'move' && <div className="flex items-center gap-2 text-[13px]">{sel ? <>
-          <button type="button" onClick={() => resizeSel(0.8)} className="h-9 rounded-full bg-white px-3">Smaller</button><button type="button" onClick={() => resizeSel(1.25)} className="h-9 rounded-full bg-white px-3">Bigger</button>
-          <button type="button" onClick={() => { commit(marks.filter((m) => m.id !== sel)); setSel(null); buzz(); }} className="h-9 rounded-full bg-white px-3 text-red-700">Delete</button></> : <span className="text-stone-500">Tap a mark to move, resize or delete it</span>}</div>}
-        <div className="flex items-center gap-2 overflow-x-auto">
-          {PALETTE.map((c) => <button key={c} type="button" onClick={() => { setColor(c); buzz(); }} aria-label={`Colour ${c}`} aria-pressed={color === c} className="h-8 w-8 shrink-0 rounded-full border-2 transition active:scale-90" style={{ background: c, borderColor: color === c ? accent : '#d6d3d1', boxShadow: color === c ? `0 0 0 2px ${accent}` : undefined }} />)}
-          <label className="relative h-8 w-8 shrink-0 cursor-pointer overflow-hidden rounded-full border-2 border-stone-300" style={{ background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' }} aria-label="Custom colour"><input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="absolute inset-0 opacity-0" /></label>
+          <button type="button" onClick={() => resizeSel(0.8)} className="h-11 rounded-full bg-white px-4">Smaller</button><button type="button" onClick={() => resizeSel(1.25)} className="h-11 rounded-full bg-white px-4">Bigger</button>
+          <button type="button" onClick={() => { commit(marks.filter((m) => m.id !== sel)); setSel(null); buzz(); }} className="h-11 rounded-full bg-white px-4 text-red-700">Delete</button></> : <span className="text-stone-500">Tap a mark to move, resize or delete it</span>}</div>}
+        <div className="flex flex-wrap items-center gap-2">
+          {PALETTE.map((c) => <button key={c} type="button" onClick={() => { setColor(c); buzz(); }} aria-label={`Color ${c}`} aria-pressed={color === c} className="h-11 w-11 shrink-0 rounded-full border-2 transition active:scale-90" style={{ background: c, borderColor: color === c ? accent : '#d6d3d1', boxShadow: color === c ? `0 0 0 2px ${accent}` : undefined }} />)}
+          <label className="relative h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-full border-2 border-stone-300" style={{ background: 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)' }} aria-label="Custom color"><input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="absolute inset-0 opacity-0" /></label>
         </div>
         <div className="flex items-center gap-2 text-[12px] text-stone-500"><span>Size</span>
-          {SIZES.map(([l, v]) => <button key={l} type="button" onClick={() => setSize(v)} aria-pressed={size === v} aria-label={`Size ${l}`} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${size === v ? 'bg-stone-800' : 'bg-white'}`}><span className="rounded-full" style={{ width: 4 + v * 400, height: 4 + v * 400, background: size === v ? '#fff' : '#57534e' }} /></button>)}
+          {SIZES.map(([l, v]) => <button key={l} type="button" onClick={() => setSize(v)} aria-pressed={size === v} aria-label={`Size ${l}`} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${size === v ? 'bg-stone-800' : 'bg-white'}`}><span className="rounded-full" style={{ width: 4 + v * 400, height: 4 + v * 400, background: size === v ? '#fff' : '#57534e' }} /></button>)}
         </div>
-        {colours.length > 0 && <div className="flex flex-wrap items-center gap-1.5 text-[12px]"><span className="text-stone-500">Colours I love:</span>{colours.map((c) => <button key={c} type="button" onClick={() => setColor(c)} className="flex items-center gap-1 rounded-full bg-white px-2 py-1 shadow-sm"><span className="h-4 w-4 rounded-full border" style={{ background: c }} />{c}</button>)}<button type="button" onClick={() => setColours([])} className="text-stone-400 underline">clear</button></div>}
-        <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 300))} rows={2} placeholder="Add a note (optional) — e.g. this shape, a little shorter" className="w-full rounded-xl border border-stone-300 bg-white p-2.5 text-[15px]" aria-label="Note for this photo" />
+        {colours.length > 0 && <div className="flex flex-wrap items-center gap-1.5 text-[12px]"><span className="text-stone-500">Colors I love:</span>{colours.map((c) => <button key={c} type="button" onClick={() => setColor(c)} className="flex min-h-11 items-center gap-1 rounded-full bg-white px-3 shadow-sm"><span className="h-4 w-4 rounded-full border" style={{ background: c }} />{c}</button>)}<button type="button" onClick={() => setColours([])} className="inline-flex min-h-11 items-center px-2 text-stone-400 underline">clear</button></div>}
+        <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 300))} rows={2} placeholder="Add a note (optional), like this shape but a little shorter" className="w-full rounded-xl border border-stone-300 bg-white p-2.5 text-[15px]" aria-label="Note for this photo" />
       </div>
     </div>
   );
@@ -211,7 +211,7 @@ export function PhotoMarkup({ tenantId, value, onChange, accent = '#7c3aed', max
   const [editing, setEditing] = useState<{ src: string; index: number | null; note: string; colours: string[] } | null>(null);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   // The editor opens at the top of the page, outside the area that defines
-  // --accent — so resolve the business's real colour here and hand it over.
+  // --accent — so resolve the business's real color here and hand it over.
   const root = useRef<HTMLDivElement>(null);
   const realAccent = () => { if (!accent.startsWith('var(')) return accent; const v = root.current ? getComputedStyle(root.current).getPropertyValue('--accent').trim() : ''; return v || (accent.match(/,\s*([^)]+)\)/)?.[1] || '#7c3aed'); };
   const pick = (files: FileList | null) => {
@@ -224,11 +224,11 @@ export function PhotoMarkup({ tenantId, value, onChange, accent = '#7c3aed', max
     try {
       const res = await fetch('/api/booking/photo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, dataUrl }) });
       const d = await res.json().catch(() => ({}));
-      if (!d?.ok || !d.url) { setErr(d?.error || 'Couldn’t save that photo — please try again.'); return; }
+      if (!d?.ok || !d.url) { setErr(d?.error || 'Couldn’t save that photo. Please try again.'); return; }
       const item: InspoPhoto = { url: d.url, note, local: dataUrl, colours };
       const next = [...value]; if (idx === null) next.push(item); else next[idx] = item;
       onChange(next.slice(0, max));
-    } catch { setErr('Couldn’t save that photo — check your connection and try again.'); } finally { setBusy(false); }
+    } catch { setErr('Couldn’t save that photo. Check your connection and try again.'); } finally { setBusy(false); }
   };
   return (
     <div ref={root} className="space-y-2">
@@ -238,7 +238,7 @@ export function PhotoMarkup({ tenantId, value, onChange, accent = '#7c3aed', max
           <figcaption className="space-y-1 p-2 text-[12px]">
             {(p.colours || []).length > 0 && <div className="flex gap-1">{p.colours!.map((c) => <span key={c} className="h-4 w-4 rounded-full border" style={{ background: c }} title={c} />)}</div>}
             {p.note && <p className="line-clamp-2 text-stone-600">{p.note}</p>}
-            <div className="flex gap-3"><button type="button" onClick={() => setEditing({ src: p.local || p.url, index: i, note: (p.note || '').replace(/\n?Colours I picked:[\s\S]*$/, ''), colours: p.colours || [] })} className="underline underline-offset-2">Mark up</button><button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className="text-stone-500 underline underline-offset-2">Remove</button></div>
+            <div className="flex gap-3"><button type="button" onClick={() => setEditing({ src: p.local || p.url, index: i, note: (p.note || '').replace(/\n?Colou?rs I picked:[\s\S]*$/, ''), colours: p.colours || [] })} className="inline-flex min-h-11 items-center px-2 underline underline-offset-2">Mark up</button><button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className="inline-flex min-h-11 items-center px-2 text-stone-500 underline underline-offset-2">Remove</button></div>
           </figcaption>
         </figure>
       ))}</div>}
@@ -246,8 +246,8 @@ export function PhotoMarkup({ tenantId, value, onChange, accent = '#7c3aed', max
         <label className="flex h-12 cursor-pointer items-center justify-center rounded-2xl border border-dashed border-stone-300 bg-white text-[14px] transition active:scale-[.98]">Take a photo<input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ''; }} aria-label="Take an inspiration photo" /></label>
         <label className="flex h-12 cursor-pointer items-center justify-center rounded-2xl border border-dashed border-stone-300 bg-white text-[14px] transition active:scale-[.98]">Choose a photo<input type="file" accept="image/*" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ''; }} aria-label="Choose an inspiration photo" /></label>
       </div>}
-      <p className="text-[12px] text-stone-500">{busy ? 'Saving your photo…' : `Up to ${max} photos — draw, stamp a nail shape, or pick an exact colour from the photo.`}</p>
-      {err && <p className="text-[13px] text-red-700" role="alert">{err}</p>}
+      <p className="text-[12px] text-stone-500">{busy ? 'Saving your photo…' : `Up to ${max} photos. Draw on them, add a shape, or pick an exact color from the photo.`}</p>
+      {err && <p className="cf-note cf-warn text-[13px]" role="alert">{err}</p>}
       {editing && typeof document !== 'undefined' && createPortal(<Editor src={editing.src} accent={realAccent()} initialNote={editing.note} initialColours={editing.colours} onCancel={() => setEditing(null)} onDone={save} />, document.body)}
     </div>
   );

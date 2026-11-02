@@ -47,11 +47,15 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i]; const g = p.guest ? { name: s(p.guest.name, 120), email: s(p.guest.email, 160), phone: s(p.guest.phone, 40) } : null;
     if (p.guest && !g!.name) { await undo(); return NextResponse.json({ ok: false, error: `Guest ${i} needs a name.` }, { status: 400 }); }
-    const client = g ? { name: g.name, ...(g.email ? { email: g.email } : {}), ...(g.phone ? { phone: g.phone } : {}) } : { ...organizer, smsConsent: b.organizer?.smsConsent === true, smsConsentText: b.organizer?.smsConsentText || null };
+    const client = g ? { name: g.name, ...(g.email ? { email: g.email } : {}), ...(g.phone ? { phone: g.phone } : {}) } : { ...organizer, smsConsent: b.organizer?.smsConsent === true, smsConsentText: b.organizer?.smsConsentText || null,
+      // Their yes to offers, with the words they agreed to (never assumed): theirs only, never a guest's.
+      smsMarketing: b.organizer?.smsMarketing === true, smsMarketingText: b.organizer?.smsMarketing === true ? s(b.organizer?.smsMarketingText, 600) || null : null };
+    // Where to meet and their inspiration photos belong to their own visit (the first part).
+    const own = i === 0 ? { ...(typeof b.place === 'string' && b.place ? { place: s(b.place, 20) } : {}), ...(Array.isArray(b.inspirationPhotos) ? { inspirationPhotos: b.inspirationPhotos.slice(0, 4).map((x: any) => ({ url: s(x?.url, 600), note: s(x?.note, 400) })).filter((x: any) => /^https:\/\//.test(x.url)) } : {}) } : {};
     let r: any = null;
     try { const res = await fetch(`${origin}/api/appointments/book`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(groupSig(p) ? { 'x-cf-group-sig': groupSig(p) } : {}) },   // NO staff or internal credentials: a public booking
         body: JSON.stringify({ tenantId, source: 'booking-page', channel: s(b.channel, 24) || undefined, serviceId: s(p.serviceId, 120), addOnIds: Array.isArray(p.addOnIds) ? p.addOnIds.slice(0, 8) : [], staffId: s(p.staffId, 120) || 'any', startTime: s(p.startTime, 40),
-          client, notes: i === 0 ? s(b.notes, 1000) : (g ? `Guest of ${organizer.name}` : `Part of ${organizer.name}’s visit`), signedForms: i === 0 && Array.isArray(b.signedForms) ? b.signedForms : [], groupRequest: true, quiet: i > 0 }) });
+          client, ...own, notes: i === 0 ? s(b.notes, 1000) : (g ? `Guest of ${organizer.name}` : `Part of ${organizer.name}’s visit`), signedForms: i === 0 && Array.isArray(b.signedForms) ? b.signedForms : [], groupRequest: true, quiet: i > 0 }) });
       r = { status: res.status, data: await res.json().catch(() => ({})) }; } catch { r = { status: 0, data: { error: 'Couldn’t reach the booking system.' } }; }
     if (!r.data?.ok) { await undo(); const who = g ? g.name : i === 0 ? 'you' : `the ${i === 1 ? 'second' : 'next'} service`; const why = s(r.data?.error || 'that time isn’t free', 200).replace(/[.!]+$/, '');
       return NextResponse.json({ ok: false, failedIndex: i, error: `Couldn’t book ${who}: ${why}. Nothing was booked.` }, { status: r.status === 409 ? 409 : 400 }); }

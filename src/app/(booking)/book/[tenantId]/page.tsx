@@ -6,6 +6,7 @@ import { BookingRewards } from '@/components/loyalty/BookingRewards';
 import { giftCentsFor } from '@/lib/gift-visit';
 import { GiftCoverBar } from '@/components/gift/GiftCoverBar';
 import { channelFrom, catSlug } from '@/lib/share-links';
+import { holdKeyOf, payForHeld, releaseHeld, KEPT_HOLD, EARLIER_PAID, type HeldPay } from '@/lib/booking/engine-confirm';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
@@ -16,10 +17,10 @@ import { resolveBookingPlan } from '@/lib/deposit-policy';
 import { linkHref, LINK_KINDS, livePageSections, cleanBrand, onAccent } from '@/lib/renter-identity';
 import { policyText } from '@/lib/package-credits';
 import { horizonDaysFor, releaseSentence } from '@/lib/booking-release';
-import { brandColor, studioPage, lifted } from '@/lib/studio-page';
+import { brandColor, studioPage, lifted, readable } from '@/lib/studio-page';
 import { StudioBookingPage } from '@/components/booking/StudioBookingPage';
 import { privacyOf } from '@/lib/health-privacy';
-import { PUBLIC_CSS, PUBLIC_FONT_HREF, PublicFrame } from '@/components/public/kit';
+import { PublicFrame } from '@/components/public/kit';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -74,7 +75,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   /* What the server actually made of the last booking — read by the sheet's
    * confirmation screen so it never claims "confirmed" for a request. */
-  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; prepUrl?: string | null; verify?: { tenantId: string; apptId: string; k: string } | null } | null>(null);
+  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null } | null>(null);
   const [tenant,          setTenant]          = useState<any>(null);
   const [services,        setServices]        = useState<any[]>([]);
   const [staff,           setStaff]           = useState<any[]>([]);
@@ -127,7 +128,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [studioStaffId, setStudioStaffId] = useState<string | undefined>(undefined);
   // The appointment we're holding for a deposit — a retry pays for THIS one
   // instead of booking the same time again.
-  const heldPay = useRef<{ key: string; appointmentId: string } | null>(null);
+  const heldPay = useRef<HeldPay | null>(null);
   useEffect(() => {
     if (!reschedule || rescheduleOpened || services.length === 0) return;
     const svc = services.find((x: any) => x.id === reschedule.serviceId) || services.find((x: any) => x.name === reschedule.serviceName);
@@ -509,20 +510,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   }, [resolvedStyle, studioDesign, tenant, reschedule, providerId]);
 
 
-  /* ── THIS HOOK MUST STAY ABOVE EVERY `return` ─────────────────────────
-   * It was placed further down, below the loading-spinner early return. On
-   * the first render — while config is still loading — that return fires and
-   * this hook never runs, so React sees a different number of hooks between
-   * renders and throws. The whole booking site died with "a client-side
-   * exception has occurred", which is the generic face of exactly this
-   * mistake.
-   *
-   * Opening the flow scrolls to the top: without it the page keeps whatever
-   * offset the service list had, and the flow's first screen starts halfway
-   * down looking like a blank panel. */
-  useEffect(() => {
-    if (dialogOpen) window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [dialogOpen]);
 
   // Loading: the business's own paper, and (only if it takes a moment) a soft dot in their color, never a spinner. The
   // page waits for its services and team, so it never says "coming soon" for a moment, and a renter's link never
@@ -557,6 +544,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // (Was: the page chose its road by the deposit AMOUNT alone — in approval
   // mode that created a hidden bookingRequest + a payment the client was told
   // they didn't need, so the booking vanished; and paying skipped approval.)
+  // A held booking that turned out to be paid (or needs nothing more): the booked screen, for that booking.
+  // earlier: it was paid before they changed it, so that one (not what they changed to) is theirs.
+  const bookedHeld = (h: HeldPay, earlier = false) => setBookingOutcome({ status: 'confirmed', notice: earlier ? EARLIER_PAID : '', depositCents: 0, cardOnFile: false, visitUrl: h.k ? `/check-in/${encodeURIComponent(h.k)}` : null, earlier });
   const handleConfirm = async (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     apptDetails: any, signedForms: any[], setStep: (s: string) => void,
@@ -570,26 +560,37 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       // GUESTS OR MORE SERVICES → one request through the engine (all or nothing); the studio confirms, then asks for any deposit.
       const party: any = (restDetails as any).party;
       if (party && ((party.guests || []).length || (party.extras || []).length)) {
+        // A time still held from paying a deposit a moment ago is let go first (paid meanwhile: that's their booking).
+        if (heldPay.current) { const h = heldPay.current; const went = await releaseHeld(tenantId, heldPay);
+          if (went === 'kept') return { requiresPayment: true, error: KEPT_HOLD };
+          if (went === 'paid') { bookedHeld(h, true); setStep('confirmation'); return { requiresPayment: false }; } }
         const durOf = (id: string) => Number((services || []).find((x: any) => x.id === id)?.duration) || 60;
         const parts: any[] = [{ serviceId: restDetails.serviceId, staffId: restDetails.staffId || 'any', startTime: restDetails.startTime, addOnIds: restDetails.addOnIds || [] }];
         let after = new Date(restDetails.endTime || new Date(Date.parse(restDetails.startTime) + durOf(restDetails.serviceId) * 60000).toISOString()).getTime();
         for (const x of party.extras || []) { if (!x.serviceId) continue; if (x.when === 'after') { parts.push({ serviceId: x.serviceId, staffId: 'any', startTime: new Date(after).toISOString() }); after += durOf(x.serviceId) * 60000; } else parts.push({ serviceId: x.serviceId, staffId: 'any', startTime: restDetails.startTime }); }
         for (const g of party.guests || []) { if (!g.serviceId) continue; parts.push({ serviceId: g.serviceId, staffId: 'any', startTime: restDetails.startTime, guest: { name: g.name, email: g.email || '', phone: g.phone || '' } }); }
         const gr = await fetch('/api/appointments/book-group', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, parts, notes: formData.notes, signedForms: Array.isArray(signedForms) ? signedForms : [],
-          channel: channelFrom(new URLSearchParams(window.location.search).get('src')), ...(refSlug ? { referralCode: refSlug } : {}), ...(refCampaign ? { referralCampaign: refCampaign } : {}), ...((restDetails as any).referredBy ? { referredBy: (restDetails as any).referredBy } : {}), ...((restDetails as any).referralTypedCode ? { referralTypedCode: (restDetails as any).referralTypedCode } : {}), organizer: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone, smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null } }) }).then((x) => x.json()).catch(() => null);
+          channel: channelFrom(new URLSearchParams(window.location.search).get('src')), ...(refSlug ? { referralCode: refSlug } : {}), ...(refCampaign ? { referralCampaign: refCampaign } : {}), ...((restDetails as any).referredBy ? { referredBy: (restDetails as any).referredBy } : {}), ...((restDetails as any).referralTypedCode ? { referralTypedCode: (restDetails as any).referralTypedCode } : {}), organizer: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone, smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null,
+            smsMarketing: (restDetails as any).smsMarketing === true, smsMarketingText: (restDetails as any).smsMarketing === true ? (restDetails as any).smsMarketingText || null : null },
+          ...((restDetails as any).place ? { place: (restDetails as any).place } : {}), ...(Array.isArray((restDetails as any).inspirationPhotos) ? { inspirationPhotos: (restDetails as any).inspirationPhotos } : {}) }) }).then((x) => x.json()).catch(() => null);
         if (!gr?.ok) return { requiresPayment: true, error: gr?.error || 'We couldn’t send that request — please try again. Nothing was booked.' };
         setBookingOutcome({ status: 'requested', notice: String(gr.clientNotice || ''), depositCents: Number(gr.depositCents) || 0, cardOnFile: false } as any);
         return { requiresPayment: false };
       }
-      const holdKey = `${restDetails.serviceId}|${restDetails.startTime}|${String(formData.clientEmail || '').toLowerCase()}`;
-      const payFor = async (appointmentId: string): Promise<ConfirmResult> => {
-        const dres = await fetch('/api/stripe/deposit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, appointmentId }) }).catch(() => null);
-        const d: any = dres ? await dres.json().catch(() => null) : null;
-        if (d?.clientSecret) return { requiresPayment: true, clientSecret: d.clientSecret, stripeAccountId: d.stripeAccountId, appointmentId };
-        return { requiresPayment: true, error: d?.error || 'Your time is held, but the payment step didn’t open. Please try again — or use the pay link in your email.' };
-      };
-      // Retrying the same booking while its deposit is pending → pay for the held one.
-      if (heldPay.current?.key === holdKey) return payFor(heldPay.current.appointmentId);
+      const holdKey = holdKeyOf({ ...restDetails, notes: formData.notes }, { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone }, signedForms);
+      // Asked again for exactly the same booking while it holds its time for the deposit: pay for that one (and if it
+      // turns out there's nothing left to pay, it's booked). Anything changed, or the hold ended: the held one is let
+      // go and this is booked fresh.
+      if (heldPay.current && heldPay.current.key === holdKey) {
+        const h = heldPay.current; const again = await payForHeld(tenantId, h.appointmentId);
+        if (again.settled) { heldPay.current = null; bookedHeld(h); setStep('confirmation'); return { requiresPayment: false }; }
+        if (!again.ended) return again as ConfirmResult;
+        heldPay.current = null;
+      } else if (heldPay.current) {
+        const h = heldPay.current; const went = await releaseHeld(tenantId, heldPay);
+        if (went === 'kept') return { requiresPayment: true, error: KEPT_HOLD };
+        if (went === 'paid') { bookedHeld(h, true); setStep('confirmation'); return { requiresPayment: false }; }
+      }
       let bookRes: Response;
       try {
         bookRes = await fetch('/api/appointments/book', {
@@ -641,12 +642,14 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
        * and the text all say the same thing. */
       setBookingOutcome({ status: String(out.status || 'confirmed'), notice: String(out.clientNotice || ''), depositCents: Number(out.depositCents) || 0, cardOnFile: !!out.requiresCardOnFile,
         // "Confirm your number" (optional) on the confirmation screen, for a new client or a phone never confirmed.
-        verify: out.phoneUnconfirmed && out.appointmentId && out.checkInToken ? { tenantId, apptId: String(out.appointmentId), k: String(out.checkInToken) } : null, prepUrl: typeof out.prepUrl === 'string' ? out.prepUrl : null });
+        verify: out.phoneUnconfirmed && out.appointmentId && out.checkInToken ? { tenantId, apptId: String(out.appointmentId), k: String(out.checkInToken) } : null, prepUrl: typeof out.prepUrl === 'string' ? out.prepUrl : null,
+        // The visit link (the one in every message about this visit), so the booked screen can open it.
+        visitUrl: out.checkInToken ? `/check-in/${encodeURIComponent(String(out.checkInToken))}` : null });
 
       // A deposit is due now → pay against THIS appointment.
       if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {
-        heldPay.current = { key: holdKey, appointmentId: out.appointmentId };
-        const d: any = await payFor(out.appointmentId);
+        heldPay.current = { key: holdKey, appointmentId: out.appointmentId, k: out.checkInToken || null };
+        const d: any = await payForHeld(tenantId, out.appointmentId);
         if (d?.clientSecret) {
           // A reschedule that needs a deposit: the payment webhook releases the
           // OLD visit once this one is paid for (same client only).
@@ -700,24 +703,21 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     }
   };
 
-  /* When the flow is open it OWNS the screen — the marketing page underneath
-   * is not rendered at all. Leaving it mounted meant the customer could
-   * scroll past the end of the booking form into the studio's hero section,
-   * which reads as the form having ended prematurely. */
-  if (dialogOpen && dialogService) {
-    // Reschedules always use the Studio flow (clear, calm, month calendar) — whatever the page design.
-    const flowStudio = studioDesign || (!!reschedule && !providerId);
-    return (
-      <div className={`w-full min-h-dvh overflow-x-hidden ${flowStudio ? 'pub-flow' : ''}`}
-           style={flowStudio ? { background: '#faf8f5', ['--accent' as any]: brandColor(tenant) } : { background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.jakarta }}>
-        {flowStudio && <><style>{PUBLIC_CSS}</style><link rel="stylesheet" href={PUBLIC_FONT_HREF} /></>}
-        {agentHold && <p role="status" className="mx-auto max-w-xl px-4 pt-4 text-[14px]" style={{ color: '#6d7075' }}>{agentHold.live ? `We’re holding this time for you until ${new Date(agentHold.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. Check your details and confirm to book it.` : 'The time your assistant held has been released. Please pick a time below.'}</p>}
+  // The booking sheet opens OVER the page: the page stays where it was underneath, so closing the sheet lands the client
+  // back where they were. It comes in the page's own look: on a renter's link their color, light or dark; everywhere
+  // else the business's color and mood.
+  const sheetRenter: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
+  const sheetLook = sheetRenter
+    ? { accent: readable(cleanBrand(sheetRenter.brand).accent), mood: (cleanBrand(sheetRenter.brand).tone === 'dark' ? 'night' : 'soft') as 'night' | 'soft' }
+    : { accent: brandColor(tenant), mood: studioPage(tenant).mood };
+  const sheet = dialogOpen && dialogService ? (
         <BookingSheet
           tenantId={tenantId}
+          look={sheetLook}
+          holdNote={agentHold ? (agentHold.live ? `We’re holding this time for you until ${new Date(agentHold.expiresAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. Check your details and book it.` : 'The time your assistant held has been released. Please choose a time.') : null}
           initialStaffId={studioStaffId}
           rescheduleOf={reschedule ? { serviceName: reschedule.serviceName, startTime: reschedule.startTime } : null}
-          simple={flowStudio}
-          lockedStaffId={providerId && staff.some((m: any) => m.id === providerId && m.isRenter) ? providerId : undefined}
+          lockedStaffId={sheetRenter ? providerId : undefined}
           prefillClient={reschedule ? { clientName: reschedule.clientName, clientEmail: reschedule.clientEmail, clientPhone: reschedule.clientPhone } : agentHold ? { clientName: agentHold.client.name, clientEmail: agentHold.client.email, clientPhone: agentHold.client.phone } : null}
           initialSlot={agentHold?.live ? { date: agentHold.date, time: agentHold.time, staffId: agentHold.staffId } : null}
           open
@@ -735,26 +735,17 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             // for a member once identified, otherwise the public window. The
             // same function the server enforces with, so the calendar never
             // shows a day the booking would then refuse.
-            const prov: any = providerId ? staff.find((m: any) => m.id === providerId && m.isRenter) : null;
-            const days = prov
-              ? horizonDaysFor(prov.renterBooking || null, memberOk === true, new Date(), tenant?.timezone || 'America/New_York')
+            const days = sheetRenter
+              ? horizonDaysFor(sheetRenter.renterBooking || null, memberOk === true, new Date(), tenant?.timezone || 'America/New_York')
               : horizonDaysFor((tenant as any)?.bookingRelease || null, studioMemberOk === true, new Date(), tenant?.timezone || 'America/New_York');
-            return days !== null && days > 0 ? { ...tenant, bookingHorizonDays: days + (prov ? 0 : earlyDays) } : tenant;
+            return days !== null && days > 0 ? { ...tenant, bookingHorizonDays: days + (sheetRenter ? 0 : earlyDays) } : tenant;
           })()}
-          shifts={shifts}
-          staffBlocks={staffBlocks}
-          dayOffBlocks={dayOffBlocks}
-          resources={resources}
-          tickets={maintTickets}
-          maintenancePlans={maintenancePlans}
-          calendarEvents={calendarEvents}
           onConfirm={handleConfirm}
+          onReleaseHold={() => releaseHeld(tenantId, heldPay)}
+          onSettled={() => { heldPay.current = null; }}
           bookingOutcome={bookingOutcome}
-          variant="page"
         />
-      </div>
-    );
-  }
+  ) : null;
 
   // Someone followed a personal link belonging to a renter who books
   // elsewhere. Sending them their real link is the whole point — the
@@ -850,6 +841,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             </button>
             {studioLine && <p className="mt-4 text-center text-[9px]" style={{ ...caps, color: mute, opacity: 0.7 }}>{studioLine}</p>}
           </div>
+          {sheet}
         </div>
       );
     }
@@ -1127,6 +1119,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             </div>
           );
         })()}
+        {sheet}
       </div>
     );
   }
@@ -1159,7 +1152,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   // Shown small in Settings › Booking page: the real page, but nothing can be booked from it.
   const previewOnly = (() => { try { return new URLSearchParams(window.location.search).get('preview') === '1'; } catch { return false; } })();
-  return (
+  return (<>
     <StudioBookingPage tenant={tenant} accent={brandColor(tenant)} preview={previewOnly}
       focus={(() => { try { const id = new URLSearchParams(window.location.search).get('service'); return id ? services.find((sv: any) => sv.id === id) || null : null; } catch { return null; } })()}
       services={services} staff={staff} giftCents={giftCents} events={events} renters={elsewhere}
@@ -1168,6 +1161,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       loadFailed={loadFailed} onRetry={() => { setLoadFailed(false); setLoadedFor(null); setLoadTry((n) => n + 1); }}
       note={staleProvider ? 'The booking link you used isn’t active anymore, so here’s everyone you can book with.' : rescheduleNote || null}
       onBook={(svc, staffId) => { if (previewOnly || memberLocked(svc)) return; setStudioStaffId(staffId); setDialogService(svc); setDialogOpen(true); }} />
+    {sheet}</>
   );
 }
 

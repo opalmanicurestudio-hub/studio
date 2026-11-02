@@ -213,6 +213,8 @@ export async function POST(req: NextRequest) {
       // 'days' — HOW MANY open times each day has (up to 6 weeks), for the
       // calendar's availability dots. Counts only — never who is booked.
       if (b.action === 'days') {
+        // The heaviest ask (up to six weeks worked out at once): limited per visitor and per business.
+        const limited = await limitPublic(req, 'days', tenantId, { perHour: 240, perDay: 20000 }); if (limited) return limited;
         const n = Math.max(1, Math.min(42, Number(b.days) || 31)); const tz = tenantTimeZone(t);
         const out: { date: string; count: number }[] = [];
         for (let i = 0; i < n; i++) {

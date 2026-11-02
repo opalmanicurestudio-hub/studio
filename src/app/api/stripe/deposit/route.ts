@@ -34,6 +34,17 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
+/** Why a booking can't take a deposit payment now, said the same way wherever it's asked: paid already, booked (no
+ *  deposit due any more), or ended (let go, expired, declined: book again). null when it can. */
+function notPayable(ap: any): { error: string; code: 'paid' | 'booked' | 'ended' } | null {
+  if (ap?.depositStatus === 'paid') return { error: 'This deposit is already paid.', code: 'paid' };
+  if (ap?.status === 'pending_payment') return null;
+  // Ended only when it's no longer a booking at all (gone, or let go); any other state (booked, under way, done) is a
+  // booking that stands.
+  const st = String(ap?.status || '');
+  return !st || ['cancelled', 'canceled', 'declined', 'expired', 'released'].includes(st) ? { error: 'This hold has ended. Please choose a time again.', code: 'ended' } : { error: 'No deposit is due for this booking.', code: 'booked' };
+}
+
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
 }
@@ -86,11 +97,13 @@ export async function POST(req: NextRequest) {
     {
       const aSnap = await db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).get();
       const ap = aSnap.exists ? (aSnap.data() as any) : null;
-      if (!ap) return NextResponse.json({ error: 'We couldn’t find that booking.' }, { status: 404 });
-      if (ap.depositStatus === 'paid') return NextResponse.json({ error: 'This deposit is already paid.' }, { status: 409 });
-      if (ap.status !== 'pending_payment') return NextResponse.json({ error: ap.status === 'cancelled' ? 'This hold has ended — please pick a time again.' : 'No deposit is due for this booking.' }, { status: 409 });
+      // Each refusal says which it is (code), so the booking sheet knows whether it's booked or needs booking again.
+      if (!ap) return NextResponse.json({ error: 'We couldn’t find that booking.', code: 'ended' }, { status: 404 });
+      const no = notPayable(ap); if (no) return NextResponse.json(no, { status: 409 });
+      // A few payment forms per booking is plenty (each try opens one); more is someone hammering it.
+      if ((Array.isArray(ap.depositSessions) ? ap.depositSessions.length : 0) >= 12) return NextResponse.json({ error: 'Too many tries for this booking. Please go back and choose your time again.' }, { status: 429 });
       const cents = Math.round(Number(ap.depositAmountCents) || 0);
-      if (cents <= 0) return NextResponse.json({ error: 'No deposit is due for this booking.' }, { status: 409 });
+      if (cents <= 0) return NextResponse.json({ error: 'No deposit is due for this booking.', code: 'booked' }, { status: 409 });
       depositAmount = cents / 100;
       balCents = balanceDueWith(ap);   // a balance collected with this deposit
       // Appointments link to the client record rather than copying the email.
@@ -187,6 +200,18 @@ export async function POST(req: NextRequest) {
         stripeAccount: stripeAccountId,
       }
     );
+
+    // Each payment form opened for this booking is noted on it, so a client who steps back from paying can only let
+    // the time go once Stripe says none of them is being paid (app/api/appointments/release-hold).
+    // If it can't be noted, or the booking stopped waiting for its deposit meanwhile (let go a moment ago), the form is
+    // closed again at once, so nothing is ever paid on a booking that isn't holding its time.
+    const closeIt = async () => { try { await stripe.checkout.sessions.expire(session.id, { stripeAccount: stripeAccountId }); } catch (e) { console.error('[stripe/deposit] closing the session', e); } };
+    try { const { FieldValue } = require('firebase-admin/firestore');
+      const apRef = db.doc(`tenants/${tenantId}/appointments/${appointmentId}`);
+      await apRef.update({ depositSessions: FieldValue.arrayUnion(`${stripeAccountId}:${session.id}`) });   // a booking deleted meanwhile isn't brought back
+      const now: any = (await apRef.get()).data() || {};
+      const no = notPayable(now); if (no) { await closeIt(); return NextResponse.json(no, { status: 409 }); }
+    } catch (e) { console.error('[stripe/deposit] noting the session', e); await closeIt(); return NextResponse.json({ error: 'The payment step didn’t open. Please try again.' }, { status: 500 }); }
 
     return NextResponse.json({
       clientSecret:   session.client_secret,
