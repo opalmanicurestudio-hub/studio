@@ -24,8 +24,8 @@ import { holdParam } from '@/lib/agent-hold-param';
 import { ConfirmNumberCard } from '@/components/visit/VerifyCard';
 import { PartyBuilder, partyHasMore } from '@/components/booking/PartyBuilder';
 import { bookingPolicyLines, freeChangeLine } from '@/lib/policy-copy';
-import { FormFieldRenderer } from '../consents/FormFieldRenderer';
 import { PhotoMarkup } from './PhotoMarkup';
+import { FormRunner, formMinutes, hasSignature, wordingOnly } from './FormRunner';
 import { icsHref, googleHref } from '@/lib/ics';
 import { graceHoursOf } from '@/lib/deposit-policy';
 import { quietBonus, loyaltyOf } from '@/lib/loyalty';
@@ -35,8 +35,12 @@ import { PUBLIC_CSS, PUBLIC_FONT_HREF, moodStyle, money, minutes, type PublicMoo
 
 export type FlowLook = { accent: string; mood: PublicMood };
 
-const KNOWN = new Set(['heading', 'paragraph', 'short-text', 'long-text', 'multiple-choice', 'checkboxes', 'image-upload', 'signature']);
-const answered = (v: any) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
+/** What the visit link still asks for, in a few words: "Your forms and photo ID". */
+const stillWords = (items: string[]) => { const w = items.map((i) => (i === 'forms' ? 'your forms' : i === 'photo_id' ? 'your photo ID' : 'a document')); const t = w.length > 1 ? `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}` : w[0] || 'a few details'; return t.charAt(0).toUpperCase() + t.slice(1); };
+/** A row's state: an empty ring, or a green tick when it's done. */
+const Need = ({ done }: { done: boolean }) => (done
+  ? <span aria-hidden className="grid h-7 w-7 flex-none place-items-center rounded-full" style={{ background: 'var(--good-soft)', color: 'var(--good)' }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 5 5 9-10" /></svg></span>
+  : <span aria-hidden className="h-7 w-7 flex-none rounded-full" style={{ boxShadow: 'inset 0 0 0 2px var(--line)' }} />);
 const ymd = (d: Date) => format(d, 'yyyy-MM-dd');
 const mins = (t: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : 0; };
 const clockUp = (t: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(t || '')); if (!m) return ''; const h = Number(m[1]); return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
@@ -85,6 +89,26 @@ export function StudioFlow({ c }: { c: any }) {
   const name = String(tenant?.name || '').trim();
   const [ready, setReady] = useState(false);
   useEffect(() => { setReady(true); }, []);
+  // The form open over the sheet, one at a time (FormRunner), by its place in the list. Back and Escape close it first;
+  // focus goes back to the row that opened it.
+  const [runner, setRunner] = useState<number | null>(null);
+  // Open only while that form is still in the list, on the details step (a list that changes underneath closes it).
+  const formOpen = runner !== null && currentStep === 'details' && !!(c.requiredForms || [])[runner];
+  const formOpenRef = useRef(false); formOpenRef.current = formOpen;
+  const opener = useRef<HTMLElement | null>(null);
+  const openForm = (i: number, el: HTMLElement | null) => { opener.current = el; setRunner(i); };
+  // Closing a form clears the note about finishing the forms (the list now says what's left), and focus goes to the
+  // row of the form they were last on.
+  const closeForm = () => {
+    const at = runner; setRunner(null);
+    if (c.flowNote?.about === 'forms') c.setFlowNote?.(null);
+    window.setTimeout(() => ((at !== null && root.current?.querySelector<HTMLElement>(`[data-form-row="${at}"]`)) || opener.current)?.focus?.({ preventScroll: false }), 30);
+  };
+  const closeFormRef = useRef(closeForm); closeFormRef.current = closeForm;
+  // While a form is open over the sheet, what's behind it can't be reached by Tab or a screen reader.
+  const behindForm: any = formOpen ? { inert: true, 'aria-hidden': true } : {};
+  useEffect(() => { setRunner(null); }, [currentStep]);
+  useEffect(() => { if (runner !== null && !formOpen) setRunner(null); }, [runner, formOpen]);
   const root = useRef<HTMLDivElement>(null); const body = useRef<HTMLDivElement>(null); const title = useRef<HTMLHeadingElement>(null);
   const done = currentStep === 'confirmation';
   const shown: string[] = steps.filter((s: string) => s !== 'confirmation');
@@ -94,7 +118,7 @@ export function StudioFlow({ c }: { c: any }) {
   const backRef = useRef<() => boolean>(() => false);
   // While a booking is on its way or a held time is being let go, Back waits (it stays on this step); otherwise it
   // steps back, or closes from the first.
-  backRef.current = () => { if (c.confirming || c.leaving) return true; if (canBack) { void c.handlePrevStep(); return true; } return false; };
+  backRef.current = () => { if (formOpenRef.current) { closeFormRef.current(); return true; } if (c.confirming || c.leaving) return true; if (canBack) { void c.handlePrevStep(); return true; } return false; };
 
   // ── While open: the page underneath stays still; Escape closes; Tab stays inside; focus comes back after. ──
   useEffect(() => {
@@ -106,15 +130,18 @@ export function StudioFlow({ c }: { c: any }) {
       && el.tagName !== 'IFRAME' && el.tagName !== 'SCRIPT' && !/stripe/i.test(`${el.id} ${el.getAttribute('name') || ''} ${typeof el.className === 'string' ? el.className : ''}`)) as HTMLElement[];   // the payment form's own frames stay as they are
     behind.forEach((el) => el.setAttribute('inert', ''));
     // Focus inside another panel opened from here (the photo markup) belongs to that panel.
-    const elsewhere = () => { const d = (document.activeElement as HTMLElement | null)?.closest?.('[role="dialog"]'); return !!d && d !== root.current; };
+    const elsewhere = () => { const d = (document.activeElement as HTMLElement | null)?.closest?.('[role="dialog"]'); return !!d && d !== root.current && !d.hasAttribute('data-form-runner'); };
     const key = (e: KeyboardEvent) => {
+      if (formOpenRef.current && e.key === 'Escape') { e.preventDefault(); closeFormRef.current(); return; }   // a form open over the sheet closes first, whatever has focus
       if (elsewhere()) return;
       if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); return; }
       if (e.key !== 'Tab' || !root.current) return;
-      const f = Array.from(root.current.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),iframe,[tabindex]:not([tabindex="-1"])')).filter((el) => el.getClientRects().length > 0);
+      // With a form open over the sheet, Tab goes round the form alone (what's behind it is out of reach).
+      const scope: HTMLElement = (formOpenRef.current && root.current.querySelector<HTMLElement>('[data-form-runner]')) || root.current;
+      const f = Array.from(scope.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),iframe,[tabindex]:not([tabindex="-1"])')).filter((el) => el.getClientRects().length > 0 && el.tabIndex >= 0 && !el.closest('[inert]'));
       if (!f.length) return;
       const a = f[0], z = f[f.length - 1];
-      if (!root.current.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? z : a).focus(); return; }
+      if (!scope.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? z : a).focus(); return; }
       if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
       else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
     };
@@ -299,6 +326,11 @@ export function StudioFlow({ c }: { c: any }) {
 
   // ── 3 · Your details ────────────────────────────────────────────────────
   const forms: any[] = c.requiredForms || [];
+  // Documents the service asks for (photo ID and the like): asked on the visit link after booking, where they stay private.
+  const fileNeeds: any[] = [service, ...((c.addOns || []).filter((a: any) => (c.addOnIds || []).includes(a.id)))].flatMap((x: any) => (Array.isArray(x?.requiredFileRequirements) ? x.requiredFileRequirements : [])).filter((f: any, i: number, all: any[]) => f && all.findIndex((y) => y?.id === f.id) === i);
+  const totalFormMin = forms.filter((f) => !c.formDone(f)).reduce((n: number, f: any) => n + formMinutes(f), 0);
+  const started = (form: any) => Object.entries(c.formAnswers?.[form.id] || {}).filter(([k]) => k !== '__seen').map(([, v]) => v).some((v: any) => v !== undefined && v !== null && v !== '' && v !== false && !(Array.isArray(v) && !v.length));
+  const allFormsDone = forms.length > 0 && forms.every((f: any) => c.formDone(f));
   const referralsAsk = c.partyOk !== false && tenant?.referrals?.on === true && !(typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('ref'));
   const detailsStep = (
     <FormProvider {...c.methods}>
@@ -323,6 +355,38 @@ export function StudioFlow({ c }: { c: any }) {
           {c.bannedClient && <p className="cf-note cf-warn mt-3" role="alert">{c.bannedClient.banMessage || `This booking can’t be made online. Please contact ${name || 'the business'} directly.`}</p>}
           {c.existingClientWithBalance && !c.bannedClient && <p className="cf-note cf-warn mt-3" role="alert">There’s an open balance on your account. Please settle it with {name || 'the business'} before booking online.</p>}
         </div>
+        {(forms.length > 0 || fileNeeds.length > 0) && <section aria-label="Before your visit">
+          <p className="cf-lbl">Before your visit{totalFormMin ? ` · about ${totalFormMin} minute${totalFormMin === 1 ? '' : 's'}` : ''}</p>
+          <div className="cf-grp">
+            {forms.map((form: any, i: number) => { const done = c.formDone(form);
+              return (
+                <button key={form.id} type="button" data-form-row={i} onClick={(e) => openForm(i, e.currentTarget)} className="cf-row cf-tap w-full text-left" style={{ minHeight: 66 }}>
+                  <Need done={done} />
+                  <span className="min-w-0 flex-1 py-2.5"><span className="block text-[15.5px]">{form.title || 'Form'}</span>
+                    <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{done ? 'Done' : `${hasSignature(form) ? 'Read and sign' : wordingOnly(form) ? 'Read it' : 'A few questions'} · ${formMinutes(form)} min`}</span></span>
+                  <span className="text-[14px] font-semibold" style={{ color: 'var(--accent-text,var(--accent))' }}>{done ? 'Review' : started(form) ? 'Finish' : 'Start'}</span>
+                </button>);
+            })}
+            {fileNeeds.map((fr: any) => (
+              <div key={fr.id || fr.label} className="cf-row" style={{ minHeight: 66 }}>
+                <Need done={false} />
+                <span className="min-w-0 flex-1 py-2.5"><span className="block text-[15.5px]">{fr.label || 'A document'}</span>
+                  <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{fr.persistToProfile ? 'Asked once, then kept on your profile.' : 'For this visit.'} Asked on your visit link after you book.</span></span>
+              </div>))}
+          </div>
+          {forms.length > 0 && !allFormsDone && <div className="mt-3 flex gap-1 rounded-[14px] p-1" role="radiogroup" aria-label="When to do them" style={{ background: 'color-mix(in srgb, var(--ink) 6%, transparent)' }}>
+            {([['now', 'Do them now'], ['later', 'Later, from my visit link']] as const).map(([k, t]) => (
+              <button key={k} type="button" role="radio" aria-checked={c.formsWhen === k} tabIndex={c.formsWhen === k ? 0 : -1} onClick={() => c.setFormsWhen(k)}
+                onKeyDown={(e) => { if (/^Arrow(Left|Right|Up|Down)$/.test(e.key)) { e.preventDefault(); const o = k === 'now' ? 'later' : 'now'; c.setFormsWhen(o); ((e.currentTarget.parentElement?.querySelector(`[data-when="${o}"]`)) as HTMLElement | null)?.focus(); } }}
+                data-when={k} className="min-h-11 flex-1 rounded-[10px] px-2 text-[14px] font-medium"
+                style={c.formsWhen === k ? { background: 'var(--card)', color: 'var(--ink)', boxShadow: '0 1px 3px rgba(0,0,0,.1)' } : { color: 'var(--muted)' }}>{t}</button>))}
+          </div>}
+          <p className="mt-2.5 px-1 text-[13px] leading-snug" style={{ color: 'var(--muted)' }}>
+            {forms.length && allFormsDone ? (fileNeeds.length ? 'Your forms are done. Your visit link asks for the rest after you book.' : 'All done. Thank you.')
+              : !forms.length ? 'Your visit link asks for it after you book: it takes a minute.'
+              : c.formsWhen === 'later' ? 'Your visit link asks for anything left, before your visit. Anything already on file isn’t asked again.'
+              : fileNeeds.length ? 'Finish the forms here to book. Your visit link asks for the rest.' : 'Finish them here to book.'}</p>
+        </section>}
         <section aria-label="Anything we should know">
           <p className="cf-lbl">Anything we should know?</p>
           <div className="cf-grp"><textarea {...reg('notes')} rows={3} className="cf-in cf-area" placeholder="Allergies, what you’re hoping for, anything at all" /></div>
@@ -343,19 +407,6 @@ export function StudioFlow({ c }: { c: any }) {
           <p className="mt-2 px-1 text-[12.5px]" style={{ color: 'var(--muted)' }}>A code, or their first name and mobile. Names are never shown to anyone.</p>
         </details>}
         {c.groupPol?.enabled && c.partyOk !== false && !c.rescheduleOf && !c.providerId && <PartyBuilder policy={c.groupPol} services={c.allServices || []} mainServiceId={service?.id} party={c.party} onChange={c.setParty} accent="var(--accent)" friendNote={friendNoteOf(tenant)} />}
-        {forms.map((form: any) => {
-          const qs = (form.fields || []).filter((f: any) => f.type !== 'heading' && f.type !== 'paragraph'); const n = qs.filter((f: any) => answered(c.formAnswers[form.id]?.[f.id])).length;
-          const set = (fid: string, v: any) => c.setFormAnswers((p: any) => ({ ...p, [form.id]: { ...(p[form.id] || {}), [fid]: v } }));
-          return (
-            <section key={form.id} className="pub-card pub-ui space-y-4 p-5" aria-label={form.title}>
-              <div className="flex items-start justify-between gap-3"><div><p className="text-[16px] font-semibold">{form.title}</p><p className="text-[13px]" style={{ color: 'var(--muted)' }}>Please answer every question.</p></div>
-                <span className={`cf-count ${n === qs.length ? 'is-done' : ''}`}>{n === qs.length ? 'Done' : `${n} of ${qs.length}`}</span></div>
-              <div className="space-y-5">{(form.fields || []).map((f: any) => KNOWN.has(f.type)
-                ? <FormFieldRenderer key={f.id} field={f} value={c.formAnswers[form.id]?.[f.id]} onChange={(v: any) => set(f.id, v)} />
-                : <label key={f.id} className="block space-y-1.5"><span className="text-[14px] font-medium">{f.label || 'Question'}</span><input value={c.formAnswers[form.id]?.[f.id] || ''} onChange={(e) => set(f.id, e.target.value)} className="cf-field" /></label>)}</div>
-            </section>
-          );
-        })}
       </form>
     </FormProvider>
   );
@@ -439,7 +490,7 @@ export function StudioFlow({ c }: { c: any }) {
         {!pending && outcome.notice && <p className="mx-auto mt-2 max-w-sm text-[13.5px] leading-relaxed" style={{ color: 'var(--muted)' }}>{outcome.notice}</p>}
       </div>
       {c.selectedTime && !outcome.earlier && <div className="pub-card p-5 text-left">
-        <p className="pub-accent-text text-[13px] font-semibold" style={{ letterSpacing: '.06em', textTransform: 'uppercase' }}>{diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : format(c.date, 'EEE, MMM d')}</p>
+        <p className="pub-accent-text text-[13.5px] font-semibold">{diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : format(c.date, 'EEE, MMM d')}</p>
         <p className="mt-0.5 text-[28px] font-semibold leading-tight tracking-tight">{clockUp(c.selectedTime)}</p>
         <p className="mt-1.5 text-[14.5px]" style={{ color: 'var(--muted)' }}>{[visitWhat, bookedName ? `with ${bookedName}` : '', minutes(totalMin)].filter(Boolean).join(' · ')}</p>
         {where && <p className="mt-3 flex items-center gap-1.5 text-[13.5px]" style={{ color: 'var(--muted)' }}><MapPin className="h-4 w-4 shrink-0" aria-hidden />{where}</p>}
@@ -463,6 +514,12 @@ export function StudioFlow({ c }: { c: any }) {
           {outcome.depositCents > 0 && <li className="flex gap-2.5"><span className="cf-num">3</span>{outcome.cardOnFile ? `If your card declines, you’ll get a link to pay within ${graceHoursOf(tenant)} hours. Otherwise the time is released.` : `Pay within ${graceHoursOf(tenant)} hours of it being accepted, or the time is released.`}</li>}
         </ol>
       </section>}
+      {outcome.visitUrl && !req && !pending && (outcome.stillNeeded || []).length > 0 && <a href={outcome.visitUrl} className="pub-card pub-press flex items-center gap-3 p-4 text-left">
+        <span aria-hidden className="h-7 w-7 flex-none rounded-full" style={{ boxShadow: 'inset 0 0 0 2px var(--warn, #b45309)' }} />
+        <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{(outcome.stillNeeded || []).length === 1 ? 'One thing left before your visit' : 'A few things left before your visit'}</span>
+          <span className="block text-[13px] leading-snug" style={{ color: 'var(--muted)' }}>{stillWords(outcome.stillNeeded || [])}. It takes a minute, and it’s on your visit link whenever you’re ready.</span></span>
+        <span className="text-[14px] font-semibold" style={{ color: 'var(--accent-text,var(--accent))' }}>Do it now</span>
+      </a>}
       {outcome.visitUrl && !req && !pending && <a href={outcome.visitUrl} className="pub-card pub-press flex items-center gap-3 p-4 text-left">
         <span className="cf-tile"><MessageSquare className="h-5 w-5" aria-hidden /></span>
         <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">Your visit link</span><span className="block text-[13px] leading-snug" style={{ color: 'var(--muted)' }}>Check in, say you’re running late, or change the time. It’s in the {texted && !outcome.earlier ? 'text and email' : 'email'} we sent too.</span></span>
@@ -498,18 +555,22 @@ export function StudioFlow({ c }: { c: any }) {
           </div>
         ) : <>
           <div className="cf-grab" aria-hidden />
-          <div className="cf-head">
+          <div className="cf-head" {...behindForm}>
             {canBack ? <button type="button" onClick={c.handlePrevStep} aria-label="Back" className="cf-round"><span><ChevronLeft className="h-5 w-5" /></span></button> : <span className="w-11 shrink-0" />}
             <h2 id="cf-title" ref={title} tabIndex={-1} className="min-w-0 flex-1 truncate text-center text-[16px]" style={{ fontWeight: 600, letterSpacing: 0, outline: 'none' }}>{titles[currentStep]}</h2>
             <button type="button" onClick={close} aria-label="Close" className="cf-round"><span><X className="h-4 w-4" /></span></button>
           </div>
-          {shown.length > 1 && <div className="cf-prog" role="progressbar" aria-label={`Step ${currentStepIndex + 1} of ${shown.length}`} aria-valuemin={1} aria-valuemax={shown.length} aria-valuenow={currentStepIndex + 1}>
+          {shown.length > 1 && <div {...behindForm} className="cf-prog" role="progressbar" aria-label={`Step ${currentStepIndex + 1} of ${shown.length}`} aria-valuemin={1} aria-valuemax={shown.length} aria-valuenow={currentStepIndex + 1}>
             {shown.map((s, i) => <span key={s} className={i <= currentStepIndex ? 'is-on' : ''} />)}</div>}
         </>}
-        <div ref={body} className="cf-body">
+        <div ref={body} className="cf-body" {...behindForm}>
           <div key={currentStep} className={`cf-step ${c.direction === 'back' ? 'is-back' : ''}`}>{content}</div>
         </div>
-        {primary && <div className="cf-foot">
+        {formOpen && runner !== null && <FormRunner forms={forms} index={runner} setIndex={setRunner} answers={c.formAnswers || {}}
+          setAnswer={(fid, k, v) => c.setFormAnswers((p: any) => ({ ...p, [fid]: { ...(p[fid] || {}), [k]: v } }))}
+          guardians={c.guardians || {}} setGuardian={(fid, g) => c.setGuardians((p: any) => ({ ...p, [fid]: g }))} guardianAsk={c.guardianAsk !== false}
+          tenantId={c.tenantId} businessName={name} onClose={closeForm} />}
+        {primary && <div className="cf-foot" {...behindForm}>
           {c.flowNote && <p className={`cf-note mb-3 ${c.flowNote.tone === 'warn' ? 'cf-warn' : ''}`} role={c.flowNote.tone === 'warn' ? 'alert' : 'status'}>{c.flowNote.text}</p>}
           {primary.sub && <p className="mb-2.5 truncate text-center text-[13px]" style={{ color: 'var(--muted)' }}>{primary.sub}</p>}
           <button key={currentStep} type={currentStep === 'details' ? 'submit' : 'button'} form={currentStep === 'details' ? 'cf-details' : undefined} disabled={primary.disabled} onClick={currentStep === 'details' ? undefined : () => void c.handleNextStep()} className="cf-btn pub-press">{primary.label}</button>
@@ -580,7 +641,7 @@ const FLOW_CSS = String.raw`
 .cf-scroll{position:relative;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-padding:0 16px}.cf-scroll::-webkit-scrollbar{display:none}
 .cf-chip{display:inline-flex;flex:none;align-items:center;gap:8px;height:44px;padding:0 16px 0 7px;border-radius:999px;background:var(--card);color:var(--ink);font-size:14.5px;font-weight:500;box-shadow:0 1px 2px rgba(28,25,23,.07)}
 .cf-chip-text,.cf-chip-full{padding:0 16px}.cf-chip-full{justify-content:center;width:100%}
-.cf-chip[aria-pressed=true]{background:var(--ink);color:var(--paper);box-shadow:none}
+.cf-chip:is([aria-pressed=true],[aria-checked=true]){background:var(--ink);color:var(--paper);box-shadow:none}
 .cf-av{display:grid;place-items:center;border-radius:999px;font-weight:700;background:color-mix(in srgb,var(--accent) 16%,var(--card));color:var(--accent-text,var(--accent))}
 .cf-chip[aria-pressed=true] .cf-av{background:rgba(255,255,255,.18);color:inherit}
 .pub[data-mood=night] .cf-chip[aria-pressed=true] .cf-av{background:rgba(0,0,0,.12)}
@@ -592,7 +653,7 @@ const FLOW_CSS = String.raw`
 .pub[data-mood=night] .cf-time[aria-pressed=true]{box-shadow:inset 0 0 0 1px rgba(255,255,255,.28)}
 .pub[data-mood=crisp] :is(.cf-day,.cf-time){border-radius:10px;box-shadow:inset 0 0 0 1px var(--line)}
 .pub[data-mood=crisp] .cf-chip{border-radius:10px;box-shadow:inset 0 0 0 1px var(--line)}
-.pub[data-mood=crisp] :is(.cf-day,.cf-chip)[aria-pressed=true],.pub[data-mood=crisp] .cf-time[aria-pressed=true]{box-shadow:none}
+.pub[data-mood=crisp] :is(.cf-day,.cf-chip)[aria-pressed=true],.pub[data-mood=crisp] .cf-chip[aria-checked=true],.pub[data-mood=crisp] .cf-time[aria-pressed=true]{box-shadow:none}
 .pub[data-mood=night] :is(.cf-day,.cf-time,.cf-chip,.cf-quiet){box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
 .cf-badge{position:absolute;top:-7px;right:4px;border-radius:999px;padding:1px 6px;font-size:10px;font-weight:600;line-height:1.5}
 .cf-badge-new{background:#fdf0dc;color:#8a4508}.cf-badge-pts{background:var(--good-soft);color:var(--good)}

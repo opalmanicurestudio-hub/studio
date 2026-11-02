@@ -122,7 +122,7 @@ export default function ClientPortalPage() {
     const [appointmentToReschedule, setAppointmentToReschedule] = useState<Appointment | null>(null);
     const [isSettlementOpen, setIsSettlementOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; visitUrl?: string | null; earlier?: boolean } | null>(null);
+    const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; visitUrl?: string | null; earlier?: boolean; stillNeeded?: string[] } | null>(null);
     const [settlementSuccess, setSettlementSuccess] = useState(false);
     const [payNote, setPayNote] = useState('');
     const [expandedImage, setExpandedImage] = useState<string | null>(null);
@@ -375,7 +375,7 @@ export default function ClientPortalPage() {
                 tenantId, source: 'client-portal',
                 formData: { ...formData, clientName: formData.clientName || client?.name || '', clientEmail: formData.clientEmail || client?.email || '', clientPhone: formData.clientPhone || client?.phone || '' },
                 apptDetails: appointmentDetails, signedForms, setStep: setBookingStep,
-                onOutcome: (x) => setBookingOutcome({ status: x.status, notice: x.notice, depositCents: x.depositCents, cardOnFile: x.cardOnFile, visitUrl: x.visitUrl || null, earlier: !!x.earlier }),
+                onOutcome: (x) => setBookingOutcome({ status: x.status, notice: x.notice, depositCents: x.depositCents, cardOnFile: x.cardOnFile, visitUrl: x.visitUrl || null, earlier: !!x.earlier, stillNeeded: x.stillNeeded || [] }),
                 held: heldPortalPay,
             });
         } finally {

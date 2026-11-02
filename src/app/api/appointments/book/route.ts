@@ -193,10 +193,20 @@ export async function POST(req: NextRequest) {
     .map((x: any) => ({ url: String(x.url), note: String(x.note || '').slice(0, 300) }));
   const signedFormsIn: any[] = (() => {
     const list = Array.isArray((body as any)?.signedForms) ? (body as any).signedForms.slice(0, 10) : [];
-    const clean = list.filter((f: any) => f && typeof f === 'object' && f.formId).map((f: any) => ({ formId: String(f.formId).slice(0, 80), formTitle: String(f.formTitle || '').slice(0, 200), formData: f.formData && typeof f.formData === 'object' ? f.formData : {}, signedAt: new Date().toISOString() }));
+    // Answers keep only plain question ids as keys: never empty, never the form screen's own marks, never "__…__" (which
+    // the database keeps for itself). A question's own id can start with "__", so that alone is fine.
+    const answersOf = (d: any) => (d && typeof d === 'object' && !Array.isArray(d) ? Object.fromEntries(Object.entries(d).filter(([k]) => /^[A-Za-z0-9_-]{1,80}$/.test(k) && !/^__.*__$/.test(k) && !['__signedName', '__read', '__seen'].includes(k)).slice(0, 200)) : {});
+    const clean = list.filter((f: any) => f && typeof f === 'object' && f.formId).map((f: any) => ({ formId: String(f.formId).slice(0, 80), formTitle: String(f.formTitle || '').slice(0, 200), formData: answersOf(f.formData), signedAt: new Date().toISOString(),
+      // The name they typed to sign it, and "I've read this" on a form with only wording.
+      ...(typeof f.signedName === 'string' && f.signedName.trim() ? { signedName: f.signedName.trim().slice(0, 120) } : {}),
+      ...(f.acknowledged === true ? { acknowledged: true } : {}),
+      // A parent or guardian who completed it for someone under 18, and said so (their name, how they're related, and
+      // their tick that they're the parent or legal guardian and agree for them).
+      ...(f.guardian && typeof f.guardian === 'object' && f.guardian.confirmed === true && typeof f.guardian.name === 'string' && f.guardian.name.trim() && typeof f.guardian.relationship === 'string' && f.guardian.relationship.trim()
+        ? { guardian: { name: f.guardian.name.trim().slice(0, 120), relationship: f.guardian.relationship.trim().slice(0, 80), confirmed: true } } : {}) }));
     return JSON.stringify(clean).length <= 600_000 ? clean : null;   // null: too large to keep (said so below, never dropped quietly)
   })();
-  if (signedFormsIn === null) return NextResponse.json({ ok: false, error: 'Your forms are too large to send. Please remove a photo from a form and try again.' }, { status: 413 });
+  if (signedFormsIn === null) return NextResponse.json({ ok: false, error: 'Those forms are too large to send. Shorten a long answer, or clear a signature and sign it again, then try once more.' }, { status: 413 });
     const { tenantId, serviceId, startTime } = body || {};
     const source = String(body.source || 'api').slice(0, 40);
     const channel = String(body.channel || '').slice(0, 24) || null;   // where the client came from (a shared link's src)
@@ -499,6 +509,25 @@ export async function POST(req: NextRequest) {
         if (hd && hd.key === body.holdKey && hd.status === 'held') ownHold = { id: h.id, ...hd }; } catch { /* booked as a normal booking */ }
     }
     const heldRows = holdsAsBusy(await liveHolds(db, `tenants/${tenantId}`), ownHold?.id || null);
+
+    // ── The forms sent with the booking, checked before anything is written (lib/forms) ──
+    // Only the forms this visit asks for, each finished by the same rule the booking sheet uses (every required answer,
+    // a real signature and the signer's name, "I've read this", and for a form that needs one, a parent or guardian who
+    // said they agree). Anything else is kept beside the visit, not counted, and asked for on the visit link. A form
+    // that couldn't be read just now isn't counted either.
+    const formsPre: { formIds: string[]; defs: any[]; defsRead: boolean } = { formIds: [], defs: [], defsRead: false };
+    let acceptedForms: any[] = []; let asideForms: any[] = signedFormsIn;
+    try {
+      const { formsAskedFor, sentFormDone, formRulesOf } = await import('@/lib/forms');
+      formsPre.formIds = formsAskedFor({}, [svc, ...addOnIds.map((id) => services.find((x: any) => x.id === id)).filter(Boolean)]);
+      let read = true;
+      formsPre.defs = (await Promise.all(formsPre.formIds.map((id) => db.doc(`tenants/${tenantId}/consentForms/${id}`).get().catch(() => { read = false; return null; }))))
+        .map((d: any, i: number) => (d?.exists ? { id: formsPre.formIds[i], ...(d.data() || {}) } : null)).filter(Boolean);
+      formsPre.defsRead = read;
+      const rules = formRulesOf(tenant);
+      const ok = (f: any) => { const def = formsPre.defs.find((d: any) => d.id === f.formId); return !!def && sentFormDone(def, f, rules); };
+      acceptedForms = signedFormsIn.filter(ok); asideForms = signedFormsIn.filter((f: any) => !ok(f));
+    } catch (e) { console.error('[book] forms check', e); }
 
     // ── The race-proof core: check + write in ONE transaction ──
     const aptsRef = db.collection(`tenants/${tenantId}/appointments`);
@@ -878,7 +907,8 @@ export async function POST(req: NextRequest) {
         // Signed forms travel WITH the booking and are saved here, on the server.
         // (They used to be attached afterwards from the client's browser, which
         // the database rules refuse for clients — so they were silently lost.)
-        ...(signedFormsIn.length ? { signedForms: signedFormsIn } : {}),   // (a form that needs a guardian is taken back off below, and asked on the visit link with one)
+        ...(acceptedForms.length ? { signedForms: acceptedForms } : {}),
+        ...(asideForms.length ? { formsSetAside: asideForms } : {}),   // sent, but not finished or not asked for: kept, not counted
         createdAt: nowIso,
         reminderSent: false,
         autoCancelledNoShow: false,
@@ -975,24 +1005,15 @@ export async function POST(req: NextRequest) {
     // in someone else's name for good. A form or document still needed (photo ID, a form that needs a guardian, or a
     // form when the booking came from somewhere that doesn't ask) is asked for on the visit link, with the same
     // completion record a phone booking or the desk's "Send to client" makes.
-    let formsCtx: { svcs: any[]; formIds: string[]; defs: any[]; cDoc: any } | null = null;
+    let formsCtx: { svcs: any[]; formIds: string[]; defs: any[]; cDoc: any; defsRead: boolean } | null = null;
     let askedItems: string[] | null = null;
     try {
-      const { formsAskedFor } = await import('@/lib/forms');
       const svcs = [svc, ...addOnIds.map((id) => services.find((x: any) => x.id === id)).filter(Boolean)];
-      const formIds = formsAskedFor({}, svcs);
-      const defs = (await Promise.all(formIds.map((id) => db.doc(`tenants/${tenantId}/consentForms/${id}`).get().catch(() => null)))).map((d: any, i: number) => (d?.exists ? { id: formIds[i], ...(d.data() || {}) } : null)).filter(Boolean);
-      const cDoc: any = r.clientId ? ((await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get()).data() || {}) : {};
-      formsCtx = { svcs, formIds, defs, cDoc };
+      const cDoc: any = r.clientId ? ((await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get().catch(() => null))?.data() || {}) : {};
+      formsCtx = { svcs, formIds: formsPre.formIds, defs: formsPre.defs, cDoc, defsRead: formsPre.defsRead };
     } catch (e) { console.error('[book] forms', e); }
-    // Signed here and theirs to keep: only the forms this booking asks for, and none that needs a guardian (the booking
-    // sheet doesn't ask for one; the visit link does).
-    const needsGuardian = new Set<string>((formsCtx?.defs || []).filter((d: any) => d.requiresGuardianSignature).map((d: any) => d.id));
-    const keptForms = signedFormsIn.filter((f: any) => (formsCtx?.formIds || []).includes(f.formId) && !needsGuardian.has(f.formId));
-    // A form that needs a guardian, signed in the booking sheet (which doesn't ask for one), doesn't count for the visit:
-    // its answers are kept aside, and the visit link asks for it with the guardian.
-    const withoutGuardian = signedFormsIn.filter((f: any) => needsGuardian.has(f.formId));
-    if (withoutGuardian.length) await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ signedForms: signedFormsIn.filter((f: any) => !needsGuardian.has(f.formId)), formsAwaitingGuardian: withoutGuardian }, { merge: true }).catch(() => {});
+    // Signed here and theirs to keep: only the finished forms this booking asks for (checked above, before booking).
+    const keptForms = acceptedForms;
     if (formsCtx && r.clientId && keptForms.length && (staffSet || (r as any).clientNew)) {
       try { const { recordSignedForms } = await import('@/lib/forms-server');
         await recordSignedForms(db, tenantId, { clientId: r.clientId, appointmentId: r.aptId, source: staffSet ? 'desk_booking' : 'online_booking', forms: keptForms });
@@ -1002,8 +1023,9 @@ export async function POST(req: NextRequest) {
     if (formsCtx && r.token && r.clientId && (String(body?.client?.email || formsCtx.cDoc.email || '').includes('@') || String(body?.client?.phone || formsCtx.cDoc.phone || '').trim())) {
       try {
         const { formsStillNeeded, filesStillNeeded, formRulesOf } = await import('@/lib/forms');
-        // Only forms that still exist (a deleted form can't be opened, so it's never asked for).
-        const known = new Set<string>(formsCtx.defs.map((d: any) => d.id));
+        // Only forms that still exist (a deleted form can't be opened, so it's never asked for). If the forms couldn't all
+        // be read, every one the visit asks for is asked.
+        const known = new Set<string>(formsCtx.defsRead ? formsCtx.defs.map((d: any) => d.id) : formsCtx.formIds);
         const formsLeft = formsStillNeeded({ apt: { signedForms: keptForms }, ids: formsCtx.formIds.filter((id) => known.has(id)), client: formsCtx.cDoc, forms: formsCtx.defs, rules: formRulesOf(tenant) });
         const filesLeft = formsCtx.svcs.flatMap((x: any) => filesStillNeeded(x, formsCtx!.cDoc)).filter((f: any, i: number, all: any[]) => all.findIndex((y) => y.id === f.id) === i);
         if (formsLeft.length || filesLeft.length) {
@@ -1020,7 +1042,8 @@ export async function POST(req: NextRequest) {
           }, { merge: true });
           await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ completionStatus: 'pending' }, { merge: true });
           // Marked as asked once the confirmation (whose link opens straight to these) has actually gone out, below.
-          askedItems = [...(formsLeft.length ? ['forms'] : []), ...(filesLeft.some((f: any) => /photo.?id|^id$/i.test(String(f.id || f.label))) ? ['photo_id'] : []), ...(filesLeft.some((f: any) => !/photo.?id|^id$/i.test(String(f.id || f.label))) ? ['file'] : [])];
+          const isPhotoId = (f: any) => [f.id, f.label].some((x) => /photo.?id|^id$/i.test(String(x || '').trim()));   // by its id or its label
+          askedItems = [...(formsLeft.length ? ['forms'] : []), ...(filesLeft.some(isPhotoId) ? ['photo_id'] : []), ...(filesLeft.some((f: any) => !isPhotoId(f)) ? ['file'] : [])];
         }
       } catch (e) { console.error('[book] still needed', e); /* the booking stands */ }
     }
@@ -1391,6 +1414,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true, prepUrl,
+      // What the visit link still asks for (forms left for later, photo ID…), so the confirmation can say so.
+      stillNeeded: askedItems || [],
       ...(packageRedeemed !== null ? { packageRedeemed } : {}),
       phoneUnconfirmed,
       appointmentId: r.aptId,

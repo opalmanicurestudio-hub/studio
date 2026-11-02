@@ -15,11 +15,11 @@ export type ConfirmResult =
   | { requiresPayment: false }
   | { requiresPayment: true; clientSecret: string; stripeAccountId?: string; appointmentId?: string }
   | { requiresPayment: true; error: string };
-export type EngineOutcome = { status: string; notice: string; depositCents: number; cardOnFile?: boolean; visitUrl?: string | null; earlier?: boolean };
+export type EngineOutcome = { status: string; notice: string; depositCents: number; cardOnFile?: boolean; visitUrl?: string | null; earlier?: boolean; stillNeeded?: string[] };
 
 /** A booking holding its time while the client pays the deposit: which booking, for exactly what, and its link token
  *  (so the client can let it go if they step back to change something). */
-export type HeldPay = { key: string; appointmentId: string; k?: string | null };
+export type HeldPay = { key: string; appointmentId: string; k?: string | null; left?: string[] };   // left: what the visit link still asks for
 
 /** Everything that makes a booking what it is: paying again for a held booking only happens when nothing has changed
  *  (the visit, who and when, their details and consent, notes and photos, form answers, who recommended them); any
@@ -30,7 +30,7 @@ export function holdKeyOf(d: any, client: { name?: any; email?: any; phone?: any
     d?.smsConsent === true, d?.smsMarketing === true, Number(d?.acceptExtraCents) || 0, String(d?.notes || ''),
     (Array.isArray(d?.inspirationPhotos) ? d.inspirationPhotos : []).map((x: any) => `${x?.url || ''}#${x?.note || ''}`),
     d?.referralTypedCode || '', d?.referredBy?.firstName || '', d?.referredBy?.phone || '',
-    (Array.isArray(signedForms) ? signedForms : []).map((f: any) => [f?.formId || '', f?.formData || {}])]);
+    (Array.isArray(signedForms) ? signedForms : []).map((f: any) => [f?.formId || '', f?.formData || {}, f?.signedName || '', f?.guardian || null])]);
 }
 
 /** Opens payment for a booking already holding its time. Says when there's nothing left to pay (paid already, or no
@@ -90,14 +90,14 @@ export async function bookThroughEngine(o: {
     // booked). Anything changed: the held one is let go first and this is booked fresh.
     if (o.held.current && o.held.current.key === holdKey) {
       const h = o.held.current; const again = await payForHeld(o.tenantId, h.appointmentId);
-      if (again.settled) { o.held.current = null; o.onOutcome({ status: 'confirmed', notice: '', depositCents: 0, visitUrl: h.k ? `/check-in/${encodeURIComponent(h.k)}` : null }); o.setStep('confirmation'); return { requiresPayment: false }; }
+      if (again.settled) { o.held.current = null; o.onOutcome({ status: 'confirmed', notice: '', depositCents: 0, visitUrl: h.k ? `/check-in/${encodeURIComponent(h.k)}` : null, stillNeeded: h.left || [] }); o.setStep('confirmation'); return { requiresPayment: false }; }
       if (!again.ended) return again;
       o.held.current = null;
     } else if (o.held.current) {
       // Letting go of the held one first. Paid in the meantime: that booking is theirs, so it's the one they're booked for.
       const h = o.held.current; const went = await releaseHeld(o.tenantId, o.held);
       if (went === 'kept') return { requiresPayment: true, error: KEPT_HOLD };
-      if (went === 'paid') { o.onOutcome({ status: 'confirmed', notice: EARLIER_PAID, depositCents: 0, visitUrl: h.k ? `/check-in/${encodeURIComponent(h.k)}` : null, earlier: true }); o.setStep('confirmation'); return { requiresPayment: false }; }
+      if (went === 'paid') { o.onOutcome({ status: 'confirmed', notice: EARLIER_PAID, depositCents: 0, visitUrl: h.k ? `/check-in/${encodeURIComponent(h.k)}` : null, earlier: true, stillNeeded: h.left || [] }); o.setStep('confirmation'); return { requiresPayment: false }; }
     }
     let res: Response;
     try {
@@ -126,9 +126,10 @@ export async function bookThroughEngine(o: {
     }
     // The SERVER decided what this booking became — the screen, email and text all agree.
     o.onOutcome({ status: String(out.status || 'confirmed'), notice: String(out.clientNotice || ''), depositCents: Number(out.depositCents) || 0, cardOnFile: !!out.requiresCardOnFile,
-      visitUrl: out.checkInToken ? `/check-in/${encodeURIComponent(String(out.checkInToken))}` : null });
+      visitUrl: out.checkInToken ? `/check-in/${encodeURIComponent(String(out.checkInToken))}` : null,
+      stillNeeded: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [] });
     if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {
-      o.held.current = { key: holdKey, appointmentId: out.appointmentId, k: out.checkInToken || null };
+      o.held.current = { key: holdKey, appointmentId: out.appointmentId, k: out.checkInToken || null, left: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [] };
       return payForHeld(o.tenantId, out.appointmentId);
     }
     if (out.requiresCardOnFile && out.clientId) {

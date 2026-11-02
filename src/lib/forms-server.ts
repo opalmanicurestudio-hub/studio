@@ -9,7 +9,7 @@
 // Server side only.
 import { formVersion } from './forms';
 
-export type SignedFormIn = { formId: string; formTitle?: string | null; formData?: Record<string, any>; guardian?: { name?: string; relationship?: string } | null };
+export type SignedFormIn = { formId: string; formTitle?: string | null; formData?: Record<string, any>; signedName?: string | null; acknowledged?: boolean; guardian?: { name?: string; relationship?: string; confirmed?: boolean } | null };
 
 const str = (v: any, n: number) => String(v ?? '').trim().slice(0, n);
 
@@ -27,15 +27,16 @@ export async function recordSignedForms(db: any, tenantId: string, o: { clientId
   for (const f of forms) {
     const def = defs.get(f.formId) || null;
     const version = def ? formVersion(def) : null;
-    const g = f.guardian && str(f.guardian.name, 120) ? { guardianName: str(f.guardian.name, 120), guardianRelationship: str(f.guardian.relationship, 80), guardianSignedAt: at } : {};
-    const title = str(f.formTitle || def?.title, 200) || null;
+    const g: Record<string, any> = f.guardian && str(f.guardian.name, 120) ? { guardianName: str(f.guardian.name, 120), guardianRelationship: str(f.guardian.relationship, 80), guardianSignedAt: at, ...(f.guardian.confirmed === true ? { guardianConfirmed: true } : {}) } : {};
+    const title = str(def?.title || f.formTitle, 200) || null;   // the form's own title first
     // Both flags written every time (true or false), so an owner un-ticking "sign every visit" takes effect at the next
     // signing instead of sticking for good.
     out[f.formId] = { signedAt: at, version, formTitle: title, source: o.source, appointmentId: o.appointmentId || null, everyVisit: !!def?.requiresEveryAppointment, guardian: !!g.guardianName };
     // Answers too large for one record (several photos kept inside a form) are kept on the visit, not copied again.
     const data = f.formData && typeof f.formData === 'object' ? f.formData : {};
     const fits = JSON.stringify(data).length <= 400_000;
-    const copy = { formId: f.formId, formTitle: title, formData: fits ? data : {}, ...(fits ? {} : { answersOnVisit: true }), signedAt: at, version, source: o.source, appointmentId: o.appointmentId || null, ...(o.extra || {}), ...g };
+    const signer = str(f.signedName, 120);   // the name they typed to sign it
+    const copy = { formId: f.formId, formTitle: title, formData: fits ? data : {}, ...(fits ? {} : { answersOnVisit: true }), ...(signer ? { signedName: signer } : {}), ...(f.acknowledged === true ? { acknowledged: true } : {}), signedAt: at, version, source: o.source, appointmentId: o.appointmentId || null, ...(o.extra || {}), ...g };
     batch.set(db.doc(`${cBase}/signedConsents/${f.formId}`), copy);
     // What they read when they signed, with their answers: kept for good. One record per form, wording and visit, so
     // sending the same thing twice keeps one copy.

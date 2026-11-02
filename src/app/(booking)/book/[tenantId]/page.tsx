@@ -75,7 +75,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   /* What the server actually made of the last booking — read by the sheet's
    * confirmation screen so it never claims "confirmed" for a request. */
-  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null } | null>(null);
+  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; stillNeeded?: string[] } | null>(null);
   const [tenant,          setTenant]          = useState<any>(null);
   const [services,        setServices]        = useState<any[]>([]);
   const [staff,           setStaff]           = useState<any[]>([]);
@@ -546,7 +546,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   // they didn't need, so the booking vanished; and paying skipped approval.)
   // A held booking that turned out to be paid (or needs nothing more): the booked screen, for that booking.
   // earlier: it was paid before they changed it, so that one (not what they changed to) is theirs.
-  const bookedHeld = (h: HeldPay, earlier = false) => setBookingOutcome({ status: 'confirmed', notice: earlier ? EARLIER_PAID : '', depositCents: 0, cardOnFile: false, visitUrl: h.k ? `/check-in/${encodeURIComponent(h.k)}` : null, earlier });
+  const bookedHeld = (h: HeldPay, earlier = false) => setBookingOutcome({ status: 'confirmed', notice: earlier ? EARLIER_PAID : '', depositCents: 0, cardOnFile: false, visitUrl: h.k ? `/check-in/${encodeURIComponent(h.k)}` : null, earlier, stillNeeded: h.left || [] });
   const handleConfirm = async (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     apptDetails: any, signedForms: any[], setStep: (s: string) => void,
@@ -644,11 +644,12 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         // "Confirm your number" (optional) on the confirmation screen, for a new client or a phone never confirmed.
         verify: out.phoneUnconfirmed && out.appointmentId && out.checkInToken ? { tenantId, apptId: String(out.appointmentId), k: String(out.checkInToken) } : null, prepUrl: typeof out.prepUrl === 'string' ? out.prepUrl : null,
         // The visit link (the one in every message about this visit), so the booked screen can open it.
-        visitUrl: out.checkInToken ? `/check-in/${encodeURIComponent(String(out.checkInToken))}` : null });
+        visitUrl: out.checkInToken ? `/check-in/${encodeURIComponent(String(out.checkInToken))}` : null,
+        stillNeeded: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [] });
 
       // A deposit is due now → pay against THIS appointment.
       if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {
-        heldPay.current = { key: holdKey, appointmentId: out.appointmentId, k: out.checkInToken || null };
+        heldPay.current = { key: holdKey, appointmentId: out.appointmentId, k: out.checkInToken || null, left: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [] };
         const d: any = await payForHeld(tenantId, out.appointmentId);
         if (d?.clientSecret) {
           // A reschedule that needs a deposit: the payment webhook releases the

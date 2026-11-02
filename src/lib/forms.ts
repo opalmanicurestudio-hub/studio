@@ -45,6 +45,57 @@ export function formVersion(form: any): string {
 /** A health form (the builder's "Intake" category): on file, it gets "anything changed?" instead of the whole form. */
 export const isHealthForm = (form: any) => String(form?.category || '') === 'Intake';
 
+// ── Is a form finished? (the booking sheet's form screen, and the server checking what it was sent) ──────────────
+/** Who completes a form for someone under 18: their name, how they're related, and their tick that they agree. */
+export type Guardian = { on: boolean; name: string; relationship: string; consent?: boolean };
+const NOT_QUESTION = new Set(['heading', 'paragraph']);
+/** A signature typed instead of drawn: kept as the words, marked as typed. */
+export const TYPED = 'typed:';
+/** The form screen's own marks, kept beside the answers and never sent as answers (a question's own id can start with
+ *  "__" too, so only these are left out). */
+export const FORM_META: ReadonlySet<string> = new Set(['__signedName', '__read', '__seen']);
+/** A real signature: a drawn picture (not a blank pad) or typed words. */
+export const isSignature = (v: any) => typeof v === 'string' && ((/^data:image\/png;base64,/.test(v) && v.length >= 80) || (v.startsWith(TYPED) && v.slice(TYPED.length).trim().length > 0));
+const answered = (f: any, v: any) => f?.type === 'signature' ? isSignature(v)
+  : v !== undefined && v !== null && !(typeof v === 'string' && !v.trim()) && !(Array.isArray(v) && v.length === 0);
+/** A form's fields: its own (with a signature added when it asks for one and has none), or its plain wording. */
+export function fieldsOf(form: any): any[] {
+  const fs: any[] = Array.isArray(form?.fields) ? form.fields.filter(Boolean) : [];
+  const sign = { id: 'signature', type: 'signature', label: 'Your signature' };
+  if (fs.length) return form?.requiresSignature && !fs.some((f) => f?.type === 'signature') ? [...fs, sign] : fs;
+  return [...(form?.content ? [{ id: 'content', type: 'paragraph', label: String(form.content) }] : []), ...(form?.requiresSignature ? [sign] : [])];
+}
+export const hasSignature = (form: any) => fieldsOf(form).some((f) => f.type === 'signature');
+export const questionsOf = (form: any) => fieldsOf(form).filter((f) => !NOT_QUESTION.has(f.type));
+/** A form with wording and nothing to answer or sign: it asks "I've read this". */
+export const wordingOnly = (form: any) => questionsOf(form).length === 0;
+/** About how long a form takes, in minutes (reading at 200 words a minute, a few seconds a question). */
+export function formMinutes(form: any): number {
+  const fs = fieldsOf(form);
+  const words = fs.filter((f) => NOT_QUESTION.has(f.type)).reduce((n, f) => n + String(f.label || '').split(/\s+/).length, 0);
+  const secs = words * 0.3 + questionsOf(form).filter((f) => f.type !== 'signature').length * 12 + (hasSignature(form) ? 20 : 0);
+  return Math.max(1, Math.round(secs / 60));
+}
+/** Is a guardian completing this form? Always for a form that needs one; otherwise when they say so (and the business asks). */
+export const guardianSigns = (form: any, g?: Guardian | null, guardianAsk = true) => !!form?.requiresGuardianSignature || (guardianAsk && !!g?.on && hasSignature(form));
+/** What's still missing on a form: questions without an answer, a real signature and the signer's name, the guardian's
+ *  details and consent, "I've read this" on a form with only wording, and (on a form with nothing it requires) opening
+ *  it at all. Answers keep their own keys; "__signedName", "__read" and "__seen" are the form screen's own. */
+export function formLeft(form: any, a: Record<string, any> = {}, g?: Guardian | null, guardianAsk = true): number {
+  const req = questionsOf(form).filter((f) => f.required !== false);
+  let n = req.filter((f) => !answered(f, a[f.id])).length;
+  if (hasSignature(form) && !String(a.__signedName || '').trim()) n++;
+  if (wordingOnly(form) && a.__read !== true) n++;
+  if (guardianSigns(form, g, guardianAsk) && !(String(g?.name || '').trim() && String(g?.relationship || '').trim() && g?.consent === true)) n++;
+  if (!req.length && !wordingOnly(form) && !hasSignature(form) && a.__seen !== true) n++;
+  return n;
+}
+/** A form as the server was sent it (answers, the name it was signed in, "I've read this", the guardian): finished? */
+export function sentFormDone(form: any, f: { formData?: any; signedName?: any; acknowledged?: any; guardian?: any }, rules: FormRules = FORM_RULES_DEFAULT): boolean {
+  const g = f.guardian && f.guardian.confirmed === true ? { on: true, name: String(f.guardian.name || ''), relationship: String(f.guardian.relationship || ''), consent: true } : null;
+  return formLeft(form, { ...(f.formData || {}), __signedName: f.signedName || '', __read: f.acknowledged === true, __seen: true }, g, rules.guardian) === 0;
+}
+
 export type OnFile = { signedAt?: any; version?: string | null; everyVisit?: boolean; guardian?: boolean; formTitle?: string | null; confirmedAt?: string | null; source?: string | null; appointmentId?: string | null };
 
 /** What the client record says about one form: the signedForms map (formId → when, which version), the field the

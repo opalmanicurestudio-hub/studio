@@ -14,6 +14,8 @@ import { format, setHours, setMinutes, startOfDay, addMinutes } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { formsAskedFor, formRulesOf } from '@/lib/forms';
+import { formLeft, guardianSigns, FORM_META, type Guardian } from '@/lib/forms';
 import { StudioFlow, type FlowLook } from './StudioFlow';
 import { DepositGiftCard } from '@/components/gift/DepositGiftCard';
 import type { InspoPhoto } from './PhotoMarkup';
@@ -130,16 +132,18 @@ interface BookingSheetProps {
   calendarEvents?:  any[];
   /** What the SERVER made of the booking. Absent = an older caller, in
    *  which case the sheet keeps its original confirmed wording. */
-  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean } | null;
+  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean; stillNeeded?: string[] } | null;
   onConfirm: (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'> & { depositAmount?: number; depositStatus?: string },
-    signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
+    signedForms: SignedFormOut[],
     setBookingStep: (step: string) => void
   ) => Promise<ConfirmResult> | void;
 }
 
-export type FlowNote = { tone: 'info' | 'warn'; text: string } | null;
+export type FlowNote = { tone: 'info' | 'warn'; text: string; about?: 'forms' } | null;
+/** A form finished in the sheet, as it's sent with the booking. */
+export type SignedFormOut = { formId: string; formTitle: string; formData: Record<string, any>; signedName?: string; acknowledged?: true; guardian?: { name: string; relationship: string; confirmed: true } };
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export const BookingSheet: React.FC<BookingSheetProps> = ({
@@ -167,6 +171,10 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const addOnTotal = addOns.filter((a: any) => addOnIds.includes(a.id)).reduce((n: number, a: any) => n + (Number(a.price) || 0), 0);
   const addOnMinutes = addOns.filter((a: any) => addOnIds.includes(a.id)).reduce((n: number, a: any) => n + (Number(a.duration) || 0), 0);
   const [formAnswers,          setFormAnswers]           = useState<Record<string, Record<string, any>>>({});
+  // Forms (board FormsBook): signing for someone under 18, by form; and whether they're done now or later, from the
+  // visit link (the server asks there for anything not done here: lib/forms, api/appointments/book).
+  const [guardians,            setGuardians]             = useState<Record<string, Guardian>>({});
+  const [formsWhen,            setFormsWhen]             = useState<'now' | 'later'>('now');
   const [bookedStaffId,        setBookedStaffId]         = useState<string | null>(null);
   // Up to 4 marked-up photos, each with a note (PhotoMarkup).
   const [inspoPhotos,          setInspoPhotos]           = useState<InspoPhoto[]>([]);
@@ -319,10 +327,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     return m;
   }, [availability.hotTimes]);
 
+  // The forms this visit asks for: the service's and any chosen add-on's (lib/forms formsAskedFor).
   const requiredForms = useMemo(() => {
     if (!service || !consentForms) return [];
-    return consentForms.filter(form => service.requiredFormIds?.includes(form.id));
-  }, [service, consentForms]);
+    const ids = formsAskedFor({}, [service, ...addOns.filter((a: any) => addOnIds.includes(a.id))]);
+    return ids.map((id) => consentForms.find((f) => f.id === id)).filter(Boolean) as ConsentForm[];
+  }, [service, consentForms, addOns, addOnIds]);
+  const guardianAsk = formRulesOf(tenant).guardian;
+  const formDone = (form: ConsentForm) => formLeft(form, formAnswers[form.id] || {}, guardians[form.id] || null, guardianAsk) === 0;
 
   const { price, priceRange } = useMemo(() => {
     if (!service.serviceTiers || service.serviceTiers.length === 0) return { price: (Number(service.price) || 0) + addOnTotal, priceRange: null };
@@ -421,9 +433,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     // Their details: a reschedule's or an assistant's hold first, else what this device used last time.
     const me = !prefillClient && tid && !discreet ? readKnown(tid) : null;
     setKnown(me ? firstName(me.name) || null : null);
+    // A client this device knows starts at "Later": the visit link asks only for what isn't already on file.
+    setFormsWhen(me ? 'later' : 'now');
     methods.reset(prefillClient ? { clientName: prefillClient.clientName || '', clientEmail: prefillClient.clientEmail || '', clientPhone: phoneForField(prefillClient.clientPhone) } as any
       : me ? { clientName: me.name, clientEmail: me.email, clientPhone: phoneForField(me.phone) } as any : undefined);   // consent is always theirs to give on this booking
-    setFormAnswers({}); setBookedStaffId(null); setInspoPhotos([]); setParty(emptyParty);
+    setFormAnswers({}); setGuardians({}); setBookedStaffId(null); setInspoPhotos([]); setParty(emptyParty);
     resetPay(); setFlowNote(null); setExtraOffer(null); setAcceptExtraCents(0);
     if (initialSlot && /^\d{4}-\d{2}-\d{2}$/.test(initialSlot.date)) { const [y, m, d] = initialSlot.date.split('-').map(Number);
       setSelectedStaffId(lockedStaffId || initialSlot.staffId || 'any'); setDate(new Date(y, m - 1, d)); setSelectedTime(initialSlot.time); setStepName('details'); }
@@ -433,7 +447,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   /** "Not you?": forget this device's client and clear what was filled in. */
   const forgetMe = () => {
     try { localStorage.removeItem(knownKey(tid)); localStorage.removeItem(`cf.lastVisit.${tid}`); } catch { /* none */ }
-    setKnown(null); methods.reset({ clientName: '', clientEmail: '', clientPhone: '', smsConsent: false, smsMarketing: false, notes: methods.getValues('notes') || '' } as any);
+    setKnown(null); setFormsWhen('now'); methods.reset({ clientName: '', clientEmail: '', clientPhone: '', smsConsent: false, smsMarketing: false, notes: methods.getValues('notes') || '' } as any);
     setMatchedClient(null); setBannedClient(null); setExistingClientWithBalance(null);
   };
 
@@ -444,7 +458,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     | {
         finalStaffId: string;
         clientData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string };
-        signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[];
+        signedForms: SignedFormOut[];
         appointmentDetails: any;
       }
     | null => {
@@ -466,7 +480,15 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     const formValues   = methods.getValues();
     const clientData   = { clientName: String(formValues.clientName || '').trim(), clientEmail: String(formValues.clientEmail || '').trim(), clientPhone: formValues.clientPhone, notes: formValues.notes };
-    const signedForms  = requiredForms.map(form => ({ formId: form.id, formTitle: form.title, formData: formAnswers[form.id] || {} }));
+    // Only finished forms are sent (the rest are asked on the visit link): the answers, the name it was signed in, "I've
+    // read this", and the guardian who completed it for someone under 18, with their consent. The server checks each
+    // one again (lib/forms sentFormDone) before it counts.
+    const signedForms: SignedFormOut[] = requiredForms.filter(formDone).map(form => {
+      const a = formAnswers[form.id] || {}; const g = guardians[form.id];
+      const formData = Object.fromEntries(Object.entries(a).filter(([k]) => !FORM_META.has(k)));
+      const signedName = String(a.__signedName || '').trim();
+      return { formId: form.id, formTitle: form.title, formData, ...(signedName ? { signedName } : {}), ...(a.__read === true ? { acknowledged: true as const } : {}),
+        ...(guardianSigns(form, g, guardianAsk) && g?.consent === true ? { guardian: { name: g.name.trim(), relationship: g.relationship.trim(), confirmed: true } } : {}) }; });
 
     return {
       finalStaffId,
@@ -594,12 +616,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     };
   }, [depositClientSecret, depositStripeAccountId, tid, mountTry]);
 
-  // A form is done when every question on it has an answer (headings and text aren't questions).
-  const formOpen = (form: ConsentForm) => (form.fields || []).some((f) => {
-    if (f.type === 'heading' || f.type === 'paragraph') return false;
-    const ans = formAnswers[form.id]?.[f.id];
-    return ans === undefined || ans === null || ans === '' || (Array.isArray(ans) && ans.length === 0);
-  });
 
   const handleNextStep = async () => {
     setFlowNote(null);
@@ -623,8 +639,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       } else if (dayAccess === 'returning') {
         if (!who) { setFlowNote({ tone: 'warn', text: 'That day is kept for returning clients. Please choose another day.' }); return; }
       }
-      const unanswered = requiredForms.find(formOpen);
-      if (unanswered) { setFlowNote({ tone: 'warn', text: `Please answer every question on ${unanswered.title || 'the form'}.` }); return; }
+      // Doing them now: every form finished. Later: nothing stops here; the visit link asks.
+      const unanswered = formsWhen === 'now' ? requiredForms.find((f) => !formDone(f)) : null;
+      if (unanswered) { setFlowNote({ tone: 'warn', text: `Finish ${unanswered.title || 'the form'}, or choose “Later, from my visit link”.`, about: 'forms' }); return; }
     }
     if (currentStep === 'review') { void submit(); return; }
     setDirection('fwd');
@@ -686,8 +703,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     clientExtra, party, setParty, groupPol, allServices: services, date, setDate, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn, addOnMinutes,
     placeOpts, placeChoice, setPlaceChoice, activeDaySchedule,
     methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance, known, forgetMe,
-    requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos,
-    price, priceRange, previewLines, bookingPreview, chargeDueNow, cardSetupDueNow, confirming, depositAmount, bookingOutcome, flowNote,
+    requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, guardians, setGuardians, guardianAsk, formsWhen, setFormsWhen: (w: 'now' | 'later') => { setFormsWhen(w); setFlowNote(null); }, formDone,
+    price, priceRange, previewLines, bookingPreview, chargeDueNow, cardSetupDueNow, confirming, depositAmount, bookingOutcome, flowNote, setFlowNote,
     extraOffer, acceptExtra: () => { if (!extraOffer) return; setAcceptExtraCents(extraOffer.cents); setExtraOffer(null); setRebookTick((t) => t + 1); },
     declineExtra: () => { setExtraOffer(null); setAcceptExtraCents(0); setSelectedTime(null); setDirection('back'); setStepName('dateTime'); },
     pay: {
