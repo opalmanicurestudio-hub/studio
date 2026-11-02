@@ -58,7 +58,7 @@ export function DeskCheckIn({ e, accent }: { e: any; accent?: string | null }) {
   const changed = (['name', 'phone', 'email', 'channel', 'language'] as const).some((k) => String(c[k] || '') !== String((initial as any)[k] || ''));
   const now = new Date(); const offset = at ? Math.round((now.getTime() - at.getTime()) / 60000) : 0;
   const arrival = !at ? 'Arriving now' : offset < -2 ? `${-offset} min early` : offset > 2 ? `${offset} min late` : 'Right on time';
-  const formsPending = !!item.completionStatus && item.completionStatus !== 'completed';
+  const formsPending = !!item.completionStatus && !['complete', 'completed'].includes(String(item.completionStatus));   // both spellings were written over the years
   const link = item.checkInToken && typeof window !== 'undefined' ? `${window.location.origin}/check-in/${item.checkInToken}` : null;
   const fees: any[] = client?.unpaidFees || [];
   const owed = fees.reduce((s, f) => s + (Number(f.feeAmount) || 0), 0);

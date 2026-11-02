@@ -48,7 +48,7 @@ export function readinessOf(apt: any, service: any, client?: any, tenant?: any, 
   add('confirmed', true, !!apt.clientConfirmedAt || ['checked_in'].includes(String(apt.status)) || apt.checkInStatus === 'arrived', apt.clientConfirmedAt ? `${['sms', 'text'].includes(String(apt.clientConfirmedVia)) ? 'by text' : apt.clientConfirmedVia === 'visit_link' ? 'from their link' : 'yes'}, ${day(apt.clientConfirmedAt)}` : 'they’re here', 'confirm');
   add('deposit', Number(apt.depositAmountCents || 0) > 0, PAID.includes(String(apt.depositStatus || '')), apt.depositStatus === 'paid' ? `paid${apt.depositPaidAt ? ` ${day(apt.depositPaidAt)}` : ''}` : String(apt.depositStatus || ''), 'deposit');
   const needForms = [...new Set([...((service?.requiredFormIds || []) as string[]), ...((apt.requiredFormIds || []) as string[])])];
-  const pending = pendingFormIds(apt, service, client, forms);
+  const pending = pendingFormIds(apt, service, client, forms, tenant);
   add('forms', needForms.length > 0, pending.length === 0, needForms.length === 1 ? 'signed' : `all ${needForms.length} signed`, 'forms');
   const photoAsked = !!service?.requiresPhoto || requested.includes('photo_current') || requested.includes('inspo') || rules.photo === 'block';
   const hasPhoto = (apt.requirementFiles || []).some((f: any) => (f?.files || f?.urls || []).length || f?.url) || !!apt.inspirationPhotoUrl || !!(apt.prep?.answers && JSON.stringify(apt.prep.answers).includes('http'));

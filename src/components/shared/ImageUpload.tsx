@@ -30,7 +30,7 @@ import { Upload, X, Edit, Sparkles, Loader } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { ImageMarkupDialog } from './ImageMarkupDialog';
-import { useTenant } from '@/context/TenantContext';
+import { useTenantOptional } from '@/context/TenantContext';
 import { uploadImageBlob, dataUrlToBlob } from '@/lib/upload-image';
 
 interface ImageUploadProps {
@@ -76,7 +76,8 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   // on, so annotation never touches a remote (taintable) URL.
   const localDataUrlRef = useRef<string | null>(null);
   const { toast } = useToast();
-  const { selectedTenant } = useTenant();
+  // Public pages (booking, the visit link, the kiosk) have no app context: they pass the tenant, and nothing throws.
+  const selectedTenant = useTenantOptional()?.selectedTenant;
   const tenantId = tenantIdProp || selectedTenant?.id;
 
   useEffect(() => {
@@ -106,12 +107,15 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
+    // Every photo is made smaller before it's saved (below), so a phone's full-size photo is fine: only one too large
+    // to open is turned away, in amber words that say what to do (the error toast, never red).
+    const limitMB = Math.max(maxSizeMB, 20);
     Array.from(files).forEach(file => {
-      if (file.size > maxSizeMB * 1024 * 1024) {
+      if (file.size > limitMB * 1024 * 1024) {
         toast({
           variant: 'destructive',
-          title: 'File too large',
-          description: `${file.name} is larger than ${maxSizeMB}MB.`,
+          title: 'That photo is too large',
+          description: `Choose one under ${limitMB} MB.`,
         });
         return;
       }

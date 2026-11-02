@@ -42,6 +42,7 @@ import { useToast } from '@/hooks/use-toast';
 import { type ConsentForm } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
+import { formVersion } from '@/lib/forms';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -182,15 +183,19 @@ export default function ConsentsPage() {
     });
   }
 
+  // Each wording gets its own version (lib/forms): a client who signed an older wording is asked to sign the new one at
+  // their next booking, and what they signed before is kept on their record.
   const handleSaveForm = (savedForm: Partial<ConsentForm>) => {
     if (!firestore || !tenantId) return;
-    
+    const nowIso = new Date().toISOString();
     if (editingForm) {
       const formRef = doc(firestore, `tenants/${tenantId}/consentForms`, editingForm.id);
-      updateDocumentNonBlocking(formRef, savedForm);
+      const version = formVersion({ ...editingForm, ...savedForm });
+      const changed = version !== ((editingForm as any).version || formVersion(editingForm));
+      updateDocumentNonBlocking(formRef, { ...savedForm, version, ...(changed ? { versionedAt: nowIso } : {}) });
       toast({
-        title: 'Protocol Updated',
-        description: `"${savedForm.title}" refinements committed to matrix.`,
+        title: 'Form saved',
+        description: changed ? `Clients who signed “${savedForm.title}” before sign the new wording at their next booking.` : `“${savedForm.title}” is saved.`,
       });
     } else {
       const newFormId = nanoid();
@@ -199,12 +204,14 @@ export default function ConsentsPage() {
         id: newFormId,
         clientsSigned: 0,
         totalClients: 0,
+        version: formVersion(savedForm),
+        versionedAt: nowIso,
       } as ConsentForm;
       const formRef = doc(firestore, `tenants/${tenantId}/consentForms`, newFormId);
       setDocumentNonBlocking(formRef, newForm, {});
       toast({
-        title: 'Protocol Established',
-        description: `"${savedForm.title}" registered in studio manifest.`,
+        title: 'Form added',
+        description: `Add “${savedForm.title}” to a service to ask for it when clients book.`,
       });
     }
   };
@@ -214,9 +221,8 @@ export default function ConsentsPage() {
     const formRef = doc(firestore, `tenants/${tenantId}/consentForms`, formId);
     deleteDocumentNonBlocking(formRef);
     toast({
-      variant: 'destructive',
-      title: 'Protocol Terminated',
-      description: 'Record purged from studio manifest.',
+      title: 'Form deleted',
+      description: 'Forms clients already signed stay on their records.',
     });
   };
 

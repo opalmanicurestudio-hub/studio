@@ -5,21 +5,22 @@
 // contact details — only that something is owed, so it's safe on a desk screen anyone can glance at.
 
 import { kitsShort } from '@/lib/kits';
+import { formsStillNeeded, formRulesOf } from '@/lib/forms';
 export type Outstanding = { key: 'help' | 'forms' | 'deposit' | 'balance' | 'provider' | 'pickup' | 'renter' | 'extra' | 'first' | 'kit' | 'behind' | 'setaside'; label: string; tone: 'alert' | 'warn' | 'info' };
 export type HereRow = { key: string; kind: 'guest' | 'door'; name: string; what: string; since: Date | null; waitMin: number; owner: string; outstanding: Outstanding[]; appointmentId?: string | null; doorId?: string | null; intent?: string | null; urgent: boolean };
 
 const ms = (v: any) => { const t = Date.parse(String(v?.toDate ? v.toDate().toISOString() : v || '')); return Number.isFinite(t) ? t : 0; };
 
-/** Required forms on this visit not yet signed here or on file (unexpired). */
-export function formsDue(a: any, services: any[], client: any, signedOnFile: string[] = []): number {
-  const need = new Set<string>();
-  for (const id of [a?.serviceId, ...(Array.isArray(a?.addOnIds) ? a.addOnIds : [])].filter(Boolean)) (services.find((s) => s.id === id)?.requiredFormIds || []).forEach((x: string) => need.add(String(x)));
-  (a?.requiredFormIds || []).forEach((x: string) => need.add(String(x)));
-  const signed = new Set<string>([...(a?.signedForms || []).map((f: any) => String(f?.formId || '')), ...signedOnFile.map(String), ...(client?.signedFormIds || []).map(String)]);
-  return [...need].filter((x) => !signed.has(x)).length;
+/** Required forms on this visit (its service's, its add-ons', the visit's own) not yet signed here or still current on
+ *  file (lib/forms). signedOnFile: ids a screen loaded from elsewhere, counted as on file. */
+export function formsDue(a: any, services: any[], client: any, signedOnFile: string[] = [], tenant?: any, forms?: any[]): number {
+  const ids = [a?.serviceId, ...(Array.isArray(a?.addOnIds) ? a.addOnIds : [])].filter(Boolean);
+  const svcs = ids.map((id: string) => services.find((s) => s.id === id)).filter(Boolean);
+  const extra = new Set(signedOnFile.map(String));
+  return formsStillNeeded({ apt: a, services: svcs, client, forms, rules: formRulesOf(tenant) }).filter((x) => !extra.has(x)).length;
 }
 
-export function buildHereNow(input: { guests: { appt?: any; walkIn?: any; name: string; service: string; staffName: string | null; stage: string }[]; door: any[]; clients: any[]; services: any[]; now: Date; extraMinutesFor?: (c: any, sid: string) => number; kits?: any[]; lateFor?: (appointmentId: string) => number; setAsideFor?: (appointmentId: string) => string | null }): HereRow[] {
+export function buildHereNow(input: { guests: { appt?: any; walkIn?: any; name: string; service: string; staffName: string | null; stage: string }[]; door: any[]; clients: any[]; services: any[]; now: Date; tenant?: any; forms?: any[]; extraMinutesFor?: (c: any, sid: string) => number; kits?: any[]; lateFor?: (appointmentId: string) => number; setAsideFor?: (appointmentId: string) => string | null }): HereRow[] {
   const { now } = input; const rows: HereRow[] = [];
   for (const g of input.guests) {
     if (g.stage !== 'waiting') continue;
@@ -27,7 +28,7 @@ export function buildHereNow(input: { guests: { appt?: any; walkIn?: any; name: 
     const c = input.clients.find((x) => x.id === (a.clientId || w.clientId)) || null;
     const since = ms(a.arrivedAt || w.checkInTime || w.createdAt || a.checkedInAt) || ms(a.startTime);
     const out: Outstanding[] = [];
-    const f = formsDue(a, input.services, c); if (f > 0) out.push({ key: 'forms', label: f === 1 ? 'Form to sign' : `${f} forms to sign`, tone: 'warn' });
+    const f = formsDue(a, input.services, c, [], input.tenant, input.forms); if (f > 0) out.push({ key: 'forms', label: f === 1 ? 'Form to sign' : `${f} forms to sign`, tone: 'warn' });
     const st = String(a.status || '').toLowerCase();
     if (st === 'deposit_pending' || st === 'pending_payment') out.push({ key: 'deposit', label: 'Deposit not paid', tone: 'warn' });
     if (Number(c?.outstandingBalance) > 0 || Number(a.balanceDueCents) > 0) out.push({ key: 'balance', label: 'Has a balance', tone: 'warn' });

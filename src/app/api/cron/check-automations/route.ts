@@ -129,6 +129,8 @@ export async function GET(req: NextRequest) {
 
   const tenantsSnap = await db.collection('tenants').get();
 
+  // The forms each business asks for, read once per run (lib/forms needs their wording to know if it changed).
+  const formCache = new Map<string, Map<string, any>>();
   for (const tenantDoc of tenantsSnap.docs) {
     const tenant = tenantDoc.data() as any;
     const automations: AppointmentAutomations | undefined = tenant.appointmentAutomations;
@@ -191,14 +193,27 @@ export async function GET(req: NextRequest) {
 
         // ── consentFormUnsigned ──────────────────────────────────────────
         if (service?.requiredFormIds?.length) {
-          const signedIds = new Set((apt.signedForms || []).map((f: any) => f.formId));
-          const missing = service.requiredFormIds.some((id: string) => !signedIds.has(id));
+          // The service's own forms (as before: a form the team added to one visit never cancels it), signed for this
+          // visit or still current on file (lib/forms): a form signed online or at the kiosk counts, so nobody is
+          // reminded, held or canceled over a form already signed.
+          const { formsStillNeeded, formRulesOf } = await import('@/lib/forms');
+          const ids = [...new Set((service.requiredFormIds || []).map(String))] as string[];
+          if (!formCache.has(tenantId)) formCache.set(tenantId, new Map());
+          const fc = formCache.get(tenantId)!;
+          // A read that fails isn't remembered (it isn't "deleted"): this visit is left as it was until the next run.
+          let unread = false;
+          for (const id of ids) if (!fc.has(id)) { try { const d = await db.doc(`tenants/${tenantId}/consentForms/${id}`).get(); fc.set(id, d.exists ? { id, ...(d.data() || {}) } : null); } catch { unread = true; } }
+          if (!unread) {
+          // Only forms that still exist: a deleted form never reminds, holds or cancels anyone.
+          const live = ids.filter((id) => !!fc.get(id));
+          const missing = formsStillNeeded({ apt, ids: live, client, forms: live.map((id) => fc.get(id)), rules: formRulesOf(tenant) }).length > 0;
           readinessFlags.formGateActive = missing;
           const r = evaluateWindow(automations.consentFormUnsigned, missing, hrsUntil, automationState, 'formReminderSentAt', 'formGateActiveAt', 'formReminderCount');
           Object.assign(updates, r.updates);
           if (r.shouldSendReminder) notifications.push({ title: 'Consent form reminder', message: `${apt.clientName || 'A client'} has not yet signed a required consent form.` });
           if (r.shouldCancel) cancelReasons.push('unsigned consent form');
           if (r.shouldActivateGate) notifications.push({ title: 'Check-in on hold', message: `${apt.clientName || 'A client'}'s consent form must be signed before their service can begin.` });
+          }
         }
 
         // ── noCardOnFile ─────────────────────────────────────────────────

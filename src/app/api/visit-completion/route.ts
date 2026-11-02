@@ -44,6 +44,26 @@ function project(token: string, rec: any) {
   };
 }
 
+const ENDED = ['declined', 'expired', 'released', 'cancelled', 'canceled', 'no_show'];
+
+/** The forms the record asked for, less any signed since (for this visit, at the desk or the kiosk, or on an earlier
+ *  visit of a series): the one rule (lib/forms). The record is a snapshot; this keeps it current. */
+async function stillAsked(db: any, tenantId: string, rec: any, appt: any) {
+  const ids: string[] = (Array.isArray(rec?.requiredConsentFormIds) ? rec.requiredConsentFormIds : []).map(String);
+  if (!ids.length || rec?.status === 'complete') return rec;
+  try {
+    const { formsStillNeeded, formRulesOf } = await import('@/lib/forms');
+    const [t, c, ...defs] = await Promise.all([
+      db.doc(`tenants/${tenantId}`).get(), rec.clientId ? db.doc(`tenants/${tenantId}/clients/${rec.clientId}`).get() : Promise.resolve(null),
+      ...ids.map((id) => db.doc(`tenants/${tenantId}/consentForms/${id}`).get().catch(() => null)),
+    ]);
+    const forms = defs.map((d: any, i: number) => (d?.exists ? { id: ids[i], ...(d.data() || {}) } : null)).filter(Boolean);
+    // Only forms that still exist (a deleted one can't be shown or signed).
+    const left = formsStillNeeded({ apt: appt || {}, ids: ids.filter((id) => forms.some((f: any) => f.id === id)), client: c?.data?.() || {}, forms, rules: formRulesOf(t?.data?.() || {}) });
+    return { ...rec, requiredConsentFormIds: left };
+  } catch { return rec; }
+}
+
 export async function GET(req: NextRequest) {
   const token = String(req.nextUrl.searchParams.get('token') || '').slice(0, 120);
   const tenantParam = String(req.nextUrl.searchParams.get('tenantId') || '').slice(0, 120);
@@ -61,7 +81,9 @@ export async function GET(req: NextRequest) {
       if (!snap.exists) return NextResponse.json({ ok: true, completion: null }, noStore);
       const rec: any = snap.data() || {};
       if ((rec.token && rec.token !== token) || (rec.tenantId && rec.tenantId !== tenantId)) return NextResponse.json({ ok: false }, { status: 404 });
-      return NextResponse.json({ ok: true, completion: project(token, rec) }, noStore);
+      const ap: any = rec.appointmentId ? (((await db.doc(`tenants/${tenantId}/appointments/${rec.appointmentId}`).get()).data() as any) || null) : null;
+      if (ap && ENDED.includes(String(ap.status || ''))) return NextResponse.json({ ok: true, completion: null }, noStore);
+      return NextResponse.json({ ok: true, completion: project(token, await stillAsked(db, tenantId, rec, ap)) }, noStore);
     }
 
     // The visit link: the token must be the appointment's own checkInToken.
@@ -71,11 +93,13 @@ export async function GET(req: NextRequest) {
     if (!tenantId || !apptId) return NextResponse.json({ ok: false }, { status: 404 });
     const appt: any = (await db.doc(`tenants/${tenantId}/appointments/${apptId}`).get()).data();
     if (!appt || appt.checkInToken !== token) return NextResponse.json({ ok: false }, { status: 404 });
+    // A visit that isn't happening (declined, lapsed, released, canceled) asks for nothing more.
+    if (ENDED.includes(String(appt.status || ''))) return NextResponse.json({ ok: true, completion: null }, noStore);
     const snap = await db.doc(`tenants/${tenantId}/bookingCompletions/${token}`).get();
     if (!snap.exists) return NextResponse.json({ ok: true, completion: null }, noStore);
     const rec: any = snap.data() || {};
     if (rec.token && rec.token !== token) return NextResponse.json({ ok: true, completion: null }, noStore);
-    return NextResponse.json({ ok: true, completion: project(token, { ...rec, appointmentStartTime: rec.appointmentStartTime || appt.startTime || null }) }, noStore);
+    return NextResponse.json({ ok: true, completion: project(token, await stillAsked(db, tenantId, { ...rec, appointmentStartTime: rec.appointmentStartTime || appt.startTime || null }, appt)) }, noStore);
   } catch (e: any) {
     console.error('[visit-completion]', e?.message);
     return NextResponse.json({ ok: false }, { status: 500 });

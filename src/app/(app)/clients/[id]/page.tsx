@@ -529,7 +529,7 @@ export default function ClientDetailPage() {
       setIsAddFormulaOpen(true);
   };
 
-  const facts = useMemo(() => (client ? clientFacts(client, allAppointments || [], services || [], allStaffList) : null), [client, allAppointments, services, allStaffList]);
+  const facts = useMemo(() => (client ? clientFacts(client, allAppointments || [], services || [], allStaffList, selectedTenant) : null), [client, allAppointments, services, selectedTenant, allStaffList]);
   const { safeLTV, safeStoreCredit, safeBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => ({
       safeLTV: safeNumber(client?.lifetimeValue),
       // totalStoreCredit is the unified Client Credit Ledger total — covers

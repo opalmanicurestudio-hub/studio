@@ -817,7 +817,7 @@ export type Appointment = {
   resolvedAt?: string;
   resolvedBy?: string;
   // Completion link fields
-  completionStatus?: 'pending' | 'complete';
+  completionStatus?: 'pending' | 'complete' | 'completed';   // both spellings were written; read with intakeComplete (lib/visit-requests)
   signedForms?: { formId: string; formTitle: string; formData: Record<string, any> }[];
   requirementFiles?: { requirementId: string; label: string; files: any[] }[];
   healthDisclosedAt?: string;
@@ -1048,6 +1048,11 @@ export type ConsentForm = {
   requiresSignature?: boolean;  // if true, signature collected at POS checkout
   content?: string;             // plain text fallback when no structured fields
   fields?: FormField[];
+  /** The version of this wording (lib/forms formVersion), and when it last changed. */
+  version?: string;
+  versionedAt?: string;
+  requiresEveryAppointment?: boolean;
+  requiresGuardianSignature?: boolean;
 };
 
 export type TicketData = {

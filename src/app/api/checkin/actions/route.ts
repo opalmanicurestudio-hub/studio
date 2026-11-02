@@ -113,28 +113,55 @@ export async function POST(req: NextRequest) {
     const c = ((await cRef.get()).data()) || null;
     if (!c) return bad('This link isn’t valid.', 404);
     if (c.status === 'complete') return NextResponse.json({ ok: true, already: true });
-    const signedForms = (Array.isArray(b.signedForms) ? b.signedForms : []).slice(0, 20).map((f: any) => ({ formId: str(f?.formId, 80), formTitle: str(f?.formTitle, 200), formData: f?.formData && typeof f.formData === 'object' ? f.formData : {} }));
-    const fileSubmissions = (Array.isArray(b.fileSubmissions) ? b.fileSubmissions : []).slice(0, 20);
-    const policyAcceptance = { acceptedAt: nowIso, cardAuthorization: b.skipCardStep !== true, policyVersion: str(b.policyAcceptance?.policyVersion || 'v1', 40), depositAmountCents: Number(c.depositAmountCents) || 0 };
+    // A request the team called off takes nothing more. (Its date isn't checked: the visit link keeps asking until
+    // the visit, so an answer on day eight still counts.)
+    if (['void', 'cancelled', 'canceled'].includes(String(c.status || ''))) return bad('This request has closed, so there’s nothing more to send here.', 410);
+    // Only the forms this request asked for (anything else isn't theirs to stamp as signed).
+    const askedIds = new Set<string>((Array.isArray(c.requiredConsentFormIds) ? c.requiredConsentFormIds : []).map(String));
+    const signedForms = (Array.isArray(b.signedForms) ? b.signedForms : []).filter((f: any) => askedIds.has(String(f?.formId || ''))).slice(0, 20).map((f: any) => ({ formId: str(f?.formId, 80), formTitle: str(f?.formTitle, 200), formData: f?.formData && typeof f.formData === 'object' ? f.formData : {} }));
+    // Every form the visit still needs, signed (the page asks for all of them; a partial answer stays open).
+    { const stillIds = new Set<string>((await (async () => { try { const { formsStillNeeded, formRulesOf } = await import('@/lib/forms');
+        const ids = [...askedIds]; if (!ids.length) return [] as string[];
+        const [tt, cc, ...dd] = await Promise.all([db.doc(`tenants/${tenantId}`).get(), c.clientId ? db.doc(`tenants/${tenantId}/clients/${c.clientId}`).get() : Promise.resolve(null), ...ids.map((id) => db.doc(`tenants/${tenantId}/consentForms/${id}`).get().catch(() => null))]);
+        const ap: any = c.appointmentId ? (((await db.doc(`tenants/${tenantId}/appointments/${c.appointmentId}`).get()).data() as any) || {}) : {};
+        // Only forms that still exist: a deleted one can't be shown, so it's never required.
+        const defs = dd.map((d: any, i: number) => (d?.exists ? { id: ids[i], ...(d.data() || {}) } : null)).filter(Boolean) as any[];
+        return formsStillNeeded({ apt: ap, ids: ids.filter((id) => defs.some((f) => f.id === id)), client: cc?.data?.() || {}, forms: defs, rules: formRulesOf(tt?.data?.() || {}) });
+      } catch { return [] as string[]; } })()));   // a slow moment never refuses someone who signed
+      if ([...stillIds].some((id) => !signedForms.some((f: any) => f.formId === id))) return bad('Please complete and sign every form before sending.', 400); }
+    // Files only for what was asked (by its id), as with the forms.
+    const askedFiles = new Set<string>([...(Array.isArray(c.fileRequirements) ? c.fileRequirements : []), ...(Array.isArray(c.requirements) ? c.requirements : [])].map((r: any) => String(r?.id || '')).filter(Boolean));
+    const fileSubmissions = (Array.isArray(b.fileSubmissions) ? b.fileSubmissions : []).filter((x: any) => askedFiles.has(String(x?.requirementId || ''))).slice(0, 20);
+    // Whether a card or deposit step follows is the completion record's own answer, never the browser's.
+    const skipCard = c.skipCardStep === true;
+    const policyAcceptance = { acceptedAt: nowIso, cardAuthorization: !skipCard, policyVersion: str(b.policyAcceptance?.policyVersion || 'v1', 40), depositAmountCents: Number(c.depositAmountCents) || 0 };
     if (JSON.stringify({ signedForms, fileSubmissions }).length > 800_000) return bad('That’s too much to send at once — please remove a file and try again.', 413);
     const apptId = c.appointmentId || null, clientId = c.clientId || null;
     const batch = db.batch();
-    batch.set(db.collection(`tenants/${tenantId}/completionSubmissions`).doc(), { token, tenantId, appointmentId: apptId, clientId, clientName: c.clientName || null, clientEmail: c.clientEmail || null, signedForms, fileSubmissions, policyAcceptance, submittedAt: nowIso, cardAlreadyOnFile: b.skipCardStep === true });
-    const apptPatch: any = { signedForms, policyAcceptance, requirementFiles: fileSubmissions, completionConsentsAt: nowIso };
+    batch.set(db.collection(`tenants/${tenantId}/completionSubmissions`).doc(), { token, tenantId, appointmentId: apptId, clientId, clientName: c.clientName || null, clientEmail: c.clientEmail || null, signedForms, fileSubmissions, policyAcceptance, submittedAt: nowIso, cardAlreadyOnFile: skipCard });
+    // Added to what the visit already has (forms signed while booking, files sent before), never replacing it.
+    const apptNow: any = apptId ? (((await db.doc(`tenants/${tenantId}/appointments/${apptId}`).get()).data() as any) || {}) : {};
+    if (['declined', 'expired', 'released', 'cancelled', 'canceled', 'no_show'].includes(String(apptNow.status || ''))) return bad('This visit isn’t going ahead, so there’s nothing more to send here.', 410);
+    const byId = (xs: any[], key: string, add: any[]) => { const out = (Array.isArray(xs) ? xs : []).filter((x: any) => !add.some((y: any) => y?.[key] && y[key] === x?.[key])); const f = fitOnVisit([...out, ...add], add.length); movedAnswers.push(...f.moved); return f.list; };
+    const movedAnswers: any[] = [];
+    const { fitOnVisit } = await import('@/lib/forms');
+    const apptPatch: any = { policyAcceptance, completionConsentsAt: nowIso,
+      ...(signedForms.length ? { signedForms: byId(apptNow.signedForms, 'formId', signedForms) } : {}),
+      ...(fileSubmissions.length ? { requirementFiles: byId(apptNow.requirementFiles, 'requirementId', fileSubmissions) } : {}) };
     const clientPatch: any = {};
     if (clientId) {
       const guardians = b.guardianByForm && typeof b.guardianByForm === 'object' ? b.guardianByForm : {};
-      // Also onto the client record (signedForms map), which every screen can read without loading each signature:
-      // a form that must be signed every visit is marked so, so a later visit still asks for it.
-      const everyVisit = new Set<string>(); try { const fs = await Promise.all(signedForms.map((f: any) => db.doc(`tenants/${tenantId}/consentForms/${f.formId}`).get())); fs.forEach((d: any) => { if (d.exists && d.data()?.requiresEveryAppointment) everyVisit.add(d.id); }); } catch { /* treat as sign-once */ }
-      if (signedForms.length) clientPatch.signedForms = Object.fromEntries(signedForms.map((f: any) => [f.formId, { signedAt: nowIso, formTitle: f.formTitle || null, source: 'client_self_service', appointmentId: apptId, ...(everyVisit.has(f.formId) ? { everyVisit: true } : {}) }]));
-      for (const f of signedForms) {
-        const g = guardians[f.formId];
-        batch.set(db.doc(`tenants/${tenantId}/clients/${clientId}/signedConsents/${f.formId}`), { formId: f.formId, formTitle: f.formTitle, signedAt: nowIso, formData: f.formData, source: 'client_self_service', appointmentId: apptId,
-          ...(g?.name ? { guardianName: str(g.name, 120), guardianRelationship: str(g.relationship, 80), guardianSignedAt: nowIso } : {}) }, { merge: true });
+      // On file for every screen, with the version of the wording they signed (lib/forms-server).
+      const { recordSignedForms } = await import('@/lib/forms-server');
+      await recordSignedForms(db, tenantId, { clientId, appointmentId: apptId, source: 'client_self_service', at: nowIso, batch,
+        forms: signedForms.map((f: any) => ({ ...f, guardian: guardians[f.formId] || null })) });
+      // Documents kept on their profile: added to what's there (same document → the new files), never replacing the rest.
+      const docs = (Array.isArray(b.profileDocuments) ? b.profileDocuments : []).filter((d: any) => askedFiles.has(String(d?.requirementId || ''))).slice(0, 10);
+      if (docs.length) {
+        const { mergeProfileDocuments } = await import('@/lib/forms');
+        const had = ((await db.doc(`tenants/${tenantId}/clients/${clientId}`).get()).data() as any)?.profileDocuments || [];
+        clientPatch.profileDocuments = mergeProfileDocuments(had, docs.map((d: any) => ({ requirementId: str(d.requirementId, 80), label: str(d.label, 200), files: Array.isArray(d.files) ? d.files.slice(0, 10) : [], uploadedAt: nowIso })));
       }
-      const docs = (Array.isArray(b.profileDocuments) ? b.profileDocuments : []).slice(0, 10);
-      if (docs.length) clientPatch.profileDocuments = docs.map((d: any) => ({ requirementId: str(d.requirementId, 80), label: str(d.label, 200), files: Array.isArray(d.files) ? d.files.slice(0, 10) : [], uploadedAt: nowIso }));
       if (c.requestMarketingConsent && typeof b.marketingConsent === 'boolean') { clientPatch.marketingConsent = { consented: b.marketingConsent, consentedAt: nowIso, source: 'client_self_service' }; apptPatch.marketingConsentAnsweredAt = nowIso; apptPatch.marketingConsentAnswer = b.marketingConsent; }
       const ec = b.emergencyContact; if (c.requestEmergencyContact && ec?.name && ec?.phone) { clientPatch.emergencyContact = { name: str(ec.name, 120), phone: str(ec.phone, 40), relationship: str(ec.relationship, 80) }; apptPatch.emergencyContactCapturedAt = nowIso; }
       if (Object.keys(clientPatch).length) batch.set(db.doc(`tenants/${tenantId}/clients/${clientId}`), clientPatch, { merge: true });
@@ -143,11 +170,13 @@ export async function POST(req: NextRequest) {
     if (acks.length) { apptPatch.acknowledgedAt = nowIso; apptPatch.acknowledgedItems = acks; }
     // No card or deposit step → the requirements are done now. Otherwise the
     // Stripe webhook marks it complete when payment/card is confirmed.
-    if (b.skipCardStep === true) {
+    if (skipCard) {
       batch.set(cRef, { status: 'complete', completedAt: nowIso, formsSignedAt: nowIso }, { merge: true });
       apptPatch.completionStatus = 'completed'; apptPatch.requirementsCompletedAt = nowIso;
     } else batch.set(cRef, { formsSignedAt: nowIso }, { merge: true });
     if (apptId) batch.set(db.doc(`tenants/${tenantId}/appointments/${apptId}`), apptPatch, { merge: true });
+    // Older answers moved off the visit record to keep it within size (lib/forms fitOnVisit): kept beside it, whole.
+    if (apptId) for (const m of movedAnswers.slice(0, 100)) batch.set(db.doc(`tenants/${tenantId}/appointments/${apptId}/formAnswers/${String(m.formId).replace(/[^A-Za-z0-9_-]/g, '_')}`), m);
     await batch.commit();
     await logAuditAdmin(db, tenantId, { action: 'completion.submitted', targetType: 'appointment', targetId: apptId || token, summary: `${c.clientName || 'A client'} completed their pre-visit steps (${signedForms.length} form${signedForms.length === 1 ? '' : 's'}${fileSubmissions.length ? `, ${fileSubmissions.length} file request${fileSubmissions.length === 1 ? '' : 's'}` : ''})`, actor: { type: 'user', name: c.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
     return NextResponse.json({ ok: true });

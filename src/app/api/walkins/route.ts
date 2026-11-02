@@ -113,12 +113,6 @@ const MAX_GROUP = 12;
  */
 const DISPATCH_PER_POLL = 5;
 
-/** Consent signatures go stale at 18 months — the same window QuickBookForm's
- *  formStatuses uses (differenceInMonths(...) >= 18). Kept identical on purpose:
- *  if the kiosk and the booking form disagreed about whether a form is still
- *  good, a guest would be asked to re-sign at one counter and not the other. */
-const FORM_VALIDITY_MONTHS = 18;
-
 /** PATCH_TEST_VALIDITY_MONTHS in QuickBookForm. Same reason. */
 const PATCH_TEST_VALIDITY_MONTHS = 6;
 
@@ -685,35 +679,24 @@ async function readRequirements(db: any, tenantId: string, service: any, clientI
   const requiredIds: string[] = (Array.isArray(service?.requiredFormIds) ? service.requiredFormIds : [])
     .map((v: any) => str(v, 120)).filter(Boolean);
 
+  // One rule for "still on file" (lib/forms): the wording they signed is the wording now, and it's within the
+  // business's time limit. The map on the client record first; the signedConsents copy for anything the map doesn't
+  // have (the kiosk used to write only there).
+  const { formStateOf, onFileEntry, formRulesOf } = await import('@/lib/forms');
+  const tenantDoc: any = ((await db.doc(`tenants/${tenantId}`).get().catch(() => null))?.data?.()) || {};
+  const rules = formRulesOf(tenantDoc);
+  const defSnaps = await Promise.all(requiredIds.map(fid => db.doc(`tenants/${tenantId}/consentForms/${fid}`).get().catch(() => null)));
+  const defs = new Map<string, any>(requiredIds.map((fid, i) => [fid, defSnaps[i]?.exists ? { id: fid, ...((defSnaps[i].data() as any) || {}) } : null]));
   const satisfied = new Set<string>();
-
-  const stillGood = (raw: any): boolean => {
-    const ms = toMs(raw);
-    if (!ms) return false;
-    return monthsSince(ms, nowMs) < FORM_VALIDITY_MONTHS;
-  };
-
   if (clientId) {
-    const map = (clientData?.signedForms as any) || {};
     for (const fid of requiredIds) {
-      const entry = map?.[fid];
-      if (entry && stillGood(entry?.signedAt ?? entry)) satisfied.add(fid);
-    }
-    // The subcollection is the newer store and the one the self-service portal
-    // writes, so check it for anything the map didn't cover.
-    const missing = requiredIds.filter(f => !satisfied.has(f));
-    if (missing.length) {
-      try {
-        const snaps = await Promise.all(
-          missing.map(fid => db.doc(`tenants/${tenantId}/clients/${clientId}/signedConsents/${fid}`).get()),
-        );
-        snaps.forEach((s: any, i: number) => {
-          if (s?.exists && stillGood((s.data() as any)?.signedAt)) satisfied.add(missing[i]);
-        });
-      } catch {
-        // Unreadable history means we ask again. Asking twice is a small
-        // annoyance; skipping a required waiver is not.
+      let entry = onFileEntry(clientData, fid);
+      if (!entry) {
+        try { const sc = await db.doc(`tenants/${tenantId}/clients/${clientId}/signedConsents/${fid}`).get(); const d: any = sc?.exists ? sc.data() : null;
+          if (d?.signedAt && !d.revokedAt) entry = { signedAt: typeof d.signedAt === 'string' ? d.signedAt : new Date(toMs(d.signedAt)).toISOString(), version: d.version || null, guardian: !!d.guardianName };
+        } catch { /* unreadable history means we ask again: asking twice is a small annoyance, skipping a waiver is not */ }
       }
+      if (formStateOf(defs.get(fid) || null, entry, rules, new Date(nowMs)) === 'current') satisfied.add(fid);
     }
   }
 
@@ -722,19 +705,15 @@ async function readRequirements(db: any, tenantId: string, service: any, clientI
   // Titles for the forms we're about to put in front of the guest. Missing
   // definitions are still returned — with the id as the label — because a
   // required form with a broken definition must not silently disappear.
-  let forms: { id: string; title: string; requiresGuardianSignature: boolean; fields: any[] }[] = [];
-  if (outstandingIds.length) {
-    const snaps = await Promise.all(outstandingIds.map(fid => db.doc(`tenants/${tenantId}/consentForms/${fid}`).get()));
-    forms = outstandingIds.map((fid, i) => {
-      const d: any = snaps[i]?.exists ? (snaps[i].data() as any) || {} : {};
-      return {
-        id: fid,
-        title: str(d.title || d.name, 160) || fid,
-        requiresGuardianSignature: d.requiresGuardianSignature === true,
-        fields: Array.isArray(d.fields) ? d.fields.slice(0, 40) : [],
-      };
-    });
-  }
+  const forms: { id: string; title: string; requiresGuardianSignature: boolean; fields: any[] }[] = outstandingIds.map((fid) => {
+    const d: any = defs.get(fid) || {};
+    return {
+      id: fid,
+      title: str(d.title || d.name, 160) || fid,
+      requiresGuardianSignature: d.requiresGuardianSignature === true,
+      fields: Array.isArray(d.fields) ? d.fields.slice(0, 40) : [],
+    };
+  });
 
   // Patch test. Advisory rather than a hard block — see the join handler.
   const patchTestRequired = service?.requiresPatchTest === true;
@@ -745,12 +724,8 @@ async function readRequirements(db: any, tenantId: string, service: any, clientI
   // collected at the kiosk — they go onto the guest's completion record so they
   // can do it from their phone while they wait, which is a much better use of
   // twenty minutes in a lobby than staring at a wall.
-  const reqs: any[] = Array.isArray(service?.requiredFileRequirements) ? service.requiredFileRequirements : [];
-  const profileDocs: any[] = Array.isArray(clientData?.profileDocuments) ? clientData.profileDocuments : [];
-  const fileRequirements = reqs.filter((fr: any) => {
-    if (!fr?.persistToProfile) return true;
-    return !profileDocs.some((pd: any) => pd?.requirementId === fr?.id);
-  }).slice(0, 10);
+  const { filesStillNeeded } = await import('@/lib/forms');
+  const fileRequirements = filesStillNeeded(service, clientData).slice(0, 10);
 
   return { requiredIds, outstandingIds, forms, patchTestRequired, patchTestOnFile, fileRequirements };
 }
@@ -1083,7 +1058,7 @@ export async function POST(req: NextRequest) {
     if (action === 'event') return await handleEventArrival(db, tenantId, body);
     if (action === 'booth-arrived') return await handleBoothArrived(db, tenantId, body);
     if (action === 'options') return await handleOptions(db, tenantId, body);
-    return await handleJoin(db, tenantId, tenant, body, publicOrigin(tenant, req));
+    return await handleJoin(db, tenantId, tenant, { ...body, __deskStaff: deskStaff === true }, publicOrigin(tenant, req));   // set here, never taken from the browser
   } catch {
     return NextResponse.json({ ok: false, error: 'Something went wrong.' }, { status: 500 });
   }
@@ -1397,12 +1372,25 @@ async function arriveOne(db: any, tenantId: string, ref: any, a: any, origin: st
   let formsDue = 0, formsSent = false, seeDesk = false;
   try {
     const cid = String(a.clientId || ''); const c: any = cid ? ((await db.doc(`tenants/${tenantId}/clients/${cid}`).get()).data() || {}) : {};
+    // The one rule for "still on file" (lib/forms): signed for this visit, or signed before in the same wording and
+    // within the business's time limit. The signedConsents copy covers what the client record's map doesn't have (and
+    // a copy someone took back, revokedAt, never counts).
     const ids = [a.serviceId, ...(Array.isArray(a.addOnIds) ? a.addOnIds : [])].filter(Boolean);
-    const need = new Set<string>(); for (const sid of ids) { const sv: any = ((await db.doc(`tenants/${tenantId}/services/${sid}`).get()).data() || {}); (sv.requiredFormIds || []).forEach((x: string) => need.add(String(x))); }
-    (a.requiredFormIds || []).forEach((x: string) => need.add(String(x)));
-    const signed = new Set<string>((a.signedForms || []).map((x: any) => String(x?.formId || '')));
-    if (cid && need.size) (await db.collection(`tenants/${tenantId}/clients/${cid}/signedConsents`).get()).docs.forEach((d: any) => { const x: any = d.data() || {}; if (!x.revokedAt && (!x.expiresAt || Date.parse(x.expiresAt) > Date.now())) signed.add(String(x.formId || x.consentFormId || '')); });
-    formsDue = [...need].filter((x) => !signed.has(x)).length;
+    const svcs = (await Promise.all(ids.map((sid: string) => db.doc(`tenants/${tenantId}/services/${sid}`).get().catch(() => null)))).map((d: any) => (d?.exists ? d.data() : null)).filter(Boolean);
+    const { formsAskedFor, formStateOf, onFileEntry, formRulesOf, signedOnVisit } = await import('@/lib/forms');
+    const asked = formsAskedFor(a, svcs);
+    const tn: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; const rules = formRulesOf(tn);
+    const here = signedOnVisit(a);
+    let due = 0;
+    for (const fid of asked) {
+      if (here.has(fid)) continue;
+      const def = await db.doc(`tenants/${tenantId}/consentForms/${fid}`).get().catch(() => null); const form = def?.exists ? { id: fid, ...(def.data() || {}) } : null;
+      let entry = onFileEntry(c, fid);
+      if (cid) { const sc: any = (await db.doc(`tenants/${tenantId}/clients/${cid}/signedConsents/${fid}`).get().catch(() => null))?.data?.() || null;
+        if (sc?.revokedAt) entry = null; else if (!entry && sc?.signedAt) entry = { signedAt: sc.signedAt, version: sc.version || null, guardian: !!sc.guardianName }; }
+      if (formStateOf(form, entry, rules) !== 'current') due++;
+    }
+    formsDue = due;
     if (formsDue > 0 && a.checkInToken) {
       const link = `${origin}/check-in/${a.checkInToken}`;
       let toPhone = String(c.phone || a.clientPhone || ''), toEmail = String(c.email || a.clientEmail || ''); let smsOk = c.smsConsent !== false && c.smsOptOut !== true; let forWhom = '';
@@ -2519,25 +2507,14 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
   if (signedForms.length) {
     try {
       const batch = db.batch();
-      const map: any = {};
-      for (const f of signedForms) {
-        map[`signedForms.${f.formId}`] = { signedAt: nowIso, formTitle: f.formTitle, source: 'walkin-kiosk' };
-        batch.set(db.doc(`tenants/${tenantId}/clients/${clientId}/signedConsents/${f.formId}`), {
-          formId: f.formId,
-          formTitle: f.formTitle,
-          signedAt: nowIso,
-          formData: f.formData,
-          source: 'walkin-kiosk',
-          appointmentId: null,
-          walkInId: walkInRef.id,
-          ...(f.guardianName ? {
-            guardianName: f.guardianName,
-            guardianRelationship: f.guardianRelationship,
-            guardianSignedAt: nowIso,
-          } : {}),
-        }, { merge: true });
-      }
-      batch.set(db.doc(`tenants/${tenantId}/clients/${clientId}`), map, { merge: true });
+      // On file for every screen, with the version of the wording they signed (lib/forms-server). (This used to write
+      // dotted keys with set(), which Firestore stores as literal field names, so the kiosk's signatures never
+      // counted as on file.)
+      // On file for good only when the record is surely theirs: the join made it, or the desk added them. A guest the
+      // kiosk matched to an existing record by phone or email signs for today only (lib/forms-server).
+      const { recordSignedForms } = await import('@/lib/forms-server');
+      if (!existing || body.__deskStaff === true) await recordSignedForms(db, tenantId, { clientId, appointmentId: null, source: 'walkin-kiosk', at: nowIso, batch, extra: { walkInId: walkInRef.id },
+        forms: signedForms.map((f: any) => ({ formId: f.formId, formTitle: f.formTitle, formData: f.formData, guardian: f.guardianName ? { name: f.guardianName, relationship: f.guardianRelationship } : null })) });
       // The same audit record the self-service portal writes, so a signature
       // taken at the kiosk shows up in exactly the same place as one taken on
       // a phone. `create: if true` on this collection, so it is the one channel

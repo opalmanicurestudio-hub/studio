@@ -66,6 +66,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
+import { formRulesOf, formStateOf, onFileEntry } from '@/lib/forms';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
@@ -1924,18 +1925,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const requiredIds = Array.from(new Set([...(service?.requiredFormIds || []), ...(((appointment as any)?.requiredFormIds || []) as string[])]));
     const requiredForms = (consentForms || []).filter(f => requiredIds.includes(f.id));
     const aptSignedIds = (appointment?.signedForms || []).map((f: any) => f.formId);
-    // v2 — per-form override: `requiresEveryAppointment` (optional, defaults
-    // to false/undefined) means a client-level signature from a past visit
-    // does NOT satisfy this form for the current appointment — it must be
-    // signed again for THIS specific visit. Everything else keeps the
-    // existing "sign once, valid forever" behavior unchanged: any prior
-    // signedConsents entry satisfies the requirement with no expiry.
-    const isFormSatisfied = (formId: string, requiresEveryAppointment?: boolean) => {
-      if (aptSignedIds.includes(formId)) return true; // always satisfied if signed for this visit
-      if (requiresEveryAppointment) return false; // history doesn't count — must re-sign
-      return !!signedConsents?.some(sc => sc.formId === formId) || !!(client as any)?.signedForms?.[formId];
+    // One rule for "still on file" (lib/forms): signed for this visit, or signed before in the wording the form has now
+    // and within the business's time limit (a form signed at every visit always asks again). The client record's map
+    // first, the signedConsents copy for anything it doesn't have.
+    const rules = formRulesOf(selectedTenant);
+    const isFormSatisfied = (formId: string) => {
+      if (aptSignedIds.includes(formId)) return true;
+      const sc = signedConsents?.find((x: any) => x.formId === formId);
+      const entry = onFileEntry(client, formId) || (sc?.signedAt && !sc.revokedAt ? { signedAt: sc.signedAt, version: sc.version || null, guardian: !!sc.guardianName } : null);
+      return formStateOf((consentForms || []).find((f: any) => f.id === formId) || null, entry, rules) === 'current';
     };
-    const pendingForms = requiredForms.filter(rf => !isFormSatisfied(rf.id, (rf as any).requiresEveryAppointment));
+    const pendingForms = requiredForms.filter(rf => !isFormSatisfied(rf.id));
     const healthPendingForms = pendingForms.filter(f => f.category === 'Intake');
     const otherPendingForms = pendingForms.filter(f => f.category !== 'Intake');
     // v2 — every form in the tenant's library, tagged with whether it's
@@ -1945,10 +1945,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     // asking for again.
     const allFormsWithStatus = (consentForms || []).map(f => ({
       ...f,
-      isSatisfied: isFormSatisfied(f.id, (f as any).requiresEveryAppointment),
+      isSatisfied: isFormSatisfied(f.id),
     }));
     return { requiredForms, pendingForms, healthPendingForms, otherPendingForms, allCertified: pendingForms.length === 0, allFormsWithStatus };
-  }, [service, consentForms, signedConsents, appointment?.signedForms, (appointment as any)?.requiredFormIds, client]);
+  }, [service, consentForms, signedConsents, appointment?.signedForms, (appointment as any)?.requiredFormIds, client, selectedTenant]);
 
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
   const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(appointment?.clientId, client?.email, tenantId, true, appointment?.id);

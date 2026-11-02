@@ -58,15 +58,12 @@ import {
   speakDateTime,
 } from '@/lib/voice/voice-utils';
 import { loadTenantContext } from '@/lib/voice/server-availability';
+import { formsStillNeeded, formRulesOf } from '@/lib/forms';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const CLIENT_SCAN_CAP = 3000; // fallback scan bound; salon tenants are well under this
-const FORM_SIGNATURE_VALIDITY_MONTHS = 18; // matches QuickBookForm's expiry rule
-
-const monthsBetween = (a: Date, b: Date): number =>
-  (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
 
 async function findClientByPhone(
   db: FirebaseFirestore.Firestore,
@@ -167,17 +164,9 @@ export async function POST(req: NextRequest) {
       const staffMember = ctx.staff.find((s: any) => s.id === a.staffId);
       const start = new Date(a.startTime);
 
-      // Readiness — same rules the booking form applies: required forms with
-      // an 18-month signature validity window, plus unpaid deposits.
+      // Readiness — the one rule for "still on file" (lib/forms), plus unpaid deposits.
       const needs: string[] = [];
-      const requiredFormIds: string[] = svc?.requiredFormIds || [];
-      const unsigned = requiredFormIds.some((fid) => {
-        const sig = client.signedForms?.[fid];
-        if (!sig?.signedAt) return true;
-        const signedAt = new Date(sig.signedAt);
-        if (Number.isNaN(signedAt.getTime())) return true;
-        return monthsBetween(signedAt, nowDate) >= FORM_SIGNATURE_VALIDITY_MONTHS;
-      });
+      const unsigned = formsStillNeeded({ ids: svc?.requiredFormIds || [], client, rules: formRulesOf(ctx.tenant), now: nowDate }).length > 0;
       if (unsigned) needs.push('forms');
       if (a.depositStatus === 'pending') needs.push('deposit');
 

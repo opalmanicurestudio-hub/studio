@@ -137,6 +137,9 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
  );
 };
 
+/** The tenant context when there is one (the app), or undefined on a public page (booking, visit link, kiosk). */
+export const useTenantOptional = () => useContext(TenantContext);
+
 export const useTenant = () => {
  const context = useContext(TenantContext);
  if (context === undefined) {

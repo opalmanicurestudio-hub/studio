@@ -1,4 +1,6 @@
 'use client';
+import { useTenantOptional } from '@/context/TenantContext';
+import { formsAskedFor, formStateOf, signedOnVisit, formRulesOf } from '@/lib/forms';
 // src/components/clients/ClientTabs.tsx — THE CLIENT PROFILE'S RECORDS, IN ONE STYLE.
 //   useClientMessages — the client's messages (sent with delivery state, and texts that came in), from the server
 //   ClientTimeline    — "Everything, in order": visits, payments, messages and forms in one stream, with filters
@@ -145,9 +147,13 @@ export function ClientFormsNeeded({ appointments, services, consentForms, consen
   const now = new Date();
   const upcoming = appointments.filter((a) => safe(a.startTime) > new Date(now.getTime() - 3600000) && !['cancelled', 'declined', 'completed', 'no_show'].includes(String(a.status))).sort((x, y) => safe(x.startTime).getTime() - safe(y.startTime).getTime()).slice(0, 4);
   const formName = (id: string) => consentForms.find((f) => f.id === id)?.name || consentForms.find((f) => f.id === id)?.title || 'A form';
-  const rows = upcoming.flatMap((a) => { const svc = services.find((s) => s.id === a.serviceId); const need: string[] = [...new Set<string>([...(svc?.requiredFormIds || []), ...(a.requiredFormIds || [])])]; const signed = new Set((a.signedForms || []).map((f: any) => f.formId));
-    const onFile = new Set(consents.filter((c) => !c.revokedAt && (!c.expiresAt || safe(c.expiresAt) > safe(a.startTime))).map((c) => c.formId || c.consentFormId));
-    return need.map((id) => ({ a, id, ok: signed.has(id) || onFile.has(id) })); });
+  // The one rule (lib/forms): signed for that visit, or a signed copy on file in the form's current wording and within
+  // the time limit (a copy taken back, revokedAt, doesn't count).
+  const rules = formRulesOf(useTenantOptional()?.selectedTenant);
+  const rows = upcoming.flatMap((a) => { const svc = services.find((s) => s.id === a.serviceId); const need = formsAskedFor(a, svc ? [svc] : []); const signed = signedOnVisit(a);
+    return need.map((id) => { const sc = consents.find((c) => (c.formId || c.consentFormId) === id && !c.revokedAt);
+      const st = formStateOf(consentForms.find((f) => f.id === id) || null, sc ? { signedAt: sc.signedAt, version: sc.version || null, guardian: !!sc.guardianName } : null, rules, safe(a.startTime));
+      return { a, id, ok: signed.has(id) || st === 'current' }; }); });
   const due = rows.filter((r) => !r.ok);
   return (
     <section className="space-y-2 rounded-3xl p-5" style={card} aria-label="Forms needed">
@@ -156,7 +162,7 @@ export function ClientFormsNeeded({ appointments, services, consentForms, consen
         <span className="min-w-0"><b>{formName(r.id)}</b><span style={muted}> · for {format(safe(r.a.startTime), 'EEE d MMM')}</span></span>
         {r.ok ? pill('Signed', 'ok') : <button type="button" onClick={() => onOpenVisit(r.a)} className="rounded-full px-3 py-1 text-[12px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' }}>Send from the visit</button>}
       </div>))}
-      <p className="text-[12px]" style={muted}>Everything signed is listed below, with its version and who signed.</p>
+      <p className="text-[12px]" style={muted}>Everything signed is listed below, with when and who signed.</p>
     </section>);
 }
 

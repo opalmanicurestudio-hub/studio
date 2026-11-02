@@ -3,6 +3,7 @@
 // route (api/notifications/send-completion-link). Also: where a visit stands — one readiness check every screen uses,
 // so a card, the planner sheet and the staff portal never disagree about forms, deposit or card.
 import { readinessOf } from './visit-readiness';
+import { formsStillNeeded, formRulesOf } from './forms';
 
 export type RequestItem = 'forms' | 'photo_current' | 'inspo' | 'card' | 'deposit' | 'balance' | 'questions' | 'confirm' | 'photo_id' | 'emergency' | 'file';
 
@@ -35,17 +36,11 @@ export function requestMessage(o: { firstName: string; studioName: string; start
 }
 
 // ── Readiness: one answer for every screen ──────────────────────────────────────────────────────────────────────
-/** Forms this visit still needs: the service's required forms plus any extra ones added to the visit, less those signed
- *  on this visit, and less those the client signed before when the form doesn't have to be signed every time. */
-export function pendingFormIds(apt: any, service: any, client?: any, forms?: any[]): string[] {
-  const need = new Set<string>([...((service?.requiredFormIds || service?.consentFormIds || []) as string[]), ...((apt?.requiredFormIds || []) as string[]), ...((apt?.extraFormIds || []) as string[])]);
-  const signedHere = new Set<string>((apt?.signedForms || []).map((f: any) => (typeof f === 'string' ? f : f?.formId || f?.id)).filter(Boolean));
-  // Signed on an earlier visit: the client record's signedForms map (formId → { signedAt, everyVisit? }), or the
-  // signedConsents list when a screen has loaded it.
-  const map = client?.signedForms && !Array.isArray(client.signedForms) ? client.signedForms : {};
-  const signedBefore = new Set<string>([...Object.keys(map), ...((client?.signedConsentIds || []) as string[])]);
-  const everyTime = (id: string) => !!(forms || []).find((f: any) => f?.id === id)?.requiresEveryAppointment || !!map[id]?.everyVisit;
-  return [...need].filter((id) => !signedHere.has(id) && (everyTime(id) || !signedBefore.has(id)));
+/** Forms this visit still needs: the service's required forms plus any added to the visit, less those signed on this
+ *  visit and those still current on file (lib/forms: same wording, within the business's time limit, not a form
+ *  signed at every visit). The forms themselves, when a screen has them, also catch a change of wording. */
+export function pendingFormIds(apt: any, service: any, client?: any, forms?: any[], tenant?: any): string[] {
+  return formsStillNeeded({ apt, services: [service], client, forms, rules: formRulesOf(tenant) });
 }
 export const intakeComplete = (apt: any) => ['complete', 'completed'].includes(String(apt?.completionStatus || ''));
 /** What stops this visit starting, in plain words; null = ready. The rules are the business's (lib/readiness:

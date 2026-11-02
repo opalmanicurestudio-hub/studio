@@ -404,7 +404,7 @@ export const CompletionGateView = ({
     return (
         <VisitShell brand={brand} chip="Booked" title={skipCardStep ? <>A few <b>details</b></> : <>Finish your <b>booking</b></>}
             subtitle={[at ? `${format(at, 'EEEE, MMMM d')} at ${format(at, 'h:mm a')}` : '', completion?.serviceName || ''].filter(Boolean).join(' · ') || undefined}>
-            {skipCardStep
+            {skipCardStep && completion?.cardAlreadyOnFile === true
                 ? <p className="v-note flex items-center gap-2"><CheckCircle2 className="h-4 w-4 shrink-0" style={{ color: 'var(--good)' }} aria-hidden /> Your card is on file, so there’s nothing to pay now.</p>
                 : <p className="v-note">A couple of quick steps and you’re all set.</p>}
 

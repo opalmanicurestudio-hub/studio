@@ -81,9 +81,6 @@ export function generateShortCodeServer(length = 6): string {
   return out;
 }
 
-const FORM_SIGNATURE_VALIDITY_MONTHS = 18; // same rule as QuickBookForm
-const monthsBetween = (a: Date, b: Date): number =>
-  (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
 
 export type CreateBookingInput = {
   service: any; // resolved service doc
@@ -233,16 +230,13 @@ export async function createBooking(
     depositCents = 0;
   }
 
-  // Forms needing signature (18-month validity, same as QuickBook)
+  // Forms needing signature: one rule for "still on file" (lib/forms).
   const requiredFormIds: string[] = service.requiredFormIds || [];
   const now = new Date();
-  const formsNeedingSignature = requiredFormIds.filter((fid) => {
-    const sig = clientDoc?.signedForms?.[fid];
-    if (!sig?.signedAt) return true;
-    const signedAt = new Date(sig.signedAt);
-    if (Number.isNaN(signedAt.getTime())) return true;
-    return monthsBetween(signedAt, now) >= FORM_SIGNATURE_VALIDITY_MONTHS;
-  });
+  const { formsStillNeeded, formRulesOf, filesStillNeeded } = await import('@/lib/forms');
+  const formDefs = (await Promise.all(requiredFormIds.map((fid) => db.doc(`tenants/${tenantId}/consentForms/${fid}`).get().catch(() => null))))
+    .map((d: any, i: number) => (d?.exists ? { id: requiredFormIds[i], ...(d.data() || {}) } : null)).filter(Boolean);
+  const formsNeedingSignature = formsStillNeeded({ ids: requiredFormIds, client: clientDoc, forms: formDefs, rules: formRulesOf(tenant), now });
   // v2 — FIX: service-level required documents (Photo ID, etc.) were never
   // read here at all — fileRequirements below was hardcoded to an empty
   // array regardless of what the service actually requires. A client
@@ -254,12 +248,7 @@ export async function createBooking(
   // own stable id (not freshly minted here), so the same id ends up on
   // clientDoc.profileDocuments once fulfilled and is recognized as
   // satisfied at this client's next booking of the same service.
-  const serviceFileReqs: any[] = service.requiredFileRequirements || [];
-  const profileDocs: any[] = clientDoc?.profileDocuments || [];
-  const pendingFileReqs = serviceFileReqs.filter((fr: any) => {
-    if (!fr.persistToProfile) return true;
-    return !profileDocs.some((pd: any) => pd.requirementId === fr.id);
-  });
+  const pendingFileReqs = filesStillNeeded(service, clientDoc);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
 
   // ── 4. Transactional slot claim (QuickBook's lock discipline) ──────────

@@ -342,7 +342,7 @@ export async function GET(req: NextRequest) {
           // live there. The old /appt manage page is retired from links.
           const token = b.items.find((i) => i.a.checkInToken)?.a.checkInToken || null;
           const link = token && base ? `${base}/check-in/${token}` : '';
-          const formsDue = b.items.some((i) => i.a.completionStatus && i.a.completionStatus !== 'completed');
+          const formsDue = b.items.some((i) => i.a.completionStatus && !['complete', 'completed'].includes(String(i.a.completionStatus)));
           const depositDue = b.items.some((i) => i.a.status === 'pending_payment' || i.a.status === 'deposit_pending');
           const manage = link ? ` ${depositDue ? "Please note that we haven't received your deposit yet. You can pay it here" : formsDue ? 'Please complete your forms before you arrive' : 'For details, check-in or any changes, you can use your visit link'}: ${link}` : '';
           // Ask them to confirm (lib/confirm-ask): one tap, or "reply YES".

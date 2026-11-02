@@ -29,9 +29,11 @@ const toastVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-border bg-white/95 backdrop-blur-2xl text-foreground",
+        default: "border-[#ececee] bg-white/95 backdrop-blur-2xl text-[#16171a]",
+        // Something went wrong (a file too large, a save that didn't go through): amber words on white, as every
+        // error in the app. Red is kept for buttons that delete or cancel, never for a message.
         destructive:
-          "destructive border-destructive bg-destructive text-destructive-foreground",
+          "destructive border-[#f2dcc5] bg-[#fffaf5]/95 backdrop-blur-2xl text-[#16171a]",
       },
     },
     defaultVariants: {
@@ -62,7 +64,7 @@ const ToastAction = React.forwardRef<
   <ToastPrimitives.Action
     ref={ref}
     className={cn(
-      "inline-flex h-8 shrink-0 items-center justify-center rounded-xl border-2 bg-transparent px-3 text-[10px] font-black uppercase tracking-widest transition-colors hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 group-[.destructive]:border-white/20 group-[.destructive]:hover:border-white/40 group-[.destructive]:hover:bg-white/10 group-[.destructive]:hover:text-white group-[.destructive]:focus:ring-destructive",
+      "inline-flex h-11 shrink-0 items-center justify-center rounded-full border border-[#ececee] bg-white px-4 text-[13.5px] font-semibold text-[#16171a] transition-colors hover:bg-[#f5f5f7] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 group-[.destructive]:border-[#f2dcc5] group-[.destructive]:text-[#b45309]",
       className
     )}
     {...props}
@@ -77,7 +79,7 @@ const ToastClose = React.forwardRef<
   <ToastPrimitives.Close
     ref={ref}
     className={cn(
-      "absolute right-2 top-2 inline-flex h-9 w-9 items-center justify-center rounded-xl text-foreground/60 transition-colors hover:text-foreground hover:bg-foreground/5 focus:outline-none focus:ring-2 active:scale-95 group-[.destructive]:text-white/80 group-[.destructive]:hover:text-white group-[.destructive]:hover:bg-white/10 group-[.destructive]:focus:ring-white/50",
+      "absolute right-1.5 top-1.5 inline-flex h-11 w-11 items-center justify-center rounded-full text-[#6d7075] transition-colors hover:text-[#16171a] hover:bg-[#f5f5f7] focus:outline-none focus:ring-2 active:scale-95",
       className
     )}
     toast-close=""
@@ -94,7 +96,7 @@ const ToastTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ToastPrimitives.Title
     ref={ref}
-    className={cn("text-sm font-black tracking-tight", className)}
+    className={cn("text-[14.5px] font-semibold group-[.destructive]:text-[#b45309]", className)}
     {...props}
   />
 ))
@@ -106,7 +108,7 @@ const ToastDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ToastPrimitives.Description
     ref={ref}
-    className={cn("text-[12px] font-bold text-muted-foreground leading-snug group-[.destructive]:text-white/90", className)}
+    className={cn("text-[13.5px] text-[#6d7075] leading-snug", className)}
     {...props}
   />
 ))

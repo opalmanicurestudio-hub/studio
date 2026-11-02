@@ -194,8 +194,9 @@ export async function POST(req: NextRequest) {
   const signedFormsIn: any[] = (() => {
     const list = Array.isArray((body as any)?.signedForms) ? (body as any).signedForms.slice(0, 10) : [];
     const clean = list.filter((f: any) => f && typeof f === 'object' && f.formId).map((f: any) => ({ formId: String(f.formId).slice(0, 80), formTitle: String(f.formTitle || '').slice(0, 200), formData: f.formData && typeof f.formData === 'object' ? f.formData : {}, signedAt: new Date().toISOString() }));
-    return JSON.stringify(clean).length <= 300_000 ? clean : [];
+    return JSON.stringify(clean).length <= 600_000 ? clean : null;   // null: too large to keep (said so below, never dropped quietly)
   })();
+  if (signedFormsIn === null) return NextResponse.json({ ok: false, error: 'Your forms are too large to send. Please remove a photo from a form and try again.' }, { status: 413 });
     const { tenantId, serviceId, startTime } = body || {};
     const source = String(body.source || 'api').slice(0, 40);
     const channel = String(body.channel || '').slice(0, 24) || null;   // where the client came from (a shared link's src)
@@ -672,6 +673,7 @@ export async function POST(req: NextRequest) {
       // history (no-shows, trust flag, completed visits) to decide whether
       // this booking needs a deposit, a card, or the studio's blessing.
       let clientRecord: any = null;
+      let clientNew = false;   // a client record made by this booking (forms signed now can go on file: lib/forms-server)
       if (clientId) {
         const c = await tx.get(db.doc(`tenants/${tenantId}/clients/${clientId}`));
         if (!c.exists) return { conflict: 'Client not found.' };
@@ -717,7 +719,7 @@ export async function POST(req: NextRequest) {
           if (Object.keys(consent).length) tx.set(reused.ref, consent, { merge: true });
         } else {
           const newRef = db.collection(`tenants/${tenantId}/clients`).doc();
-          clientId = newRef.id;
+          clientId = newRef.id; clientNew = true;
           tx.set(newRef, {
             id: clientId,
             name: clientName,
@@ -876,7 +878,7 @@ export async function POST(req: NextRequest) {
         // Signed forms travel WITH the booking and are saved here, on the server.
         // (They used to be attached afterwards from the client's browser, which
         // the database rules refuse for clients — so they were silently lost.)
-        ...(signedFormsIn.length ? { signedForms: signedFormsIn } : {}),
+        ...(signedFormsIn.length ? { signedForms: signedFormsIn } : {}),   // (a form that needs a guardian is taken back off below, and asked on the visit link with one)
         createdAt: nowIso,
         reminderSent: false,
         autoCancelledNoShow: false,
@@ -910,7 +912,7 @@ export async function POST(req: NextRequest) {
       if (requestedStaffId === 'any') {
         tx.set(db.doc(`tenants/${tenantId}/staff/${staffId}`), { lastBookingAssignedAt: nowIso }, { merge: true });
       }
-      return { aptId, token, shortCode, staffId, clientId, clientName, plan, balanceCollectCents: Number(payload.balanceCollectCents) || 0, placedStartIso: placedStart.toISOString(), placedEndIso: placedEnd.toISOString() };
+      return { aptId, token, shortCode, staffId, clientId, clientName, clientNew, plan, balanceCollectCents: Number(payload.balanceCollectCents) || 0, placedStartIso: placedStart.toISOString(), placedEndIso: placedEnd.toISOString() };
     });
 
     if ((result as any).conflict) {
@@ -963,6 +965,64 @@ export async function POST(req: NextRequest) {
     if (staffSet && typeof body.callbackDraftId === 'string' && body.callbackDraftId) {
       // Booked from a saved call-back → close it as booked.
       await db.doc(`tenants/${tenantId}/callBackDrafts/${body.callbackDraftId}`).set({ status: 'resolved', outcome: 'booked', outcomeNote: 'Booked from the call-back', resolvedAt: new Date().toISOString(), resolvedBy: (body as any).__staffActor?.name || 'Staff', bookedAppointmentId: r.aptId }, { merge: true }).catch(() => {});
+    }
+
+    // ── What the visit still needs from the client (lib/forms) ──────────────────────────────────────────────────
+    // The forms signed with the booking count for this visit. They go ON FILE (so they aren't asked again next time)
+    // when the client record is known to be theirs: the team booked it, or this booking made the record. A public
+    // booking (or one passed on for a renter or by the app itself) that matched an existing record by its phone or email
+    // keeps them on this visit only, so nobody can sign
+    // in someone else's name for good. A form or document still needed (photo ID, a form that needs a guardian, or a
+    // form when the booking came from somewhere that doesn't ask) is asked for on the visit link, with the same
+    // completion record a phone booking or the desk's "Send to client" makes.
+    let formsCtx: { svcs: any[]; formIds: string[]; defs: any[]; cDoc: any } | null = null;
+    let askedItems: string[] | null = null;
+    try {
+      const { formsAskedFor } = await import('@/lib/forms');
+      const svcs = [svc, ...addOnIds.map((id) => services.find((x: any) => x.id === id)).filter(Boolean)];
+      const formIds = formsAskedFor({}, svcs);
+      const defs = (await Promise.all(formIds.map((id) => db.doc(`tenants/${tenantId}/consentForms/${id}`).get().catch(() => null)))).map((d: any, i: number) => (d?.exists ? { id: formIds[i], ...(d.data() || {}) } : null)).filter(Boolean);
+      const cDoc: any = r.clientId ? ((await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get()).data() || {}) : {};
+      formsCtx = { svcs, formIds, defs, cDoc };
+    } catch (e) { console.error('[book] forms', e); }
+    // Signed here and theirs to keep: only the forms this booking asks for, and none that needs a guardian (the booking
+    // sheet doesn't ask for one; the visit link does).
+    const needsGuardian = new Set<string>((formsCtx?.defs || []).filter((d: any) => d.requiresGuardianSignature).map((d: any) => d.id));
+    const keptForms = signedFormsIn.filter((f: any) => (formsCtx?.formIds || []).includes(f.formId) && !needsGuardian.has(f.formId));
+    // A form that needs a guardian, signed in the booking sheet (which doesn't ask for one), doesn't count for the visit:
+    // its answers are kept aside, and the visit link asks for it with the guardian.
+    const withoutGuardian = signedFormsIn.filter((f: any) => needsGuardian.has(f.formId));
+    if (withoutGuardian.length) await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ signedForms: signedFormsIn.filter((f: any) => !needsGuardian.has(f.formId)), formsAwaitingGuardian: withoutGuardian }, { merge: true }).catch(() => {});
+    if (formsCtx && r.clientId && keptForms.length && (staffSet || (r as any).clientNew)) {
+      try { const { recordSignedForms } = await import('@/lib/forms-server');
+        await recordSignedForms(db, tenantId, { clientId: r.clientId, appointmentId: r.aptId, source: staffSet ? 'desk_booking' : 'online_booking', forms: keptForms });
+        formsCtx.cDoc = ((await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get()).data() as any) || formsCtx.cDoc;
+      } catch (e) { console.error('[book] forms on file', e); /* they're on the visit either way */ }
+    }
+    if (formsCtx && r.token && r.clientId && (String(body?.client?.email || formsCtx.cDoc.email || '').includes('@') || String(body?.client?.phone || formsCtx.cDoc.phone || '').trim())) {
+      try {
+        const { formsStillNeeded, filesStillNeeded, formRulesOf } = await import('@/lib/forms');
+        // Only forms that still exist (a deleted form can't be opened, so it's never asked for).
+        const known = new Set<string>(formsCtx.defs.map((d: any) => d.id));
+        const formsLeft = formsStillNeeded({ apt: { signedForms: keptForms }, ids: formsCtx.formIds.filter((id) => known.has(id)), client: formsCtx.cDoc, forms: formsCtx.defs, rules: formRulesOf(tenant) });
+        const filesLeft = formsCtx.svcs.flatMap((x: any) => filesStillNeeded(x, formsCtx!.cDoc)).filter((f: any, i: number, all: any[]) => all.findIndex((y) => y.id === f.id) === i);
+        if (formsLeft.length || filesLeft.length) {
+          const nowC = new Date().toISOString();
+          // Any deposit or card was settled by the booking itself (its own pay step on the visit link for a held time),
+          // so this asks only for the forms and documents.
+          await db.doc(`tenants/${tenantId}/bookingCompletions/${r.token}`).set({
+            token: r.token, tenantId, appointmentId: r.aptId, clientId: r.clientId, clientName: r.clientName || null, clientEmail: String(body?.client?.email || formsCtx.cDoc.email || '').toLowerCase() || null,
+            serviceId: svc?.id || null, serviceName: svc?.name || '', appointmentStartTime: r.placedStartIso,
+            depositAmountCents: 0, skipCardStep: true, cardAlreadyOnFile: !!formsCtx.cDoc?.cardOnFile?.paymentMethodId,
+            requiredConsentFormIds: formsLeft,
+            fileRequirements: filesLeft.slice(0, 10).map((fr: any) => ({ id: String(fr.id || ''), type: 'file_upload', label: String(fr.label || 'A document'), required: true, prompt: String(fr.label || 'A document'), minCount: Number(fr.minCount) || 1, maxCount: Number(fr.maxCount) || 5, acceptedTypes: ['image/*', 'application/pdf'], persistToProfile: !!fr.persistToProfile })),
+            status: 'pending', createdAt: nowC, expiresAt: r.placedEndIso, via: staffSet ? 'desk_booking' : 'online_booking',
+          }, { merge: true });
+          await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ completionStatus: 'pending' }, { merge: true });
+          // Marked as asked once the confirmation (whose link opens straight to these) has actually gone out, below.
+          askedItems = [...(formsLeft.length ? ['forms'] : []), ...(filesLeft.some((f: any) => /photo.?id|^id$/i.test(String(f.id || f.label))) ? ['photo_id'] : []), ...(filesLeft.some((f: any) => !/photo.?id|^id$/i.test(String(f.id || f.label))) ? ['file'] : [])];
+        }
+      } catch (e) { console.error('[book] still needed', e); /* the booking stands */ }
     }
 
     const sendStatus = { smsSent: false, emailSent: false };
@@ -1146,6 +1206,10 @@ export async function POST(req: NextRequest) {
             appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
           });
           sendStatus.smsSent = !!sr.ok;
+        }
+        // The forms and documents still needed were asked for: the confirmation that went out opens straight to them.
+        if (askedItems && askedItems.length && (sendStatus.emailSent || sendStatus.smsSent || renterConfirmed)) {
+          await db.doc(`tenants/${tenantId}/appointments/${r.aptId}`).set({ lastRequirementsRequestedAt: new Date().toISOString(), requestedItems: askedItems }, { merge: true }).catch(() => {});
         }
         /* ═══ TELL THE STUDIO, NOW ═══════════════════════════════════════
          * A request sitting unseen until tomorrow's digest is the single

@@ -284,7 +284,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
   const delays = useDelays(todaysAppts, e.services || [], e.selectedTenant || tenant);
   const delayMargin = delaySettings(e.selectedTenant || tenant).marginMin;
   const pushedBack = (id: string) => { let m = 0; for (const d of delays) for (const k of d.next) if (k.id === id && k.lateMin > m) m = k.lateMin; return m >= delayMargin ? m : 0; };
-  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, extraMinutesFor, kits: kits || [], lateFor: pushedBack, setAsideFor: (id: string) => { const v = hk.plan?.visits.find((x: any) => x.visitId === id); const codes = (v?.items || []).filter((i: any) => i.code && (i.state === 'ready' || i.state === 'in_time')).map((i: any) => i.code); return codes.length ? `Set aside: ${codes.join(' · ')}` : null; } }), [hk.plan, delays, guests, doorWaiting, e.clients, e.services, now, kits]); // eslint-disable-line react-hooks/exhaustive-deps
+  const hereNow = useMemo(() => buildHereNow({ guests, door: doorWaiting || [], clients: e.clients || [], services: e.services || [], now, tenant: e.selectedTenant, extraMinutesFor, kits: kits || [], lateFor: pushedBack, setAsideFor: (id: string) => { const v = hk.plan?.visits.find((x: any) => x.visitId === id); const codes = (v?.items || []).filter((i: any) => i.code && (i.state === 'ready' || i.state === 'in_time')).map((i: any) => i.code); return codes.length ? `Set aside: ${codes.join(' · ')}` : null; } }), [hk.plan, delays, guests, doorWaiting, e.clients, e.services, now, kits, e.selectedTenant]); // eslint-disable-line react-hooks/exhaustive-deps
   const requests = (e.appointmentsFromInventory || []).filter((a: any) => a.status === 'requested').length;
   // ── At-a-glance facts ────────────────────────────────────────────────
   const staffOf = (id: string | null) => (id ? (e.staff || []).find((s: any) => s.id === id) : null);
@@ -317,7 +317,7 @@ export function DeskPOS({ e, tools }: { e: any; tools?: { team?: ReactNode; wait
         if (hit) out.push([`Running over · affects ${String(hit.appt.clientName || 'next guest').split(' ')[0]} ${isNaN(Date.parse(String(hit.appt.startTime))) ? '' : format(new Date(hit.appt.startTime), 'h:mm')}`, 'warn']); }
     }
     if (!c || visits === 0) out.push(['New client', 'accent']);
-    if (a.completionStatus && a.completionStatus !== 'completed') out.push(['Forms not done', 'warn']);
+    if (a.completionStatus && !['complete', 'completed'].includes(String(a.completionStatus))) out.push(['Forms not done', 'warn']);
     if ((c?.unpaidFees || []).length) out.push(['Owes', 'warn']);
     if (c?.activeMembershipId) out.push(['Member', 'ok']);
     if (c?.managerPresent) out.push(['Manager on site', 'warn']);

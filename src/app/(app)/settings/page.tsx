@@ -31,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { Activity, AlertTriangle, ArrowRight, Ban, Bell, Box, Building, Calendar, CalendarCheck, Check, CheckCircle2, ChevronDown, Clock, Coffee, Coffee as BreakIcon, CreditCard, DollarSign, Edit, Eye, FileText, FileWarning, Fingerprint, Flame, Globe, HeartHandshake, ImageIcon, Landmark, LayoutGrid, Loader, Mail, Map as MapIcon, MapPin, Monitor, Palette, Percent, PlusCircle, Printer, QrCode, RefreshCw, Save, Scale, Scale as ScaleIcon, Search, Settings as SettingsIcon, Shield, ShieldAlert, ShieldCheck, Smartphone, Sparkles, Star, Tag, Target, Timer, Trash2, TrendingUp, Unlock, Users, Wallet, Wifi, Workflow, Zap, Route, SprayCan, ChevronLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
+import { formRulesOf, LASTS_CHOICES } from '@/lib/forms';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
 import { doc, writeBatch, deleteField, getDocs, query, collection, where } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff, type RecoveryPreset, nanoid } from '@/lib/data';
@@ -728,6 +729,18 @@ function SettingsPageImpl() {
                         <select value={rd[k] || READY_DEFAULTS[k]} onChange={(e) => set(k, e.target.value)} aria-label={READY_LABEL[k]} className="h-11 rounded-xl border px-3" style={ipt}>
                           <option value="block">Must be done to start</option><option value="remind">Reminder only</option><option value="off">Off</option>
                         </select></div>))}</div>); })()}
+                </Row>
+                <Row label="Signed forms" help="How long a form a client signed stays on file, and what returning clients are asked. A form also asks again whenever you change its wording, and one set to “every visit” always asks.">
+                  {(() => { const fr = formRulesOf(tenantData); const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, formRules: { ...formRulesOf(prev), ...patch } })); const ipt = { borderColor: 'hsl(var(--border))' } as any;
+                    return (<div className="space-y-2 text-[15px]">
+                      <div className="flex flex-wrap items-center justify-between gap-2"><span>A signed form lasts</span>
+                        <select value={String(fr.lastsMonths)} onChange={(e) => set({ lastsMonths: Number(e.target.value) })} aria-label="A signed form lasts" className="h-11 rounded-xl border px-3" style={ipt}>
+                          {LASTS_CHOICES.map((m) => <option key={m} value={m}>{m === 0 ? 'Until its wording changes' : `Until its wording changes, or ${m} months`}</option>)}
+                        </select></div>
+                      <div className="flex flex-wrap items-center justify-between gap-2"><span>Health questions</span>
+                        <select value={fr.health} onChange={(e) => set({ health: e.target.value })} aria-label="Health questions" className="h-11 rounded-xl border px-3" style={ipt}>
+                          <option value="changed">Keep them on file, like other forms</option><option value="every">Ask them in full each booking</option>
+                        </select></div></div>); })()}
                 </Row>
                 <Row label="Your state, and tips" help="Some states let tips make up part of minimum wage (a “tip credit”): the business pays at least a lower cash wage and tips cover the rest. Alaska, California, Minnesota, Montana, Nevada, Oregon and Washington don’t allow it. Off unless you switch it on; check your state’s current cash wage.">
                   {(() => { const pr: any = (tenantData as any).payRules || {}; const tc: any = pr.tipCredit || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payRules: { ...((prev as any).payRules || {}), ...patch } })); const ipt = { borderColor: 'hsl(var(--border))' } as any;

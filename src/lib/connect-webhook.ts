@@ -389,9 +389,19 @@ export async function handleConnectWebhook(req: NextRequest) {
             tx.set(creditRef, { id: creditRef.id, tenantId: tenant.id, kind: 'deposit', clientId, clientEmail: email, clientName: br.clientName || 'Guest',
               amountCents: depositAmountCents, status: 'available', sourceAppointmentId: appointmentId, serviceName: br.serviceName || null, createdAt: nowIso, via: 'online booking',
               stripePaymentIntentId: piOfReq, stripeChargeId: chargeId, checkoutSessionId: session.id });
-            return { appointmentId, depositAmountCents };
+            return { appointmentId, depositAmountCents, clientId, clientNew: !found, serviceId: String(br.serviceId || ''), forms: Array.isArray(br.signedForms) ? br.signedForms : [] };
           });
           if (!made) break;
+          // Forms signed while booking go on file when this booking made the client record (lib/forms-server; a record
+          // matched by email keeps them on the visit only, as the booking route does).
+          // Only the service's own forms, and none that needs a guardian (that's asked on the visit link with one).
+          if (made.clientNew && made.forms.length) { try { const { recordSignedForms } = await import('@/lib/forms-server');
+            const sv: any = made.serviceId ? ((await db.doc(`tenants/${tenant.id}/services/${made.serviceId}`).get()).data() || {}) : {};
+            const asked = new Set<string>((sv.requiredFormIds || []).map(String));
+            const ok: any[] = [];
+            for (const f of made.forms) { const id = String(f?.formId || ''); if (!asked.has(id)) continue;
+              const d: any = ((await db.doc(`tenants/${tenant.id}/consentForms/${id}`).get().catch(() => null))?.data?.()) || null; if (d?.requiresGuardianSignature) continue; ok.push(f); }
+            if (ok.length) await recordSignedForms(db, tenant.id, { clientId: made.clientId, appointmentId: made.appointmentId, source: 'online_booking', forms: ok }); } catch (e) { console.error('[connect-webhook] forms on file', e); } }
           await logAuditAdmin(db, tenant.id, { action: 'deposit.paid', targetType: 'appointment', targetId: made.appointmentId, amount: made.depositAmountCents / 100, summary: `Online booking deposit paid — ${(brSnap.data() as any)?.clientName || 'Guest'}, ${(brSnap.data() as any)?.serviceName || 'appointment'}`, actor: { type: 'user', name: (brSnap.data() as any)?.clientName || 'Guest', role: 'client', via: 'online booking' } }).catch(() => {});
           console.log(`[connect-webhook] Deposit paid — appointment ${made.appointmentId} created for tenant ${tenant.id}`);
           break;
