@@ -9,6 +9,7 @@ import { createHmac } from 'crypto';
 import Stripe from 'stripe';
 import { issueGiftCard, deliverGiftCard, giftPath } from '@/lib/gift-cards';
 import { shopSettings, offered, okDesign, designsSync } from '@/lib/gift-designs';
+import { publicLook } from '@/lib/public-look';
 
 const T = (t: string) => `tenants/${t}`;
 const now = () => new Date().toISOString();
@@ -37,9 +38,9 @@ export async function shopInfo(db: any, tenantId: string, providerId?: string | 
   const t: any = (await db.doc(T(tenantId)).get()).data(); if (!t) return null;
   const s = shopSettings(t); const { brandAccent } = await import('@/lib/brand-accent');
   const seller: any = await renterSeller(db, tenantId, t, providerId);
-  if (seller) return { open: !!seller.ok, brand: { name: seller.name, accent: seller.accent || brandAccent(t), logo: null, phone: null, at: t.name || null }, provider: seller.staffId,
+  if (seller) return { open: !!seller.ok, brand: { name: seller.name, accent: seller.accent || brandAccent(t), mood: publicLook(t).mood, logo: null, phone: null, at: t.name || null }, provider: seller.staffId,
     designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: `${s.rules} Use it with ${seller.name}.`, timeZone: t.timezone || 'America/New_York' };
-  return { open: s.online && !!t.stripeAccountId, brand: { name: t.name || t.businessName || 'Gift card', accent: brandAccent(t), logo: t.logoUrl || t.logo || null, phone: t.phone || null },
+  return { open: s.online && !!t.stripeAccountId, brand: { name: t.name || t.businessName || 'Gift card', accent: brandAccent(t), mood: publicLook(t).mood, logo: t.logoUrl || t.logo || null, phone: t.phone || null },
     designs: offered(designsSync(), s).map((d) => d.id), amounts: s.amounts, custom: s.custom, min: s.min, max: s.max, rules: s.rules, serviceCards: s.serviceCards, timeZone: t.timezone || 'America/New_York', offer: await (async () => { const g = await import('@/lib/gift-offers'); return g.pubOffer(g.liveOffer(t.giftCardSettings, 'online', g.todayIn(t.timezone))); })() };
 }
 

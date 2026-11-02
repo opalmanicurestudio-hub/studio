@@ -11,6 +11,7 @@
 import { randomBytes } from 'crypto';
 import { partyOf, partySet, partyHoldMin, partyOfferText } from '@/lib/waitlist-party';
 import { offerModeFor, fitFor, moveUpOk, rank, planRound, owed, offerText, isWaiting, serviceOf, staffWanted, windowFits, HOLD_ONE_MIN, PRIORITY_DAYS, WAVE_FROM_H, STALE_AFTER, STALE_ANSWER_H, stillText, autoBookedText, type Entry, type Opening, type Mode } from '@/lib/waitlist-engine';
+import { publicLook } from '@/lib/public-look';
 
 const T = (t: string) => `tenants/${t}`;
 const H = 3600e3, DAY = 864e5;
@@ -286,7 +287,7 @@ async function partyView(db: any, t: string, op: any, now: number) {
   const svc = (await db.doc(`${T(t)}/services/${P.serviceId}`).get()).data() || {};
   const times = [] as any[]; for (const id of P.openingIds) { const o: any = id === op.id ? op : (await db.doc(`${T(t)}/openings/${id}`).get()).data(); if (o) times.push({ when: whenLabel(ms(o.start), tz, now), staffName: first(o.staffName) }); }
   const state = P.status === 'taken' ? 'yours' : P.status === 'declined' ? 'passed' : P.status !== 'sent' || ms(P.holdUntil) <= now ? 'gone' : 'open';
-  return { ok: true, party: true, state, business: String(tenant.name || ''), size: P.size, service: String(svc.name || 'Your visit'), minutes: Number(svc.duration || 60), price: money(svc.price), times, holdUntil: P.holdUntil, payUrl: P.payUrl || null, payBy: P.payBy || null, when: times[0]?.when || '', staffName: times[0]?.staffName || '' };
+  return { ok: true, party: true, state, business: String(tenant.name || ''), look: publicLook(tenant), size: P.size, service: String(svc.name || 'Your visit'), minutes: Number(svc.duration || 60), price: money(svc.price), times, holdUntil: P.holdUntil, payUrl: P.payUrl || null, payBy: P.payBy || null, when: times[0]?.when || '', staffName: times[0]?.staffName || '' };
 }
 
 /** The organizer confirms for everyone: every time booked together (or none), and one deposit for the party. */
@@ -377,7 +378,7 @@ export async function keepView(db: any, t: string, token: string) {
   const id = String(token || '').split('.')[0]; if (!/^[\w-]{1,80}$/.test(id)) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
   const e: any = (await db.doc(`${T(t)}/waitlist/${id}`).get()).data(); if (!e || e.stillToken !== token) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
   const tenant = (await db.doc(T(t)).get()).data() || {};
-  return { ok: true, business: String(tenant.name || ''), service: String(e.serviceName || ''), status: ['closed', 'expired', 'booked'].includes(String(e.status)) ? e.status : 'waiting', name: first(e.name) };
+  return { ok: true, business: String(tenant.name || ''), look: publicLook(tenant), service: String(e.serviceName || ''), status: ['closed', 'expired', 'booked'].includes(String(e.status)) ? e.status : 'waiting', name: first(e.name) };
 }
 export async function keepEntry(db: any, t: string, token: string, keep: boolean, now = Date.now()) {
   const v: any = await keepView(db, t, token); if (!v.ok) return v; const id = String(token).split('.')[0];
@@ -411,8 +412,8 @@ export async function viewOffer(db: any, t: string, token: string, now = Date.no
     await db.doc(`${T(t)}/waitlist/${offer.entryId}`).set({ ignoredInARow: 0 }, { merge: true }).catch(() => {}); }
   const state = op.status === 'filled' ? (op.filledBy?.token === token ? 'yours' : 'taken') : op.status !== 'open' || ms(op.start) <= now ? 'gone'
     : offer.status === 'declined' ? 'passed' : offer.mode === 'one' && ms(offer.holdUntil) <= now && (op.offers || []).some((f: any) => f.token !== token && f.status === 'sent' && ms(f.holdUntil) > now) ? 'held_for_other' : 'open';
-  return { ok: true, state, business: String(tenant.name || ''), logo: tenant.logoUrl || null, when: whenLabel(ms(op.start), tz, now), staffName: first(op.staffName), service: String(svc.name || op.serviceName || 'Your visit'), minutes: Number(svc.duration || op.minutes || 60), price: money(svc.price),
-    holdUntil: offer.mode === 'one' ? offer.holdUntil : null, mode: offer.mode, sooner: offer.kind === 'sooner', payUrl: op.filledBy?.token === token ? op.filledBy.payUrl || null : null,
+  return { ok: true, state, business: String(tenant.name || ''), look: publicLook(tenant), logo: tenant.logoUrl || null, when: whenLabel(ms(op.start), tz, now), staffName: first(op.staffName), service: String(svc.name || op.serviceName || 'Your visit'), minutes: Number(svc.duration || op.minutes || 60), price: money(svc.price),
+    holdUntil: offer.mode === 'one' ? offer.holdUntil : null, heldFrom: offer.mode === 'one' ? offer.sentAt || null : null, mode: offer.mode, sooner: offer.kind === 'sooner', payUrl: op.filledBy?.token === token ? op.filledBy.payUrl || null : null,
     payBy: op.filledBy?.token === token ? op.filledBy.payBy || null : null,
     // Missed it? They can be its backup (for a new booking — a move-up keeps the visit they have).
     backup: (op.backups || []).some((b: any) => (b.entryId || b) === offer.entryId), canBackup: state === 'taken' && offer.kind !== 'sooner' && ms(op.start) - now > H };

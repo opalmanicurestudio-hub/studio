@@ -19,6 +19,8 @@
 //                   summer reschedule an hour off. { newStartIso } is still
 //                   accepted so an older cached page keeps working.
 //   'late'        → one-tap "running late" note to staff + owner
+//   'visit_link'  → the visit's own link key (and the business's look), for an older manage or cancel link to open the
+//                   visit link instead (components/visit/OldLinkForward)
 // GET ?tenantId=&apptId=&k=&ics=1 → calendar file (.ics)
 //
 // Every action stamps the appointment and writes the audit log — client
@@ -119,6 +121,15 @@ export async function POST(req: NextRequest) {
 
     // Someone reported this link reached the wrong person: it stays off until the desk sends a new one.
     if (a.linkRevokedAt && action !== 'not_me') return NextResponse.json({ ok: false, code: 'revoked', error: 'This link has been turned off. Please contact us for a new one.' }, { status: 410 });
+
+    // An older "manage my appointment" or cancel link: the visit's own link does all of that now, so the old page sends
+    // them there. The key they hold already proves it's their visit.
+    if (action === 'visit_link') {
+      const { publicLook } = await import('@/lib/public-look');
+      const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+      const tok = String(a.checkInToken || '');
+      return NextResponse.json({ ok: true, token: /^[A-Za-z0-9_-]{6,120}$/.test(tok) ? tok : null, look: publicLook(t) });
+    }
 
     // "IS THIS YOU?" A code to the phone or email on record; the phone is then trusted for 90 days.
     if (action === 'verify_status') {

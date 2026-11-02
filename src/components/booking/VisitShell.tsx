@@ -8,6 +8,7 @@ import { PublicFrame, type PublicMood } from '@/components/public/kit';
 import { Calendar, Car, DoorOpen, MapPin, PlayCircle, XCircle } from 'lucide-react';
 import { brandColor, studioPage, type VisitNotes } from '@/lib/studio-page';
 import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
+import { cleanLook, type PublicLook } from '@/lib/public-look';
 
 export type VisitBrand = { accent: string; mood?: PublicMood; logo?: string | null; studioName?: string | null; bookHref?: string | null; phone?: string | null;
   /** The business's time zone, when it has set one: the visit screens show their times in it (wallDate). */
@@ -25,6 +26,35 @@ export function brandOf(tenant: any, tenantId?: string | null, serviceId?: strin
     phone: t.phone || t.twilioPhoneNumber || null,
     zone: hasTimeZone(t) ? tenantTimeZone(t) : null,
   };
+}
+
+/** The look a page opened from a link received (lib/public-look), as the visit look. */
+export function brandFromLook(look: PublicLook | null | undefined, tenantId?: string | null, serviceId?: string | null): VisitBrand {
+  return { accent: look?.accent || '#16171a', mood: look?.mood || 'soft', logo: look?.logoUrl || null, studioName: look?.name || null,
+    bookHref: tenantId ? `/book/${tenantId}${serviceId ? `?service=${encodeURIComponent(serviceId)}` : ''}` : null, phone: null, zone: look?.zone || null };
+}
+
+/** The business's look for a page opened from a link, with no flash of the wrong one: remembered from this device's last
+ *  page for the business and shown at once, then the booking page's (api/booking/find), then the one the page's own
+ *  answer carries (`given`), which wins. With nothing remembered the page waits a moment for it (never more than about a
+ *  second): `ready`. */
+export function useLook(tenantId: string | null | undefined, given?: PublicLook | null): { look: PublicLook | null; ready: boolean } {
+  const [look, setLook] = React.useState<PublicLook | null>(null); const [ready, setReady] = React.useState(false);
+  const key = tenantId ? `cf.look.${tenantId}` : '';
+  const givenRef = React.useRef(false);
+  const keep = React.useCallback((l: PublicLook | null) => { if (!l) return; setLook(l); try { if (key) localStorage.setItem(key, JSON.stringify(l)); } catch { /* none */ } }, [key]);
+  React.useEffect(() => {
+    if (!tenantId) { setReady(true); return; }
+    let live = true;
+    try { const kept = cleanLook(JSON.parse(localStorage.getItem(key) || 'null')); if (kept) { setLook(kept); setReady(true); } } catch { /* none */ }
+    const wait = window.setTimeout(() => setReady(true), 1200);
+    fetch(`/api/booking/find?tenantId=${encodeURIComponent(tenantId)}`).then((r) => r.json()).then((d) => { const l = live && d?.ok ? cleanLook(d) : null; if (l && !givenRef.current) keep(l); })
+      .catch(() => {}).finally(() => { window.clearTimeout(wait); if (live) setReady(true); });
+    return () => { live = false; window.clearTimeout(wait); };
+  }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const g = cleanLook(given);
+  React.useEffect(() => { if (g) { givenRef.current = true; keep(g); setReady(true); } }, [g?.accent, g?.mood, g?.logoUrl, g?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { look: g || look, ready: ready || !!g };
 }
 
 /** What sits at the foot of every visit screen ("Not you?", the way to the next booking): set once by the page. */

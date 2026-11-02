@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const { brandAccent } = await import('@/lib/brand-accent');
   // A card a renter sold is theirs: their name on it, and "Book with it" opens their page.
   let prov: string | null = null; if (g.ownerRenterId) { const st = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', g.ownerRenterId).limit(3).get(); prov = st.docs.find((d: any) => (d.data() as any).isRenter)?.id || null; }
-  return j({ ok: true, card: { ...pub(g), code: g.code }, brand: { name: g.ownerName || t.name || t.businessName || 'Gift card', accent: brandAccent(t), logo: g.ownerRenterId ? null : t.logoUrl || t.logo || null, phone: g.ownerRenterId ? null : t.phone || null },
+  return j({ ok: true, card: { ...pub(g), code: g.code }, brand: { name: g.ownerName || t.name || t.businessName || 'Gift card', accent: brandAccent(t), mood: (await import('@/lib/public-look')).publicLook(t).mood, logo: g.ownerRenterId ? null : t.logoUrl || t.logo || null, phone: g.ownerRenterId ? null : t.phone || null },
     bookUrl: `/book/${encodeURIComponent(tenantId)}${prov ? `?provider=${encodeURIComponent(prov)}` : ''}`, rules: (await import('@/lib/gift-designs')).shopSettings(t).rules, site: t.website || null }, 200);
 }
 

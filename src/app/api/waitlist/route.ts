@@ -39,6 +39,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendNotification } from '@/lib/notify';
 import { pageAccent } from '@/lib/studio-page';
+import { publicLook } from '@/lib/public-look';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,7 +113,7 @@ export async function POST(req: NextRequest) {
         .filter((x: any) => x.isActive !== false && !x.isPrivate && !x.hidden && x.type !== 'addon' && !x.isAddOn && x.name).map((x: any) => ({ id: x.id, name: String(x.name).slice(0, 80), minutes: Number(x.duration) || null, price: Number(x.price) || null })).slice(0, 80);
       const st = (await db.collection(`tenants/${tenantId}/staff`).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
         .filter((m: any) => !m.archived && m.isActive !== false && m.role !== 'renter' && !m.isRenter && m.showInBooking !== false && m.bookable !== false && !['front_desk', 'owner_only'].includes(String(m.role || ''))).map((m: any) => ({ id: m.id, name: String(m.name || '').split(' ')[0] }));
-      return NextResponse.json({ ok: true, name: tenant.name || tenant.businessName || '', tenant: { name: tenant.name || '', brandColor: tenant.brandColor || null, bookingPageSettings: tenant.bookingPageSettings ? { cfPageConfig: { accentColor: pageAccent(tenant) || null } } : null, phone: tenant.phone || null }, services: sv, providers: st });
+      return NextResponse.json({ ok: true, name: tenant.name || tenant.businessName || '', tenant: { name: tenant.name || '', brandColor: tenant.brandColor || null, bookingPageSettings: tenant.bookingPageSettings ? { cfPageConfig: { accentColor: pageAccent(tenant) || null } } : null, phone: tenant.phone || null }, look: publicLook(tenant), services: sv, providers: st });
     }
     // Everything below except joining is the team's: who's waiting, live openings, offering by hand.
     if (action !== 'join') {

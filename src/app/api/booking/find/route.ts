@@ -9,7 +9,7 @@ import { NextRequest, NextResponse, after } from 'next/server';
 import { createHash } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic, bump } from '@/lib/rate-limit';
-import { brandColor, studioPage } from '@/lib/studio-page';
+import { publicLook } from '@/lib/public-look';
 import { linkOrigin } from '@/lib/app-origin';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { privacyOf } from '@/lib/health-privacy';
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   if (!ID.test(tenantId)) return NextResponse.json({ ok: false }, { status: 400 });
   const t: any = (await getAdminDb().doc(`tenants/${tenantId}`).get()).data();
   if (!t) return NextResponse.json({ ok: false }, { status: 404 });
-  return NextResponse.json({ ok: true, name: t.name || 'Book an appointment', accent: brandColor(t), mood: studioPage(t).mood, logoUrl: t.logoUrl || t.bookingPageSettings?.cfPageConfig?.logoUrl || null },
+  return NextResponse.json({ ok: true, ...publicLook(t) },
     { headers: { 'Cache-Control': 'public, max-age=60, s-maxage=60' } });
 }
 

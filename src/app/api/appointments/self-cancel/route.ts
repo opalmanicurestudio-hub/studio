@@ -174,18 +174,18 @@ export async function GET(req: NextRequest) {
   }
 
   if (appt.status === 'cancelled') {
-    return NextResponse.json({ ok: false, error: 'This appointment has already been cancelled.', alreadyCancelled: true }, { status: 409 });
+    return NextResponse.json({ ok: false, error: 'This appointment has already been canceled.', alreadyCancelled: true }, { status: 409 });
   }
   if (appt.status !== 'confirmed' && appt.status !== 'deposit_pending') {
-    return NextResponse.json({ ok: false, error: 'We are sorry, but this appointment can no longer be cancelled online. Please contact us, and we will be happy to help.', status: appt.status }, { status: 409 });
+    return NextResponse.json({ ok: false, error: 'We are sorry, but this appointment can no longer be canceled online. Please reply to your confirmation message, and we will be happy to help.', status: appt.status }, { status: 409 });
   }
 
   const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
   const tenant = tenantSnap.data() || {};
-  // The business's cut-off for cancelling online (Booking policies; 0 = right up to the start). Closer than that, call.
+  // The business's cut-off for canceling online (Booking policies; 0 = right up to the start). Closer than that, call.
   const cutH = Number((tenant as any)?.bookingPolicies?.onlineCancelCutoffHours) || 0;
   const tooClose = cutH > 0 && Date.parse(String(appt.startTime || '')) - Date.now() < cutH * 3600e3;
-  const tooCloseMsg = `As outlined in our cancellation policy, appointments cannot be cancelled online within ${cutH} hours of their start time. Please reply to your confirmation message, and we will be happy to help.`;
+  const tooCloseMsg = `As outlined in our cancellation policy, appointments cannot be canceled online within ${cutH} hours of their start time. Please reply to your confirmation message, and we will be happy to help.`;
   if (tooClose) return NextResponse.json({ ok: false, error: tooCloseMsg, code: 'too_close' }, { status: 409 });
   const svcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
   const service = svcSnap.data() || {};
@@ -198,7 +198,7 @@ export async function GET(req: NextRequest) {
   // Their business's rule if the fee can't be charged — and, when that rule keeps the booking and there's no card, say so up front.
   const unpaidRule = unpaidFeeRuleOf(tenant);
   const feeBlock = !appt.isRenterBooking && pv.plan.due > 0 && !pv.hasCard && unpaidRule === 'keep_booking'
-    ? `Cancelling now needs the $${pv.plan.due.toFixed(2)} fee paid by card, and there’s no card on file — so it can’t be cancelled online.` : null;
+    ? `Canceling now needs the $${pv.plan.due.toFixed(2)} fee paid by card, and there’s no card on file — so it can’t be canceled online.` : null;
   let gracePreview: any = null;
   if (!appt.isRenterBooking && (pv.plan.due > 0 || pv.plan.fee > 0 || pv.plan.applied > 0)) {
     const g = await selfCancelGrace(db, tenantId, tenant, appt);
@@ -276,15 +276,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, alreadyCancelled: true });
   }
   if (appt.status !== 'confirmed' && appt.status !== 'deposit_pending') {
-    return NextResponse.json({ ok: false, error: 'We are sorry, but this appointment can no longer be cancelled online. Please contact us, and we will be happy to help.', status: appt.status }, { status: 409 });
+    return NextResponse.json({ ok: false, error: 'We are sorry, but this appointment can no longer be canceled online. Please reply to your confirmation message, and we will be happy to help.', status: appt.status }, { status: 409 });
   }
 
   const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
   const tenant = tenantSnap.data() || {};
-  // The business's cut-off for cancelling online (Booking policies; 0 = right up to the start). Closer than that, call.
+  // The business's cut-off for canceling online (Booking policies; 0 = right up to the start). Closer than that, call.
   const cutH = Number((tenant as any)?.bookingPolicies?.onlineCancelCutoffHours) || 0;
   const tooClose = cutH > 0 && Date.parse(String(appt.startTime || '')) - Date.now() < cutH * 3600e3;
-  const tooCloseMsg = `As outlined in our cancellation policy, appointments cannot be cancelled online within ${cutH} hours of their start time. Please reply to your confirmation message, and we will be happy to help.`;
+  const tooCloseMsg = `As outlined in our cancellation policy, appointments cannot be canceled online within ${cutH} hours of their start time. Please reply to your confirmation message, and we will be happy to help.`;
   if (tooClose && keyOk) return NextResponse.json({ ok: false, error: tooCloseMsg, code: 'too_close' }, { status: 409 });   // staff can still cancel
   const clientSnap = appt.clientId ? await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get() : null;
   const client = clientSnap?.exists ? clientSnap.data() : {};
@@ -339,7 +339,7 @@ export async function POST(req: NextRequest) {
   if (pv && chargeFee && hasCard) {
     const cr = await internalPost(internalOrigin(tenant, req.nextUrl.origin), '/api/stripe/charge-card', {
       tenantId, clientId: appt.clientId, amountCents: Math.round(feeAmount * 100), description: 'Late-cancellation fee', category: 'Cancellation Fees',
-      appointmentId, reason: 'Client cancelled inside the window', mode: 'auto', kind: 'deposit', onLost: 'refund' }, { retries: 0 });
+      appointmentId, reason: 'Client canceled inside the window', mode: 'auto', kind: 'deposit', onLost: 'refund' }, { retries: 0 });
     if (cr.ok && cr.data?.ok && cr.data?.paymentIntentId) chargedIntentId = cr.data.paymentIntentId;
     // No answer (from Stripe, or from the charge itself): the fee may have gone through, so it isn't added to what they
     // owe as well. Nothing is saved yet; asking again in a couple of minutes finds the same charge (one key per booking).
@@ -354,7 +354,7 @@ export async function POST(req: NextRequest) {
     await releaseClaim();
     return NextResponse.json({ ok: false, code: 'fee_unpaid', error: hasCard
       ? `We were unable to process the card on file, so your appointment remains booked. You are welcome to update your card and try again, or keep your appointment.`
-      : `As outlined in our cancellation policy, a $${feeAmount.toFixed(2)} fee applies to cancelling at this time and must be paid by card. As we do not have a card on file for you, your appointment remains booked.` }, { status: 402 });
+      : `As outlined in our cancellation policy, a $${feeAmount.toFixed(2)} fee applies to canceling at this time and must be paid by card. As we do not have a card on file for you, your appointment remains booked.` }, { status: 402 });
   }
 
   const now = new Date().toISOString();
@@ -400,7 +400,7 @@ export async function POST(req: NextRequest) {
     cancellationFeeWaived: !chargeFee,
   });
 
-  // A RENTER'S client cancelling a package-covered (or package-eligible)
+  // A RENTER'S client canceling a package-covered (or package-eligible)
   // visit: the package's own terms decide whether a credit is kept or lost.
   // The studio's cancellation fee never applies to a renter booking.
   let packageNote: string | null = null;
@@ -468,7 +468,7 @@ export async function POST(req: NextRequest) {
     actorId: appt.clientId || 'unknown_client',
     actorName: client?.name || appt.clientName || 'Client',
     timestamp: now,
-    summary: `${client?.name || appt.clientName || 'Client'} self-cancelled their appointment${graceNow ? ` — grace used (${String(graceNow.permitLabel).toLowerCase()})` : ''}${chargeFee ? ` — $${feeAmount.toFixed(2)} late-cancellation fee` : ''}`,
+    summary: `${client?.name || appt.clientName || 'Client'} self-canceled their appointment${graceNow ? ` — grace used (${String(graceNow.permitLabel).toLowerCase()})` : ''}${chargeFee ? ` — $${feeAmount.toFixed(2)} late-cancellation fee` : ''}`,
     detail: {
       clientId: appt.clientId || null,
       clientName: client?.name || appt.clientName || 'Unknown',
@@ -576,9 +576,9 @@ export async function POST(req: NextRequest) {
         } else {
           const v = await renterVoice(db, tenantId, String(st.renterId));
           await tellClient(db, v, { email: client?.email || appt.clientEmail, phone: client?.phone || appt.clientPhone, clientId: appt.clientId || null, name: client?.name || appt.clientName || null },
-            `Your appointment has been cancelled: ${svcName}, ${when}`,
-            [`Your ${svcName} on ${when} has been cancelled.`, packageNote ? packageNote : '', v.bookingUrl ? `Whenever you are ready, you are welcome to book again here: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_client_cancelled');
-          await notifyRenter(db, tenantId, String(st.renterId), 'cancelled', `${appt.clientName || 'A client'} has cancelled their ${svcName} on ${when}${isLate ? ' (late notice)' : ''}. The time is now available.`, { tone: isLate ? 'amber' : 'slate', subject: `${appt.clientName || 'A client'} has cancelled their appointment`, link: portal });
+            `Your appointment has been canceled: ${svcName}, ${when}`,
+            [`Your ${svcName} on ${when} has been canceled.`, packageNote ? packageNote : '', v.bookingUrl ? `Whenever you are ready, you are welcome to book again here: ${v.bookingUrl}` : ''].filter(Boolean), 'renter_client_cancelled');
+          await notifyRenter(db, tenantId, String(st.renterId), 'cancelled', `${appt.clientName || 'A client'} has canceled their ${svcName} on ${when}${isLate ? ' (late notice)' : ''}. The time is now available.`, { tone: isLate ? 'amber' : 'slate', subject: `${appt.clientName || 'A client'} has canceled their appointment`, link: portal });
         }
       }
     } catch (e) { console.error('[self-cancel] renter voice', e); }
