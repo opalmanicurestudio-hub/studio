@@ -38,7 +38,7 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/audit') return { logAuditAdmin: async () => undefined };
   if (request === '@/lib/notify') return { sendNotification: async (_db: any, m: any) => { sent.push(m); return { ok: !String(m.to || '').includes('fail') }; } };
   if (request === '@/lib/email-template') return { brandedEmailHtml: (x: any) => `<p>${x.title}</p>` };
-  if (request === '@/lib/client-verify') return { deviceTrusted: async () => true };
+  if (request === '@/lib/client-verify') return { ...load.call(this, require.resolve('../../src/lib/client-verify.ts'), ...rest), deviceTrusted: async () => true };
   return load.call(this, request, ...rest);
 };
 const T = 'tenants/t1';

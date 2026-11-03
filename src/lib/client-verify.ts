@@ -81,3 +81,24 @@ export async function notMe(db: any, t: string, o: { clientId: string; via: 'lin
   return { ok: true, linksOff: off };
 }
 export const reportedWrong = (c: any) => !!c?.phoneReportedWrongAt;
+
+const YEAR_MS = 365 * 864e5;
+const recentIn = (v: any, now: number) => { const t = typeof v?.toDate === 'function' ? v.toDate().getTime() : Date.parse(String(v || '')); return Number.isFinite(t) && now - t < YEAR_MS; };
+/** Has this client confirmed or used their contact details (or visited) in the last 12 months? */
+export async function contactFresh(db: any, tenantId: string, clientId: string, now = Date.now()): Promise<boolean> {
+  const c: any = (await db.doc(`tenants/${tenantId}/clients/${clientId}`).get()).data();
+  if (!c) return true;   // nothing on record to protect
+  if ([c.phoneVerifiedAt, c.emailVerifiedAt, c.linkLastUsedAt, c.createdAt, c.lastAppointment].some((v) => recentIn(v, now))) return true;
+  const visits = (await db.collection(`tenants/${tenantId}/appointments`).where('clientId', '==', clientId).limit(200).get()).docs;
+  return visits.some((d: any) => { const x: any = d.data() || {}; return String(x.status || '') === 'completed' && recentIn(x.completedAt || x.endTime || x.startTime, now); });
+}
+
+/** May this visit link show or change anything personal? Not once "Not you?" turned it off, and not for a contact
+ *  that hasn't been confirmed or used in 12 months on a phone that hasn't confirmed a code ("Is this you?"). */
+export async function visitLinkOpen(db: any, tenantId: string, appt: any, device: string): Promise<'ok' | 'revoked' | 'verify'> {
+  if (appt?.linkRevokedAt) return 'revoked';
+  if (!appt?.clientId) return 'ok';
+  // A phone that confirmed a code is one read; checking the contact can take many, so it's asked second.
+  if (await deviceTrusted(db, tenantId, String(appt.clientId), cleanDevice(device)).catch(() => false)) return 'ok';
+  return (await contactFresh(db, tenantId, String(appt.clientId)).catch(() => true)) ? 'ok' : 'verify';
+}

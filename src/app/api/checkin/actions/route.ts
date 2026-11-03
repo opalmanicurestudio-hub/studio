@@ -12,6 +12,8 @@
 //   viewed    { token }                                first open, for the timeline
 //   prefs     { token, confirmationChannel, reminderChannel, reminderHoursBefore }
 //   prefs_get { token }                                 what's set now (to show it)
+//   form      { token, formId, formData, signedName?, acknowledged?, guardian? }   one form, saved as they finish it
+//   health_same { token, formId }                       "nothing's changed" on health answers on file
 //   complete  { token, tenantId, signedForms, fileSubmissions, policyAcceptance,
 //               guardianByForm, profileDocuments, marketingConsent,
 //               emergencyContact, acknowledgments, skipCardStep }
@@ -107,12 +109,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // One form at a time from the visit link (lib/forms-visit): checked by the same rule as the booking sheet, kept on the
+  // visit and on file; when it was the last thing left, the visit's request closes (with a thank-you if they were reminded).
+  if (action === 'form' || action === 'health_same') {
+    const x = await fromCheckIn(db, token); if (!x) return bad('This link isn’t valid.', 404);
+    // Not once "Not you?" turned the link off, and not before "Is this you?" on a contact that needs it.
+    { const { visitLinkOpen } = await import('@/lib/client-verify'); const open = await visitLinkOpen(db, x.tenantId, x.appt, str(b.device, 120));
+      if (open === 'revoked') return bad('This link has been turned off. Please message us for a new one.', 410);
+      if (open === 'verify') return bad('Please confirm it’s you first, with the code we send.', 403); }
+    const V = await import('@/lib/forms-visit');
+    const r = action === 'form' ? await V.saveVisitForm(db, x.tenantId, x.appt, x.apptId, token, b) : await V.confirmHealthSame(db, x.tenantId, x.appt, x.apptId, token, String(b.formId || ''));
+    if (!r.ok) return bad(r.error || 'That didn’t save. Please try again.', r.status || 400);
+    if (!(r as any).repeat) await logAuditAdmin(db, x.tenantId, { action: action === 'form' ? 'completion.form_signed' : 'completion.health_confirmed', targetType: 'appointment', targetId: x.apptId,
+      summary: action === 'form' ? `${x.appt.clientName || 'A client'} finished a form on their visit link` : `${x.appt.clientName || 'A client'} said nothing has changed on their health answers`,
+      actor: { type: 'user', name: x.appt.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
+    return NextResponse.json({ ok: true, ...(action === 'form' ? { left: (r as any).left, done: (r as any).done } : {}) });
+  }
+
   if (action === 'complete') {
     const tenantId = String(b.tenantId || ''); if (!/^[A-Za-z0-9_-]{1,80}$/.test(tenantId)) return bad('This link isn’t valid.');
     const cRef = db.doc(`tenants/${tenantId}/bookingCompletions/${token}`);
     const c = ((await cRef.get()).data()) || null;
     if (!c) return bad('This link isn’t valid.', 404);
     if (c.status === 'complete') return NextResponse.json({ ok: true, already: true });
+    // Not once "Not you?" turned the link off, and not before "Is this you?" on a contact that needs it.
+    { const ci = await fromCheckIn(db, token);
+      if (ci) { const { visitLinkOpen } = await import('@/lib/client-verify'); const open = await visitLinkOpen(db, ci.tenantId, ci.appt, str(b.device, 120));
+        if (open === 'revoked') return bad('This link has been turned off. Please message us for a new one.', 410);
+        if (open === 'verify') return bad('Please confirm it’s you first, with the code we send.', 403); } }
     // A request the team called off takes nothing more. (Its date isn't checked: the visit link keeps asking until
     // the visit, so an answer on day eight still counts.)
     if (['void', 'cancelled', 'canceled'].includes(String(c.status || ''))) return bad('This request has closed, so there’s nothing more to send here.', 410);
@@ -124,7 +148,9 @@ export async function POST(req: NextRequest) {
         const ids = [...askedIds]; if (!ids.length) return [] as string[];
         const [tt, cc, ...dd] = await Promise.all([db.doc(`tenants/${tenantId}`).get(), c.clientId ? db.doc(`tenants/${tenantId}/clients/${c.clientId}`).get() : Promise.resolve(null), ...ids.map((id) => db.doc(`tenants/${tenantId}/consentForms/${id}`).get().catch(() => null))]);
         const ap: any = c.appointmentId ? (((await db.doc(`tenants/${tenantId}/appointments/${c.appointmentId}`).get()).data() as any) || {}) : {};
-        // Only forms that still exist: a deleted one can't be shown, so it's never required.
+        // Only forms that still exist: a deleted one can't be shown, so it's never required. One that couldn't be read
+        // just now is still required.
+        if (dd.some((d: any) => d === null)) { const { signedOnVisit } = await import('@/lib/forms'); const here = signedOnVisit(ap); return ids.filter((id) => !here.has(id)); }
         const defs = dd.map((d: any, i: number) => (d?.exists ? { id: ids[i], ...(d.data() || {}) } : null)).filter(Boolean) as any[];
         return formsStillNeeded({ apt: ap, ids: ids.filter((id) => defs.some((f) => f.id === id)), client: cc?.data?.() || {}, forms: defs, rules: formRulesOf(tt?.data?.() || {}) });
       } catch { return [] as string[]; } })()));   // a slow moment never refuses someone who signed
@@ -178,7 +204,13 @@ export async function POST(req: NextRequest) {
     // Older answers moved off the visit record to keep it within size (lib/forms fitOnVisit): kept beside it, whole.
     if (apptId) for (const m of movedAnswers.slice(0, 100)) batch.set(db.doc(`tenants/${tenantId}/appointments/${apptId}/formAnswers/${String(m.formId).replace(/[^A-Za-z0-9_-]/g, '_')}`), m);
     await batch.commit();
-    await logAuditAdmin(db, tenantId, { action: 'completion.submitted', targetType: 'appointment', targetId: apptId || token, summary: `${c.clientName || 'A client'} completed their pre-visit steps (${signedForms.length} form${signedForms.length === 1 ? '' : 's'}${fileSubmissions.length ? `, ${fileSubmissions.length} file request${fileSubmissions.length === 1 ? '' : 's'}` : ''})`, actor: { type: 'user', name: c.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
+    // Reminded about it, and now everything's done: a short thank-you (lib/forms-remind).
+    if (skipCard && apptId && (c.formsReminderSentAt || apptNow.formsReminderSentAt)) {
+      try { const { sendFormsThanks } = await import('@/lib/forms-remind'); const tdoc = ((await db.doc(`tenants/${tenantId}`).get()).data()) || {};
+        await sendFormsThanks(db, tenantId, { ...apptNow, id: apptId }, tdoc, c); } catch (e) { console.error('[checkin] thanks', e); }
+    }
+    const what = [signedForms.length ? `${signedForms.length} form${signedForms.length === 1 ? '' : 's'}` : '', fileSubmissions.length ? `${fileSubmissions.length} file request${fileSubmissions.length === 1 ? '' : 's'}` : ''].filter(Boolean);
+    await logAuditAdmin(db, tenantId, { action: 'completion.submitted', targetType: 'appointment', targetId: apptId || token, summary: `${c.clientName || 'A client'} completed their pre-visit steps${what.length ? ` (${what.join(', ')})` : ''}`, actor: { type: 'user', name: c.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
     return NextResponse.json({ ok: true });
   }
   return bad('Unknown action.');

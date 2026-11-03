@@ -75,6 +75,8 @@ export async function GET(req: NextRequest) {
     try { const { sopReminderSweep } = await import('@/lib/sop-reminders'); await sopReminderSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] sop reminders', tid, e); }
     // Certifications past their renew-by date run out (and come off the service if the business blocks booking).
     try { const { certificationSweep } = await import('@/lib/certification-server'); await certificationSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] certifications', tid, e); }
+    // Forms or documents still left: one reminder the evening before they're due (lib/forms-remind).
+    try { const { formsReminderSweep } = await import('@/lib/forms-remind'); await formsReminderSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] forms reminder', tid, e); }
     try {
       const cfg = ((tDoc.data() as any)?.clientNotify) || {};
       if (cfg.enabled === false) { results[tid] = 'disabled'; continue; }

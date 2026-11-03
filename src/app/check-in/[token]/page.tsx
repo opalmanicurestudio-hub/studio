@@ -33,6 +33,8 @@ import { type Appointment, type Client, type Service, type Tenant, type Staff, t
 import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, query, where, doc } from 'firebase/firestore';
 import { studioPage } from '@/lib/studio-page';
+import { FormsLeftCard, FormsLeftView, thingsLeft, type VisitFormsView } from '@/components/visit/VisitForms';
+import { formRulesOf, requestAsksMore } from '@/lib/forms';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -206,12 +208,24 @@ export default function CheckInPage() {
     // against this visit's token. Re-asked whenever the visit's status or completion status moves.
     const [completion, setCompletion] = useState<any>(null);
     const [completionLoading, setCompletionLoading] = useState(true);
-    const completionKey = `${(appointmentData as any)?.status || ''}|${(appointmentData as any)?.completionStatus || ''}`;
+    // The visit's forms and documents from the client's side (lib/forms-visit): what's done, what's left, when it's due.
+    const [visitForms, setVisitForms] = useState<VisitFormsView | null>(null);
+    const [formsNonce, setFormsNonce] = useState(0);
+    const [showForms, setShowForms] = useState(false);
+    const [formsLater, setFormsLater] = useState(false);   // "Not now" on arrival, for this visit of the page
+    // Asked again when the visit changes (the desk signing a form counts), when a form is saved here, and when they come
+    // back to this page.
+    const completionKey = `${(appointmentData as any)?.status || ''}|${(appointmentData as any)?.completionStatus || ''}|${(appointmentData as any)?.checkInStatus || ''}|${Array.isArray((appointmentData as any)?.signedForms) ? (appointmentData as any).signedForms.length : 0}|${formsNonce}|${verifyFirst ? 'v' : ''}`;
+    useEffect(() => {
+        const back = () => { if (document.visibilityState === 'visible') setFormsNonce((n) => n + 1); };
+        document.addEventListener('visibilitychange', back);
+        return () => document.removeEventListener('visibilitychange', back);
+    }, []);
     useEffect(() => {
         if (!token) { setCompletionLoading(false); return; }
         let stop = false;
-        fetch(`/api/visit-completion?token=${encodeURIComponent(token)}`, { cache: 'no-store' })
-            .then((r) => r.json()).then((d) => { if (!stop && d?.ok) setCompletion(d.completion || null); })
+        fetch(`/api/visit-completion?token=${encodeURIComponent(token)}&device=${encodeURIComponent(visitDevice())}`, { cache: 'no-store' })
+            .then((r) => r.json()).then((d) => { if (!stop && d?.ok) { setCompletion(d.completion || null); setVisitForms(d.visit || null); } })
             .catch(() => { /* keep what we have */ })
             .finally(() => { if (!stop) setCompletionLoading(false); });
         return () => { stop = true; };
@@ -230,12 +244,13 @@ export default function CheckInPage() {
     // just inverted and named for clarity at this call site.
     const isCompletionPending = useMemo(() => {
         if (!completion) return false;
-        if (completion.status === 'complete') return false;
-        const skipCardStep = completion.skipCardStep === true;
-        const hasForms = requiredForms.length > 0;
+        if (completion.status !== 'pending' && completion.status) return false;   // done, called off or anything else: nothing to finish
+        // Forms still to sign (the server's list, so it doesn't wait on the forms' wording loading here), documents, or
+        // anything else the request asks for (lib/forms requestAsksMore: the same rule that closes it).
+        const hasForms = (completion.requiredConsentFormIds || []).length > 0;
         const hasFileReqs = (completion.fileRequirements || []).length > 0;
-        return !(skipCardStep && !hasForms && !hasFileReqs);
-    }, [completion, requiredForms]);
+        return hasForms || hasFileReqs || requestAsksMore(completion);
+    }, [completion]);
 
     // v4 — one-time "client opened the link" tracking, purely for the
     // activity timeline. Guarded on the appointment doc's own field so it
@@ -459,6 +474,9 @@ export default function CheckInPage() {
                 completion={{ ...completion, appointmentStartTime: appointmentData.startTime }}
                 forms={requiredForms}
                 onDone={(startsToday) => setCompletionJustDone(startsToday)}
+                visit={visitForms}
+                allForms={allConsentForms || []}
+                onChanged={() => setFormsNonce((n) => n + 1)}
             />
         );
     }
@@ -466,6 +484,12 @@ export default function CheckInPage() {
     if (completionJustDone === false) {
         return withFooter(<AllSetView brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} startTime={appointmentData.startTime as any} businessName={tenant?.name || null} />);
     }
+
+    // What's left, on its own screen: opened from the card before the day, or asked on arrival (below).
+    const formsProps = tenantId && visitForms ? { brand: brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null), visit: visitForms, forms: allConsentForms || [], token, tenantId,
+        guardianAsk: formRulesOf(tenant).guardian, businessName: tenant?.name || '', onChanged: () => setFormsNonce((n) => n + 1) } : null;
+    if (showForms && formsProps && !isCompletionPending) return withFooter(<FormsLeftView {...formsProps} onBack={() => setShowForms(false)} />);
+    const formsCard = formsProps && !isCompletionPending && thingsLeft(visitForms) > 0 ? <FormsLeftCard visit={visitForms!} onOpen={() => setShowForms(true)} /> : null;
     
     // v3 — NEW: cancellation flow. Reachable via a "Can't make it?" link on
     // the arrival screen further down. Uses the appointmentId + tenantId
@@ -509,6 +533,12 @@ export default function CheckInPage() {
 
     // IMMERSIVE TRANSITION CHECK
     const isArrivedOrServicing = appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing';
+
+    // Arrived with a form still not done: it's asked first, on their own phone, so the visit isn't held up at the desk.
+    if (appointmentData?.checkInStatus === 'arrived' && appointmentData?.status !== 'servicing' && formsProps && visitForms && visitForms.left > 0 && !formsLater) {
+        const who = String((assignedStaff as any)?.name || '').trim().split(/\s+/)[0] || null;
+        return withFooter(<FormsLeftView {...formsProps} arriving first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || null} provider={who} onBack={() => setFormsLater(true)} />);
+    }
 
     // The waiting experience (refreshments, explore services, help button) is a
     // business choice — OFF unless turned on in Settings, so guests are never
@@ -599,7 +629,8 @@ export default function CheckInPage() {
                 onReschedule={() => setShowRescheduleFlow(true)}
                 onCancel={() => setShowCancelFlow(true)}
                 onMessage={() => setShowMessages(true)}
-                notice={confirmCard}
+                notice={<>{confirmCard}{formsCard}</>}
+                stillToDo={!!formsCard}
                 notify={notifySlot}
                 sooner={tenantId && safeDate(appointmentData!.startTime).getTime() - Date.now() > 24 * 3600e3 ? { tenantId, token, on: !!(appointmentData as any)?.soonerOn } : null}
                 calendarUrl={tenantId && appointmentData?.id
@@ -639,7 +670,7 @@ export default function CheckInPage() {
             onCancel={() => setShowCancelFlow(true)}
             onMessage={() => setShowMessages(true)}
             openLate={openLate}
-            notice={confirmCard}
+            notice={<>{confirmCard}{formsCard}</>}
             portalHref={tenantId && clientId ? `/portal/${encodeURIComponent(tenantId)}/${encodeURIComponent(clientId)}` : null}
             onNotifications={tenant?.notificationDefaults?.allowClientOverride !== false ? () => setShowNotificationSettings(true) : undefined}
             trip={tenantId && token && appointmentData?.id ? { tenantId, token, appointmentId: appointmentData.id } : null}

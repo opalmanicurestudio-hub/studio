@@ -90,6 +90,20 @@ export function formLeft(form: any, a: Record<string, any> = {}, g?: Guardian | 
   if (!req.length && !wordingOnly(form) && !hasSignature(form) && a.__seen !== true) n++;
   return n;
 }
+// ── When forms are due (board FormsAfter) ─────────────────────────────────────────────────────────────────────────
+/** Forms are due a day before the visit, so the team sees them in time. */
+export const FORMS_DUE_HOURS = 24;
+/** When a visit's forms are due: a day before it starts, or at its start for a visit booked less than a day ahead. */
+export function formsDueAt(startIso: any, bookedIso?: any): string | null {
+  const s = toMs(startIso); if (!s) return null;
+  const due = s - FORMS_DUE_HOURS * 3600e3; const b = toMs(bookedIso);
+  return new Date(b && due < b ? s : due).toISOString();
+}
+
+/** Does a visit's request ask for more than its forms and documents (a card or deposit, a policy, an emergency contact,
+ *  a marketing choice, things to confirm)? Then the visit link's "Send" finishes it; otherwise the last form does. */
+export const requestAsksMore = (rec: any) => !!rec && (rec.skipCardStep !== true || rec.requestMarketingConsent === true || rec.requestEmergencyContact === true || (Array.isArray(rec.acknowledgments) && rec.acknowledgments.length > 0));
+
 /** A form as the server was sent it (answers, the name it was signed in, "I've read this", the guardian): finished? */
 export function sentFormDone(form: any, f: { formData?: any; signedName?: any; acknowledged?: any; guardian?: any }, rules: FormRules = FORM_RULES_DEFAULT): boolean {
   const g = f.guardian && f.guardian.confirmed === true ? { on: true, name: String(f.guardian.name || ''), relationship: String(f.guardian.relationship || ''), consent: true } : null;

@@ -57,11 +57,25 @@ async function stillAsked(db: any, tenantId: string, rec: any, appt: any) {
       db.doc(`tenants/${tenantId}`).get(), rec.clientId ? db.doc(`tenants/${tenantId}/clients/${rec.clientId}`).get() : Promise.resolve(null),
       ...ids.map((id) => db.doc(`tenants/${tenantId}/consentForms/${id}`).get().catch(() => null)),
     ]);
+    // A form that couldn't be read just now is still asked for (never taken as deleted).
+    if (defs.some((d: any) => d === null)) { const { signedOnVisit } = await import('@/lib/forms'); const here = signedOnVisit(appt || {}); return { ...rec, requiredConsentFormIds: ids.filter((id) => !here.has(id)) }; }
     const forms = defs.map((d: any, i: number) => (d?.exists ? { id: ids[i], ...(d.data() || {}) } : null)).filter(Boolean);
     // Only forms that still exist (a deleted one can't be shown or signed).
     const left = formsStillNeeded({ apt: appt || {}, ids: ids.filter((id) => forms.some((f: any) => f.id === id)), client: c?.data?.() || {}, forms, rules: formRulesOf(t?.data?.() || {}) });
     return { ...rec, requiredConsentFormIds: left };
   } catch { return rec; }
+}
+
+/** The visit's forms and documents for the visit link: titles, how long, done or not (never anyone's answers). */
+async function visitSummary(db: any, tenantId: string, appt: any, rec: any) {
+  try {
+    const { visitForms } = await import('@/lib/forms-visit');
+    const v = await visitForms(db, tenantId, appt, { rec: rec && (!rec.status || rec.status === 'pending') ? rec : null });
+    return {
+      asks: v.asks.map((a) => ({ formId: a.formId, title: String(a.title || 'Form').slice(0, 200), ask: a.ask, why: String(a.why || '').slice(0, 120), minutes: a.minutes, health: a.health, since: a.since || null })),
+      files: v.files, left: v.left, dueAt: v.dueAt,
+    };
+  } catch (e: any) { console.error('[visit-completion] forms', e?.message); return null; }
 }
 
 export async function GET(req: NextRequest) {
@@ -94,12 +108,17 @@ export async function GET(req: NextRequest) {
     const appt: any = (await db.doc(`tenants/${tenantId}/appointments/${apptId}`).get()).data();
     if (!appt || appt.checkInToken !== token) return NextResponse.json({ ok: false }, { status: 404 });
     // A visit that isn't happening (declined, lapsed, released, canceled) asks for nothing more.
-    if (ENDED.includes(String(appt.status || ''))) return NextResponse.json({ ok: true, completion: null }, noStore);
+    if (ENDED.includes(String(appt.status || ''))) return NextResponse.json({ ok: true, completion: null, visit: null }, noStore);
+    // A link "Not you?" turned off, or one waiting on "Is this you?": nothing personal (lib/client-verify).
+    { const { visitLinkOpen } = await import('@/lib/client-verify');
+      if ((await visitLinkOpen(db, tenantId, appt, String(req.nextUrl.searchParams.get('device') || '').slice(0, 120))) !== 'ok') return NextResponse.json({ ok: true, completion: null, visit: null }, noStore); }
     const snap = await db.doc(`tenants/${tenantId}/bookingCompletions/${token}`).get();
-    if (!snap.exists) return NextResponse.json({ ok: true, completion: null }, noStore);
-    const rec: any = snap.data() || {};
-    if (rec.token && rec.token !== token) return NextResponse.json({ ok: true, completion: null }, noStore);
-    return NextResponse.json({ ok: true, completion: project(token, await stillAsked(db, tenantId, { ...rec, appointmentStartTime: rec.appointmentStartTime || appt.startTime || null }, appt)) }, noStore);
+    const raw: any = snap.exists ? snap.data() || {} : null;
+    const rec: any = raw && (!raw.token || raw.token === token) ? raw : null;
+    // What the visit's forms and documents look like from their side (lib/forms-visit): done or not, and when it's due.
+    const visit = await visitSummary(db, tenantId, appt, rec);
+    if (!rec) return NextResponse.json({ ok: true, completion: null, visit }, noStore);
+    return NextResponse.json({ ok: true, completion: project(token, await stillAsked(db, tenantId, { ...rec, appointmentStartTime: rec.appointmentStartTime || appt.startTime || null }, appt)), visit }, noStore);
   } catch (e: any) {
     console.error('[visit-completion]', e?.message);
     return NextResponse.json({ ok: false }, { status: 500 });

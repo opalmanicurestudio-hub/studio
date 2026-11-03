@@ -139,11 +139,15 @@ function Field({ f, value, set, tenantId, signer }: { f: any; value: any; set: (
   return <label className="block space-y-2">{label}<input value={value || ''} onChange={(e) => set(e.target.value)} className="cf-field" /></label>;
 }
 
-export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardians, setGuardian, guardianAsk, tenantId, businessName, onClose }: {
+export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardians, setGuardian, guardianAsk, tenantId, businessName, onClose, onFinish, backLabel }: {
   forms: any[]; index: number; setIndex: (i: number) => void;
   answers: Record<string, Record<string, any>>; setAnswer: (formId: string, fieldId: string, v: any) => void;
   guardians: Record<string, Guardian>; setGuardian: (formId: string, g: Guardian) => void; guardianAsk: boolean;
   tenantId: string; businessName: string; onClose: () => void;
+  /** "Done" on the last form (otherwise it closes, like the close button). */
+  onFinish?: () => void;
+  /** What the back button on the first form says it goes back to (for screen readers). */
+  backLabel?: string;
 }) {
   const form = forms[index]; const a = answers[form?.id] || {};
   const g: Guardian = guardians[form?.id] || { on: !!form?.requiresGuardianSignature, name: '', relationship: '', consent: false };
@@ -183,7 +187,7 @@ export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardia
   return (
     <div data-form-runner="" className="absolute inset-0 z-20 flex flex-col" style={{ background: 'var(--paper)' }} role="dialog" aria-modal="true" aria-labelledby="fr-title" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}>
       <div className="cf-bar">
-        <button type="button" onClick={() => (index > 0 ? setIndex(index - 1) : onClose())} aria-label={index > 0 ? 'Back to the last form' : 'Back to your details'} className="cf-round -ml-2"><span><ChevronLeft className="h-4 w-4" /></span></button>
+        <button type="button" onClick={() => (index > 0 ? setIndex(index - 1) : onClose())} aria-label={index > 0 ? 'Back to the last form' : backLabel || 'Back to your details'} className="cf-round -ml-2"><span><ChevronLeft className="h-4 w-4" /></span></button>
         <p id="fr-title" className="min-w-0 flex-1 truncate text-[16px] font-semibold">{form.title || 'Form'}</p>
         <button type="button" onClick={onClose} aria-label="Close the form" className="cf-round"><span><X className="h-4 w-4" /></span></button>
       </div>
@@ -202,7 +206,7 @@ export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardia
       </div>
       <div className="cf-foot">
         <p className="sr-only" aria-live="polite">{left > 0 ? `${left} ${left === 1 ? 'thing' : 'things'} left on this form` : 'This form is done'}</p>
-        <button type="button" disabled={left > 0} onClick={() => (next ? setIndex(index + 1) : onClose())} className="cf-btn">
+        <button type="button" disabled={left > 0} onClick={() => (next ? setIndex(index + 1) : (onFinish || onClose)())} className="cf-btn">
           {left > 0 ? `${left} ${left === 1 ? 'thing' : 'things'} left` : next ? `Next: ${next.title || 'the next form'}` : 'Done'}
         </button>
       </div>

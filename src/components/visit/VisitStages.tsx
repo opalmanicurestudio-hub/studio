@@ -89,12 +89,14 @@ export function ComeInSooner({ tenantId, token, on: on0 }: { tenantId: string; t
 }
 
 // ── Before the day ────────────────────────────────────────────────────────────
-export function TooEarlyView({ brand, first, startTime, serviceName, providerName, place, visit, address, freeUntil, onReschedule, onCancel, onMessage, calendarUrl, disruption, hasDeposit, onDisruptionCancel, sooner, notice, notify }: {
+export function TooEarlyView({ brand, first, startTime, serviceName, providerName, place, visit, address, freeUntil, onReschedule, onCancel, onMessage, calendarUrl, disruption, hasDeposit, onDisruptionCancel, sooner, notice, notify, stillToDo }: {
   brand: VisitBrand; first?: string | null; startTime: string; serviceName?: string | null; providerName?: string | null;
   place?: ServicePlace | null; visit?: VisitNotes | null; address?: string | null; freeUntil?: string;
   onReschedule?: () => void; onCancel?: () => void; onMessage?: () => void; calendarUrl?: string | null;
   disruption?: any; hasDeposit?: boolean; onDisruptionCancel?: (d: 'refund' | 'credit' | 'keep' | null, extra?: any) => Promise<any>;
   sooner?: { tenantId: string; token: string; on: boolean } | null; notice?: React.ReactNode; notify?: React.ReactNode;
+  /** Something is still to do before the visit (a form): "You're all set" isn't said yet. */
+  stillToDo?: boolean;
 }) {
   // Shown on the business's own clock (when it has set its zone).
   const at = wallDate(safeDate(startTime), brand.zone); const now = wallDate(new Date(), brand.zone);
@@ -105,7 +107,7 @@ export function TooEarlyView({ brand, first, startTime, serviceName, providerNam
       subtitle={[serviceName, providerName ? `with ${providerName}` : '', where, awayWords(at, now)].filter(Boolean).join(' · ')}>
       {notice}
       {onDisruptionCancel && <DisruptionCard disruption={disruption} hasDeposit={!!hasDeposit} onReschedule={onReschedule} onCancel={onDisruptionCancel} />}
-      {disruption?.status !== 'pending' && <p className="v-note">You’re all set. {place?.kind === 'online' ? 'Your link to join will be here on the day.' : place?.kind === 'phone' || place?.kind === 'client' ? 'Everything about your visit is here on the day.' : 'Check in from this link on the day.'}</p>}
+      {disruption?.status !== 'pending' && <p className="v-note">{stillToDo ? '' : 'You’re all set. '}{place?.kind === 'online' ? 'Your link to join will be here on the day.' : place?.kind === 'phone' || place?.kind === 'client' ? 'Everything about your visit is here on the day.' : 'Check in from this link on the day.'}</p>}
       <VisitRows rows={[
         calendarUrl && { key: 'cal', icon: ico(Calendar), text: 'Add to my calendar', href: calendarUrl },
         onMessage && { key: 'msg', icon: ico(MessageSquare), text: 'Message us', onClick: onMessage },

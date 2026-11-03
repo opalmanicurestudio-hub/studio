@@ -11,19 +11,8 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { visitProjection, missingStageEntry } from '@/lib/visit';
 import { FieldValue } from 'firebase-admin/firestore';
 import { scrubVisitPatch } from '@/lib/public-visit-copy';
-import { deviceTrusted } from '@/lib/client-verify';
+import { deviceTrusted, contactFresh } from '@/lib/client-verify';
 export const dynamic = 'force-dynamic';
-
-const YEAR = 365 * 864e5;
-const recent = (v: any, now: number) => { const t = typeof v?.toDate === 'function' ? v.toDate().getTime() : Date.parse(String(v || '')); return Number.isFinite(t) && now - t < YEAR; };
-/** Has this client confirmed or used their contact details (or visited) in the last 12 months? */
-async function contactFresh(db: any, tenantId: string, clientId: string, now = Date.now()): Promise<boolean> {
-  const c: any = (await db.doc(`tenants/${tenantId}/clients/${clientId}`).get()).data();
-  if (!c) return true;   // nothing on record to protect
-  if ([c.phoneVerifiedAt, c.emailVerifiedAt, c.linkLastUsedAt, c.createdAt, c.lastAppointment].some((v) => recent(v, now))) return true;
-  const visits = (await db.collection(`tenants/${tenantId}/appointments`).where('clientId', '==', clientId).limit(200).get()).docs;
-  return visits.some((d: any) => { const x: any = d.data() || {}; return String(x.status || '') === 'completed' && recent(x.completedAt || x.endTime || x.startTime, now); });
-}
 
 export async function GET(req: NextRequest) {
   const token = String(req.nextUrl.searchParams.get('token') || '').slice(0, 120);

@@ -10,7 +10,9 @@ import { CheckCircle2, Info, Lock, FileSignature, CreditCard, ShieldCheck, Uploa
 import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import { type Client, type Tenant } from '@/lib/data';
-import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
+import { FormsLeft, type VisitFormsView } from '@/components/visit/VisitForms';
+import { visitDevice } from '@/components/visit/VerifyCard';
+import { formMinutes, isHealthForm, formRulesOf } from '@/lib/forms';
 import { VisitShell, VisitCard, VisitButton, VisitMuted, VisitLabel, VisitChoice, VisitSelect, VisitInput, VisitCheckRow, VisitSaid, VisitCheck, type VisitBrand } from '@/components/booking/VisitShell';
 import { safeDate } from '@/components/visit/VisitStages';
 import { wallDate } from '@/lib/tenant-time';
@@ -206,7 +208,7 @@ export const StaleAppointmentView = ({ brand }: { brand: VisitBrand; tenantName?
 // isCompletionPending). One call to the server saves it all; the card or deposit goes through Stripe after that.
 export const CompletionGateView = ({
     brand,
-    tenant, tenantId, token, completion, forms, onDone,
+    tenant, tenantId, token, completion, forms, onDone, visit, allForms, onChanged,
 }: {
     brand: VisitBrand;
     tenant: Tenant | null;
@@ -215,9 +217,12 @@ export const CompletionGateView = ({
     completion: any;
     forms: any[];
     onDone: (justCompletedToday: boolean) => void;
+    /** The visit's forms and documents from the client's side (api/visit-completion), with every form's wording. */
+    visit?: VisitFormsView | null;
+    allForms?: any[];
+    onChanged?: () => void;
 }) => {
 
-    const [answers, setAnswers] = useState<Record<string, Record<string, any>>>({});
     const [uploads, setUploads] = useState<Record<string, any[]>>({});
     const [uploading, setUploading] = useState(false);
     const [accepted, setAccepted] = useState(false);
@@ -225,11 +230,6 @@ export const CompletionGateView = ({
     const [error, setError] = useState<string | null>(null);
     const [clientSecret, setClientSecret] = useState<string | null>(null);
     const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
-    // v4 — guardian info per form that requires it (formId -> fields).
-    // Kept separate from `answers` since it's not part of the form's own
-    // field schema — it's a structural requirement (a second signer) that
-    // applies on top of whatever the form itself asks.
-    const [guardianInfo, setGuardianInfo] = useState<Record<string, { name: string; relationship: string; accepted: boolean }>>({});
     const [marketingConsent, setMarketingConsent] = useState<boolean | null>(null);
     const [emergencyContact, setEmergencyContact] = useState({ name: '', phone: '', relationship: '' });
     const [acknowledged, setAcknowledged] = useState<Record<string, boolean>>({});
@@ -246,22 +246,14 @@ export const CompletionGateView = ({
     const depositDollars = (completion?.depositAmountCents || 0) / 100;
     const studioName = tenant?.name || 'the studio';
 
-    const allConsentsComplete = forms.every((f: any) =>
-        (f.fields || []).every((fld: any) => {
-            if (fld.type === 'heading' || fld.type === 'paragraph') return true;
-            const v = answers[f.id]?.[fld.id];
-            return v !== undefined && v !== null && v !== '';
-        })
-    );
-
-    // v4 — guardian consent: forms flagged `requiresGuardianSignature` need
-    // a second signer's name + relationship + their own affirmation,
-    // collected alongside (not instead of) the minor's own form answers.
-    const guardianRequiredForms = forms.filter((f: any) => f.requiresGuardianSignature);
-    const allGuardianComplete = guardianRequiredForms.every((f: any) => {
-        const g = guardianInfo[f.id];
-        return !!g?.name?.trim() && !!g?.relationship?.trim() && g?.accepted;
-    });
+    // The forms are filled in one at a time above (FormsLeft) and each is saved as it's finished. Without the list from
+    // the server (a slow moment), the forms this request asks for are shown as still to do.
+    const fileReqsAll: any[] = completion?.fileRequirements || [];
+    const shownVisit: VisitFormsView = visit || { asks: forms.map((f: any) => ({ formId: f.id, title: String(f.title || 'Form'), ask: 'sign' as const, why: '', minutes: formMinutes(f), health: isHealthForm(f), since: null })),
+        files: fileReqsAll.map((fr: any) => ({ id: String(fr.id), label: String((fr.file || fr).prompt || fr.label || 'A document'), done: false, onFile: false })), left: forms.length + fileReqsAll.length, dueAt: null };
+    // Saved on this screen just now count as done, even before the list comes back from the server.
+    const [savedHere, setSavedHere] = useState<Record<string, true>>({});
+    const formsLeftNow = shownVisit.asks.some((a) => (a.ask === 'sign' || a.ask === 'sign_again') && !savedHere[a.formId]);
 
     const acknowledgments: any[] = completion?.acknowledgments || [];
     const allAcknowledged = acknowledgments.every((a: any) => acknowledged[a.id]);
@@ -308,8 +300,7 @@ export const CompletionGateView = ({
     const handleSubmit = async () => {
         setError(null);
         if (!skipCardStep && !accepted) { setError('Please accept the policy and authorization to continue.'); return; }
-        if (!allConsentsComplete) { setError('Please complete and sign all forms before continuing.'); return; }
-        if (!allGuardianComplete) { setError('A parent or guardian needs to provide their name, relationship, and confirmation before continuing.'); return; }
+        if (formsLeftNow) { setError('Please finish the forms above first.'); return; }
         if (!allFilesComplete) { setError('Please add the requested photos or files before continuing.'); return; }
         if (!allAcknowledged) { setError('Please confirm you\'ve read everything before continuing.'); return; }
         if (!marketingConsentComplete) { setError('Please let us know your marketing preference before continuing.'); return; }
@@ -319,7 +310,7 @@ export const CompletionGateView = ({
         setSubmitting(true);
         try {
             const nowISO = new Date().toISOString();
-            const signedForms = forms.map((f: any) => ({ formId: f.id, formTitle: f.title, formData: answers[f.id] || {} }));
+            const signedForms: any[] = [];   // each form was saved as it was finished
             const fileSubmissions = fileReqs.map((fr: any) => ({
                 requirementId: fr.id, label: fileCfg(fr).prompt || fr.label || 'Files', files: uploads[fr.id] || [],
             }));
@@ -335,16 +326,16 @@ export const CompletionGateView = ({
             // consent, emergency contact, acknowledgements, completion status).
             // These used to be written from the browser — refused by the rules,
             // so only the raw submission survived.
-            const guardianByForm = Object.fromEntries(forms.filter((f: any) => f.requiresGuardianSignature && guardianInfo[f.id]).map((f: any) => [f.id, { name: guardianInfo[f.id].name, relationship: guardianInfo[f.id].relationship }]));
+            const guardianByForm = {};
             const profileDocuments = fileReqs.filter((fr: any) => fileCfg(fr).persistToProfile).map((fr: any) => ({ requirementId: fr.id, label: fileCfg(fr).prompt || fr.label || 'Document', files: uploads[fr.id] || [] }));
             const saveRes = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-                action: 'complete', token, tenantId, signedForms, fileSubmissions, policyAcceptance, guardianByForm, profileDocuments,
+                action: 'complete', token, tenantId, device: visitDevice(), signedForms, fileSubmissions, policyAcceptance, guardianByForm, profileDocuments,
                 marketingConsent: completion?.requestMarketingConsent ? marketingConsent : null,
                 emergencyContact: completion?.requestEmergencyContact ? emergencyContact : null,
                 acknowledgments: acknowledgments.map((a: any) => a.text), skipCardStep,
             }) });
             const saved = await saveRes.json().catch(() => ({}));
-            if (!saved?.ok) { setError(saved?.error || 'We couldn’t save your answers. Please try again.'); setSubmitting(false); return; }
+            if (!saved?.ok) { setError(saved?.error || 'We couldn’t save your answers. Please try again.'); setSubmitting(false); onChanged?.(); return; }
             if (skipCardStep) {
                 setSubmitting(false);
                 onDone(startsToday());
@@ -414,36 +405,10 @@ export const CompletionGateView = ({
                     <span className="text-[19px] font-semibold tabular-nums">${depositDollars.toFixed(2)}</span></div></div>
             )}
 
-            {forms.map((form: any) => (
-                <section key={form.id} className="pub-card space-y-5 p-5" aria-label={form.title}>
-                    {head(FileSignature, form.title, form.requiresGuardianSignature
-                        ? <span className="shrink-0 rounded-full px-2.5 py-1 text-[12.5px] font-semibold" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>A parent or guardian signs</span> : null)}
-                    <div className="pub-ui space-y-6">
-                        {(form.fields || []).map((field: any) => (
-                            <FormFieldRenderer
-                                key={field.id}
-                                field={field}
-                                value={answers[form.id]?.[field.id]}
-                                onChange={(val: any) => setAnswers(prev => ({ ...prev, [form.id]: { ...(prev[form.id] || {}), [field.id]: val } }))}
-                            />
-                        ))}
-                    </div>
-                    {form.requiresGuardianSignature && (
-                        <div className="space-y-3 rounded-2xl p-4" style={{ background: 'var(--warn-soft)' }}>
-                            <p className="text-[15px] font-semibold">Parent or guardian</p>
-                            <div className="grid gap-2 sm:grid-cols-2">
-                                <VisitInput label="Parent or guardian’s full name" placeholder="Full name" value={guardianInfo[form.id]?.name || ''}
-                                    onChange={(v) => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: v, relationship: prev[form.id]?.relationship || '', accepted: prev[form.id]?.accepted || false } }))} />
-                                <VisitInput label="Relationship to the client" placeholder="Relationship to the client" value={guardianInfo[form.id]?.relationship || ''}
-                                    onChange={(v) => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: prev[form.id]?.name || '', relationship: v, accepted: prev[form.id]?.accepted || false } }))} />
-                            </div>
-                            <VisitCheckRow checked={!!guardianInfo[form.id]?.accepted}
-                                onChange={(v) => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: prev[form.id]?.name || '', relationship: prev[form.id]?.relationship || '', accepted: v } }))}>
-                                I am this client’s parent or legal guardian, and I consent to this form on their behalf.</VisitCheckRow>
-                        </div>
-                    )}
-                </section>
-            ))}
+            {shownVisit.asks.length + shownVisit.files.length > 0 && <FormsLeft brand={brand} visit={shownVisit} forms={allForms && allForms.length ? allForms : forms} token={token} tenantId={tenantId}
+                moreAfter={fileReqs.length > 0 || acknowledgments.length > 0 || !!completion?.requestMarketingConsent || !!completion?.requestEmergencyContact || !skipCardStep}
+                guardianAsk={formRulesOf(tenant).guardian} businessName={studioName} onChanged={() => onChanged?.()} onAllDone={() => onDone(startsToday())}
+                onSaved={(id) => setSavedHere((p) => ({ ...p, [id]: true }))} />}
 
             {fileReqs.map((fr: any) => {
                 const cfg = fileCfg(fr);
@@ -523,9 +488,10 @@ export const CompletionGateView = ({
 
             <VisitSaid text={error} />
 
-            <VisitButton onClick={handleSubmit} disabled={submitting || uploading || !allGuardianComplete || !allAcknowledged || !marketingConsentComplete || !emergencyContactComplete}>
-                {submitting ? 'Saving…' : skipCardStep ? 'Send' : depositDollars > 0 ? `Continue to pay $${depositDollars.toFixed(2)}` : 'Continue to save your card'}
-            </VisitButton>
+            {(fileReqs.length > 0 || acknowledgments.length > 0 || completion?.requestMarketingConsent || completion?.requestEmergencyContact || !skipCardStep) && (
+                <VisitButton onClick={handleSubmit} disabled={submitting || uploading || formsLeftNow || !allAcknowledged || !marketingConsentComplete || !emergencyContactComplete}>
+                    {submitting ? 'Saving…' : skipCardStep ? 'Send' : depositDollars > 0 ? `Continue to pay $${depositDollars.toFixed(2)}` : 'Continue to save your card'}
+                </VisitButton>)}
 
             <p className="flex items-center justify-center gap-1.5 text-[13px]" style={{ color: 'var(--muted)' }}><Lock className="h-3.5 w-3.5" aria-hidden /> Your information is kept private and secure.</p>
         </VisitShell>
