@@ -21,13 +21,16 @@ import { altText, pinLines } from '@/lib/markup/describe';
 export type Tool = 'move' | 'pen' | 'highlight' | 'arrow' | 'circle' | 'shapes' | 'text' | 'stamp' | 'nail' | 'pin' | 'pick' | 'magnify' | 'blur' | 'eraser' | 'crop';
 export type MarkupResult = { dataUrl: string; doc: MarkupDoc; note: string; colors: string[] };
 
-const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', WARN = '#b45309', RED = '#b42318';
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', WARN = '#b45309', RED = '#b42318', GOOD = '#1f7a4d';
 const NailIcon = (p: any) => (<svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M8 21V9.5C8 6 10 3 12 3s4 3 4 6.5V21" strokeDasharray="2.4 2" /><path d="M8 21h8" /></svg>);
 const TOOLS: { k: Tool; label: string; Icon: any }[] = [
   { k: 'move', label: 'Move', Icon: Move }, { k: 'pen', label: 'Pen', Icon: Pencil }, { k: 'highlight', label: 'Highlight', Icon: Highlighter }, { k: 'arrow', label: 'Arrow', Icon: ArrowUpRight },
   { k: 'circle', label: 'Circle', Icon: Circle }, { k: 'shapes', label: 'Shapes', Icon: Shapes }, { k: 'text', label: 'Text', Icon: Type }, { k: 'stamp', label: 'Stamps', Icon: Star },
   { k: 'nail', label: 'Nail guide', Icon: NailIcon }, { k: 'pin', label: 'Pins', Icon: MapPin }, { k: 'pick', label: 'Pick color', Icon: Pipette }, { k: 'magnify', label: 'Magnify', Icon: ZoomIn },
   { k: 'blur', label: 'Blur', Icon: Droplet }, { k: 'eraser', label: 'Eraser', Icon: Eraser }, { k: 'crop', label: 'Crop', Icon: Crop }];
+/** One key for each tool, on a computer. */
+const KEYS: Record<string, Tool | 'line'> = { v: 'move', p: 'pen', h: 'highlight', a: 'arrow', o: 'circle', r: 'shapes', l: 'line', t: 'text', s: 'stamp', g: 'nail', n: 'pin', i: 'pick', m: 'magnify', b: 'blur', e: 'eraser', c: 'crop' };
+const KEY_OF: Partial<Record<Tool, string>> = Object.fromEntries(Object.entries(KEYS).filter(([, t]) => t !== 'line').map(([k, t]) => [t, k.toUpperCase()]));
 /** Two rows, in reading order (the grid fills down each column, so the list is laid out to suit). */
 const TOOL_GRID = Array.from({ length: Math.ceil(TOOLS.length / 2) }).flatMap((_, i) => [TOOLS[i], TOOLS[i + Math.ceil(TOOLS.length / 2)]].filter(Boolean));
 const NAMES: Record<string, string> = { pen: 'Line', highlight: 'Highlight', line: 'Straight line', arrow: 'Arrow', circle: 'Circle', rect: 'Box', text: 'Label', stamp: 'Stamp', nail: 'Nail guide', pin: 'Pin', lens: 'Close-up', blur: 'Blurred area' };
@@ -50,7 +53,7 @@ type Gesture =
   | { t: 'pick' }
   | { t: 'crop'; part: 'move' | 0 | 1 | 2 | 3; from: Pt; orig: { x: number; y: number; w: number; h: number } };
 
-export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, showLayers, sendLayers, title, accent = INK, by, onCancel, onDone, initialNote = '', initialColors = [], startTool = 'pen' }: {
+export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, showLayers, sendLayers, title, accent = INK, by, onCancel, onDone, initialNote = '', initialColors = [], startTool = 'pen', format = 'jpeg', doneLabel = 'Done', backLabel, layerNames, clientName, inline = false }: {
   src: string; doc?: MarkupDoc | null; layer?: Layer;
   /** Layers whose marks can be changed here (the editor's own, by default). */
   editLayers?: Layer[];
@@ -65,6 +68,14 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   initialNote?: string; initialColors?: string[];
   /** Opens on this tool (Crop, from a photo's card). */
   startTool?: Tool;
+  /** The flattened copy: a JPEG (smaller), or a PNG for screens that keep one. */
+  format?: 'jpeg' | 'png';
+  /** What Done says ("Save markup", "Send to Dana"), and what leaving goes back to on a computer ("Dana Reyes"). */
+  doneLabel?: string; backLabel?: string;
+  /** What each layer is called in the layers list ("Dana's marks", "Mia's marks"), and the client's first name. */
+  layerNames?: Partial<Record<Layer, string>>; clientName?: string;
+  /** Drawn where it's placed, not at the end of the page (inside another screen's own dialog, which keeps the keys). */
+  inline?: boolean;
 }) {
   const root = React.useRef<HTMLDivElement>(null); const stage = React.useRef<HTMLDivElement>(null);
   const canvas = React.useRef<HTMLCanvasElement>(null); const img = React.useRef<HTMLImageElement | null>(null); const sample = React.useRef<{ ctx: CanvasRenderingContext2D; k: number } | null>(null);
@@ -86,7 +97,21 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   const cssPx = React.useRef(1);   // canvas pixels per screen pixel
   const shift = React.useRef(false);
   const mine: Layer[] = editLayers || [layer];
-  const shown: Layer[] = showLayers || (['client', 'team', ...(layer === 'private' ? ['private' as Layer] : [])]);
+  // The layers shown (each can be hidden while working), and the one new marks go on.
+  const [shown, setShown] = React.useState<Layer[]>(() => (showLayers || (['client', 'team', 'private'] as Layer[])).filter((l) => l !== 'private' || mine.includes('private') || layer === 'private'));
+  const [active, setActive] = React.useState<Layer>(mine.includes(layer) ? layer : mine[0]);
+  const reachable = mine.filter((l) => shown.includes(l));
+  const [wide, setWide] = React.useState(() => typeof window !== 'undefined' && !!window.matchMedia?.('(min-width: 1024px)').matches);   // a computer's screen: tools down the side, settings on the right
+  React.useEffect(() => { const q = window.matchMedia?.('(min-width: 1024px)'); if (!q) return; const f = () => setWide(q.matches); f(); q.addEventListener?.('change', f); return () => q.removeEventListener?.('change', f); }, []);
+  const space = React.useRef(false); const [spacing, setSpacing] = React.useState(false);
+  const holdSpace = (on: boolean) => { space.current = on; setSpacing(on); };
+  // Keys held when the window lost focus never come back up: let go of them all.
+  React.useEffect(() => {
+    const letGo = () => { setPeek(false); holdSpace(false); shift.current = false; };
+    const vis = () => { if (document.visibilityState === 'hidden') letGo(); };
+    window.addEventListener('blur', letGo); document.addEventListener('visibilitychange', vis);
+    return () => { window.removeEventListener('blur', letGo); document.removeEventListener('visibilitychange', vis); };
+  }, []);
   const sent: Layer[] = sendLayers || ['client', 'team'];
 
   // ── Load the photo ─────────────────────────────────────────────────────────────────────────────────────────
@@ -223,7 +248,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   };
   const pickTool = (t: Tool) => {
     if (cropping && t !== 'crop' && doc) { const d2 = applyCrop(doc); if (!same(d2.view, doc.view)) commit(d2); setCropDraft(null); }
-    setTool(t); setSel(null); setLoupe(null); setSaid(null); buzz();
+    setTool(t); setSel(null); setLoupe(null); setSaid(null); setPeek(false); buzz();
   };
   const setCropRatio = (r: typeof ratio) => { if (!doc) return; setRatio(r); setCropDraft(cropTo(doc, r) || wholeOf(doc)); };
   const turn = () => { if (!doc) return; const nv = turnQuarter(applyCrop(doc)); commit({ ...doc, view: nv }); setCropDraft(nv.crop || wholeOf({ ...doc, view: nv })); setRatio('free'); };
@@ -248,7 +273,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   // ── Pointer ────────────────────────────────────────────────────────────────────────────────────────────────
   const at = (e: { clientX: number; clientY: number }): Pt => { const c = canvas.current!, r = c.getBoundingClientRect(); return { x: (e.clientX - r.left) * (c.width / r.width), y: (e.clientY - r.top) * (c.height / r.height) }; };
   const toBase = (q: Pt) => ap(inv(M!), q);
-  const newMark = (kind: Mark['kind'], pts: Pt[], extra: Partial<Mark> = {}): Mark => ({ id: uid(), kind, layer, color, size, opacity: 1, rotation: 0, pts, ...(dash && ['pen', 'highlight', 'line', 'arrow', 'circle', 'rect'].includes(kind) ? { dash: true } : {}), ...(!smooth && (kind === 'pen' || kind === 'highlight') ? { smooth: false } : {}), ...(by ? { by } : {}), ...extra });
+  const newMark = (kind: Mark['kind'], pts: Pt[], extra: Partial<Mark> = {}): Mark => ({ id: uid(), kind, layer: active, color, size, opacity: 1, rotation: 0, pts, ...(dash && ['pen', 'highlight', 'line', 'arrow', 'circle', 'rect'].includes(kind) ? { dash: true } : {}), ...(!smooth && (kind === 'pen' || kind === 'highlight') ? { smooth: false } : {}), ...(by ? { by } : {}), ...extra });
   const pickAt = (q: Pt) => {
     if (!sample.current || !doc) return null; const b = toBase(q); const s = sample.current;
     try { const d = s.ctx.getImageData(clamp(Math.round(b.x * s.k), 0, s.ctx.canvas.width - 1), clamp(Math.round(b.y * s.k), 0, s.ctx.canvas.height - 1), 1, 1).data; return hex(d[0], d[1], d[2]); } catch { return null; }
@@ -272,7 +297,10 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
       gesture.current = null; setLive(null); setLoupe(null);
       pinch.current = { d: Math.hypot(a.x - b.x, a.y - b.y), k: view.k, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, x: view.x, y: view.y }; return;
     }
+    // Holding Space (on a computer) drags the photo around, whatever the tool.
+    if (space.current) { gesture.current = { t: 'pan', from: { x: e.clientX, y: e.clientY }, x: view.x, y: view.y }; return; }
     const q = at(e); const p = toBase(q); const px = cssPx.current; const reach = 22 * px;
+    if (!shown.includes(active) && !['move', 'pick', 'crop', 'eraser'].includes(tool)) { setSaid(`The layer you’re adding to (${nameOf(active)}) is hidden. Show it to add to it.`); return; }
     if (cropping && cropDraft) {
       const r2 = { x: cropDraft.x * kc, y: cropDraft.y * kc, w: cropDraft.w * kc, h: cropDraft.h * kc };
       const corners = [[r2.x, r2.y], [r2.x + r2.w, r2.y], [r2.x + r2.w, r2.y + r2.h], [r2.x, r2.y + r2.h]];
@@ -299,7 +327,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
           if (Math.hypot(q.x - spot.x, q.y - spot.y) <= Math.max(reach, R / (selMark.zoom || 3))) { gesture.current = { t: 'spot', id: selMark.id, from: p, orig: selMark, before: doc, cur: doc }; return; }
         }
       }
-      const hit = hitMark(doc, M, q, { layers: mine, slop: 12 * px, ctx: canvas.current!.getContext('2d') });
+      const hit = hitMark(doc, M, q, { layers: reachable, slop: 12 * px, ctx: canvas.current!.getContext('2d') });
       setSel(hit?.id || null);
       if (hit) gesture.current = { t: 'move', id: hit.id, from: p, orig: hit, before: doc, cur: doc };
       else if (view.k > 1) gesture.current = { t: 'pan', from: { x: e.clientX, y: e.clientY }, x: view.x, y: view.y };   // dragging the photo looks around it
@@ -371,7 +399,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
       else mk.pts = [mk.pts[0], p];
       setLive({ ...mk }); return;
     }
-    if (g.t === 'erase') { const r = Math.max(6, size * doc.w * 3); g.cur = { ...g.cur, marks: erased(g.cur.marks, [g.last, p], r, layer) }; g.last = p; setDoc(g.cur); return; }
+    if (g.t === 'erase') { const r = Math.max(6, size * doc.w * 3); g.cur = { ...g.cur, marks: erased(g.cur.marks, [g.last, p], r, reachable) }; g.last = p; setDoc(g.cur); return; }
     if (g.t === 'pinchMark') return;
     const dx = p.x - g.from.x, dy = p.y - g.from.y;
     let next: Mark = g.orig;
@@ -435,9 +463,20 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
       return;
     }
     if (typing) return;
+    // On a computer: one key for each tool, \\ held to see the original, Space held to look around. Never while typing,
+    // and Space and the arrows are left to a button that has the focus (Space presses it).
+    const onBtn = !!t.closest('button,a,summary,[role=switch],[role=slider]');
+    if (!locked && (e.code === 'Backslash' || e.key === '\\')) { e.preventDefault(); setPeek(true); return; }
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && !locked) {
+      if (e.key === ' ' && !onBtn) { e.preventDefault(); holdSpace(true); return; }
+      // (The key's own letter first; a key's place on the keyboard only when it types no letter at all, as on a
+      // keyboard in another alphabet, so a different layout never picks the wrong tool.)
+      const k = KEYS[e.key.toLowerCase()] ?? (/^[a-z]$/i.test(e.key) ? undefined : KEYS[/^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : '']);
+      if (k) { e.preventDefault(); if (k === 'line') { setShape('line'); pickTool('shapes'); } else if (k === 'shapes') { setShape('rect'); pickTool('shapes'); } else pickTool(k); return; }
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) { e.preventDefault(); if (cropping) return; if (e.shiftKey || e.key.toLowerCase() === 'y') redo(); else undo(); return; }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && selMark && (t === root.current || t === canvas.current)) { e.preventDefault(); remove(); return; }
-    if (selMark && /^Arrow(Up|Down|Left|Right)$/.test(e.key) && (t === root.current || t === canvas.current) && M && doc) {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selMark && !onBtn) { e.preventDefault(); remove(); return; }
+    if (selMark && /^Arrow(Up|Down|Left|Right)$/.test(e.key) && !onBtn && M && doc) {
       // Nudged a little (a lot with Shift), the way it looks on the screen.
       e.preventDefault(); const step = (e.shiftKey ? 10 : 1) * cssPx.current; const d = { x: e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, y: e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0 };
       const o = toBase({ x: 0, y: 0 }), w = toBase(d); changeLive((m) => moved(m, w.x - o.x, w.y - o.y));   // one undo step for the whole nudge
@@ -448,7 +487,9 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
     const i = img.current; if (!doc || !i || saving) return;
     flushEdit(); const d = { ...(cropping ? applyCrop(doc) : doc), note: note.trim() };
     let dataUrl = '';
-    try { dataUrl = flatten(d, i, sent).canvas.toDataURL('image/jpeg', 0.86); }
+    // What's sent is what's shown: a layer hidden while working is left out of the copy (its marks are kept).
+    const out = sent.filter((l) => shown.includes(l));
+    try { dataUrl = format === 'png' ? flatten(d, i, out).canvas.toDataURL('image/png') : flatten(d, i, out).canvas.toDataURL('image/jpeg', 0.86); }
     catch { setSaid('This photo can’t be saved from here. Please choose it again from your photos.'); return; }
     setSaving(true); setSaid(null); root.current?.focus({ preventScroll: true });   // (Done is off while it saves: keep the keys here)
     try { const err = await onDone({ dataUrl, doc: d, note: d.note, colors: d.colors }); if (err) setSaid(err); }
@@ -462,7 +503,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   const chipStyle = (on: boolean) => (on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` });
   const setColorTo = (c: string, liveDrag = false) => { if (selMark) (liveDrag ? changeLive : change)((m) => ({ ...m, color: c })); setColor(c); };
   const Swatches = () => (
-    <div className="-mx-3 flex items-center overflow-x-auto px-2" role="group" aria-label="Colors">
+    <div className={wide ? 'flex flex-wrap items-center' : '-mx-3 flex items-center overflow-x-auto px-2'} role="group" aria-label="Colors">
       {[...PALETTE, ...(doc ? doc.colors.filter((c) => !PALETTE.includes(c)) : [])].map((c) => { const on = (selMark?.color || color) === c; return (
         <button key={c} type="button" onClick={() => { setColorTo(c); buzz(); }} aria-label={PALETTE.includes(c) ? `Color ${c}` : `Color ${c}, picked from the photo`} aria-pressed={on}
           className="grid h-11 w-11 shrink-0 place-items-center transition active:scale-90"><span className="h-8 w-8 rounded-full" style={{ background: c, boxShadow: on ? `0 0 0 2px #fff, 0 0 0 4px ${INK}` : `inset 0 0 0 1px ${LINE}` }} /></button>); })}
@@ -470,14 +511,13 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
         <input type="color" value={selMark?.color || color} onChange={(e) => setColorTo(e.target.value, true)} onBlur={editEnd} className="absolute inset-0 cursor-pointer opacity-0" /></span></label>
     </div>);
   const Sizes = ({ withLine = true }: { withLine?: boolean }) => (
-    <div className="-mx-3 flex items-center gap-1.5 overflow-x-auto px-3">
+    <div className={wide ? 'flex flex-wrap items-center gap-1.5' : '-mx-3 flex items-center gap-1.5 overflow-x-auto px-3'}>
       {SIZES.map((s) => { const on = Math.abs((selMark?.size ?? size) - s.v) < 1e-6; return <button key={s.key} type="button" aria-label={`Size ${s.key}`} aria-pressed={on} onClick={() => { if (selMark) change((m) => ({ ...m, size: s.v })); setSize(s.v); }} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold" style={chipStyle(on)}>{s.key}</button>; })}
       {withLine && <><span className="mx-1 h-6 w-px shrink-0" style={{ background: LINE }} />
         <button type="button" aria-pressed={!(selMark ? selMark.dash : dash)} onClick={() => { if (selMark) change((m) => ({ ...m, dash: false })); setDash(false); }} className={chip} style={chipStyle(!(selMark ? selMark.dash : dash))}>Solid</button>
         <button type="button" aria-pressed={!!(selMark ? selMark.dash : dash)} onClick={() => { if (selMark) change((m) => ({ ...m, dash: true })); setDash(true); }} className={chip} style={chipStyle(!!(selMark ? selMark.dash : dash))}>Dashed</button></>}
       {(tool === 'pen' || tool === 'highlight') && !selMark && <button type="button" aria-pressed={smooth} onClick={() => setSmooth((x) => !x)} className={chip} style={chipStyle(smooth)}>{smooth ? 'Smooth on' : 'Smooth off'}</button>}
     </div>);
-  const Hint = ({ children }: { children: React.ReactNode }) => <p className="text-[13px] leading-snug" style={{ color: MUTED }}>{children}</p>;
   const slider = { onPointerDown: editStart, onFocus: editStart, onKeyDown: editStart, onPointerUp: editEnd, onPointerCancel: editEnd, onKeyUp: editEnd, onBlur: editEnd };
 
   const pins = doc ? doc.marks.filter((m) => m.kind === 'pin' && shown.includes(m.layer)).sort((a, b) => a.pin!.n - b.pin!.n) : [];
@@ -499,18 +539,18 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
             {k === 'nail' && <button type="button" onClick={() => commit({ ...doc, marks: toEveryNail(doc.marks, selMark) })} className={chip} style={chipStyle(false)}>Copy to every nail</button>}
             <button type="button" onClick={remove} className={chip} style={{ background: '#fff', color: RED, boxShadow: `inset 0 0 0 1px ${LINE}` }}>Delete</button>
           </div>
-          {k !== 'lens' && k !== 'blur' && <Swatches />}
-          {k !== 'blur' && <Sizes withLine={['pen', 'highlight', 'line', 'arrow', 'circle', 'rect'].includes(k)} />}
+          {k !== 'lens' && k !== 'blur' && Swatches()}
+          {k !== 'blur' && Sizes({ withLine: ['pen', 'highlight', 'line', 'arrow', 'circle', 'rect'].includes(k) })}
           {k !== 'blur' && <label className="flex items-center gap-3 text-[14px]" style={{ color: INK }}><span className="w-16 shrink-0">Opacity</span>
             <input type="range" min={10} max={100} step={5} value={Math.round((selMark.opacity ?? 1) * 100)} onChange={(e) => changeLive((m) => ({ ...m, opacity: Number(e.target.value) / 100 }))} {...slider} className="h-11 flex-1" aria-label="Opacity" />
             <span className="w-12 text-right tabular-nums" style={{ color: MUTED }}>{Math.round((selMark.opacity ?? 1) * 100)}%</span></label>}
         </div>);
     }
-    if (tool === 'text') return <div className="space-y-3"><input value={label} onChange={(e) => setLabel(e.target.value.slice(0, LIMITS.text))} placeholder="Type a label, then tap the photo to place it" aria-label="Label text" className="h-11 w-full rounded-xl px-3 text-[16px]" style={{ boxShadow: `inset 0 0 0 1px ${LINE}`, background: '#fff' }} /><Swatches /><Sizes withLine={false} /></div>;
+    if (tool === 'text') return <div className="space-y-3"><input value={label} onChange={(e) => setLabel(e.target.value.slice(0, LIMITS.text))} placeholder="Type a label, then tap the photo to place it" aria-label="Label text" className="h-11 w-full rounded-xl px-3 text-[16px]" style={{ boxShadow: `inset 0 0 0 1px ${LINE}`, background: '#fff' }} />{Swatches()}{Sizes({ withLine: false })}</div>;
     if (tool === 'stamp') return (
       <div className="space-y-3"><div className="flex flex-wrap gap-2">{[...STAMPS.map((s) => ({ k: s.key as StampKind | 'number', l: s.label })), { k: 'number' as const, l: 'Number' }].map((s) => <button key={s.k} type="button" aria-pressed={stamp === s.k} onClick={() => setStamp(s.k)} className={chip} style={chipStyle(stamp === s.k)}>{s.l}</button>)}</div>
-        <Swatches /><Sizes withLine={false} /><Hint>Tap the photo to place it. Numbers keep their number when one is removed.</Hint></div>);
-    if (tool === 'nail') return <div className="space-y-3"><NailChoices value={nail} onChange={setNail} /><Swatches /><Hint>Tap each nail to place a guide. With Move, drag the top of a guide to set its length, or copy one guide to every nail.</Hint></div>;
+        {Swatches()}{Sizes({ withLine: false })}<Hint>Tap the photo to place it. Numbers keep their number when one is removed.</Hint></div>);
+    if (tool === 'nail') return <div className="space-y-3"><NailChoices value={nail} onChange={setNail} />{Swatches()}<Hint>Tap each nail to place a guide. With Move, drag the top of a guide to set its length, or copy one guide to every nail.</Hint></div>;
     if (tool === 'pin') return (
       <div className="space-y-2">
         {pins.length > 0 && <div className="overflow-hidden rounded-2xl" style={{ boxShadow: `inset 0 0 0 1px ${LINE}`, background: '#fff' }}>{pins.map((m, i) => (
@@ -519,19 +559,19 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
             <input id={`pin-note-${m.id}`} value={m.pin!.note} disabled={!mine.includes(m.layer)} placeholder="Add a note" onFocus={() => setSel(null)} onBlur={editEnd} onChange={(e) => { editStart(); setDoc({ ...doc, marks: withPinNote(doc.marks, m.id, e.target.value) }); }} aria-label={`Note for pin ${m.pin!.n}`} className="h-12 min-w-0 flex-1 bg-transparent text-[15px] outline-none" />
             {mine.includes(m.layer) && <button type="button" onClick={() => { commit({ ...doc, marks: doc.marks.filter((x) => x.id !== m.id) }); root.current?.focus({ preventScroll: true }); }} aria-label={`Remove pin ${m.pin!.n}`} className="grid h-11 w-11 place-items-center rounded-full" style={{ color: MUTED }}><X size={16} /></button>}
           </div>))}</div>}
-        <Hint>Tap the photo to add pin {doc.nextPin}. Pins keep their number when one is removed, so notes never get mixed up.</Hint><Swatches /></div>);
+        <Hint>Tap the photo to add pin {doc.nextPin}. Pins keep their number when one is removed, so notes never get mixed up.</Hint>{Swatches()}</div>);
     if (tool === 'pick') return (
-      <div className="space-y-2"><p className="text-[13px] font-semibold" style={{ color: MUTED }}>Colors I love</p>
+      <div className="space-y-2"><p className="text-[13px] font-semibold" style={{ color: MUTED }}>{layer === 'client' ? 'Colors I love' : 'Colors picked'}</p>
         <div className="flex flex-wrap items-center gap-3">{doc.colors.map((c) => <button key={c} type="button" onClick={() => setColor(c)} className="flex min-h-11 flex-col items-center gap-1 text-[12px]" style={{ color: MUTED }} aria-label={`Use ${c}`}><span className="h-11 w-11 rounded-xl" style={{ background: c, boxShadow: `inset 0 0 0 1px ${LINE}` }} />{c.slice(1).toUpperCase()}</button>)}
           {doc.colors.length > 0 && <button type="button" onClick={() => commit({ ...doc, colors: [] })} className="min-h-11 px-2 text-[13px] font-semibold" style={{ color: MUTED }}>Clear</button>}</div>
-        <Hint>{!sample.current ? 'Colors can’t be picked from this photo.' : doc.colors.length ? 'Added to your note so the exact shades are seen.' : 'Touch the photo and move to the exact spot. The shade is added to Colors I love.'}</Hint></div>);
+        <Hint>{!sample.current ? 'Colors can’t be picked from this photo.' : doc.colors.length ? (layer === 'client' ? 'Added to your note so the exact shades are seen.' : 'Added to the note with the photo.') : `Touch the photo and move to the exact spot. The shade is added to ${layer === 'client' ? 'Colors I love' : 'the colors picked'}.`}</Hint></div>);
     if (tool === 'magnify' || tool === 'blur') return (
       <div className="space-y-3"><div className="flex flex-wrap items-center gap-2">
         <button type="button" aria-pressed={tool === 'magnify'} onClick={() => pickTool('magnify')} className={chip} style={chipStyle(tool === 'magnify')}>Magnify</button>
         <button type="button" aria-pressed={tool === 'blur'} onClick={() => pickTool('blur')} className={chip} style={chipStyle(tool === 'blur')}>Blur</button>
         {tool === 'magnify' && <span className="ml-auto flex gap-2">{([2, 3, 4] as const).map((z) => <button key={z} type="button" aria-pressed={zoomLens === z} onClick={() => setZoomLens(z)} className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[14px] font-semibold" style={chipStyle(zoomLens === z)}>{z}×</button>)}</span>}</div>
         <Hint>{tool === 'magnify' ? 'Tap a spot to show a close-up of it, right on the photo. Move the close-up anywhere.' : 'Drag over a face, a tattoo or anything personal to hide it. The photo is sent blurred, and the blur can’t be taken off it later.'}</Hint></div>);
-    if (tool === 'eraser') return <div className="space-y-3"><Sizes withLine={false} /><Hint>Rub over drawn lines to take them away. Other marks are removed with Move, then Delete.</Hint></div>;
+    if (tool === 'eraser') return <div className="space-y-3">{Sizes({ withLine: false })}<Hint>Rub over drawn lines to take them away. Other marks are removed with Move, then Delete.</Hint></div>;
     if (tool === 'crop') return (
       <div className="space-y-3">
         <div className="flex flex-wrap gap-2">{([['free', 'Free'], ['square', 'Square'], ['4:5', '4:5'], ['3:4', '3:4']] as const).map(([k, l]) => <button key={k} type="button" aria-pressed={ratio === k} onClick={() => setCropRatio(k)} className={chip} style={chipStyle(ratio === k)}>{l}</button>)}</div>
@@ -545,26 +585,120 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
       <div className="space-y-3">
         {tool === 'shapes' && <div className="flex gap-2"><button type="button" aria-pressed={shape === 'rect'} onClick={() => setShape('rect')} className={chip} style={chipStyle(shape === 'rect')}>Box</button><button type="button" aria-pressed={shape === 'line'} onClick={() => setShape('line')} className={chip} style={chipStyle(shape === 'line')}>Straight line</button></div>}
         {tool === 'circle' && <div className="flex gap-2"><button type="button" aria-pressed={!round} onClick={() => setRound(false)} className={chip} style={chipStyle(!round)}>Oval</button><button type="button" aria-pressed={round} onClick={() => setRound(true)} className={chip} style={chipStyle(round)}>Round, from the middle</button></div>}
-        <Swatches /><Sizes /></div>);
+        {Swatches()}{Sizes({})}</div>);
   };
 
+  // ── Layers ─────────────────────────────────────────────────────────────────────────────────────────────────
+  function nameOf(l: Layer): string {
+    if (layerNames?.[l]) return layerNames[l]!;
+    if (l === 'private') return 'Private team notes';
+    if (l === 'client') return layer === 'client' ? 'Your marks' : `${clientName ? `${clientName}’s` : 'The client’s'} marks`;
+    return layer === 'client' ? 'The team’s marks' : `${by ? `${by}’s` : 'The team’s'} marks`;
+  }
+  const layerList: Layer[] = doc ? (['client', 'team', 'private'] as Layer[]).filter((l) => (l !== 'private' || mine.includes('private')) && (mine.includes(l) || doc.marks.some((m) => m.layer === l))) : [];
+  const summaryOf = (l: Layer) => {
+    if (l === 'private') return `Never shown to ${clientName || 'the client'}`;
+    const ms = doc ? doc.marks.filter((m) => m.layer === l) : []; const n = ms.filter((m) => m.kind === 'pin').length; const r = ms.length - n;
+    return ms.length ? [r ? `${r} mark${r === 1 ? '' : 's'}` : '', n ? `${n} pin${n === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ') : 'No marks yet';
+  };
+  const toggleLayer = (l: Layer) => {
+    const on = shown.includes(l); const next = on ? shown.filter((x) => x !== l) : [...shown, l]; setShown(next);
+    if (!on && mine.includes(l)) setSaid(null);
+    if (on && selMark?.layer === l) setSel(null);
+    // Hiding the layer being added to moves to another that can be changed (or says there isn't one).
+    if (on && l === active) { const other = mine.find((x) => x !== l && next.includes(x)); if (other) setActive(other); else setSaid('Every layer you can change is hidden. Show one to keep marking up.'); }
+  };
+  const Layers = () => (layerList.length > 1 || mine.length > 1 ? (
+    <section aria-label="Layers" className="space-y-1.5">
+      <p className="text-[13px] font-semibold" style={{ color: MUTED }}>Layers</p>
+      {mine.length > 1 && <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="New marks go on">
+        <span className="text-[13px]" style={{ color: MUTED }}>Adding to</span>
+        {mine.map((l) => <button key={l} type="button" aria-pressed={active === l} onClick={() => { setActive(l); if (!shown.includes(l)) setShown([...shown, l]); }} className={chip} style={chipStyle(active === l)}>{nameOf(l)}</button>)}</div>}
+      <div className="overflow-hidden rounded-2xl bg-white" style={{ boxShadow: `inset 0 0 0 1px ${LINE}` }}>
+        {layerList.map((l, i) => { const on = shown.includes(l); return (
+          <div key={l} className="flex items-center gap-3 pl-3" style={i ? { borderTop: `1px solid ${LINE}` } : undefined}>
+            <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: l === 'client' ? INK : l === 'team' ? GOOD : MUTED }} />
+            <div className="min-w-0 flex-1 py-2"><p className="text-[14.5px]">{nameOf(l)}</p><p className="text-[12.5px]" style={{ color: MUTED }}>{summaryOf(l)}</p></div>
+            <button type="button" role="switch" aria-checked={on} aria-label={`Show ${nameOf(l)}`} onClick={() => toggleLayer(l)} className="grid h-11 w-14 shrink-0 place-items-center">
+              <span className="relative h-[26px] w-[44px] rounded-full transition" style={on ? { background: GOOD } : { background: LINE, boxShadow: `inset 0 0 0 1.5px ${MUTED}` }}><span className="absolute top-[2px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: on ? 20 : 2, boxShadow: `0 1px 3px rgba(22,23,26,.3)` }} /></span></button>
+          </div>); })}
+      </div>
+    </section>) : null);
+
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+  const canvasEl = failed ? <p className="px-6 text-center text-[15px]" role="alert" style={{ color: WARN }}>{failed}</p>
+    : <canvas ref={canvas} role="img" tabIndex={0} aria-label={doc ? altText(doc, note, shown) : 'Your photo'} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onContextMenu={(e) => e.preventDefault()}
+        className="max-h-full max-w-full touch-none select-none outline-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, transformOrigin: 'center', cursor: spacing ? 'grab' : tool === 'move' ? (view.k > 1 ? 'grab' : 'default') : tool === 'pick' ? 'copy' : tool === 'crop' ? 'move' : ['text', 'stamp', 'pin', 'nail', 'magnify'].includes(tool) ? 'cell' : 'crosshair' }} />;
+  const leaveBar = leaving && <div className="flex flex-wrap items-center gap-2 px-3 pb-2" role="alertdialog" aria-label="Leave without saving?">
+    <p className="mr-auto text-[14px]">Leave without saving your marks?</p>
+    <button type="button" autoFocus onClick={() => { setLeaving(false); root.current?.focus({ preventScroll: true }); }} className={chip} style={chipStyle(true)}>Keep marking up</button>
+    <button type="button" onClick={onCancel} className={chip} style={{ background: '#fff', color: RED, boxShadow: `inset 0 0 0 1px ${LINE}` }}>Leave</button></div>;
+  const notice = (said || locked) && <p className="text-[14px] leading-snug" role="alert" style={{ color: WARN }}>{said || 'This photo can be looked at here, but not changed. Choose it again from your photos to mark it up.'}</p>;
+  const noteBox = doc && <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, LIMITS.note))} rows={2} placeholder={layer === 'client' ? 'Add a note (optional), like this shape but a little shorter' : 'A note with the photo (optional)'} aria-label="Note for this photo" className="w-full rounded-2xl p-3 text-[16px]" style={{ background: '#fff', boxShadow: `inset 0 0 0 1px ${LINE}` }} />;
+  const holdProps = { onPointerDown: () => setPeek(true), onPointerUp: () => setPeek(false), onPointerLeave: () => setPeek(false), onPointerCancel: () => setPeek(false), onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    onKeyDown: (e: React.KeyboardEvent) => { if (e.key === ' ' || e.key === 'Enter') setPeek(true); }, onKeyUp: () => setPeek(false) };
+  const rootProps = { ref: root, tabIndex: -1, 'data-markup-editor': '', onKeyDown: onKey, ...(inline ? { role: 'group' as const } : { role: 'dialog' as const, 'aria-modal': true as const }), 'aria-label': title ? `Mark up: ${title}` : 'Mark up your photo',
+    onKeyUp: (e: React.KeyboardEvent) => { if (e.key === 'Shift') shift.current = false; if (e.code === 'Backslash' || e.key === '\\') setPeek(false); if (e.key === ' ') holdSpace(false); if (/^Arrow/.test(e.key)) editEnd(); } };
+
   if (typeof document === 'undefined') return null;
-  return createPortal(
-    <div ref={root} tabIndex={-1} data-markup-editor="" onKeyDown={onKey} onKeyUp={(e) => { if (e.key === 'Shift') shift.current = false; if (/^Arrow/.test(e.key) && (e.target === root.current || e.target === canvas.current)) editEnd(); }} className="fixed inset-0 z-[400] flex flex-col outline-none" role="dialog" aria-modal="true" aria-label={title ? `Mark up ${title.toLowerCase()}` : 'Mark up your photo'}
+  const place = (node: React.ReactElement) => (inline ? node : createPortal(node, document.body));
+  // ── A computer: tools down the left (with their keys), the photo in the middle, settings, layers and pins on the right.
+  if (wide) {
+    const darkChip = 'inline-flex min-h-11 items-center gap-1 rounded-full px-3.5 text-[13.5px] font-medium disabled:opacity-40';
+    const darkStyle = { background: 'rgba(255,255,255,.12)', color: '#fff' };
+    return place(
+      <div {...rootProps} className="fixed inset-0 z-[400] grid outline-none" style={{ gridTemplateColumns: 'clamp(180px,17vw,220px) minmax(0,1fr) clamp(280px,26vw,340px)', gridTemplateRows: 'auto minmax(0,1fr)', background: '#fff', color: INK }}>
+        <header className="col-span-3 flex min-h-[64px] items-center gap-3 px-4" style={{ borderBottom: `1px solid ${LINE}` }}>
+          <button type="button" onClick={askLeave} disabled={saving} className="inline-flex min-h-11 items-center px-2 text-[15px] disabled:opacity-40" style={{ color: MUTED }}>{backLabel ? `‹ ${backLabel}` : 'Cancel'}</button>
+          <p className="min-w-0 flex-1 truncate text-center text-[16px] font-semibold" aria-live="polite">{title || heading}</p>
+          <button type="button" onClick={() => void done()} disabled={!doc || saving || locked} className="inline-flex min-h-11 items-center rounded-full px-5 text-[15px] font-semibold disabled:opacity-40" style={{ background: INK, color: '#fff' }}>{saving ? 'Saving…' : doneLabel}</button>
+        </header>
+        <nav role="toolbar" aria-label="Tools" aria-orientation="vertical" className="min-h-0 space-y-0.5 overflow-y-auto p-2" style={{ borderRight: `1px solid ${LINE}` }}>
+          {TOOLS.map(({ k, label: l, Icon }) => { const on = tool === k; return (
+            <button key={k} type="button" onClick={() => pickTool(k)} aria-pressed={on} disabled={locked} aria-keyshortcuts={KEY_OF[k]} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-[14.5px] disabled:opacity-40" style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { color: INK }}>
+              <Icon size={17} aria-hidden /><span className="flex-1">{l}</span>{KEY_OF[k] && <span className="text-[12px] tabular-nums" style={{ color: on ? 'rgba(255,255,255,.7)' : MUTED }} aria-hidden>{KEY_OF[k]}</span>}</button>); })}
+          <p className="px-3 pt-2 text-[12px]" style={{ color: MUTED }}>L draws a straight line.</p>
+        </nav>
+        <div className="relative flex min-h-0 flex-col" style={{ background: INK }}>
+          {leaving && <div className="bg-white pt-2">{leaveBar}</div>}
+          <div ref={stage} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-6">{canvasEl}</div>
+          <div className="flex flex-wrap items-center justify-center gap-2 px-4 pb-4">
+            <button type="button" onClick={undo} disabled={!past.length || cropping} className={darkChip} style={darkStyle}>Undo <span aria-hidden className="opacity-70">{mac ? '⌘Z' : 'Ctrl+Z'}</span></button>
+            <button type="button" onClick={redo} disabled={!future.length || cropping} className={darkChip} style={darkStyle}>Redo <span aria-hidden className="opacity-70">{mac ? '⇧⌘Z' : 'Ctrl+Y'}</span></button>
+            <button type="button" {...holdProps} className={`${darkChip} touch-none select-none`} style={peek ? { background: '#fff', color: INK } : darkStyle}>Hold \ to see original</button>
+            <span className="inline-flex items-center rounded-full" style={darkStyle}>
+              <button type="button" onClick={() => zoomAt(1 / 1.25)} aria-label="Zoom out" className="grid h-11 w-11 place-items-center"><Minus size={15} /></button>
+              <button type="button" onClick={() => setView({ k: 1, x: 0, y: 0 })} aria-label="Reset view" className="h-11 min-w-11 text-[13px] tabular-nums">{Math.round(view.k * 100)}%</button>
+              <button type="button" onClick={() => zoomAt(1.25)} aria-label="Zoom in" className="grid h-11 w-11 place-items-center"><Plus size={15} /></button></span>
+            <span className="inline-flex min-h-11 items-center rounded-full px-3.5 text-[13.5px]" style={{ color: 'rgba(255,255,255,.7)' }}>Space to look around</span>
+          </div>
+        </div>
+        <aside className="min-h-0 space-y-4 overflow-y-auto p-4" style={{ borderLeft: `1px solid ${LINE}`, background: '#fff' }} aria-label="Settings">
+          {notice}
+          {selMark && <p className="text-[13px] font-semibold" style={{ color: MUTED }}>Selected: {(NAMES[selMark.kind] || 'mark').toLowerCase()}{selMark.pin ? ` ${selMark.pin.n}` : ''}</p>}
+          {!locked && panel()}
+          {Layers()}
+          {pins.length > 0 && tool !== 'pin' && <section aria-label="Pins and notes" className="space-y-1.5"><p className="text-[13px] font-semibold" style={{ color: MUTED }}>Pins and notes</p>
+            <div className="overflow-hidden rounded-2xl" style={{ boxShadow: `inset 0 0 0 1px ${LINE}` }}>{pins.map((m, i) => (
+              React.createElement(mine.includes(m.layer) && shown.includes(m.layer) ? 'button' : 'div', { key: m.id, ...(mine.includes(m.layer) && shown.includes(m.layer) ? { type: 'button', onClick: () => { pickTool('move'); setSel(m.id); } } : {}), className: 'flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left', style: i ? { borderTop: `1px solid ${LINE}` } : undefined },
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[12px] font-bold" style={{ background: m.color, color: contrast(m.color), boxShadow: `inset 0 0 0 1px ${LINE}` }}>{m.pin!.n}</span>,
+                <span className="text-[14px]" style={{ color: m.pin!.note ? INK : MUTED }}>{m.pin!.note || 'No note'}</span>)))}</div></section>}
+          {noteBox}
+          {doc && <p className="sr-only">{pinLines(doc, shown).join('. ')}</p>}
+        </aside>
+      </div>);
+  }
+  return place(
+    <div {...rootProps} className="fixed inset-0 z-[400] flex flex-col outline-none"
       style={{ background: '#ffffff', color: INK, paddingTop: 'env(safe-area-inset-top,0px)', paddingBottom: 'env(safe-area-inset-bottom,0px)' }}>
       <div className="flex items-center justify-between gap-2 px-3" style={{ minHeight: 52 }}>
         <button type="button" onClick={askLeave} disabled={saving} className="inline-flex min-h-11 items-center px-2 text-[16px] disabled:opacity-40" style={{ color: MUTED }}>Cancel</button>
         <p className="truncate text-[16px] font-semibold" aria-live="polite">{heading}</p>
-        <button type="button" onClick={() => void done()} disabled={!doc || saving || locked} className="inline-flex min-h-11 items-center px-2 text-[16px] font-semibold disabled:opacity-40" style={{ color: accent }}>{saving ? 'Saving…' : 'Done'}</button>
+        <button type="button" onClick={() => void done()} disabled={!doc || saving || locked} className="inline-flex min-h-11 items-center px-2 text-[16px] font-semibold disabled:opacity-40" style={{ color: accent }}>{saving ? 'Saving…' : doneLabel}</button>
       </div>
-      {leaving && <div className="flex flex-wrap items-center gap-2 px-3 pb-2" role="alertdialog" aria-label="Leave without saving?">
-        <p className="mr-auto text-[14px]">Leave without saving your marks?</p>
-        <button type="button" autoFocus onClick={() => { setLeaving(false); root.current?.focus({ preventScroll: true }); }} className={chip} style={chipStyle(true)}>Keep marking up</button>
-        <button type="button" onClick={onCancel} className={chip} style={{ background: '#fff', color: RED, boxShadow: `inset 0 0 0 1px ${LINE}` }}>Leave</button></div>}
+      {leaveBar}
       <div ref={stage} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden" style={{ background: LINE }}>
-        {failed ? <p className="px-6 text-center text-[15px]" role="alert" style={{ color: WARN }}>{failed}</p>
-          : <canvas ref={canvas} role="img" tabIndex={0} aria-label={doc ? altText(doc, note, shown) : 'Your photo'} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onContextMenu={(e) => e.preventDefault()}
-              className="max-h-full max-w-full touch-none select-none outline-none" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, transformOrigin: 'center', cursor: tool === 'move' ? (view.k > 1 ? 'grab' : 'default') : tool === 'pick' ? 'copy' : tool === 'crop' ? 'move' : ['text', 'stamp', 'pin', 'nail', 'magnify'].includes(tool) ? 'cell' : 'crosshair' }} />}
+        {canvasEl}
         {!failed && <div className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-full p-0.5" style={{ background: 'rgba(255,255,255,.94)', boxShadow: '0 4px 14px -6px rgba(22,23,26,.35)' }}>
           <button type="button" onClick={() => zoomAt(1 / 1.25)} aria-label="Zoom out" className="grid h-11 w-11 place-items-center rounded-full" style={{ color: INK }}><Minus size={16} /></button>
           <button type="button" onClick={() => setView({ k: 1, x: 0, y: 0 })} aria-label="Reset view" className="h-11 min-w-11 px-1 text-center text-[13px] tabular-nums" style={{ color: MUTED }}>{Math.round(view.k * 100)}%</button>
@@ -572,7 +706,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
         </div>}
       </div>
       <div className="max-h-[52dvh] space-y-2.5 overflow-y-auto px-3 pb-3 pt-2.5" style={{ background: SOFT, borderTop: `1px solid ${LINE}` }}>
-        {(said || locked) && <p className="text-[14px] leading-snug" role="alert" style={{ color: WARN }}>{said || 'This photo can be looked at here, but not changed. Choose it again from your photos to mark it up.'}</p>}
+        {notice}
         <div role="toolbar" aria-label="Tools" className="-mx-3 grid auto-cols-[56px] grid-flow-col grid-rows-2 gap-y-1 overflow-x-auto px-2">
           {TOOL_GRID.map(({ k, label: l, Icon }) => { const on = tool === k; return (
             <button key={k} type="button" onClick={() => pickTool(k)} aria-pressed={on} disabled={locked} className="flex min-h-[56px] flex-col items-center justify-start gap-1 rounded-xl pt-0.5 text-center text-[12px] leading-[1.1] transition active:scale-95 disabled:opacity-40" style={on ? { color: INK, fontWeight: 600 } : { color: MUTED }}>
@@ -582,14 +716,16 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
         <div className="flex items-center gap-2">
           <button type="button" onClick={undo} disabled={!past.length || cropping} aria-label="Undo" className="grid h-11 w-11 shrink-0 place-items-center rounded-full disabled:opacity-35" style={chipStyle(false)}><Undo2 size={18} /></button>
           <button type="button" onClick={redo} disabled={!future.length || cropping} aria-label="Redo" className="grid h-11 w-11 shrink-0 place-items-center rounded-full disabled:opacity-35" style={chipStyle(false)}><Redo2 size={18} /></button>
-          <button type="button" onPointerDown={() => setPeek(true)} onPointerUp={() => setPeek(false)} onPointerLeave={() => setPeek(false)} onPointerCancel={() => setPeek(false)} onContextMenu={(e) => e.preventDefault()}
-            onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') setPeek(true); }} onKeyUp={() => setPeek(false)} className={`${chip} touch-none select-none`} style={chipStyle(peek)}>Hold to see original</button>
+          <button type="button" {...holdProps} className={`${chip} touch-none select-none`} style={chipStyle(peek)}>Hold to see original</button>
         </div>
-        {doc && <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, LIMITS.note))} rows={2} placeholder="Add a note (optional), like this shape but a little shorter" aria-label="Note for this photo" className="w-full rounded-2xl p-3 text-[16px]" style={{ background: '#fff', boxShadow: `inset 0 0 0 1px ${LINE}` }} />}
+        {Layers()}
+        {noteBox}
         {doc && pinLines(doc, shown).length > 0 && tool !== 'pin' && <p className="sr-only">{pinLines(doc, shown).join('. ')}</p>}
       </div>
-    </div>, document.body);
+    </div>);
 }
+
+const Hint = ({ children }: { children: React.ReactNode }) => <p className="text-[13px] leading-snug" style={{ color: MUTED }}>{children}</p>;
 
 /** Nail guides: the shape and the length. */
 function NailChoices({ value, onChange }: { value: { shape: NailShape; length: NailLength }; onChange: (v: { shape: NailShape; length: NailLength }) => void }) {

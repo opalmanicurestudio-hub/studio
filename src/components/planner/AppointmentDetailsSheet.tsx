@@ -2112,7 +2112,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   // use, the doc stores a normal URL, and the untouched original is kept
   // in inspirationPhotoOriginalUrl the first time a markup is saved.
   const handleMarkupSave = async (markedUpUrl: string) => {
-    if (!firestore || !tenantId || !appointment?.id) return;
+    if (!firestore || !tenantId || !appointment?.id) throw new Error('Not ready');   // the markup screen stays open
     try {
       let finalUrl = markedUpUrl;
       if (markedUpUrl.startsWith('data:')) {
@@ -2132,8 +2132,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         ...(appointment.inspirationPhotoOriginalUrl ? {} : { inspirationPhotoOriginalUrl: appointment.inspirationPhotoUrl || null }),
       });
       toast({ title: 'Markup saved', description: 'The original photo is kept too.' });
-    } catch {
-      toast({ variant: 'destructive', title: 'Could not save markup', description: 'The original photo is untouched — try again.' });
+    } catch (e) {
+      // The markup screen stays open and says it didn't save, so nothing drawn is lost.
+      throw e instanceof Error ? e : new Error('Upload failed');
     }
   };
 

@@ -202,7 +202,8 @@ function filled(pts: Pt[], gap: number): Pt[] {
 }
 /** The eraser, for drawn lines: whatever of a pen or highlight stroke lies within r of the eraser's path is rubbed out
  *  (a stroke split in two becomes two). Nothing else is touched (other marks are deleted on their own). */
-export function erased(marks: Mark[], path: Pt[], r: number, layer: Layer): Mark[] {
+export function erased(marks: Mark[], path: Pt[], r: number, layer: Layer | Layer[]): Mark[] {
+  const on = Array.isArray(layer) ? layer : [layer];
   const near = (p: Pt) => path.some((q, i) => {
     const a = path[i - 1] || q; const dx = q.x - a.x, dy = q.y - a.y; const L = dx * dx + dy * dy;
     const t = L ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / L, 0, 1) : 0;
@@ -213,7 +214,7 @@ export function erased(marks: Mark[], path: Pt[], r: number, layer: Layer): Mark
   const ex0 = Math.min(...path.map((p) => p.x)) - r, ex1 = Math.max(...path.map((p) => p.x)) + r, ey0 = Math.min(...path.map((p) => p.y)) - r, ey1 = Math.max(...path.map((p) => p.y)) + r;
   let room = LIMITS.marks - marks.length;   // a split never takes the photo past its limit (the stroke is left whole)
   for (const mk0 of marks) {
-    if ((mk0.kind !== 'pen' && mk0.kind !== 'highlight') || mk0.layer !== layer) { out.push(mk0); continue; }
+    if ((mk0.kind !== 'pen' && mk0.kind !== 'highlight') || !on.includes(mk0.layer)) { out.push(mk0); continue; }
     const mk = unturned(mk0);
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity; for (const p of mk.pts) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y; }
     if (x1 < ex0 || x0 > ex1 || y1 < ey0 || y0 > ey1) { out.push(mk0); continue; }

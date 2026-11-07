@@ -470,11 +470,25 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   };
 
   // FIX #2: updateDocumentNonBlocking is now imported above — no longer undefined at runtime
-  const handleMarkupSave = (markedUpUrl: string) => {
-      if (!firestore || !tenantId || !appointment) return;
+  // The marked-up photo is stored as a file (a whole photo is too big to keep on the appointment itself), and the photo
+  // before it is kept. If it can't be stored, the markup screen stays open and says so.
+  const handleMarkupSave = async (markedUpUrl: string) => {
+      if (!firestore || !tenantId || !appointment) throw new Error('Not ready');   // the markup screen stays open
+      let finalUrl = markedUpUrl;
+      if (markedUpUrl.startsWith('data:')) {
+        const blob = await (await fetch(markedUpUrl)).blob();
+        const fd = new FormData();
+        fd.append('files', new File([blob], `markup-${appointment.id}-${Date.now()}.png`, { type: blob.type || 'image/png' }));
+        fd.append('tenantId', tenantId); fd.append('appointmentId', appointment.id);
+        const tk = await currentUser?.getIdToken().catch(() => '');
+        const res = await fetch('/api/upload/appointment-photos', { method: 'POST', body: fd, headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
+        const out = await res.json().catch(() => null);
+        if (!out?.urls?.[0]) throw new Error('Upload failed');
+        finalUrl = out.urls[0];
+      }
       const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
-      updateDocumentNonBlocking(appointmentRef, { inspirationPhotoUrl: markedUpUrl });
-      toast({ title: "Markup Committed to Dossier" });
+      updateDocumentNonBlocking(appointmentRef, { inspirationPhotoUrl: finalUrl, ...((appointment as any).inspirationPhotoOriginalUrl ? {} : { inspirationPhotoOriginalUrl: appointment.inspirationPhotoUrl || null }) });
+      toast({ title: 'Markup saved', description: 'The original photo is kept too.' });
   };
 
   if (!client || !service || !appointment) return null;
