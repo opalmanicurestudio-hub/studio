@@ -41,7 +41,7 @@ export const guestStageOf = (r: any): GuestOrderStage => {
   return 'new';
 };
 export const GUEST_STAGE_COPY: Record<'new' | 'making' | 'ready', { label: string; note: string }> = {
-  new: { label: 'Sent', note: 'Sent to the team' },
+  new: { label: 'Sent', note: 'We’ve got it' },
   making: { label: 'Being made', note: 'Being made for you now' },
   ready: { label: 'On its way', note: 'Someone is bringing it over' },
 };
@@ -54,9 +54,9 @@ type AssistLive = { kind: string; status: string; claimedByName: string | null }
 const ASSIST_ICONS: Record<string, any> = { assistance: Bell, comfort: SunDim, timing: Clock, checkout: CreditCard };
 const ASSIST_FALLBACK: AssistOption[] = [
   { key: 'assistance', label: 'I need a hand', hint: 'Someone will come to you' },
-  { key: 'comfort', label: 'Too warm or too cold', hint: 'Temperature, chair or lighting' },
+  { key: 'comfort', label: 'Too warm or too cold', hint: 'Temperature, seating or lighting' },
   { key: 'timing', label: 'I’m short on time', hint: 'We’ll let your provider know' },
-  { key: 'checkout', label: 'Ready to check out', hint: 'The front desk will be ready' },
+  { key: 'checkout', label: 'Ready to check out', hint: 'We’ll be ready for you' },
 ];
 
 const ico = (I: any) => <I className="h-[18px] w-[18px]" />;
@@ -146,14 +146,14 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
     setOrdering(true); setOrderSaid(null);
     const d = await post({ action: 'request', itemId: item.id, quantity: qty });
     setOrdering(false);
-    if (!d.ok) { setOrderSaid({ ok: false, text: d.error || 'That didn’t send. Please let the team know when they’re next by.' }); return; }
+    if (!d.ok) { setOrderSaid({ ok: false, text: d.error || 'That didn’t send. Please ask us in person.' }); return; }
     setOrderSaid({ ok: true, text: d.request?.isRedemption ? `Sent, using your membership. We’ll bring ${qty > 1 ? `${qty} ` : ''}${item.name.toLowerCase()} over.` : `Sent. We’ll bring ${qty > 1 ? `${qty} ` : ''}${item.name.toLowerCase()} over.` });
     setPicked(null); setQty(1); onRefresh();
   };
   const recall = async (id: string) => {
     if (recalling) return; setRecalling(id); setOrderSaid(null);
     const d = await post({ action: 'recall', requestId: id }); setRecalling(null);
-    if (!d.ok) { setOrderSaid({ ok: false, text: d.error || 'That couldn’t be called back. Please let the team know.' }); return; }
+    if (!d.ok) { setOrderSaid({ ok: false, text: d.error || 'That couldn’t be called back. Please let us know.' }); return; }
     setOrderSaid({ ok: true, text: 'Called back. Nothing is on its way for that one.' }); onRefresh();
   };
 
@@ -174,9 +174,9 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
   const assist = async (kind: string, text?: string) => {
     if (assistSending) return; setAssistSending(kind); setAssistSaid(null);
     const d = await post({ action: 'assist', kind, note: (text || '').slice(0, 160) }); setAssistSending(null);
-    if (!d.ok) { setAssistSaid({ ok: false, text: d.error || 'That didn’t send. Please let the team know when they’re next by.' }); return; }
+    if (!d.ok) { setAssistSaid({ ok: false, text: d.error || 'That didn’t send. Please ask us in person.' }); return; }
     setAssistSent((p) => ({ ...p, [kind]: Date.now() })); setNote(''); setNoteOpen(false);
-    setAssistSaid({ ok: true, text: 'Sent. Someone from the team will be right with you.' }); onRefresh();
+    setAssistSaid({ ok: true, text: 'Sent. We’ll be right with you.' }); onRefresh();
   };
 
   // Other services: asking books nothing and charges nothing; the provider and the desk hear about it.
@@ -217,7 +217,7 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
         <div className="px-1"><h2 className="text-[19px] font-semibold" style={{ letterSpacing: '-.01em' }}>While you wait</h2>
           <p className="text-[14px]" style={{ color: 'var(--muted)' }}>Anything you’d like? We’ll bring it over.</p></div>
         {loading ? <VisitMuted>Getting what’s on offer…</VisitMuted>
-          : amenities.length === 0 ? <div className="v-note space-y-2"><p>We can’t show what’s on offer right now. Just ask the team if you’d like anything.</p>
+          : amenities.length === 0 ? <div className="v-note space-y-2"><p>We can’t show what’s on offer right now. Just ask if you’d like anything.</p>
             <VisitButton quiet onClick={onRefresh}>Try again</VisitButton></div>
           : groups.map((g) => <div key={g.label} className="space-y-2">
             {groups.length > 1 && <p className="px-1 text-[13px] font-semibold" style={{ color: 'var(--muted)' }}>{g.label}</p>}
@@ -247,10 +247,10 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
       <VisitSaid text={orderSaid?.text} ok={orderSaid?.ok} />
 
       <section aria-label="Need a hand?" className="space-y-2">
-        <div className="px-1"><p className="text-[16px] font-semibold">Need a hand?</p><p className="text-[14px]" style={{ color: 'var(--muted)' }}>One tap and someone from the team comes to you.</p></div>
+        <div className="px-1"><p className="text-[16px] font-semibold">Need a hand?</p><p className="text-[14px]" style={{ color: 'var(--muted)' }}>One tap and we’ll come to you.</p></div>
         <div className="v-grp">{assistOptions.map((o) => {
           const row = liveAssist(o.key); const I = ASSIST_ICONS[o.key] || Bell;
-          const status = row ? (row.status === 'acknowledged' ? (row.claimedByName ? `${row.claimedByName} is on the way` : 'Someone is on the way') : 'Sent to the team') : o.hint;
+          const status = row ? (row.status === 'acknowledged' ? (row.claimedByName ? `${row.claimedByName} is on the way` : 'Someone is on the way') : 'Sent') : o.hint;
           return <button key={o.key} type="button" disabled={!!row || !!assistSending} onClick={() => assist(o.key)} className="v-row v-tap w-full text-left disabled:cursor-default">
             <span className="v-ico" aria-hidden>{ico(I)}</span>
             <span className="min-w-0 flex-1 py-3"><span className="block font-semibold">{o.label}</span><span className="block text-[13.5px]" style={{ color: row ? 'var(--good)' : 'var(--muted)' }}>{assistSending === o.key ? 'Sending…' : status}</span></span>
@@ -259,7 +259,7 @@ export function VisitLounge({ brand, client, inventory, activeRequests, appointm
             : !noteOpen ? <button type="button" onClick={() => setNoteOpen(true)} className="v-row v-tap w-full text-left"><span className="v-ico" aria-hidden>{ico(MessageSquare)}</span><span className="flex-1 py-3 font-semibold">Something else</span></button>
             : <div className="space-y-2 px-4 py-3" style={{ borderTop: '1px solid var(--line)' }}>
               <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 160))} rows={2} aria-label="What do you need?" placeholder="Tell us in a few words" className="v-field py-3" />
-              <div className="flex items-center gap-2"><div className="flex-1"><VisitButton disabled={!note.trim() || !!assistSending} onClick={() => assist('assistance', note)}>{assistSending ? 'Sending…' : 'Send to the team'}</VisitButton></div>
+              <div className="flex items-center gap-2"><div className="flex-1"><VisitButton disabled={!note.trim() || !!assistSending} onClick={() => assist('assistance', note)}>{assistSending ? 'Sending…' : 'Send'}</VisitButton></div>
                 <button type="button" onClick={() => { setNoteOpen(false); setNote(''); }} className="inline-flex min-h-11 items-center px-3 text-[14px] underline underline-offset-2" style={{ color: 'var(--muted)' }}>Not now</button></div>
               <p className="text-[12.5px]" style={{ color: 'var(--muted)' }}>{note.trim().length} of 160</p></div>}
         </div>

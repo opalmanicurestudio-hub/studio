@@ -31,6 +31,7 @@ import { recordKioskCharge, releaseKioskCharge } from '@/lib/kiosk-charges';
 import { createHash } from 'crypto';
 import Stripe from 'stripe';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
+import { inPersonFromDb } from '@/lib/business-shape';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
@@ -206,7 +207,7 @@ export async function POST(req: NextRequest) {
           r.endDate >= today &&
           digits(r.phone).slice(-4) === last4);
       if (matches.length === 0) {
-        return NextResponse.json({ ok: false, error: "No booking found for today with that number. Double-check the digits, or see the front desk." });
+        return NextResponse.json({ ok: false, error: `No booking found for today with that number. Double-check the digits, or see ${await inPersonFromDb(db, tenantId, kioskTenant)}.` });
       }
       const agreement = '';   // check-in reconfirms the rental agreement; the stay page shows the full text to sign
       return NextResponse.json({
@@ -244,7 +245,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, already: true, firstName: (r.name || 'Guest').split(' ')[0], boothName: r.boothName, endTime: r.endTime || null });
       }
       if (r.status !== 'confirmed' || r.startDate > today || r.endDate < today) {
-        return NextResponse.json({ ok: false, error: 'This booking is not active today — see the front desk.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: `This booking is not active today. Please see ${await inPersonFromDb(db, tenantId, kioskTenant)}.` }, { status: 400 });
       }
       const nowIso = new Date().toISOString();
       await ref.set({
@@ -393,7 +394,7 @@ export async function POST(req: NextRequest) {
       }
       if (amountCents < 50) return NextResponse.json({ ok: false, error: 'There’s nothing to charge for this order.' }, { status: 400 });
       if (amountCents > 50000) {
-        return NextResponse.json({ ok: false, error: 'Order too large for station charging — please pay at the desk.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: 'Order too large for station charging. Please pay in person.' }, { status: 400 });
       }
       const what = `Concierge: ${String(item.name || 'Item').slice(0, 80)} (x${quantity})`;
 
@@ -416,13 +417,13 @@ export async function POST(req: NextRequest) {
             .find(r => r.status === 'checked_in' && r.endDate >= today && digits(r.phone).slice(-10) === ph && (!boothId || r.boothId === boothId)) || null;
         }
         if (!stay || digits(stay.phone).slice(-10) !== ph || stay.status !== 'checked_in' || stay.startDate > today || stay.endDate < today) {
-          return NextResponse.json({ ok: false, error: 'No active stay found — please pay at the desk.' }, { status: 400 });
+          return NextResponse.json({ ok: false, error: 'No active stay found. Please pay in person.' }, { status: 400 });
         }
         if (!stay.cardOnFile || !stay.stripeCustomerId || !stay.stripePaymentMethodId) {
-          return NextResponse.json({ ok: false, error: 'No card on file for this stay — please pay at the desk.' }, { status: 400 });
+          return NextResponse.json({ ok: false, error: 'No card on file for this stay. Please pay in person.' }, { status: 400 });
         }
         payer = { kind: 'stay', id: String(stay.id), customer: String(stay.stripeCustomerId), pm: String(stay.stripePaymentMethodId), name: String(stay.name || 'Guest'),
-          boothName: String(stay.boothName || 'your station'), boothId: stay.boothId ? String(stay.boothId) : null, instead: 'please pay at the desk' };
+          boothName: String(stay.boothName || 'your station'), boothId: stay.boothId ? String(stay.boothId) : null, instead: 'please pay in person' };
       } else {
         if (!boothId) return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
         const link = await stationLinkOk(db, tenantId, boothId, body.stationToken);
@@ -678,7 +679,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
       }
       if (['checked_in', 'completed'].includes(r.status)) {
-        return NextResponse.json({ ok: false, error: 'This stay has already started — please talk to the front desk.' }, { status: 400 });
+        return NextResponse.json({ ok: false, error: `This stay has already started. Please talk to ${await inPersonFromDb(db, tenantId, kioskTenant)}.` }, { status: 400 });
       }
       if (r.cancelRequestedAt) return NextResponse.json({ ok: true, already: true });
       const nowIso = new Date().toISOString();
@@ -974,6 +975,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   } catch (err) {
     console.error('[kiosk] failed', err);
-    return NextResponse.json({ ok: false, error: 'Something went wrong — see the front desk.' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'Something went wrong. Please try again.' }, { status: 500 });
   }
 }

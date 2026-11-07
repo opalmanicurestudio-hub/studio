@@ -61,9 +61,9 @@ const MAX_ASSIST = 12;
  */
 const ASSIST_KINDS: { key: string; label: string; guestLabel: string; hint: string }[] = [
   { key: 'assistance', label: 'Needs assistance', guestLabel: 'I need a hand', hint: 'Someone will come to you' },
-  { key: 'comfort', label: 'Comfort adjustment', guestLabel: 'Too hot / too cold', hint: 'Temperature, chair or lighting' },
-  { key: 'timing', label: 'Guest is short on time', guestLabel: "I'm short on time", hint: "We'll let your technician know" },
-  { key: 'checkout', label: 'Ready to check out', guestLabel: 'Ready to check out', hint: 'The front desk will be ready' },
+  { key: 'comfort', label: 'Comfort adjustment', guestLabel: 'Too hot / too cold', hint: 'Temperature, seating or lighting' },
+  { key: 'timing', label: 'Guest is short on time', guestLabel: "I'm short on time", hint: "We'll let your provider know" },
+  { key: 'checkout', label: 'Ready to check out', guestLabel: 'Ready to check out', hint: 'We’ll be ready for you' },
 ];
 
 const num = (v: any): number => {
@@ -409,7 +409,7 @@ export async function POST(req: NextRequest) {
         // Already picked up by the back of house — recalling now would be a lie.
         // (The guest page hides the Recall button once an order leaves `new`, so
         // this is the belt to that braces.)
-        return NextResponse.json({ ok: false, error: 'Already being prepared — please ask your technician.' }, { status: 409 });
+        return NextResponse.json({ ok: false, error: 'Already being prepared. Please ask your provider.' }, { status: 409 });
       }
       await ref.set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: 'guest' }, { merge: true });
       try {

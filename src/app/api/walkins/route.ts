@@ -97,6 +97,7 @@ import { sendNotification } from '@/lib/notify';
 import { nanoid } from 'nanoid';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
 import { searchFields } from '@/lib/client-search';
+import { inPersonFromDb } from '@/lib/business-shape';
 
 export const dynamic = 'force-dynamic';
 
@@ -230,10 +231,16 @@ function softWaitText(mins: any): string {
 
 type GuestMessage = { subject: string; text: string };
 
+/** Who a guest is told to see in person: "the front desk", or with none, the one person who sees clients ("Jessica"),
+ *  or "us" (lib/business-shape). */
+const seeWho = (db: any, tenantId: string, tenant?: any) => inPersonFromDb(db, tenantId, tenant);
+/** "Please see the front desk." / "Please see Jessica." / "Please see us." */
+const pleaseSee = (who: string, rest = '') => `Please see ${who}${rest}.`;
+
 function queuedMessage(o: {
   studioName: string; guestName: string; serviceName: string;
   position: number; estWaitMin: number; providerName: string;
-  link: string; needsFrontDesk: boolean;
+  link: string; needsFrontDesk: boolean; see?: string;
 }): GuestMessage {
   const who = firstName(o.guestName) || 'there';
   const studio = o.studioName || 'the studio';
@@ -243,30 +250,32 @@ function queuedMessage(o: {
   if (o.needsFrontDesk) {
     // Nobody on the floor passes this service's skill or certification gate, so
     // a wait estimate here would be a number we cannot stand behind.
-    bits.push('Please check in with the front desk so that we can match you with the right provider.');
+    // One person who sees every client has nobody to match: they just confirm the service.
+    const see = o.see || 'the front desk';
+    bits.push(see === 'the front desk' || see === 'us' ? `Please check in with ${see} so that we can match you with the right provider.` : `Please check in with ${see} so we can confirm this service.`);
   } else if (o.providerName) {
     bits.push(`${firstName(o.providerName)} is ready for you now.`);
   } else {
     bits.push(`${softWaitText(o.estWaitMin)}.`);
   }
-  bits.push('We will message you as soon as your chair is ready. Thank you for your patience.');
+  bits.push('We will message you as soon as it’s your turn. Thank you for your patience.');
   if (o.link) bits.push(o.link);
   return { subject: `You are on the waitlist at ${studio}`, text: bits.join(' ') };
 }
 
 function readyMessage(o: {
-  studioName: string; guestName: string; providerName: string; link: string;
+  studioName: string; guestName: string; providerName: string; link: string; see?: string;
 }): GuestMessage {
   const who = firstName(o.guestName) || 'there';
   const studio = o.studioName || 'the studio';
   const by = firstName(o.providerName);
   const bits = [
-    `Hi ${who}, your chair is ready at ${studio}.`,
-    by ? `${by} is ready for you.` : 'Your provider is ready for you.',
-    'Please come to the front desk at your earliest convenience.',
+    `Hi ${who}, it’s your turn at ${studio}.`,
+    by ? `${by} is ready for you.` : 'We’re ready for you.',
+    !o.see || o.see === 'the front desk' ? 'Please come to the front desk at your earliest convenience.' : 'Please come in at your earliest convenience.',
   ];
   if (o.link) bits.push(o.link);
-  return { subject: `Your chair is ready at ${studio}`, text: bits.join(' ') };
+  return { subject: `It’s your turn at ${studio}`, text: bits.join(' ') };
 }
 
 /**
@@ -366,6 +375,7 @@ async function dispatchCallForwards(
   if (!pending.length) return 0;
 
   const studioName = str(tenant?.name || tenant?.businessName, 80);
+  const see = await seeWho(db, tenantId, tenant);
   let sent = 0;
 
   for (const row of pending) {
@@ -397,6 +407,7 @@ async function dispatchCallForwards(
         guestName: str(row?.customerName || row?.clientName, 80),
         providerName: str(row?.staffName, 80),
         link: base && token ? `${base}/check-in/${token}` : '',
+        see,
       }),
       phone: str(row?.phone, 40),
       email: str(row?.email, 160),
@@ -1431,13 +1442,13 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
   // Proof it's theirs: the phone number on the client, or this booking's own confirmation code.
   const found = phone ? await findClient(db, tenantId, phone, '') : null;
   if (phone && !found) {
-    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+    return NextResponse.json({ ok: false, error: pleaseSee(await seeWho(db, tenantId)) }, { status: 200 });
   }
 
   const ref = db.doc(`tenants/${tenantId}/appointments/${appointmentId}`);
   const snap = await ref.get();
   if (!snap.exists) {
-    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+    return NextResponse.json({ ok: false, error: pleaseSee(await seeWho(db, tenantId)) }, { status: 200 });
   }
   const a: any = (snap.data() as any) || {};
 
@@ -1445,10 +1456,10 @@ async function handleCheckIn(db: any, tenantId: string, body: any) {
   if (phone ? String(a.clientId || '') !== String(found!.id)
     : token.length >= 12 ? String(a.checkInToken || '') !== token
     : (!code || String(a.shortCode || '').toUpperCase() !== code)) {
-    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+    return NextResponse.json({ ok: false, error: pleaseSee(await seeWho(db, tenantId)) }, { status: 200 });
   }
   if (!['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase())) {
-    return NextResponse.json({ ok: false, error: 'Please see the front desk about this booking.' }, { status: 200 });
+    return NextResponse.json({ ok: false, error: pleaseSee(await seeWho(db, tenantId), ' about this booking') }, { status: 200 });
   }
 
   const origin = String(body?.__origin || '').replace(/\/$/, '');
@@ -1527,7 +1538,7 @@ async function handleBoothArrived(db: any, tenantId: string, body: any) {
   // Resolved from the phone number again, not from the id the kiosk sent back.
   const booth = await findBoothToday(db, tenantId, phone);
   if (!booth || booth.reservation.reservationId !== reservationId) {
-    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+    return NextResponse.json({ ok: false, error: pleaseSee(await seeWho(db, tenantId)) }, { status: 200 });
   }
 
   const r = booth.reservation;
@@ -1544,7 +1555,7 @@ async function handleBoothArrived(db: any, tenantId: string, body: any) {
       message: `${booth.firstName || 'A renter'} has arrived at the kiosk for ${r.boothName} (${slot}). Please start their session when you are ready.`,
     });
   } catch {
-    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+    return NextResponse.json({ ok: false, error: pleaseSee(await seeWho(db, tenantId)) }, { status: 200 });
   }
 
   return NextResponse.json({ ok: true, announced: true, firstName: booth.firstName, reservation: r });
@@ -1874,7 +1885,7 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
     return NextResponse.json({
       ok: false,
       patchTestRequired: true,
-      error: 'This service needs a patch test at least 24 hours beforehand. Please check with the front desk.',
+      error: `This service needs a patch test at least 24 hours beforehand. Please check with ${await seeWho(db, tenantId, tenant)}.`,
       validityMonths: PATCH_TEST_VALIDITY_MONTHS,
     }, { status: 200 });
   }
@@ -2630,13 +2641,14 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
   //
   // Two messages and no more, because a queue that texts you four times is a
   // queue people mute. On joining: where you are in line, roughly how long, and
-  // a link to your own live status. When your chair is ready: come in.
+  // a link to your own live status. When it's your turn: come in.
   //
   // A guest whose seat already has a provider is being called forward right
   // now, so they get the "ready" message and their row is stamped
   // guestNotifiedAt — which is what stops the lobby board's dispatcher from
   // saying the same thing again a few seconds later.
   const studioName = str(tenant?.name || tenant?.businessName, 80);
+  const see = await seeWho(db, tenantId, tenant);
   const guestSends: { seat: Seat; delivered: boolean; sentSms: boolean; sentEmail: boolean }[] = [];
   for (let si = 0; si < seats.length; si++) {
     const seat = seats[si];
@@ -2653,6 +2665,7 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
         guestName: seat.name,
         providerName: seat.holder ? str(seat.holder.name, 80) : '',
         link,
+        see,
       })
       : queuedMessage({
         studioName,
@@ -2663,6 +2676,7 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
         providerName: '',
         link,
         needsFrontDesk: seat.needsFrontDesk,
+        see,
       });
     let r = { sentSms: false, sentEmail: false, delivered: false };
     try {
@@ -2957,6 +2971,7 @@ async function handleNotify(db: any, tenantId: string, tenant: any, body: any, b
       guestName: str(row.customerName || row.clientName, 80),
       providerName: str(row.staffName, 80) || str(body?.staffName, 80),
       link: base && token ? `${base}/check-in/${token}` : '',
+      see: await seeWho(db, tenantId, tenant),
     }),
     phone,
     email,
@@ -2997,7 +3012,7 @@ async function handleCode(db: any, tenantId: string, body: any) {
   const nowMs = Date.now(); const toMs = (v: any) => { const t = Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
   const hits = (await db.collection(`tenants/${tenantId}/appointments`).where(token.length >= 12 ? 'checkInToken' : 'shortCode', '==', token.length >= 12 ? token : code).limit(5).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((a: any) => ['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase()) && Math.abs(toMs(a.startTime) - nowMs) < 16 * 3600000);
-  const a: any = hits[0]; if (!a) return NextResponse.json({ ok: false, error: 'We couldn’t find a booking for today with that code — please see the front desk.' }, { status: 200 });
+  const a: any = hits[0]; if (!a) return NextResponse.json({ ok: false, error: `We couldn’t find a booking for today with that code. ${pleaseSee(await seeWho(db, tenantId))}` }, { status: 200 });
   const startMs = toMs(a.startTime); const minutesUntil = startMs ? Math.round((startMs - nowMs) / 60000) : 0; const st = String(a.checkInStatus || 'pending');
   return NextResponse.json({ ok: true, firstName: firstName(a.clientName), proof: token.length >= 12 ? 'token' : 'code', appointmentToday: { partyOthers: await partyOthers(db, tenantId, a),
     appointmentId: String(a.id), startTime: startMs ? new Date(startMs).toISOString() : null, minutesUntil,
@@ -3021,7 +3036,7 @@ async function handleEventArrival(db: any, tenantId: string, body: any) {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: tenantTimeZone(tenant) });
   const events = (await db.collection(`tenants/${tenantId}/studioEvents`).where('date', '==', today).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))
     .filter((e: any) => !['cancelled', 'canceled', 'draft'].includes(String(e.status || '').toLowerCase()));
-  if (!events.length) return NextResponse.json({ ok: false, code: 'none', error: 'We couldn’t find a class or event for you today — please see the front desk.' }, { status: 200 });
+  if (!events.length) return NextResponse.json({ ok: false, code: 'none', error: `We couldn’t find a class or event for you today. ${pleaseSee(await seeWho(db, tenantId))}` }, { status: 200 });
   const found = await findClient(db, tenantId, phone, '').catch(() => null) || await findClient(db, tenantId, digits, '').catch(() => null);
   const matches: { e: any; g: any }[] = [];
   for (const e of events) {
@@ -3030,7 +3045,7 @@ async function handleEventArrival(db: any, tenantId: string, body: any) {
     if (g) matches.push({ e, g });
   }
   const pick = pickEventId ? matches.filter((m) => m.e.id === pickEventId) : matches;
-  if (!pick.length) return NextResponse.json({ ok: false, code: 'none', error: 'We couldn’t find you on today’s guest list — please see the front desk.' }, { status: 200 });
+  if (!pick.length) return NextResponse.json({ ok: false, code: 'none', error: `We couldn’t find you on today’s guest list. ${pleaseSee(await seeWho(db, tenantId))}` }, { status: 200 });
   if (pick.length > 1) return NextResponse.json({ ok: false, code: 'choose', choices: pick.map((m) => ({ eventId: m.e.id, title: str(m.e.title || m.e.name || 'Event', 80), time: str(m.e.time, 10) })) }, { status: 200 });
   const { e, g } = pick[0]; const already = g.checkedIn === true;
   if (!already) await g._ref.set({ checkedIn: true, checkedInAt: new Date().toISOString(), checkedInVia: 'kiosk' }, { merge: true });

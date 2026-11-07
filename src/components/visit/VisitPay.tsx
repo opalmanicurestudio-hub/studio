@@ -189,7 +189,7 @@ export function VisitPay({ brand, screenId, first, provider, onClose, shape }: {
     </VisitShell>
   );
   if (!open) return (
-    <VisitShell brand={brand} title={<>Nothing to <b>pay</b> right now</>} subtitle="The payment was taken another way, or the team will send it again.">
+    <VisitShell brand={brand} title={<>Nothing to <b>pay</b> right now</>} subtitle="The payment was taken another way, or we’ll send it again.">
       <VisitButton quiet onClick={onClose}>Back to your visit</VisitButton>
     </VisitShell>
   );

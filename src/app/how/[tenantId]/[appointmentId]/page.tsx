@@ -163,6 +163,6 @@ export default function HowWasItPage() {
       {P.redo && (P.withinWindow ? <p>{tr('Fixes are free within {n} days of your visit — you’re within that.', { n: P.windowDays })}</p> : <p>{tr('It’s been more than {n} days, so a manager will look at this personally.', { n: P.windowDays })}</p>)}
       {P.refund && P.refundToCard && <p>{tr('Any refund goes back to the card you paid with.')}</p>}
     </section>
-    <button type="button" disabled={!!busy || (!reason && !words.trim() && !voice)} onClick={send} className="h-14 w-full rounded-2xl text-[17px] font-bold text-white disabled:opacity-40" style={{ background: A }}>{busy === 'send' ? tr('Sending…') : tr('Send to the team')}</button>
+    <button type="button" disabled={!!busy || (!reason && !words.trim() && !voice)} onClick={send} className="h-14 w-full rounded-2xl text-[17px] font-bold text-white disabled:opacity-40" style={{ background: A }}>{busy === 'send' ? tr('Sending…') : tr('Send')}</button>
   </>);
 }

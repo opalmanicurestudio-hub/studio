@@ -716,8 +716,8 @@ export async function POST(req: NextRequest) {
           : null;
         if (flexible) {
           return { conflict: who
-            ? `${who} has no opening in the next ${hours} hours — see the front desk.`
-            : `Everyone's booked for the next ${hours} hours — see the front desk.` };
+            ? `${who} has no opening in the next ${hours} hours. Please ask us about another time.`
+            : `Everyone's booked for the next ${hours} hours. Please ask us about another time.` };
         }
         // The engine's own sentence is more useful than a generic one: it says
         // whether it was hours, time off, the roster, or a station.

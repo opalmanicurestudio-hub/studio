@@ -77,7 +77,7 @@ export default function KioskPage() {
       setBookings(d.bookings);
       if (d.bookings.length === 1) { setPicked(d.bookings[0]); setStep(d.bookings[0].alreadyCheckedIn ? 'confirm' : 'confirm'); }
       else setStep('confirm');
-    } catch { setError('Connection problem — see the front desk.'); }
+    } catch { setError('Connection problem. Please try again, or ask us for help.'); }
     finally { setBusy(false); }
   };
 
@@ -90,10 +90,10 @@ export default function KioskPage() {
         body: JSON.stringify({ action: 'checkin', tenantId, reservationId: picked.id, phoneLast4: last4 }),
       });
       const d = await res.json();
-      if (!d.ok) { setError(d.error || 'Could not check in — see the front desk.'); return; }
+      if (!d.ok) { setError(d.error || 'We couldn’t check you in. Please ask us for help.'); return; }
       setWelcome({ firstName: d.firstName, boothName: d.boothName, endTime: d.endTime });
       setStep('done');
-    } catch { setError('Connection problem — see the front desk.'); }
+    } catch { setError('Connection problem. Please try again, or ask us for help.'); }
     finally { setBusy(false); }
   };
 

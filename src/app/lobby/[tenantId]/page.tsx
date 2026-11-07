@@ -391,7 +391,7 @@ export default function LobbyBoardPage() {
                 </div>
               ))}
             </div>
-            <p className={cn('mt-3 text-xs sm:text-sm', t.calledLead)}>Please come to the front — we have your chair.</p>
+            <p className={cn('mt-3 text-xs sm:text-sm', t.calledLead)}>Please come up. We’re ready for you.</p>
           </div>
         </div>
       )}

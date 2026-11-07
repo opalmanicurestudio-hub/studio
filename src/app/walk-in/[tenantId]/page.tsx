@@ -767,7 +767,7 @@ export default function WalkInKioskPage() {
       }
       setStep('provider');
     } catch {
-      setFailMessage('Something hiccuped — please see the front desk and we’ll get you in.');
+      setFailMessage('Something went wrong. Please ask us and we’ll get you in.');
       setStep('full');
     }
   };
@@ -946,7 +946,7 @@ export default function WalkInKioskPage() {
         return;
       }
       if (d?.closed || d?.capacityReason === 'hard_close') {
-        setFailMessage(d?.error || 'Walk-ins have just been switched off — please see the front desk.');
+        setFailMessage(d?.error || 'Walk-ins have just been switched off. Please ask us.');
         setStep('full');
       } else if (d?.capacityReason === 'full') {
         setFailMessage(d?.error || 'The queue is full right now.');
@@ -958,7 +958,7 @@ export default function WalkInKioskPage() {
       refreshFloor();
     } catch {
       joinLock.current = false;
-      setFailMessage('Something hiccuped — please see the front desk and we’ll get you in.');
+      setFailMessage('Something went wrong. Please ask us and we’ll get you in.');
       setStep('full');
     }
   };
@@ -1156,12 +1156,12 @@ export default function WalkInKioskPage() {
         setWaitState('joined');
       } else {
         joinLock.current = false; // let them try again
-        setWaitMessage(d?.error || 'We couldn’t save that — please see the front desk.');
+        setWaitMessage(d?.error || 'We couldn’t save that. Please ask us.');
         setWaitState('failed');
       }
     } catch {
       joinLock.current = false;
-      setWaitMessage('We couldn’t save that — please see the front desk.');
+      setWaitMessage('We couldn’t save that. Please ask us.');
       setWaitState('failed');
     }
   };
@@ -1527,7 +1527,7 @@ export default function WalkInKioskPage() {
             <div className="space-y-2.5 max-h-[55dvh] overflow-y-auto pr-1">
               {services.length === 0 && (
                 <p className="text-center text-sm text-slate-400 py-10 border border-dashed rounded-2xl">
-                  No walk-in services are set up yet — please see the front desk.
+                  No walk-in services are set up yet. Please ask us.
                 </p>
               )}
               {services.map((s: any) => (
@@ -2367,7 +2367,7 @@ export default function WalkInKioskPage() {
             <div className="space-y-3">
               <h1 className="text-3xl font-semibold tracking-tight">Let&rsquo;s get someone to help</h1>
               <p className="text-slate-500 text-lg">
-                {troubleNote || 'Something went wrong on our end. Please see the front desk — they can get you in.'}
+                {troubleNote || 'Something went wrong on our end. Please ask us and we’ll get you in.'}
               </p>
             </div>
             <button

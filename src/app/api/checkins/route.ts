@@ -21,6 +21,7 @@ import { arrivalFields } from '@/lib/check-in';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { publicVisitCopy } from '@/lib/public-visit-copy';
+import { inPerson, publicShape, shapeFromDb } from '@/lib/business-shape';
 
 const MAX_FIELD = 300;
 // What the caller may send. The visit copies are readable with the token, so what lands THERE is cut down again by
@@ -98,8 +99,14 @@ export async function POST(req: NextRequest) {
       const prevMins = Number(appt.lateTimeMinutes) || 0, mins = Math.max(0, Math.min(120, Math.round(Number(body.lateTimeMinutes) || 0)));
       const arrived = prev === 'arrived' || ['servicing', 'completed'].includes(String(appt.status || ''));
       if (arrived && st !== 'arrived') return NextResponse.json({ ok: true, ignored: 'already_here' });
-      if (st === 'arrived' && ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.bookingPolicies?.onlineCheckIn === false)
-        return NextResponse.json({ ok: false, error: 'Please check in at the front desk when you arrive.' }, { status: 403 });
+      if (st === 'arrived') {
+        const tn: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+        if (tn?.bookingPolicies?.onlineCheckIn === false) {
+          // In person: at the front desk, or with none, the person they're seeing (lib/business-shape).
+          const who = inPerson(publicShape(await shapeFromDb(db, tenantId, tn)), appt.staffName);
+          return NextResponse.json({ ok: false, error: who === 'the front desk' ? 'Please check in at the front desk when you arrive.' : `Please let ${who} know you’re here when you arrive.` }, { status: 403 });
+        }
+      }
       if (st === 'arrived' && prev === 'arrived') return NextResponse.json({ ok: true, duplicate: true });
       if (st === prev && since < 3 * 60000 && (st !== 'running_late' || Math.abs(mins - prevMins) < 5)) return NextResponse.json({ ok: true, duplicate: true });
     }

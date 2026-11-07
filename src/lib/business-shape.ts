@@ -65,6 +65,13 @@ export async function shapeFromDb(db: any, tenantId: string, tenant: any): Promi
   } catch { return shapeOf(tenant, null); }
 }
 
+/** Server: who a client is told to see in person ("the front desk", "Jessica" or "us"), reading the business when it
+ *  isn't at hand. Anything that can't be read leaves it as "the front desk", as it always was. */
+export async function inPersonFromDb(db: any, tenantId: string, tenant?: any, who?: string | null): Promise<string> {
+  try { const t = tenant || (await db.doc(`tenants/${tenantId}`).get()).data() || {}; return inPerson(publicShape(await shapeFromDb(db, tenantId, t)), who); }
+  catch { return 'the front desk'; }
+}
+
 /** What a client's page needs to word things (never the team list). */
 export const publicShape = (b: BusinessShape) => ({ solo: b.solo, desk: b.desk, person: b.person });
 export type PublicShape = ReturnType<typeof publicShape>;

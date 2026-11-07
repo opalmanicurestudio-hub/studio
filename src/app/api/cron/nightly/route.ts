@@ -374,7 +374,7 @@ export async function GET(req: NextRequest) {
                 `This is a friendly reminder that your booth rent of ${amount} for ${inv.boothName} is due today.`,
                 rd.autopayEnabled === true
                   ? 'As you are enrolled in autopay, there is nothing you need to do. We will send you a receipt once the payment has been processed.'
-                  : 'You can pay securely from your portal using the button below, or at the front desk. Thank you.',
+                  : 'You can pay securely from your portal using the button below, or in person. Thank you.',
                 `Kind regards, ${studio}`,
               ], ...(rd.autopayEnabled === true ? {} : { cta: { label: 'Pay now', url: payUrl } }), footerNote: `Sent by ${studio}.` }),
               kind: 'rent_invoiced', recipientType: 'renter', recipientId: lease.renterId, recipientName: inv.renterName,
