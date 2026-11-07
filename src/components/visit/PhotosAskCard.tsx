@@ -31,7 +31,7 @@ export function PhotosAskCard({ ask, token, tenantId, accent, onSent }: { ask: {
           <p className="text-[16px] font-semibold">{ask.by ? `${ask.by} asked for a different inspiration photo` : 'A different inspiration photo, please'}</p>
           {ask.note && <p className="mt-1 text-[14.5px] leading-snug">“{ask.note}”</p>}
         </div>
-        <PhotoMarkup tenantId={tenantId} value={photos} onChange={setPhotos} accent={accent} />
+        <PhotoMarkup tenantId={tenantId} value={photos} onChange={setPhotos} accent={accent} who={ask.by || undefined} />
         {said && <p className="text-[14px]" role="alert" style={{ color: 'var(--warn, #b45309)' }}>{said.text}</p>}
         <VisitButton onClick={() => void send()} disabled={!photos.length || busy}>{busy ? 'Sending…' : photos.length > 1 ? `Send ${photos.length} photos` : 'Send the photo'}</VisitButton>
       </section>

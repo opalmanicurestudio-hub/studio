@@ -192,10 +192,15 @@ export async function POST(req: NextRequest) {
   // Kept privately (only the team opens it); the marks are the client's own, checked again.
   const { keepMarkup } = await import('@/lib/markup/model'); const { ownOriginal } = await import('@/lib/inspo-photos');
   const tid = String((body as any)?.tenantId || '');
-  const inspoIn: { url: string; note: string; original?: string; markup?: string }[] = (Array.isArray((body as any)?.inspirationPhotos) ? (body as any).inspirationPhotos : []).slice(0, 4)
+  let inspoIn: { url: string; note: string; original?: string; markup?: string }[] = (Array.isArray((body as any)?.inspirationPhotos) ? (body as any).inspirationPhotos : []).slice(0, 4)
     .filter((x: any) => x && /^https:\/\//.test(String(x.url || '')) && String(x.url).length <= 1000)
     .map((x: any) => { const original = ownOriginal(x.original, tid); const markup = original ? keepMarkup(x.markup, { as: 'client' }) : null;
       return { url: String(x.url), note: String(x.note || '').slice(0, 300), ...(original ? { original } : {}), ...(markup ? { markup } : {}) }; });
+  // How it looks now, to compare with them (the same checks).
+  let photosLeftOut = 0;
+  let nowIn = (() => { const x: any = (body as any)?.nowPhoto; if (!x || !/^https:\/\//.test(String(x.url || '')) || String(x.url).length > 1000) return null;
+    const original = ownOriginal(x.original, tid); const markup = original ? keepMarkup(x.markup, { as: 'client' }) : null;
+    return { url: String(x.url), note: String(x.note || '').slice(0, 300), ...(original ? { original } : {}), ...(markup ? { markup } : {}) }; })();
   const signedFormsIn: any[] = (() => {
     const list = Array.isArray((body as any)?.signedForms) ? (body as any).signedForms.slice(0, 10) : [];
     // Answers keep only plain question ids as keys: never empty, never the form screen's own marks, never "__…__" (which
@@ -250,6 +255,14 @@ export async function POST(req: NextRequest) {
     const services = svcListSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const roster = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const tenant = ((tenantSnap.data() as any) || {}) as any;
+    // Photos only from this business's own photo upload (api/booking/photo): the team opens them, so never another site.
+    // Any left out are counted, so the client is told (the booking itself goes ahead).
+    if (inspoIn.length || nowIn) {
+      const { ownInspoPhoto, ourBuckets } = await import('@/lib/inspo-photos'); const buckets = await ourBuckets(tenant);
+      const own = async (x: any) => { const u = await ownInspoPhoto(db, x.url, tenantId, buckets); if (!u) { photosLeftOut++; console.warn('[book] a photo that isn’t this business’s own was left out'); } return u ? { ...x, url: u } : null; };
+      inspoIn = (await Promise.all(inspoIn.map(own))).filter(Boolean) as typeof inspoIn;
+      nowIn = nowIn ? await own(nowIn) : null;
+    }
 
     // ── MOVING A VISIT (client reschedule from the booking page) ──────────
     // The business's change rules apply before anything is created: the change
@@ -921,10 +934,12 @@ export async function POST(req: NextRequest) {
         // Up to 4 marked-up inspiration photos with a note each; the first also
         // fills inspirationPhotoUrl so every existing screen keeps showing it.
         ...(inspoIn.length ? { inspirationPhotos: inspoIn } : {}),
+        ...(nowIn ? { nowPhoto: nowIn } : {}),
         // The visit this booking replaces (client reschedule) — released after payment by the webhook.
         ...(replacedChain || {}),
         ...(typeof body.replacesAppointmentId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(body.replacesAppointmentId) ? { replacesAppointmentId: body.replacesAppointmentId } : {}),
-        inspirationPhotoUrl: inspoIn[0]?.url || (body.inspirationPhotoUrl ? String(body.inspirationPhotoUrl).slice(0, 500) : null),
+        // (A single photo on its own only from the team's own booking screens: a client's always comes with the list.)
+        inspirationPhotoUrl: inspoIn[0]?.url || (body.inspirationPhotoUrl && trust ? String(body.inspirationPhotoUrl).slice(0, 500) : null),
         // Signed forms travel WITH the booking and are saved here, on the server.
         // (They used to be attached afterwards from the client's browser, which
         // the database rules refuse for clients — so they were silently lost.)
@@ -1459,6 +1474,7 @@ export async function POST(req: NextRequest) {
       chargeTiming: r.plan?.chargeTiming || 'never',
       requiresCardOnFile: !!r.plan?.requiresCardOnFile,
       clientNotice: r.plan?.clientNotice || '',
+      ...(photosLeftOut ? { photosLeftOut } : {}),
       // Non-empty only when a context collection could not be read, so a
       // support conversation can tell "we didn't check stations" apart from
       // "we checked and it was fine." Callers can ignore it.

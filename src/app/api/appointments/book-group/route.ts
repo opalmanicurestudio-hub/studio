@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   if (!pol.sideBySide && parts.some((p, i) => i > 0 && !p.guest && p.startTime === parts[0].startTime)) return NextResponse.json({ ok: false, error: 'Two services at once isn’t offered here — choose “straight after”.' }, { status: 400 });
 
   const origin = internalOrigin(tenant, req.nextUrl.origin); const linkId = `grp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-  const isGroup = guests > 0; const made: { appointmentId: string; checkInToken?: string; clientId?: string; guest: boolean; hasContact: boolean; depositCents: number }[] = [];
+  const isGroup = guests > 0; const made: { appointmentId: string; checkInToken?: string; clientId?: string; guest: boolean; hasContact: boolean; depositCents: number; photosLeftOut?: number }[] = [];
   const undo = async () => { for (const m of made) { await db.doc(`${T}/appointments/${m.appointmentId}`).delete().catch(() => {}); if (m.checkInToken) await Promise.all([db.doc(`appointmentCheckIns/${m.checkInToken}`).delete().catch(() => {}), db.doc(`${T}/appointmentCheckIns/${m.checkInToken}`).delete().catch(() => {})]); } };
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i]; const g = p.guest ? { name: s(p.guest.name, 120), email: s(p.guest.email, 160), phone: s(p.guest.phone, 40) } : null;
@@ -51,7 +51,8 @@ export async function POST(req: NextRequest) {
       // Their yes to offers, with the words they agreed to (never assumed): theirs only, never a guest's.
       smsMarketing: b.organizer?.smsMarketing === true, smsMarketingText: b.organizer?.smsMarketing === true ? s(b.organizer?.smsMarketingText, 600) || null : null };
     // Where to meet and their inspiration photos belong to their own visit (the first part).
-    const own = i === 0 ? { ...(typeof b.place === 'string' && b.place ? { place: s(b.place, 20) } : {}), ...(Array.isArray(b.inspirationPhotos) ? { inspirationPhotos: b.inspirationPhotos.slice(0, 4).map((x: any) => ({ url: s(x?.url, 600), note: s(x?.note, 400), ...(typeof x?.original === 'string' ? { original: s(x.original, 1000) } : {}), ...(typeof x?.markup === 'string' ? { markup: s(x.markup, 16000) } : {}) })).filter((x: any) => /^https:\/\//.test(x.url)) } : {}) } : {};
+    const own = i === 0 ? { ...(typeof b.place === 'string' && b.place ? { place: s(b.place, 20) } : {}), ...(Array.isArray(b.inspirationPhotos) ? { inspirationPhotos: b.inspirationPhotos.slice(0, 4).map((x: any) => ({ url: s(x?.url, 600), note: s(x?.note, 400), ...(typeof x?.original === 'string' ? { original: s(x.original, 1000) } : {}), ...(typeof x?.markup === 'string' ? { markup: s(x.markup, 16000) } : {}) })).filter((x: any) => /^https:\/\//.test(x.url)) } : {}),
+      ...(b.nowPhoto && typeof b.nowPhoto === 'object' ? { nowPhoto: { url: s(b.nowPhoto.url, 1000), note: s(b.nowPhoto.note, 400), ...(typeof b.nowPhoto.original === 'string' ? { original: s(b.nowPhoto.original, 1000) } : {}), ...(typeof b.nowPhoto.markup === 'string' ? { markup: s(b.nowPhoto.markup, 16000) } : {}) } } : {}) } : {};
     let r: any = null;
     try { const res = await fetch(`${origin}/api/appointments/book`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(groupSig(p) ? { 'x-cf-group-sig': groupSig(p) } : {}) },   // NO staff or internal credentials: a public booking
         body: JSON.stringify({ tenantId, source: 'booking-page', channel: s(b.channel, 24) || undefined, serviceId: s(p.serviceId, 120), addOnIds: Array.isArray(p.addOnIds) ? p.addOnIds.slice(0, 8) : [], staffId: s(p.staffId, 120) || 'any', startTime: s(p.startTime, 40),
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
       r = { status: res.status, data: await res.json().catch(() => ({})) }; } catch { r = { status: 0, data: { error: 'Couldn’t reach the booking system.' } }; }
     if (!r.data?.ok) { await undo(); const who = g ? g.name : i === 0 ? 'you' : `the ${i === 1 ? 'second' : 'next'} service`; const why = s(r.data?.error || 'that time isn’t free', 200).replace(/[.!]+$/, '');
       return NextResponse.json({ ok: false, failedIndex: i, error: `Couldn’t book ${who}: ${why}. Nothing was booked.` }, { status: r.status === 409 ? 409 : 400 }); }
-    made.push({ appointmentId: r.data.appointmentId, checkInToken: r.data.checkInToken, clientId: r.data.clientId, guest: !!g, hasContact: !!(g ? g.email || g.phone : true), depositCents: Number(r.data.depositCents) || 0 });
+    made.push({ appointmentId: r.data.appointmentId, checkInToken: r.data.checkInToken, clientId: r.data.clientId, guest: !!g, hasContact: !!(g ? g.email || g.phone : true), depositCents: Number(r.data.depositCents) || 0, photosLeftOut: Number(r.data.photosLeftOut) || 0 });
   }
   // Link the parts; settle who pays the deposits; mark name-only guests as the organiser's guests.
   const lead = made[0]; const batch = db.batch(); let movedCents = 0;
@@ -82,5 +83,6 @@ export async function POST(req: NextRequest) {
       await matchOnBooking(db, tenantId, { clientId: String(m.clientId), appointmentId: m.appointmentId, broughtBy: String(lead.clientId), serviceIds: [String(parts[i]?.serviceId || '')] }); }
   } catch (e) { console.error('[book-group] referrals', e); }   // a bonus; the booking stands
   return NextResponse.json({ ok: true, linkId, kind: isGroup ? 'group' : 'visit', booked: made.length, status: 'requested', depositCents: lead.depositCents + movedCents,
+    ...(lead.photosLeftOut ? { photosLeftOut: lead.photosLeftOut } : {}),   // (the photos go with the first visit; any left out, the client is told)
     clientNotice: `Your request for ${made.length} ${isGroup ? 'people' : 'services'} is in — we’ll confirm shortly${lead.depositCents + movedCents > 0 ? `, and the deposit is only asked for once we do` : ''}.` });
 }

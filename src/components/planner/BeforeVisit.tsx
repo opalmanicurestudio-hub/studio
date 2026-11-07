@@ -12,7 +12,8 @@ import { wallDate, tenantTimeZone } from '@/lib/tenant-time';
 import { readinessRules } from '@/lib/readiness-rules';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { logHealthOpen } from '@/lib/health-view-client';
-import { PrivateImg, openPrivateFile } from '@/components/shared/private-file';
+import { PrivateImg, openPrivateFile, resolvePrivateUrl } from '@/components/shared/private-file';
+import { PhotoCompare } from '@/components/markup/PhotoCompare';
 import { SignedFormRecord } from '@/components/consents/SignedFormRecord';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GOOD = '#1f7a4d', WARN = '#b45309';
@@ -39,12 +40,12 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
   // Answers kept beside the visit (a long visit record moves older ones there): read when opened, by the same rule.
   // Each read is for one visit: one that comes back after the team has moved to another visit is dropped.
   const [moved, setMoved] = React.useState<Record<string, any | 'loading' | { error: string; again?: boolean }>>({});
-  const [asking, setAsking] = React.useState(false); const [askNote, setAskNote] = React.useState(''); const [earlier, setEarlier] = React.useState(false);
+  const [asking, setAsking] = React.useState(false); const [askNote, setAskNote] = React.useState(''); const [earlier, setEarlier] = React.useState(false); const [comparing, setComparing] = React.useState<'loading' | 'failed' | string[] | null>(null);
   // A different visit starts clean.
   const noted = React.useRef(new Set<string>());   // an opening is noted once per form while this visit is open
   const logged = React.useRef(new Set<string>());  // and a health form's opening logged once
   const visitNow = React.useRef<string | null>(null); visitNow.current = appointment?.id ? String(appointment.id) : null;
-  React.useEffect(() => { setOpen(null); setWaiving(null); setReason(''); setSaid(null); setMoved({}); setAsking(false); setAskNote(''); setEarlier(false); noted.current = new Set(); logged.current = new Set(); }, [appointment?.id]);
+  React.useEffect(() => { setOpen(null); setWaiving(null); setReason(''); setSaid(null); setMoved({}); setAsking(false); setAskNote(''); setEarlier(false); setComparing(null); noted.current = new Set(); logged.current = new Set(); }, [appointment?.id]);
   const zone = tenantTimeZone(tenant);
   const svcs = services.filter(Boolean);
   const asked = formsAskedFor(appointment, svcs);
@@ -74,7 +75,9 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
     </section>);
   const total = asks.length + docs.filter((d) => !d.optional).length;
   const ready = asks.filter((a) => a.ask === 'done' || a.ask === 'confirm').length + docs.filter((d) => d.done && !d.optional).length;
-  if (!total && !photos.length) return null;
+  // How it looks now (sent with the inspiration photos, to compare with them).
+  const nowP: any = appointment?.nowPhoto?.url ? appointment.nowPhoto : null;
+  if (!total && !photos.length && !nowP) return null;
   const own = formsRuleOf(services[0]);   // the visit's own service: when its forms are due, and what happens if they aren't done
   const dueMs = toMs(formsDueAt(appointment?.startTime, appointment?.createdAt, own.dueHours));
   const dueWall = dueMs ? wallDate(new Date(dueMs), zone) : null;
@@ -121,6 +124,16 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
     post({ action: 'answers', formId })
       .then(({ status, d }) => { if (visitNow.current !== forVisit) return; setMoved((m) => ({ ...m, [formId]: d?.ok && d.record ? d.record : status === 403 || status === 404 ? { error: d?.error || 'Those answers can’t be opened here.' } : failed })); })
       .catch(() => { if (visitNow.current === forVisit) setMoved((m) => ({ ...m, [formId]: failed })); });
+  };
+  // Compare, for the team: the photos may be private (opened with the team's sign-in), so they're fetched first. A photo
+  // that can't be opened is left out; without the "now" photo, or any to compare it with, it says so.
+  const openCompare = async () => {
+    if (!nowP) return; const forVisit = visitNow.current; setComparing('loading');
+    const r = await Promise.allSettled([String(nowP.url), ...photos.slice(0, 4).map((p) => String(p.url))].map((u) => resolvePrivateUrl(u)));
+    if (visitNow.current !== forVisit) return;
+    const ok = r.map((x) => (x.status === 'fulfilled' ? x.value : null));
+    const goals = ok.slice(1).filter(Boolean) as string[];
+    setComparing(ok[0] && goals.length ? [ok[0], ...goals] : 'failed');
   };
   // Who opened health answers goes in the health-view log; any opening is noted for the visit.
   const see = (formId: string) => {
@@ -181,7 +194,13 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
               <p className="text-[13px]" style={{ color: d.done || d.optional ? MUTED : WARN }}>{d.done ? (d.kept ? (d.since ? `On file since ${format(wallDate(new Date(d.since), zone), 'MMM d')}` : 'On file') : 'Sent for this visit') : d.optional ? 'Optional · not sent' : 'Not sent yet'}</p></div>
             {d.done && d.files.length > 0 && <div className="flex flex-wrap justify-end gap-x-3">{d.files.slice(0, 4).map((f: any, k: number) => <button key={k} type="button" onClick={() => void openPrivateFile(f.url)} className="min-h-11 min-w-11 px-1 text-[14px] font-semibold" style={{ color: INK }} aria-label={d.files.length > 1 ? `View ${d.label}, file ${k + 1}` : `View ${d.label}`}>{d.files.length > 1 ? `View ${k + 1}` : 'View'}</button>)}</div>}
           </div>))}
-        {photos.length > 0 && <div className="px-4 py-3.5" style={asks.length || docs.length ? { borderTop: `1px solid ${LINE}` } : undefined}>
+        {nowP && <div className="flex items-center gap-3 px-4 py-3.5" style={asks.length || docs.length ? { borderTop: `1px solid ${LINE}` } : undefined}>
+          <button type="button" onClick={() => void openPrivateFile(nowP.url)} aria-label="Open how it looks now" className="shrink-0 rounded-[10px] focus:outline-none focus-visible:ring-2"><PrivateImg src={nowP.url} alt="How it looks now" className="h-[44px] w-[44px] rounded-[10px] object-cover" /></button>
+          <div className="min-w-0 flex-1"><p className="text-[15.5px]" style={{ color: INK }}>How it looks now</p>
+            <p className="text-[13px]" style={{ color: comparing === 'failed' ? WARN : MUTED }} aria-live="polite">{comparing === 'failed' ? 'The photos couldn’t be opened just now.' : nowP.note ? `“${String(nowP.note).slice(0, 120)}”` : `${first} sent this to compare`}</p></div>
+          {photos.length > 0 && <Pill onClick={() => { if (comparing !== 'loading') void openCompare(); }}>{comparing === 'loading' ? 'Opening…' : comparing === 'failed' ? 'Try again' : 'Compare'}</Pill>}
+        </div>}
+        {photos.length > 0 && <div className="px-4 py-3.5" style={asks.length || docs.length || nowP ? { borderTop: `1px solid ${LINE}` } : undefined}>
           <div className="flex items-center gap-3">
             <span aria-hidden className="grid h-[26px] w-[26px] flex-none place-items-center rounded-full text-[12px] font-bold" style={{ background: INK, color: '#fff' }}>{photos.length}</span>
             <div className="min-w-0 flex-1"><p className="text-[15.5px]" style={{ color: INK }}>Inspiration photos</p>
@@ -206,6 +225,7 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
             : <div className="mt-3 flex flex-wrap gap-2 pl-[38px]"><Pill ink disabled={busy === 'photos'} onClick={() => void act('photos', { action: 'photos_ok' }, 'Marked as looked at.')}>Looks good</Pill><Pill onClick={() => { setAsking(true); setSaid(null); }}>Ask for different photos</Pill></div>)}
         </div>}
       </div>
+      {Array.isArray(comparing) && <PhotoCompare viewer="team" now={{ src: comparing[0], label: 'Now' }} goals={comparing.slice(1).map((src, i) => ({ src, label: comparing.length > 2 ? `Photo ${i + 1}` : 'Goal' }))} onClose={() => setComparing(null)} />}
       {said && <p role={said.ok ? 'status' : 'alert'} className="px-1 text-[13.5px]" style={{ color: said.ok ? GOOD : WARN }}>{said.text}</p>}
       {todos.length > 0 && <p className="px-1 text-[13.5px] leading-relaxed" style={{ color: MUTED }}>
         {ownGated && own.release === 'auto'

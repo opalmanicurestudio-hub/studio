@@ -15,7 +15,7 @@ export type ConfirmResult =
   | { requiresPayment: false }
   | { requiresPayment: true; clientSecret: string; stripeAccountId?: string; appointmentId?: string }
   | { requiresPayment: true; error: string };
-export type EngineOutcome = { status: string; notice: string; depositCents: number; cardOnFile?: boolean; visitUrl?: string | null; earlier?: boolean; stillNeeded?: string[] };
+export type EngineOutcome = { status: string; notice: string; depositCents: number; cardOnFile?: boolean; visitUrl?: string | null; earlier?: boolean; stillNeeded?: string[]; photosLeftOut?: number };
 
 /** A booking holding its time while the client pays the deposit: which booking, for exactly what, and its link token
  *  (so the client can let it go if they step back to change something). */
@@ -28,7 +28,7 @@ export function holdKeyOf(d: any, client: { name?: any; email?: any; phone?: any
   return JSON.stringify([d?.serviceId || '', d?.staffId || 'any', d?.startTime || '', [...(Array.isArray(d?.addOnIds) ? d.addOnIds : [])].map(String).sort(), d?.place || '',
     String(client.email || '').trim().toLowerCase(), String(client.name || '').trim(), String(client.phone || '').replace(/[^\d+]/g, ''),
     d?.smsConsent === true, d?.smsMarketing === true, Number(d?.acceptExtraCents) || 0, String(d?.notes || ''),
-    (Array.isArray(d?.inspirationPhotos) ? d.inspirationPhotos : []).map((x: any) => `${x?.url || ''}#${x?.note || ''}`),
+    (Array.isArray(d?.inspirationPhotos) ? d.inspirationPhotos : []).map((x: any) => `${x?.url || ''}#${x?.note || ''}`), `${d?.nowPhoto?.url || ''}#${d?.nowPhoto?.note || ''}#${d?.nowPhoto?.original || ''}`,
     d?.referralTypedCode || '', d?.referredBy?.firstName || '', d?.referredBy?.phone || '',
     (Array.isArray(signedForms) ? signedForms : []).map((f: any) => [f?.formId || '', f?.formData || {}, f?.signedName || '', f?.guardian || null])]);
 }
@@ -113,6 +113,7 @@ export async function bookThroughEngine(o: {
         notes: o.formData.notes,
         inspirationPhotoUrl: d.inspirationPhotoUrl || undefined,
         inspirationPhotos: Array.isArray(d.inspirationPhotos) ? d.inspirationPhotos : undefined,
+        nowPhoto: d.nowPhoto || undefined,
         signedForms: Array.isArray(o.signedForms) ? o.signedForms : [],
         ...(o.extra || {}),
       }) });
@@ -127,7 +128,7 @@ export async function bookThroughEngine(o: {
     // The SERVER decided what this booking became — the screen, email and text all agree.
     o.onOutcome({ status: String(out.status || 'confirmed'), notice: String(out.clientNotice || ''), depositCents: Number(out.depositCents) || 0, cardOnFile: !!out.requiresCardOnFile,
       visitUrl: out.checkInToken ? `/check-in/${encodeURIComponent(String(out.checkInToken))}` : null,
-      stillNeeded: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [] });
+      stillNeeded: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [], photosLeftOut: Number(out.photosLeftOut) || 0 });
     if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {
       o.held.current = { key: holdKey, appointmentId: out.appointmentId, k: out.checkInToken || null, left: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [] };
       return payForHeld(o.tenantId, out.appointmentId);

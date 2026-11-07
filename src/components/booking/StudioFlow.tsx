@@ -396,7 +396,8 @@ export function StudioFlow({ c }: { c: any }) {
           <p className="cf-lbl">Anything we should know?</p>
           <div className="cf-grp"><textarea {...reg('notes')} rows={3} className="cf-in cf-area" placeholder="Allergies, what you’re hoping for, anything at all" /></div>
           {c.asksPhotos !== false && <><p className="cf-lbl mt-4">Inspiration photos <span style={{ fontWeight: 400 }}>(optional)</span></p>
-          <PhotoMarkup tenantId={c.tenantId} value={c.inspoPhotos} onChange={c.setInspoPhotos} accent="var(--accent)" /></>}
+          <PhotoMarkup tenantId={c.tenantId} value={c.inspoPhotos} onChange={c.setInspoPhotos} accent="var(--accent)" now={c.nowPhoto} onNow={c.setNowPhoto}
+            who={whoName || undefined} /></>}
         </section>
         <div className="cf-grp">
           <Controller name="smsConsent" control={c.methods.control} render={({ field: f }) => <SwitchRow on={!!f.value} onToggle={() => f.onChange(!f.value)} label="Text me reminders" fine={c.smsConsentWording(tenant?.name)} />} />
@@ -519,6 +520,7 @@ export function StudioFlow({ c }: { c: any }) {
           {outcome.depositCents > 0 && <li className="flex gap-2.5"><span className="cf-num">3</span>{outcome.cardOnFile ? `If your card declines, you’ll get a link to pay within ${graceHoursOf(tenant)} hours. Otherwise the time is released.` : `Pay within ${graceHoursOf(tenant)} hours of it being accepted, or the time is released.`}</li>}
         </ol>
       </section>}
+      {(outcome.photosLeftOut || 0) > 0 && <p className="pub-card p-4 text-[14px] leading-snug" role="status">{outcome.photosLeftOut === 1 ? 'One of your photos couldn’t be attached.' : `${outcome.photosLeftOut} of your photos couldn’t be attached.`} Please bring {outcome.photosLeftOut === 1 ? 'it' : 'them'} to your visit.</p>}
       {outcome.visitUrl && !req && !pending && (outcome.stillNeeded || []).length > 0 && <a href={outcome.visitUrl} className="pub-card pub-press flex items-center gap-3 p-4 text-left">
         <span aria-hidden className="h-7 w-7 flex-none rounded-full" style={{ boxShadow: 'inset 0 0 0 2px var(--warn, #b45309)' }} />
         <span className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{(outcome.stillNeeded || []).length === 1 ? 'One thing left before your visit' : 'A few things left before your visit'}</span>

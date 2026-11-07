@@ -86,7 +86,7 @@ ok(IP.ownOriginal('/api/files/view?t=t1&p=' + encodeURIComponent('tenants/t1/com
 const words = { ...d0, colors: ['#a99cbb'], note: 'This shape, but shorter.', marks: [pin(1), pin(3), mark({ kind: 'circle', pts: [{ x: 1, y: 1 }, { x: 9, y: 9 }] }), mark({ kind: 'arrow', pts: [{ x: 1, y: 1 }, { x: 9, y: 9 }] }), n1, { ...n2, nail: { shape: 'coffin' as const, length: 'long' as const } },
   mark({ kind: 'stamp', stamp: 'heart', pts: [{ x: 1, y: 1 }] }), mark({ kind: 'text', text: 'Shorter', pts: [{ x: 1, y: 1 }] }), mark({ kind: 'pin', layer: 'private', pts: [{ x: 1, y: 1 }], pin: { n: 9, note: 'Private' } })] };
 const line = D.photoLine(words);
-ok(line === 'two pins with notes · a circle · an arrow · coffin nail guides, long length · a heart · the label “Shorter” · picked color #A99CBB · “This shape, but shorter.”', 'every photo reads out in plain words (never the private notes)', line);
+ok(line === 'Two pins with notes · a circle · an arrow · coffin nail guides, long length · a heart · the label “Shorter” · picked color #A99CBB · “This shape, but shorter.”', 'every photo reads out in plain words (never the private notes)', line);
 ok(/Pins: 1\. Note 1; 3\. Note 3/.test(D.altText(words)) && D.photoLine(null, '') === 'No marks or note', 'and for screen readers, each pin’s note');
 
 // ── picking a mark up
@@ -106,10 +106,20 @@ const tools = ['Move', 'Pen', 'Highlight', 'Arrow', 'Circle', 'Shapes', 'Text', 
 ok(tools.every((t) => E.includes(`label: '${t}'`)), 'every tool, one row', tools.filter((t) => !E.includes(`label: '${t}'`)));
 ok(['Rotate', 'Duplicate', 'To front', 'To back', 'Delete', 'Opacity', 'Copy to every nail', 'Hold to see original', 'Solid', 'Dashed', 'Smooth on', 'Rotate 90°', 'Flip', 'Straighten', 'Colors I love', 'Undo', 'Redo', 'Zoom in', 'Zoom out', 'Custom color'].every((w) => E.includes(w)), 'change any mark, and everything around the tools');
 ok(Mk.STAMPS.map((s) => s.key).join() === 'heart,star,sparkle,tick,cross,warning,target,arrow' && /'number'/.test(E) && Mk.NAIL_SHAPES.length === 5 && Mk.NAIL_LENGTHS.length === 4 && Mk.PALETTE.length === 8, 'every stamp from both tools, numbers, five nail shapes with four lengths, eight colors and a custom one');
-ok(/<MarkupEditor /.test(PM) && /original/.test(PM) && /packDoc\(r\.doc\)/.test(PM) && /reopen\(p, i\)/.test(PM), 'booking photos use the one tool, and keep the photo before its marks and the marks');
+ok(/<MarkupEditor /.test(PM) && /original/.test(PM) && /packDoc\(r\.doc\)/.test(PM) && /reopen\(p, i, 'goal'\)/.test(PM), 'booking photos use the one tool, and keep the photo before its marks and the marks');
 const BR = src('src/app/api/appointments/book/route.ts'), CA = src('src/app/api/checkin/actions/route.ts');
 ok(/ownOriginal\(x\.original, tid\)/.test(BR) && /keepMarkup\(x\.markup, \{ as: 'client' \}\)/.test(BR) && /P\.ownOriginal\(p\?\.original, x\.tenantId\)/.test(CA) && /keepMarkup\(p\?\.markup, \{ as: 'client' \}\)/.test(CA), 'the marks are checked again wherever they’re saved, as the client’s own, and the photo before them only from the private folder');
-const all = ['src/components/markup/MarkupEditor.tsx', 'src/lib/markup/model.ts', 'src/lib/markup/draw.ts', 'src/lib/markup/describe.ts', 'src/components/booking/PhotoMarkup.tsx'].map(src).join('\n');
+const all = ['src/components/markup/MarkupEditor.tsx', 'src/lib/markup/model.ts', 'src/lib/markup/draw.ts', 'src/lib/markup/describe.ts', 'src/components/booking/PhotoMarkup.tsx', 'src/components/markup/PhotoCompare.tsx'].map(src).join('\n');
 const names = new RegExp([['cl', 'aude'], ['anth', 'ropic']].map((x) => x.join('')).join('|'), 'i');
 ok(!names.test(all) && !/call us|contact us/i.test(all) && !/\{\/\*/.test(all) && !/uppercase|tracking-widest/.test(all) && !/colour(?!s\b)|Colours I|grey/.test(all.replace(/colors/g, '')), 'house rules');
+// ── B7b: the photos around the tool (board 17B)
+ok(/setNowPhoto\(null\)/.test(src('src/components/booking/BookingSheet.tsx')), 'a new booking never carries the last one’s photo');
+ok(/photosLeftOut\+\+/.test(BR) && /couldn’t be attached\./.test(src('src/components/booking/StudioFlow.tsx')) && /Please bring/.test(src('src/components/booking/StudioFlow.tsx')) && /photosLeftOut: Number\(out\.photosLeftOut\)/.test(src('src/lib/booking/engine-confirm.ts')), 'a photo that couldn’t be attached is never dropped quietly: the client is told');
+ok(D.countChip({ ...d0, marks: [pin(1), pin(2), pin(3), stroke, stroke, stroke, stroke] }) === '3 pins · 4 marks' && D.countChip({ ...d0, colors: ['#a99cbb'] }) === '1 color' && D.countChip(null) === 'No marks' && D.countChip({ ...d0, marks: [pin(1), mark({ kind: 'pin', layer: 'private', pin: { n: 2, note: '' } })] }) === '1 pin', 'each card says its marks in a few words (never private notes)');
+ok(/Crop photo \$\{i \+ 1\}/.test(PM) && /startTool=\{editing\.tool\}/.test(PM) && /How it looks now/.test(PM) && /<PhotoCompare /.test(PM) && /What \{them\} will see/.test(PM) && /photoLine\(docOf\(p\), p\.note\)/.test(PM), 'cards with Edit, Crop and Remove; how it looks now; compare; and every photo written out before it’s sent');
+const PC = src('src/components/markup/PhotoCompare.tsx');
+ok(['Slider', 'Side by side', 'See through'].every((w) => PC.includes(`'${w}'`)) && /clipPath: `inset\(0 0 0 \$\{at \* 100\}%\)`/.test(PC) && /role="slider"/.test(PC) && /setShape\(i\.naturalWidth \/ i\.naturalHeight\)/.test(PC), 'compare: a slider (and a keyboard way to move it), side by side, see through');
+const BV = src('src/components/planner/BeforeVisit.tsx'), BS = src('src/components/booking/BookingSheet.tsx');
+ok(/nowPhoto: nowIn/.test(BR) || /\{ nowPhoto: nowIn \}/.test(BR), 'how it looks now is kept with the visit', BR.match(/nowIn[^\n]{0,60}/g));
+ok(/nowPhoto/.test(BS) && /openCompare/.test(BV) && /Promise\.allSettled/.test(BV) && /appointment\?\.nowPhoto/.test(BV), 'the team sees it on the appointment, and can compare');
 console.log(bad ? `${bad} failed` : 'all good'); if (bad) process.exit(1);

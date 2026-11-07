@@ -14,7 +14,7 @@ export function markPhrases(doc: MarkupDoc, layers: Layer[] = ['client', 'team']
   const ms = doc.marks.filter((m) => layers.includes(m.layer));
   const out: string[] = [];
   const pins = ms.filter((m) => m.kind === 'pin');
-  if (pins.length) out.push(`${count(pins.length, 'pin', 'pins')}${pins.some((p) => p.pin?.note) ? (pins.every((p) => p.pin?.note) ? ' with notes' : ', some with notes') : ''}`);
+  if (pins.length) out.push(`${count(pins.length, 'pin', 'pins')}${pins.some((p) => p.pin?.note) ? (pins.length === 1 ? ' with a note' : pins.every((p) => p.pin?.note) ? ' with notes' : ', some with notes') : ''}`);
   for (const k of ['circle', 'rect', 'arrow', 'line', 'pen', 'highlight', 'lens', 'blur']) { const n = ms.filter((m) => m.kind === k).length; if (n) out.push(count(n, KIND_WORDS[k][0], KIND_WORDS[k][1])); }
   const nails = ms.filter((m) => m.kind === 'nail' && m.nail);
   if (nails.length) {
@@ -28,14 +28,19 @@ export function markPhrases(doc: MarkupDoc, layers: Layer[] = ['client', 'team']
   return out;
 }
 
-/** One photo, in a line: its marks, colors picked and note ("3 pins with notes · a circle · “This shape, but shorter.”"). */
-export function photoLine(doc: MarkupDoc | null, note?: string, layers?: Layer[]): string {
+/** The parts of a photo's line, as they'd sit mid-sentence. */
+function lineParts(doc: MarkupDoc | null, note?: string, layers?: Layer[]): string[] {
   const parts = doc ? markPhrases(doc, layers) : [];
   const cs = doc?.colors || [];
   if (cs.length) parts.push(`${cs.length === 1 ? 'picked color' : 'picked colors'} ${cs.map((c) => c.toUpperCase()).join(', ')}`);
   const n = String(note ?? doc?.note ?? '').replace(/\n?Colou?rs I picked:[\s\S]*$/, '').trim();
   if (n) parts.push(`“${n}”`);
-  return parts.length ? parts.join(' · ') : 'No marks or note';
+  return parts;
+}
+/** One photo, in a line: its marks, colors picked and note ("3 pins with notes · a circle · “This shape, but shorter.”"). */
+export function photoLine(doc: MarkupDoc | null, note?: string, layers?: Layer[]): string {
+  const line = lineParts(doc, note, layers).join(' · ');
+  return line ? line.charAt(0).toUpperCase() + line.slice(1) : 'No marks or note';
 }
 
 /** Every pin and its note, in number order ("1. Keep the cuticle area clean"). */
@@ -44,7 +49,17 @@ export const pinLines = (doc: MarkupDoc, layers: Layer[] = ['client', 'team']): 
 
 /** For screen readers: the photo's marks, then each pin's note. */
 export function altText(doc: MarkupDoc | null, note?: string, layers?: Layer[]): string {
-  const line = photoLine(doc, note, layers);
+  const line = lineParts(doc, note, layers).join(' · ');
   const pins = doc ? pinLines(doc, layers).filter((l) => !/No note$/.test(l)) : [];
-  return `Photo with ${line === 'No marks or note' ? 'no marks' : line}${pins.length ? `. Pins: ${pins.join('; ')}` : ''}`;
+  return `Photo with ${line || 'no marks'}${pins.length ? `. Pins: ${pins.join('; ')}` : ''}`;
+}
+
+/** A photo's marks in a few words, for the corner of its card ("3 pins · 4 marks", "1 color", "No marks"). */
+export function countChip(doc: MarkupDoc | null, colors: string[] = []): string {
+  const ms = doc ? doc.marks.filter((m) => m.layer !== 'private') : [];
+  const pins = ms.filter((m) => m.kind === 'pin').length; const rest = ms.length - pins;
+  const parts = [pins ? `${pins} pin${pins === 1 ? '' : 's'}` : '', rest ? `${rest} mark${rest === 1 ? '' : 's'}` : ''].filter(Boolean);
+  const cs = (doc?.colors.length ? doc.colors : colors).length;
+  if (!parts.length && cs) return `${cs} color${cs === 1 ? '' : 's'}`;
+  return parts.length ? parts.join(' · ') : 'No marks';
 }

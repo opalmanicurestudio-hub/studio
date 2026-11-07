@@ -50,7 +50,7 @@ type Gesture =
   | { t: 'pick' }
   | { t: 'crop'; part: 'move' | 0 | 1 | 2 | 3; from: Pt; orig: { x: number; y: number; w: number; h: number } };
 
-export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, showLayers, sendLayers, title, accent = INK, by, onCancel, onDone, initialNote = '', initialColors = [] }: {
+export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, showLayers, sendLayers, title, accent = INK, by, onCancel, onDone, initialNote = '', initialColors = [], startTool = 'pen' }: {
   src: string; doc?: MarkupDoc | null; layer?: Layer;
   /** Layers whose marks can be changed here (the editor's own, by default). */
   editLayers?: Layer[];
@@ -63,12 +63,14 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   /** Saves it: resolves to nothing when it's saved (and the caller closes the editor), or to what went wrong. */
   onDone: (r: MarkupResult) => Promise<string | null | void> | void;
   initialNote?: string; initialColors?: string[];
+  /** Opens on this tool (Crop, from a photo's card). */
+  startTool?: Tool;
 }) {
   const root = React.useRef<HTMLDivElement>(null); const stage = React.useRef<HTMLDivElement>(null);
   const canvas = React.useRef<HTMLCanvasElement>(null); const img = React.useRef<HTMLImageElement | null>(null); const sample = React.useRef<{ ctx: CanvasRenderingContext2D; k: number } | null>(null);
   const [doc, setDoc] = React.useState<MarkupDoc | null>(null); const [note, setNote] = React.useState(initialNote);
   const [past, setPast] = React.useState<MarkupDoc[]>([]); const [future, setFuture] = React.useState<MarkupDoc[]>([]);
-  const [tool, setTool] = React.useState<Tool>('pen'); const [color, setColor] = React.useState(PALETTE[0]); const [size, setSize] = React.useState(SIZES[1].v);
+  const [tool, setTool] = React.useState<Tool>(startTool); const [color, setColor] = React.useState(PALETTE[0]); const [size, setSize] = React.useState(SIZES[1].v);
   const [dash, setDash] = React.useState(false); const [smooth, setSmooth] = React.useState(true); const [shape, setShape] = React.useState<'rect' | 'line'>('rect'); const [round, setRound] = React.useState(false);
   const [stamp, setStamp] = React.useState<StampKind | 'number'>('heart'); const [nail, setNail] = React.useState<{ shape: NailShape; length: NailLength }>({ shape: 'almond', length: 'medium' });
   const [zoomLens, setZoomLens] = React.useState<2 | 3 | 4>(3); const [label, setLabel] = React.useState('');
@@ -212,7 +214,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
 
   // ── Crop ───────────────────────────────────────────────────────────────────────────────────────────────────
   const wholeOf = (d: MarkupDoc) => { const ts = turnedSize(d); return { x: 0, y: 0, w: ts.w, h: ts.h }; };
-  React.useEffect(() => { if (cropping && doc) setCropDraft(doc.view.crop || wholeOf(doc)); }, [cropping]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (cropping && doc) setCropDraft(doc.view.crop || wholeOf(doc)); }, [cropping, !!doc]); // eslint-disable-line react-hooks/exhaustive-deps
   /** The crop is applied when the crop tool is left (or Done). */
   const applyCrop = (d: MarkupDoc): MarkupDoc => {
     if (!cropDraft) return d; const ts = turnedSize(d);

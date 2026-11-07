@@ -75,7 +75,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   /* What the server actually made of the last booking — read by the sheet's
    * confirmation screen so it never claims "confirmed" for a request. */
-  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; stillNeeded?: string[] } | null>(null);
+  const [bookingOutcome, setBookingOutcome] = useState<{ status: string; notice: string; depositCents: number; cardOnFile?: boolean; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; stillNeeded?: string[]; photosLeftOut?: number } | null>(null);
   const [tenant,          setTenant]          = useState<any>(null);
   const [services,        setServices]        = useState<any[]>([]);
   const [staff,           setStaff]           = useState<any[]>([]);
@@ -572,9 +572,9 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         const gr = await fetch('/api/appointments/book-group', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, parts, notes: formData.notes, signedForms: Array.isArray(signedForms) ? signedForms : [],
           channel: channelFrom(new URLSearchParams(window.location.search).get('src')), ...(refSlug ? { referralCode: refSlug } : {}), ...(refCampaign ? { referralCampaign: refCampaign } : {}), ...((restDetails as any).referredBy ? { referredBy: (restDetails as any).referredBy } : {}), ...((restDetails as any).referralTypedCode ? { referralTypedCode: (restDetails as any).referralTypedCode } : {}), organizer: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone, smsConsent: ((restDetails as any).smsConsent ?? (formData as any).smsConsent) === true, smsConsentText: (restDetails as any).smsConsentText || null,
             smsMarketing: (restDetails as any).smsMarketing === true, smsMarketingText: (restDetails as any).smsMarketing === true ? (restDetails as any).smsMarketingText || null : null },
-          ...((restDetails as any).place ? { place: (restDetails as any).place } : {}), ...(Array.isArray((restDetails as any).inspirationPhotos) ? { inspirationPhotos: (restDetails as any).inspirationPhotos } : {}) }) }).then((x) => x.json()).catch(() => null);
+          ...((restDetails as any).place ? { place: (restDetails as any).place } : {}), ...(Array.isArray((restDetails as any).inspirationPhotos) ? { inspirationPhotos: (restDetails as any).inspirationPhotos } : {}), ...((restDetails as any).nowPhoto ? { nowPhoto: (restDetails as any).nowPhoto } : {}) }) }).then((x) => x.json()).catch(() => null);
         if (!gr?.ok) return { requiresPayment: true, error: gr?.error || 'We couldn’t send that request — please try again. Nothing was booked.' };
-        setBookingOutcome({ status: 'requested', notice: String(gr.clientNotice || ''), depositCents: Number(gr.depositCents) || 0, cardOnFile: false } as any);
+        setBookingOutcome({ status: 'requested', notice: String(gr.clientNotice || ''), depositCents: Number(gr.depositCents) || 0, cardOnFile: false, photosLeftOut: Number(gr.photosLeftOut) || 0 } as any);
         return { requiresPayment: false };
       }
       const holdKey = holdKeyOf({ ...restDetails, notes: formData.notes }, { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone }, signedForms);
@@ -619,6 +619,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
             notes: formData.notes,
             inspirationPhotoUrl: (restDetails as any).inspirationPhotoUrl || undefined,
             inspirationPhotos: Array.isArray((restDetails as any).inspirationPhotos) ? (restDetails as any).inspirationPhotos : undefined,
+            nowPhoto: (restDetails as any).nowPhoto || undefined,
             signedForms: Array.isArray(signedForms) ? signedForms : [],
             // A reschedule: the old visit is released once this one is booked (or, with a deposit, paid for).
             ...(reschedule?.id ? { replacesAppointmentId: reschedule.id } : {}),
@@ -645,7 +646,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         verify: out.phoneUnconfirmed && out.appointmentId && out.checkInToken ? { tenantId, apptId: String(out.appointmentId), k: String(out.checkInToken) } : null, prepUrl: typeof out.prepUrl === 'string' ? out.prepUrl : null,
         // The visit link (the one in every message about this visit), so the booked screen can open it.
         visitUrl: out.checkInToken ? `/check-in/${encodeURIComponent(String(out.checkInToken))}` : null,
-        stillNeeded: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [] });
+        stillNeeded: Array.isArray(out.stillNeeded) ? out.stillNeeded.map(String).slice(0, 5) : [], photosLeftOut: Number(out.photosLeftOut) || 0 });
 
       // A deposit is due now → pay against THIS appointment.
       if (out.status === 'pending_payment' && Number(out.depositCents) > 0 && out.appointmentId) {

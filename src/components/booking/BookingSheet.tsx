@@ -132,7 +132,7 @@ interface BookingSheetProps {
   calendarEvents?:  any[];
   /** What the SERVER made of the booking. Absent = an older caller, in
    *  which case the sheet keeps its original confirmed wording. */
-  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean; stillNeeded?: string[] } | null;
+  bookingOutcome?: { status: string; notice: string; depositCents: number; cardOnFile?: boolean; verify?: { tenantId: string; apptId: string; k: string } | null; prepUrl?: string | null; visitUrl?: string | null; earlier?: boolean; stillNeeded?: string[]; photosLeftOut?: number } | null;
   onConfirm: (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'> & { depositAmount?: number; depositStatus?: string },
@@ -178,6 +178,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [bookedStaffId,        setBookedStaffId]         = useState<string | null>(null);
   // Up to 4 marked-up photos, each with a note (PhotoMarkup).
   const [inspoPhotos,          setInspoPhotos]           = useState<InspoPhoto[]>([]);
+  // How it looks now, to compare with them (PhotoMarkup).
+  const [nowPhoto,             setNowPhoto]              = useState<InspoPhoto | null>(null);
   // What to tell the client on the step they're on: a check that didn't pass, or what the server said.
   const [flowNote, setFlowNote] = useState<FlowNote>(null);
   // Who this device knows (their first name), while their details are the ones filled in.
@@ -438,7 +440,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     setFormsWhen(me && formsRuleOf(service).due !== 'booking' ? 'later' : 'now');
     methods.reset(prefillClient ? { clientName: prefillClient.clientName || '', clientEmail: prefillClient.clientEmail || '', clientPhone: phoneForField(prefillClient.clientPhone) } as any
       : me ? { clientName: me.name, clientEmail: me.email, clientPhone: phoneForField(me.phone) } as any : undefined);   // consent is always theirs to give on this booking
-    setFormAnswers({}); setGuardians({}); setBookedStaffId(null); setInspoPhotos([]); setParty(emptyParty);
+    setFormAnswers({}); setGuardians({}); setBookedStaffId(null); setInspoPhotos([]); setNowPhoto(null); setParty(emptyParty);
     resetPay(); setFlowNote(null); setExtraOffer(null); setAcceptExtraCents(0);
     if (initialSlot && /^\d{4}-\d{2}-\d{2}$/.test(initialSlot.date)) { const [y, m, d] = initialSlot.date.split('-').map(Number);
       setSelectedStaffId(lockedStaffId || initialSlot.staffId || 'any'); setDate(new Date(y, m - 1, d)); setSelectedTime(initialSlot.time); setStepName('details'); }
@@ -502,6 +504,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         status: 'confirmed', isWalkIn: false, source: 'online',
         inspirationPhotoUrl: inspoPhotos[0]?.url || undefined, notes: formValues.notes,
         ...(inspoPhotos.length ? { inspirationPhotos: inspoPhotos.map(({ url, note, original, markup }) => ({ url, note, ...(original ? { original } : {}), ...(markup ? { markup } : {}) })) } : {}),
+        ...(nowPhoto ? { nowPhoto: { url: nowPhoto.url, note: nowPhoto.note, ...(nowPhoto.original ? { original: nowPhoto.original } : {}), ...(nowPhoto.markup ? { markup: nowPhoto.markup } : {}) } } : {}),
         depositAmount,
         depositStatus: chargeDueNow ? 'pending' : 'none',
         // Written-out proof of consent. Storing the wording alongside the flag
@@ -705,7 +708,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     clientExtra, party, setParty, groupPol, allServices: services, date, setDate, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn, addOnMinutes,
     placeOpts, placeChoice, setPlaceChoice, activeDaySchedule,
     methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance, known, forgetMe,
-    requiredForms, formsToBook: formsRuleOf(service).due === 'booking', asksPhotos: asksInspirationPhotos(service), formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, guardians, setGuardians, guardianAsk, formsWhen, setFormsWhen: (w: 'now' | 'later') => { setFormsWhen(w); setFlowNote(null); }, formDone,
+    requiredForms, formsToBook: formsRuleOf(service).due === 'booking', asksPhotos: asksInspirationPhotos(service), formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, nowPhoto, setNowPhoto, guardians, setGuardians, guardianAsk, formsWhen, setFormsWhen: (w: 'now' | 'later') => { setFormsWhen(w); setFlowNote(null); }, formDone,
     price, priceRange, previewLines, bookingPreview, chargeDueNow, cardSetupDueNow, confirming, depositAmount, bookingOutcome, flowNote, setFlowNote,
     extraOffer, acceptExtra: () => { if (!extraOffer) return; setAcceptExtraCents(extraOffer.cents); setExtraOffer(null); setRebookTick((t) => t + 1); },
     declineExtra: () => { setExtraOffer(null); setAcceptExtraCents(0); setSelectedTime(null); setDirection('back'); setStepName('dateTime'); },
