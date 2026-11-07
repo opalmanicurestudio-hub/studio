@@ -14,7 +14,7 @@ import { format, setHours, setMinutes, startOfDay, addMinutes } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { formsAskedFor, formRulesOf } from '@/lib/forms';
+import { formsAskedFor, formRulesOf, formsRuleOf, asksInspirationPhotos } from '@/lib/forms';
 import { formLeft, guardianSigns, FORM_META, type Guardian } from '@/lib/forms';
 import { StudioFlow, type FlowLook } from './StudioFlow';
 import { DepositGiftCard } from '@/components/gift/DepositGiftCard';
@@ -433,8 +433,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     // Their details: a reschedule's or an assistant's hold first, else what this device used last time.
     const me = !prefillClient && tid && !discreet ? readKnown(tid) : null;
     setKnown(me ? firstName(me.name) || null : null);
-    // A client this device knows starts at "Later": the visit link asks only for what isn't already on file.
-    setFormsWhen(me ? 'later' : 'now');
+    // A client this device knows starts at "Later": the visit link asks only for what isn't already on file. A service
+    // whose forms are due when they book (Settings › Forms and documents) asks for them here, every time.
+    setFormsWhen(me && formsRuleOf(service).due !== 'booking' ? 'later' : 'now');
     methods.reset(prefillClient ? { clientName: prefillClient.clientName || '', clientEmail: prefillClient.clientEmail || '', clientPhone: phoneForField(prefillClient.clientPhone) } as any
       : me ? { clientName: me.name, clientEmail: me.email, clientPhone: phoneForField(me.phone) } as any : undefined);   // consent is always theirs to give on this booking
     setFormAnswers({}); setGuardians({}); setBookedStaffId(null); setInspoPhotos([]); setParty(emptyParty);
@@ -640,8 +641,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         if (!who) { setFlowNote({ tone: 'warn', text: 'That day is kept for returning clients. Please choose another day.' }); return; }
       }
       // Doing them now: every form finished. Later: nothing stops here; the visit link asks.
-      const unanswered = formsWhen === 'now' ? requiredForms.find((f) => !formDone(f)) : null;
-      if (unanswered) { setFlowNote({ tone: 'warn', text: `Finish ${unanswered.title || 'the form'}, or choose “Later, from my visit link”.`, about: 'forms' }); return; }
+      const toBook = formsRuleOf(service).due === 'booking';
+      const unanswered = formsWhen === 'now' || toBook ? requiredForms.find((f) => !formDone(f)) : null;
+      if (unanswered) { setFlowNote({ tone: 'warn', text: toBook ? `Finish ${unanswered.title || 'the form'} to book. It’s needed before booking.` : `Finish ${unanswered.title || 'the form'}, or choose “Later, from my visit link”.`, about: 'forms' }); return; }
     }
     if (currentStep === 'review') { void submit(); return; }
     setDirection('fwd');
@@ -703,7 +705,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     clientExtra, party, setParty, groupPol, allServices: services, date, setDate, selectedTime, setSelectedTime, timeSlots, hotSlotMap, availability, addOns, addOnIds, toggleAddOn, addOnMinutes,
     placeOpts, placeChoice, setPlaceChoice, activeDaySchedule,
     methods, smsConsentWording, smsMarketingWording, isResolvingIdentity, bannedClient, existingClientWithBalance, known, forgetMe,
-    requiredForms, formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, guardians, setGuardians, guardianAsk, formsWhen, setFormsWhen: (w: 'now' | 'later') => { setFormsWhen(w); setFlowNote(null); }, formDone,
+    requiredForms, formsToBook: formsRuleOf(service).due === 'booking', asksPhotos: asksInspirationPhotos(service), formAnswers, setFormAnswers, inspoPhotos, setInspoPhotos, guardians, setGuardians, guardianAsk, formsWhen, setFormsWhen: (w: 'now' | 'later') => { setFormsWhen(w); setFlowNote(null); }, formDone,
     price, priceRange, previewLines, bookingPreview, chargeDueNow, cardSetupDueNow, confirming, depositAmount, bookingOutcome, flowNote, setFlowNote,
     extraOffer, acceptExtra: () => { if (!extraOffer) return; setAcceptExtraCents(extraOffer.cents); setExtraOffer(null); setRebookTick((t) => t + 1); },
     declineExtra: () => { setExtraOffer(null); setAcceptExtraCents(0); setSelectedTime(null); setDirection('back'); setStepName('dateTime'); },

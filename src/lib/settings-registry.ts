@@ -40,6 +40,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   ] },
   { id: 'checkin', title: 'Check-in and visits', meaning: 'Before the visit, checking in, the visit itself and aftercare', pages: [
     { id: 'before', title: 'Before the visit', meaning: 'Questions for each service and what clients see beforehand', href: '/settings/before-the-visit', words: 'before the visit questions intake prep readiness top up' },
+    { id: 'forms', title: 'Forms and documents', meaning: 'What each service needs before the visit, your forms, and how long a signature lasts', href: '/settings/forms', words: 'forms consent waiver release intake health questions signature signed documents photo id guardian under 18 due' },
     { id: 'stages', title: 'Visit stages', meaning: 'The steps of a visit and what clients see on their visit link', href: T('visits'), words: 'stages timeline arrived waiting in service visit link' },
     { id: 'kiosk', title: 'Check-in screen', meaning: 'The screen clients use to check themselves in', href: T('kiosk'), words: 'kiosk check in front door qr walk in', module: 'kiosk' },
     { id: 'comforts', title: 'Guest comforts', meaning: 'Wi-Fi, drinks and little extras', href: T('experience'), words: 'wifi drinks refreshments hospitality concierge' },

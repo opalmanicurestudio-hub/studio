@@ -169,6 +169,15 @@ export default function ConsentsPage() {
     setIsFormBuilderOpen(true);
   }
 
+  // Opened from Settings › Forms and documents: ?edit=<form> opens that form in the builder, ?new=1 a new one (once).
+  const opened = React.useRef(false);
+  React.useEffect(() => {
+    if (opened.current || typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search); const id = q.get('edit');
+    if (q.get('new') === '1') { opened.current = true; setEditingStaff(null); setIsFormBuilderOpen(true); return; }
+    if (id && forms) { opened.current = true; const f = forms.find((x) => x.id === id); if (f) { setEditingStaff(f); setIsFormBuilderOpen(true); } }
+  }, [forms]);
+
   const handlePreviewForm = (form: ConsentForm) => {
     setPreviewingForm(form);
   };

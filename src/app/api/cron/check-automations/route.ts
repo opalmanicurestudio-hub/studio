@@ -192,7 +192,8 @@ export async function GET(req: NextRequest) {
         }
 
         // ── consentFormUnsigned ──────────────────────────────────────────
-        if (service?.requiredFormIds?.length) {
+        // A service with its own forms rule (Settings › Forms and documents) is handled by lib/forms-release instead.
+        if (service?.requiredFormIds?.length && !(service?.formsRule && typeof service.formsRule === 'object')) {
           // The service's own forms (as before: a form the team added to one visit never cancels it), signed for this
           // visit or still current on file (lib/forms): a form signed online or at the kiosk counts, so nobody is
           // reminded, held or canceled over a form already signed.

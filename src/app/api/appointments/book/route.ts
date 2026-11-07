@@ -211,12 +211,14 @@ export async function POST(req: NextRequest) {
     const source = String(body.source || 'api').slice(0, 40);
     const channel = String(body.channel || '').slice(0, 24) || null;   // where the client came from (a shared link's src)
     const trust = await callerTrust(req, String(tenantId || ''), body);
+    let groupSigned = false;   // one guest's part of a group booking, sent by our own server (book-group)
     if (!trust) {
       // Public bookings send texts and emails, so they're limited: per visitor per hour, and per business per day.
       // A group booking calls this once per guest from our own server; those calls are signed (x-cf-group-sig) and
       // skip the per-visitor count, because the group route already counted the visitor.
       const secret = process.env.CRON_SECRET || ''; const sig = req.headers.get('x-cf-group-sig') || '';
       const signed = !!secret && !!sig && body?.groupRequest === true && sig === createHmac('sha256', secret).update(`${tenantId}|${body?.serviceId}|${body?.startTime}`).digest('hex');
+      groupSigned = signed;
       const limited = await limitPublic(req, 'book', String(tenantId || ''), { perHour: signed ? 1000 : 20, perDay: 600 }); if (limited) return limited;
     }
     if (!tenantId || !serviceId || !startTime) {
@@ -250,6 +252,7 @@ export async function POST(req: NextRequest) {
     // Staff/our server aren't limited here. When allowed, the new booking
     // inherits the original time + count, so deadlines can't be pushed back.
     let replacedChain: { originalStartTime: string | null; rescheduleCount: number } | null = null;
+    let movingOwn = false;   // moving their own visit of the same service (its forms were asked for when it was booked)
     const replacesId = typeof body.replacesAppointmentId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(body.replacesAppointmentId) ? body.replacesAppointmentId : null;
     if (replacesId) {
       const oldSnap = await db.doc(`tenants/${tenantId}/appointments/${replacesId}`).get();
@@ -271,6 +274,9 @@ export async function POST(req: NextRequest) {
           }
         }
         replacedChain = chainAfterMove(old);
+        const em = String(body?.client?.email || '').trim().toLowerCase(), ph = String(body?.client?.phone || '').replace(/\D/g, '').slice(-10);
+        movingOwn = String(old.serviceId || '') === String(serviceId || '') && !['cancelled', 'canceled'].includes(String(old.status || ''))
+          && ((!!em && String(old.clientEmail || '').trim().toLowerCase() === em) || (ph.length === 10 && String(old.clientPhone || '').replace(/\D/g, '').slice(-10) === ph));
       }
     }
 
@@ -528,6 +534,16 @@ export async function POST(req: NextRequest) {
       const ok = (f: any) => { const def = formsPre.defs.find((d: any) => d.id === f.formId); return !!def && sentFormDone(def, f, rules); };
       acceptedForms = signedFormsIn.filter(ok); asideForms = signedFormsIn.filter((f: any) => !ok(f));
     } catch (e) { console.error('[book] forms check', e); }
+    // A service whose forms are due when they book (Settings › Forms and documents): online, every one is finished to book.
+    // Not for a guest's part of a group (the guest is asked on their own visit link) or a visit being moved (its forms
+    // were asked for when it was first booked).
+    if (trust === null && formsPre.defsRead && !(groupSigned && body?.quiet === true) && !movingOwn) {
+      const { formsRuleOf } = await import('@/lib/forms');
+      if (formsRuleOf(svc).due === 'booking') {
+        const open = formsPre.defs.find((d: any) => !acceptedForms.some((f: any) => f?.formId === d.id));
+        if (open) return NextResponse.json({ ok: false, code: 'forms_needed', error: `Please finish “${String(open.title || 'the form')}” to book. It’s needed before booking.` }, { status: 400 });
+      }
+    }
 
     // ── The race-proof core: check + write in ONE transaction ──
     const aptsRef = db.collection(`tenants/${tenantId}/appointments`);

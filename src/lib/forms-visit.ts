@@ -4,7 +4,7 @@
 // business asked for, and when it's all due. The visit link saves one form at a time here (saveVisitForm), so the
 // list ticks off as they go, and once nothing is left the visit's request is closed and, if they were reminded, they
 // get a thank-you. A read that fails is never taken as "nothing there": the caller is told to try again. Server side only.
-import { formsAskedFor, formAsks, formRulesOf, formMinutes, isHealthForm, formsDueAt, sentFormDone, fitOnVisit, toMs, fieldsOf, signedOnVisit, requestAsksMore, onFileEntry, CLIENT_WAIVED, type FormAsk } from './forms';
+import { formsAskedFor, formAsks, formRulesOf, formMinutes, isHealthForm, formsDueAt, formsRuleOf, sentFormDone, fitOnVisit, toMs, fieldsOf, signedOnVisit, requestAsksMore, onFileEntry, CLIENT_WAIVED, type FormAsk } from './forms';
 import { tenantTimeZone } from './tenant-time';
 
 export type VisitAsk = FormAsk & { minutes: number; health: boolean; since?: string | null };
@@ -57,7 +57,9 @@ export async function visitForms(db: any, tenantId: string, appt: any, o: { tena
     return { id: String(r.id), label: String(cfg.prompt || r.label || 'A document').slice(0, 120), done: here || onFile, onFile: onFile && !here, ...(r.required === false ? { optional: true } : {}) };
   });
   const left = asks.filter((a) => a.ask === 'sign' || a.ask === 'sign_again').length + files.filter((f) => !f.done && !f.optional).length;
-  return { asks, files, left, dueAt: formsDueAt(appt?.startTime, appt?.createdAt), defs };
+  // Due as the visit's own service has it (a day before, unless it asks for two).
+  const main = svcs.find((x: any) => x.id === String(appt?.serviceId || ''));
+  return { asks, files, left, dueAt: formsDueAt(appt?.startTime, appt?.createdAt, formsRuleOf(main).dueHours), defs };
 }
 
 /** Answers keep only the form's own question ids as keys (never empty, never "__…__", which the database keeps for itself). */

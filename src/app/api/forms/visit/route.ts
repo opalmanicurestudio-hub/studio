@@ -131,8 +131,8 @@ export async function POST(req: NextRequest) {
     return true;
   });
   if (!claimed) return bad('A reminder went out in the last few hours. You can send another later.', 429);
-  const { sendFormsReminder } = await import('@/lib/forms-remind'); const { formsDueAt } = await import('@/lib/forms');
-  const due = formsDueAt(appt.startTime, appt.createdAt) || appt.startTime;
+  const { sendFormsReminder } = await import('@/lib/forms-remind');
+  const due = state.dueAt || appt.startTime;   // as the visit's service has it (lib/forms-visit)
   let sent = false;
   try { sent = await sendFormsReminder(db, tenantId, { ...appt, id: apptId }, tenant, state, due); } catch (e) { console.error('[forms/visit] remind', e); }
   if (!sent) {

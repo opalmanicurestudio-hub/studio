@@ -77,6 +77,8 @@ export async function GET(req: NextRequest) {
     try { const { certificationSweep } = await import('@/lib/certification-server'); await certificationSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] certifications', tid, e); }
     // Forms or documents still left: one reminder the evening before they're due (lib/forms-remind).
     try { const { formsReminderSweep } = await import('@/lib/forms-remind'); await formsReminderSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] forms reminder', tid, e); }
+    // …and, for a service with its own rule, what happens once they're due and still not done (lib/forms-release).
+    try { const { formsReleaseSweep } = await import('@/lib/forms-release'); await formsReleaseSweep(db, tid, tDoc.data()); } catch (e) { console.error('[cron] forms release', tid, e); }
     try {
       const cfg = ((tDoc.data() as any)?.clientNotify) || {};
       if (cfg.enabled === false) { results[tid] = 'disabled'; continue; }

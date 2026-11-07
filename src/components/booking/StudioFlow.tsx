@@ -375,7 +375,7 @@ export function StudioFlow({ c }: { c: any }) {
                   <span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{fr.persistToProfile ? 'Asked once, then kept on your profile.' : 'For this visit.'} Asked on your visit link after you book.</span></span>
               </div>))}
           </div>
-          {forms.length > 0 && !allFormsDone && <div className="mt-3 flex gap-1 rounded-[14px] p-1" role="radiogroup" aria-label="When to do them" style={{ background: 'color-mix(in srgb, var(--ink) 6%, transparent)' }}>
+          {forms.length > 0 && !allFormsDone && !c.formsToBook && <div className="mt-3 flex gap-1 rounded-[14px] p-1" role="radiogroup" aria-label="When to do them" style={{ background: 'color-mix(in srgb, var(--ink) 6%, transparent)' }}>
             {([['now', 'Do them now'], ['later', 'Later, from my visit link']] as const).map(([k, t]) => (
               <button key={k} type="button" role="radio" aria-checked={c.formsWhen === k} tabIndex={c.formsWhen === k ? 0 : -1} onClick={() => c.setFormsWhen(k)}
                 onKeyDown={(e) => { if (/^Arrow(Left|Right|Up|Down)$/.test(e.key)) { e.preventDefault(); const o = k === 'now' ? 'later' : 'now'; c.setFormsWhen(o); ((e.currentTarget.parentElement?.querySelector(`[data-when="${o}"]`)) as HTMLElement | null)?.focus(); } }}
@@ -385,14 +385,15 @@ export function StudioFlow({ c }: { c: any }) {
           <p className="mt-2.5 px-1 text-[13px] leading-snug" style={{ color: 'var(--muted)' }}>
             {forms.length && allFormsDone ? (fileNeeds.length ? 'Your forms are done. Your visit link asks for the rest after you book.' : 'All done. Thank you.')
               : !forms.length ? 'Your visit link asks for it after you book: it takes a minute.'
+              : c.formsToBook ? (fileNeeds.length ? 'They’re needed to book. Your visit link asks for the rest.' : 'They’re needed to book.')
               : c.formsWhen === 'later' ? 'Your visit link asks for anything left, before your visit. Anything already on file isn’t asked again.'
               : fileNeeds.length ? 'Finish the forms here to book. Your visit link asks for the rest.' : 'Finish them here to book.'}</p>
         </section>}
         <section aria-label="Anything we should know">
           <p className="cf-lbl">Anything we should know?</p>
           <div className="cf-grp"><textarea {...reg('notes')} rows={3} className="cf-in cf-area" placeholder="Allergies, what you’re hoping for, anything at all" /></div>
-          <p className="cf-lbl mt-4">Inspiration photos <span style={{ fontWeight: 400 }}>(optional)</span></p>
-          <PhotoMarkup tenantId={c.tenantId} value={c.inspoPhotos} onChange={c.setInspoPhotos} accent="var(--accent)" />
+          {c.asksPhotos !== false && <><p className="cf-lbl mt-4">Inspiration photos <span style={{ fontWeight: 400 }}>(optional)</span></p>
+          <PhotoMarkup tenantId={c.tenantId} value={c.inspoPhotos} onChange={c.setInspoPhotos} accent="var(--accent)" /></>}
         </section>
         <div className="cf-grp">
           <Controller name="smsConsent" control={c.methods.control} render={({ field: f }) => <SwitchRow on={!!f.value} onToggle={() => f.onChange(!f.value)} label="Text me reminders" fine={c.smsConsentWording(tenant?.name)} />} />

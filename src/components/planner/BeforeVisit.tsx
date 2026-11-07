@@ -7,8 +7,9 @@
 // releases anything: it says what happens if a form isn't done, as the business's Automations have it.
 import * as React from 'react';
 import { format } from 'date-fns';
-import { formAsks, formsAskedFor, formRulesOf, formsDueAt, waivedOnVisit, isHealthForm, toMs } from '@/lib/forms';
+import { formAsks, formsAskedFor, formRulesOf, formsDueAt, formsRuleOf, waivedOnVisit, isHealthForm, toMs } from '@/lib/forms';
 import { wallDate, tenantTimeZone } from '@/lib/tenant-time';
+import { readinessRules } from '@/lib/readiness-rules';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { logHealthOpen } from '@/lib/health-view-client';
 import { PrivateImg, openPrivateFile } from '@/components/shared/private-file';
@@ -64,7 +65,8 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
   const total = asks.length + docs.filter((d) => !d.optional).length;
   const ready = asks.filter((a) => a.ask === 'done' || a.ask === 'confirm').length + docs.filter((d) => d.done && !d.optional).length;
   if (!total && !photos.length) return null;
-  const dueMs = toMs(formsDueAt(appointment?.startTime, appointment?.createdAt));
+  const own = formsRuleOf(services[0]);   // the visit's own service: when its forms are due, and what happens if they aren't done
+  const dueMs = toMs(formsDueAt(appointment?.startTime, appointment?.createdAt, own.dueHours));
   const dueWall = dueMs ? wallDate(new Date(dueMs), zone) : null;
   const dueWords = dueWall ? `${format(dueWall, 'EEE')} at ${format(dueWall, 'h:mm a')}` : '';
   const first = String(appointment?.clientName || client?.name || 'The client').split(' ')[0];
@@ -74,7 +76,15 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
   const auto = tenant?.appointmentAutomations?.consentFormUnsigned;
   const mainForms: string[] = Array.isArray(services[0]?.requiredFormIds) ? services[0].requiredFormIds.map(String) : [];
   const hours = Number(auto?.secondWindowHours);
-  const gated = auto?.enabled && auto?.secondWindowHours != null && Number.isFinite(hours) ? todos.find((a) => mainForms.includes(a.formId)) : undefined;
+  const gated = !own.own && auto?.enabled && auto?.secondWindowHours != null && Number.isFinite(hours) ? todos.find((a) => mainForms.includes(a.formId)) : undefined;
+  // A service with its own rule (Settings › Forms and documents) says so instead; the time is released only for its own
+  // forms, and only when they were due well before the visit (lib/forms-release).
+  // When that would happen: at the due time, or once they've had 12 hours since booking (lib/forms-release).
+  const releaseMs = dueMs ? Math.max(dueMs, toMs(appointment?.createdAt) + 12 * 3600e3) : 0;
+  const releaseWall = releaseMs ? wallDate(new Date(releaseMs), zone) : null;
+  const releaseWords = releaseWall ? `${format(releaseWall, 'EEE')} at ${format(releaseWall, 'h:mm a')}` : '';
+  const ownGated = own.own && own.release !== 'off' && releaseMs && releaseMs <= toMs(appointment?.startTime) - 2 * 3600e3 ? todos.find((a) => mainForms.includes(a.formId)) : undefined;
+  const startWaits = readinessRules(tenant, services[0]).forms === 'block';
   // The visit's own copy, unless its answers were moved off the visit (then the copy on file has them).
   const entryFor = (formId: string) => {
     const here = (Array.isArray(appointment?.signedForms) ? appointment.signedForms : []).find((f: any) => f && typeof f === 'object' && f.formId === formId) || null;
@@ -159,7 +169,13 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
       </div>
       {said && <p role={said.ok ? 'status' : 'alert'} className="px-1 text-[13.5px]" style={{ color: said.ok ? GOOD : WARN }}>{said.text}</p>}
       {todos.length > 0 && <p className="px-1 text-[13.5px] leading-relaxed" style={{ color: MUTED }}>
-        {gated && auto?.severity === 'auto_cancel'
+        {ownGated && own.release === 'auto'
+          ? `If “${ownGated.title}” isn’t signed by ${releaseWords}, the time is released and ${first} is told. Nothing is charged.`
+          : ownGated && own.release === 'ask'
+            ? `If “${ownGated.title}” isn’t signed by ${releaseWords}, you’re asked whether to release the time. Nothing is released without you.`
+          : own.own
+            ? `If “${todos[0].title}” isn’t signed${dueWords ? ` by ${dueWords}` : ''}, ${startWaits ? `${first} is asked first thing when they check in, and the visit starts once it’s signed.` : 'it shows here as a reminder. Nothing is held up.'}`
+          : gated && auto?.severity === 'auto_cancel'
           ? `If “${gated.title}” isn’t signed ${hours > 0 ? `${hours} hour${hours === 1 ? '' : 's'} before the visit` : 'by the time the visit starts'}, the booking is canceled automatically (Automations).`
           : gated && auto?.severity === 'require'
             ? `If “${gated.title}” isn’t signed ${hours > 0 ? `${hours} hour${hours === 1 ? '' : 's'} before the visit` : 'by the time the visit starts'}, check-in waits until it’s signed (Automations).`

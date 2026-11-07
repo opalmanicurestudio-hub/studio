@@ -30,6 +30,9 @@ export async function formsReminderSweep(db: any, tenantId: string, tenant: any,
   const snap = await db.collection(`tenants/${tenantId}/bookingCompletions`).where('status', '==', 'pending').limit(1000).get();
   const zone = tenantTimeZone(tenant);
   let sent = 0;
+  // Each service read once a run: when its forms are due (a day before, or two).
+  const svcs = new Map<string, Promise<any>>();
+  const svcOf = (id: string) => { if (!id) return Promise.resolve(null); if (!svcs.has(id)) svcs.set(id, db.doc(`tenants/${tenantId}/services/${id}`).get().then((d: any) => (d.exists ? d.data() : null))); return svcs.get(id)!; };
   // A handful at a time, so a busy business doesn't hold up everyone else's reminders.
   const one = async (d: any) => {
     const rec: any = d.data() || {}; const token = d.id;
@@ -44,8 +47,8 @@ export async function formsReminderSweep(db: any, tenantId: string, tenant: any,
       // The team sent one by hand in the last 4 hours: this one waits for a later run, and isn't sent at all if that
       // would be after the forms are due (they were just reminded).
       if (toMs(appt.formsNudgedAt) > now.getTime() - 4 * 3600e3) return;
-      const { formsDueAt } = await import('./forms'); const { visitForms } = await import('./forms-visit');
-      const due = formsDueAt(appt.startTime, appt.createdAt || rec.createdAt); if (!due) return;
+      const { formsDueAt, formsRuleOf } = await import('./forms'); const { visitForms } = await import('./forms-visit');
+      const due = formsDueAt(appt.startTime, appt.createdAt || rec.createdAt, formsRuleOf(await svcOf(String(appt.serviceId || ''))).dueHours); if (!due) return;
       const at = remindAt(due, zone);
       if (now.getTime() < at.getTime() || now.getTime() >= toMs(due)) return;
       // Booked after that evening: they were just asked when they booked.

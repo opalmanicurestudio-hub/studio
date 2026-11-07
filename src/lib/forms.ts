@@ -91,14 +91,31 @@ export function formLeft(form: any, a: Record<string, any> = {}, g?: Guardian | 
   return n;
 }
 // ── When forms are due (board FormsAfter) ─────────────────────────────────────────────────────────────────────────
-/** Forms are due a day before the visit, so the team sees them in time. */
+/** Forms are due a day before the visit, so the team sees them in time (a service can ask for two days). */
 export const FORMS_DUE_HOURS = 24;
-/** When a visit's forms are due: a day before it starts, or at its start for a visit booked less than a day ahead. */
-export function formsDueAt(startIso: any, bookedIso?: any): string | null {
+/** When a visit's forms are due: `hours` before it starts (a day unless the service says otherwise), or at its start for
+ *  a visit booked after that. */
+export function formsDueAt(startIso: any, bookedIso?: any, hours: number = FORMS_DUE_HOURS): string | null {
   const s = toMs(startIso); if (!s) return null;
-  const due = s - FORMS_DUE_HOURS * 3600e3; const b = toMs(bookedIso);
+  const due = s - (hours === 48 ? 48 : FORMS_DUE_HOURS) * 3600e3; const b = toMs(bookedIso);
   return new Date(b && due < b ? s : due).toISOString();
 }
+
+// ── A service's own rule for its forms (Settings › Forms and documents, board FormsOwner) ─────────────────────────────
+/** When: 'booking' (online, they're done to book; a visit the team books is due a day before), or 24 / 48 hours before.
+ *  If they aren't done by then: 'off' (check-in goes through them, or a reminder only, as service.readiness.forms says),
+ *  'auto' (the time is released, nothing charged) or 'ask' (the team is asked whether to release it). own: the service
+ *  set its own rule (otherwise Automations' "consent form unsigned" applies, as before). */
+export type FormsDue = 'booking' | 24 | 48;
+export type FormsRule = { due: FormsDue; dueHours: number; release: 'off' | 'auto' | 'ask'; own: boolean };
+export function formsRuleOf(service: any): FormsRule {
+  const r = service?.formsRule && typeof service.formsRule === 'object' ? service.formsRule : null;
+  const due: FormsDue = r?.due === 'booking' ? 'booking' : Number(r?.due) === 48 ? 48 : 24;
+  const release = r?.release === 'auto' || r?.release === 'ask' ? r.release : 'off';
+  return { due, dueHours: due === 48 ? 48 : 24, release, own: !!r };
+}
+/** Does this service offer inspiration photos when it's booked? Yes unless the business switched them off for it. */
+export const asksInspirationPhotos = (service: any) => service?.inspirationPhotos !== 'off';
 
 /** Does a visit's request ask for more than its forms and documents (a card or deposit, a policy, an emergency contact,
  *  a marketing choice, things to confirm)? Then the visit link's "Send" finishes it; otherwise the last form does. */
