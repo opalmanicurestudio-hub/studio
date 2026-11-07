@@ -31,14 +31,17 @@ export async function POST(req: NextRequest) {
   if (b.private === true) {
     // Anyone with a form open can send one, so each business takes at most so many an hour (a form has a handful), and
     // each sender a smaller share of that (by a hash of their address, never the address itself). Only saved photos count.
-    const hour = new Date().toISOString().slice(0, 13);
+    // (Inspiration photos before their marks are counted on their own, so they never use up what forms need.)
+    const hour = new Date().toISOString().slice(0, 13); const what = b.kind === 'original' ? 'originals' : 'form-photos';
     const ip = String(req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || '').split(',')[0].trim();
-    const counts = [db.doc(`tenants/${tenantId}/uploadCounts/form-photos-${hour}`), ...(ip ? [db.doc(`tenants/${tenantId}/uploadCounts/form-photos-${hour}-${hashOf(ip)}`)] : [])];
+    const counts = [db.doc(`tenants/${tenantId}/uploadCounts/${what}-${hour}`), ...(ip ? [db.doc(`tenants/${tenantId}/uploadCounts/${what}-${hour}-${hashOf(ip)}`)] : [])];
     const n = await Promise.all(counts.map((r) => r.get().then((d: any) => Number((d.data() || {}).n) || 0).catch(() => 0)));
     if (n[0] >= FORM_PHOTOS_AN_HOUR || (n[1] ?? 0) >= FORM_PHOTOS_EACH) return NextResponse.json({ ok: false, error: 'Too many photos are being sent just now. Please try again in a little while.' }, { status: 429 });
     try {
       const { savePrivateImage } = await import('@/lib/private-storage');
-      const path = `tenants/${tenantId}/completions/form-photos/${day}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}.jpg`;
+      // A form's photo, or an inspiration photo before its marks (lib/markup: only the team ever opens it).
+      const folder = b.kind === 'original' ? 'inspiration-originals' : 'form-photos';
+      const path = `tenants/${tenantId}/completions/${folder}/${day}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}.jpg`;
       const saved = await savePrivateImage(tenantId, path, dataUrl, 2_500_000);
       // Counted once saved; each count says when it can be cleared.
       const expiresAt = new Date(Date.now() + 2 * 3600e3);

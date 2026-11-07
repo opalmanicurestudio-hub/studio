@@ -133,6 +133,7 @@ export function StudioFlow({ c }: { c: any }) {
     // Focus inside another panel opened from here (the photo markup) belongs to that panel.
     const elsewhere = () => { const d = (document.activeElement as HTMLElement | null)?.closest?.('[role="dialog"]'); return !!d && d !== root.current && !d.hasAttribute('data-form-runner'); };
     const key = (e: KeyboardEvent) => {
+      if (document.querySelector('[data-markup-editor]')) return;   // the photo markup open over the sheet has its own keys
       if (formOpenRef.current && e.key === 'Escape') { e.preventDefault(); closeFormRef.current(); return; }   // a form open over the sheet closes first, whatever has focus
       if (elsewhere()) return;
       if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); return; }
@@ -159,6 +160,8 @@ export function StudioFlow({ c }: { c: any }) {
       if (!live) return;
       const at = (window.history.state || {}).cfFlow;
       if (at && at !== mark) return;   // an older sheet's own entry (opened and closed quickly): not this one's Back
+      // The photo markup open over the sheet takes Back first (components/markup/MarkupEditor).
+      if (document.querySelector('[data-markup-editor]')) { window.dispatchEvent(new Event('cf-markup-back')); try { window.history.pushState({ cfFlow: mark }, ''); } catch { /* stays one step */ } return; }
       if (backRef.current()) { try { window.history.pushState({ cfFlow: mark }, ''); } catch { /* stays one step */ } return; }
       live = false; closeRef.current();
     };

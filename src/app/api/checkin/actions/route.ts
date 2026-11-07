@@ -146,11 +146,15 @@ export async function POST(req: NextRequest) {
     if (!sentIn.length) return bad('Add a photo first.');
     const tenant: any = ((await db.doc(`tenants/${x.tenantId}`).get()).data()) || {};
     const buckets = await P.ourBuckets(tenant);
-    const photos: { url: string; note: string }[] = [];
+    const { keepMarkup } = await import('@/lib/markup/model');
+    const photos: { url: string; note: string; original?: string; markup?: string }[] = [];
     for (const p of sentIn) {
       const url = await P.ownInspoPhoto(db, p?.url, x.tenantId, buckets);
       if (!url) return bad('One of those photos didn’t upload properly. Please add it again.');
-      if (!photos.some((q) => q.url === url)) photos.push({ url, note: str(p?.note, 300) });   // each photo once
+      if (photos.some((q) => q.url === url)) continue;   // each photo once
+      // The photo before its marks, and the marks (lib/markup), when they came with it: kept so they can be changed later.
+      const original = P.ownOriginal(p?.original, x.tenantId); const markup = original ? keepMarkup(p?.markup, { as: 'client' }) : null;
+      photos.push({ url, note: str(p?.note, 300), ...(original ? { original } : {}), ...(markup ? { markup } : {}) });
     }
     // Once, even from two taps at once, and only while the ask is still open (a new ask from the team starts over).
     const took = await db.runTransaction(async (tx: any) => {

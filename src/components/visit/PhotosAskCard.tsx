@@ -17,7 +17,7 @@ export function PhotosAskCard({ ask, token, tenantId, accent, onSent }: { ask: {
     if (!photos.length || busy) return;
     setBusy(true); setSaid(null);
     try {
-      const r = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'photos', token, device: visitDevice(), photos: photos.map((p) => ({ url: p.url, note: p.note || '' })) }) });
+      const r = await fetch('/api/checkin/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'photos', token, device: visitDevice(), photos: photos.map((p) => ({ url: p.url, note: p.note || '', ...(p.original ? { original: p.original } : {}), ...(p.markup ? { markup: p.markup } : {}) })) }) });
       const d = await r.json().catch(() => null);
       if (d?.ok) { const thanks = `Sent. ${ask.by || 'The team'} will see them before your visit.`; setSaid({ ok: true, text: thanks }); setPhotos([]); onSent(thanks); }
       else setSaid({ text: d?.error || 'Your photos didn’t send. Please try again.' });

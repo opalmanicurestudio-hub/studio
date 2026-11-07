@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       // Their yes to offers, with the words they agreed to (never assumed): theirs only, never a guest's.
       smsMarketing: b.organizer?.smsMarketing === true, smsMarketingText: b.organizer?.smsMarketing === true ? s(b.organizer?.smsMarketingText, 600) || null : null };
     // Where to meet and their inspiration photos belong to their own visit (the first part).
-    const own = i === 0 ? { ...(typeof b.place === 'string' && b.place ? { place: s(b.place, 20) } : {}), ...(Array.isArray(b.inspirationPhotos) ? { inspirationPhotos: b.inspirationPhotos.slice(0, 4).map((x: any) => ({ url: s(x?.url, 600), note: s(x?.note, 400) })).filter((x: any) => /^https:\/\//.test(x.url)) } : {}) } : {};
+    const own = i === 0 ? { ...(typeof b.place === 'string' && b.place ? { place: s(b.place, 20) } : {}), ...(Array.isArray(b.inspirationPhotos) ? { inspirationPhotos: b.inspirationPhotos.slice(0, 4).map((x: any) => ({ url: s(x?.url, 600), note: s(x?.note, 400), ...(typeof x?.original === 'string' ? { original: s(x.original, 1000) } : {}), ...(typeof x?.markup === 'string' ? { markup: s(x.markup, 16000) } : {}) })).filter((x: any) => /^https:\/\//.test(x.url)) } : {}) } : {};
     let r: any = null;
     try { const res = await fetch(`${origin}/api/appointments/book`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(groupSig(p) ? { 'x-cf-group-sig': groupSig(p) } : {}) },   // NO staff or internal credentials: a public booking
         body: JSON.stringify({ tenantId, source: 'booking-page', channel: s(b.channel, 24) || undefined, serviceId: s(p.serviceId, 120), addOnIds: Array.isArray(p.addOnIds) ? p.addOnIds.slice(0, 8) : [], staffId: s(p.staffId, 120) || 'any', startTime: s(p.startTime, 40),

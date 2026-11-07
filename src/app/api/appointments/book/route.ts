@@ -188,9 +188,14 @@ function offsetMinutesForZone(timeZone: string, at: Date): number | null {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-  const inspoIn: { url: string; note: string }[] = (Array.isArray((body as any)?.inspirationPhotos) ? (body as any).inspirationPhotos : []).slice(0, 4)
+  // Each photo as sent, and (lib/markup) the photo before its marks and the marks themselves, so they can be changed later.
+  // Kept privately (only the team opens it); the marks are the client's own, checked again.
+  const { keepMarkup } = await import('@/lib/markup/model'); const { ownOriginal } = await import('@/lib/inspo-photos');
+  const tid = String((body as any)?.tenantId || '');
+  const inspoIn: { url: string; note: string; original?: string; markup?: string }[] = (Array.isArray((body as any)?.inspirationPhotos) ? (body as any).inspirationPhotos : []).slice(0, 4)
     .filter((x: any) => x && /^https:\/\//.test(String(x.url || '')) && String(x.url).length <= 1000)
-    .map((x: any) => ({ url: String(x.url), note: String(x.note || '').slice(0, 300) }));
+    .map((x: any) => { const original = ownOriginal(x.original, tid); const markup = original ? keepMarkup(x.markup, { as: 'client' }) : null;
+      return { url: String(x.url), note: String(x.note || '').slice(0, 300), ...(original ? { original } : {}), ...(markup ? { markup } : {}) }; });
   const signedFormsIn: any[] = (() => {
     const list = Array.isArray((body as any)?.signedForms) ? (body as any).signedForms.slice(0, 10) : [];
     // Answers keep only plain question ids as keys: never empty, never the form screen's own marks, never "__…__" (which

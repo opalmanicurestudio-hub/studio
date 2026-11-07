@@ -31,6 +31,16 @@ export async function ownInspoPhoto(db: any, url: any, tenantId: string, buckets
   return kept?.exists ? `/api/booking/photo?t=${encodeURIComponent(tenantId)}&id=${id}` : null;
 }
 
+/** The photo before its marks (lib/markup), kept privately (api/booking/photo, kind 'original'): only the team opens it,
+ *  through /api/files/view. The link as kept, or null when it isn't one of this business's own. */
+export function ownOriginal(url: any, tenantId: string): string | null {
+  if (typeof url !== 'string' || !url || url.length > MAX_PHOTO_URL) return null;
+  let u: URL; try { u = new URL(url, 'https://app.invalid'); } catch { return null; }
+  if (u.pathname !== '/api/files/view' || u.searchParams.get('t') !== tenantId) return null;
+  const p = String(u.searchParams.get('p') || ''); const pre = `tenants/${tenantId}/completions/inspiration-originals/`;
+  return p.startsWith(pre) && /^\d{4}-\d{2}-\d{2}\/[a-z0-9]{8,40}\.jpg$/.test(p.slice(pre.length)) ? `/api/files/view?t=${encodeURIComponent(tenantId)}&p=${encodeURIComponent(p)}` : null;
+}
+
 /** The storage buckets this business's photos are saved in: the same ones lib/claim-photo-upload tries, the server's
  *  own default bucket among them. */
 export async function ourBuckets(tenant: any): Promise<string[]> {

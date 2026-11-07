@@ -501,7 +501,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
         status: 'confirmed', isWalkIn: false, source: 'online',
         inspirationPhotoUrl: inspoPhotos[0]?.url || undefined, notes: formValues.notes,
-        ...(inspoPhotos.length ? { inspirationPhotos: inspoPhotos.map(({ url, note }) => ({ url, note })) } : {}),
+        ...(inspoPhotos.length ? { inspirationPhotos: inspoPhotos.map(({ url, note, original, markup }) => ({ url, note, ...(original ? { original } : {}), ...(markup ? { markup } : {}) })) } : {}),
         depositAmount,
         depositStatus: chargeDueNow ? 'pending' : 'none',
         // Written-out proof of consent. Storing the wording alongside the flag
