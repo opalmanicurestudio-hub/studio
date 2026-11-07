@@ -34,6 +34,7 @@ import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase'
 import { collection, query, where, doc } from 'firebase/firestore';
 import { studioPage } from '@/lib/studio-page';
 import { FormsLeftCard, FormsLeftView, thingsLeft, type VisitFormsView } from '@/components/visit/VisitForms';
+import { PhotosAskCard, PhotosSentCard } from '@/components/visit/PhotosAskCard';
 import { formRulesOf, requestAsksMore } from '@/lib/forms';
 
 const safeDate = (val: any): Date => {
@@ -81,6 +82,7 @@ export default function CheckInPage() {
     const [notMeMsg, setNotMeMsg] = useState<string | null>(null);
     const [trust, setTrust] = useState<'unknown' | 'trusted' | 'untrusted'>('unknown');
     const [viewNonce, setViewNonce] = useState(0);
+    const [photosSent, setPhotosSent] = useState<string | null>(null);
     const fastPoll = React.useRef(false);
     useEffect(() => {
         if (!token) return; let stop = false; let t: any = null;
@@ -490,6 +492,10 @@ export default function CheckInPage() {
         guardianAsk: formRulesOf(tenant).guardian, businessName: tenant?.name || '', onChanged: () => setFormsNonce((n) => n + 1) } : null;
     if (showForms && formsProps && !isCompletionPending) return withFooter(<FormsLeftView {...formsProps} onBack={() => setShowForms(false)} />);
     const formsCard = formsProps && !isCompletionPending && thingsLeft(visitForms) > 0 ? <FormsLeftCard visit={visitForms!} onOpen={() => setShowForms(true)} /> : null;
+    // The team asked for a different inspiration photo: added right here, with the photo tool from booking.
+    const photosAsk = (appointmentData as any)?.photosAsk || null;
+    const photosCard = photosAsk && tenantId && !isCompletionPending ? <PhotosAskCard ask={photosAsk} token={token} tenantId={tenantId} accent={brandOf(tenant).accent} onSent={(t) => { setPhotosSent(t); setViewNonce((n) => n + 1); }} /> : null;
+    const photosThanks = !photosCard && photosSent ? <PhotosSentCard text={photosSent} /> : null;
     
     // v3 — NEW: cancellation flow. Reachable via a "Can't make it?" link on
     // the arrival screen further down. Uses the appointmentId + tenantId
@@ -629,8 +635,8 @@ export default function CheckInPage() {
                 onReschedule={() => setShowRescheduleFlow(true)}
                 onCancel={() => setShowCancelFlow(true)}
                 onMessage={() => setShowMessages(true)}
-                notice={<>{confirmCard}{formsCard}</>}
-                stillToDo={!!formsCard}
+                notice={<>{confirmCard}{formsCard}{photosCard}{photosThanks}</>}
+                stillToDo={!!formsCard || !!photosCard}
                 notify={notifySlot}
                 sooner={tenantId && safeDate(appointmentData!.startTime).getTime() - Date.now() > 24 * 3600e3 ? { tenantId, token, on: !!(appointmentData as any)?.soonerOn } : null}
                 calendarUrl={tenantId && appointmentData?.id
@@ -670,7 +676,7 @@ export default function CheckInPage() {
             onCancel={() => setShowCancelFlow(true)}
             onMessage={() => setShowMessages(true)}
             openLate={openLate}
-            notice={<>{confirmCard}{formsCard}</>}
+            notice={<>{confirmCard}{formsCard}{photosCard}{photosThanks}</>}
             portalHref={tenantId && clientId ? `/portal/${encodeURIComponent(tenantId)}/${encodeURIComponent(clientId)}` : null}
             onNotifications={tenant?.notificationDefaults?.allowClientOverride !== false ? () => setShowNotificationSettings(true) : undefined}
             trip={tenantId && token && appointmentData?.id ? { tenantId, token, appointmentId: appointmentData.id } : null}

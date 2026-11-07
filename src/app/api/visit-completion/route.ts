@@ -73,7 +73,7 @@ async function visitSummary(db: any, tenantId: string, appt: any, rec: any) {
     const v = await visitForms(db, tenantId, appt, { rec: rec && (!rec.status || rec.status === 'pending') ? rec : null });
     return {
       asks: v.asks.map((a) => ({ formId: a.formId, title: String(a.title || 'Form').slice(0, 200), ask: a.ask, why: String(a.why || '').slice(0, 120), minutes: a.minutes, health: a.health, since: a.since || null })),
-      files: v.files, left: v.left, dueAt: v.dueAt,
+      files: v.files, left: v.left, dueAt: v.dueAt, release: v.release,
     };
   } catch (e: any) { console.error('[visit-completion] forms', e?.message); return null; }
 }

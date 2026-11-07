@@ -36,9 +36,15 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
   const [reason, setReason] = React.useState('');
   const [busy, setBusy] = React.useState<string | null>(null);
   const [said, setSaid] = React.useState<{ text: string; ok?: boolean } | null>(null);
+  // Answers kept beside the visit (a long visit record moves older ones there): read when opened, by the same rule.
+  // Each read is for one visit: one that comes back after the team has moved to another visit is dropped.
+  const [moved, setMoved] = React.useState<Record<string, any | 'loading' | { error: string; again?: boolean }>>({});
+  const [asking, setAsking] = React.useState(false); const [askNote, setAskNote] = React.useState(''); const [earlier, setEarlier] = React.useState(false);
   // A different visit starts clean.
   const noted = React.useRef(new Set<string>());   // an opening is noted once per form while this visit is open
-  React.useEffect(() => { setOpen(null); setWaiving(null); setReason(''); setSaid(null); noted.current = new Set(); }, [appointment?.id]);
+  const logged = React.useRef(new Set<string>());  // and a health form's opening logged once
+  const visitNow = React.useRef<string | null>(null); visitNow.current = appointment?.id ? String(appointment.id) : null;
+  React.useEffect(() => { setOpen(null); setWaiving(null); setReason(''); setSaid(null); setMoved({}); setAsking(false); setAskNote(''); setEarlier(false); noted.current = new Set(); logged.current = new Set(); }, [appointment?.id]);
   const zone = tenantTimeZone(tenant);
   const svcs = services.filter(Boolean);
   const asked = formsAskedFor(appointment, svcs);
@@ -55,6 +61,10 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
       const files = ((here || kept)?.files || []).filter((f: any) => f?.url);
       return { id: String(r.id), label: String(r.label || r.prompt || 'A document'), files, kept: !here && !!kept, since: here ? 0 : toMs(kept?.uploadedAt), optional: r.required === false, done: !!(here || kept) };
     });
+  const inspo = appointment?.inspoReview || null;
+  // Asked over an hour ago and nothing yet: the team may ask again (the server allows once an hour).
+  const askAgain = inspo?.status === 'again' && !!toMs(inspo?.at) && Date.now() - toMs(inspo.at) > 3600e3;
+  const before: any[] = (Array.isArray(appointment?.inspirationPhotosEarlier) ? appointment.inspirationPhotosEarlier : []).filter((p: any) => p?.url);
   const photos: any[] = (Array.isArray(appointment?.inspirationPhotos) && appointment.inspirationPhotos.length ? appointment.inspirationPhotos : appointment?.inspirationPhotoUrl ? [{ url: appointment.inspirationPhotoUrl }] : []).filter((p: any) => p?.url);
   // The forms haven't loaded yet: say so, rather than showing nothing to sign.
   if (asked.length && (formsLoading ?? !forms.length)) return (
@@ -92,23 +102,37 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
     return here?.answersMoved && kept && (!here.signedAt || toMs(kept.signedAt) >= toMs(here.signedAt)) ? kept : here || kept;
   };
 
-  const call = async (body: any) => {
+  const post = async (body: any) => {
     const r = await fetch('/api/forms/visit', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, apptId: appointment.id, ...body }) });
-    return r.json().catch(() => null);
+    return { status: r.status, d: await r.json().catch(() => null) };
   };
+  const call = async (body: any) => (await post(body)).d;
   const act = async (key: string, body: any, ok: string) => {
     setBusy(key); setSaid(null);
     try { const d = await call(body); setSaid(d?.ok ? { text: ok, ok: true } : { text: d?.error || 'That didn’t go through. Please try again.' }); return !!d?.ok; }
     catch { setSaid({ text: 'That didn’t go through. Check your connection and try again.' }); return false; } finally { setBusy(null); }
   };
+  // Answers kept beside the visit, read for this visit only. "Try again" for a slow moment; not for answers that are
+  // private to this person or aren't there.
+  const readMoved = (formId: string) => {
+    const forVisit = visitNow.current; const failed = { error: 'Those answers couldn’t be opened just now.', again: true };
+    setMoved((m) => ({ ...m, [formId]: 'loading' }));
+    noted.current.add(formId);   // reading them notes the opening too
+    post({ action: 'answers', formId })
+      .then(({ status, d }) => { if (visitNow.current !== forVisit) return; setMoved((m) => ({ ...m, [formId]: d?.ok && d.record ? d.record : status === 403 || status === 404 ? { error: d?.error || 'Those answers can’t be opened here.' } : failed })); })
+      .catch(() => { if (visitNow.current === forVisit) setMoved((m) => ({ ...m, [formId]: failed })); });
+  };
   // Who opened health answers goes in the health-view log; any opening is noted for the visit.
   const see = (formId: string) => {
-    const on = open === formId ? null : formId; setOpen(on); if (!on || noted.current.has(formId)) return;
+    const on = open === formId ? null : formId; setOpen(on); if (!on) return;
+    const e = entryFor(formId);
+    const def = forms.find((f) => f?.id === formId);
+    if (isHealthForm(def) && client?.id && !logged.current.has(formId)) { logged.current.add(formId); logHealthOpen(tenant, { clientId: String(client.id), what: `Visit: ${def?.title || 'health answers'}`, appointmentId: String(appointment.id) }); }
+    if (e?.answersMoved && !Object.keys(e.formData || {}).some((k) => !/^__/.test(k)) && (!moved[formId] || moved[formId]?.again)) readMoved(formId);
+    if (noted.current.has(formId)) return;
     noted.current.add(formId);
     // Not noted (a slow moment): it's tried again the next time it's opened.
     call({ action: 'opened', formId }).then((d) => { if (!d?.ok) noted.current.delete(formId); }).catch(() => { noted.current.delete(formId); });
-    const def = forms.find((f) => f?.id === formId);
-    if (isHealthForm(def) && client?.id) logHealthOpen(tenant, { clientId: String(client.id), what: `Visit: ${def?.title || 'health answers'}`, appointmentId: String(appointment.id) });
   };
 
   return (
@@ -133,7 +157,11 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
                 {!todo && !isWaived && entry && def && !locked && <button type="button" onClick={() => see(a.formId)} aria-expanded={open === a.formId} className="min-h-11 min-w-11 px-1 text-[14px] font-semibold" style={{ color: INK }}>{open === a.formId ? 'Hide answers' : 'See answers'}</button>}
                 {isWaived && <button type="button" disabled={busy === `u${a.formId}`} onClick={() => void act(`u${a.formId}`, { action: 'unwaive', formId: a.formId }, 'It’s asked for again.')} className="min-h-11 min-w-11 px-1 text-[14px] font-semibold disabled:opacity-50" style={{ color: INK }}>Undo</button>}
               </div>
-              {open === a.formId && def && entry && !locked && <div className="mt-3 rounded-2xl p-4 sm:ml-[38px]" style={{ background: SOFT }}><SignedFormRecord record={entry} form={def} zone={zone} compact /></div>}
+              {open === a.formId && def && entry && !locked && <div className="mt-3 rounded-2xl p-4 sm:ml-[38px]" style={{ background: SOFT }}>
+                {moved[a.formId] === 'loading' ? <p className="text-[14px]" style={{ color: MUTED }}>Opening the answers…</p>
+                  : moved[a.formId]?.error ? <div className="flex flex-wrap items-center gap-x-3"><p className="text-[14px]" role="alert" style={{ color: WARN }}>{moved[a.formId].error}</p>
+                      {moved[a.formId].again && <button type="button" onClick={() => readMoved(a.formId)} className="min-h-11 px-1 text-[14px] font-semibold" style={{ color: INK }}>Try again</button>}</div>
+                  : <SignedFormRecord record={moved[a.formId] && typeof moved[a.formId] === 'object' ? moved[a.formId] : entry} form={def} zone={zone} compact />}</div>}
               {todo && (waiving === a.formId
                 ? <div className="mt-3 space-y-2 pl-[38px]">
                     <label className="block"><span className="text-[13px]" style={{ color: MUTED }}>Why it isn’t needed this time (only the team sees this)</span>
@@ -157,14 +185,25 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
           <div className="flex items-center gap-3">
             <span aria-hidden className="grid h-[26px] w-[26px] flex-none place-items-center rounded-full text-[12px] font-bold" style={{ background: INK, color: '#fff' }}>{photos.length}</span>
             <div className="min-w-0 flex-1"><p className="text-[15.5px]" style={{ color: INK }}>Inspiration photos</p>
-              <p className="text-[13px]" style={{ color: MUTED }}>{photos.length} photo{photos.length === 1 ? '' : 's'}{photos.some((p) => p?.note) ? ' with notes' : ''} · {appointment?.inspoReview?.status === 'ok' ? `looked at by ${String(appointment.inspoReview.by || 'the team').split(' ')[0]}` : 'waiting for you'}</p></div>
+              <p className="text-[13px]" style={{ color: MUTED }}>{photos.length} photo{photos.length === 1 ? '' : 's'}{photos.some((p) => p?.note) ? ' with notes' : ''} · {inspo?.status === 'ok' ? `looked at by ${String(inspo.by || 'the team').split(' ')[0]}` : inspo?.status === 'again' ? `${String(inspo.by || 'the team').split(' ')[0]} asked for different ones${inspo.note ? `: “${String(inspo.note).slice(0, 120)}”` : ''}` : inspo?.status === 'sent' ? 'new ones, waiting for you' : 'waiting for you'}</p></div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2.5 pl-[38px]">
             {photos.slice(0, 7).map((p, k) => <button key={k} type="button" onClick={() => void openPrivateFile(p.url)} aria-label={`Open inspiration photo ${k + 1}`} className="rounded-[14px] focus:outline-none focus-visible:ring-2"><PrivateImg src={p.url} alt={p?.note || `Inspiration photo ${k + 1}`} className="h-[84px] w-[84px] rounded-[14px] object-cover" /></button>)}
             {photos.length > 7 && <button type="button" onClick={() => void openPrivateFile(photos[7].url)} className="grid h-[84px] w-[84px] place-items-center rounded-[14px] text-[15px] font-semibold" style={{ background: SOFT, color: INK }} aria-label={`${photos.length - 7} more photos`}>+{photos.length - 7}</button>}
           </div>
           {photos.filter((p) => p?.note).slice(0, 4).map((p, k) => <p key={k} className="mt-2 pl-[38px] text-[13.5px]" style={{ color: MUTED }}>“{String(p.note).slice(0, 300)}”</p>)}
-          {appointment?.inspoReview?.status !== 'ok' && <div className="mt-3 pl-[38px]"><Pill ink disabled={busy === 'photos'} onClick={() => void act('photos', { action: 'photos_ok' }, 'Marked as looked at.')}>Looks good</Pill></div>}
+          {before.length > 0 && <div className="mt-2 pl-[38px]">
+            <button type="button" onClick={() => setEarlier((v) => !v)} aria-expanded={earlier} className="min-h-11 text-[14px] font-semibold" style={{ color: INK }}>{earlier ? 'Hide the earlier photos' : `See the earlier photos (${before.length})`}</button>
+            {earlier && <div className="mt-1 flex flex-wrap gap-2.5">{before.slice(0, 12).map((p, k) => <button key={k} type="button" onClick={() => void openPrivateFile(p.url)} aria-label={`Open earlier photo ${k + 1}`} className="rounded-[14px] focus:outline-none focus-visible:ring-2"><PrivateImg src={p.url} alt={p?.note || `Earlier photo ${k + 1}`} className="h-[64px] w-[64px] rounded-[14px] object-cover opacity-80" /></button>)}</div>}
+          </div>}
+          {(inspo?.status !== 'ok' && inspo?.status !== 'again' || askAgain) && (asking
+            ? <div className="mt-3 space-y-2 pl-[38px]">
+                <label className="block"><span className="text-[13px]" style={{ color: MUTED }}>What would help? {first} sees this.</span>
+                  <input value={askNote} onChange={(e) => setAskNote(e.target.value)} maxLength={200} className="mt-1 h-11 w-full rounded-xl px-3 text-[15px] outline-none focus:ring-2" style={{ boxShadow: `inset 0 0 0 1px ${LINE}` }} placeholder="A closer photo of the shape you like" /></label>
+                <div className="flex gap-2"><Pill ink disabled={busy === 'again'} onClick={async () => { if (await act('again', { action: 'photos_again', note: askNote.trim() }, `Asked. ${first} can add new photos from their visit link.`)) { setAsking(false); setAskNote(''); } }}>{busy === 'again' ? 'Sending…' : 'Ask them'}</Pill><Pill onClick={() => { setAsking(false); setAskNote(''); setSaid(null); }}>Cancel</Pill></div>
+              </div>
+            : askAgain ? <div className="mt-3 flex flex-wrap gap-2 pl-[38px]"><Pill onClick={() => { setAsking(true); setAskNote(String(inspo?.note || '')); setSaid(null); }}>Ask again</Pill></div>
+            : <div className="mt-3 flex flex-wrap gap-2 pl-[38px]"><Pill ink disabled={busy === 'photos'} onClick={() => void act('photos', { action: 'photos_ok' }, 'Marked as looked at.')}>Looks good</Pill><Pill onClick={() => { setAsking(true); setSaid(null); }}>Ask for different photos</Pill></div>)}
         </div>}
       </div>
       {said && <p role={said.ok ? 'status' : 'alert'} className="px-1 text-[13.5px]" style={{ color: said.ok ? GOOD : WARN }}>{said.text}</p>}

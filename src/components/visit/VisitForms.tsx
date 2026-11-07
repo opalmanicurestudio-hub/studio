@@ -19,7 +19,7 @@ import { hasSignature, FORM_META, type Guardian } from '@/lib/forms';
 
 export type VisitAskView = { formId: string; title: string; ask: 'sign' | 'sign_again' | 'confirm' | 'done'; why: string; minutes: number; health: boolean; since?: string | null };
 export type VisitFileView = { id: string; label: string; done: boolean; onFile: boolean; optional?: boolean };
-export type VisitFormsView = { asks: VisitAskView[]; files: VisitFileView[]; left: number; dueAt: string | null };
+export type VisitFormsView = { asks: VisitAskView[]; files: VisitFileView[]; left: number; dueAt: string | null; release?: 'off' | 'auto' | 'ask' };
 
 const todo = (a: VisitAskView) => a.ask === 'sign' || a.ask === 'sign_again';
 /** Things still to do, "anything changed?" included (it doesn't hold the visit up, but it's asked). Optional documents aren't. */
@@ -164,7 +164,9 @@ export function FormsLeft({ brand, visit, forms, token, tenantId, guardianAsk, b
       <VisitSaid text={said} />
       {next && defOf(next.formId) && <VisitButton onClick={() => setOpen(next.formId)} disabled={!!busy}>{`${hasSignature(defOf(next.formId)) ? 'Sign' : 'Start'}: ${next.title}`}</VisitButton>}
       {left > 0 && <p className="px-1 text-[13px] leading-snug" style={{ color: 'var(--muted)' }}>
-        {!header ? `${provider || 'Your provider'} sees it the moment you’re done.` : due ? `If it isn’t done by ${when(due, brand, true)}, we’ll go through it with you when you arrive.` : 'Anything not done is gone through with you when you arrive.'}</p>}
+        {!header ? `${provider || 'Your provider'} sees it the moment you’re done.` : due && visit.release === 'auto' && visit.asks.some(todo) ? `If your forms aren’t done by ${when(due, brand, true)}, your appointment time is released.`
+          : due && visit.release === 'ask' && visit.asks.some(todo) ? `If your forms aren’t done by ${when(due, brand, true)}, your appointment time may be released.`
+          : due ? `If it isn’t done by ${when(due, brand, true)}, we’ll go through it with you when you arrive.` : 'Anything not done is gone through with you when you arrive.'}</p>}
 
       {open && openDef && <FormSheet brand={brand} back={top}>
         <FormRunner forms={[openDef]} index={0} setIndex={() => {}} answers={answers}

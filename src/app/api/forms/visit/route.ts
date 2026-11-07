@@ -4,7 +4,10 @@
 // usual) or undo that, note that someone opened the answers (health answers are private: who looked, and when, is
 // kept), and mark inspiration photos as looked at. Signed-in team only; everything but noting an opening is for managers,
 // people who may manage any booking, and the visit's own provider. Only a manager waives a health form.
-//   POST { tenantId, apptId, action: 'remind' | 'waive' | 'unwaive' | 'opened' | 'photos_ok', formId?, reason? }
+// The answers to a form kept beside the visit (a long visit record moves older answers there) are read here too, by the
+// same rule as the appointment: health answers only for people allowed to see health notes. And "Ask for different
+// photos": the client gets a text or email with the visit link, where they add new ones (with the team's note).
+//   POST { tenantId, apptId, action: 'remind' | 'waive' | 'unwaive' | 'opened' | 'answers' | 'photos_ok' | 'photos_again', formId?, reason?, note? }
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
@@ -15,6 +18,7 @@ export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status });
 const GAP_MS = 4 * 3600e3;
+const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
 const ms = (v: any) => { const t = v?.toDate ? v.toDate().getTime() : Date.parse(String(v || '')); return Number.isFinite(t) ? t : 0; };
 
 export async function POST(req: NextRequest) {
@@ -34,7 +38,7 @@ export async function POST(req: NextRequest) {
   const mayAct = manager || (Array.isArray(who.caps) && who.caps.includes('bookings.manage')) || (!!who.uid && appt.staffId === who.uid);
   const { formsAskedFor, signedOnVisit } = await import('@/lib/forms');
 
-  if (action === 'opened') {
+  if (action === 'opened' || action === 'answers') {
     // Only a form this visit asks for (its services, the team, its request) or has signed, or one on the client's file.
     const svcIds = [appt.serviceId, ...(Array.isArray(appt.addOnIds) ? appt.addOnIds : [])].filter(Boolean).map(String).slice(0, 11);
     const svcs = (await Promise.all(svcIds.map((id) => db.doc(`${T}/services/${id}`).get().then((d: any) => (d.exists ? d.data() : null)).catch(() => null)))).filter(Boolean);
@@ -42,19 +46,70 @@ export async function POST(req: NextRequest) {
     let known = ID.test(formId) && (formsAskedFor(appt, svcs).includes(formId) || signedOnVisit(appt).has(formId) || (Array.isArray(rec.requiredConsentFormIds) && rec.requiredConsentFormIds.map(String).includes(formId)));
     if (!known && ID.test(formId) && appt.clientId) known = !!(await db.doc(`${T}/clients/${appt.clientId}/signedConsents/${formId}`).get().catch(() => null))?.exists;
     if (!known) return bad('That form isn’t part of this visit.');
+    let record: any = null;
+    if (action === 'answers') {
+      const kept: any = (await db.doc(`${T}/appointments/${apptId}/formAnswers/${formId.replace(/[^A-Za-z0-9_-]/g, '_')}`).get().catch(() => null))?.data?.() || null;
+      if (!kept) return bad('Those answers aren’t here.', 404);
+      const def: any = (await db.doc(`${T}/consentForms/${formId}`).get().catch(() => null))?.data?.() || null;
+      const { isHealthForm } = await import('@/lib/forms'); const { canSeeCareNoteContents } = await import('@/lib/privacy');
+      const tenantDoc: any = (await db.doc(T).get()).data() || {};
+      if ((!def || isHealthForm(def)) && !who.isTenantOwner && !canSeeCareNoteContents(tenantDoc, who.role)) return bad('Health answers are private.', 403);
+      record = { formId, formTitle: kept.formTitle || def?.title || null, formData: kept.formData && typeof kept.formData === 'object' ? kept.formData : {}, signedName: kept.signedName || null, acknowledged: kept.acknowledged === true, signedAt: kept.signedAt || null, via: kept.via || null, source: kept.source || null, guardian: kept.guardian || null, guardianName: kept.guardianName || null, guardianRelationship: kept.guardianRelationship || null };
+    }
     await logAuditAdmin(db, tenantId, { action: 'forms.answers_opened', targetType: 'appointment', targetId: apptId, summary: `${who.name || 'Someone'} opened ${appt.clientName || 'a client'}’s answers to a form (${formId})`, actor }).catch(() => {});
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...(record ? { record } : {}) });
   }
 
-  if (!['waive', 'unwaive', 'remind', 'photos_ok'].includes(action)) return bad('Unknown action.');
+  if (!['waive', 'unwaive', 'remind', 'photos_ok', 'photos_again'].includes(action)) return bad('Unknown action.');
   if (!mayAct) return bad('Ask a manager, or the person doing this visit, to do this.', 403);
   const { visitForms, closeIfDone, ENDED_VISIT } = await import('@/lib/forms-visit');
   if (ENDED_VISIT.includes(String(appt.status || ''))) return bad('This visit isn’t going ahead, so there’s nothing to change here.', 409);
 
-  // Inspiration photos looked at: "Looks good" (the client sees nothing; the team sees who looked).
+  // Inspiration photos looked at: "Looks good" (the client sees nothing; the team sees who looked). Not while the client
+  // has been asked for different ones (their new ones come in first), so a screen left open never cancels an ask.
   if (action === 'photos_ok') {
-    await ref.set({ inspoReview: { status: 'ok', by: who.name || 'Team', byUid: who.uid || null, at: nowIso } }, { merge: true });
+    const done = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(ref)).data() || {};
+      if (cur.inspoReview?.status === 'again') return false;
+      tx.update(ref, { inspoReview: { status: 'ok', by: who.name || 'Team', byUid: who.uid || null, at: nowIso } });
+      return true;
+    });
+    if (!done) return bad(`${first(appt.clientName) || 'The client'} was asked for different photos. Their new ones will show here.`, 409);
     return NextResponse.json({ ok: true });
+  }
+
+  // "Ask for different photos": the visit link asks for new ones, with the team's note, and the client is told once.
+  // If the message can't go out, nothing changes and the team is told why (they can ask again straight away).
+  if (action === 'photos_again') {
+    const note = String(b.note || '').trim().slice(0, 200);
+    if (!(ms(appt.startTime) > Date.now())) return bad('This visit has already started, so there’s no time to send new photos.', 409);
+    if (!appt.checkInToken || appt.linkRevokedAt) return bad('This client’s visit link is turned off, so they can’t send new photos there.', 409);
+    const tenantNow: any = (await db.doc(T).get()).data() || {};
+    if (tenantNow?.clientNotify?.enabled === false) return bad('Messages to clients are switched off in Settings, so they can’t be asked.', 409);
+    // Once an hour at most (two taps, or two people, ask once).
+    let before: any = null;
+    const asked = await db.runTransaction(async (tx: any) => {
+      const cur: any = (await tx.get(ref)).data() || {};
+      if (cur.inspoReview?.status === 'again' && ms(cur.inspoReview?.at) > Date.now() - 3600e3) return false;
+      before = cur.inspoReview || null;
+      tx.update(ref, { inspoReview: { status: 'again', note: note || null, by: who.name || 'Team', byUid: who.uid || null, at: nowIso } });
+      return true;
+    });
+    if (!asked) return bad('They were just asked. You can ask again later.', 429);
+    const { askForPhotos } = await import('@/lib/forms-remind');
+    let sent: 'sent' | 'off' | 'no_contact' | 'failed' = 'failed';
+    try { sent = await askForPhotos(db, tenantId, { ...appt, id: apptId }, tenantNow, note, first(who.name) || null); } catch (e) { console.error('[forms/visit] photos', e); }
+    if (sent !== 'sent') {
+      // Put it back as it was (unless someone has changed it since).
+      await db.runTransaction(async (tx: any) => { const cur: any = (await tx.get(ref)).data() || {}; if (cur.inspoReview?.status === 'again' && cur.inspoReview?.at === nowIso) tx.update(ref, { inspoReview: before || FieldValue.delete() }); })
+        .catch((e: any) => console.error('[forms/visit] photos: putting the ask back', apptId, e));
+      const name = first(appt.clientName) || 'This client';
+      return bad(sent === 'off' ? `${name} has chosen not to get messages, so they couldn’t be asked. Mention it when they arrive.`
+        : sent === 'no_contact' ? `There’s no phone number or email for ${name}, so they couldn’t be asked.`
+        : `The message to ${name} didn’t go out. Please try again in a moment.`, 409);
+    }
+    await logAuditAdmin(db, tenantId, { action: 'forms.photos_again', targetType: 'appointment', targetId: apptId, summary: `${who.name || 'Someone'} asked ${appt.clientName || 'a client'} for different inspiration photos${note ? `: ${note}` : ''}`, actor }).catch(() => {});
+    return NextResponse.json({ ok: true, sent: true });
   }
 
   const tenant: any = (await db.doc(T).get()).data() || {};

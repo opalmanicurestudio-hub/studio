@@ -33,6 +33,23 @@ export function releaseCall(o: { service: any; appt: any; formsLeft: string[]; n
   const booked = toMs(o.appt?.createdAt); if (booked && o.now < booked + 12 * H) return null;
   return ownLeft(o.service, o.formsLeft).length ? (rule.release === 'auto' ? 'release' : 'ask') : null;
 }
+/** What the client can be told now (pure): whether the visit's own service will release its time ('auto') or may
+ *  ('ask') if the forms left aren't done when due. The sweep's own rule (releaseCall) without "has the time come": only
+ *  the service's own forms, a live visit, and only when the time it would act (the due time, and at least 12 hours
+ *  after booking) is more than 2 hours before the visit. Anything else is 'off', so the client is never told their time
+ *  goes when it won't: not within 2 hours of the visit, and not once the sweep has acted for this time. pending: the
+ *  visit's request is open (the sweep only looks at those); rec: that request. */
+export function releaseOutlook(o: { service: any; appt: any; formsLeft: string[]; pending: boolean; rec?: any; now?: number }): 'off' | 'auto' | 'ask' {
+  const rule = formsRuleOf(o.service); const now = o.now ?? Date.now();
+  if (!o.pending || !rule.own || rule.release === 'off' || !LIVE.includes(String(o.appt?.status || 'confirmed'))) return 'off';
+  const start = toMs(o.appt?.startTime); const due = toMs(formsDueAt(o.appt?.startTime, o.appt?.createdAt, rule.dueHours));
+  // Not once it's too late for the sweep to act, nor once it has already acted for this time (it acts once).
+  if (!start || !due || now > start - 2 * H) return 'off';
+  if (o.rec?.formsReleaseAt && String(o.rec.formsReleaseStart || '') === String(o.appt?.startTime || '')) return 'off';
+  const at = Math.max(due, toMs(o.appt?.createdAt) + 12 * H);
+  if (at > start - 2 * H) return 'off';
+  return ownLeft(o.service, o.formsLeft).length ? rule.release : 'off';
+}
 /** The service's own forms among those left (a form the team added to one visit never releases it). */
 const ownLeft = (service: any, left: string[]) => { const own: string[] = Array.isArray(service?.requiredFormIds) ? service.requiredFormIds.map(String) : []; return left.filter((id) => own.includes(id)); };
 

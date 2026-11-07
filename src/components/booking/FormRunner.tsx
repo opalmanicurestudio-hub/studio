@@ -74,8 +74,10 @@ async function shrink(file: File): Promise<string> {
   } finally { URL.revokeObjectURL(url); }
 }
 
+/** A photo answering a question on a form: kept private (only the team can open it), so it shows here from the phone's
+ *  own copy; one added earlier shows as added. */
 function PhotoQuestion({ tenantId, value, onChange, demo }: { tenantId: string; value: string | null; onChange: (v: string | null) => void; demo?: boolean }) {
-  const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [shown, setShown] = React.useState<string | null>(null);
   const pick = async (f?: File | null) => {
     if (!f) return; setErr('');
     if (!/^image\//.test(f.type)) { setErr('Choose a photo (JPG or PNG).'); return; }
@@ -83,15 +85,16 @@ function PhotoQuestion({ tenantId, value, onChange, demo }: { tenantId: string; 
     setBusy(true);
     try {
       const dataUrl = await shrink(f);
-      if (demo) { onChange(dataUrl); return; }   // a preview: shown here, never sent
-      const r = await fetch('/api/booking/photo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, dataUrl }) });
+      if (demo) { setShown(dataUrl); onChange(dataUrl); return; }   // a preview: shown here, never sent
+      const r = await fetch('/api/booking/photo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, dataUrl, private: true }) });
       const d = await r.json().catch(() => null);
-      if (d?.ok && d.url) onChange(d.url); else setErr(d?.error || 'That photo didn’t upload. Try again.');
+      if (d?.ok && d.url) { setShown(dataUrl); onChange(d.url); } else setErr(d?.error || 'That photo didn’t upload. Try again.');
     } catch { setErr('That photo didn’t upload. Try again.'); } finally { setBusy(false); }
   };
   return (
     <div className="space-y-2">
-      {value && <img src={value} alt="Your photo" className="max-h-56 w-full rounded-2xl object-cover" />}
+      {value && (shown || /^(data:|https:)/.test(value) ? <img src={shown || value} alt="Your photo" className="max-h-56 w-full rounded-2xl object-cover" />
+        : <p className="px-1 text-[14px]" style={{ color: 'var(--muted)' }}>Photo added. Only the team can see it.</p>)}
       <label className="cf-quiet w-full cursor-pointer focus-within:ring-2 focus-within:ring-offset-2" style={{ ['--tw-ring-color' as any]: 'var(--accent)' }}>{busy ? 'Uploading…' : value ? 'Choose another photo' : 'Add a photo'}
         <input type="file" accept="image/*" className="sr-only" disabled={busy} onChange={(e) => { void pick(e.target.files?.[0]); e.currentTarget.value = ''; }} /></label>
       {err && <p className="cf-err px-1" role="alert">{err}</p>}

@@ -66,7 +66,11 @@ export async function GET(req: NextRequest) {
       else if (r?.kind === 'pay' && r.paid && Date.now() - Date.parse(r.at || '') < 6 * 3600e3) pay = { screenId: String(a.payScreenId), paid: true, at: r.at };
     }
   }
-  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl, pay };
+  // "Ask for different photos" from the team: shown on the visit link until they send new ones (before the visit only).
+  const { photosAskOpen } = await import('@/lib/inspo-photos');
+  const photosAsk = photosAskOpen(a)
+    ? { note: String(a.inspoReview.note || '').slice(0, 200) || null, by: String(a.inspoReview.by || '').trim().split(/\s+/)[0] || null } : null;
+  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl, pay, photosAsk };
   // keep the copies in step as a courtesy for anything else that still reads them
   if (miss || copy.stage !== view.stage || copy.status !== view.status) await Promise.all([db.doc(`appointmentCheckIns/${token}`).set(view, { merge: true }), db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(view, { merge: true })]).catch(() => {});
   return NextResponse.json({ ok: true, view: full }, noStore);

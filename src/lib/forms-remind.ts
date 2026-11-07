@@ -117,10 +117,40 @@ export async function sendFormsReminder(db: any, tenantId: string, appt: any, te
     ok = went(await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'forms_reminder', tokens,
       subject: `${lead} before ${day}`,
       html: brandedEmailHtml({ studioName: studio, brand: emailLookOf(tenant), eyebrow: 'Before your visit', title: `${lead} before`, titleBold: day, preheader: forms.length === 1 && !files.length ? `The ${forms[0].title.toLowerCase()} takes about ${forms[0].minutes} minute${forms[0].minutes === 1 ? '' : 's'}.` : 'It takes a few minutes.',
-        bodyHtml, cta: { label: 'Finish now', url: link }, smallPrint: `Due ${dueWords(dueIso, zone)}. If it isn’t done by then, we’ll go through it with you when you arrive.` }),
+        bodyHtml, cta: { label: 'Finish now', url: link }, smallPrint: `Due ${dueWords(dueIso, zone)}. ${forms.length && state.release === 'auto' ? 'If your forms aren’t done by then, your appointment time is released.' : forms.length && state.release === 'ask' ? 'If your forms aren’t done by then, your appointment time may be released.' : 'If it isn’t done by then, we’ll go through it with you when you arrive.'}` }),
       recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId: appt.id || null } as any).catch(() => null)) || ok;
   }
   return ok;
+}
+
+/** "Ask for different photos" (the appointment's Before the visit): one text or email with the team's note and the
+ *  visit link, where the client adds new ones. Sent however the client asked to hear from the business. Says whether it
+ *  went: 'off' (messages switched off, or the client chose none), 'no_contact' (no number or email), or 'failed'. */
+export async function askForPhotos(db: any, tenantId: string, appt: any, tenant: any, note: string, byFirst: string | null): Promise<'sent' | 'off' | 'no_contact' | 'failed'> {
+  if (tenant?.clientNotify?.enabled === false || appt?.linkRevokedAt || !appt?.checkInToken) return 'off';
+  const cl: any = appt.clientId ? ((await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get()).data() || {}) : {};
+  const pref = prefOf(tenant, cl); if (pref === 'none') return 'off';
+  const email = pref === 'sms' ? '' : String(appt.clientEmail || cl.email || '').trim(); const phone = pref === 'email' ? '' : String(appt.clientPhone || cl.phone || '').trim();
+  const { linkOrigin } = await import('./app-origin'); const base = linkOrigin(tenant, '') || process.env.NEXT_PUBLIC_APP_URL || ''; if (!base) return 'failed';
+  if (!phone && !email.includes('@')) return 'no_contact';
+  const link = `${base}/check-in/${appt.checkInToken}`;
+  const studio = String(tenant?.name || tenant?.businessName || 'Your studio');
+  const name = first(appt.clientName || cl.name); const who = byFirst || studio;
+  const visitAt = dueWords(appt.startTime, tenantTimeZone(tenant));
+  const ask = `${who} would like a different inspiration photo for your ${String(appt.serviceName || 'visit').toLowerCase()} on ${visitAt}${note ? `: “${note}”` : ''}.`;
+  const { sendNotification } = await import('./notify');
+  let ok = false;
+  if (phone) ok = went(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'photos_again',
+    text: `${studio}: Hi ${name || 'there'}, ${ask} You can add one here: ${link}`,
+    recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId: appt.id || null } as any).catch(() => null)) || ok;
+  if (email.includes('@')) {
+    const { brandedEmailHtml, emailLookOf } = await import('./email-template');
+    ok = went(await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'photos_again', subject: 'A different inspiration photo',
+      html: brandedEmailHtml({ studioName: studio, brand: emailLookOf(tenant), eyebrow: 'Before your visit', title: 'A different', titleBold: 'inspiration photo',
+        bodyLines: [`Hi ${name || 'there'},`, ask, 'Add it from your visit link. It only takes a moment.'], cta: { label: 'Add a photo', url: link } }),
+      recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId: appt.id || null } as any).catch(() => null)) || ok;
+  }
+  return ok ? 'sent' : 'failed';
 }
 
 /** Once everything's done: "Thanks, Dana. You're all set for Saturday at 3:30 PM." By text when they have a number (and

@@ -14,6 +14,7 @@
 //   prefs_get { token }                                 what's set now (to show it)
 //   form      { token, formId, formData, signedName?, acknowledged?, guardian? }   one form, saved as they finish it
 //   health_same { token, formId }                       "nothing's changed" on health answers on file
+//   photos    { token, photos: [{ url, note }] }         new inspiration photos, when the team asked for different ones
 //   complete  { token, tenantId, signedForms, fileSubmissions, policyAcceptance,
 //               guardianByForm, profileDocuments, marketingConsent,
 //               emergencyContact, acknowledgments, skipCardStep }
@@ -39,6 +40,13 @@ async function fromCheckIn(db: any, token: string) {
   const appt = ((await ref.get()).data()) || null;
   if (!appt || (appt.checkInToken && appt.checkInToken !== token)) return null;
   return { tenantId: String(ci.tenantId), apptId, ref, appt };
+}
+
+/** A link turned off by "Not you?": who to ask for a new one, by the business's own name. */
+async function turnedOff(db: any, tenantId: string) {
+  const t: any = ((await db.doc(`tenants/${tenantId}`).get().catch(() => null))?.data?.()) || {};
+  const name = String(t.name || t.businessName || '').trim();
+  return `This link has been turned off. ${name ? `Ask ${name}` : 'Ask the business'} for a new one.`;
 }
 
 export async function POST(req: NextRequest) {
@@ -115,7 +123,7 @@ export async function POST(req: NextRequest) {
     const x = await fromCheckIn(db, token); if (!x) return bad('This link isn’t valid.', 404);
     // Not once "Not you?" turned the link off, and not before "Is this you?" on a contact that needs it.
     { const { visitLinkOpen } = await import('@/lib/client-verify'); const open = await visitLinkOpen(db, x.tenantId, x.appt, str(b.device, 120));
-      if (open === 'revoked') return bad('This link has been turned off. Please message us for a new one.', 410);
+      if (open === 'revoked') return bad(await turnedOff(db, x.tenantId), 410);
       if (open === 'verify') return bad('Please confirm it’s you first, with the code we send.', 403); }
     const V = await import('@/lib/forms-visit');
     const r = action === 'form' ? await V.saveVisitForm(db, x.tenantId, x.appt, x.apptId, token, b) : await V.confirmHealthSame(db, x.tenantId, x.appt, x.apptId, token, String(b.formId || ''));
@@ -124,6 +132,45 @@ export async function POST(req: NextRequest) {
       summary: action === 'form' ? `${x.appt.clientName || 'A client'} finished a form on their visit link` : `${x.appt.clientName || 'A client'} said nothing has changed on their health answers`,
       actor: { type: 'user', name: x.appt.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
     return NextResponse.json({ ok: true, ...(action === 'form' ? { left: (r as any).left, done: (r as any).done } : {}) });
+  }
+
+  if (action === 'photos') {
+    const x = await fromCheckIn(db, token); if (!x) return bad('This link isn’t valid.', 404);
+    { const { visitLinkOpen } = await import('@/lib/client-verify'); const open = await visitLinkOpen(db, x.tenantId, x.appt, str(b.device, 120));
+      if (open === 'revoked') return bad(await turnedOff(db, x.tenantId), 410);
+      if (open === 'verify') return bad('Please confirm it’s you first, with the code we send.', 403); }
+    const P = await import('@/lib/inspo-photos');
+    if (!P.photosAskOpen(x.appt)) return bad(x.appt.inspoReview?.status === 'again' ? 'This visit can’t take new photos now.' : 'Your photos are already with the team.', 409);
+    // Only photos saved through the business's own photo upload (api/booking/photo), up to four, each with its note.
+    const sentIn: any[] = (Array.isArray(b.photos) ? b.photos : []).slice(0, 4);
+    if (!sentIn.length) return bad('Add a photo first.');
+    const tenant: any = ((await db.doc(`tenants/${x.tenantId}`).get()).data()) || {};
+    const buckets = await P.ourBuckets(tenant);
+    const photos: { url: string; note: string }[] = [];
+    for (const p of sentIn) {
+      const url = await P.ownInspoPhoto(db, p?.url, x.tenantId, buckets);
+      if (!url) return bad('One of those photos didn’t upload properly. Please add it again.');
+      if (!photos.some((q) => q.url === url)) photos.push({ url, note: str(p?.note, 300) });   // each photo once
+    }
+    // Once, even from two taps at once, and only while the ask is still open (a new ask from the team starts over).
+    const took = await db.runTransaction(async (tx: any) => {
+      const cur: any = ((await tx.get(x.ref)).data()) || {};
+      if (!P.photosAskOpen(cur)) return null;
+      const had: any[] = Array.isArray(cur.inspirationPhotos) ? cur.inspirationPhotos : [];
+      tx.update(x.ref, { inspirationPhotos: photos, inspirationPhotoUrl: photos[0].url, inspirationPhotosEarlier: P.earlierPhotos(had, cur.inspirationPhotosEarlier, photos),
+        inspoReview: { status: 'sent', sentAt: nowIso, note: cur.inspoReview.note || null, by: cur.inspoReview.by || null, byUid: cur.inspoReview.byUid || null, at: cur.inspoReview.at || null } });
+      return cur;
+    });
+    if (!took) return bad('Your photos are already with the team.', 409);
+    // The person doing the visit hears about it (and whoever asked).
+    try {
+      const to = [...new Set([took.staffId, took.inspoReview?.byUid].filter(Boolean).map(String))];
+      const nb = db.batch();
+      for (const uid of to) { const r = db.collection(`tenants/${x.tenantId}/notifications`).doc(); nb.set(r, { id: r.id, userId: uid, type: 'photos_sent', title: 'New inspiration photos', message: `${took.clientName || 'A client'} sent new inspiration photos for their visit.`, link: `/planner?visit=${x.apptId}`, appointmentId: x.apptId, read: false, createdAt: nowIso }); }
+      await nb.commit();
+    } catch (e) { console.error('[checkin/photos] tell', e); }
+    await logAuditAdmin(db, x.tenantId, { action: 'completion.photos_sent', targetType: 'appointment', targetId: x.apptId, summary: `${took.clientName || 'A client'} sent new inspiration photos`, actor: { type: 'user', name: took.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
+    return NextResponse.json({ ok: true });
   }
 
   if (action === 'complete') {
@@ -135,7 +182,7 @@ export async function POST(req: NextRequest) {
     // Not once "Not you?" turned the link off, and not before "Is this you?" on a contact that needs it.
     { const ci = await fromCheckIn(db, token);
       if (ci) { const { visitLinkOpen } = await import('@/lib/client-verify'); const open = await visitLinkOpen(db, ci.tenantId, ci.appt, str(b.device, 120));
-        if (open === 'revoked') return bad('This link has been turned off. Please message us for a new one.', 410);
+        if (open === 'revoked') return bad(await turnedOff(db, ci.tenantId), 410);
         if (open === 'verify') return bad('Please confirm it’s you first, with the code we send.', 403); } }
     // A request the team called off takes nothing more. (Its date isn't checked: the visit link keeps asking until
     // the visit, so an answer on day eight still counts.)

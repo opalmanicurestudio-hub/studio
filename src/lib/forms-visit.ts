@@ -15,6 +15,8 @@ export type VisitForms = {
   /** Still needed before the visit (forms to sign and required documents); "anything changed?" doesn't hold anything up. */
   left: number;
   dueAt: string | null;
+  /** What the visit's own service does if its forms aren't done by then (lib/forms formsRuleOf): said to the client. */
+  release: 'off' | 'auto' | 'ask';
   defs: any[];
 };
 export const ENDED_VISIT = ['declined', 'expired', 'released', 'cancelled', 'canceled', 'no_show', 'completed'];
@@ -59,7 +61,12 @@ export async function visitForms(db: any, tenantId: string, appt: any, o: { tena
   const left = asks.filter((a) => a.ask === 'sign' || a.ask === 'sign_again').length + files.filter((f) => !f.done && !f.optional).length;
   // Due as the visit's own service has it (a day before, unless it asks for two).
   const main = svcs.find((x: any) => x.id === String(appt?.serviceId || ''));
-  return { asks, files, left, dueAt: formsDueAt(appt?.startTime, appt?.createdAt, formsRuleOf(main).dueHours), defs };
+  const rule = formsRuleOf(main);
+  // Said to the client only when the release would really happen (lib/forms-release): never for a booth renter's visit.
+  const { releaseOutlook } = await import('./forms-release');
+  let release = releaseOutlook({ service: main, appt, formsLeft: asks.filter((a) => a.ask === 'sign' || a.ask === 'sign_again').map((a) => a.formId), pending: o.rec?.status === 'pending', rec: o.rec });
+  if (release !== 'off') { const { renterVisit } = await import('./prep-ctx'); if ((await renterVisit(db, tenantId, appt)).renter) release = 'off'; }
+  return { asks, files, left, dueAt: formsDueAt(appt?.startTime, appt?.createdAt, rule.dueHours), release, defs };
 }
 
 /** Answers keep only the form's own question ids as keys (never empty, never "__…__", which the database keeps for itself). */
