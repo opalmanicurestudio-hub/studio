@@ -48,7 +48,7 @@ const COMMON = (extra: Branch[] = []): Branch[] => [
 export const PLAYBOOKS: Record<OppKind, Playbook> = {
   due: { kind: 'due', label: 'A regular who’s due', who: 'provider', marketing: true, priority: 'high', expiresDays: 14, cooldownDays: 45, winBack: true,
     versions: [
-      'Hi {first}, this is {me}. I hope your nails are doing well. I have a few openings next week if you would like to come in. There is no rush at all.',
+      'Hi {first}, this is {me}. I hope you are doing well. I have a few openings next week if you would like to come in. There is no rush at all.',
       'Hi {first}, this is {me}. It has been a little while since your last visit, and I wanted to check in. Would you like me to find you a time for your {service_short}?',
       'Hi {first}, this is {me}. I hope you are doing well. If you are due for your {service_short}, I would be glad to see you. Just let me know and I will send you a few times.',
     ],
@@ -414,7 +414,7 @@ export function historyOf(appts: any[], now: number): Map<string, History> {
 export interface Candidate { kind: OppKind; tool: Tool; subject: { type: 'client' | 'contact'; id: string | null }; key: string; clientId: string | null; clientName: string; why: string; valueCents: number; valueNote?: string; providerId: string | null; dueAt: string; expiresAt: string; refs: Record<string, string>; facts: Record<string, string> }
 
 const firstName = (c: any) => String(c?.firstName || String(c?.name || c?.clientName || '').split(' ')[0] || '').trim() || 'there';
-const shortService = (n: any) => { const s = String(n || '').trim(); if (!s) return 'nails'; const l = s.toLowerCase();
+const shortService = (n: any) => { const s = String(n || '').trim(); if (!s) return 'usual visit'; const l = s.toLowerCase();
   if (/gel/.test(l) && /fill/.test(l)) return 'gel fill'; if (/pedi/.test(l)) return 'pedicure'; if (/mani/.test(l)) return 'manicure'; return l.length > 28 ? 'last service' : l; };
 const day = (n: number) => `${Math.round(n)} day${Math.round(n) === 1 ? '' : 's'}`;
 const weeksOf = (g: number | null) => (g ? Math.max(1, Math.round(g / 7)) : 4);

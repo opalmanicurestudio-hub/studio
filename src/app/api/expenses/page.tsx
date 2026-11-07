@@ -148,7 +148,7 @@ export default function ExpensesPage() {
           </div>
           <div className="space-y-1">
             <Label>What was it?</Label>
-            <Input placeholder="Gel polish restock, booth fan, Canva subscription…" value={form.description}
+            <Input placeholder="Supplies restock, booth fan, software subscription…" value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

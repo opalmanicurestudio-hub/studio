@@ -49,6 +49,9 @@ import { ImageUpload } from '../shared/ImageUpload';
 import { format } from 'date-fns';
 import { PhoneInput } from '../ui/phone-input';
 import { nanoid } from 'nanoid';
+import { useTenantOptional } from '@/context/TenantContext';
+import { careSetsFor, nicheOf } from '@/lib/niche';
+import { privacyOf } from '@/lib/health-privacy';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -218,6 +221,10 @@ const IntelCategory = ({
 
 const AddClientForm = ({ clients }: { clients: Client[] }) => {
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
+    // Care notes with quick picks for the kind of business (lib/niche); health notes where the work or the business
+    // calls for them, or where this client already has some.
+    const careTenant = useTenantOptional()?.selectedTenant;
+    const careSets = careSetsFor(nicheOf(careTenant), { health: privacyOf(careTenant).healthMode });
     const referralSource = watch('intel.referralSource');
     
     const [birthDay, setBirthDay] = useState('');
@@ -439,11 +446,9 @@ const AddClientForm = ({ clients }: { clients: Client[] }) => {
              </div>
 
              <div className="space-y-8">
-                <SectionHeader icon={ShieldAlert} title="Medical & Safety" step={5} />
+                <SectionHeader icon={ShieldAlert} title={careSets.some((c) => c.key === 'medical') ? 'Medical & Safety' : 'Safety & Comfort'} step={5} />
                 <Accordion type="multiple" className="w-full space-y-2">
-                    <IntelCategory title="Medical & Health" icon={<ShieldAlert className="w-4 h-4 text-red-500" />} color="red" predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']} categoryKey="medical" />
-                    <IntelCategory title="Allergies & Sensitivities" icon={<AlertTriangle className="w-4 h-4 text-amber-500" />} color="amber" predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']} categoryKey="allergies" />
-                    <IntelCategory title="Sensory Needs" icon={<Ear className="w-4 h-4 text-blue-500" />} color="blue" predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']} categoryKey="sensory" />
+                    {careSets.map((c) => <IntelCategory key={c.key} title={c.title} icon={c.key === 'medical' ? <ShieldAlert className="w-4 h-4 text-red-500" /> : c.key === 'allergies' ? <AlertTriangle className="w-4 h-4 text-amber-500" /> : <Ear className="w-4 h-4 text-blue-500" />} color={c.key === 'medical' ? 'red' : c.key === 'allergies' ? 'amber' : 'blue'} predefinedItems={c.picks} categoryKey={c.key} />)}
                 </Accordion>
              </div>
 

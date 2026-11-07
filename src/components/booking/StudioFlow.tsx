@@ -33,6 +33,7 @@ import { PLACE_LABEL } from '@/lib/service-place';
 import { tenantTimeZone, wallParts } from '@/lib/tenant-time';
 import { PUBLIC_CSS, PUBLIC_FONT_HREF, moodStyle, money, minutes, type PublicMood } from '@/components/public/kit';
 import { FLOW_CSS } from './flow-css';
+import { chosenNiche } from '@/lib/niche';
 
 export type FlowLook = { accent: string; mood: PublicMood };
 
@@ -396,7 +397,7 @@ export function StudioFlow({ c }: { c: any }) {
           <p className="cf-lbl">Anything we should know?</p>
           <div className="cf-grp"><textarea {...reg('notes')} rows={3} className="cf-in cf-area" placeholder="Allergies, what you’re hoping for, anything at all" /></div>
           {c.asksPhotos !== false && <><p className="cf-lbl mt-4">Inspiration photos <span style={{ fontWeight: 400 }}>(optional)</span></p>
-          <PhotoMarkup tenantId={c.tenantId} value={c.inspoPhotos} onChange={c.setInspoPhotos} accent="var(--accent)" now={c.nowPhoto} onNow={c.setNowPhoto}
+          <PhotoMarkup niche={chosenNiche(c.tenant)} tenantId={c.tenantId} value={c.inspoPhotos} onChange={c.setInspoPhotos} accent="var(--accent)" now={c.nowPhoto} onNow={c.setNowPhoto}
             who={whoName || undefined} /></>}
         </section>
         <div className="cf-grp">

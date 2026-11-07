@@ -293,7 +293,7 @@ export default function EventsPage() {
               <div className="space-y-1.5 col-span-2">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Event Name *</Label>
                 <Input value={form.title} onChange={e => f('title', e.target.value)}
-                  placeholder="e.g. Spring Nail Night" className="h-12 rounded-xl border-2" />
+                  placeholder="e.g. Spring Open House" className="h-12 rounded-xl border-2" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Event Type</Label>

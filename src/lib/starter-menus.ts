@@ -1,6 +1,7 @@
 // src/lib/starter-menus.ts — A MENU TO START FROM for a business starting fresh (Getting started → Your services).
 // Common services with typical lengths. Prices are left for the business: every one comes in hidden from booking with no
 // price, and goes live only when they set a price and switch it on — nothing is offered to clients at a made-up price.
+import { nicheOf } from './niche';
 export type StarterService = { name: string; category: string; duration: number; description?: string };
 export type StarterMenu = { id: string; label: string; services: StarterService[] };
 
@@ -33,13 +34,12 @@ export const STARTER_MENUS: StarterMenu[] = [
   ] },
 ];
 
-/** The menu most likely to fit, from what they told us at sign-up. */
+/** The menu most likely to fit, from the kind of business (lib/niche); '' when none of the starter menus fits (a gym,
+ *  a café, a shop), so nothing is picked for them. */
 export function suggestMenu(t: any): string {
-  const txt = `${t?.businessType || ''} ${t?.category || ''} ${t?.name || ''}`.toLowerCase();
-  if (/nail|manicure|pedicure/.test(txt)) return 'nails';
-  if (/lash|brow/.test(txt)) return 'lash';
-  if (/barber/.test(txt)) return 'barber';
-  if (/spa|massage|skin|facial|wellness/.test(txt)) return 'spa';
-  if (/hair|salon/.test(txt)) return 'hair';
-  return 'nails';
+  const n = nicheOf(t);
+  if (n === 'nails' || n === 'hair' || n === 'lash' || n === 'barber' || n === 'spa') return n;
+  if (n === 'medspa') return 'spa';
+  if (n === 'beauty') return 'hair';   // a salon that hasn't said more: most often hair, as before
+  return '';
 }

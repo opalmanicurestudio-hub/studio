@@ -18,6 +18,7 @@ import { PhotoCompare } from '@/components/markup/PhotoCompare';
 import { altText, countChip, photoLine } from '@/lib/markup/describe';
 import { X } from 'lucide-react';
 import { cleanDoc, packDoc, type MarkupDoc } from '@/lib/markup/model';
+import type { Niche } from '@/lib/niche';
 
 export interface InspoPhoto {
   url: string; note: string; local?: string; colors?: string[];
@@ -49,8 +50,10 @@ type Slot = 'goal' | 'now';
 type Editing = { slot: Slot; src: string; index: number | null; note: string; colors: string[]; doc: MarkupDoc | null; base: string | null; original: string | null; tool?: Tool };
 const docOf = (p: InspoPhoto | null | undefined): MarkupDoc | null => { if (!p?.markup) return null; try { return cleanDoc(JSON.parse(p.markup)); } catch { return null; } };
 
-export function PhotoMarkup({ tenantId, value, onChange, accent = '#16171a', max = 4, now, onNow, who }: {
+export function PhotoMarkup({ tenantId, value, onChange, accent = '#16171a', max = 4, now, onNow, who, niche }: {
   tenantId: string; value: InspoPhoto[]; onChange: (v: InspoPhoto[]) => void; accent?: string; max?: number;
+  /** The kind of business (lib/niche), so the markup tools fit it. */
+  niche?: Niche | null;
   /** How it looks now (for comparing), when the page asks for one. */
   now?: InspoPhoto | null; onNow?: (p: InspoPhoto | null) => void;
   /** Who sees the photos (the provider's first name, or the business). */
@@ -142,7 +145,7 @@ export function PhotoMarkup({ tenantId, value, onChange, accent = '#16171a', max
         {allColors.length > 0 && <div className="flex flex-wrap items-center gap-2"><span className="text-[13px]" style={{ color: MUTED }}>Colors I love</span>{allColors.map((c) => <span key={c} className="h-7 w-7 rounded-lg" style={{ background: c, boxShadow: `inset 0 0 0 1px ${LINE}` }} title={c.toUpperCase()} aria-label={c.toUpperCase()} role="img" />)}</div>}
       </section>}
       {comparing && now && <PhotoCompare now={{ src: now.local || now.url, label: 'Now' }} goals={value.map((p, i) => ({ src: p.local || p.url, label: value.length > 1 ? `Photo ${i + 1}` : 'Goal' }))} accent={realAccent()} viewer="client" who={who ? who : 'The team'} onClose={() => setComparing(false)} />}
-      {editing && <MarkupEditor src={editing.src} doc={editing.doc} layer="client" startTool={editing.tool}
+      {editing && <MarkupEditor niche={niche} src={editing.src} doc={editing.doc} layer="client" startTool={editing.tool}
         title={editing.slot === 'now' ? 'How it looks now' : `Photo ${(editing.index ?? value.length) + 1} of ${Math.max(value.length + (editing.index === null ? 1 : 0), 1)}`}
         accent={realAccent()} initialNote={editing.note} initialColors={editing.colors} onCancel={() => setEditing(null)} onDone={save} />}
     </div>

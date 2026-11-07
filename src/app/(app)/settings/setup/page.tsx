@@ -45,7 +45,7 @@ export default function SetupPage() {
   const hidden = !!(selectedTenant?.setupGuide?.hidden || selectedTenant?.setupGuide?.finishedAt);
   const [hideBusy, setHideBusy] = React.useState(false); const [hideErr, setHideErr] = React.useState('');
   const toggleHidden = async () => { if (hideBusy) return; setHideBusy(true); setHideErr(''); const ok = await g.mark('', hidden ? 'show' : 'hide'); setHideBusy(false); if (!ok) setHideErr('That didn’t save. Try again.'); };
-  React.useEffect(() => { if (g.data && !menu) setMenu(g.data.suggest || g.data.menus[0]?.id || ''); }, [g.data, menu]);
+  React.useEffect(() => { if (g.data && !menu && g.data.suggest) setMenu(g.data.suggest); }, [g.data, menu]);   // nothing picked when no starter menu fits
   const link = typeof window !== 'undefined' && g.data ? `${window.location.origin}${g.data.bookingPath}` : '';
   const addMenu = async () => {
     setBusy(true); setMsg('');
@@ -91,6 +91,7 @@ export default function SetupPage() {
               {g.data && g.data.facts.livePriced === 0 && <div className="space-y-3 rounded-2xl p-5" style={{ background: C.soft }}>
                 <p className="text-[14px]"><b>Start from a menu.</b> Common services for your kind of business, with typical lengths. Prices are left to you, and nothing shows on your booking page until you set a price and switch it on.</p>
                 <select value={menu} onChange={(e) => setMenu(e.target.value)} aria-label="Starter menu" className="h-11 w-full rounded-xl px-3 text-[14.5px]" style={{ background: C.paper, color: C.ink, boxShadow: `inset 0 0 0 1px ${C.line}` }}>
+                  {!menu && <option value="" disabled>Choose a starter menu</option>}
                   {g.data.menus.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.count} services</option>)}
                 </select>
                 <button type="button" disabled={busy || !menu} onClick={addMenu} className="h-11 w-full rounded-full text-[14.5px] font-semibold disabled:opacity-50" style={{ background: C.ink, color: C.paper }}>{busy ? 'Adding…' : g.data.starterMenu ? 'Add any that are missing' : 'Add these services'}</button>

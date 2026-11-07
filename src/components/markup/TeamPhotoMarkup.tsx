@@ -21,6 +21,8 @@ import { teamPart } from '@/lib/markup/team';
 import { useTeamPhoto } from '@/components/markup/useTeamPhoto';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { resolvePrivateUrl } from '@/components/shared/private-file';
+import { useTenantOptional } from '@/context/TenantContext';
+import { chosenNiche } from '@/lib/niche';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', WARN = '#b45309', GOOD = '#1f7a4d';
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
@@ -41,6 +43,7 @@ export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientN
   /** One person sees every client (lib/business-shape): no "team" in the words. */
   solo?: boolean;
 }) {
+  const nicheNow = chosenNiche(useTenantOptional()?.selectedTenant);   // the kind of business the owner chose, for the markup tools (lib/niche)
   const client = first(clientName) || 'the client'; const myName = first(me?.name);
   const { ready, call } = useTeamPhoto(tenantId, apptId, photo);
   const [comparing, setComparing] = React.useState<'loading' | { now: string; goal: string } | null>(null); const [compareErr, setCompareErr] = React.useState(false);
@@ -128,7 +131,7 @@ export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientN
       {comparing === 'loading' ? 'Opening…' : compareErr ? 'Compare: try again' : 'Compare with now'}</button>) : null;
   return (
     <OverSheet label={label}>
-      <MarkupEditor inline src={r.src} doc={r.doc} layer="team" editLayers={['team', 'private']} sendLayers={['client', 'team']} by={first(me?.name) || undefined} clientName={client}
+      <MarkupEditor inline niche={nicheNow} src={r.src} doc={r.doc} layer="team" editLayers={['team', 'private']} sendLayers={['client', 'team']} by={first(me?.name) || undefined} clientName={client}
         layerNames={{ team: myName ? `${myName}’s marks` : 'Your marks', private: solo ? 'Private notes' : 'Private team notes' }} title={`Inspiration photo ${n} of ${of} · ${title}`} backLabel={clientName || 'Back'} doneLabel={`Send to ${client}`}
         alt={{ label: solo ? 'Save without sending' : 'Save for the team', onDone: save }} onDone={send} onCancel={() => onClose()} initialNote={r.note} aside={aside} headerExtra={headerExtra} />
       {comparing && comparing !== 'loading' && <PhotoCompare inline viewer="team" now={{ src: comparing.now, label: 'Now' }} goals={[{ src: comparing.goal, label: `Photo ${n}` }]} onClose={() => setComparing(null)} />}

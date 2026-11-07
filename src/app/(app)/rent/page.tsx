@@ -1997,7 +1997,7 @@ export default function RentRollPage() {
               <Label htmlFor="chg-desc">What is it for?</Label>
               <Input
                 id="chg-desc"
-                placeholder="Gel polish restock, key replacement…"
+                placeholder="Supplies restock, key replacement…"
                 value={chargeForm.description}
                 onChange={(e) =>
                   setChargeForm((p) => ({ ...p, description: e.target.value }))

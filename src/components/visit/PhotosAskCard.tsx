@@ -8,8 +8,9 @@ import * as React from 'react';
 import { VisitCard, VisitButton } from '@/components/booking/VisitShell';
 import { PhotoMarkup } from '@/components/booking/PhotoMarkup';
 import { visitDevice } from '@/components/visit/VerifyCard';
+import type { Niche } from '@/lib/niche';
 
-export function PhotosAskCard({ ask, token, tenantId, accent, onSent }: { ask: { note: string | null; by: string | null }; token: string; tenantId: string; accent: string; onSent: (thanks: string) => void }) {
+export function PhotosAskCard({ ask, token, tenantId, accent, onSent, niche }: { ask: { note: string | null; by: string | null }; token: string; tenantId: string; accent: string; niche?: Niche | null; onSent: (thanks: string) => void }) {
   const [photos, setPhotos] = React.useState<any[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [said, setSaid] = React.useState<{ text: string; ok?: boolean } | null>(null);
@@ -31,7 +32,7 @@ export function PhotosAskCard({ ask, token, tenantId, accent, onSent }: { ask: {
           <p className="text-[16px] font-semibold">{ask.by ? `${ask.by} asked for a different inspiration photo` : 'A different inspiration photo, please'}</p>
           {ask.note && <p className="mt-1 text-[14.5px] leading-snug">“{ask.note}”</p>}
         </div>
-        <PhotoMarkup tenantId={tenantId} value={photos} onChange={setPhotos} accent={accent} who={ask.by || undefined} />
+        <PhotoMarkup niche={niche} tenantId={tenantId} value={photos} onChange={setPhotos} accent={accent} who={ask.by || undefined} />
         {said && <p className="text-[14px]" role="alert" style={{ color: 'var(--warn, #b45309)' }}>{said.text}</p>}
         <VisitButton onClick={() => void send()} disabled={!photos.length || busy}>{busy ? 'Sending…' : photos.length > 1 ? `Send ${photos.length} photos` : 'Send the photo'}</VisitButton>
       </section>

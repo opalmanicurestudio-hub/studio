@@ -11,6 +11,8 @@
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { MarkupEditor } from '@/components/markup/MarkupEditor';
+import { useTenantOptional } from '@/context/TenantContext';
+import { chosenNiche } from '@/lib/niche';
 
 interface ImageMarkupDialogProps {
   open: boolean;
@@ -21,6 +23,7 @@ interface ImageMarkupDialogProps {
 }
 
 export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({ open, onOpenChange, imageUrl, onSave, title }) => {
+  const tenantNow = useTenantOptional()?.selectedTenant;   // the kind of business, for the markup tools (lib/niche)
   if (!open || !imageUrl) return null;
   const name = title || 'Mark up the photo';
   return (
@@ -29,7 +32,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({ open, onOp
         <DialogPrimitive.Content aria-describedby={undefined} onOpenAutoFocus={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()} className="fixed inset-0 z-[400] outline-none">
           <DialogPrimitive.Title className="sr-only">{name}</DialogPrimitive.Title>
-          <MarkupEditor inline src={imageUrl} layer="team" title={name} doneLabel="Save markup" format="png" sendLayers={['client', 'team']}
+          <MarkupEditor inline src={imageUrl} layer="team" niche={chosenNiche(tenantNow)} title={name} doneLabel="Save markup" format="png" sendLayers={['client', 'team']}
             onCancel={() => onOpenChange(false)}
             onDone={async (r) => {
               try { await onSave(r.dataUrl); onOpenChange(false); return null; }

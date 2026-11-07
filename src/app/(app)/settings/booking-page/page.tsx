@@ -496,7 +496,7 @@ function FaqSheet({ faqs, unsaved, canEdit, onDraft, onSave, onClose }: { faqs: 
       <div className="space-y-4">
         {list.map((f, i) => (
           <div key={i} className="space-y-2 rounded-2xl p-4" style={{ background: 'var(--soft)' }}>
-            <input value={f.q} disabled={!canEdit} maxLength={140} placeholder="The question, like “How long does gel last?”" aria-label={`Question ${i + 1}`} onChange={(e) => set(i, 'q', e.target.value)} className={cfInput} style={cfInputStyle} />
+            <input value={f.q} disabled={!canEdit} maxLength={140} placeholder="The question, like “How should I prepare?”" aria-label={`Question ${i + 1}`} onChange={(e) => set(i, 'q', e.target.value)} className={cfInput} style={cfInputStyle} />
             <textarea value={f.a} disabled={!canEdit} maxLength={600} rows={2} placeholder="Your answer" aria-label={`Answer ${i + 1}`} onChange={(e) => set(i, 'a', e.target.value)} className={`${cfInput} h-auto py-3`} style={cfInputStyle} />
             {canEdit && <div className="flex items-center justify-between">
               <span className="flex"><button type="button" aria-label={`Move question ${i + 1} up`} onClick={() => shift(i, -1)} disabled={i === 0} className="grid h-11 w-11 place-items-center cf-muted disabled:opacity-30"><ArrowUp className="h-4 w-4" aria-hidden /></button>

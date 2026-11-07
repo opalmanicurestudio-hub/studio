@@ -14,6 +14,7 @@ import { VisitMoments } from '@/components/opportunities/VisitMoments';
 import { DayChange } from '@/components/staff-portal/DayChange';
 import { isSoloTeam } from '@/lib/solo';
 import { shapeOf } from '@/lib/business-shape';
+import { nicheOf, prepNoteFor } from '@/lib/niche';
 import { shrink } from '@/components/making-it-right/VoiceNote';
 
 import { AssistPicker } from '@/components/planner/AssistPicker';
@@ -1697,7 +1698,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [requestMarketingConsent, setRequestMarketingConsent] = useState(false);
   const [requestEmergencyContact, setRequestEmergencyContact] = useState(false);
   const [requestAcknowledgment, setRequestAcknowledgment] = useState(false);
-  const [acknowledgmentText, setAcknowledgmentText] = useState('Please arrive with clean, dry hair and no polish on your nails.');
+  const [acknowledgmentText, setAcknowledgmentText] = useState(() => prepNoteFor(nicheOf(selectedTenant)));   // to start from, for the kind of business (lib/niche)
   const [reqLink, setReqLink] = useState<string | null>(null);
   const [reqSending, setReqSending] = useState(false);
   const [reqCopied, setReqCopied] = useState(false);

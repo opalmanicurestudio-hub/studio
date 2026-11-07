@@ -76,6 +76,9 @@ import { PhoneInput } from '../ui/phone-input';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { useClient, useClientSearch, useDebounced } from '@/hooks/use-clients';
+import { useTenantOptional } from '@/context/TenantContext';
+import { careSetsFor, nicheOf } from '@/lib/niche';
+import { privacyOf } from '@/lib/health-privacy';
 
 const clientSchema = z.object({
   name: z.string().min(1, 'Name is required.'),
@@ -248,6 +251,14 @@ const IntelCategory = ({
 
 const EditClientFormInternal = ({ client }: { client: Client }) => {
     const { register, control, watch, setValue, formState: { errors } } = useFormContext<ClientFormData>();
+    // Care notes with quick picks for the kind of business (lib/niche); health notes where the work or the business
+    // calls for them, or where this client already has some.
+    const careTenant = useTenantOptional()?.selectedTenant;
+    // Every item this client has had ticked while the form is open stays listed (unticking one leaves it there to tick
+    // again), beside the quick picks.
+    const seenCare = React.useRef<Record<string, Set<string>>>({ medical: new Set(), allergies: new Set(), sensory: new Set() });
+    for (const k of ['medical', 'allergies', 'sensory'] as const) for (const f of ((watch(`intel.${k}.flags` as any) as string[] | undefined) || [])) seenCare.current[k].add(String(f));
+    const careSets = careSetsFor(nicheOf(careTenant), { health: privacyOf(careTenant).healthMode, hasMedical: seenCare.current.medical.size > 0 || !!String(watch('intel.medical.notes') || '').trim() });
     // The referrer is found by search (hooks/use-clients); the one already chosen is read on its own.
     const [refQ, setRefQ] = React.useState('');
     const refSettled = useDebounced(refQ.trim().length >= 2 ? refQ : '', 200);
@@ -544,11 +555,9 @@ const EditClientFormInternal = ({ client }: { client: Client }) => {
              </div>
 
              <div className="space-y-8">
-                <SectionHeader icon={ShieldAlert} title="Medical & Safety" step={5} />
+                <SectionHeader icon={ShieldAlert} title={careSets.some((c) => c.key === 'medical') ? 'Medical & Safety' : 'Safety & Comfort'} step={5} />
                 <Accordion type="multiple" className="w-full space-y-2">
-                    <IntelCategory title="Medical & Health" icon={<ShieldAlert className="w-4 h-4 text-red-500" />} color="red" predefinedItems={['Pregnant', 'Pacemaker', 'Diabetes', 'High Blood Pressure']} categoryKey="medical" />
-                    <IntelCategory title="Allergies & Sensitivities" icon={<AlertTriangle className="w-4 h-4 text-amber-500" />} color="amber" predefinedItems={['Latex', 'Fragrance', 'Nuts', 'Aspirin']} categoryKey="allergies" />
-                    <IntelCategory title="Sensory Needs" icon={<Ear className="w-4 h-4 text-blue-500" />} color="blue" predefinedItems={['Wheelchair Access', 'Prefers Quiet', 'Sensory Sensitivities', 'Service Animal']} categoryKey="sensory" />
+                    {careSets.map((c) => <IntelCategory key={c.key} title={c.title} icon={c.key === 'medical' ? <ShieldAlert className="w-4 h-4 text-red-500" /> : c.key === 'allergies' ? <AlertTriangle className="w-4 h-4 text-amber-500" /> : <Ear className="w-4 h-4 text-blue-500" />} color={c.key === 'medical' ? 'red' : c.key === 'allergies' ? 'amber' : 'blue'} predefinedItems={[...new Set([...c.picks, ...seenCare.current[c.key]])]} categoryKey={c.key} />)}
                 </Accordion>
              </div>
 
@@ -635,7 +644,7 @@ export const EditClientDialog = ({ open, onOpenChange, client, onSave }: { open:
         <ScrollArea className="flex-1">
             <div className={cn(isMobile ? "p-6" : "p-10")}>
                 <FormProvider {...methods}>
-                    <EditClientFormInternal client={client} />
+                    <EditClientFormInternal key={client.id} client={client} />
                 </FormProvider>
             </div>
         </ScrollArea>

@@ -19,7 +19,7 @@ export type CategoryDef = {
 
 export const CATEGORY_LIBRARY: CategoryDef[] = [
   // ── Income ──
-  { name: 'Service Revenue',     type: 'income',  taxBucket: 'revenue',        hint: 'Manicures, pedicures, enhancements' },
+  { name: 'Service Revenue',     type: 'income',  taxBucket: 'revenue',        hint: 'The services you sell' },
   { name: 'Retail',              type: 'income',  taxBucket: 'revenue',        hint: 'Product sales — usually sales-taxable' },
   { name: 'Membership Sales',    type: 'income',  taxBucket: 'revenue' },
   { name: 'Package Sales',       type: 'income',  taxBucket: 'revenue' },
@@ -32,7 +32,7 @@ export const CATEGORY_LIBRARY: CategoryDef[] = [
   { name: 'Other Income',        type: 'income',  taxBucket: 'revenue' },
 
   // ── Expenses ──
-  { name: 'Supplies',               type: 'expense', taxBucket: 'operating_cost', hint: 'Polish, tips, acetone, files' },
+  { name: 'Supplies',               type: 'expense', taxBucket: 'operating_cost', hint: 'What you use up doing the work' },
   { name: 'Cost of Goods Sold',     type: 'expense', taxBucket: 'operating_cost', hint: 'Retail product you resell' },
   { name: 'Rent & Lease',           type: 'expense', taxBucket: 'operating_cost' },
   { name: 'Utilities',              type: 'expense', taxBucket: 'operating_cost' },

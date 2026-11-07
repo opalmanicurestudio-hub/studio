@@ -38,6 +38,7 @@ import { PhotosAskCard, PhotosSentCard } from '@/components/visit/PhotosAskCard'
 import { PhotosReplyCard } from '@/components/visit/PhotosReplyCard';
 import { formRulesOf, requestAsksMore } from '@/lib/forms';
 import { inPerson } from '@/lib/business-shape';
+import { chosenNiche } from '@/lib/niche';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -501,7 +502,7 @@ export default function CheckInPage() {
     const formsCard = formsProps && !isCompletionPending && thingsLeft(visitForms) > 0 ? <FormsLeftCard visit={visitForms!} onOpen={() => setShowForms(true)} /> : null;
     // The team asked for a different inspiration photo: added right here, with the photo tool from booking.
     const photosAsk = (appointmentData as any)?.photosAsk || null;
-    const photosCard = photosAsk && tenantId && !isCompletionPending ? <PhotosAskCard ask={photosAsk} token={token} tenantId={tenantId} accent={brandOf(tenant).accent} onSent={(t) => { setPhotosSent(t); setViewNonce((n) => n + 1); }} /> : null;
+    const photosCard = photosAsk && tenantId && !isCompletionPending ? <PhotosAskCard ask={photosAsk} niche={chosenNiche(tenant)} token={token} tenantId={tenantId} accent={brandOf(tenant).accent} onSent={(t) => { setPhotosSent(t); setViewNonce((n) => n + 1); }} /> : null;
     const photosThanks = !photosCard && photosSent ? <PhotosSentCard text={photosSent} /> : null;
     // The team's marks on their photos, to say looks good or reply (it stays, answered, while they're on the page).
     const photosReply = (appointmentData as any)?.photosReply || null;

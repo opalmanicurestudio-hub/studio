@@ -17,6 +17,7 @@ import { type Mark, type MarkupDoc, type Layer, type Pt, type StampKind, type Na
   SIZES, PALETTE, STAMPS, NAIL_SHAPES, NAIL_LENGTHS, LIMITS } from '@/lib/markup/model';
 import { drawDoc, canvasMatrix, boxOf, hitMark, flatten, nailPath, type Box } from '@/lib/markup/draw';
 import { altText, pinLines } from '@/lib/markup/describe';
+import { markupToolsHidden, type Niche } from '@/lib/niche';
 
 export type Tool = 'move' | 'pen' | 'highlight' | 'arrow' | 'circle' | 'shapes' | 'text' | 'stamp' | 'nail' | 'pin' | 'pick' | 'magnify' | 'blur' | 'eraser' | 'crop';
 export type MarkupResult = { dataUrl: string; doc: MarkupDoc; note: string; colors: string[] };
@@ -32,7 +33,8 @@ const TOOLS: { k: Tool; label: string; Icon: any }[] = [
 const KEYS: Record<string, Tool | 'line'> = { v: 'move', p: 'pen', h: 'highlight', a: 'arrow', o: 'circle', r: 'shapes', l: 'line', t: 'text', s: 'stamp', g: 'nail', n: 'pin', i: 'pick', m: 'magnify', b: 'blur', e: 'eraser', c: 'crop' };
 const KEY_OF: Partial<Record<Tool, string>> = Object.fromEntries(Object.entries(KEYS).filter(([, t]) => t !== 'line').map(([k, t]) => [t, k.toUpperCase()]));
 /** Two rows, in reading order (the grid fills down each column, so the list is laid out to suit). */
-const TOOL_GRID = Array.from({ length: Math.ceil(TOOLS.length / 2) }).flatMap((_, i) => [TOOLS[i], TOOLS[i + Math.ceil(TOOLS.length / 2)]].filter(Boolean));
+/** The tools in two columns, down then across (the phone's tool sheet). */
+const gridOf = (list: typeof TOOLS) => Array.from({ length: Math.ceil(list.length / 2) }).flatMap((_, i) => [list[i], list[i + Math.ceil(list.length / 2)]].filter(Boolean));
 const NAMES: Record<string, string> = { pen: 'Line', highlight: 'Highlight', line: 'Straight line', arrow: 'Arrow', circle: 'Circle', rect: 'Box', text: 'Label', stamp: 'Stamp', nail: 'Nail guide', pin: 'Pin', lens: 'Close-up', blur: 'Blurred area' };
 /** Marks turned on the photo itself (a flipped photo turns them the other way on the screen). */
 const PHOTO_TURNED = ['pen', 'highlight', 'line', 'arrow', 'circle', 'rect', 'nail'];
@@ -53,7 +55,7 @@ type Gesture =
   | { t: 'pick' }
   | { t: 'crop'; part: 'move' | 0 | 1 | 2 | 3; from: Pt; orig: { x: number; y: number; w: number; h: number } };
 
-export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, showLayers, sendLayers, title, accent = INK, by, onCancel, onDone, initialNote = '', initialColors = [], startTool = 'pen', format = 'jpeg', doneLabel = 'Done', backLabel, layerNames, clientName, inline = false, alt, aside, headerExtra }: {
+export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, showLayers, sendLayers, title, accent = INK, by, onCancel, onDone, initialNote = '', initialColors = [], startTool = 'pen', format = 'jpeg', doneLabel = 'Done', backLabel, layerNames, clientName, inline = false, alt, aside, headerExtra, niche }: {
   src: string; doc?: MarkupDoc | null; layer?: Layer;
   /** Layers whose marks can be changed here (the editor's own, by default). */
   editLayers?: Layer[];
@@ -82,12 +84,19 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   aside?: React.ReactNode;
   /** Beside the title on a computer, and under it on a phone (other views of the photo: Compare). */
   headerExtra?: React.ReactNode;
+  /** The kind of business the owner chose (lib/niche chosenNiche): a tool that can't fit it (the nail guide outside
+   *  nails) is left out. A guess never takes a tool away. Marks already made with it still show and can be moved or
+   *  removed. */
+  niche?: Niche | null;
 }) {
+  const hiddenTools = markupToolsHidden(niche);
+  const tools = React.useMemo(() => TOOLS.filter((x) => !markupToolsHidden(niche).includes(x.k)), [niche]);
+  const toolGrid = React.useMemo(() => gridOf(tools), [tools]);
   const root = React.useRef<HTMLDivElement>(null); const stage = React.useRef<HTMLDivElement>(null);
   const canvas = React.useRef<HTMLCanvasElement>(null); const img = React.useRef<HTMLImageElement | null>(null); const sample = React.useRef<{ ctx: CanvasRenderingContext2D; k: number } | null>(null);
   const [doc, setDoc] = React.useState<MarkupDoc | null>(null); const [note, setNote] = React.useState(initialNote);
   const [past, setPast] = React.useState<MarkupDoc[]>([]); const [future, setFuture] = React.useState<MarkupDoc[]>([]);
-  const [tool, setTool] = React.useState<Tool>(startTool); const [color, setColor] = React.useState(PALETTE[0]); const [size, setSize] = React.useState(SIZES[1].v);
+  const [tool, setTool] = React.useState<Tool>(hiddenTools.includes(startTool) ? 'pen' : startTool); const [color, setColor] = React.useState(PALETTE[0]); const [size, setSize] = React.useState(SIZES[1].v);
   const [dash, setDash] = React.useState(false); const [smooth, setSmooth] = React.useState(true); const [shape, setShape] = React.useState<'rect' | 'line'>('rect'); const [round, setRound] = React.useState(false);
   const [stamp, setStamp] = React.useState<StampKind | 'number'>('heart'); const [nail, setNail] = React.useState<{ shape: NailShape; length: NailLength }>({ shape: 'almond', length: 'medium' });
   const [zoomLens, setZoomLens] = React.useState<2 | 3 | 4>(3); const [label, setLabel] = React.useState('');
@@ -478,7 +487,8 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
       if (e.key === ' ' && !onBtn) { e.preventDefault(); holdSpace(true); return; }
       // (The key's own letter first; a key's place on the keyboard only when it types no letter at all, as on a
       // keyboard in another alphabet, so a different layout never picks the wrong tool.)
-      const k = KEYS[e.key.toLowerCase()] ?? (/^[a-z]$/i.test(e.key) ? undefined : KEYS[/^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : '']);
+      const k0 = KEYS[e.key.toLowerCase()] ?? (/^[a-z]$/i.test(e.key) ? undefined : KEYS[/^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : '']);
+      const k = k0 && !hiddenTools.includes(k0) ? k0 : undefined;   // a tool left out has no key either
       if (k) { e.preventDefault(); if (k === 'line') { setShape('line'); pickTool('shapes'); } else if (k === 'shapes') { setShape('rect'); pickTool('shapes'); } else pickTool(k); return; }
     }
     if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) { e.preventDefault(); if (cropping) return; if (e.shiftKey || e.key.toLowerCase() === 'y') redo(); else undo(); return; }
@@ -664,7 +674,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
           <button type="button" onClick={() => void done()} disabled={!doc || !!saving || locked} className="inline-flex min-h-11 items-center rounded-full px-5 text-[15px] font-semibold disabled:opacity-40" style={{ background: INK, color: '#fff' }}>{saving === 'main' ? 'Saving…' : doneLabel}</button>
         </header>
         <nav role="toolbar" aria-label="Tools" aria-orientation="vertical" className="min-h-0 space-y-0.5 overflow-y-auto p-2" style={{ borderRight: `1px solid ${LINE}` }}>
-          {TOOLS.map(({ k, label: l, Icon }) => { const on = tool === k; return (
+          {tools.map(({ k, label: l, Icon }) => { const on = tool === k; return (
             <button key={k} type="button" onClick={() => pickTool(k)} aria-pressed={on} disabled={locked} aria-keyshortcuts={KEY_OF[k]} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-[14.5px] disabled:opacity-40" style={on ? { background: INK, color: '#fff', fontWeight: 600 } : { color: INK }}>
               <Icon size={17} aria-hidden /><span className="flex-1">{l}</span>{KEY_OF[k] && <span className="text-[12px] tabular-nums" style={{ color: on ? 'rgba(255,255,255,.7)' : MUTED }} aria-hidden>{KEY_OF[k]}</span>}</button>); })}
           <p className="px-3 pt-2 text-[12px]" style={{ color: MUTED }}>L draws a straight line.</p>
@@ -720,7 +730,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
       <div className="max-h-[52dvh] space-y-2.5 overflow-y-auto px-3 pb-3 pt-2.5" style={{ background: SOFT, borderTop: `1px solid ${LINE}` }}>
         {notice}
         <div role="toolbar" aria-label="Tools" className="-mx-3 grid auto-cols-[56px] grid-flow-col grid-rows-2 gap-y-1 overflow-x-auto px-2">
-          {TOOL_GRID.map(({ k, label: l, Icon }) => { const on = tool === k; return (
+          {toolGrid.map(({ k, label: l, Icon }) => { const on = tool === k; return (
             <button key={k} type="button" onClick={() => pickTool(k)} aria-pressed={on} disabled={locked} className="flex min-h-[56px] flex-col items-center justify-start gap-1 rounded-xl pt-0.5 text-center text-[12px] leading-[1.1] transition active:scale-95 disabled:opacity-40" style={on ? { color: INK, fontWeight: 600 } : { color: MUTED }}>
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px]" style={on ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}><Icon size={17} aria-hidden /></span><span className="block w-full break-words px-0.5">{l}</span></button>); })}
         </div>

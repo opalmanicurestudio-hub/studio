@@ -161,7 +161,7 @@ const RevisionDialog = ({ open, onClose, onSubmit }: {
                         <Textarea
                             value={message}
                             onChange={e => setMessage(e.target.value)}
-                            placeholder="e.g. Can you remove the gel mani and add a dip powder instead? Also curious if you can do 7 people instead of 6..."
+                            placeholder="e.g. Can we swap one service for another? Also curious if you can do 7 people instead of 6..."
                             rows={4}
                             className="rounded-2xl border-2 bg-muted/5"
                         />

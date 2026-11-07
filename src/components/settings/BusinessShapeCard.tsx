@@ -1,14 +1,17 @@
 'use client';
-// src/components/settings/BusinessShapeCard.tsx — HOW YOUR BUSINESS WORKS (Settings → Business profile). Whether one person
-// sees every client or a team does, whether someone works a front desk, and whether the business keeps clients' health
-// information. Each starts worked out (lib/business-shape) and the owner can say otherwise; messages and screens then
+// src/components/settings/BusinessShapeCard.tsx — HOW YOUR BUSINESS WORKS (Settings → Business profile). What it does
+// (lib/niche), whether one person sees every client or a team does, whether someone works a front desk, and whether the
+// business keeps clients' health information. Each starts worked out (lib/business-shape) and the owner can say
+// otherwise; messages and screens then
 // fit: a one-person business is never told to "see the front desk", and a refund is "ready to pick up from Jessica".
-// Saved as you choose (tenant.shape, and privacy.healthMode, the same switch as Booking policies → Privacy).
+// Saved as you choose (tenant.niche and tenant.shape, and privacy.healthMode, the same switch as Booking policies →
+// Privacy).
 import * as React from 'react';
 import Link from 'next/link';
 import { deleteField, doc, updateDoc, type Firestore } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
-import { Section, Row, Toggle, Choice } from '@/components/settings/settings-ui';
+import { Section, Row, Toggle, Choice, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
+import { NICHES, nicheOf, nicheChosen } from '@/lib/niche';
 import { useBusinessShape } from '@/hooks/use-business-shape';
 
 export function BusinessShapeCard({ tenantId, tenant, canEdit }: { tenantId: string; tenant: any; canEdit: boolean }) {
@@ -28,6 +31,13 @@ export function BusinessShapeCard({ tenantId, tenant, canEdit }: { tenantId: str
   const lock = canEdit ? '' : 'pointer-events-none opacity-50';
   return (
     <Section title="How your business works" help="So messages and screens fit how you work, such as who clients are told to see when they arrive.">
+      <Row inline label="What you do" help={<>Examples, quick picks and tools to match: a barbershop is never asked about polish, and the nail guide only shows where nails are done.
+        {!nicheChosen(tenant) ? worked('Worked out for you from your business’s details.') : <>{worked('You chose this.')}{reset('niche', 'What you do')}</>}</>}>
+        <select value={nicheOf(tenant)} disabled={!canEdit || !!busy} aria-label="What you do" onChange={(e) => { const v = e.target.value; void save('niche', v, `Saved: ${(NICHES.find((x) => x.value === v)?.label || v).toLowerCase()}.`); }}
+          className={`${cfInput} min-w-[13rem] disabled:opacity-50`} style={cfInputStyle}>
+          {NICHES.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+        </select>
+      </Row>
       <Row inline label="Who sees clients" help={<>{b.solo ? 'Just you: the desk’s jobs come to you too.' : 'A team: work can pass between people.'}
         {b.guessed.solo ? worked(n != null ? `Worked out from your team (${n} ${n === 1 ? 'person' : 'people'} on it).` : 'Worked out from when you signed up.') : <>{worked('You chose this.')}{reset('shape.solo', 'Who sees clients')}</>}</>}>
         <span className={lock}><Choice label="Who sees clients" value={b.solo ? 'solo' : 'team'} options={[{ value: 'solo', label: 'Just me' }, { value: 'team', label: 'A team' }]}

@@ -137,7 +137,7 @@ const TRIGGER_DEFS: {
     key: 'referencePhotosMissing',
     icon: <Image className="w-4 h-4" />,
     label: 'Reference photos not uploaded',
-    description: 'Inspo / nail art reference photos were requested but not received.',
+    description: 'Inspiration or reference photos were asked for but not received.',
     scheduleImpact: 'Time cost — 10-15 min design consultation eats into service time.',
     badgeColor: 'bg-teal-100 text-teal-700',
     hasSecondWindow: false,
