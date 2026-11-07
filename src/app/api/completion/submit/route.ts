@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     ...(fileSubmissions.length ? { requirementFiles: byId(apptNow.requirementFiles, 'requirementId', fileSubmissions) } : {}),
     ...(skipCardStep ? { completionStatus: 'completed', requirementsCompletedAt: nowIso } : {}) }, { merge: true });
   // Older answers moved off the visit record to keep it within size (lib/forms fitOnVisit): kept beside it, whole.
-  if (c.appointmentId) for (const m of movedAnswers.slice(0, 100)) batch.set(db.doc(`${T}/appointments/${c.appointmentId}/formAnswers/${String(m.formId).replace(/[^A-Za-z0-9_-]/g, '_')}`), m);
+  if (c.appointmentId) { const { answersPath } = await import('@/lib/private-records'); for (const m of movedAnswers.slice(0, 100)) batch.set(db.doc(answersPath(tenantId, String(c.appointmentId), String(m.formId))), m); }
   // On file for every screen, with the version of the wording they signed (lib/forms-server).
   if (c.clientId && signedForms.length) { const { recordSignedForms } = await import('@/lib/forms-server');
     await recordSignedForms(db, tenantId, { clientId: c.clientId, appointmentId: c.appointmentId || null, source: 'completion_link', at: nowIso, batch, forms: signedForms }); }

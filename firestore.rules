@@ -833,6 +833,10 @@ service cloud.firestore {
         && (resource == null || resource.data.get('type', '') != 'retail_sale_credit');
       allow delete: if isManager(tenantId) && resource.data.get('type', '') != 'retail_sale_credit';
     }
+    // Everything else under a business: its team. The collections listed are kept by their own rules above, or are
+    // server only. Server only among them: visitFormAnswers, visitPhotoMarks and clientPhotoRecords (lib/private-records:
+    // a form's answers kept beside a visit, health answers among them; the team's marks and private notes on a client's
+    // photo; a photo's record), read only through the server, by its own rules.
     match /tenants/{tenantId}/{collection}/{rest=**} {
       allow read, write: if isTeam(tenantId) &&
         !(collection in [
@@ -887,7 +891,8 @@ service cloud.firestore {
           'messageLog', 'smsInbox', 'smsThreads', 'voiceCalls', 'clientNotes', 'voiceInbox',
           'clientVerifications', 'clientDevices', 'healthViewLog',
           'feeCharges', 'feePayments', 'cardAttempts', 'membershipRenewals', 'stationSlots', 'tuitionCardUpdates',
-          'collectionAttempts', 'checkoutKeys', 'refundNotices', 'chargeFlags'
+          'collectionAttempts', 'checkoutKeys', 'refundNotices', 'chargeFlags',
+          'visitFormAnswers', 'visitPhotoMarks', 'clientPhotoRecords'
         ]);
     }
     match /tenants/{tenantId}/jobListings/{listingId} {

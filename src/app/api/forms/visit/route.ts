@@ -48,7 +48,8 @@ export async function POST(req: NextRequest) {
     if (!known) return bad('That form isn’t part of this visit.');
     let record: any = null;
     if (action === 'answers') {
-      const kept: any = (await db.doc(`${T}/appointments/${apptId}/formAnswers/${formId.replace(/[^A-Za-z0-9_-]/g, '_')}`).get().catch(() => null))?.data?.() || null;
+      const { readMoved, answersPath, oldAnswersPath } = await import('@/lib/private-records');
+      const kept: any = await readMoved(db, answersPath(tenantId, apptId, formId), oldAnswersPath(tenantId, apptId, formId));
       if (!kept) return bad('Those answers aren’t here.', 404);
       const def: any = (await db.doc(`${T}/consentForms/${formId}`).get().catch(() => null))?.data?.() || null;
       const { isHealthForm } = await import('@/lib/forms'); const { canSeeCareNoteContents } = await import('@/lib/privacy');

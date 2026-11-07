@@ -60,6 +60,7 @@ const req = (body: any) => ({ json: async () => body, headers: new Headers(), ne
   const post = async (body: any) => { const res: any = await R.POST(req({ tenantId: 't1', apptId: 'a1', ...body })); return { status: res.status, body: await res.json() }; };
   const got = await post({ action: 'answers', formId: 'h1' });
   ok(got.body.ok && got.body.record?.formData?.q1 === 'Latex allergy' && got.body.record.signedName === 'Dana Reyes' && audit.some((e) => e.action === 'forms.answers_opened'), 'answers kept beside the visit open on the appointment (and the opening is noted)', got);
+  ok((await db.doc(`${T}/visitFormAnswers/a1__h1`).get()).exists && !(await db.doc(`${T}/appointments/a1/formAnswers/h1`).get()).exists, 'answers kept under the visit before are moved, as they’re read, to where only the server reads them');
   actorNow = { name: 'Lee Tran', uid: 'u9', role: 'staff', isManager: false, caps: [] };
   ok((await post({ action: 'answers', formId: 'h1' })).status === 403, '…health answers only for people who may see health notes');
   actorNow = { name: 'Kai Park', uid: 'u1', role: 'manager', isManager: true, caps: [] };

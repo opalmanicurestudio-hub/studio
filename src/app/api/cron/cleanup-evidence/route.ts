@@ -2,6 +2,8 @@
 // Moved from the Cloud Function cleanupEvidence (never deployed). Deletes checklist/task evidence PHOTOS older than
 // 90 days — only under tenants/{tid}/…/evidence/…; signatures and every other folder are untouched. The run records
 // (who, when, 12/12) stay forever; only the expired photo goes. Capped per run; the daily cadence drains any backlog.
+// Also each day: private records still kept under a visit or a client (a form's answers, the team's photo marks and
+// private notes, a photo's record) are moved to where only the server reads them (lib/private-records).
 import { NextRequest, NextResponse } from 'next/server';
 import { privateBucket } from '@/lib/private-storage';
 export const dynamic = 'force-dynamic';
@@ -10,6 +12,10 @@ const RETENTION_DAYS = 90; const MAX_DELETES = 1500;
 
 export async function GET(req: NextRequest) {
   if (!process.env.CRON_SECRET || req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ ok: false }, { status: 401 });
+  // Private records first (quick), so a long photo scan never leaves them for another day.
+  let records: { moved: number; left: boolean } = { moved: 0, left: false };
+  try { const { getAdminDb } = await import('@/lib/firebase-admin'); const { moveOldPrivateRecords } = await import('@/lib/private-records'); records = await moveOldPrivateRecords(getAdminDb()); }
+  catch (e: any) { console.error('[cron/cleanup-evidence] private records', e?.message); }
   const cutoff = Date.now() - RETENTION_DAYS * 86400000; const bucket: any = await privateBucket();
   let deleted = 0, scanned = 0; let pageToken: string | undefined;
   do {
@@ -22,5 +28,5 @@ export async function GET(req: NextRequest) {
     }
     pageToken = res?.nextPageToken;
   } while (pageToken && deleted < MAX_DELETES);
-  return NextResponse.json({ ok: true, scanned, deleted, retentionDays: RETENTION_DAYS });
+  return NextResponse.json({ ok: true, scanned, deleted, retentionDays: RETENTION_DAYS, privateRecordsMoved: records.moved, privateRecordsLeft: records.left });
 }

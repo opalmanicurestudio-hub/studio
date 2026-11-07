@@ -6,9 +6,9 @@
 //   send  { key, base, markup, note, images }     kept, and shown on the client's visit link (lib/markup/team): the
 //                                                 photo without marks and each layer of marks over it, made in the
 //                                                 browser and saved under the visit first (api/upload/appointment-photos)
-// Private team notes are kept here, beside the visit, and never go to the visit link. Saving and sending are for
-// managers, people who may manage any booking, and the visit's own provider (a solo provider is all three); a booth
-// renter sees only their own clients' photos. The client is told by text or email when marks are sent, at most once
+// Private team notes are kept where only the server reads them (lib/private-records), and never go to the visit link.
+// Saving and sending are for managers, people who may manage any booking, and the visit's own provider (a solo provider
+// is all three); a booth renter sees only their own clients' photos. The client is told by text or email when marks are sent, at most once
 // every 30 minutes (the time is set aside before the message goes, so two quick sends tell them once), and only before
 // the visit.
 import { NextRequest, NextResponse } from 'next/server';
@@ -41,7 +41,9 @@ export async function POST(req: NextRequest) {
   const photos: any[] = (Array.isArray(appt.inspirationPhotos) && appt.inspirationPhotos.length ? appt.inspirationPhotos : appt.inspirationPhotoUrl ? [{ url: appt.inspirationPhotoUrl }] : []).filter((p: any) => p?.url);
   const photo = photos.find((p) => photoKey(String(p.url)) === key);
   if (!photo) return bad('That photo isn’t on this visit any more. The client may have sent new ones.', 404);
-  const markRef = db.doc(`${T}/appointments/${apptId}/inspoMarks/${key}`);
+  // Kept where only the server reads it (lib/private-records); an older copy under the visit is moved as it's read.
+  const PR = await import('@/lib/private-records');
+  const markRef = db.doc(PR.marksPath(tenantId, apptId, key));
 
   if (action === 'bytes') {
     const P = await import('@/lib/inspo-photos');
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'load') {
-    const kept: any = (await markRef.get().catch(() => null))?.data?.() || null;
+    const kept: any = await PR.readMoved(db, PR.marksPath(tenantId, apptId, key), PR.oldMarksPath(tenantId, apptId, key));
     return NextResponse.json({ ok: true, mark: kept ? { markup: kept.markup || null, note: String(kept.note || ''), base: kept.base === 'photo' ? 'photo' : 'original', by: kept.by || null, at: kept.at || null, sentAt: kept.sentAt || null } : null });
   }
 

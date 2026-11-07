@@ -6,6 +6,7 @@
 // get a thank-you. A read that fails is never taken as "nothing there": the caller is told to try again. Server side only.
 import { formsAskedFor, formAsks, formRulesOf, formMinutes, isHealthForm, formsDueAt, formsRuleOf, sentFormDone, fitOnVisit, toMs, fieldsOf, signedOnVisit, requestAsksMore, onFileEntry, CLIENT_WAIVED, type FormAsk } from './forms';
 import { tenantTimeZone } from './tenant-time';
+import { answersPath } from './private-records';
 
 export type VisitAsk = FormAsk & { minutes: number; health: boolean; since?: string | null };
 export type VisitFile = { id: string; label: string; done: boolean; onFile: boolean; optional?: boolean };
@@ -119,7 +120,7 @@ export async function saveVisitForm(db: any, tenantId: string, appt: any, apptId
       if (signedOnVisit(cur).has(formId)) { list = Array.isArray(cur.signedForms) ? cur.signedForms : []; return false; }
       const fit = fitOnVisit([...(Array.isArray(cur.signedForms) ? cur.signedForms : []), entry], 1);
       tx.set(aRef, { signedForms: fit.list }, { merge: true });
-      for (const m of fit.moved.slice(0, 100)) tx.set(db.doc(`${T(tenantId)}/appointments/${apptId}/formAnswers/${String(m.formId).replace(/[^A-Za-z0-9_-]/g, '_')}`), m);
+      for (const m of fit.moved.slice(0, 100)) tx.set(db.doc(answersPath(tenantId, apptId, String(m.formId))), m);
       list = fit.list; return true;
     });
     if (wrote && appt.clientId) {

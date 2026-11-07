@@ -103,7 +103,7 @@ ok(!IP.ownVisitPhoto(vp('tenants/t1/visit-photos/a2/1731000000000-abc123.png'), 
 // ── the server
 const route = src('src/app/api/visit-photos/route.ts');
 ok(/verifyStaffActor/.test(route) && /mayAct/.test(route) && /photoKey\(String\(p\.url\)\) === key/.test(route), 'the team only, the visit’s own provider or a manager to save or send, and only a photo the client has on this visit now');
-ok(/inspoMarks\/\$\{key\}/.test(route) && !/inspoReply[^\n]*markup/.test(route) && /keepTeamMarkup/.test(route), 'the team’s marks and private notes are kept beside the visit; what the visit link gets never carries them');
+ok(/PR\.marksPath\(tenantId, apptId, key\)/.test(route) && /readMoved\(db, PR\.marksPath/.test(route) && !/inspoReply[^\n]*markup/.test(route) && /keepTeamMarkup/.test(route), 'the team’s marks and private notes are kept where only the server reads them; what the visit link gets never carries them');
 ok(/ownVisitPhoto\(im\.base/.test(route) && /ownVisitPhoto\(im\.theirs/.test(route) && /photosAskOpen\(appt\)/.test(route), 'only photos saved under this visit are shown to the client, and not while they’ve been asked for different ones');
 ok(/TELL_GAP_MS = 30 \* 60e3/.test(route) && /ms\(cur\.startTime\) > Date\.now\(\)/.test(route) && /tellPhotosMarked/.test(route), 'the client is told at most once every 30 minutes, and only before the visit');
 ok(/'Cache-Control': 'private, no-store'/.test(route) && /photoBytes\(/.test(route), 'the photo itself comes from this app (so it can be drawn on), never kept by the browser');
@@ -166,7 +166,7 @@ ok(/over\?: string\[\]/.test(cmp) && /\(goal\.over \|\| \[\]\)\.map/.test(cmp), 
   ok((await post({ action: 'bytes', which: 'original', key: Tm.photoKey('https://elsewhere.test/x.jpg') })).status === 404, 'a photo that isn’t on this visit isn’t opened');
 
   const s1 = await post({ action: 'save', base: 'original', markup: tPacked, note: 'Medium almond' });
-  const kept: any = (await db.doc(`${T}/appointments/a1/inspoMarks/${key}`).get()).data();
+  const kept: any = (await db.doc(`${T}/visitPhotoMarks/a1__${key}`).get()).data();
   let a: any = (await db.doc(`${T}/appointments/a1`).get()).data();
   ok(s1.body.ok && kept?.markup && /Allergic/.test(kept.markup) && a.inspoTeam?.[key]?.privateCount === 1 && !a.inspoTeam[key].sentAt && !a.inspoReply, 'Save for the team: the marks and private notes are kept beside the visit, and the client sees nothing yet', { s1: s1.body, team: a.inspoTeam });
   const ld = await post({ action: 'load' });

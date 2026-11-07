@@ -62,7 +62,7 @@ const req = (body: any) => ({ json: async () => body, headers: new Headers(), ne
   const o1 = await post({ action: 'opened', key: k1, apptId: 'a1' }); const o2 = await post({ action: 'opened', key: k1, apptId: 'a1' });
   actorNow = { name: 'Mia Lopez', uid: 'p1', role: 'staff', caps: [] };
   const o3 = await post({ action: 'opened', key: k1, apptId: 'a1' });
-  const rec: any = (await db.doc(`${T}/clients/c1/photoRecords/${k1}`).get()).data();
+  const rec: any = (await db.doc(`${T}/clientPhotoRecords/c1__${k1}`).get()).data();
   ok(o1.body.ok && rec.opened.length === 2 && o3.body.opened.map((x: any) => x.by).join() === 'Mia,Kai', 'opening a record is noted (once in a while for the same person), latest first', { o3: o3.body, n: rec.opened.length });
   ok((await post({ action: 'opened', key: k1, apptId: 'a1', clientId: 'c2' })).status === 404, 'a photo is only opened from its own client’s page');
   ok((await post({ action: 'opened', key: photoKey('https://made.up/x.jpg'), apptId: 'a1' })).status === 404 && (await post({ action: 'opened', key: photoKey('https://made.up/x.jpg') })).status === 404, 'only a photo that’s really on the visit (or brought over onto the page) gets a record');
@@ -75,10 +75,10 @@ const req = (body: any) => ({ json: async () => body, headers: new Headers(), ne
   const rm = await post({ action: 'remove', key: k1, apptId: 'a1', kind: 'inspiration' });
   const a1: any = (await db.doc(`${T}/appointments/a1`).get()).data();
   ok(rm.body.ok && a1.inspirationPhotos.length === 1 && a1.inspirationPhotos[0].url === fb('2') && !a1.inspoTeam?.[k1] && !a1.inspoReply?.photos?.[k1], 'removed: off the visit, with the team’s marks and what the visit link showed', { rm: rm.body, team: a1.inspoTeam, reply: a1.inspoReply });
-  ok(!(await db.doc(`${T}/appointments/a1/inspoMarks/${k1}`).get()).exists, 'the team’s marks and private notes on it are deleted too');
+  ok(!(await db.doc(`${T}/appointments/a1/inspoMarks/${k1}`).get()).exists && !(await db.doc(`${T}/visitPhotoMarks/a1__${k1}`).get()).exists, 'the team’s marks and private notes on it are deleted too (wherever they were kept)');
   ok(deleted.includes(`${BK}:tenants/t1/booking-inspiration/2026-11-07/1762500000000-ab12cd1.jpg`) && deleted.includes('private:tenants/t1/completions/inspiration-originals/2026-11-07/abcdefgh12.jpg')
     && deleted.some((d) => /visit-photos\/a1\/1762500000000-b/.test(d)) && deleted.some((d) => /visit-photos\/a1\/1762500000000-t/.test(d)) && rm.body.deleted === 4 && !rm.body.failed && !rm.body.shared, 'every copy kept here is deleted: the photo, the photo before its marks, and the team’s images', { deleted, rm: rm.body });
-  const tomb: any = (await db.doc(`${T}/clients/c1/photoRecords/${k1}`).get()).data();
+  const tomb: any = (await db.doc(`${T}/clientPhotoRecords/c1__${k1}`).get()).data();
   ok(tomb.removedAt && tomb.removedBy?.name === 'Kai Park' && !tomb.opened && !tomb.pendingDeletes && audit.some((e) => e.action === 'clients.photo_removed'), 'who removed it, and when, is kept (who had opened it isn’t, and nothing is left to delete)', tomb);
   ok((await post({ action: 'remove', key: k1, apptId: 'a1', kind: 'inspiration' })).status === 404, 'removing it twice: it’s already gone');
   // The same photo on another of the client's visits (a copied or rebooked visit): that copy is kept.
@@ -91,12 +91,12 @@ const req = (body: any) => ({ json: async () => body, headers: new Headers(), ne
   await db.doc(`${T}/appointments/a4`).set({ clientId: 'c1', status: 'confirmed', startTime: '2026-12-09T18:00:00.000Z', inspirationPhotosEarlier: [{ url: fb('f') }] });
   failOn.add('tenants/t1/booking-inspiration/2026-11-07/1762500000000-ab12cdf.jpg');
   const rf = await post({ action: 'remove', key: photoKey(fb('f')), apptId: 'a4', kind: 'earlier' });
-  const recF: any = (await db.doc(`${T}/clients/c1/photoRecords/${photoKey(fb('f'))}`).get()).data();
+  const recF: any = (await db.doc(`${T}/clientPhotoRecords/c1__${photoKey(fb('f'))}`).get()).data();
   ok(rf.body.ok && rf.body.failed === 1 && recF.pendingDeletes?.[0] === fb('f'), 'a copy that couldn’t be deleted just now is listed on the record, to be tried again', { rf: rf.body, recF });
   ok((await db.doc(`${T}/clients/c1`).get()).data().photoDeletesPending === true, 'and the client is marked as having copies left to delete');
   failOn.clear(); const dl0 = deleted.length;
   await post({ action: 'opened', key: photoKey(fb('n')), apptId: 'a1' });
-  const recF2: any = (await db.doc(`${T}/clients/c1/photoRecords/${photoKey(fb('f'))}`).get()).data();
+  const recF2: any = (await db.doc(`${T}/clientPhotoRecords/c1__${photoKey(fb('f'))}`).get()).data();
   ok(!recF2.pendingDeletes && deleted.length === dl0 + 1 && !(await db.doc(`${T}/clients/c1`).get()).data().photoDeletesPending, 'the next time one of the client’s photos is opened, what’s left is deleted, and the mark goes', { recF2, n: deleted.length - dl0 });
   const routeS = src('src/app/api/clients/photos/route.ts');
   ok(/photoDeletesTriedAt \|\| ''\)\) > Date\.now\(\) - 15 \* 60e3/.test(routeS) && /all\.docs\.length < 500/.test(routeS) && /\{ tries: 1, scan \}/.test(routeS), 'tried again at most every 15 minutes, once each with no waiting; the mark only goes when every record was seen');

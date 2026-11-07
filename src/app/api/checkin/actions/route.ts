@@ -290,7 +290,7 @@ export async function POST(req: NextRequest) {
     } else batch.set(cRef, { formsSignedAt: nowIso }, { merge: true });
     if (apptId) batch.set(db.doc(`tenants/${tenantId}/appointments/${apptId}`), apptPatch, { merge: true });
     // Older answers moved off the visit record to keep it within size (lib/forms fitOnVisit): kept beside it, whole.
-    if (apptId) for (const m of movedAnswers.slice(0, 100)) batch.set(db.doc(`tenants/${tenantId}/appointments/${apptId}/formAnswers/${String(m.formId).replace(/[^A-Za-z0-9_-]/g, '_')}`), m);
+    if (apptId) { const { answersPath } = await import('@/lib/private-records'); for (const m of movedAnswers.slice(0, 100)) batch.set(db.doc(answersPath(tenantId, apptId, String(m.formId))), m); }
     await batch.commit();
     // Reminded about it, and now everything's done: a short thank-you (lib/forms-remind).
     if (skipCard && apptId && (c.formsReminderSentAt || apptNow.formsReminderSentAt)) {

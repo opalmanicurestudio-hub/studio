@@ -1,5 +1,5 @@
 // scripts/verify/fake-db.ts — a small in-memory stand-in for the Firestore admin API, for checking server logic
-// without a live database: doc/collection/where/limit/get/set/update/batch/runTransaction, the field sentinels we use
+// without a live database: doc/collection/collectionGroup/where/limit/get/set/update/batch/runTransaction, the field sentinels we use
 // (increment, delete, arrayUnion), and when each document was made and last changed (createTime, updateTime). Not
 // complete — just what the checked code paths need.
 type Doc = Record<string, any>;
@@ -50,7 +50,13 @@ export function makeDb() {
       .map(([p, d]) => ({ id: p.split('/').pop(), ref: ref(p), exists: true, data: () => clone(d), ...timesOf(p) }));
       return { empty: !docs.length, size: docs.length, docs }; } });
   const col = (c: string): any => ({ ...q(c), doc: (id?: string) => ref(`${c}/${id || `id${++n}`}`), add: async (v: Doc) => { const r = ref(`${c}/id${++n}`); await r.set(v); return r; } });
-  const db: any = { doc: ref, collection: col, getAll: async (...refs: any[]) => Promise.all(refs.map((r) => r.get())),
+  // Every collection of that name, wherever it is (each document's own path says where).
+  const group = (name: string, lim = 1e9, after = ''): any => ({ limit: (l: number) => group(name, l, after), startAfter: (x: any) => group(name, lim, typeof x === 'string' ? x : String(x?.ref?.path || '')), get: async () => {
+    const docs = [...store.entries()].filter(([p]) => { const seg = p.split('/'); return seg.length >= 2 && seg.length % 2 === 0 && seg[seg.length - 2] === name; })
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).filter(([p]) => !after || p > after).slice(0, lim)
+      .map(([p, d]) => ({ id: p.split('/').pop(), ref: ref(p), exists: true, data: () => clone(d), ...timesOf(p) }));
+    return { empty: !docs.length, size: docs.length, docs }; } });
+  const db: any = { doc: ref, collection: col, collectionGroup: (name: string) => group(name), getAll: async (...refs: any[]) => Promise.all(refs.map((r) => r.get())),
     // All or nothing, as Firestore commits a batch: a create of a document that exists fails the whole batch.
     // An update may carry a precondition ({ lastUpdateTime }): the whole batch fails if the document changed since.
     batch: () => { const ops: { kind: string; r: any; v?: Doc; o?: any }[] = []; return { set: (r: any, v: Doc, o?: any) => ops.push({ kind: 'set', r, v, o }), update: (r: any, v: Doc, o?: any) => ops.push({ kind: 'update', r, v, o }), create: (r: any, v: Doc) => ops.push({ kind: 'create', r, v }), delete: (r: any) => ops.push({ kind: 'delete', r }),

@@ -5,7 +5,7 @@
 //                                              looks now), when they ask for it to be removed: taken off the visit
 //                                              with the team's marks and private notes on it, and every copy this
 //                                              business keeps deleted. Managers only; it can't be undone.
-// Kept in tenants/{t}/clients/{c}/photoRecords/{key}, which only the server reads. A booth renter sees only their own
+// Kept in tenants/{t}/clientPhotoRecords (lib/private-records), which only the server reads. A booth renter sees only their own
 // clients' visits. A copy another of the client's visits still uses is never deleted; a copy that couldn't be deleted
 // (after a few tries) is listed on the photo's record (pendingDeletes), and tried again the next time any of the client's
 // photo records is opened, at most every 15 minutes (the client is marked photoDeletesPending until none are left).
@@ -62,7 +62,11 @@ export async function POST(req: NextRequest) {
   const appt: any = apptRef ? (await apptRef.get()).data() : null;
   if (apptId && (!appt || String(appt.clientId || '') !== clientId)) return bad('That photo isn’t on this client’s visits.', 404);
   if (who.isRenter && (!appt || appt.staffId !== who.uid)) return bad('That photo isn’t one of yours.', 403);
-  const recRef = db.doc(`${T}/clients/${clientId}/photoRecords/${key}`);
+  const PR = await import('@/lib/private-records');
+  const recRef = db.doc(PR.photoRecordPath(tenantId, clientId, key));
+  // Any of the client's photo records still kept under the client (before they moved) are moved first, put together
+  // with what's here, so nothing they hold (who opened them, copies left to delete) is missed.
+  await PR.movePhotoRecordsOf(db, tenantId, clientId).catch((e: any) => console.error('[clients/photos] move records', e?.message));
   const nowIso = new Date().toISOString();
   const { photoKey } = await import('@/lib/markup/team');
   // The photo must be one of this visit's (or, without a visit, one brought over onto the client's page).
@@ -78,7 +82,7 @@ export async function POST(req: NextRequest) {
     if (cl.photoDeletesPending && !(Date.parse(String(cl.photoDeletesTriedAt || '')) > Date.now() - 15 * 60e3)) {
       try {
         await db.doc(`${T}/clients/${clientId}`).set({ photoDeletesTriedAt: nowIso }, { merge: true });
-        const all = await db.collection(`${T}/clients/${clientId}/photoRecords`).limit(500).get();
+        const all = await db.collection(PR.PHOTO_RECORDS(tenantId)).where('clientId', '==', clientId).limit(500).get();
         // Longest untried first, so a copy that keeps failing never holds up the rest.
         const recs = all.docs.filter((d: any) => Array.isArray(d.data()?.pendingDeletes) && d.data().pendingDeletes.length)
           .sort((x: any, y: any) => String(x.data().pendingTriedAt || '').localeCompare(String(y.data().pendingTriedAt || '')));
@@ -134,7 +138,7 @@ export async function POST(req: NextRequest) {
     if (reply) up[`inspoReply.photos.${key}`] = FieldValue.delete();
     tx.update(apptRef, up);
     // The team's marks and private notes on it go with it. Every copy kept here is listed until it's deleted.
-    tx.delete(db.doc(`${T}/appointments/${apptId}/inspoMarks/${key}`));
+    tx.delete(db.doc(PR.marksPath(tenantId, apptId, key))); tx.delete(db.doc(PR.oldMarksPath(tenantId, apptId, key)));
     const refs = [photo.url, photo.original, reply?.base, reply?.mine, reply?.theirs].filter((x: any) => typeof x === 'string' && x);
     tx.set(recRef, { key, clientId, apptId, removedAt: nowIso, removedBy: { uid: who.uid || null, name: who.name || 'Team' }, opened: FieldValue.delete(), pendingDeletes: refs }, { merge: true });
     return { refs };
