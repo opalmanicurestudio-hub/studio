@@ -1,5 +1,6 @@
 'use client';
 
+import { hasSignature } from '@/lib/forms';
 import { unitCost, hourlyRate } from '@/lib/product-cost';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -488,7 +489,7 @@ const Step4 = ({
                   <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
-                      {(form as any).requiresSignature && (
+                      {hasSignature(form) && (
                         <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[8px] font-black uppercase tracking-widest">
                           <PenTool className="w-2.5 h-2.5" /> Signature Required
                         </span>
@@ -497,7 +498,7 @@ const Step4 = ({
                     <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => setValue('requiredFormIds', requiredFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-4 h-4" /></Button>
                   </div>
                 ))}
-                {requiredForms.some((f: any) => f.requiresSignature) && (
+                {requiredForms.some((f: any) => hasSignature(f)) && (
                   <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 px-1">
                     Forms marked "Signature Required" will be included in the client's completion link when this service is booked.
                   </p>

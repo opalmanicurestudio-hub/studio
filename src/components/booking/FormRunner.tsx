@@ -74,7 +74,7 @@ async function shrink(file: File): Promise<string> {
   } finally { URL.revokeObjectURL(url); }
 }
 
-function PhotoQuestion({ tenantId, value, onChange }: { tenantId: string; value: string | null; onChange: (v: string | null) => void }) {
+function PhotoQuestion({ tenantId, value, onChange, demo }: { tenantId: string; value: string | null; onChange: (v: string | null) => void; demo?: boolean }) {
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const pick = async (f?: File | null) => {
     if (!f) return; setErr('');
@@ -83,6 +83,7 @@ function PhotoQuestion({ tenantId, value, onChange }: { tenantId: string; value:
     setBusy(true);
     try {
       const dataUrl = await shrink(f);
+      if (demo) { onChange(dataUrl); return; }   // a preview: shown here, never sent
       const r = await fetch('/api/booking/photo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, dataUrl }) });
       const d = await r.json().catch(() => null);
       if (d?.ok && d.url) onChange(d.url); else setErr(d?.error || 'That photo didn’t upload. Try again.');
@@ -119,7 +120,7 @@ function Choices({ options, value, set, labelledBy }: { options: string[]; value
     </div>);
 }
 
-function Field({ f, value, set, tenantId, signer }: { f: any; value: any; set: (v: any) => void; tenantId: string; signer: string }) {
+function Field({ f, value, set, tenantId, signer, demo }: { f: any; value: any; set: (v: any) => void; tenantId: string; signer: string; demo?: boolean }) {
   const id = React.useId();
   const label = <p id={id} className="text-[16px] font-semibold leading-snug">{f.label || 'Question'}{f.required === false && f.type !== 'signature' && <span className="font-normal" style={{ color: 'var(--muted)' }}> (optional)</span>}</p>;
   if (f.type === 'heading') return <h3 className="pt-1 text-[18px] font-semibold">{f.label}</h3>;
@@ -134,12 +135,12 @@ function Field({ f, value, set, tenantId, signer }: { f: any; value: any; set: (
             <input type="checkbox" className="sr-only" checked={sel} onChange={() => set(sel ? on.filter((x) => x !== o) : [...on, o])} />
             <Tick on={sel} /><span className="flex-1 text-[15.5px]">{o}</span></label>); })}</div>
       </fieldset>); }
-  if (f.type === 'image-upload') return <div className="space-y-2.5">{label}<PhotoQuestion tenantId={tenantId} value={value || null} onChange={set} /></div>;
+  if (f.type === 'image-upload') return <div className="space-y-2.5">{label}<PhotoQuestion tenantId={tenantId} value={value || null} onChange={set} demo={demo} /></div>;
   if (f.type === 'signature') return <div className="space-y-2">{label}<Pad value={value || null} onChange={set} name={signer} /></div>;
   return <label className="block space-y-2">{label}<input value={value || ''} onChange={(e) => set(e.target.value)} className="cf-field" /></label>;
 }
 
-export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardians, setGuardian, guardianAsk, tenantId, businessName, onClose, onFinish, backLabel }: {
+export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardians, setGuardian, guardianAsk, tenantId, businessName, onClose, onFinish, backLabel, inline }: {
   forms: any[]; index: number; setIndex: (i: number) => void;
   answers: Record<string, Record<string, any>>; setAnswer: (formId: string, fieldId: string, v: any) => void;
   guardians: Record<string, Guardian>; setGuardian: (formId: string, g: Guardian) => void; guardianAsk: boolean;
@@ -148,6 +149,8 @@ export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardia
   onFinish?: () => void;
   /** What the back button on the first form says it goes back to (for screen readers). */
   backLabel?: string;
+  /** Shown inside a page (the form builder’s preview), not over it: not a dialog, and a photo stays on the screen. */
+  inline?: boolean;
 }) {
   const form = forms[index]; const a = answers[form?.id] || {};
   const g: Guardian = guardians[form?.id] || { on: !!form?.requiresGuardianSignature, name: '', relationship: '', consent: false };
@@ -185,7 +188,7 @@ export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardia
     </div>);
   const showSigner = hasSignature(form) || forChild;
   return (
-    <div data-form-runner="" className="absolute inset-0 z-20 flex flex-col" style={{ background: 'var(--paper)' }} role="dialog" aria-modal="true" aria-labelledby="fr-title" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}>
+    <div data-form-runner="" className="absolute inset-0 z-20 flex flex-col" style={{ background: 'var(--paper)' }} role={inline ? 'group' : 'dialog'} aria-modal={inline ? undefined : true} aria-labelledby="fr-title" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}>
       <div className="cf-bar">
         <button type="button" onClick={() => (index > 0 ? setIndex(index - 1) : onClose())} aria-label={index > 0 ? 'Back to the last form' : backLabel || 'Back to your details'} className="cf-round -ml-2"><span><ChevronLeft className="h-4 w-4" /></span></button>
         <p id="fr-title" className="min-w-0 flex-1 truncate text-[16px] font-semibold">{form.title || 'Form'}</p>
@@ -196,7 +199,7 @@ export function FormRunner({ forms, index, setIndex, answers, setAnswer, guardia
         {fields.map((f, i) => (
           <React.Fragment key={`${form.id}:${f.id || i}`}>
             {i === firstSig && signerBlock}
-            <Field f={f} value={a[f.id]} set={(v) => setAnswer(form.id, f.id, v)} tenantId={tenantId} signer={signer} />
+            <Field f={f} value={a[f.id]} set={(v) => setAnswer(form.id, f.id, v)} tenantId={tenantId} signer={signer} demo={inline} />
           </React.Fragment>))}
         {firstSig < 0 && showSigner && signerBlock}
         {wordingOnly(form) && <label className="cf-grp cf-row cf-tap cursor-pointer">

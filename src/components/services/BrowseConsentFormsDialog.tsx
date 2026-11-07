@@ -1,5 +1,6 @@
 'use client';
 
+import { hasSignature } from '@/lib/forms';
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -107,7 +108,7 @@ export const BrowseConsentFormsDialog: React.FC<BrowseConsentFormsDialogProps> =
                                   <p className="text-sm font-black uppercase tracking-tight text-foreground truncate">
                                       {form.title}
                                   </p>
-                                  {(form as any).requiresSignature && (
+                                  {hasSignature(form) && (
                                     <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[8px] font-black uppercase tracking-widest">
                                       <PenTool className="w-2.5 h-2.5" /> Sig
                                     </span>

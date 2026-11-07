@@ -94,11 +94,11 @@ export function FormsSettings() {
             <Label>Your forms</Label>
             <Group label="Forms">
               {forms.map((f) => { const n = formUses(f.id);
-                return (<Link key={f.id} href={`/consents?edit=${encodeURIComponent(f.id)}`} className="block"><Line>
+                return (<Link key={f.id} href={`/settings/forms/form?id=${encodeURIComponent(f.id)}`} className="block"><Line>
                   <div className="min-w-0 flex-1"><p className="text-[17px] tracking-[-0.01em]">{f.title || 'Untitled form'}</p><p className="mt-0.5 text-[13px] cf-muted">{formKind(f)}</p></div>
                   <span className="whitespace-nowrap text-[15px] cf-muted">{n ? `${n} service${n === 1 ? '' : 's'}` : 'Not used yet'}</span><Chev />
                 </Line></Link>); })}
-              <Link href="/consents?new=1" className="block"><Line last><p className="flex-1 text-[17px] font-semibold">+ New form</p></Line></Link>
+              <Link href="/settings/forms/form?new=1" className="block"><Line last><p className="flex-1 text-[17px] font-semibold">+ New form</p></Line></Link>
             </Group>
             <Foot>A form is made of headings, wording, questions, a photo and a signature. Change its wording and clients sign the new version at their next booking.</Foot>
           </section>
@@ -191,7 +191,7 @@ export function ServiceNeeds({ service, forms, docTypes, tenant, canEdit, onSave
               className="min-h-11 rounded-full px-4 text-[14px] font-semibold disabled:opacity-40" style={{ background: 'var(--card)', boxShadow: 'inset 0 0 0 1px var(--line)' }}>Add</button>
           </Line>}
         </Group>
-        {!forms.length && <Foot>No forms yet. <Link href="/consents?new=1" className="underline underline-offset-2">Make one</Link>.</Foot>}
+        {!forms.length && <Foot>No forms yet. <Link href="/settings/forms/form?new=1" className="underline underline-offset-2">Make one</Link>.</Foot>}
       </div>
 
       {(formIds.length > 0 || files.length > 0) && <div className="mt-5"><Label>Rules</Label>

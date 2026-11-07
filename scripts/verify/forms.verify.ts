@@ -135,7 +135,8 @@ M._load = function (request: string, ...rest: any[]) {
   const toast = src('src/components/ui/toast.tsx');
   ok(!/bg-destructive|uppercase|font-black/.test(toast) && /text-\[#b45309\]/.test(toast) && /h-11 w-11/.test(toast), 'error messages are amber words on white, never red; no all-caps; 44px close');
   const cons = src('src/app/(app)/consents/page.tsx');
-  ok(/version: formVersion\(savedForm\)/.test(cons) && /const changed = version !== /.test(cons) && !/Protocol|matrix|manifest/.test(cons.slice(cons.indexOf('const handleSaveForm'), cons.indexOf('const handleDeleteForm') + 400)), 'saving a form stamps its version and says plainly what happens to clients who signed');
+  const fb = fs.readFileSync('src/components/consents/FormBuilder.tsx', 'utf8');
+  ok(/version: formVersion\(patch\)/.test(fb) && /const version = formVersion\(\{ \.\.\.target, \.\.\.patch \}\); const changed = /.test(fb) && /Clients who signed “\$\{out\.title\}” before sign the new wording at their next booking\./.test(fb) && !/Protocol|matrix|manifest/.test(fb), 'saving a form stamps its version and says plainly what happens to clients who signed (the form builder)');
 
   console.log(bad ? `${bad} failed` : 'all good'); if (bad) process.exit(1);
 })().catch((e) => { console.error(e); process.exit(1); });
