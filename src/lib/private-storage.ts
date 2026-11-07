@@ -19,6 +19,12 @@ export async function privateBucket() {
   return name ? storage.bucket(name) : storage.bucket();
 }
 
+/** One of the business's storage buckets by name (its photos' own links say which), on the server's own app. */
+export async function namedBucket(name: string) {
+  const { getStorage } = await import('firebase-admin/storage'); const { getAdminApp } = await import('./firebase-admin');
+  return getStorage(getAdminApp()).bucket(name);
+}
+
 /** Save a data-URL image privately. Returns its app reference and fingerprint. */
 export async function savePrivateImage(tenantId: string, path: string, dataUrl: string, maxBytes = 450_000) {
   const m = String(dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);

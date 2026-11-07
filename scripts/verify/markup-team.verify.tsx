@@ -25,7 +25,7 @@ ML._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/audit' || request === './audit' || /\/src\/lib\/audit(\.ts)?$/.test(request)) return fake(request, { logAuditAdmin: async (_d: any, _t: string, e: any) => { audit.push(e); } });
   if (request === 'firebase-admin/firestore') return { FieldValue: FV };
   if (request === './notify' || request === '@/lib/notify' || /\/src\/lib\/notify(\.ts)?$/.test(request)) return fake(request, { sendNotification: async (_d: any, x: any) => { sent.push(x); return { ok: true }; } });
-  if (request === './private-storage' || request === '@/lib/private-storage' || /\/src\/lib\/private-storage(\.ts)?$/.test(request)) return fake(request, { privateBucket: async () => bucket });
+  if (request === './private-storage' || request === '@/lib/private-storage' || /\/src\/lib\/private-storage(\.ts)?$/.test(request)) return fake(request, { privateBucket: async () => bucket, namedBucket: async () => bucket });
   if (request === '@/lib/client-verify' || /\/src\/lib\/client-verify(\.ts)?$/.test(request)) return fake(request, { visitLinkOpen: async () => 'ok', contactFresh: async () => true, deviceTrusted: async () => true });
   if (request === '@/lib/push' || /\/src\/lib\/push(\.ts)?$/.test(request)) return fake(request, { pushNow: async () => null });
   return load.call(this, request, ...rest);
@@ -130,7 +130,8 @@ ok(/PhotosReplyCard reply=\{photosReply\}/.test(page) && (page.match(/\{replyCar
 const tpm = src('src/components/markup/TeamPhotoMarkup.tsx');
 ok(/editLayers=\{\['team', 'private'\]\}/.test(tpm) && /sendLayers=\{\['client', 'team'\]\}/.test(tpm) && /Save for the team/.test(tpm) && /doneLabel=\{`Send to \$\{client\}`\}/.test(tpm), 'the team adds to their layer or private notes, never the client’s; Save for the team, or Send to the client');
 ok(/overlay\(res\.doc, img, \['team'\]\)/.test(tpm) && /flatten\(res\.doc, img, \[\]\)/.test(tpm) && !/overlay\([^)]*'private'/.test(tpm), 'what’s sent: the photo without marks and the team’s layer (and the client’s), never the private notes');
-ok(/action: 'bytes'/.test(tpm) && /URL\.revokeObjectURL/.test(tpm) && /resolvePrivateUrl\(String\(photo\.url\)\)/.test(tpm), 'the photo opens through this app (the photo before its marks first), with older photos from elsewhere still looked at');
+const utp = src('src/components/markup/useTeamPhoto.ts');
+ok(/useTeamPhoto\(tenantId, apptId, photo\)/.test(tpm) && /action: 'bytes'/.test(utp) && /URL\.revokeObjectURL/.test(utp) && /resolvePrivateUrl\(String\(photo\.url\)\)/.test(utp), 'the photo opens through this app (the photo before its marks first), with older photos from elsewhere still looked at');
 ok(/marks are part of this photo/.test(tpm) && /starts fresh/.test(tpm), 'it says when the client’s marks are part of the photo, and when earlier marks don’t fit');
 const bv = src('src/components/planner/BeforeVisit.tsx');
 ok(/setMarking\(photoKey\(String\(p\.url\)\)\)/.test(bv) && /<TeamPhotoMarkup key=\{marking!\}/.test(bv) && /said it looks good/.test(bv) && /replied:/.test(bv), 'on the appointment, each photo opens in the markup tool (by the photo itself, so a newer photo never gets another’s marks), with what the client said back');

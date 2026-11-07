@@ -1099,7 +1099,8 @@ export default function ClientDetailPage() {
                   </div>
               </TabsContent>}
               <TabsContent value="photos" className="m-0 space-y-6 text-left">
-                <ClientPhotos client={client} appointments={facts!.mine} services={services || []} />
+                <ClientPhotos tenantId={tenantId} client={client} appointments={facts!.mine} services={services || []} staff={allStaffList}
+                  me={{ uid: currentUser?.uid || null, name: allStaffList.find((x: any) => x.id === currentUser?.uid)?.name || currentUser?.displayName || null }} isManager={isPrivacyManager} />
               </TabsContent>
               <TabsContent value="notes" className="m-0 space-y-6 text-left">
                 {tenantId && <ClientNotes tenantId={tenantId} client={client} />}

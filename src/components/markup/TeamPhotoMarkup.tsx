@@ -3,8 +3,8 @@
 // "Before the visit", one of the inspiration photos the client sent opens in the one markup tool (MarkupEditor), on a
 // computer with the tools down the side. The client's marks are shown on their own layer and never changed here; the
 // team adds their own marks (which the client sees once they're sent) and private team notes (which they never do).
-// The photo is drawn on in the browser, so it's opened through this app (api/visit-photos "bytes"): the photo before
-// its marks when it was kept, else the photo as sent (the client's marks are part of it then).
+// The photo is drawn on in the browser, so it's opened through this app (useTeamPhoto): the photo before its marks when
+// it was kept, else the photo as sent (the client's marks are part of it then).
 //   Save for the team   kept beside the visit; the client sees nothing yet
 //   Send to Dana        the photo without marks and each layer of marks over it are saved under the visit
 //                       (api/upload/appointment-photos), then the visit link shows them with the note (lib/markup/team)
@@ -16,14 +16,14 @@ import { MarkupEditor, type MarkupResult } from '@/components/markup/MarkupEdito
 import { PhotoCompare } from '@/components/markup/PhotoCompare';
 import { OverSheet } from '@/components/markup/OverSheet';
 import { flatten, overlay } from '@/lib/markup/draw';
-import { packDoc, type MarkupDoc, type Mark } from '@/lib/markup/model';
-import { photoKey, teamDocFor, teamPart, type TeamBase } from '@/lib/markup/team';
+import { packDoc } from '@/lib/markup/model';
+import { teamPart } from '@/lib/markup/team';
+import { useTeamPhoto } from '@/components/markup/useTeamPhoto';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { resolvePrivateUrl } from '@/components/shared/private-file';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', WARN = '#b45309', GOOD = '#1f7a4d';
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
-type Ready = { src: string; base: TeamBase; doc: MarkupDoc | null; clientColors: string[]; clientMarks: Mark[]; cut: boolean; dropped: boolean; note: string; sentAt: string | null; direct: boolean };
 
 export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientName, me, nowUrl, onClose }: {
   tenantId: string; apptId: string;
@@ -39,38 +39,9 @@ export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientN
   /** Closed: with what to say on the appointment once it's saved or sent. */
   onClose: (said?: string) => void;
 }) {
-  const key = photoKey(String(photo?.url || ''));
   const client = first(clientName) || 'the client'; const mine = first(me?.name) || 'Your';
-  const [ready, setReady] = React.useState<Ready | 'loading' | { error: string }>('loading');
+  const { ready, call } = useTeamPhoto(tenantId, apptId, photo);
   const [comparing, setComparing] = React.useState<'loading' | { now: string; goal: string } | null>(null); const [compareErr, setCompareErr] = React.useState(false);
-  const made = React.useRef<string[]>([]);
-  const call = async (body: any) => {
-    const r = await fetch('/api/visit-photos', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await staffAuthHeader()) }, body: JSON.stringify({ tenantId, apptId, key, ...body }) });
-    return r;
-  };
-  // The photo, through this app (so it can be drawn on), and the team's marks on it so far.
-  React.useEffect(() => {
-    let gone = false;
-    (async () => {
-      const bytes = async (which: 'original' | 'photo') => { try { const r = await call({ action: 'bytes', which }); if (!r.ok) return null; const b = await r.blob(); if (!b.size || !/^image\//.test(b.type)) return null; const u = URL.createObjectURL(b); if (gone) { URL.revokeObjectURL(u); return null; } made.current.push(u); return u; } catch { return null; } };
-      const [kept, orig] = await Promise.all([
-        call({ action: 'load' }).then((r) => r.json()).catch(() => null),
-        photo?.original ? bytes('original') : Promise.resolve(null)]);
-      if (gone) return;
-      let src = orig; let base: TeamBase = orig ? 'original' : 'photo'; let direct = false;
-      if (!src) src = await bytes('photo');
-      // Older photos from elsewhere: opened as they are (they may only be looked at, if that site won't share them).
-      if (!src) { try { src = await resolvePrivateUrl(String(photo.url)); direct = true; } catch { src = null; } }
-      if (gone) return;
-      if (!src) { setReady({ error: 'This photo couldn’t be opened just now. Please try again.' }); return; }
-      const mark = kept?.ok ? kept.mark : null;
-      const t = teamDocFor({ client: photo?.markup || null, team: mark?.markup || null, base, teamBase: mark ? mark.base : null });
-      setReady({ src, base, doc: t.doc, clientColors: t.clientColors, clientMarks: t.clientMarks, cut: t.cut, dropped: t.dropped, note: t.dropped ? '' : String(mark?.note || ''), sentAt: mark?.sentAt || null, direct });
-    })();
-    return () => { gone = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  React.useEffect(() => () => { made.current.forEach((u) => URL.revokeObjectURL(u)); }, []);
 
   const upload = async (dataUrl: string, name: string): Promise<string> => {
     const blob = await (await fetch(dataUrl)).blob();

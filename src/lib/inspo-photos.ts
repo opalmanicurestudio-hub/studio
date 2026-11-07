@@ -104,8 +104,7 @@ export async function photoBytes(db: any, ref: any, tenantId: string, buckets: s
       // The business's inspiration photos only (where the booking photo upload saves them), never another of its files.
       const m = u.pathname.match(/^\/v0\/b\/([A-Za-z0-9._-]+)\/o\/([^/]+)$/); if (!m || !buckets.includes(m[1])) return null;
       const path = decodeURIComponent(m[2]); if (!path.startsWith(`tenants/${tenantId}/booking-inspiration/`) || path.includes('..')) return null;
-      const { getStorage } = await import('firebase-admin/storage'); const { getAdminApp } = await import('./firebase-admin');
-      const f = getStorage(getAdminApp()).bucket(m[1]).file(path);
+      const { namedBucket } = await import('./private-storage'); const f = (await namedBucket(m[1])).file(path);
       const [meta] = await f.getMetadata(); const type = asPhoto(meta?.contentType, path); if (!type || Number(meta?.size) > MAX) return null;
       const [buf] = await f.download(); return { buf, type };
     }
@@ -117,4 +116,33 @@ export async function photoBytes(db: any, ref: any, tenantId: string, buckets: s
     }
   } catch (e: any) { console.error('[inspo-photos] bytes', e?.message); }
   return null;
+}
+
+/** Deletes one of a client's photos for good, when the business is asked to remove it: only this business's own
+ *  copies (its inspiration folder, the photos the team made for this visit, the photo before its marks, or the
+ *  database copy). Anything else is left alone ('not_ours'); 'failed' when it couldn't be deleted just now (it can be
+ *  tried again). */
+export async function deleteOwnPhoto(db: any, ref: any, tenantId: string, apptId: string, buckets: string[]): Promise<'deleted' | 'not_ours' | 'failed'> {
+  if (typeof ref !== 'string' || !ref || ref.length > MAX_PHOTO_URL) return 'not_ours';
+  let u: URL; try { u = new URL(ref, 'https://app.invalid'); } catch { return 'not_ours'; }
+  try {
+    if (u.pathname === '/api/files/view') {
+      const own = ownOriginal(ref, tenantId); if (!own) return 'not_ours';
+      const { privateBucket } = await import('./private-storage');
+      await (await privateBucket()).file(String(new URL(own, 'https://app.invalid').searchParams.get('p') || '')).delete({ ignoreNotFound: true });
+      return 'deleted';
+    }
+    if (u.hostname === 'firebasestorage.googleapis.com') {
+      const m = u.pathname.match(/^\/v0\/b\/([A-Za-z0-9._-]+)\/o\/([^/]+)$/); if (!m || !buckets.includes(m[1])) return 'not_ours';
+      let path = ''; try { path = decodeURIComponent(m[2]); } catch { return 'not_ours'; }
+      if (path.includes('..') || !(path.startsWith(`tenants/${tenantId}/booking-inspiration/`) || path.startsWith(`tenants/${tenantId}/visit-photos/${apptId}/`))) return 'not_ours';
+      const { namedBucket } = await import('./private-storage'); await (await namedBucket(m[1])).file(path).delete({ ignoreNotFound: true });
+      return 'deleted';
+    }
+    if (u.pathname === '/api/booking/photo' && u.searchParams.get('t') === tenantId) {
+      const id = String(u.searchParams.get('id') || ''); if (!PHOTO_ID.test(id)) return 'not_ours';
+      await db.doc(`tenants/${tenantId}/bookingPhotos/${id}`).delete(); return 'deleted';
+    }
+  } catch (e: any) { console.error('[inspo-photos] delete', e?.message); return 'failed'; }
+  return 'not_ours';
 }

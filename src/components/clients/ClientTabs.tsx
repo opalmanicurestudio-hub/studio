@@ -7,8 +7,13 @@ import { formsAskedFor, formStateOf, signedOnVisit, waivedOnVisit, formRulesOf }
 //   ClientMessages    — the conversation record: texts, emails, calls (recording and transcript), notes and decisions,
 //                       with filters, export and print, and a box to send a text or email
 //   ClientFormsNeeded — what must be signed before their upcoming visits, and what's on file
+//   ClientPhotos      — every photo of the client, by visit, each with its record (ClientPhotoRecord)
 import * as React from 'react';
 import { format } from 'date-fns';
+import { clientPhotos, filterCounts, FILTERS as PHOTO_FILTERS, KIND_LABEL as PHOTO_LABEL, type ClientPhoto } from '@/lib/client-photos';
+import { ClientPhotoRecord } from '@/components/clients/ClientPhotoRecord';
+import { usePrivateUrl } from '@/components/shared/private-file';
+import { wallDate, tenantTimeZone } from '@/lib/tenant-time';
 
 const safe = (v: any) => new Date(v?.toDate ? v.toDate() : v);
 const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
@@ -167,32 +172,64 @@ export function ClientFormsNeeded({ appointments, services, consentForms, consen
     </section>);
 }
 
-/** Photos: after photos and inspiration from every visit, grouped by visit, with the client's sharing consent shown. */
-export function ClientPhotos({ client, appointments, services }: { client: any; appointments: any[]; services: any[] }) {
-  const [kind, setKind] = React.useState<'all' | 'after' | 'inspo'>('all'); const [open, setOpen] = React.useState<string | null>(null);
-  const groups = React.useMemo(() => appointments.map((a) => { const after: string[] = (a.afterPhotoUrls || []).filter(Boolean); const inspo: string[] = [...(a.inspirationPhotos || []).map((p: any) => p?.url).filter(Boolean), ...(a.inspirationPhotoUrl ? [a.inspirationPhotoUrl] : [])].filter((u, i, arr) => arr.indexOf(u) === i);
-    return { a, after, inspo }; }).filter((g) => g.after.length || g.inspo.length).sort((x, y) => safe(y.a.startTime).getTime() - safe(x.a.startTime).getTime()), [appointments]);
-  // Brought over from another app (Moving in → Client photos and files): photos, and other files like forms.
-  const oldFiles: any[] = Array.isArray(client.importedFiles) ? client.importedFiles : []; const oldPhotos = oldFiles.filter((f) => f.kind === 'photo'); const oldDocs = oldFiles.filter((f) => f.kind !== 'photo');
-  const total = groups.reduce((n, g) => n + g.after.length + g.inspo.length, 0) + oldPhotos.length; const ok = client.marketingConsent?.consented === true;
-  const tile = (u: string, label: string) => <button key={u} type="button" onClick={() => setOpen(u)} aria-label={`Open ${label}`} className="relative aspect-square overflow-hidden rounded-2xl" style={{ background: 'hsl(var(--secondary))' }}><img src={u} alt="" loading="lazy" className="h-full w-full object-cover" /><span className="absolute bottom-1.5 left-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: 'rgba(255,255,255,.88)' }}>{label}</span></button>;
+/** Photos (board 18D): every photo of the client — inspiration they sent (and earlier ones), how it looked before, after
+ *  photos, and photos brought over from another app — by kind, grouped by visit (date, service, who did it), newest
+ *  first. Choosing one opens its record beside the photos on a computer, or over them on a phone (ClientPhotoRecord). */
+export function ClientPhotos({ tenantId, client, appointments, services, staff = [], me = {}, isManager = false }: { tenantId?: string | null; client: any; appointments: any[]; services: any[]; staff?: any[]; me?: { uid?: string | null; name?: string | null }; isManager?: boolean }) {
+  const tctx: any = useTenantOptional(); const zone = tenantTimeZone(tctx?.selectedTenant);
+  const [kind, setKind] = React.useState<string>('all'); const [sel, setSel] = React.useState<string | null>(null); const [said, setSaid] = React.useState<string | null>(null);
+  const [wide, setWide] = React.useState(false); const lastTile = React.useRef<HTMLElement | null>(null); const saidRef = React.useRef<HTMLParagraphElement | null>(null);
+  // After a photo is removed (its tile is gone), the focus goes to what was said about it.
+  React.useEffect(() => { if (said) setTimeout(() => saidRef.current?.focus({ preventScroll: false }), 0); }, [said]);
+  React.useEffect(() => { const q = window.matchMedia?.('(min-width: 1024px)'); if (!q) return; const f = () => setWide(q.matches); f(); q.addEventListener?.('change', f); return () => q.removeEventListener?.('change', f); }, []);
+  const { visits, imported } = React.useMemo(() => clientPhotos({ client, appointments, services, staff }), [client, appointments, services, staff]);
+  const counts = filterCounts(visits, imported); const kinds = PHOTO_FILTERS.find((f) => f.key === kind)?.kinds || PHOTO_FILTERS[0].kinds;
+  const all = [...visits.flatMap((v) => v.photos), ...imported]; const chosen = sel ? all.find((p) => `${p.apptId || 'old'}:${p.id}` === sel) || null : null;
+  React.useEffect(() => { if (sel && !chosen) setSel(null); }, [sel, chosen]);
+  // A filter with nothing left in it (its last photo removed) goes back to All.
+  React.useEffect(() => { if (kind !== 'all' && !counts[kind]) setKind('all'); }, [kind, counts[kind]]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // On a phone the record covers the page: Escape closes it (not while the markup tool, or a question, is open over it),
+  // and the photo chosen gets the focus back.
+  const close = () => { setSel(null); const t = lastTile.current; if (t) setTimeout(() => { try { t.focus({ preventScroll: true }); } catch { /* gone */ } }, 0); };
+  React.useEffect(() => { if (!chosen || wide) return; const k = (e: KeyboardEvent) => { if (e.key !== 'Escape' || document.querySelector('[data-markup-editor], [role=alertdialog]')) return; close(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [chosen, wide]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const oldDocs = (Array.isArray(client.importedFiles) ? client.importedFiles : []).filter((f: any) => f?.kind !== 'photo');
+  const ok = client.marketingConsent?.consented === true; const name = String(client.name || '').split(' ')[0] || 'They';
+  const tile = (p: ClientPhoto) => { const id = `${p.apptId || 'old'}:${p.id}`; const on = sel === id; return (
+    <button key={id} type="button" onClick={(e) => { lastTile.current = e.currentTarget; setSel(on && wide ? null : id); setSaid(null); }} aria-pressed={on} aria-label={`${PHOTO_LABEL[p.kind]} photo ${p.n}${p.note ? `: ${p.note}` : ''}`}
+      className="relative aspect-square overflow-hidden rounded-2xl outline-none focus-visible:ring-2" style={{ background: 'hsl(var(--secondary))', boxShadow: on ? '0 0 0 2px hsl(var(--card)), 0 0 0 4px hsl(var(--foreground))' : undefined }}>
+      <TileImg url={p.url} /><span className="absolute bottom-1.5 left-1.5 rounded-full px-2 py-0.5 text-[11.5px] font-semibold" style={{ background: 'rgba(22,23,26,.74)', color: '#fff' }}>{p.kind === 'earlier' ? 'Earlier' : PHOTO_LABEL[p.kind]}</span></button>); };
+  const shownVisits = visits.map((v) => ({ ...v, photos: v.photos.filter((p) => kinds.includes(p.kind)) })).filter((v) => v.photos.length);
+  const shownOld = imported.filter((p) => kinds.includes(p.kind));
+  const appt = chosen?.apptId ? appointments.find((a) => String(a?.id) === chosen.apptId) || null : null;
+  const record = chosen && tenantId ? <ClientPhotoRecord key={sel!} tenantId={tenantId} client={client} photo={chosen} appt={appt} zone={zone} me={me} isManager={isManager}
+    nowUrl={appt?.nowPhoto?.url || null} onRemoved={(t) => { setSel(null); setSaid(t); }} /> : null;
   return (
-    <section className="space-y-3 rounded-3xl p-5" style={card} aria-label="Photos">
-      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-[17px] font-semibold">{total ? `${total} photo${total === 1 ? '' : 's'} · ${groups.length} visit${groups.length === 1 ? '' : 's'}` : 'Photos'}</h3>
+    <section className="space-y-4 rounded-3xl p-5" style={card} aria-label="Photos">
+      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-[17px] font-semibold">{all.length ? `${all.length} photo${all.length === 1 ? '' : 's'}` : 'Photos'}</h3>
         <span>{ok ? pill('OK to share in marketing', 'ok') : pill('Not for marketing')}</span></div>
-      {total > 0 && <div className="flex gap-1" role="tablist" aria-label="Show">{([['all', 'All'], ['after', 'After'], ['inspo', 'Inspiration']] as const).map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={kind === k} onClick={() => setKind(k)} className="h-8 rounded-full px-3 text-[13px] font-semibold" style={kind === k ? { background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' } : { background: 'hsl(var(--secondary))' }}>{l}</button>)}</div>}
-      {(oldPhotos.length > 0 || oldDocs.length > 0) && kind !== 'inspo' && <div className="space-y-2 border-t pt-3" style={{ borderColor: 'hsl(var(--border))' }}>
-        <p className="text-[13px]"><b>From {oldFiles[0]?.importedFrom || 'your old app'}</b><span style={muted}> · {oldPhotos.length} photo{oldPhotos.length === 1 ? '' : 's'}{oldDocs.length ? `, ${oldDocs.length} file${oldDocs.length === 1 ? '' : 's'}` : ''}</span></p>
-        {oldPhotos.length > 0 && <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">{oldPhotos.map((f) => tile(f.url, 'Earlier'))}</div>}
-        {oldDocs.length > 0 && <ul className="space-y-1">{oldDocs.map((f) => <li key={f.url}><a href={f.url} target="_blank" rel="noreferrer" className="text-[13.5px] underline underline-offset-4">{f.name}</a></li>)}</ul>}</div>}
-      {total === 0 && !oldDocs.length ? <p className="text-[14px]" style={muted}>No photos yet. After photos added on a visit, and inspiration they send when booking, appear here.</p> : groups.map((g) => { const after = kind === 'inspo' ? [] : g.after, inspo = kind === 'after' ? [] : g.inspo; if (!after.length && !inspo.length) return null;
-        return (<div key={g.a.id} className="space-y-2 border-t pt-3" style={{ borderColor: 'hsl(var(--border))' }}>
-          <p className="text-[13px]"><b>{format(safe(g.a.startTime), 'd MMM yyyy')}</b><span style={muted}> · {services.find((s) => s.id === g.a.serviceId)?.name || 'Visit'}</span></p>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">{after.map((u) => tile(u, 'After'))}{inspo.map((u) => tile(u, 'Inspiration'))}</div></div>); })}
-      {open && <div role="dialog" aria-label="Photo" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,.82)' }} onClick={() => setOpen(null)}>
-        <img src={open} alt="" className="max-h-[86dvh] max-w-full rounded-2xl object-contain" /><button type="button" onClick={() => setOpen(null)} className="absolute right-4 top-4 h-11 w-11 rounded-full text-[18px]" style={{ background: 'rgba(255,255,255,.9)' }} aria-label="Close">✕</button></div>}
+      {all.length > 0 && <div className="flex flex-wrap gap-2" role="group" aria-label="Show">{PHOTO_FILTERS.filter((f) => f.key === 'all' || counts[f.key]).map((f) => <button key={f.key} type="button" aria-pressed={kind === f.key} onClick={() => setKind(f.key)} className="inline-flex min-h-11 items-center rounded-full px-4 text-[14px] font-semibold" style={kind === f.key ? { background: 'hsl(var(--foreground))', color: 'hsl(var(--background))' } : { background: 'hsl(var(--secondary))' }}>{f.label} {counts[f.key]}</button>)}</div>}
+      {said && <p ref={saidRef} tabIndex={-1} className="text-[14px] outline-none" role="status" style={{ color: '#1f7a4d' }}>{said}</p>}
+      <div className={wide && all.length ? 'grid grid-cols-[minmax(0,1fr)_380px] items-start gap-6' : ''}>
+        <div className="space-y-5">
+          {all.length === 0 && !oldDocs.length && <p className="text-[14px]" style={muted}>No photos yet. Inspiration {name.toLowerCase() === 'they' ? 'they' : name} sends when booking, how it looks before, and after photos from a visit appear here.</p>}
+          {shownVisits.map((v) => (<div key={v.apptId} className="space-y-2">
+            <p className="text-[13.5px]"><b>{v.at ? format(wallDate(new Date(v.at), zone), 'MMM d, yyyy') : 'A visit'}</b><span style={muted}> · {v.service}{v.provider ? ` · ${v.provider}` : ''}</span></p>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">{v.photos.map(tile)}</div></div>))}
+          {(shownOld.length > 0 || (oldDocs.length > 0 && kind === 'all')) && <div className="space-y-2">
+            <p className="text-[13.5px]"><b>Brought over from {client.importedFiles?.[0]?.importedFrom || 'your old app'}</b><span style={muted}> · {imported.length} photo{imported.length === 1 ? '' : 's'}{oldDocs.length ? `, ${oldDocs.length} file${oldDocs.length === 1 ? '' : 's'}` : ''}</span></p>
+            {shownOld.length > 0 && <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">{shownOld.map(tile)}</div>}
+            {oldDocs.length > 0 && kind === 'all' && <ul className="space-y-1">{oldDocs.map((f: any) => <li key={f.url}><a href={f.url} target="_blank" rel="noreferrer" className="text-[13.5px] underline underline-offset-4">{f.name}</a></li>)}</ul>}</div>}
+        </div>
+        {wide && all.length > 0 && <div className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[24px]">{record || <p className="rounded-[24px] p-6 text-center text-[14px]" style={{ ...muted, border: '1px dashed hsl(var(--border))' }}>Choose a photo to see its record: its layers, what it may be used for, and who has opened it.</p>}</div>}
+      </div>
+      {!wide && record && <div role="dialog" aria-modal="true" aria-label="A photo’s record" className="fixed inset-0 z-[300] overflow-y-auto" style={{ background: 'hsl(var(--background))' }}>
+        <div className="sticky top-0 z-10 flex items-center px-2" style={{ minHeight: 52, background: 'hsl(var(--background))', paddingTop: 'env(safe-area-inset-top,0px)' }}>
+          <button type="button" autoFocus onClick={close} className="inline-flex min-h-11 items-center px-2 text-[16px] font-semibold">‹ Photos</button></div>
+        <div className="px-3 pb-8">{record}</div></div>}
     </section>);
 }
+/** A tile's photo (opened with the team's sign-in when it's private). */
+function TileImg({ url }: { url: string }) { const src = usePrivateUrl(url); return src ? <img src={src} alt="" loading="lazy" className="h-full w-full object-cover" /> : null; }
 
 async function notesCall(body: any) { const { getAuth } = await import('firebase/auth'); const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
   return fetch('/api/clients/notes', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => null); }

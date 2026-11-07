@@ -628,7 +628,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
             <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: l === 'client' ? INK : l === 'team' ? GOOD : MUTED }} />
             <div className="min-w-0 flex-1 py-2"><p className="text-[14.5px]">{nameOf(l)}</p><p className="text-[12.5px]" style={{ color: MUTED }}>{summaryOf(l)}</p></div>
             <button type="button" role="switch" aria-checked={on} aria-label={`Show ${nameOf(l)}`} onClick={() => toggleLayer(l)} className="grid h-11 w-14 shrink-0 place-items-center">
-              <span className="relative h-[26px] w-[44px] rounded-full transition" style={on ? { background: GOOD } : { background: LINE, boxShadow: `inset 0 0 0 1.5px ${MUTED}` }}><span className="absolute top-[2px] h-[22px] w-[22px] rounded-full bg-white transition-all" style={{ left: on ? 20 : 2, boxShadow: `0 1px 3px rgba(22,23,26,.3)` }} /></span></button>
+              <span className="relative h-[26px] w-[44px] rounded-full transition" style={on ? { background: GOOD } : { background: LINE, boxShadow: `inset 0 0 0 1.5px ${MUTED}` }}><span className="absolute top-[2px] h-[22px] w-[22px] rounded-full transition-all" style={{ left: on ? 20 : 2, background: '#fff', boxShadow: `0 1px 3px rgba(22,23,26,.3)` }} /></span></button>
           </div>); })}
       </div>
     </section>) : null);
