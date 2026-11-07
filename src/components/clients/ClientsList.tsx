@@ -1,6 +1,7 @@
 'use client';
 import { useTenantOptional } from '@/context/TenantContext';
-import { pendingFormIds } from '@/lib/visit-requests';
+import { formsToSign } from '@/lib/visit-requests';
+import { useInventoryOptional } from '@/context/InventoryContext';
 // src/components/clients/ClientsList.tsx — THE CLIENTS LIST, PEOPLE FIRST.
 // Figures about people (due back this week · new this month · have their next visit booked · gone quiet · owe), segments
 // with counts (everyone · due back · gone quiet · new · regulars · members · owe money · birthdays · not to be booked ·
@@ -25,7 +26,7 @@ export type Row = { c: any; visits: number; first: Date | null; last: Date | nul
 type Seg = 'all' | 'due' | 'quiet' | 'new' | 'regulars' | 'members' | 'owe' | 'birthdays' | 'banned' | 'reach_push' | 'reach_link' | 'reach_texts' | 'archived';
 
 /** With `history` (all-time numbers from the server, hooks/use-history-stats), `appointments` only needs the live window. */
-export function buildRows(clients: any[], appointments: any[], services: any[], staff: any[], now = new Date(), history?: Record<string, ClientHist> | null, tenant?: any): Row[] {
+export function buildRows(clients: any[], appointments: any[], services: any[], staff: any[], now = new Date(), history?: Record<string, ClientHist> | null, tenant?: any, forms?: any[] | null): Row[] {
   const byClient = new Map<string, any[]>(); for (const a of appointments) { if (!a?.clientId) continue; (byClient.get(a.clientId) || byClient.set(a.clientId, []).get(a.clientId)!).push(a); }
   const svcName = new Map(services.map((s) => [s.id, s.name])); const staffName = new Map(staff.map((s) => [s.id, String(s.name || '').split(' ')[0]]));
   const phones = new Map<string, number>(), emails = new Map<string, number>();
@@ -48,7 +49,7 @@ export function buildRows(clients: any[], appointments: any[], services: any[], 
     const regular = (merged ? merged.year : done.filter((a) => differenceInDays(now, safe(a.startTime)) <= 365).length) >= 6;
     const member = !!(c.activeMembershipId || c.membershipStatus === 'active' || c.isMember);
     let age: number | null = null, birthday = false; try { const dob = c.dob || c.birthday || c.dateOfBirth; if (dob) { const d = safe(dob); age = differenceInYears(now, d); birthday = d.getMonth() === now.getMonth(); } } catch { /* fine */ }
-    const formDue = !!next && pendingFormIds(next, services.find((s) => s.id === next.serviceId), c, undefined, tenant).length > 0;   // the one rule (lib/forms): on file counts
+    const formDue = !!next && formsToSign(next, services.find((s) => s.id === next.serviceId), c, forms, tenant).length > 0;   // the one rule (lib/forms): on file counts
     const p = last10(c.phone), e = String(c.email || '').trim().toLowerCase();
     return { c, visits: merged ? merged.visits : done.length, first, last, next, everyDays, usual, spent: Number(c.lifetimeValue) || 0, dueBack, dueThisWeek, quiet, isNew, regular, member, birthday, formDue, owes: Number(c.outstandingBalance) || 0, age, dup: (p.length === 10 && (phones.get(p) || 0) > 1) || (!!e && (emails.get(e) || 0) > 1) };
   });
@@ -61,7 +62,8 @@ export function ClientsList({ tenantId, clients, appointments, history, services
 }) {
   const now = React.useMemo(() => new Date(), []);
   const tenantNow = useTenantOptional()?.selectedTenant;
-  const all = React.useMemo(() => buildRows(clients, appointments, services, staff, now, history, tenantNow), [clients, appointments, services, staff, now, history, tenantNow]);
+  const formDefs = useInventoryOptional()?.consentForms;
+  const all = React.useMemo(() => buildRows(clients, appointments, services, staff, now, history, tenantNow, formDefs), [clients, appointments, services, staff, now, history, tenantNow, formDefs]);
   const [seg, setSeg] = React.useState<Seg>('all'); const [q, setQ] = React.useState(''); const [sort, setSort] = React.useState<'last' | 'next' | 'name' | 'spent' | 'visits'>('last');
   const [sel, setSel] = React.useState<Set<string>>(new Set()); const [limit, setLimit] = React.useState(50); const [compose, setCompose] = React.useState<null | 'message' | 'invite'>(null);
   const [selecting, setSelecting] = React.useState(false); const [menu, setMenu] = React.useState(false);   // phones: selecting is a mode; extras live in ⋯

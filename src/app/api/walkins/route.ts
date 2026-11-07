@@ -1377,13 +1377,13 @@ async function arriveOne(db: any, tenantId: string, ref: any, a: any, origin: st
     // a copy someone took back, revokedAt, never counts).
     const ids = [a.serviceId, ...(Array.isArray(a.addOnIds) ? a.addOnIds : [])].filter(Boolean);
     const svcs = (await Promise.all(ids.map((sid: string) => db.doc(`tenants/${tenantId}/services/${sid}`).get().catch(() => null)))).map((d: any) => (d?.exists ? d.data() : null)).filter(Boolean);
-    const { formsAskedFor, formStateOf, onFileEntry, formRulesOf, signedOnVisit } = await import('@/lib/forms');
+    const { formsAskedFor, formStateOf, onFileEntry, formRulesOf, signedOnVisit, waivedOnVisit } = await import('@/lib/forms');
     const asked = formsAskedFor(a, svcs);
     const tn: any = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; const rules = formRulesOf(tn);
-    const here = signedOnVisit(a);
+    const here = signedOnVisit(a); const waived = waivedOnVisit(a);   // a form the team waived for this visit isn't asked for
     let due = 0;
     for (const fid of asked) {
-      if (here.has(fid)) continue;
+      if (here.has(fid) || waived.has(fid)) continue;
       const def = await db.doc(`tenants/${tenantId}/consentForms/${fid}`).get().catch(() => null); const form = def?.exists ? { id: fid, ...(def.data() || {}) } : null;
       let entry = onFileEntry(c, fid);
       if (cid) { const sc: any = (await db.doc(`tenants/${tenantId}/clients/${cid}/signedConsents/${fid}`).get().catch(() => null))?.data?.() || null;

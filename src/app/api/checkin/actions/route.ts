@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
         const ap: any = c.appointmentId ? (((await db.doc(`tenants/${tenantId}/appointments/${c.appointmentId}`).get()).data() as any) || {}) : {};
         // Only forms that still exist: a deleted one can't be shown, so it's never required. One that couldn't be read
         // just now is still required.
-        if (dd.some((d: any) => d === null)) { const { signedOnVisit } = await import('@/lib/forms'); const here = signedOnVisit(ap); return ids.filter((id) => !here.has(id)); }
+        if (dd.some((d: any) => d === null)) { const { signedOnVisit, waivedOnVisit } = await import('@/lib/forms'); const here = signedOnVisit(ap); const waived = waivedOnVisit(ap); return ids.filter((id) => !here.has(id) && !waived.has(id)); }
         const defs = dd.map((d: any, i: number) => (d?.exists ? { id: ids[i], ...(d.data() || {}) } : null)).filter(Boolean) as any[];
         return formsStillNeeded({ apt: ap, ids: ids.filter((id) => defs.some((f) => f.id === id)), client: cc?.data?.() || {}, forms: defs, rules: formRulesOf(tt?.data?.() || {}) });
       } catch { return [] as string[]; } })()));   // a slow moment never refuses someone who signed

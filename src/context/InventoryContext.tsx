@@ -82,6 +82,8 @@ interface InventoryContextType {
   memberships: Membership[];
   packages: Package[];
   consentForms: ConsentForm[];
+  /** The business's forms are still loading (an empty list then means "not yet", not "none"). */
+  consentFormsLoading: boolean;
   resources: Resource[];
   events: Event[];
   studioEvents: any[];
@@ -414,6 +416,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     memberships: memberships || [],
     packages: packages || [],
     consentForms: consentForms || [],
+    consentFormsLoading: !!consentFormsLoading,
     resources: resources || [],
     discounts: discounts || [],
     pricingTiers: pricingTiers || [],
@@ -453,6 +456,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
+/** The same, or nothing outside the app (a page or panel shown on its own). */
+export const useInventoryOptional = () => useContext(InventoryContext);
 export const useInventory = () => {
   const context = useContext(InventoryContext);
   if (context === undefined) {

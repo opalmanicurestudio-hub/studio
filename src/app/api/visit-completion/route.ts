@@ -58,7 +58,7 @@ async function stillAsked(db: any, tenantId: string, rec: any, appt: any) {
       ...ids.map((id) => db.doc(`tenants/${tenantId}/consentForms/${id}`).get().catch(() => null)),
     ]);
     // A form that couldn't be read just now is still asked for (never taken as deleted).
-    if (defs.some((d: any) => d === null)) { const { signedOnVisit } = await import('@/lib/forms'); const here = signedOnVisit(appt || {}); return { ...rec, requiredConsentFormIds: ids.filter((id) => !here.has(id)) }; }
+    if (defs.some((d: any) => d === null)) { const { signedOnVisit, waivedOnVisit } = await import('@/lib/forms'); const here = signedOnVisit(appt || {}); const waived = waivedOnVisit(appt || {}); return { ...rec, requiredConsentFormIds: ids.filter((id) => !here.has(id) && !waived.has(id)) }; }
     const forms = defs.map((d: any, i: number) => (d?.exists ? { id: ids[i], ...(d.data() || {}) } : null)).filter(Boolean);
     // Only forms that still exist (a deleted one can't be shown or signed).
     const left = formsStillNeeded({ apt: appt || {}, ids: ids.filter((id) => forms.some((f: any) => f.id === id)), client: c?.data?.() || {}, forms, rules: formRulesOf(t?.data?.() || {}) });

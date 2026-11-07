@@ -1,5 +1,6 @@
 'use client';
 import { useTenantOptional } from '@/context/TenantContext';
+import { useInventoryOptional } from '@/context/InventoryContext';
 // src/components/planner/VisitPanel.tsx — THE SIDE PANEL: what the desk decides with, without leaving the list or the
 // board. Who and when, the state, the two or three actions that state needs, what they had last time, the provider's
 // typical time against today, what's owed, who's next and whether they're waiting, and what the client has been told.
@@ -19,6 +20,7 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
 }) {
   useNow(1000);   // the live timer
   const tenantNow = useTenantOptional()?.selectedTenant;
+  const formDefs = useInventoryOptional()?.consentForms;
   const [confirmDecline, setConfirmDecline] = React.useState(false); const [showMore, setShowMore] = React.useState(false);
   const a = appointment; const client = clients.find((c) => c.id === a.clientId); const service = services.find((s) => s.id === a.serviceId); const prov = staff.find((s) => s.id === a.staffId);
   const st = stateOf(a, service); const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
@@ -47,7 +49,7 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
   if (onRunningLate && ['confirmed', 'servicing'].includes(String(a.status)) && next) actions.push(btn(`Tell ${nextClient?.name?.split(' ')[0] || 'the next client'} we're late`, () => onRunningLate(next)));
   actions.push(btn('Open the full visit', () => onOpen(a)));
   const extra: [string, (() => void) | undefined][] = [['Edit', more.onEdit && (() => more.onEdit!(a))], ['Reschedule', more.onReschedule && (() => more.onReschedule!(a))], ['Book again', more.onRebook && (() => more.onRebook!(a))], ['Print ticket', more.onPrintTicket && (() => more.onPrintTicket!(a))], ['Report an issue', !isRequest && more.onReportIssue ? () => more.onReportIssue!(a) : undefined]];
-  const live = elapsedLabel(a); const marks = visitMarks(a, client, service, tenantNow).filter((m) => !/Needs an answer|add-on/.test(m.label));
+  const live = elapsedLabel(a); const marks = visitMarks(a, client, service, tenantNow, formDefs).filter((m) => !/Needs an answer|add-on/.test(m.label));
   // A GROUP (or one client's several services): everyone in it, their state, and one tap to check them all in.
   const linkKey = a.groupId ? 'groupId' : a.visitId ? 'visitId' : null;
   const members = linkKey ? appointments.filter((x) => x[linkKey] === a[linkKey] && !['cancelled', 'declined'].includes(String(x.status))).sort((x, y) => (x.groupRole === 'organizer' ? -1 : 0) - (y.groupRole === 'organizer' ? -1 : 0) || (Number(x.visitStep) || 0) - (Number(y.visitStep) || 0)) : [];

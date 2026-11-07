@@ -4,7 +4,7 @@
 // business asked for, and when it's all due. The visit link saves one form at a time here (saveVisitForm), so the
 // list ticks off as they go, and once nothing is left the visit's request is closed and, if they were reminded, they
 // get a thank-you. A read that fails is never taken as "nothing there": the caller is told to try again. Server side only.
-import { formsAskedFor, formAsks, formRulesOf, formMinutes, isHealthForm, formsDueAt, sentFormDone, fitOnVisit, toMs, fieldsOf, signedOnVisit, requestAsksMore, onFileEntry, type FormAsk } from './forms';
+import { formsAskedFor, formAsks, formRulesOf, formMinutes, isHealthForm, formsDueAt, sentFormDone, fitOnVisit, toMs, fieldsOf, signedOnVisit, requestAsksMore, onFileEntry, CLIENT_WAIVED, type FormAsk } from './forms';
 import { tenantTimeZone } from './tenant-time';
 
 export type VisitAsk = FormAsk & { minutes: number; health: boolean; since?: string | null };
@@ -40,7 +40,8 @@ export async function visitForms(db: any, tenantId: string, appt: any, o: { tena
   const asks: VisitAsk[] = formAsks({ apt: appt, ids: ids.filter((id) => defs.some((d) => d.id === id)), client, forms: defs, rules }).map((a) => {
     const def = defs.find((d) => d.id === a.formId);
     const entry = onFileEntry(client, a.formId); const at = toMs(entry?.signedAt);
-    const why = !at || here.has(a.formId) ? a.why : a.ask === 'done' ? `Signed ${dayOf(at)} · still current` : a.ask === 'confirm' ? `On file since ${dayOf(at)}` : a.why;
+    // A form the team waived reads as not needed this time: the team's reason stays with the team.
+    const why = a.waived ? CLIENT_WAIVED : !at || here.has(a.formId) ? a.why : a.ask === 'done' ? `Signed ${dayOf(at)} · still current` : a.ask === 'confirm' ? `On file since ${dayOf(at)}` : a.why;
     return { ...a, why, minutes: formMinutes(def), health: isHealthForm(def), since: at ? new Date(at).toISOString() : null };
   });
   // Documents: the ones the request asked for (they're added on the visit link). Done once sent for this visit, or on
@@ -177,7 +178,7 @@ export async function confirmHealthSame(db: any, tenantId: string, appt: any, ap
 /** The visit's request is closed once nothing is left on it and it asks for nothing more (lib/forms requestAsksMore: a
  *  card or deposit, a policy, an emergency contact and so on still need the visit link's "Send"). Closed once, even with
  *  two saves at the same moment; if they were reminded about it, a thank-you goes out. */
-export async function closeIfDone(db: any, tenantId: string, token: string, appt: any, rec: any, state: VisitForms, tenant: any): Promise<boolean> {
+export async function closeIfDone(db: any, tenantId: string, token: string, appt: any, rec: any, state: VisitForms, tenant: any, o: { closedBy?: 'waiver' } = {}): Promise<boolean> {
   // Every listed document too, optional ones included: they're added with the request screen's Send.
   if (!rec || (rec.status && rec.status !== 'pending') || state.left > 0 || state.files.some((f) => !f.done) || requestAsksMore(rec)) return false;
   const nowIso = new Date().toISOString();
@@ -185,12 +186,14 @@ export async function closeIfDone(db: any, tenantId: string, token: string, appt
   const closed = await db.runTransaction(async (tx: any) => {
     const cur: any = ((await tx.get(cRef)).data()) || {};
     if (cur.status && cur.status !== 'pending') return null;
-    tx.set(cRef, { status: 'complete', completedAt: nowIso, formsSignedAt: nowIso }, { merge: true });
+    // Closed by the team waiving the last form: the client didn't finish anything, so there's no thank-you, and asking
+    // for that form again reopens it (closedBy).
+    tx.set(cRef, { status: 'complete', completedAt: nowIso, ...(o.closedBy ? { closedBy: o.closedBy } : { formsSignedAt: nowIso }) }, { merge: true });
     tx.set(db.doc(`${T(tenantId)}/appointments/${appt.id}`), { completionStatus: 'completed', requirementsCompletedAt: nowIso }, { merge: true });
     return cur;
   });
   if (!closed) return false;
-  if (closed.formsReminderSentAt || appt.formsReminderSentAt) {
+  if (!o.closedBy && (closed.formsReminderSentAt || appt.formsReminderSentAt)) {
     try { const { sendFormsThanks } = await import('./forms-remind'); await sendFormsThanks(db, tenantId, appt, tenant, closed); } catch (e) { console.error('[forms] thanks', e); }
   }
   return true;

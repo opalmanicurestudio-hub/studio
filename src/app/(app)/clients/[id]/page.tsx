@@ -9,6 +9,9 @@ import { ClientTimeline, ClientMessages, ClientFormsNeeded, ClientPhotos, Client
 import { ClientHeader, NextVisitCard, ClientRail, ClientQuickFacts, clientFacts } from '@/components/clients/ClientProfileParts';
 import { ContactStatus, HealthViewLog } from '@/components/clients/ClientPrivacyParts';
 import { logHealthOpen } from '@/lib/health-view-client';
+import { SignedFormRow } from '@/components/consents/SignedFormRecord';
+import { isHealthForm } from '@/lib/forms';
+import { tenantTimeZone } from '@/lib/tenant-time';
 import { privacyOf } from '@/lib/health-privacy';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
@@ -529,7 +532,7 @@ export default function ClientDetailPage() {
       setIsAddFormulaOpen(true);
   };
 
-  const facts = useMemo(() => (client ? clientFacts(client, allAppointments || [], services || [], allStaffList, selectedTenant) : null), [client, allAppointments, services, selectedTenant, allStaffList]);
+  const facts = useMemo(() => (client ? clientFacts(client, allAppointments || [], services || [], allStaffList, selectedTenant, consentFormDefs) : null), [client, allAppointments, services, selectedTenant, allStaffList, consentFormDefs]);
   const { safeLTV, safeStoreCredit, safeBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => ({
       safeLTV: safeNumber(client?.lifetimeValue),
       // totalStoreCredit is the unified Client Credit Ledger total — covers
@@ -661,44 +664,18 @@ export default function ClientDetailPage() {
               <TabsContent value="documents" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
                 <ClientFormsNeeded appointments={facts!.mine} services={services || []} consentForms={consentFormDefs} consents={signedConsents || []} onOpenVisit={(a: any) => router.push(`/planner?visit=${a.id}`)} />
                 {healthMode && isPrivacyManager && tab === 'documents' && <HealthViewLog tenantId={tenantId} clientId={client.id} />}
-                <div className="space-y-4 text-left">
-                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
-                    <FileSignature className="w-5 h-5" />Signed Consent Forms
-                  </h3>
+                <div className="space-y-3 text-left">
+                  <h3 className="flex items-center gap-2 px-1 text-[17px] font-semibold"><FileSignature className="h-[18px] w-[18px]" aria-hidden />Signed forms</h3>
                   {signedConsents && signedConsents.length > 0 ? (
-                    <div className="rounded-[2rem] border-2 bg-card shadow-sm overflow-hidden divide-y">
-                      {signedConsents.map((sc: any) => (
-                        <div key={sc.formId} className="p-5 flex items-start justify-between gap-4 text-left">
-                          <div className="min-w-0 flex-1 text-left">
-                            <p className="font-black text-xs uppercase tracking-tight text-foreground text-left">{sc.formTitle || sc.formId}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1 opacity-60 text-left">
-                              Signed {sc.signedAt ? format(safeDate(sc.signedAt), 'MMM d, yyyy · h:mm a') : 'Unknown date'}
-                              {sc.appointmentId ? ' · via appointment' : ''}
-                            </p>
-                            {sc.guardianName && (
-                              <div className="mt-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-left">
-                                <p className="text-[8px] font-black uppercase text-amber-700 tracking-widest">Guardian Consent</p>
-                                <p className="text-[10px] font-bold text-amber-900 mt-0.5">{sc.guardianName} — {sc.guardianRelationship || 'Guardian'}</p>
-                              </div>
-                            )}
-                          </div>
-                          <Badge
-                            variant="secondary"
-                            className={cn(
-                              'font-black text-[8px] h-5 px-2 border-none shrink-0',
-                              sc.source === 'client_self_service' ? 'bg-blue-100 text-blue-700' : 'bg-muted text-foreground/80',
-                            )}
-                          >
-                            {sc.source === 'client_self_service' ? 'Self-Service' : 'Staff Witnessed'}
-                          </Badge>
-                        </div>
+                    <div className="overflow-hidden rounded-[18px] bg-card" style={{ boxShadow: '0 0 0 1px #ececee' }}>
+                      {signedConsents.map((sc: any, i: number) => (
+                        <SignedFormRow key={sc.formId || i} sc={sc} form={(consentFormDefs || []).find((f: any) => f.id === sc.formId) || null} first={i === 0} zone={tenantTimeZone(selectedTenant)}
+                          locked={!showCareContents && (() => { const d = (consentFormDefs || []).find((f: any) => f.id === sc.formId); return !d || isHealthForm(d); })()}
+                          onOpen={() => { const d = (consentFormDefs || []).find((f: any) => f.id === sc.formId); if (!d || isHealthForm(d)) logHealthOpen(selectedTenant, { clientId: String(client.id), what: `Signed form: ${sc.formTitle || 'health questions'}` }); }} />
                       ))}
                     </div>
                   ) : (
-                    <div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
-                      <FileSignature className="w-10 h-10" />
-                      <p className="text-[10px] font-black uppercase tracking-widest">No forms signed yet</p>
-                    </div>
+                    <p className="rounded-[18px] px-4 py-6 text-center text-[14px] text-muted-foreground" style={{ boxShadow: '0 0 0 1px #ececee' }}>No forms signed yet.</p>
                   )}
                 </div>
 

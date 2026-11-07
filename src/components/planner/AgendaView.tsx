@@ -1,11 +1,12 @@
 'use client';
 import { useTenantOptional } from '@/context/TenantContext';
+import { useInventoryOptional } from '@/context/InventoryContext';
 // src/components/planner/AgendaView.tsx — THE DAY AS ONE LIST. Every visit in time order with the provider, the client,
 // the service and the state in words; sticky hour headers; gaps inside working hours as "Book here" rows; provider chips
 // to narrow it; arrow keys move, Enter opens. The selected row drives the side panel next to it.
 import { needsConfirm } from '@/lib/confirm-ask';
 import { startedAt, clockLabel } from '@/lib/visit-clock';
-import { pendingFormIds } from '@/lib/visit-requests';
+import { formsToSign } from '@/lib/visit-requests';
 import { extraMinutesFor } from '@/lib/client-timing';
 import * as React from 'react';
 import { format, differenceInMinutes, isToday, startOfDay } from 'date-fns';
@@ -18,7 +19,7 @@ export function useNow(ms = 1000) { const [, set] = React.useState(0); React.use
 /** "12:04" elapsed since the visit started (hours shown past 60 minutes). */
 export function elapsedLabel(a: any): string | null { const s = a?.status === 'servicing' ? startedAt(a) : 0; return s ? clockLabel((Date.now() - s) / 1000) : null; }
 /** The marks every view shows — the same list as the board's cards, from the visit's own data. */
-export function visitMarks(a: any, client: any, service: any, tenant?: any): { label: string; tone: 'alert' | 'good' | 'info' }[] {
+export function visitMarks(a: any, client: any, service: any, tenant?: any, forms?: any[]): { label: string; tone: 'alert' | 'good' | 'info' }[] {
   const out: { label: string; tone: 'alert' | 'good' | 'info' }[] = []; const c = client || {};
   if (a.status === 'requested' || a.approvalStatus === 'pending') out.push({ label: 'Needs an answer', tone: 'alert' });
   if (a.groupId) out.push({ label: a.groupSize ? `Group of ${a.groupSize}` : 'Group', tone: 'info' });
@@ -29,7 +30,7 @@ export function visitMarks(a: any, client: any, service: any, tenant?: any): { l
   if (a.checkInStatus === 'running_late') out.push({ label: a.lateTimeMinutes ? `Late +${a.lateTimeMinutes}` : 'Running late', tone: 'alert' });
   if (a.checkInStatus === 'on_my_way') out.push({ label: a.clientTrip?.etaMin ? `En route ~${a.clientTrip.etaMin} min` : 'En route', tone: 'info' });
   if (a.checkInStatus === 'arrived' && a.status !== 'servicing') out.push({ label: 'Here', tone: 'good' });
-  if (pendingFormIds(a, service, c, undefined, tenant).length && !['completed', 'cancelled', 'declined'].includes(String(a.status))) out.push({ label: 'Form to sign', tone: 'alert' });
+  { const n = !['completed', 'cancelled', 'declined'].includes(String(a.status)) ? formsToSign(a, service, c, forms, tenant).length : 0; if (n) out.push({ label: n === 1 ? 'Form to sign' : `${n} forms to sign`, tone: 'alert' }); }
   { const t0 = Date.parse(String(a.startTime || '')) || 0; if (needsConfirm(a) && t0 > Date.now() && t0 - Date.now() < 48 * 3600000) out.push({ label: 'Not confirmed', tone: 'info' }); }
   if (c.id && (c.totalVisits === 0 || c.visitCount === 0 || c.isNew === true)) out.push({ label: 'First visit', tone: 'info' });
   if (c.activeMembershipId) out.push({ label: 'Member', tone: 'info' });
@@ -57,6 +58,7 @@ export function AgendaView({ date, appointments, clients, services, staff, selec
   onBookAt?: (staffId: string, when: Date) => void; providerFilter: string; onProviderFilter: (id: string) => void;
 }) {
   const tenantNow = useTenantOptional()?.selectedTenant;   // the business's forms rules (lib/forms), when there's an app context
+  const formDefs = useInventoryOptional()?.consentForms;   // the forms themselves, so a change of wording or a deleted form counts
   const dayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
   const rows = React.useMemo(() => {
     const visits = appointments.filter((a) => !['cancelled', 'declined'].includes(String(a.status)) && (providerFilter === 'all' || a.staffId === providerFilter)).map((a) => ({ kind: 'visit' as const, at: safe(a.startTime), a }));
@@ -99,7 +101,7 @@ export function AgendaView({ date, appointments, clients, services, staff, selec
                 <span style={muted}>{format(r.at, 'h:mm')}</span><span className="h-9 w-1.5 rounded-full" style={{ background: st.color }} />
                 <span className="min-w-0 truncate">{providerFilter === 'all' && prov && <span className="mr-2 inline-block h-6 w-6 rounded-full text-center text-[11px] font-semibold leading-6 text-white" style={{ background: 'var(--accent)' }} aria-label={prov.name}>{String(prov.name || '?').charAt(0)}</span>}<b>{client?.name || a.clientName || 'Client'}</b> · {service?.name || a.serviceName || 'Service'}{service?.duration ? ` · ${service.duration} min` : ''}</span>
                 <span className="flex flex-col items-end gap-0.5"><span className="whitespace-nowrap text-[13px] font-semibold" style={{ color: st.color }}>{st.word}{elapsedLabel(a) && !st.over ? ` · ${elapsedLabel(a)}` : ''}</span>
-                  {(() => { const mk = visitMarks(a, client, service, tenantNow).filter((m) => !/Needs an answer/.test(m.label)).slice(0, 3); return mk.length ? <span className="flex gap-1">{mk.map((m) => <span key={m.label} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: `color-mix(in srgb, ${MARK_COLOR[m.tone]} 12%, transparent)`, color: MARK_COLOR[m.tone] }}>{m.label}</span>)}</span> : null; })()}</span>
+                  {(() => { const mk = visitMarks(a, client, service, tenantNow, formDefs).filter((m) => !/Needs an answer/.test(m.label)).slice(0, 3); return mk.length ? <span className="flex gap-1">{mk.map((m) => <span key={m.label} className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: `color-mix(in srgb, ${MARK_COLOR[m.tone]} 12%, transparent)`, color: MARK_COLOR[m.tone] }}>{m.label}</span>)}</span> : null; })()}</span>
               </div>); })()}
           </React.Fragment>); })}
       </div>

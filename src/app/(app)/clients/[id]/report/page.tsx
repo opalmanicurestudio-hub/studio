@@ -21,6 +21,11 @@ import { useFirebase, useCollection, useDoc, useMemoFirebase } from '@/firebase'
 import { collection, doc, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { logHealthOpen } from '@/lib/health-view-client';
+import { SignedFormRecord } from '@/components/consents/SignedFormRecord';
+import { isHealthForm } from '@/lib/forms';
+import { tenantTimeZone } from '@/lib/tenant-time';
+import { canSeeCareNoteContents } from '@/lib/privacy';
+import { useInventoryOptional } from '@/context/InventoryContext';
 import Image from 'next/image';
 
 // What reaches paper, in the app's print look (lib/print-style): Plus Jakarta Sans, a light name, sentence-case grey
@@ -83,7 +88,9 @@ const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { id: clientId } = params;
     const { firestore, isUserLoading } = useFirebase();
-    const { selectedTenant, role, isLoading: isTenantLoading, can } = useTenant();
+    const { selectedTenant, role, roleId, isLoading: isTenantLoading, can } = useTenant() as any;
+    const showCare = canSeeCareNoteContents(selectedTenant, roleId || role);   // health answers only for people who may see health notes
+    const formDefs = useInventoryOptional()?.consentForms;   // to read each answer under its question
     const tenantId = selectedTenant?.id;
     
     const isOwnerOrAdmin = can('money.view');
@@ -119,7 +126,7 @@ const ClientReportPage = () => {
     }, [firestore, tenantId, clientId]);
     const { data: signedConsents, isLoading: signedConsentsLoading } = useCollection<any>(signedConsentsQuery);
     // Health information mode: this report shows every signed form's answers, so opening it is recorded (who, when).
-    useEffect(() => { if (signedConsents && signedConsents.length > 0) logHealthOpen(selectedTenant, { clientId: String(clientId), what: 'Client report (form answers)' }); }, [signedConsents, selectedTenant, clientId]);
+    useEffect(() => { if (showCare && signedConsents && signedConsents.length > 0) logHealthOpen(selectedTenant, { clientId: String(clientId), what: 'Client report (form answers)' }); }, [showCare, signedConsents, selectedTenant, clientId]);
 
     const clientAppointments = useMemo(() => {
         if (!appointments) return [];
@@ -357,36 +364,12 @@ const ClientReportPage = () => {
                                     signedConsents.map((consent: any) => (
                                         <Card key={consent.id} className="bg-muted/30">
                                             <CardHeader className="pb-2">
-                                                <div className="flex justify-between items-center">
-                                                    <CardTitle className="text-base">{consent.formTitle}</CardTitle>
-                                                    <p className="text-xs text-muted-foreground">Signed {format(parseISO(consent.signedAt), 'PPP p')}</p>
-                                                </div>
+                                                <CardTitle className="text-base">{consent.formTitle}</CardTitle>
                                             </CardHeader>
                                             <CardContent>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 pt-2">
-                                                    {Object.entries(consent.formData || {}).map(([key, value]: [string, any]) => {
-                                                        if (typeof value === 'string' && value.startsWith('data:image')) return null; // Signature handled separately
-                                                        return (
-                                                            <div key={key} className="space-y-1">
-                                                                <p className="rp-key text-[10px] uppercase font-bold text-muted-foreground">{key.replace(/-/g, ' ')}</p>
-                                                                <p className="text-sm">{Array.isArray(value) ? value.join(', ') : String(value)}</p>
-                                                            </div>
-                                                        )
-                                                    })}
-                                                </div>
-                                                {Object.values(consent.formData || {}).map((value: any, idx) => {
-                                                    if (typeof value === 'string' && value.startsWith('data:image')) {
-                                                        return (
-                                                            <div key={idx} className="mt-6 pt-4 border-t border-dashed">
-                                                                <p className="rp-key text-[10px] uppercase font-bold text-muted-foreground mb-2">Digital Signature</p>
-                                                                <div className="relative w-40 h-20 bg-card border rounded p-1">
-                                                                    <Image src={value} alt="Signature" fill className="object-contain" />
-                                                                </div>
-                                                            </div>
-                                                        )
-                                                    }
-                                                    return null;
-                                                })}
+                                                {(() => { const d = (formDefs || []).find((f: any) => f.id === consent.formId) || null;
+                                                  return !showCare && (!d || isHealthForm(d)) ? <p className="text-[14px] text-muted-foreground">Health answers are private.</p>
+                                                    : <SignedFormRecord record={consent} form={d} zone={tenantTimeZone(selectedTenant)} compact />; })()}
                                             </CardContent>
                                         </Card>
                                     ))

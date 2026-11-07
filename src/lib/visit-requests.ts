@@ -42,6 +42,12 @@ export function requestMessage(o: { firstName: string; studioName: string; start
 export function pendingFormIds(apt: any, service: any, client?: any, forms?: any[], tenant?: any): string[] {
   return formsStillNeeded({ apt, services: [service], client, forms, rules: formRulesOf(tenant) });
 }
+/** The forms still to sign, counted by the business's forms themselves (all of them, as the app has them): a form that
+ *  no longer exists can't be opened or signed, so it's never counted. Without the list, the same as pendingFormIds. */
+export function formsToSign(apt: any, service: any, client: any, allForms: any[] | null | undefined, tenant?: any): string[] {
+  const left = pendingFormIds(apt, service, client, allForms || undefined, tenant);
+  return Array.isArray(allForms) && allForms.length ? left.filter((id) => allForms.some((f: any) => f?.id === id)) : left;
+}
 export const intakeComplete = (apt: any) => ['complete', 'completed'].includes(String(apt?.completionStatus || ''));
 /** What stops this visit starting, in plain words; null = ready. The rules are the business's (lib/readiness:
  *  Settings → Before a visit, and per service); this adds the visit's own state (finished, waiting to pay, a request). */

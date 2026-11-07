@@ -1,6 +1,6 @@
 'use client';
 import { useTenantOptional } from '@/context/TenantContext';
-import { formsAskedFor, formStateOf, signedOnVisit, formRulesOf } from '@/lib/forms';
+import { formsAskedFor, formStateOf, signedOnVisit, waivedOnVisit, formRulesOf } from '@/lib/forms';
 // src/components/clients/ClientTabs.tsx — THE CLIENT PROFILE'S RECORDS, IN ONE STYLE.
 //   useClientMessages — the client's messages (sent with delivery state, and texts that came in), from the server
 //   ClientTimeline    — "Everything, in order": visits, payments, messages and forms in one stream, with filters
@@ -150,17 +150,18 @@ export function ClientFormsNeeded({ appointments, services, consentForms, consen
   // The one rule (lib/forms): signed for that visit, or a signed copy on file in the form's current wording and within
   // the time limit (a copy taken back, revokedAt, doesn't count).
   const rules = formRulesOf(useTenantOptional()?.selectedTenant);
-  const rows = upcoming.flatMap((a) => { const svc = services.find((s) => s.id === a.serviceId); const need = formsAskedFor(a, svc ? [svc] : []); const signed = signedOnVisit(a);
-    return need.map((id) => { const sc = consents.find((c) => (c.formId || c.consentFormId) === id && !c.revokedAt);
+  const rows = upcoming.flatMap((a) => { const svc = services.find((s) => s.id === a.serviceId); const need = formsAskedFor(a, svc ? [svc] : []); const signed = signedOnVisit(a); const waived = waivedOnVisit(a);
+    // A form that no longer exists can't be opened or signed, so it's never listed (once the forms have loaded).
+    return need.filter((id) => !consentForms.length || consentForms.some((f) => f.id === id)).map((id) => { const sc = consents.find((c) => (c.formId || c.consentFormId) === id && !c.revokedAt);
       const st = formStateOf(consentForms.find((f) => f.id === id) || null, sc ? { signedAt: sc.signedAt, version: sc.version || null, guardian: !!sc.guardianName } : null, rules, safe(a.startTime));
-      return { a, id, ok: signed.has(id) || st === 'current' }; }); });
-  const due = rows.filter((r) => !r.ok);
+      return { a, id, ok: signed.has(id) || st === 'current', waived: waived.has(id) && !signed.has(id) && st !== 'current' }; }); });
+  const due = rows.filter((r) => !r.ok && !r.waived);
   return (
     <section className="space-y-2 rounded-3xl p-5" style={card} aria-label="Forms needed">
       <h3 className="text-[17px] font-semibold">{due.length ? `${due.length} form${due.length === 1 ? '' : 's'} to sign before ${due.length === 1 ? format(safe(due[0].a.startTime), 'EEEE') : 'upcoming visits'}` : upcoming.length ? 'Nothing to sign before their next visit' : 'No upcoming visits'}</h3>
       {rows.map((r, i) => (<div key={i} className="flex items-center justify-between gap-3 border-t pt-2 text-[14px]" style={{ borderColor: 'hsl(var(--border))' }}>
-        <span className="min-w-0"><b>{formName(r.id)}</b><span style={muted}> · for {format(safe(r.a.startTime), 'EEE d MMM')}</span></span>
-        {r.ok ? pill('Signed', 'ok') : <button type="button" onClick={() => onOpenVisit(r.a)} className="rounded-full px-3 py-1 text-[12px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' }}>Send from the visit</button>}
+        <span className="min-w-0"><b>{formName(r.id)}</b><span style={muted}> · for {format(safe(r.a.startTime), 'EEE, MMM d')}</span></span>
+        {r.ok ? pill('Signed', 'ok') : r.waived ? pill('Waived for this visit') : <button type="button" onClick={() => onOpenVisit(r.a)} className="min-h-11 shrink-0 rounded-full px-3 text-[12px] font-semibold" style={{ background: 'color-mix(in srgb, var(--warn, #b45309) 12%, transparent)', color: 'var(--warn, #b45309)' }}>Send from the visit</button>}
       </div>))}
       <p className="text-[12px]" style={muted}>Everything signed is listed below, with when and who signed.</p>
     </section>);

@@ -1,6 +1,7 @@
 'use client';
 import { useTenantOptional } from '@/context/TenantContext';
-import { pendingFormIds } from '@/lib/visit-requests';
+import { formsToSign } from '@/lib/visit-requests';
+import { useInventoryOptional } from '@/context/InventoryContext';
 // src/components/clients/ClientSnapshot.tsx — "BEFORE YOU HELP THIS CLIENT": the few things anyone at the desk should
 // know at a glance — who they are to the business right now (restricted, guest only, under 18, linked people), and
 // what's live (here now, next visit, forms due, balance or credit, membership, open cases, follow-ups, accommodations).
@@ -14,11 +15,12 @@ export function ClientSnapshot({ client, appointments, services, activeMembershi
   client: any; appointments: any[]; services: any[]; activeMembership?: any; linkCount?: number; showMoney: boolean; onOpenVisit?: (a: any) => void;
 }) {
   const tenantNow = useTenantOptional()?.selectedTenant;   // the business's forms rules (lib/forms)
+  const formDefs = useInventoryOptional()?.consentForms;
   const now = new Date();
   const mine = appointments.filter((a) => a.clientId === client.id && !['cancelled', 'declined'].includes(String(a.status)));
   const here = mine.find((a) => isSameDay(safe(a.startTime), now) && (a.checkInStatus === 'arrived' || a.status === 'servicing'));
   const next = mine.filter((a) => safe(a.startTime) > now && a.status !== 'completed').sort((x, y) => safe(x.startTime).getTime() - safe(y.startTime).getTime())[0];
-  const formsDue = mine.filter((a) => safe(a.startTime) > new Date(now.getTime() - 86400000) && a.status !== 'completed').some((a) => pendingFormIds(a, services.find((s) => s.id === a.serviceId), client, undefined, tenantNow).length > 0);   // the one rule (lib/forms)
+  const formsDue = mine.filter((a) => safe(a.startTime) > new Date(now.getTime() - 86400000) && a.status !== 'completed').some((a) => formsToSign(a, services.find((s) => s.id === a.serviceId), client, formDefs, tenantNow).length > 0);   // the one rule (lib/forms)
   const owed = Number(client.outstandingBalance) || 0; const credit = Number(client.storeCreditBalance ?? client.storeCredit) || 0;
   const openCases = (client.hasOpenDispute ? 1 : 0) + mine.filter((a) => a.issue?.status === 'open').length;
   const followUp = client.followUpDueAt && safe(client.followUpDueAt) < now;

@@ -66,7 +66,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { formRulesOf, formStateOf, onFileEntry } from '@/lib/forms';
+import { formRulesOf, formStateOf, onFileEntry, waivedOnVisit } from '@/lib/forms';
+import { BeforeVisit } from '@/components/planner/BeforeVisit';
+import { canSeeCareNoteContents } from '@/lib/privacy';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
@@ -1629,7 +1631,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   // screen that opened the sheet had loaded. The deposit check below depends on seeing an earlier deposit.
   const { transactions } = useVisitTransactions(initialAppointment?.id);
   const [mounted, setMounted] = useState(false);
-  const { inventory, services: allServices, staff, consentForms } = useInventory();
+  const { inventory, services: allServices, staff, consentForms, consentFormsLoading } = useInventory();
   // Only what the visit needs (hooks/use-appointments): this client's own history, and the same day's visits (who's next
   // in this chair or room). The live copy of this visit is in one or both.
   const { appointments: clientVisits } = useClientVisits(open ? (client?.id || (initialAppointment as any)?.clientId || null) : null);
@@ -1637,7 +1639,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [sameDayFrom, sameDayTo] = useMemo(() => (visitDayMs ? [new Date(visitDayMs), new Date(visitDayMs + 2 * 86_400_000)] : [null, null]), [visitDayMs]);
   const { appointments: sameDayVisits } = useAppointmentsInRange(open ? sameDayFrom : null, open ? sameDayTo : null);
   const allAppointments = useMemo(() => { const m = new Map<string, any>(); for (const a of [...sameDayVisits, ...clientVisits]) m.set(a.id, a); return [...m.values()]; }, [sameDayVisits, clientVisits]);
-  const { role, selectedTenant, can } = useTenant();
+  const { role, roleId, selectedTenant, can } = useTenant() as any;
   const { user: currentUser } = useUser();
   const tenantId = selectedTenant?.id;
   // THE VISIT — one screen in five tabs (the sheet and the visit ticket, merged). Opens on Now; resets per visit.
@@ -1929,8 +1931,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     // and within the business's time limit (a form signed at every visit always asks again). The client record's map
     // first, the signedConsents copy for anything it doesn't have.
     const rules = formRulesOf(selectedTenant);
+    const waived = waivedOnVisit(appointment);
     const isFormSatisfied = (formId: string) => {
-      if (aptSignedIds.includes(formId)) return true;
+      if (aptSignedIds.includes(formId) || waived.has(formId)) return true;
       const sc = signedConsents?.find((x: any) => x.formId === formId);
       const entry = onFileEntry(client, formId) || (sc?.signedAt && !sc.revokedAt ? { signedAt: sc.signedAt, version: sc.version || null, guardian: !!sc.guardianName } : null);
       return formStateOf((consentForms || []).find((f: any) => f.id === formId) || null, entry, rules) === 'current';
@@ -1948,7 +1951,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       isSatisfied: isFormSatisfied(f.id),
     }));
     return { requiredForms, pendingForms, healthPendingForms, otherPendingForms, allCertified: pendingForms.length === 0, allFormsWithStatus };
-  }, [service, consentForms, signedConsents, appointment?.signedForms, (appointment as any)?.requiredFormIds, client, selectedTenant]);
+  }, [service, consentForms, signedConsents, appointment?.signedForms, (appointment as any)?.requiredFormIds, (appointment as any)?.formsWaived, client, selectedTenant]);
 
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
   const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(appointment?.clientId, client?.email, tenantId, true, appointment?.id);
@@ -2812,40 +2815,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         </div>
         <div hidden={visitTab !== 'now'} className="space-y-5">
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[12px] font-semibold text-muted-foreground opacity-60">Requirements & Intake</h3>
-            <Badge className={cn('text-[12px] font-semibold h-5 px-2 border-none text-white shadow-sm', ['complete', 'completed'].includes(String(appointment.completionStatus)) ? 'bg-green-500' : appointment.completionStatus === 'pending' ? 'bg-amber-500' : 'bg-slate-400')}>
-              {['complete', 'completed'].includes(String(appointment.completionStatus)) ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Complete</> : appointment.completionStatus === 'pending' ? <><Clock className="w-2 h-2 mr-1" /> Awaiting Client</> : 'None Requested'}
-            </Badge>
-          </div>
-
-          {complianceInfo.healthPendingForms.length > 0 && (
-            <div className="rounded-2xl bg-red-50 border border-red-300 p-3.5 space-y-2">
-              <p className="text-[12px] font-semibold text-red-700 flex items-center gap-1.5"><HeartPulse className="w-3 h-3" /> Health Disclosure Required</p>
-              {complianceInfo.healthPendingForms.map(f => (
-                <div key={f.id} className="flex items-center justify-between text-[12px] font-bold text-red-700 bg-card/70 p-2 rounded-lg border border-red-200">
-                  <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-50" /> {f.title}</span>
-                  <span className="shrink-0 ml-4 opacity-70">Unsigned</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <BeforeVisit tenantId={tenantId!} tenant={selectedTenant} appointment={appointment} client={client}
+            services={[service, ...(((appointment as any)?.addOnIds || []) as string[]).map((id) => (allServices || []).find((x: any) => x.id === id))]}
+            forms={consentForms || []} signedConsents={signedConsents} canSeeHealth={canSeeCareNoteContents(selectedTenant, roleId || role)} formsLoading={consentFormsLoading} />
 
           <div className="p-4 rounded-2xl bg-muted/10 border space-y-1 shadow-inner divide-y divide-dashed divide-muted/30">
-            {complianceInfo.otherPendingForms.map(f => (
-              <div key={f.id} className="flex items-center justify-between text-[12px] font-bold text-amber-700 py-2">
-                <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-40" /> {f.title}</span>
-                <span className="shrink-0 ml-4">Required</span>
-              </div>
-            ))}
-            {complianceInfo.allCertified && (
-              <div className="flex items-center gap-2 text-[12px] font-semibold text-green-600 py-1">
-                <CheckCircle2 className="w-3 h-3" /> All consent forms signed
-              </div>
-            )}
             <div className="pt-2">
               <Button variant="ghost" className="w-full h-10 rounded-xl font-semibold text-[12px] text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
-                <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
+                <LinkIcon className="w-3 h-3 mr-2" /> Copy their visit link
               </Button>
             </div>
             {reqFiles.map((rf: any) => {

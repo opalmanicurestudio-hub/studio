@@ -41,6 +41,9 @@ export async function formsReminderSweep(db: any, tenantId: string, tenant: any,
       const appt: any = ((await db.doc(`tenants/${tenantId}/appointments/${rec.appointmentId}`).get()).data()) || null;
       const start = toMs(appt?.startTime); if (!start || start <= now.getTime()) return;
       if (!appt || !LIVE.includes(String(appt.status || 'confirmed')) || appt.formsReminderSentAt || !appt.checkInToken || appt.linkRevokedAt) return;
+      // The team sent one by hand in the last 4 hours: this one waits for a later run, and isn't sent at all if that
+      // would be after the forms are due (they were just reminded).
+      if (toMs(appt.formsNudgedAt) > now.getTime() - 4 * 3600e3) return;
       const { formsDueAt } = await import('./forms'); const { visitForms } = await import('./forms-visit');
       const due = formsDueAt(appt.startTime, appt.createdAt || rec.createdAt); if (!due) return;
       const at = remindAt(due, zone);

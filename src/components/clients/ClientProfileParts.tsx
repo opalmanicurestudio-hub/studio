@@ -1,5 +1,5 @@
 'use client';
-import { pendingFormIds } from '@/lib/visit-requests';
+import { formsToSign } from '@/lib/visit-requests';
 // src/components/clients/ClientProfileParts.tsx — THE CLIENT PROFILE'S FRAME.
 //   ClientHeader   — photo, name, contact line (only for people allowed to see contact details), the main actions
 //                    (Message · Take payment · Book · Edit), a one-paragraph summary written from the records, and flags.
@@ -18,7 +18,7 @@ const live = (a: any) => !['cancelled', 'declined', 'no_show'].includes(String(a
 const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
 const card = { background: 'hsl(var(--card))', border: '1px solid var(--line, hsl(var(--border)))' } as React.CSSProperties;
 
-export function clientFacts(client: any, appointments: any[], services: any[], staff: any[], tenant?: any) {
+export function clientFacts(client: any, appointments: any[], services: any[], staff: any[], tenant?: any, forms?: any[] | null) {
   const now = new Date();
   const mine = appointments.filter((a) => a.clientId === client.id);
   const done = mine.filter((a) => a.status === 'completed').sort((x, y) => safe(y.startTime).getTime() - safe(x.startTime).getTime());
@@ -30,7 +30,7 @@ export function clientFacts(client: any, appointments: any[], services: any[], s
   const usualProvider = staff.find((s) => s.id === mode(recent.map((a) => a.staffId)))?.name?.split(' ')[0] || null;
   const gaps = done.slice(0, 7).map((a, i, arr) => (i < arr.length - 1 ? differenceInDays(safe(a.startTime), safe(arr[i + 1].startTime)) : null)).filter((g): g is number => g !== null && g > 0);
   const everyWeeks = gaps.length >= 2 ? Math.round((gaps.reduce((s, g) => s + g, 0) / gaps.length / 7) * 10) / 10 : null;
-  const formsDue = !!next && pendingFormIds(next, services.find((s) => s.id === next.serviceId), client, undefined, tenant).length > 0;   // the one rule (lib/forms): on file counts
+  const formsDue = !!next && formsToSign(next, services.find((s) => s.id === next.serviceId), client, forms, tenant).length > 0;   // the one rule (lib/forms): on file counts
   const first = done[done.length - 1] || null; const last = done[0] || null;
   const months = Array.from({ length: 7 }, (_, i) => startOfMonth(subMonths(now, 6 - i)));
   const perMonth = months.map((m, i) => done.filter((a) => { const d = safe(a.startTime); return d >= m && (i === 6 || d < months[i + 1]); }).length);

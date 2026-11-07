@@ -178,18 +178,26 @@ export function formsAskedFor(apt: any, services: any[] = []): string[] {
   return [...ids].filter(Boolean);
 }
 
+/** Forms the team waived for this visit, with why (appointment.formsWaived: formId → { by, reason, at }). A waived form
+ *  doesn't hold the visit up and isn't asked for again on it; it isn't on file, so the next visit asks as usual. */
+export const waivedOnVisit = (apt: any): Map<string, { by?: string; reason?: string; at?: string }> => {
+  const w = apt?.formsWaived && typeof apt.formsWaived === 'object' && !Array.isArray(apt.formsWaived) ? apt.formsWaived : {};
+  return new Map(Object.entries(w).filter(([, v]) => v && typeof v === 'object').map(([k, v]: [string, any]) => [k, v]));
+};
+/** What the client reads for a form the team waived (never who waived it or why). */
+export const CLIENT_WAIVED = 'Not needed this time';
 /** Forms already signed for this visit (on the visit itself). */
 export const signedOnVisit = (apt: any) => new Set<string>((Array.isArray(apt?.signedForms) ? apt.signedForms : []).map((f: any) => String(typeof f === 'string' ? f : f?.formId || f?.id || '')).filter(Boolean));
 
 /** The forms this visit still needs signed: asked for, not signed on this visit, and not current on file. */
 export function formsStillNeeded(o: { apt?: any; services?: any[]; ids?: string[]; client?: any; forms?: any[]; rules?: FormRules; now?: Date }): string[] {
   const asked = o.ids || formsAskedFor(o.apt, o.services || []);
-  const here = signedOnVisit(o.apt);
+  const here = signedOnVisit(o.apt); const waived = waivedOnVisit(o.apt);
   const rules = o.rules || FORM_RULES_DEFAULT;
-  return asked.filter((id) => !here.has(id) && formStateOf((o.forms || []).find((f: any) => f?.id === id) || null, onFileEntry(o.client, id), rules, o.now) !== 'current');
+  return asked.filter((id) => !here.has(id) && !waived.has(id) && formStateOf((o.forms || []).find((f: any) => f?.id === id) || null, onFileEntry(o.client, id), rules, o.now) !== 'current');
 }
 
-export type FormAsk = { formId: string; title: string; ask: 'sign' | 'sign_again' | 'confirm' | 'done'; why: string };
+export type FormAsk = { formId: string; title: string; ask: 'sign' | 'sign_again' | 'confirm' | 'done'; why: string; waived?: true };
 /** What a client is asked for each form, in plain words: sign it, sign it again (its wording changed, or it's been a
  *  while), confirm nothing's changed (a health form on file), or nothing (on file, or signed for this visit). */
 export function formAsks(o: { apt?: any; services?: any[]; ids?: string[]; client?: any; forms: any[]; rules?: FormRules; now?: Date }): FormAsk[] {
@@ -200,6 +208,9 @@ export function formAsks(o: { apt?: any; services?: any[]; ids?: string[]; clien
     const form = o.forms.find((f: any) => f?.id === id) || null;
     const title = String(form?.title || 'Form');
     if (here.has(id)) return { formId: id, title, ask: 'done', why: 'Signed for this visit' };
+    const w = waivedOnVisit(o.apt).get(id);
+    // The team's reason is for the team: anything the client sees says only that it isn't needed this time (CLIENT_WAIVED).
+    if (w) return { formId: id, title, ask: 'done', waived: true, why: `Waived${w.by ? ` by ${String(w.by).split(' ')[0]}` : ''}${w.reason ? `: ${String(w.reason).slice(0, 80)}` : ''}` };
     const entry = onFileEntry(o.client, id);
     const st = formStateOf(form, entry, rules, o.now);
     if (st === 'none') return { formId: id, title, ask: 'sign', why: form?.requiresSignature || (form?.fields || []).some((f: any) => f?.type === 'signature') ? 'Read and sign' : 'A few questions' };
