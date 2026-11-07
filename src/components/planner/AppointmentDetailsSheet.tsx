@@ -2818,7 +2818,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div className="space-y-3">
           <BeforeVisit tenantId={tenantId!} tenant={selectedTenant} appointment={appointment} client={client}
             services={[service, ...(((appointment as any)?.addOnIds || []) as string[]).map((id) => (allServices || []).find((x: any) => x.id === id))]}
-            forms={consentForms || []} signedConsents={signedConsents} canSeeHealth={canSeeCareNoteContents(selectedTenant, roleId || role)} formsLoading={consentFormsLoading} />
+            forms={consentForms || []} signedConsents={signedConsents} canSeeHealth={canSeeCareNoteContents(selectedTenant, roleId || role)} formsLoading={consentFormsLoading}
+            me={{ uid: currentUser?.uid || null, name: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || currentUser?.displayName || null }} />
 
           <div className="p-4 rounded-2xl bg-muted/10 border space-y-1 shadow-inner divide-y divide-dashed divide-muted/30">
             <div className="pt-2">

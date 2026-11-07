@@ -70,7 +70,11 @@ export async function GET(req: NextRequest) {
   const { photosAskOpen } = await import('@/lib/inspo-photos');
   const photosAsk = photosAskOpen(a)
     ? { note: String(a.inspoReview.note || '').slice(0, 200) || null, by: String(a.inspoReview.by || '').trim().split(/\s+/)[0] || null } : null;
-  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl, pay, photosAsk };
+  // The team's marks on their photos (lib/markup/team): the photo, each layer of marks, the team's note, and what they
+  // said back. Never a private team note. Not while they've been asked for different ones, nor once the visit is over.
+  const { replyFor } = await import('@/lib/markup/team'); const { ENDED_VISIT } = await import('@/lib/forms-visit');
+  const photosReply = !photosAsk && !ENDED_VISIT.includes(String(a.status || '')) ? replyFor(a) : null;
+  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl, pay, photosAsk, photosReply };
   // keep the copies in step as a courtesy for anything else that still reads them
   if (miss || copy.stage !== view.stage || copy.status !== view.status) await Promise.all([db.doc(`appointmentCheckIns/${token}`).set(view, { merge: true }), db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(view, { merge: true })]).catch(() => {});
   return NextResponse.json({ ok: true, view: full }, noStore);

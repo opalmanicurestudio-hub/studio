@@ -35,6 +35,7 @@ import { collection, query, where, doc } from 'firebase/firestore';
 import { studioPage } from '@/lib/studio-page';
 import { FormsLeftCard, FormsLeftView, thingsLeft, type VisitFormsView } from '@/components/visit/VisitForms';
 import { PhotosAskCard, PhotosSentCard } from '@/components/visit/PhotosAskCard';
+import { PhotosReplyCard } from '@/components/visit/PhotosReplyCard';
 import { formRulesOf, requestAsksMore } from '@/lib/forms';
 
 const safeDate = (val: any): Date => {
@@ -496,6 +497,9 @@ export default function CheckInPage() {
     const photosAsk = (appointmentData as any)?.photosAsk || null;
     const photosCard = photosAsk && tenantId && !isCompletionPending ? <PhotosAskCard ask={photosAsk} token={token} tenantId={tenantId} accent={brandOf(tenant).accent} onSent={(t) => { setPhotosSent(t); setViewNonce((n) => n + 1); }} /> : null;
     const photosThanks = !photosCard && photosSent ? <PhotosSentCard text={photosSent} /> : null;
+    // The team's marks on their photos, to say looks good or reply (it stays, answered, while they're on the page).
+    const photosReply = (appointmentData as any)?.photosReply || null;
+    const replyCard = !photosCard && photosReply && !isCompletionPending ? <PhotosReplyCard reply={photosReply} token={token} accent={brandOf(tenant).accent} /> : null;
     
     // v3 — NEW: cancellation flow. Reachable via a "Can't make it?" link on
     // the arrival screen further down. Uses the appointmentId + tenantId
@@ -635,7 +639,7 @@ export default function CheckInPage() {
                 onReschedule={() => setShowRescheduleFlow(true)}
                 onCancel={() => setShowCancelFlow(true)}
                 onMessage={() => setShowMessages(true)}
-                notice={<>{confirmCard}{formsCard}{photosCard}{photosThanks}</>}
+                notice={<>{confirmCard}{formsCard}{photosCard}{photosThanks}{replyCard}</>}
                 stillToDo={!!formsCard || !!photosCard}
                 notify={notifySlot}
                 sooner={tenantId && safeDate(appointmentData!.startTime).getTime() - Date.now() > 24 * 3600e3 ? { tenantId, token, on: !!(appointmentData as any)?.soonerOn } : null}
@@ -676,7 +680,7 @@ export default function CheckInPage() {
             onCancel={() => setShowCancelFlow(true)}
             onMessage={() => setShowMessages(true)}
             openLate={openLate}
-            notice={<>{confirmCard}{formsCard}{photosCard}{photosThanks}</>}
+            notice={<>{confirmCard}{formsCard}{photosCard}{photosThanks}{replyCard}</>}
             portalHref={tenantId && clientId ? `/portal/${encodeURIComponent(tenantId)}/${encodeURIComponent(clientId)}` : null}
             onNotifications={tenant?.notificationDefaults?.allowClientOverride !== false ? () => setShowNotificationSettings(true) : undefined}
             trip={tenantId && token && appointmentData?.id ? { tenantId, token, appointmentId: appointmentData.id } : null}

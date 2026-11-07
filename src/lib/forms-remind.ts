@@ -153,6 +153,36 @@ export async function askForPhotos(db: any, tenantId: string, appt: any, tenant:
   return ok ? 'sent' : 'failed';
 }
 
+/** The team marked up the client's inspiration photos (lib/markup/team): "Mia looked at your photos", with the visit
+ *  link, where the marks are. By text and by email, the way they chose to hear from the business; the same answers as
+ *  askForPhotos. */
+export async function tellPhotosMarked(db: any, tenantId: string, appt: any, tenant: any, byFirst: string | null): Promise<'sent' | 'off' | 'no_contact' | 'failed'> {
+  if (tenant?.clientNotify?.enabled === false || appt?.linkRevokedAt || !appt?.checkInToken) return 'off';
+  const cl: any = appt.clientId ? ((await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get()).data() || {}) : {};
+  const pref = prefOf(tenant, cl); if (pref === 'none') return 'off';
+  const email = pref === 'sms' ? '' : String(appt.clientEmail || cl.email || '').trim(); const phone = pref === 'email' ? '' : String(appt.clientPhone || cl.phone || '').trim();
+  const { linkOrigin } = await import('./app-origin'); const base = linkOrigin(tenant, '') || process.env.NEXT_PUBLIC_APP_URL || ''; if (!base) return 'failed';
+  if (!phone && !email.includes('@')) return 'no_contact';
+  const link = `${base}/check-in/${appt.checkInToken}`;
+  const studio = String(tenant?.name || tenant?.businessName || 'Your studio');
+  const name = first(appt.clientName || cl.name); const who = byFirst || studio;
+  const visitAt = dueWords(appt.startTime, tenantTimeZone(tenant));
+  const said = `${who} looked at your inspiration photos for your ${String(appt.serviceName || 'visit').toLowerCase()} on ${visitAt} and added ${byFirst ? 'their' : 'some'} marks.`;
+  const { sendNotification } = await import('./notify');
+  let ok = false;
+  if (phone) ok = went(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'photos_marked',
+    text: `${studio}: Hi ${name || 'there'}, ${said} See them here: ${link}`,
+    recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId: appt.id || null } as any).catch(() => null)) || ok;
+  if (email.includes('@')) {
+    const { brandedEmailHtml, emailLookOf } = await import('./email-template');
+    ok = went(await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'photos_marked', subject: `${who} looked at your photos`,
+      html: brandedEmailHtml({ studioName: studio, brand: emailLookOf(tenant), eyebrow: 'Before your visit', title: `${who} looked at`, titleBold: 'your photos',
+        bodyLines: [`Hi ${name || 'there'},`, said, 'See them on your visit link, and tell us if it looks right.'], cta: { label: 'See the marks', url: link } }),
+      recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId: appt.id || null } as any).catch(() => null)) || ok;
+  }
+  return ok ? 'sent' : 'failed';
+}
+
 /** Once everything's done: "Thanks, Dana. You're all set for Saturday at 3:30 PM." By text when they have a number (and
  *  take texts), otherwise by email, the way they chose to be reminded. Only to clients who were reminded. */
 export async function sendFormsThanks(db: any, tenantId: string, appt: any, tenant: any, rec?: any): Promise<boolean> {

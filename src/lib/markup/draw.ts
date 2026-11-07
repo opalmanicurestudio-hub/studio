@@ -12,6 +12,8 @@ export type DrawOpts = {
   layers?: Layer[];
   /** Just the photo (hold to see the original). */
   original?: boolean;
+  /** The marks alone, on a see-through ground (a layer laid over the photo elsewhere). */
+  bare?: boolean;
   /** A mark being drawn right now. */
   live?: Mark | null;
   /** The editor's own aids: blurred areas outlined. Never in a copy that's sent. */
@@ -34,7 +36,7 @@ const contrast = (hex: string) => { const n = parseInt(hex.slice(1), 16); const 
 export function drawDoc(ctx: CanvasRenderingContext2D, doc: MarkupDoc, img: CanvasImageSource, o: DrawOpts) {
   const M = canvasMatrix(doc, o.k);
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); ctx.restore();
-  ctx.save(); setM(ctx, M); ctx.imageSmoothingEnabled = true; ctx.drawImage(img, 0, 0, doc.w, doc.h); ctx.restore();
+  if (!o.bare) { ctx.save(); setM(ctx, M); ctx.imageSmoothingEnabled = true; ctx.drawImage(img, 0, 0, doc.w, doc.h); ctx.restore(); }
   if (o.original) return;
   const on = (mk: Mark) => !o.layers || o.layers.includes(mk.layer);
   const marks = [...doc.marks.filter(on), ...(o.live ? [o.live] : [])];
@@ -253,4 +255,13 @@ export function flatten(doc: MarkupDoc, img: CanvasImageSource, layers: Layer[],
   // A white ground under it all (a JPEG has nothing see-through).
   x.globalCompositeOperation = 'destination-over'; x.fillStyle = '#ffffff'; x.fillRect(0, 0, c.width, c.height); x.globalCompositeOperation = 'source-over';
   return { canvas: c, k };
+}
+
+/** One layer's marks alone, see-through around them, the same size as the flattened copy: laid over the photo shown
+ *  without marks (or over the photo as sent), it lines up exactly, so each layer can be shown or hidden on its own. */
+export function overlay(doc: MarkupDoc, img: CanvasImageSource, layers: Layer[], max = 1600): HTMLCanvasElement {
+  const v = viewOf(doc); const k = Math.min(1, max / Math.max(v.w, v.h));
+  const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(v.w * k)); c.height = Math.max(1, Math.round(v.h * k));
+  drawDoc(c.getContext('2d')!, doc, img, { k, layers, bare: true });
+  return c;
 }

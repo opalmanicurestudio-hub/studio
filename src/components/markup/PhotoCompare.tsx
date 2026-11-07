@@ -8,14 +8,19 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', WARN = '#b45309';
-export type ComparePhoto = { src: string; label: string };
+/** A photo, and any layers of marks laid over it (each see-through, the photo's own shape: lib/markup/team). */
+export type ComparePhoto = { src: string; label: string; over?: string[] };
+/** A layer of marks over a photo: left out if it can't be shown (the photo still is). */
+const Over = ({ src }: { src: string }) => { const [gone, setGone] = React.useState(false); return gone ? null : <img src={src} alt="" aria-hidden onError={() => setGone(true)} className="pointer-events-none absolute inset-0 h-full w-full object-contain" />; };
 
-export function PhotoCompare({ now, goals, after, onClose, accent = INK, who, viewer = 'client' }: {
+export function PhotoCompare({ now, goals, after, onClose, accent = INK, who, viewer = 'client', inline = false }: {
   now: ComparePhoto; goals: ComparePhoto[]; after?: ComparePhoto | null; onClose: () => void; accent?: string;
   /** Whose screen this is: the client's ("the photo you love") or the team's ("the photo they love"). */
   viewer?: 'client' | 'team';
   /** Who can open the same comparison on the appointment (the client's screen only). */
   who?: string;
+  /** Drawn where it's placed, not at the end of the page (inside another screen's own dialog, which keeps the keys). */
+  inline?: boolean;
 }) {
   const [mode, setMode] = React.useState<'slider' | 'side' | 'through'>('slider');
   const [gi, setGi] = React.useState(0); const [at, setAt] = React.useState(0.5); const [mix, setMix] = React.useState(0.5);
@@ -56,7 +61,8 @@ export function PhotoCompare({ now, goals, after, onClose, accent = INK, who, vi
     else if (e.key === 'Home') { e.preventDefault(); setAt(0); } else if (e.key === 'End') { e.preventDefault(); setAt(1); }
   };
   if (typeof document === 'undefined') return null;
-  return createPortal(
+  const place = (node: React.ReactElement) => (inline ? node : createPortal(node, document.body));
+  return place(
     <div ref={root} tabIndex={-1} data-markup-editor="" role="dialog" aria-modal="true" aria-label="Compare" onKeyDown={onKey} className="fixed inset-0 z-[410] flex flex-col outline-none"
       style={{ background: '#fff', color: INK, paddingTop: 'env(safe-area-inset-top,0px)', paddingBottom: 'env(safe-area-inset-bottom,0px)' }}>
       <div className="flex items-center justify-between gap-2 px-3" style={{ minHeight: 52 }}>
@@ -68,7 +74,7 @@ export function PhotoCompare({ now, goals, after, onClose, accent = INK, who, vi
         {broken ? <p className="px-6 text-center text-[15px]" role="alert" style={{ color: WARN }}>{broken.startsWith('How it looks now') ? 'The photo of how it looks now couldn’t be shown just now.' : `${goal.label} couldn’t be shown just now.`}{goals.length > 1 || after ? ' Choose another below.' : ' Please try again.'}</p>
           : mode === 'side' ? (
           <div className="grid h-full w-full grid-cols-2 gap-1 p-2">
-            {[{ p: now, t: 'Now' }, { p: goal, t: goal.label }].map(({ p, t }, i) => <div key={i} className="relative flex min-h-0 items-center justify-center overflow-hidden rounded-xl" style={{ background: SOFT }}><img src={p.src} alt={i ? `${t}: ${loved}` : 'How it looks now'} onError={(e) => setBroken(e.currentTarget.alt)} className="max-h-full max-w-full object-contain" />{tag(t, 'left')}</div>)}
+            {[{ p: now, t: 'Now' }, { p: goal, t: goal.label }].map(({ p, t }, i) => <div key={i} className="relative min-h-0 overflow-hidden rounded-xl" style={{ background: SOFT }}><img src={p.src} alt={i ? `${t}: ${loved}` : 'How it looks now'} onError={(e) => setBroken(e.currentTarget.alt)} className="absolute inset-0 h-full w-full object-contain" />{(p.over || []).map((o) => <Over key={o} src={o} />)}{tag(t, 'left')}</div>)}
           </div>
         ) : (
           <div ref={frame} className="relative touch-none select-none" style={fw ? { width: fw, height: fh } : { width: '100%', height: '100%' }}
@@ -76,8 +82,9 @@ export function PhotoCompare({ now, goals, after, onClose, accent = INK, who, vi
             onPointerMove={(e) => { if (dragging.current) slide(e.clientX); }} onPointerUp={() => { dragging.current = false; }} onPointerCancel={() => { dragging.current = false; }} onLostPointerCapture={() => { dragging.current = false; }}>
             <div className="absolute inset-0 overflow-hidden">
             <img src={now.src} alt="How it looks now" onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth && i.naturalHeight) setShape(i.naturalWidth / i.naturalHeight); }} onError={(e) => setBroken(e.currentTarget.alt)} className="absolute inset-0 h-full w-full object-cover" />
-            <img src={goal.src} alt={`${goal.label}: ${loved}`} onError={(e) => setBroken(e.currentTarget.alt)} className="absolute inset-0 h-full w-full object-contain"
-              style={mode === 'slider' ? { clipPath: `inset(0 0 0 ${at * 100}%)`, background: SOFT } : { opacity: mix, background: SOFT }} />
+            <div className="absolute inset-0" style={mode === 'slider' ? { clipPath: `inset(0 0 0 ${at * 100}%)`, background: SOFT } : { opacity: mix, background: SOFT }}>
+              <img src={goal.src} alt={`${goal.label}: ${loved}`} onError={(e) => setBroken(e.currentTarget.alt)} className="absolute inset-0 h-full w-full object-contain" />
+              {(goal.over || []).map((o) => <Over key={o} src={o} />)}</div>
             </div>
             {tag('Now', 'left')}{tag(goal.label, 'right')}
             {mode === 'slider' && <div className="pointer-events-none absolute inset-y-0" style={{ left: `${at * 100}%`, width: 2, marginLeft: -1, background: '#fff', boxShadow: '0 0 6px rgba(0,0,0,.25)' }} />}
@@ -97,5 +104,5 @@ export function PhotoCompare({ now, goals, after, onClose, accent = INK, who, vi
           <input type="range" min={0} max={100} step={1} value={Math.round(mix * 100)} onChange={(e) => setMix(Number(e.target.value) / 100)} className="h-11 flex-1" aria-label="How much of the goal shows through" /><span className="w-16 shrink-0 text-right">{goal.label}</span></label>}
         <p className="text-[13.5px] leading-snug" style={{ color: MUTED }}>{mode === 'slider' ? `Drag the line to compare how it looks now with ${loved}. Marks show on both.` : mode === 'side' ? 'The two side by side, marks and all.' : 'One seen through the other: slide to show more of either.'}{viewer === 'client' && who ? ` ${who} can open this same comparison on your appointment.` : ''}</p>
       </div>
-    </div>, document.body);
+    </div>);
 }

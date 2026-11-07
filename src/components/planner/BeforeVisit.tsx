@@ -3,7 +3,9 @@
 // On the appointment: "3 of 4 ready", then each form the visit asks for (done, with the answers one tap away; health
 // answers only for people who may see health notes, and who opened them is logged; not signed, with when it's due,
 // "Send a reminder" and "Waive, with a reason"), the documents the service asks for (on file or sent, each to view),
-// and inspiration photos with their notes ("Looks good"). One rule for what's done (lib/forms). Nothing here charges or
+// and inspiration photos with their notes ("Looks good"). Each photo opens in the markup tool, where the team adds
+// their own marks and private notes and sends their marks to the client's visit link (TeamPhotoMarkup), with what the
+// client said back. One rule for what's done (lib/forms). Nothing here charges or
 // releases anything: it says what happens if a form isn't done, as the business's Automations have it.
 import * as React from 'react';
 import { format } from 'date-fns';
@@ -14,6 +16,9 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import { logHealthOpen } from '@/lib/health-view-client';
 import { PrivateImg, openPrivateFile, resolvePrivateUrl } from '@/components/shared/private-file';
 import { PhotoCompare } from '@/components/markup/PhotoCompare';
+import { TeamPhotoMarkup } from '@/components/markup/TeamPhotoMarkup';
+import { OverSheet } from '@/components/markup/OverSheet';
+import { photoKey } from '@/lib/markup/team';
 import { SignedFormRecord } from '@/components/consents/SignedFormRecord';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GOOD = '#1f7a4d', WARN = '#b45309';
@@ -25,12 +30,14 @@ const Pill = ({ children, onClick, ink, disabled }: { children: React.ReactNode;
   <button type="button" onClick={onClick} disabled={disabled} className="inline-flex min-h-11 items-center rounded-full px-4 text-[14px] font-medium disabled:opacity-50"
     style={ink ? { background: INK, color: '#fff', fontWeight: 600 } : { background: SOFT, color: INK }}>{children}</button>);
 
-export function BeforeVisit({ tenantId, tenant, appointment, client, services, forms, signedConsents, canSeeHealth = false, formsLoading }: {
+export function BeforeVisit({ tenantId, tenant, appointment, client, services, forms, signedConsents, canSeeHealth = false, formsLoading, me }: {
   tenantId: string; tenant: any; appointment: any; client: any; services: any[]; forms: any[]; signedConsents?: any[] | null;
   /** May this person read health answers (Settings › privacy: care notes)? */
   canSeeHealth?: boolean;
   /** The business's forms are still loading (without it, no forms at all is taken as still loading). */
   formsLoading?: boolean;
+  /** Who's signed in (their marks on the client's photos go by their first name). */
+  me?: { uid?: string | null; name?: string | null };
 }) {
   const [open, setOpen] = React.useState<string | null>(null);
   const [waiving, setWaiving] = React.useState<string | null>(null);
@@ -40,12 +47,12 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
   // Answers kept beside the visit (a long visit record moves older ones there): read when opened, by the same rule.
   // Each read is for one visit: one that comes back after the team has moved to another visit is dropped.
   const [moved, setMoved] = React.useState<Record<string, any | 'loading' | { error: string; again?: boolean }>>({});
-  const [asking, setAsking] = React.useState(false); const [askNote, setAskNote] = React.useState(''); const [earlier, setEarlier] = React.useState(false); const [comparing, setComparing] = React.useState<'loading' | 'failed' | string[] | null>(null);
+  const [asking, setAsking] = React.useState(false); const [askNote, setAskNote] = React.useState(''); const [earlier, setEarlier] = React.useState(false); const [comparing, setComparing] = React.useState<'loading' | 'failed' | string[] | null>(null); const [marking, setMarking] = React.useState<string | null>(null);   // the photo being marked up (its key)
   // A different visit starts clean.
   const noted = React.useRef(new Set<string>());   // an opening is noted once per form while this visit is open
   const logged = React.useRef(new Set<string>());  // and a health form's opening logged once
   const visitNow = React.useRef<string | null>(null); visitNow.current = appointment?.id ? String(appointment.id) : null;
-  React.useEffect(() => { setOpen(null); setWaiving(null); setReason(''); setSaid(null); setMoved({}); setAsking(false); setAskNote(''); setEarlier(false); setComparing(null); noted.current = new Set(); logged.current = new Set(); }, [appointment?.id]);
+  React.useEffect(() => { setOpen(null); setWaiving(null); setReason(''); setSaid(null); setMoved({}); setAsking(false); setAskNote(''); setEarlier(false); setComparing(null); setMarking(null); noted.current = new Set(); logged.current = new Set(); }, [appointment?.id]);
   const zone = tenantTimeZone(tenant);
   const svcs = services.filter(Boolean);
   const asked = formsAskedFor(appointment, svcs);
@@ -67,6 +74,16 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
   const askAgain = inspo?.status === 'again' && !!toMs(inspo?.at) && Date.now() - toMs(inspo.at) > 3600e3;
   const before: any[] = (Array.isArray(appointment?.inspirationPhotosEarlier) ? appointment.inspirationPhotosEarlier : []).filter((p: any) => p?.url);
   const photos: any[] = (Array.isArray(appointment?.inspirationPhotos) && appointment.inspirationPhotos.length ? appointment.inspirationPhotos : appointment?.inspirationPhotoUrl ? [{ url: appointment.inspirationPhotoUrl }] : []).filter((p: any) => p?.url);
+  // The team's marks on each photo (saved, or sent to the client), and what the client said back. The answer counts only
+  // when it came after the marks were last sent.
+  const teamOn: Record<string, { at: string; sentAt: string | null }> = appointment?.inspoTeam && typeof appointment.inspoTeam === 'object' ? appointment.inspoTeam : {};
+  const reply: any = appointment?.inspoReply?.at ? appointment.inspoReply : null;
+  const sentCount = reply ? photos.filter((p) => reply.photos?.[photoKey(String(p.url))]).length : 0;
+  const answer = reply?.answer && String(reply.answer.at || '') >= String(reply.at) ? reply.answer : null;
+  // The photo being marked up (if the client has sent new ones meanwhile, it's no longer here: the screen closes).
+  const markAt = marking ? photos.findIndex((p) => photoKey(String(p.url)) === marking) : -1;
+  React.useEffect(() => { if (marking && markAt < 0) { setMarking(null); setSaid({ text: `${String(appointment?.clientName || 'The client').split(' ')[0]} sent new photos, so that one closed. Anything not saved there is gone; their new photos are below.` }); } }, [marking, markAt]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const replyWords = sentCount ? `${String(reply.by || 'The team')} sent marks on ${sentCount === photos.length && sentCount > 1 ? 'every photo' : `${sentCount} photo${sentCount === 1 ? '' : 's'}`} · ${answer?.kind === 'ok' ? `${String(appointment?.clientName || 'The client').split(' ')[0]} said it looks good` : answer?.kind === 'reply' ? `${String(appointment?.clientName || 'The client').split(' ')[0]} replied: “${String(answer.text || '').slice(0, 200)}”` : 'no answer yet'}` : '';
   // The forms haven't loaded yet: say so, rather than showing nothing to sign.
   if (asked.length && (formsLoading ?? !forms.length)) return (
     <section aria-label="Before the visit" aria-busy="true" className="space-y-3">
@@ -207,9 +224,14 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
               <p className="text-[13px]" style={{ color: MUTED }}>{photos.length} photo{photos.length === 1 ? '' : 's'}{photos.some((p) => p?.note) ? ' with notes' : ''} · {inspo?.status === 'ok' ? `looked at by ${String(inspo.by || 'the team').split(' ')[0]}` : inspo?.status === 'again' ? `${String(inspo.by || 'the team').split(' ')[0]} asked for different ones${inspo.note ? `: “${String(inspo.note).slice(0, 120)}”` : ''}` : inspo?.status === 'sent' ? 'new ones, waiting for you' : 'waiting for you'}</p></div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2.5 pl-[38px]">
-            {photos.slice(0, 7).map((p, k) => <button key={k} type="button" onClick={() => void openPrivateFile(p.url)} aria-label={`Open inspiration photo ${k + 1}`} className="rounded-[14px] focus:outline-none focus-visible:ring-2"><PrivateImg src={p.url} alt={p?.note || `Inspiration photo ${k + 1}`} className="h-[84px] w-[84px] rounded-[14px] object-cover" /></button>)}
-            {photos.length > 7 && <button type="button" onClick={() => void openPrivateFile(photos[7].url)} className="grid h-[84px] w-[84px] place-items-center rounded-[14px] text-[15px] font-semibold" style={{ background: SOFT, color: INK }} aria-label={`${photos.length - 7} more photos`}>+{photos.length - 7}</button>}
+            {photos.slice(0, 7).map((p, k) => { const t = teamOn[photoKey(String(p.url))]; return (
+              <button key={k} type="button" onClick={() => setMarking(photoKey(String(p.url)))} aria-label={`Open inspiration photo ${k + 1} to mark it up${t ? (t.sentAt && !(t.at > t.sentAt) ? ', marks sent' : ', marks saved') : ''}`} className="relative rounded-[14px] focus:outline-none focus-visible:ring-2">
+                <PrivateImg src={p.url} alt={p?.note || `Inspiration photo ${k + 1}`} className="h-[84px] w-[84px] rounded-[14px] object-cover" />
+                {t && <span aria-hidden className="absolute bottom-1 left-1 rounded-full px-1.5 text-[11px] font-semibold leading-[18px]" style={t.sentAt && !(t.at > t.sentAt) ? { background: GOOD, color: '#fff' } : { background: '#fff', color: INK }}>{t.sentAt && !(t.at > t.sentAt) ? 'Sent' : 'Saved'}</span>}
+              </button>); })}
+            {photos.length > 7 && <button type="button" onClick={() => setMarking(photoKey(String(photos[7].url)))} className="grid h-[84px] w-[84px] place-items-center rounded-[14px] text-[15px] font-semibold" style={{ background: SOFT, color: INK }} aria-label={`${photos.length - 7} more photos`}>+{photos.length - 7}</button>}
           </div>
+          {replyWords && <p className="mt-2 pl-[38px] text-[13.5px]" style={{ color: answer?.kind === 'ok' ? GOOD : answer ? INK : MUTED }}>{replyWords}</p>}
           {photos.filter((p) => p?.note).slice(0, 4).map((p, k) => <p key={k} className="mt-2 pl-[38px] text-[13.5px]" style={{ color: MUTED }}>“{String(p.note).slice(0, 300)}”</p>)}
           {before.length > 0 && <div className="mt-2 pl-[38px]">
             <button type="button" onClick={() => setEarlier((v) => !v)} aria-expanded={earlier} className="min-h-11 text-[14px] font-semibold" style={{ color: INK }}>{earlier ? 'Hide the earlier photos' : `See the earlier photos (${before.length})`}</button>
@@ -225,7 +247,10 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
             : <div className="mt-3 flex flex-wrap gap-2 pl-[38px]"><Pill ink disabled={busy === 'photos'} onClick={() => void act('photos', { action: 'photos_ok' }, 'Marked as looked at.')}>Looks good</Pill><Pill onClick={() => { setAsking(true); setSaid(null); }}>Ask for different photos</Pill></div>)}
         </div>}
       </div>
-      {Array.isArray(comparing) && <PhotoCompare viewer="team" now={{ src: comparing[0], label: 'Now' }} goals={comparing.slice(1).map((src, i) => ({ src, label: comparing.length > 2 ? `Photo ${i + 1}` : 'Goal' }))} onClose={() => setComparing(null)} />}
+      {markAt >= 0 && <TeamPhotoMarkup key={marking!} tenantId={tenantId} apptId={String(appointment.id)} photo={photos[markAt]} n={markAt + 1} of={photos.length}
+        title={`${String(appointment?.serviceName || 'Visit')}${toMs(appointment?.startTime) ? `, ${format(wallDate(new Date(toMs(appointment.startTime)), zone), 'EEE h:mm a')}` : ''}`} clientName={String(appointment?.clientName || client?.name || '')} me={me || {}}
+        nowUrl={nowP?.url || null} onClose={(text) => { setMarking(null); if (text) setSaid({ text, ok: true }); }} />}
+      {Array.isArray(comparing) && <OverSheet label="Compare"><PhotoCompare inline viewer="team" now={{ src: comparing[0], label: 'Now' }} goals={comparing.slice(1).map((src, i) => ({ src, label: comparing.length > 2 ? `Photo ${i + 1}` : 'Goal' }))} onClose={() => setComparing(null)} /></OverSheet>}
       {said && <p role={said.ok ? 'status' : 'alert'} className="px-1 text-[13.5px]" style={{ color: said.ok ? GOOD : WARN }}>{said.text}</p>}
       {todos.length > 0 && <p className="px-1 text-[13.5px] leading-relaxed" style={{ color: MUTED }}>
         {ownGated && own.release === 'auto'

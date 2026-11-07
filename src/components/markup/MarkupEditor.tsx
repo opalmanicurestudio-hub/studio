@@ -53,7 +53,7 @@ type Gesture =
   | { t: 'pick' }
   | { t: 'crop'; part: 'move' | 0 | 1 | 2 | 3; from: Pt; orig: { x: number; y: number; w: number; h: number } };
 
-export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, showLayers, sendLayers, title, accent = INK, by, onCancel, onDone, initialNote = '', initialColors = [], startTool = 'pen', format = 'jpeg', doneLabel = 'Done', backLabel, layerNames, clientName, inline = false }: {
+export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, showLayers, sendLayers, title, accent = INK, by, onCancel, onDone, initialNote = '', initialColors = [], startTool = 'pen', format = 'jpeg', doneLabel = 'Done', backLabel, layerNames, clientName, inline = false, alt, aside, headerExtra }: {
   src: string; doc?: MarkupDoc | null; layer?: Layer;
   /** Layers whose marks can be changed here (the editor's own, by default). */
   editLayers?: Layer[];
@@ -76,6 +76,12 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   layerNames?: Partial<Record<Layer, string>>; clientName?: string;
   /** Drawn where it's placed, not at the end of the page (inside another screen's own dialog, which keeps the keys). */
   inline?: boolean;
+  /** A second, quieter way to finish ("Save for the team" beside "Send to Dana"), saved the same way. */
+  alt?: { label: string; onDone: (r: MarkupResult) => Promise<string | null | void> | void };
+  /** More about the photo, above the settings (the client's own note, say). */
+  aside?: React.ReactNode;
+  /** Beside the title on a computer, and under it on a phone (other views of the photo: Compare). */
+  headerExtra?: React.ReactNode;
 }) {
   const root = React.useRef<HTMLDivElement>(null); const stage = React.useRef<HTMLDivElement>(null);
   const canvas = React.useRef<HTMLCanvasElement>(null); const img = React.useRef<HTMLImageElement | null>(null); const sample = React.useRef<{ ctx: CanvasRenderingContext2D; k: number } | null>(null);
@@ -89,7 +95,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   const [live, setLive] = React.useState<Mark | null>(null); const [loupe, setLoupe] = React.useState<{ q: Pt; c: string } | null>(null);
   const [view, setView] = React.useState({ k: 1, x: 0, y: 0 });
   const [failed, setFailed] = React.useState<string | null>(null); const [locked, setLocked] = React.useState(false);
-  const [said, setSaid] = React.useState<string | null>(null); const [saving, setSaving] = React.useState(false); const [leaving, setLeaving] = React.useState(false);
+  const [said, setSaid] = React.useState<string | null>(null); const [saving, setSaving] = React.useState<false | 'main' | 'alt'>(false); const [leaving, setLeaving] = React.useState(false);
   const [ratio, setRatio] = React.useState<'free' | 'square' | '4:5' | '3:4'>('free'); const [cropDraft, setCropDraft] = React.useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [pop, setPop] = React.useState<{ id: string; t: number } | null>(null); const [, tick] = React.useState(0); const [focusPin, setFocusPin] = React.useState<string | null>(null);
   const gesture = React.useRef<Gesture | null>(null); const touches = React.useRef(new Map<number, Pt>());
@@ -447,7 +453,8 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
   }, []);
   React.useEffect(() => {
     // The phone's Back button (from the booking sheet, components/booking/StudioFlow) lets go of a mark, then asks to leave.
-    const back = () => { if (sel) setSel(null); else askLeave(); };
+    // Only when this is the screen on top (Compare open over it takes Back for itself).
+    const back = () => { const all = document.querySelectorAll('[data-markup-editor]'); if (all.length && all[all.length - 1] !== root.current) return; if (sel) setSel(null); else askLeave(); };
     window.addEventListener('cf-markup-back', back); return () => window.removeEventListener('cf-markup-back', back);
   });
   const onKey = (e: React.KeyboardEvent) => {
@@ -483,16 +490,17 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
     }
   };
 
-  const done = async () => {
+  const done = async (which: 'main' | 'alt' = 'main') => {
     const i = img.current; if (!doc || !i || saving) return;
+    const save = which === 'alt' && alt ? alt.onDone : onDone;
     flushEdit(); const d = { ...(cropping ? applyCrop(doc) : doc), note: note.trim() };
     let dataUrl = '';
     // What's sent is what's shown: a layer hidden while working is left out of the copy (its marks are kept).
     const out = sent.filter((l) => shown.includes(l));
     try { dataUrl = format === 'png' ? flatten(d, i, out).canvas.toDataURL('image/png') : flatten(d, i, out).canvas.toDataURL('image/jpeg', 0.86); }
-    catch { setSaid('This photo can’t be saved from here. Please choose it again from your photos.'); return; }
-    setSaving(true); setSaid(null); root.current?.focus({ preventScroll: true });   // (Done is off while it saves: keep the keys here)
-    try { const err = await onDone({ dataUrl, doc: d, note: d.note, colors: d.colors }); if (err) setSaid(err); }
+    catch { setSaid(layer === 'client' ? 'This photo can’t be saved from here. Please choose it again from your photos.' : 'This photo can’t be saved from here. Please open it again.'); return; }
+    setSaving(which); setSaid(null); root.current?.focus({ preventScroll: true });   // (Done is off while it saves: keep the keys here)
+    try { const err = await save({ dataUrl, doc: d, note: d.note, colors: d.colors }); if (err) setSaid(err); }
     catch { setSaid('Your photo didn’t save. Check your connection and try again.'); }
     finally { setSaving(false); }
   };
@@ -633,7 +641,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
     <p className="mr-auto text-[14px]">Leave without saving your marks?</p>
     <button type="button" autoFocus onClick={() => { setLeaving(false); root.current?.focus({ preventScroll: true }); }} className={chip} style={chipStyle(true)}>Keep marking up</button>
     <button type="button" onClick={onCancel} className={chip} style={{ background: '#fff', color: RED, boxShadow: `inset 0 0 0 1px ${LINE}` }}>Leave</button></div>;
-  const notice = (said || locked) && <p className="text-[14px] leading-snug" role="alert" style={{ color: WARN }}>{said || 'This photo can be looked at here, but not changed. Choose it again from your photos to mark it up.'}</p>;
+  const notice = (said || locked) && <p className="text-[14px] leading-snug" role="alert" style={{ color: WARN }}>{said || (layer === 'client' ? 'This photo can be looked at here, but not changed. Choose it again from your photos to mark it up.' : 'This photo came from another site, so it can be looked at here, but not marked up.')}</p>;
   const noteBox = doc && <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, LIMITS.note))} rows={2} placeholder={layer === 'client' ? 'Add a note (optional), like this shape but a little shorter' : 'A note with the photo (optional)'} aria-label="Note for this photo" className="w-full rounded-2xl p-3 text-[16px]" style={{ background: '#fff', boxShadow: `inset 0 0 0 1px ${LINE}` }} />;
   const holdProps = { onPointerDown: () => setPeek(true), onPointerUp: () => setPeek(false), onPointerLeave: () => setPeek(false), onPointerCancel: () => setPeek(false), onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
     onKeyDown: (e: React.KeyboardEvent) => { if (e.key === ' ' || e.key === 'Enter') setPeek(true); }, onKeyUp: () => setPeek(false) };
@@ -649,9 +657,11 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
     return place(
       <div {...rootProps} className="fixed inset-0 z-[400] grid outline-none" style={{ gridTemplateColumns: 'clamp(180px,17vw,220px) minmax(0,1fr) clamp(280px,26vw,340px)', gridTemplateRows: 'auto minmax(0,1fr)', background: '#fff', color: INK }}>
         <header className="col-span-3 flex min-h-[64px] items-center gap-3 px-4" style={{ borderBottom: `1px solid ${LINE}` }}>
-          <button type="button" onClick={askLeave} disabled={saving} className="inline-flex min-h-11 items-center px-2 text-[15px] disabled:opacity-40" style={{ color: MUTED }}>{backLabel ? `‹ ${backLabel}` : 'Cancel'}</button>
+          <button type="button" onClick={askLeave} disabled={!!saving} className="inline-flex min-h-11 items-center px-2 text-[15px] disabled:opacity-40" style={{ color: MUTED }}>{backLabel ? `‹ ${backLabel}` : 'Cancel'}</button>
           <p className="min-w-0 flex-1 truncate text-center text-[16px] font-semibold" aria-live="polite">{title || heading}</p>
-          <button type="button" onClick={() => void done()} disabled={!doc || saving || locked} className="inline-flex min-h-11 items-center rounded-full px-5 text-[15px] font-semibold disabled:opacity-40" style={{ background: INK, color: '#fff' }}>{saving ? 'Saving…' : doneLabel}</button>
+          {headerExtra}
+          {alt && <button type="button" onClick={() => void done('alt')} disabled={!doc || !!saving || locked} className="inline-flex min-h-11 items-center rounded-full px-4 text-[15px] font-semibold disabled:opacity-40" style={{ background: '#fff', color: INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>{saving === 'alt' ? 'Saving…' : alt.label}</button>}
+          <button type="button" onClick={() => void done()} disabled={!doc || !!saving || locked} className="inline-flex min-h-11 items-center rounded-full px-5 text-[15px] font-semibold disabled:opacity-40" style={{ background: INK, color: '#fff' }}>{saving === 'main' ? 'Saving…' : doneLabel}</button>
         </header>
         <nav role="toolbar" aria-label="Tools" aria-orientation="vertical" className="min-h-0 space-y-0.5 overflow-y-auto p-2" style={{ borderRight: `1px solid ${LINE}` }}>
           {TOOLS.map(({ k, label: l, Icon }) => { const on = tool === k; return (
@@ -675,6 +685,7 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
         </div>
         <aside className="min-h-0 space-y-4 overflow-y-auto p-4" style={{ borderLeft: `1px solid ${LINE}`, background: '#fff' }} aria-label="Settings">
           {notice}
+          {aside}
           {selMark && <p className="text-[13px] font-semibold" style={{ color: MUTED }}>Selected: {(NAMES[selMark.kind] || 'mark').toLowerCase()}{selMark.pin ? ` ${selMark.pin.n}` : ''}</p>}
           {!locked && panel()}
           {Layers()}
@@ -692,10 +703,11 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
     <div {...rootProps} className="fixed inset-0 z-[400] flex flex-col outline-none"
       style={{ background: '#ffffff', color: INK, paddingTop: 'env(safe-area-inset-top,0px)', paddingBottom: 'env(safe-area-inset-bottom,0px)' }}>
       <div className="flex items-center justify-between gap-2 px-3" style={{ minHeight: 52 }}>
-        <button type="button" onClick={askLeave} disabled={saving} className="inline-flex min-h-11 items-center px-2 text-[16px] disabled:opacity-40" style={{ color: MUTED }}>Cancel</button>
+        <button type="button" onClick={askLeave} disabled={!!saving} className="inline-flex min-h-11 items-center px-2 text-[16px] disabled:opacity-40" style={{ color: MUTED }}>Cancel</button>
         <p className="truncate text-[16px] font-semibold" aria-live="polite">{heading}</p>
-        <button type="button" onClick={() => void done()} disabled={!doc || saving || locked} className="inline-flex min-h-11 items-center px-2 text-[16px] font-semibold disabled:opacity-40" style={{ color: accent }}>{saving ? 'Saving…' : doneLabel}</button>
+        <button type="button" onClick={() => void done()} disabled={!doc || !!saving || locked} className="inline-flex min-h-11 items-center px-2 text-[16px] font-semibold disabled:opacity-40" style={{ color: accent }}>{saving === 'main' ? 'Saving…' : doneLabel}</button>
       </div>
+      {headerExtra && <div className="-mt-1 flex items-center justify-center gap-2 overflow-x-auto px-3 pb-2">{headerExtra}</div>}
       {leaveBar}
       <div ref={stage} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden" style={{ background: LINE }}>
         {canvasEl}
@@ -718,8 +730,10 @@ export function MarkupEditor({ src, doc: start, layer = 'client', editLayers, sh
           <button type="button" onClick={redo} disabled={!future.length || cropping} aria-label="Redo" className="grid h-11 w-11 shrink-0 place-items-center rounded-full disabled:opacity-35" style={chipStyle(false)}><Redo2 size={18} /></button>
           <button type="button" {...holdProps} className={`${chip} touch-none select-none`} style={chipStyle(peek)}>Hold to see original</button>
         </div>
+        {aside}
         {Layers()}
         {noteBox}
+        {alt && <button type="button" onClick={() => void done('alt')} disabled={!doc || !!saving || locked} className={`${chip} w-full`} style={chipStyle(false)}>{saving === 'alt' ? 'Saving…' : alt.label}</button>}
         {doc && pinLines(doc, shown).length > 0 && tool !== 'pin' && <p className="sr-only">{pinLines(doc, shown).join('. ')}</p>}
       </div>
     </div>);

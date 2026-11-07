@@ -15,6 +15,7 @@
 //   form      { token, formId, formData, signedName?, acknowledged?, guardian? }   one form, saved as they finish it
 //   health_same { token, formId }                       "nothing's changed" on health answers on file
 //   photos    { token, photos: [{ url, note }] }         new inspiration photos, when the team asked for different ones
+//   photos_reply { token, answer: 'ok' | 'reply', text? }  "Looks good", or a reply, to the team's marks on their photos
 //   complete  { token, tenantId, signedForms, fileSubmissions, policyAcceptance,
 //               guardianByForm, profileDocuments, marketingConsent,
 //               emergencyContact, acknowledgments, skipCardStep }
@@ -174,6 +175,42 @@ export async function POST(req: NextRequest) {
       await nb.commit();
     } catch (e) { console.error('[checkin/photos] tell', e); }
     await logAuditAdmin(db, x.tenantId, { action: 'completion.photos_sent', targetType: 'appointment', targetId: x.apptId, summary: `${took.clientName || 'A client'} sent new inspiration photos`, actor: { type: 'user', name: took.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
+    return NextResponse.json({ ok: true });
+  }
+
+  // The client answers the team's marks on their photos (lib/markup/team): "Looks good", or a reply (which also goes to
+  // the business's inbox, so it's answered there). Once for each time the team sends marks; the team hears about it.
+  if (action === 'photos_reply') {
+    const x = await fromCheckIn(db, token); if (!x) return bad('This link isn’t valid.', 404);
+    { const { visitLinkOpen } = await import('@/lib/client-verify'); const open = await visitLinkOpen(db, x.tenantId, x.appt, str(b.device, 120));
+      if (open === 'revoked') return bad(await turnedOff(db, x.tenantId), 410);
+      if (open === 'verify') return bad('Please confirm it’s you first, with the code we send.', 403); }
+    const kind = b.answer === 'reply' ? 'reply' : b.answer === 'ok' ? 'ok' : null; if (!kind) return bad('Choose Looks good, or write a reply.');
+    const text = kind === 'reply' ? String(b.text ?? '').trim().slice(0, 500) : '';
+    if (kind === 'reply' && !text) return bad('Write your reply first.');
+    const { replyFor } = await import('@/lib/markup/team'); const { ENDED_VISIT } = await import('@/lib/forms-visit');
+    if (ENDED_VISIT.includes(String(x.appt.status || ''))) return bad('This visit is over, so there’s nothing to answer here.', 409);
+    const { photosAskOpen } = await import('@/lib/inspo-photos');
+    const took = await db.runTransaction(async (tx: any) => {
+      const cur: any = ((await tx.get(x.ref)).data()) || {};
+      const r = photosAskOpen(cur) ? null : replyFor(cur); if (!r) return 'none';
+      if (r.answer) return 'already';
+      tx.update(x.ref, { 'inspoReply.answer': { kind, text: text || null, at: nowIso } });
+      return cur;
+    });
+    if (took === 'none') return bad('There’s nothing to answer here now.', 409);
+    if (took === 'already') return bad('You’ve already answered. Send a message if there’s anything else.', 409);
+    const by = String(took.inspoReply?.by || '').trim();
+    if (kind === 'reply') {
+      try { const { clientWrites } = await import('@/lib/client-messages'); await clientWrites(db, x.tenantId, { ...took, id: x.apptId }, `About my inspiration photos: ${text}`); } catch (e) { console.error('[checkin/photos_reply] inbox', e); }
+    }
+    try {
+      const to = [...new Set([took.staffId, took.inspoReply?.byUid].filter(Boolean).map(String))];
+      const nb = db.batch();
+      for (const uid of to) { const r = db.collection(`tenants/${x.tenantId}/notifications`).doc(); nb.set(r, { id: r.id, userId: uid, type: 'photos_reply', title: kind === 'ok' ? 'Photos: looks good' : 'A reply about the photos', message: kind === 'ok' ? `${took.clientName || 'A client'} said your marks on their photos look good.` : `${took.clientName || 'A client'} replied about your marks: “${text.slice(0, 120)}”`, link: `/planner?visit=${x.apptId}`, appointmentId: x.apptId, read: false, createdAt: nowIso }); }
+      await nb.commit();
+    } catch (e) { console.error('[checkin/photos_reply] tell', e); }
+    await logAuditAdmin(db, x.tenantId, { action: 'completion.photos_answered', targetType: 'appointment', targetId: x.apptId, summary: `${took.clientName || 'A client'} ${kind === 'ok' ? 'said the marks on their photos look good' : 'replied about the marks on their photos'}${by ? ` (from ${by})` : ''}`, actor: { type: 'user', name: took.clientName || 'Client', role: 'client', via: 'check-in link' } }).catch(() => {});
     return NextResponse.json({ ok: true });
   }
 

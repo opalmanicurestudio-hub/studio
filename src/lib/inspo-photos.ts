@@ -67,3 +67,54 @@ export function earlierPhotos(had: any[], before: any[], now: any[]): { url: str
   }
   return out;
 }
+
+/** A photo the team made for this visit (the marks they send to the client: api/upload/appointment-photos saves them
+ *  under the visit, each readable only through its own link). The link as kept, or null when it isn't one of those. */
+export function ownVisitPhoto(url: any, tenantId: string, apptId: string, buckets: string[]): string | null {
+  if (typeof url !== 'string' || !url || url.length > MAX_PHOTO_URL) return null;
+  let u: URL; try { u = new URL(url); } catch { return null; }
+  if (u.protocol !== 'https:' || u.hostname !== 'firebasestorage.googleapis.com') return null;
+  const m = u.pathname.match(/^\/v0\/b\/([A-Za-z0-9._-]+)\/o\/([^/]+)$/); if (!m || !buckets.includes(m[1])) return null;
+  let path = ''; try { path = decodeURIComponent(m[2]); } catch { return null; }
+  const pre = `tenants/${tenantId}/visit-photos/${apptId}/`;
+  if (!path.startsWith(pre) || !/^\d+-[a-z0-9]+\.(jpg|png)$/.test(path.slice(pre.length))) return null;
+  return u.searchParams.get('alt') === 'media' && u.searchParams.get('token') ? u.toString() : null;
+}
+
+/** A photo's own bytes, for the team's markup (drawn in the browser, so it must come from this app, not another
+ *  site). Only this business's own photos: its inspiration photos (stored in its inspiration folder, or the database
+ *  copy), and the photo before its marks (kept privately); only ever handed back as a photo. Null for anything else, or
+ *  when it can't be read. */
+export async function photoBytes(db: any, ref: any, tenantId: string, buckets: string[]): Promise<{ buf: Buffer; type: string } | null> {
+  if (typeof ref !== 'string' || !ref || ref.length > MAX_PHOTO_URL) return null;
+  let u: URL; try { u = new URL(ref, 'https://app.invalid'); } catch { return null; }
+  const typeOf = (p: string) => (/\.png$/i.test(p) ? 'image/png' : /\.webp$/i.test(p) ? 'image/webp' : 'image/jpeg');
+  // Only a photo is handed back, whatever the file says it is.
+  const asPhoto = (t: any, p: string) => { const x = String(t || '').toLowerCase().split(';')[0].trim(); return /^image\/(jpeg|png|webp)$/.test(x) ? x : x ? null : typeOf(p); };
+  const MAX = 12 * 1024 * 1024;
+  try {
+    if (u.pathname === '/api/files/view') {
+      const own = ownOriginal(ref, tenantId); if (!own) return null;
+      const path = String(new URL(own, 'https://app.invalid').searchParams.get('p') || '');
+      const { privateBucket } = await import('./private-storage'); const f = (await privateBucket()).file(path);
+      const [meta] = await f.getMetadata(); const type = asPhoto(meta?.contentType, path); if (!type || Number(meta?.size) > MAX) return null;
+      const [buf] = await f.download(); return { buf, type };
+    }
+    if (u.hostname === 'firebasestorage.googleapis.com') {
+      // The business's inspiration photos only (where the booking photo upload saves them), never another of its files.
+      const m = u.pathname.match(/^\/v0\/b\/([A-Za-z0-9._-]+)\/o\/([^/]+)$/); if (!m || !buckets.includes(m[1])) return null;
+      const path = decodeURIComponent(m[2]); if (!path.startsWith(`tenants/${tenantId}/booking-inspiration/`) || path.includes('..')) return null;
+      const { getStorage } = await import('firebase-admin/storage'); const { getAdminApp } = await import('./firebase-admin');
+      const f = getStorage(getAdminApp()).bucket(m[1]).file(path);
+      const [meta] = await f.getMetadata(); const type = asPhoto(meta?.contentType, path); if (!type || Number(meta?.size) > MAX) return null;
+      const [buf] = await f.download(); return { buf, type };
+    }
+    if (u.pathname === '/api/booking/photo' && u.searchParams.get('t') === tenantId) {
+      const id = String(u.searchParams.get('id') || ''); if (!PHOTO_ID.test(id)) return null;
+      const d: any = (await db.doc(`tenants/${tenantId}/bookingPhotos/${id}`).get()).data();
+      const mm = String(d?.dataUrl || '').match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/); if (!mm) return null;
+      return { buf: Buffer.from(mm[2], 'base64'), type: mm[1] };
+    }
+  } catch (e: any) { console.error('[inspo-photos] bytes', e?.message); }
+  return null;
+}
