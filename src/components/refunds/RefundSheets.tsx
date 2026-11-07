@@ -7,6 +7,7 @@ import * as React from 'react';
 import { settingsOf } from '@/lib/making-it-right';
 import { PRINT, PRINT_FONT_STACK } from '@/lib/print-style';
 import { pageAccent } from '@/lib/studio-page';
+import { shapeOf, publicShape, pickupLabel, type BusinessShape } from '@/lib/business-shape';
 
 const INK = 'hsl(var(--foreground))';
 const money = (c: number) => `$${(Math.round(c || 0) / 100).toFixed(2)}`;
@@ -23,7 +24,7 @@ function accentOf(t: any) {
 }
 const LBL: React.CSSProperties = { fontSize: 11, fontWeight: 500, color: PRINT.muted };
 
-export function RefundSheets({ p, tenant, onPrint }: { p: any; tenant: any; onPrint?: () => void }) {
+export function RefundSheets({ p, tenant, shape, onPrint }: { p: any; tenant: any; shape?: BusinessShape | null; onPrint?: () => void }) {
   const selectedTenant = tenant;
   const name = selectedTenant?.name || selectedTenant?.businessName || ''; const accent = accentOf(selectedTenant); const logo = selectedTenant?.logoUrl || selectedTenant?.logo || null;
   const signer = settingsOf(selectedTenant).cashRefund.signer || '';
@@ -41,7 +42,7 @@ export function RefundSheets({ p, tenant, onPrint }: { p: any; tenant: any; onPr
           <div style={{ flex: 1.3, padding: '0.22in 0.26in', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Logo s={36} /><div><div style={{ fontSize: 13, fontWeight: 600 }}>{name}</div>{selectedTenant?.studioAddress && <div style={{ fontSize: 11, color: PRINT.muted, maxWidth: '3.6in', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedTenant.studioAddress}</div>}</div></div>
             <div><div style={LBL}>Refund for</div><div style={{ fontSize: 42, fontWeight: 300, letterSpacing: '-0.03em', lineHeight: 1.05 }}>{p.clientName}</div>
-              {p.pickup && <div style={{ fontSize: 13.5, color: PRINT.body, marginTop: 6 }}>{dl(p.pickup.date)} · {tl(p.pickup.start)}–{tl(p.pickup.end)} · front desk</div>}</div>
+              {p.pickup && <div style={{ fontSize: 13.5, color: PRINT.body, marginTop: 6 }}>{dl(p.pickup.date)} · {tl(p.pickup.start)}–{tl(p.pickup.end)} · {pickupLabel(publicShape(shape || shapeOf(tenant)))}</div>}</div>
             <div style={{ fontSize: 11.5, fontWeight: 500, color: PRINT.amber }}>Release only when the pickup code matches</div>
           </div>
           <div style={{ flex: 1, background: PRINT.soft, padding: '0.22in 0.24in', display: 'flex', flexDirection: 'column', gap: 12 }}>

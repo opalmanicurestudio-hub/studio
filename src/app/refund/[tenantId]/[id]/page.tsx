@@ -45,7 +45,7 @@ export default function RefundPage() {
     <div className="space-y-3.5 p-5" style={CARD}>
       <div className="flex items-baseline justify-between"><span className={LABEL} style={{ color: MUTED }}>cash refund</span><span className="text-[28px] font-bold tabular-nums">{money(R.amountCents)}</span></div>
       <div className="h-px" style={{ background: LINE }} />
-      {R.pickup && <Line k="When" v={`${dl(R.pickup.date)} · ${R.pickup.label}`} />}<Line k="Where" v="Front desk" />
+      {R.pickup && <Line k="When" v={`${dl(R.pickup.date)} · ${R.pickup.label}`} />}<Line k="Where" v={d.pickupAt?.label || 'Front desk'} />
       {d.brand.address && <p className="text-[13.5px]" style={{ color: MUTED }}>{d.brand.address}</p>}
       <div className="flex items-center justify-between rounded-2xl border bg-white px-4 py-3" style={{ borderColor: LINE }}><span className={LABEL} style={{ color: MUTED }}>pickup code</span><span className="text-[30px] font-bold tracking-[0.16em] tabular-nums">{R.code}</span></div>
       <p className="text-[13px]" style={{ color: MUTED }}>Show this code at the desk. Only you can collect it.</p>
@@ -59,7 +59,7 @@ export default function RefundPage() {
 
   if (R.status === 'pickup_time' || (R.status === 'choose' && R.method === 'pickup')) return <Shell>{head}
     <h1 className="text-[32px] font-normal leading-tight tracking-[-0.03em]">Pick a time for your <b className="font-bold tabular-nums">{money(R.amountCents)}</b></h1>
-    <p className="-mt-2 text-[15px]" style={{ color: MUTED }}>Your envelope will be ready at the front desk.</p>
+    <p className="-mt-2 text-[15px]" style={{ color: MUTED }}>Your envelope will be ready {d.pickupAt?.where || 'at the front desk'}.</p>
     <Windows windows={d.windows} busy={busy} accent={accent} onBook={(w) => act({ action: 'book', pickup: w })} />{err2}
     {d.methods.length > 1 && <button type="button" disabled={busy} onClick={() => act({ action: 'change' })} className="text-[14px] underline underline-offset-2">Rather have it another way?</button>}</Shell>;
 
@@ -74,7 +74,7 @@ const Line = ({ k, v }: { k: string; v: string }) => <div className="flex justif
 function Choose({ d, busy, accent, onChoose }: { d: any; busy: boolean; accent: string; onChoose: (b: any) => void }) {
   const R = d.refund; const [m, setM] = React.useState<string>(R.method || d.methods[0]?.id || ''); const [handle, setHandle] = React.useState(''); const [name, setName] = React.useState(''); const [w, setW] = React.useState<any>(null);
   const M = d.methods.find((x: any) => x.id === m); const app = !!M?.ask;
-  const hint = (id: string) => id === 'pickup' ? 'An envelope will be ready for you at the front desk' : id === 'credit' ? 'Ready now' : 'Usually within a day';
+  const hint = (id: string) => id === 'pickup' ? `An envelope will be ready for you ${d.pickupAt?.where || 'at the front desk'}` : id === 'credit' ? 'Ready now' : 'Usually within a day';
   const ready = m === 'pickup' ? !!w : app ? handle.trim().length > 1 && name.trim().length > 1 : !!m;
   return <>
     <div><h1 className="text-[32px] font-normal leading-tight tracking-[-0.03em]">Your <b className="font-bold tabular-nums">{money(R.amountCents)}</b> refund</h1><p className="mt-1.5 text-[15px]" style={{ color: MUTED }}>You paid in cash, so choose what’s easiest for you.</p></div>
@@ -141,7 +141,7 @@ function OnWay({ d, post, reload, accent }: { d: any; post: (b: any) => Promise<
     return () => { if (watch.current !== null) navigator.geolocation.clearWatch(watch.current); };
   }, [live, post, stop, reload]);
   return <div className="space-y-2 p-4" style={CARD}>
-    <p className="text-[16px] font-medium">Thanks — we’ll have it ready at the front desk.</p>
+    <p className="text-[16px] font-medium">Thanks — we’ll have it ready {d.pickupAt?.where || 'at the front desk'}.</p>
     {live ? <><p className="text-[14px]" style={{ color: MUTED }}>{mi != null ? `About ${mi} mi away${eta ? `, ~${eta} min` : ''}. ` : 'Sharing how far away you are. '}It stops when you arrive.</p>
       <button type="button" onClick={() => stop()} className="text-[14px] underline underline-offset-2">Stop sharing</button></>
       : <p className="text-[14px]" style={{ color: MUTED }}>Your location isn’t shared.</p>}

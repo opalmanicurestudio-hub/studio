@@ -13,6 +13,7 @@ import { PrepSummary } from '@/components/staff-portal/PrepSummary';
 import { VisitMoments } from '@/components/opportunities/VisitMoments';
 import { DayChange } from '@/components/staff-portal/DayChange';
 import { isSoloTeam } from '@/lib/solo';
+import { shapeOf } from '@/lib/business-shape';
 import { shrink } from '@/components/making-it-right/VoiceNote';
 
 import { AssistPicker } from '@/components/planner/AssistPicker';
@@ -2819,7 +2820,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           <BeforeVisit tenantId={tenantId!} tenant={selectedTenant} appointment={appointment} client={client}
             services={[service, ...(((appointment as any)?.addOnIds || []) as string[]).map((id) => (allServices || []).find((x: any) => x.id === id))]}
             forms={consentForms || []} signedConsents={signedConsents} canSeeHealth={canSeeCareNoteContents(selectedTenant, roleId || role)} formsLoading={consentFormsLoading}
-            me={{ uid: currentUser?.uid || null, name: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || currentUser?.displayName || null }} />
+            me={{ uid: currentUser?.uid || null, name: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || currentUser?.displayName || null }} solo={shapeOf(selectedTenant, staff || null).alone} />
 
           <div className="p-4 rounded-2xl bg-muted/10 border space-y-1 shadow-inner divide-y divide-dashed divide-muted/30">
             <div className="pt-2">

@@ -7,6 +7,7 @@
 // provider, a new time), the provider running behind, another provider offered, a disruption, a message from the
 // business, sharing the trip (distance only, ends at check-in), online and phone appointments, and visits at home.
 import type { ServicePlace } from '@/lib/service-place';
+import { inPerson, type PublicShape } from '@/lib/business-shape';
 import type { VisitNotes } from '@/lib/studio-page';
 import React, { useState } from 'react';
 import { format } from 'date-fns';
@@ -27,7 +28,7 @@ const soonWords = (m: number | null) => {
     const h = Math.round(m / 30) / 2; return h === 1 ? 'in an hour' : `in ${h} hours`;
 };
 
-export const DayOfView = ({ brand, visit, freeUntil, pass, minutesAway, place, callNumber, lateChoices, onLateChoice, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel, onMessage, openLate, notice }: {
+export const DayOfView = ({ brand, visit, freeUntil, pass, minutesAway, place, callNumber, lateChoices, onLateChoice, first, serviceName, startTime, provider, address, graceMinutes, onArrived, onMyWay, onLate, onReschedule, onCancel, portalHref, onNotifications, trip, reply, status, lateMinutes, etaAt, selfCheckIn = true, providerDelay, onProviderReply, providerOffer, onOfferReply, disruption, hasDeposit, onDisruptionCancel, onMessage, openLate, notice, shape }: {
     /** The business's header, color and mood. */
     brand: VisitBrand;
     /** Getting here, in the business's own words (Settings › Booking page › Visit us). */
@@ -40,6 +41,8 @@ export const DayOfView = ({ brand, visit, freeUntil, pass, minutesAway, place, c
     minutesAway?: number | null;
     /** Where it happens — online (with a link) or at the client's place skip check-in, directions and trips. */
     place?: ServicePlace | null;
+    /** How the business works (lib/business-shape): with no front desk, things are said to the person they'll see. */
+    shape?: PublicShape | null;
     /** The studio's number, for phone appointments where the client calls. */
     callNumber?: string | null;
     /** Running late past the grace time — the options we sent them. */
@@ -123,7 +126,9 @@ export const DayOfView = ({ brand, visit, freeUntil, pass, minutesAway, place, c
     // Anything that didn't go through is said here, in amber, beside the buttons (no pop-ups).
     const [actErr, setActErr] = useState('');
     const failed = (d: any) => !d || d.ok === false;
-    const DIDNT = 'That didn’t send. Please try again, or let the front desk know when you arrive.';
+    // Who to tell in person: the front desk, or (with none) the person they're seeing. Online and phone visits: try again.
+    const told2 = inPerson(shape, provider?.name);
+    const DIDNT = place?.kind === 'online' || place?.kind === 'phone' ? 'That didn’t send. Please try again.' : `That didn’t send. Please try again, or let ${told2} know when you arrive.`;
     // Trip sharing ends once they're checked in (not before: if check-in doesn't go through, it keeps going).
     const arrive = async () => { setBusy(true); setActErr(''); const d: any = await onArrived(); setBusy(false); if (failed(d)) { setActErr(d?.error || DIDNT); return; } setConfirmHere(false); if (sharing) await stopTrip(true); };
     const checkIn = async () => { if (dist != null && dist > 1) { setConfirmHere(true); return; } await arrive(); };
@@ -187,7 +192,7 @@ export const DayOfView = ({ brand, visit, freeUntil, pass, minutesAway, place, c
                         <VisitButton quiet onClick={() => setConfirmHere(false)}>Not yet</VisitButton></div></div>
                 : !selfCheckIn ? <>
                     {!told && !toldNow && <VisitButton disabled={busy} onClick={sayOnWay}>I’m on my way</VisitButton>}
-                    <p className="v-note">Please check in at the front desk when you arrive.</p>
+                    <p className="v-note">{shape?.desk === false ? `Please let ${told2} know you’re here when you arrive.` : 'Please check in at the front desk when you arrive.'}</p>
                 </> : hereFirst ? <VisitButton good disabled={busy} onClick={checkIn}>{busy ? 'Checking you in…' : 'I’m here'}</VisitButton>
                 : <VisitButton disabled={busy} onClick={sayOnWay}>{busy ? 'Sending…' : 'I’m on my way'}</VisitButton>}
                 {<VisitButton quiet expanded={lateOpen} onClick={() => { setActErr(''); setLateOpen((v) => !v); }}>{status === 'running_late' ? 'Update how late I’ll be' : 'Running a few minutes late'}</VisitButton>}
@@ -210,7 +215,7 @@ export const DayOfView = ({ brand, visit, freeUntil, pass, minutesAway, place, c
             </section>}
             {said && !reply?.message && <section className="pub-card space-y-3 p-5" aria-live="polite"><p className="text-[15px]">{said}</p>{past && onReschedule && <VisitButton quiet onClick={onReschedule}>Choose a new time instead</VisitButton>}</section>}
 
-            {pass && isStudio && <div className="v-grp"><div className="v-row"><span className="min-w-0 flex-1 py-3"><span className="block text-[15.5px] font-semibold">Your pass</span><span className="block text-[13px]" style={{ color: 'var(--muted)' }}>Show it at the desk, or tap it to make it big.</span></span>{pass}</div></div>}
+            {pass && isStudio && <div className="v-grp"><div className="v-row"><span className="min-w-0 flex-1 py-3"><span className="block text-[15.5px] font-semibold">Your pass</span><span className="block text-[13px]" style={{ color: 'var(--muted)' }}>{shape?.desk === false ? `Show it to ${told2}, or tap it to make it big.` : 'Show it at the desk, or tap it to make it big.'}</span></span>{pass}</div></div>}
 
             {isStudio && <VisitGettingHere address={address} notes={visit} />}
 

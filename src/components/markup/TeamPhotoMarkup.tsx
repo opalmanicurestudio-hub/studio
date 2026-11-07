@@ -25,7 +25,7 @@ import { resolvePrivateUrl } from '@/components/shared/private-file';
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', WARN = '#b45309', GOOD = '#1f7a4d';
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';
 
-export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientName, me, nowUrl, onClose }: {
+export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientName, me, nowUrl, onClose, solo = false }: {
   tenantId: string; apptId: string;
   /** The photo as the client sent it ({ url, note, original?, markup? }). */
   photo: any;
@@ -38,8 +38,10 @@ export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientN
   nowUrl?: string | null;
   /** Closed: with what to say on the appointment once it's saved or sent. */
   onClose: (said?: string) => void;
+  /** One person sees every client (lib/business-shape): no "team" in the words. */
+  solo?: boolean;
 }) {
-  const client = first(clientName) || 'the client'; const mine = first(me?.name) || 'Your';
+  const client = first(clientName) || 'the client'; const myName = first(me?.name);
   const { ready, call } = useTeamPhoto(tenantId, apptId, photo);
   const [comparing, setComparing] = React.useState<'loading' | { now: string; goal: string } | null>(null); const [compareErr, setCompareErr] = React.useState(false);
 
@@ -70,7 +72,7 @@ export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientN
   const r = ready;
   const send = async (res: MarkupResult): Promise<string | null> => {
     const team = teamPart(res.doc, r.clientColors);
-    if (!team.marks.some((m) => m.layer === 'team') && !res.note.trim()) return `Add a mark or a note for ${client} first. Private notes are never sent: save them for the team.`;
+    if (!team.marks.some((m) => m.layer === 'team') && !res.note.trim()) return `Add a mark or a note for ${client} first. Private notes are never sent: ${solo ? 'save them instead' : 'save them for the team'}.`;
     const markup = packed(res, r.clientColors); if (!markup) return 'There are too many marks to keep. Remove a few and try again.';
     let img: HTMLImageElement;
     try { img = new Image(); img.src = r.src; await img.decode(); } catch { return 'The photo couldn’t be read just now. Please try again.'; }
@@ -98,7 +100,8 @@ export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientN
     try {
       const resp = await call({ action: 'save', base: r.base, markup, note: res.note }); const d = await resp.json().catch(() => null);
       if (!d?.ok) return d?.error || 'That didn’t save. Please try again.';
-      onClose(r.sentAt ? `Saved for the team. ${client} still sees the marks you sent before.` : `Saved for the team. ${client} sees nothing yet.`); return null;
+      const savedWords = solo ? 'Saved.' : 'Saved for the team.';
+      onClose(r.sentAt ? `${savedWords} ${client} still sees the marks you sent before.` : `${savedWords} ${client} sees nothing yet.`); return null;
     } catch { return 'That didn’t save. Check your connection and try again.'; }
   };
   const openCompare = async () => {
@@ -118,7 +121,7 @@ export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientN
         {r.base === 'photo' && photo?.markup == null && <p className="text-[13px] leading-snug" style={{ color: MUTED }}>{client}’s marks are part of this photo.</p>}
         {r.base === 'photo' && photo?.markup != null && <p className="text-[13px] leading-snug" style={{ color: MUTED }}>The photo before {client}’s marks couldn’t be opened, so their marks are part of this one.</p>}
       </div>}
-      <p className="text-[13px]" style={{ color: r.sentAt ? GOOD : MUTED }}>{r.sentAt ? `Your marks were sent to ${client}. Sending again shows the new ones.` : `${client} sees your marks once you send them. Private notes never leave the team.`}</p>
+      <p className="text-[13px]" style={{ color: r.sentAt ? GOOD : MUTED }}>{r.sentAt ? `Your marks were sent to ${client}. Sending again shows the new ones.` : `${client} sees your marks once you send them. Private notes are never sent.`}</p>
     </section>);
   const headerExtra = nowUrl ? (
     <button type="button" onClick={() => void openCompare()} className="inline-flex min-h-11 shrink-0 items-center rounded-full px-4 text-[14px] font-semibold" style={{ background: '#fff', color: compareErr ? WARN : INK, boxShadow: `inset 0 0 0 1px ${LINE}` }}>
@@ -126,8 +129,8 @@ export function TeamPhotoMarkup({ tenantId, apptId, photo, n, of, title, clientN
   return (
     <OverSheet label={label}>
       <MarkupEditor inline src={r.src} doc={r.doc} layer="team" editLayers={['team', 'private']} sendLayers={['client', 'team']} by={first(me?.name) || undefined} clientName={client}
-        layerNames={{ team: mine === 'Your' ? 'Your marks' : `${mine}’s marks` }} title={`Inspiration photo ${n} of ${of} · ${title}`} backLabel={clientName || 'Back'} doneLabel={`Send to ${client}`}
-        alt={{ label: 'Save for the team', onDone: save }} onDone={send} onCancel={() => onClose()} initialNote={r.note} aside={aside} headerExtra={headerExtra} />
+        layerNames={{ team: myName ? `${myName}’s marks` : 'Your marks', private: solo ? 'Private notes' : 'Private team notes' }} title={`Inspiration photo ${n} of ${of} · ${title}`} backLabel={clientName || 'Back'} doneLabel={`Send to ${client}`}
+        alt={{ label: solo ? 'Save without sending' : 'Save for the team', onDone: save }} onDone={send} onCancel={() => onClose()} initialNote={r.note} aside={aside} headerExtra={headerExtra} />
       {comparing && comparing !== 'loading' && <PhotoCompare inline viewer="team" now={{ src: comparing.now, label: 'Now' }} goals={[{ src: comparing.goal, label: `Photo ${n}` }]} onClose={() => setComparing(null)} />}
     </OverSheet>);
 }

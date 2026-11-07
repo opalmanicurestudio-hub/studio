@@ -7,11 +7,19 @@
 //   • The language model is off for anything client-related until the business confirms a signed agreement covering it.
 //   • Opening a client's health or consent answers is logged (who, when, which client).
 // Settings live on the tenant at `privacy` (Settings → Booking policies → Privacy).
-const HEALTH = /med|clinic|aesthetic|inject|therap|chiro|physio|dental|derm|counsel|wellness|iv\b|infusion/;
+// Worked out from every kind the business gave (its type, category, the Making it right set it chose, its niche), by
+// whole words and their endings ("clinics", "dentistry", "psychotherapy"), so a "salon" type set at signup doesn't hide a
+// med spa's preset; and from the business's name only by words that can't mean anything else (so "Medina Nails" isn't
+// taken for a clinic, nor "The Nail Clinic"). "Wellness" alone isn't health (a day spa's), as Making it right's own sets
+// have it, and nor is "aesthetics" (lash, brow and nail businesses use it; a med spa says "medical" or "med spa").
+const HEALTH = /\b(med|medical|medicine|medicinal|telemedicine|medi-?spa|med-?spa|clinic\w*|inject\w*|\w*therap\w*|chiro\w*|physio\w*|dent\w*|derm\w*|counsel\w*|iv|infusions?|nurs\w*)\b/;
+const HEALTH_NAME = /\b(med ?spa|medi ?spa|medical|dental|dentistry|chiropractic|physiotherapy|physical therapy|psychotherapy|dermatology|iv therapy)\b/;
 
 export function isHealthBusiness(t: any): boolean {
-  const k = String(t?.businessType || t?.category || t?.makingItRight?.preset || '').toLowerCase();
-  return HEALTH.test(k);
+  const kinds = [t?.businessType, t?.category, t?.makingItRight?.preset, t?.niche, t?.businessSubtype].map((x) => String(x || '').toLowerCase().replace(/_/g, ' '));
+  if (kinds.some((k) => k && HEALTH.test(k))) return true;
+  const name = String(t?.name || t?.businessName || '').toLowerCase();
+  return !!name && HEALTH_NAME.test(name);
 }
 
 export type PrivacySettings = { healthMode: boolean; discreet: boolean; autoSignOutMin: number; modelAllowed: boolean; retentionYears: number; detected: boolean };
@@ -33,7 +41,7 @@ const KEEP = new Set(['verify_code', 'wrong_number_ack', 'staff_message', 'find_
 export function discreetVersion(msg: { kind?: string | null; text?: string; subject?: string; channel: string }, studio: string): { text: string; subject?: string } | null {
   if (msg.kind && KEEP.has(String(msg.kind))) return null;
   const text = String(msg.text || ''); const link = (text.match(/https?:\/\/\S+/) || [])[0];
-  const line = link ? `You have an update about your appointment. Please open your secure link for details: ${link}` : 'You have an update about your appointment. Please contact us for details.';
+  const line = link ? `You have an update about your appointment. Please open your secure link for details: ${link}` : `You have an update about your appointment from ${studio}.`;
   return msg.channel === 'email' ? { text: line, subject: `An update from ${studio}` } : { text: line };
 }
 

@@ -12,6 +12,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { useFirebase } from '@/firebase';
 import { VisitShell, VisitButton, VisitMuted, VisitCheckRow, VisitSaid, VisitCheck, type VisitBrand } from '@/components/booking/VisitShell';
+import { inPerson, type PublicShape } from '@/lib/business-shape';
 
 const call = (body: any) => fetch('/api/client-screen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json()).catch(() => ({ ok: false, error: 'We couldn’t connect. Please try again.' }));
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -140,7 +141,7 @@ function PayForm({ screenId, q, provider, onPaid, slow, setSlow, onBusy }: { scr
   );
 }
 
-export function VisitPay({ brand, screenId, first, provider, onClose }: { brand: VisitBrand; screenId: string; first?: string | null; provider?: string | null; onClose: () => void }) {
+export function VisitPay({ brand, screenId, first, provider, onClose, shape }: { brand: VisitBrand; screenId: string; first?: string | null; provider?: string | null; onClose: () => void; shape?: PublicShape | null }) {
   const { firestore } = useFirebase() as any;
   const [s, setS] = React.useState<any>(undefined);
   const [view, setView] = React.useState<any>(null); const [viewErr, setViewErr] = React.useState<string | null>(null);
@@ -201,7 +202,7 @@ export function VisitPay({ brand, screenId, first, provider, onClose }: { brand:
       <VisitSaid text={backNote} />
       {viewErr ? <VisitSaid text={viewErr} />
         : !view ? <VisitMuted>Getting the payment ready…</VisitMuted>
-        : !view.publishableKey ? <VisitSaid text="Card payments aren’t set up here yet. Please pay at the front desk." />
+        : !view.publishableKey ? <VisitSaid text={shape?.desk === false ? `Card payments aren’t set up here yet. Please pay ${inPerson(shape, provider)} directly.` : 'Card payments aren’t set up here yet. Please pay at the front desk.'} />
         : <Elements key={q.id} stripe={stripes.get(key)!} options={{ clientSecret: view.clientSecret, appearance: { theme: night ? 'night' : 'stripe', variables: { colorPrimary: brand.accent || '#16171a', borderRadius: '14px', fontSizeBase: '16px', fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' } } }}>
             <PayForm screenId={screenId} q={q} provider={provider} onPaid={() => setPaidHere(true)} slow={slow} setSlow={setSlow} onBusy={setBusy} />
           </Elements>}

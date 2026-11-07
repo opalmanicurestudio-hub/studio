@@ -58,12 +58,14 @@ const Row = ({ title, sub, right }: { title: string; sub?: string; right?: React
   <div className="flex min-h-[52px] items-center gap-3 px-4 py-2" style={{ borderColor: 'hsl(var(--border))' }}>
     <div className="min-w-0 flex-1"><p className="text-[14.5px]">{title}</p>{sub && <p className="text-[12.5px] leading-snug" style={muted}>{sub}</p>}</div>{right}</div>);
 
-export function ClientPhotoRecord({ tenantId, client, photo, appt, zone, me, isManager, nowUrl, onRemoved }: {
+export function ClientPhotoRecord({ tenantId, client, photo, appt, zone, me, isManager, nowUrl, onRemoved, solo = false }: {
   tenantId: string; client: any; photo: ClientPhoto; appt: any | null; zone?: string | null;
   me: { uid?: string | null; name?: string | null }; isManager: boolean;
   /** How it looks now, on the same visit (for Compare in the markup tool). */
   nowUrl?: string | null;
   onRemoved: (said: string) => void;
+  /** One person sees every client (lib/business-shape): "only you", not "the team". */
+  solo?: boolean;
 }) {
   const name = first(client?.name) || 'The client';
   const [opened, setOpened] = React.useState<{ by: string; at: string }[] | 'failed' | null>(null);
@@ -78,14 +80,14 @@ export function ClientPhotoRecord({ tenantId, client, photo, appt, zone, me, isM
   const from = photo.source === 'booking' ? `Sent by ${name} when booking${photo.at ? ` · ${when(photo.at)}` : ''}${visitWords ? ` · for ${visitWords}` : ''}`
     : photo.source === 'visit_link' ? `Sent by ${name} from their visit link${photo.at ? ` · ${when(photo.at)}` : ''}${visitWords ? ` · for ${visitWords}` : ''}`
     : photo.source === 'earlier' ? `Sent by ${name} earlier, before newer photos replaced it${visitWords ? ` · for ${visitWords}` : ''}`
-    : photo.source === 'team' ? `Taken by the team${visitWords ? ` · ${visitWords}` : ''}`
+    : photo.source === 'team' ? `${solo ? 'Taken by you' : 'Taken by the team'}${visitWords ? ` · ${visitWords}` : ''}`
     : `Brought over${photo.from ? ` from ${photo.from}` : ''}${photo.at ? ` · ${when(photo.at)}` : ''}`;
   const title = photo.kind === 'inspiration' ? `Inspiration photo ${photo.n}` : photo.kind === 'now' ? 'How it looked before' : photo.kind === 'after' ? `After photo ${photo.n}` : photo.kind === 'earlier' ? `Earlier inspiration photo ${photo.n}` : photo.note || 'A photo brought over';
   const layered = photo.kind === 'inspiration' && photo.current && !!photo.apptId;
   const open = !!appt && layered && !ENDED.includes(String(appt.status || '')) && Date.parse(String(appt.startTime || '')) > Date.now() - 12 * 3600e3;
   const removeOk = isManager && removable(photo) && !!photo.apptId;
   const canvas = React.useRef<HTMLCanvasElement>(null); const exporter = React.useRef<(() => Promise<Blob | null>) | null>(null);
-  const teamBy = first(appt?.inspoTeam?.[photo.id]?.by) || 'The team';
+  const byName = first(appt?.inspoTeam?.[photo.id]?.by); const teamBy = byName || 'The team'; const mine = !byName && solo;
 
   const download = async () => {
     setSaid(null);
@@ -108,7 +110,7 @@ export function ClientPhotoRecord({ tenantId, client, photo, appt, zone, me, isM
   const opener = opened === null ? 'Loading…' : opened === 'failed' ? 'Not available just now' : opened.length ? opened.slice(0, 3).map((o) => `${o.by}, ${when(o.at)}`).join(' · ') : 'Only you, just now';
   return (
     <article aria-label={title} className="overflow-hidden rounded-[24px]" style={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', boxShadow: '0 24px 48px -32px rgba(22,23,26,.35)' }}>
-      {layered && appt ? <LayeredView key={`${photo.id}-${nonce}`} tenantId={tenantId} apptId={photo.apptId!} photo={photo} name={name} teamBy={teamBy} canvasRef={canvas} exportRef={exporter} head={head} />
+      {layered && appt ? <LayeredView key={`${photo.id}-${nonce}`} tenantId={tenantId} apptId={photo.apptId!} photo={photo} name={name} teamBy={teamBy} mine={mine} canvasRef={canvas} exportRef={exporter} head={head} solo={solo} />
         : <><PlainPhoto url={photo.url} alt={`${title}${photo.note ? `: ${photo.note}` : ''}`} /><div className="px-4 pt-4">{head}</div></>}
       <div className="space-y-4 p-4">
         <Group label="May be used for">
@@ -116,7 +118,7 @@ export function ClientPhotoRecord({ tenantId, client, photo, appt, zone, me, isM
           <Row title="Your portfolio and marketing" sub={photo.kind === 'inspiration' || photo.kind === 'earlier' ? 'Never: it may be someone else’s work.' : client?.marketingConsent?.consented === true ? `${name} agreed to marketing use${client.marketingConsent.at ? ` on ${when(client.marketingConsent.at)}` : ''}. Ask before sharing a photo of them.` : `${name} hasn’t agreed to marketing use.`} />
         </Group>
         <Group label="Kept and seen">
-          <Row title="Who can see it" sub={`Everyone on the team who can open ${name}’s page`} right={<span className="text-[14px]">The team</span>} />
+          <Row title="Who can see it" sub={solo ? 'Nobody else works here' : `Everyone on the team who can open ${name}’s page`} right={<span className="text-[14px]">{solo ? 'Only you' : 'The team'}</span>} />
           <Row title="Opened by" sub="Noted each time it’s opened here" right={<span className="max-w-[55%] text-right text-[13.5px]">{opener}</span>} />
           <Row title="Kept" right={<span className="text-right text-[13.5px]" style={muted}>Until {name} asks to remove it</span>} />
         </Group>
@@ -133,7 +135,7 @@ export function ClientPhotoRecord({ tenantId, client, photo, appt, zone, me, isM
       </div>
       {marking && appt && <TeamPhotoMarkup key={photo.id} tenantId={tenantId} apptId={String(appt.id)} photo={(Array.isArray(appt.inspirationPhotos) ? appt.inspirationPhotos : []).find((p: any) => p?.url === photo.url) || { url: photo.url, note: photo.note, ...(photo.original ? { original: photo.original } : {}), ...(photo.markup ? { markup: photo.markup } : {}) }}
         n={photo.n} of={(appt.inspirationPhotos || []).length || 1} title={`${String(appt.serviceName || 'Visit')}${ms(appt.startTime) ? `, ${format(wallDate(new Date(ms(appt.startTime)), zone || undefined), 'EEE h:mm a')}` : ''}`}
-        clientName={String(client?.name || appt.clientName || '')} me={me} nowUrl={nowUrl || null} onClose={(t) => { setMarking(false); setNonce((x) => x + 1); if (t) setSaid({ text: t, ok: true }); }} />}
+        clientName={String(client?.name || appt.clientName || '')} me={me} nowUrl={nowUrl || null} solo={solo} onClose={(t) => { setMarking(false); setNonce((x) => x + 1); if (t) setSaid({ text: t, ok: true }); }} />}
     </article>);
 }
 
@@ -146,7 +148,7 @@ function PlainPhoto({ url, alt }: { url: string; alt: string }) {
 }
 
 /** An inspiration photo the client sent for a visit: drawn with its layers (the client's, the team's, private notes). */
-function LayeredView({ tenantId, apptId, photo, name, teamBy, canvasRef, exportRef, head }: { tenantId: string; apptId: string; photo: ClientPhoto; name: string; teamBy: string; canvasRef: React.RefObject<HTMLCanvasElement | null>; exportRef: React.MutableRefObject<(() => Promise<Blob | null>) | null>; head: React.ReactNode }) {
+function LayeredView({ tenantId, apptId, photo, name, teamBy, mine = false, canvasRef, exportRef, head, solo = false }: { tenantId: string; apptId: string; photo: ClientPhoto; name: string; teamBy: string; mine?: boolean; canvasRef: React.RefObject<HTMLCanvasElement | null>; exportRef: React.MutableRefObject<(() => Promise<Blob | null>) | null>; head: React.ReactNode; solo?: boolean }) {
   const { ready } = useTeamPhoto(tenantId, apptId, { url: photo.url, original: photo.original, markup: photo.markup });
   const [mode, setMode] = React.useState<'marked' | 'original'>('marked');
   const [shown, setShown] = React.useState<Layer[]>(['client', 'team']);
@@ -154,6 +156,7 @@ function LayeredView({ tenantId, apptId, photo, name, teamBy, canvasRef, exportR
   if ('error' in ready) return <><PlainPhoto url={photo.url} alt={`Inspiration photo ${photo.n}`} /><div className="px-4 pt-4">{head}</div></>;
   const doc = ready.doc; const count = (l: Layer) => { const m = doc ? doc.marks.filter((x) => x.layer === l) : []; const pins = m.filter((x) => x.kind === 'pin').length; const r = m.length - pins; return { n: m.length, words: [r ? `${r} mark${r === 1 ? '' : 's'}` : '', pins ? `${pins} pin${pins === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ') }; };
   const c = count('client'), t = count('team'), p = count('private');
+  const teamTitle = mine ? 'Your marks' : `${teamBy}’s marks`;
   const canOriginal = ready.base === 'original' && !ready.direct;
   // From the original, a layer's switch shows the marks again with that layer on.
   const toggle = (l: Layer) => { if (mode === 'original') { setMode('marked'); setShown((s) => (s.includes(l) ? s : [...s, l])); return; } setShown((s) => (s.includes(l) ? s.filter((x) => x !== l) : [...s, l])); };
@@ -171,8 +174,8 @@ function LayeredView({ tenantId, apptId, photo, name, teamBy, canvasRef, exportR
       {(c.n > 0 || t.n > 0 || p.n > 0 || (ready.base === 'photo' && photo.markup)) && <div className="px-4 pt-4"><Group label="Layers">
         {ready.base === 'original' && c.n > 0 && <Row title={`${name}’s marks`} sub={c.words} right={<Switch on={mode === 'marked' && shown.includes('client')} label={`Show ${name}’s marks`} onChange={() => { toggle('client'); }} />} />}
         {ready.base === 'photo' && photo.markup && <Row title={`${name}’s marks`} sub="Part of this photo (the photo before them couldn’t be opened)" />}
-        {t.n > 0 && <Row title={`${teamBy}’s marks`} sub={t.words} right={<Switch on={mode === 'marked' && shown.includes('team')} label={`Show ${teamBy}’s marks`} onChange={() => { toggle('team'); }} />} />}
-        {p.n > 0 && <Row title="Private team notes" sub={`Never shown to ${name}`} right={<Switch on={mode === 'marked' && shown.includes('private')} label="Show private team notes" onChange={() => { toggle('private'); }} />} />}
+        {t.n > 0 && <Row title={teamTitle} sub={t.words} right={<Switch on={mode === 'marked' && shown.includes('team')} label={mine ? 'Show your marks' : `Show ${teamBy}’s marks`} onChange={() => { toggle('team'); }} />} />}
+        {p.n > 0 && <Row title={solo ? 'Private notes' : 'Private team notes'} sub={`Never shown to ${name}`} right={<Switch on={mode === 'marked' && shown.includes('private')} label={solo ? 'Show private notes' : 'Show private team notes'} onChange={() => { toggle('private'); }} />} />}
       </Group></div>}
     </>);
 }

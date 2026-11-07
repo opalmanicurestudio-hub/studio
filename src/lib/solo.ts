@@ -2,7 +2,7 @@
 // One provider (the owner, usually) who is also the front desk. Flows that hand work between a provider and a desk
 // collapse into one queue for them: no "send to the desk", no second copy of the same alert, no "another provider".
 // Renters don't count — they run their own books inside the studio.
-export const providersOf = (staff: any[]) => (staff || []).filter((m: any) => m && m.isActive !== false && m.status !== 'inactive' && m.status !== 'archived' && m.role !== 'renter' && !m.isRenter);
+export const providersOf = (staff: any[]) => (staff || []).filter((m: any) => m && m.isActive !== false && m.active !== false && m.archived !== true && m.status !== 'inactive' && m.status !== 'archived' && m.role !== 'renter' && !m.isRenter);
 export const isSoloTeam = (staff: any[]) => providersOf(staff).length <= 1;
 
 /** Server: read the team once. */

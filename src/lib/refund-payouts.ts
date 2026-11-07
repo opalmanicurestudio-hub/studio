@@ -103,6 +103,11 @@ async function tellDesk(db: any, tenantId: string, tenant: any, type: string, me
 
 /** "Hi Ana, " to open a client text. */
 const hi = (p: any) => `Hi ${p?.clientFirst || 'there'}, `;
+/** Where the client collects cash: "at the front desk", or (with no front desk) "from Jessica" (lib/business-shape). */
+async function pickupAt(db: any, tenantId: string, tenant: any): Promise<{ where: string; label: string; shape: any }> {
+  const { shapeFromDb, publicShape, pickupWhere, pickupLabel } = await import('./business-shape');
+  const b = publicShape(await shapeFromDb(db, tenantId, tenant)); return { where: pickupWhere(b), label: pickupLabel(b), shape: b };
+}
 
 async function textClient(db: any, tenantId: string, tenant: any, p: any, body: string, withLink = true): Promise<boolean> {
   try {
@@ -282,7 +287,7 @@ async function applyChoice(db: any, tenantId: string, tenant: any, p: any, b: an
   // pickup
   const w = b.pickup; if (!w?.date || !w?.start) {
     const c = await setChoice(db, ref, { method: 'pickup', status: 'pickup_time', updatedAt: now() }); if (!c.ok) return c;
-    if (!byClient) await textClient(db, tenantId, tenant, p, `${hi(p)}your ${money(p.amountCents)} refund will be ready to pick up at the front desk. Please choose a pickup time here:`);
+    if (!byClient) await textClient(db, tenantId, tenant, p, `${hi(p)}your ${money(p.amountCents)} refund will be ready to pick up ${(await pickupAt(db, tenantId, tenant)).where}. Please choose a pickup time here:`);
     return { ok: true as const, status: 'pickup_time' };
   }
   return bookPickup(db, tenantId, tenant, { ...p, method: 'pickup' }, w, by, byClient);
@@ -295,7 +300,7 @@ async function bookPickup(db: any, tenantId: string, tenant: any, p: any, w: any
   const code = (await codeOf(db, tenantId, p.id)) || String(randomInt(0, 10000)).padStart(4, '0'); await codeRef(db, tenantId, p.id).set({ code, at: now() }); const when = `${hit.dayLabel === 'Today' || hit.dayLabel === 'Tomorrow' ? hit.dayLabel.toLowerCase() : hit.dayLabel} ${windowLabel(hit)}`;
   const chosen = await setChoice(db, db.doc(`${T(tenantId)}/refundPayouts/${p.id}`), { method: 'pickup', status: 'scheduled', pickup: { date: hit.date, start: hit.start, end: hit.end, startAt, endAt }, trip: null, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Pickup booked: ${when}`)) });
   if (!chosen.ok) return chosen;
-  await textClient(db, tenantId, tenant, p, `${hi(p)}your ${money(p.amountCents)} refund will be ready at the front desk ${when}. Your pickup code is ${code}. You can view the details here:`);
+  await textClient(db, tenantId, tenant, p, `${hi(p)}your ${money(p.amountCents)} refund will be ready to pick up ${(await pickupAt(db, tenantId, tenant)).where} ${when}. Your pickup code is ${code}. You can view the details here:`);
   if (byClient) await tellDesk(db, tenantId, tenant, 'refund_choice', `${p.clientFirst} will pick up their ${money(p.amountCents)} refund ${when}.`, p.id);
   return { ok: true as const, status: 'scheduled', code };
 }
@@ -312,7 +317,9 @@ export async function publicView(db: any, tenantId: string, id: string, k: strin
       pickup: p.pickup ? { ...p.pickup, label: windowLabel(p.pickup) } : null, app: p.app ? { handle: p.app.handle, accountName: p.app.accountName, label: isApp(p.method) ? PAY_APPS[p.method as PayApp].label : '' } : null,
       from: isApp(p.method) ? C.apps[p.method as PayApp].from : null, trip: p.trip ? { etaMin: p.trip.etaMin ?? null, distanceMi: p.trip.distanceMi ?? null, live: !!p.trip.live } : null, cashReady: !!p.prep?.sealedAt },
     methods: methodsFor(tenant, p).map((m) => ({ id: m, label: METHOD_LABEL[m], ask: isApp(m) ? PAY_APPS[m].ask : null, placeholder: isApp(m) ? PAY_APPS[m].placeholder : null, from: isApp(m) ? C.apps[m].from : null })),
-    windows: needsWindows ? await pickupWindows(db, tenantId, tenant) : [], onTheWay: C.onTheWay, liveLocation: C.liveLocation && !!tenant.studioLocation };
+    windows: needsWindows ? await pickupWindows(db, tenantId, tenant) : [], onTheWay: C.onTheWay, liveLocation: C.liveLocation && !!tenant.studioLocation,
+    // Where it's collected, in the business's own words (the front desk, or the person who sees clients).
+    pickupAt: await pickupAt(db, tenantId, tenant).then((x) => ({ where: x.where, label: x.label })).catch(() => ({ where: 'at the front desk', label: 'Front desk' })) };
 }
 
 /** What the client can do from their page. */
@@ -383,7 +390,7 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
     case 'note': await ref.set({ noteText: String(b.text || '').slice(0, 1200), updatedAt: now() }, { merge: true }); return { ok: true as const };
     // Only the field it changes (merged into the rest), so it can't put back cash details another step just changed.
     case 'printed': await push({ prep: { printedAt: now() } }, 'Printed the envelope slip and note'); return { ok: true as const };
-    case 'resend': { const sent = await textClient(db, tenantId, tenant, p, p.status === 'scheduled' || p.status === 'on_way' ? `${hi(p)}this is a reminder that your ${money(p.amountCents)} refund is ready at the front desk ${windowLabel(p.pickup)}. Your pickup code is ${await codeOf(db, tenantId, p.id)}.` : `${hi(p)}here is the link for your ${money(p.amountCents)} refund:`);
+    case 'resend': { const sent = await textClient(db, tenantId, tenant, p, p.status === 'scheduled' || p.status === 'on_way' ? `${hi(p)}this is a reminder that your ${money(p.amountCents)} refund is ready to pick up ${(await pickupAt(db, tenantId, tenant)).where} ${windowLabel(p.pickup)}. Your pickup code is ${await codeOf(db, tenantId, p.id)}.` : `${hi(p)}here is the link for your ${money(p.amountCents)} refund:`);
       await push({}, sent ? 'Texted the client the link again' : 'Couldn’t text the client'); return { ok: true as const, sent, link: payoutPath(tenantId, p.id) }; }
     case 'till': {
       if (p.method !== 'pickup' || !['scheduled', 'on_way'].includes(p.status)) return { ok: false as const, error: 'Book a pickup time first.' };

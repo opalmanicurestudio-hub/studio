@@ -37,6 +37,7 @@ import { FormsLeftCard, FormsLeftView, thingsLeft, type VisitFormsView } from '@
 import { PhotosAskCard, PhotosSentCard } from '@/components/visit/PhotosAskCard';
 import { PhotosReplyCard } from '@/components/visit/PhotosReplyCard';
 import { formRulesOf, requestAsksMore } from '@/lib/forms';
+import { inPerson } from '@/lib/business-shape';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -321,7 +322,12 @@ export default function CheckInPage() {
     // never write around it from the browser. Once it's through, the live view is asked again straight away.
     const updateStatus = async (status: string, lateMinutes?: number, lateNote?: string): Promise<any> => {
         const failed = (error: string) => ({ ok: false, error });
-        if (!firestore || !token || !appointmentData || !tenantId) return failed('That didn’t send. Please let the front desk know when you arrive.');
+        // Who to tell in person when it doesn't go through: the front desk, or (with none) the person they're seeing.
+        // An online or phone visit has nobody to tell in person: just try again.
+        const tellWho = inPerson((appointmentData as any)?.shape, (appointmentData as any)?.staffName);
+        const away = ['online', 'phone'].includes(String(placeOf(service, appointmentData)?.kind || ''));
+        const orTell = away ? '' : `, or let ${tellWho} know when you arrive`;
+        if (!firestore || !token || !appointmentData || !tenantId) return failed(away ? 'That didn’t send. Please try again.' : `That didn’t send. Please let ${tellWho} know when you arrive.`);
         const updates: any = { checkInStatus: status };
         if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
         if (lateNote) updates.lateNote = lateNote;
@@ -336,11 +342,11 @@ export default function CheckInPage() {
                 }),
             });
             const d = await res.json().catch(() => ({}));
-            if (!res.ok || !d?.ok) return failed(d?.error || 'That didn’t send. Please let the front desk know when you arrive.');
+            if (!res.ok || !d?.ok) return failed(d?.error || (away ? 'That didn’t send. Please try again.' : `That didn’t send. Please let ${tellWho} know when you arrive.`));
             setViewNonce((n) => n + 1);
             return d;
         } catch {
-            return failed('That didn’t send. Please check your connection, or let the front desk know when you arrive.');
+            return failed(`That didn’t send. Please check your connection${orTell}.`);
         }
     };
 
@@ -420,7 +426,7 @@ export default function CheckInPage() {
     }
     if (payScreen && tenantId && appointmentData?.id) {
         return withFooter(
-            <VisitPay brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} screenId={payScreen}
+            <VisitPay brand={brandOf(tenant, tenantId, (appointmentData as any)?.serviceId || null)} screenId={payScreen} shape={(appointmentData as any)?.shape || null}
                 first={String(client?.name || appointmentData?.clientName || '').split(' ')[0] || null}
                 provider={(assignedStaff as any)?.name ? String((assignedStaff as any).name).split(' ')[0] : null}
                 onClose={() => { setPayScreen(null); setViewNonce((n) => n + 1); }} />
@@ -657,8 +663,9 @@ export default function CheckInPage() {
             freeUntil={freeUntil}
             minutesAway={appointmentData?.startTime ? Math.round((safeDate(appointmentData.startTime).getTime() - Date.now()) / 60000) : null}
             pass={place?.kind && place.kind !== 'studio' ? null : <PassCode token={token} code={(appointmentData as any)?.shortCode || null} name={String(client?.name || appointmentData?.clientName || 'Your visit').split(' ')[0]}
-                when={appointmentData?.startTime ? format(wallDate(safeDate(appointmentData.startTime), brandOf(tenant).zone), 'h:mm a') : ''} service={service?.name || null} business={tenant?.name || null} />}
+                when={appointmentData?.startTime ? format(wallDate(safeDate(appointmentData.startTime), brandOf(tenant).zone), 'h:mm a') : ''} service={service?.name || null} business={tenant?.name || null} shape={(appointmentData as any)?.shape || null} />}
             place={place}
+            shape={(appointmentData as any)?.shape || null}
             callNumber={(tenant as any)?.phone || (tenant as any)?.twilioPhoneNumber || null}
             lateChoices={(appointmentData as any)?.lateChoices || null}
             onLateChoice={async (choice) => {

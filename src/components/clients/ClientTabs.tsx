@@ -14,6 +14,7 @@ import { clientPhotos, filterCounts, FILTERS as PHOTO_FILTERS, KIND_LABEL as PHO
 import { ClientPhotoRecord } from '@/components/clients/ClientPhotoRecord';
 import { usePrivateUrl } from '@/components/shared/private-file';
 import { wallDate, tenantTimeZone } from '@/lib/tenant-time';
+import { shapeOf } from '@/lib/business-shape';
 
 const safe = (v: any) => new Date(v?.toDate ? v.toDate() : v);
 const muted = { color: 'hsl(var(--muted-foreground))' } as React.CSSProperties;
@@ -177,6 +178,7 @@ export function ClientFormsNeeded({ appointments, services, consentForms, consen
  *  first. Choosing one opens its record beside the photos on a computer, or over them on a phone (ClientPhotoRecord). */
 export function ClientPhotos({ tenantId, client, appointments, services, staff = [], me = {}, isManager = false }: { tenantId?: string | null; client: any; appointments: any[]; services: any[]; staff?: any[]; me?: { uid?: string | null; name?: string | null }; isManager?: boolean }) {
   const tctx: any = useTenantOptional(); const zone = tenantTimeZone(tctx?.selectedTenant);
+  const solo = shapeOf(tctx?.selectedTenant, staff.length ? staff : null).alone;   // nobody else on the team: "only you", not "the team"
   const [kind, setKind] = React.useState<string>('all'); const [sel, setSel] = React.useState<string | null>(null); const [said, setSaid] = React.useState<string | null>(null);
   const [wide, setWide] = React.useState(false); const lastTile = React.useRef<HTMLElement | null>(null); const saidRef = React.useRef<HTMLParagraphElement | null>(null);
   // After a photo is removed (its tile is gone), the focus goes to what was said about it.
@@ -201,7 +203,7 @@ export function ClientPhotos({ tenantId, client, appointments, services, staff =
   const shownVisits = visits.map((v) => ({ ...v, photos: v.photos.filter((p) => kinds.includes(p.kind)) })).filter((v) => v.photos.length);
   const shownOld = imported.filter((p) => kinds.includes(p.kind));
   const appt = chosen?.apptId ? appointments.find((a) => String(a?.id) === chosen.apptId) || null : null;
-  const record = chosen && tenantId ? <ClientPhotoRecord key={sel!} tenantId={tenantId} client={client} photo={chosen} appt={appt} zone={zone} me={me} isManager={isManager}
+  const record = chosen && tenantId ? <ClientPhotoRecord key={sel!} tenantId={tenantId} client={client} photo={chosen} appt={appt} zone={zone} me={me} isManager={isManager} solo={solo}
     nowUrl={appt?.nowPhoto?.url || null} onRemoved={(t) => { setSel(null); setSaid(t); }} /> : null;
   return (
     <section className="space-y-4 rounded-3xl p-5" style={card} aria-label="Photos">

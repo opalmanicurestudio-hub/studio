@@ -74,7 +74,10 @@ export async function GET(req: NextRequest) {
   // said back. Never a private team note. Not while they've been asked for different ones, nor once the visit is over.
   const { replyFor } = await import('@/lib/markup/team'); const { ENDED_VISIT } = await import('@/lib/forms-visit');
   const photosReply = !photosAsk && !ENDED_VISIT.includes(String(a.status || '')) ? replyFor(a) : null;
-  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl, pay, photosAsk, photosReply };
+  // How the business works (a front desk, or the one person who sees clients), so the page words things to match.
+  const { shapeFromDb, publicShape } = await import('@/lib/business-shape');
+  const shape = publicShape(await shapeFromDb(db, tenantId, tenant));
+  const full = { ...publicVisitCopy({ ...a, id, appointmentId: id, tenantId, checkInToken: token }), ...view, id, tenantId, aftercareUrl, pay, photosAsk, photosReply, shape };
   // keep the copies in step as a courtesy for anything else that still reads them
   if (miss || copy.stage !== view.stage || copy.status !== view.status) await Promise.all([db.doc(`appointmentCheckIns/${token}`).set(view, { merge: true }), db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(view, { merge: true })]).catch(() => {});
   return NextResponse.json({ ok: true, view: full }, noStore);

@@ -8,16 +8,18 @@ import { useDoc, useFirebase, useMemoFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { payPost } from '@/components/pay/pay-client';
 import { RefundSheets } from '@/components/refunds/RefundSheets';
+import { useBusinessShape } from '@/hooks/use-business-shape';
 
 export default function PrintRefund() {
   const { id } = useParams() as { id: string }; const { firestore } = useFirebase() as any; const { selectedTenant } = useTenant() as any; const tenantId = selectedTenant?.id || '';
   const ref = useMemoFirebase(() => (firestore && tenantId ? doc(firestore as Firestore, `tenants/${tenantId}/refundPayouts/${id}`) : null), [firestore, tenantId, id]);
   const { data: p } = useDoc<any>(ref); const printed = React.useRef(false);
+  const shape = useBusinessShape(tenantId, selectedTenant);   // where it's picked up, said as the business works
   React.useEffect(() => {
-    if (!p || printed.current) return; printed.current = true;
+    if (!p || !shape.ready || printed.current) return; printed.current = true;
     const after = () => { payPost('/api/refund-payouts', { tenantId, id, action: 'printed' }); window.removeEventListener('afterprint', after); };
     window.addEventListener('afterprint', after); setTimeout(() => window.print(), 600);
-  }, [p, tenantId, id]);
+  }, [p, shape.ready, tenantId, id]);
   if (!p || !selectedTenant) return <p className="p-8" style={{ color: 'hsl(var(--muted-foreground))' }}>Loading…</p>;
-  return <RefundSheets p={p} tenant={selectedTenant} />;
+  return <RefundSheets p={p} tenant={selectedTenant} shape={shape} />;
 }

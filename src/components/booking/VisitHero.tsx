@@ -7,6 +7,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { qrSvg } from '@/lib/scan-codes';
+import { inPerson, type PublicShape } from '@/lib/business-shape';
 
 const STEPS = ['Booked', 'Ready', 'Here', 'Done'] as const;
 
@@ -36,21 +37,23 @@ export function VisitHero({ photo, kicker, big, sub, step, done = false, childre
 }
 
 /** A small pass code beside "I'm here"; tapped, a full-screen pass for the desk to scan. */
-export function PassCode({ token, code, name, when, service, business }: { token: string; code?: string | null; name: string; when: string; service?: string | null; business?: string | null }) {
+export function PassCode({ token, code, name, when, service, business, shape }: { token: string; code?: string | null; name: string; when: string; service?: string | null; business?: string | null; shape?: PublicShape | null }) {
+  // With no front desk, the pass is shown to the person they're seeing (lib/business-shape).
+  const toWhom = inPerson(shape);
   const [open, setOpen] = React.useState(false);
   const url = typeof window !== 'undefined' ? `${window.location.origin}/check-in/${token}` : `/check-in/${token}`;
   const small = React.useMemo(() => qrSvg(url, 46, '#16171a'), [url]);
   const big = React.useMemo(() => qrSvg(url, 240, '#16171a'), [url]);
   React.useEffect(() => { if (!open) return; const f = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); }; window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f); }, [open]);
   return <>
-    <button type="button" onClick={() => setOpen(true)} aria-label="Show my pass to the front desk" className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[14px] bg-white p-1" dangerouslySetInnerHTML={{ __html: small }} />
+    <button type="button" onClick={() => setOpen(true)} aria-label={`Show my pass to ${toWhom}`} className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[14px] bg-white p-1" dangerouslySetInnerHTML={{ __html: small }} />
     {open && typeof document !== 'undefined' && createPortal(<div role="dialog" aria-modal="true" aria-label="Your pass" className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{ background: 'rgba(22,23,26,.86)' }} onClick={() => setOpen(false)}>
       <div className="w-full max-w-[360px] rounded-[28px] bg-white p-6 text-center" style={{ color: '#16171a', fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }} onClick={(e) => e.stopPropagation()}>
         {business && <p className="text-[14px] font-semibold" style={{ color: '#6d7075' }}>{business}</p>}
         <p className="mt-3 text-[30px] font-light tracking-[-0.02em]">{name}</p>
         <p className="text-[14px]" style={{ color: '#6d7075' }}>{[service, when].filter(Boolean).join(' · ')}</p>
         <div className="mx-auto mt-5 w-fit rounded-[18px] p-3" style={{ border: '1px solid #ececee' }} dangerouslySetInnerHTML={{ __html: big }} />
-        {code && <p className="mt-4 text-[13px]" style={{ color: '#6d7075' }}>Or tell the desk your code <b className="text-[18px] tracking-[0.18em]" style={{ color: '#16171a' }}>{String(code).toUpperCase()}</b></p>}
+        {code && <p className="mt-4 text-[13px]" style={{ color: '#6d7075' }}>Or tell {shape?.desk === false ? toWhom : 'the desk'} your code <b className="text-[18px] tracking-[0.18em]" style={{ color: '#16171a' }}>{String(code).toUpperCase()}</b></p>}
         <button type="button" onClick={() => setOpen(false)} className="mt-5 h-12 w-full rounded-full text-[15px] font-semibold text-white" style={{ background: '#16171a' }}>Done</button>
       </div></div>, document.body)}
   </>;

@@ -113,7 +113,7 @@ const req = (body: any) => ({ json: async () => body, headers: new Headers(), ne
   ok((await cpost({ action: 'photos', photos: [{ url: fb('jpg') }] })).status === 409, 'not for a visit that isn’t going ahead');
   await db.doc(`${T}/appointments/a1`).set({ status: 'confirmed', inspoReview: { status: 'sent' } }, { merge: true });
   const VV = src('src/app/api/visit-view/route.ts'), page = src('src/app/check-in/[token]/page.tsx');
-  ok(/const photosAsk = photosAskOpen\(a\)/.test(VV) && /photosAsk, photosReply \};/.test(VV) && /<PhotosAskCard ask=\{photosAsk\}/.test(page) && /\{formsCard\}\{photosCard\}/.test(page), 'the visit link shows the ask until they send');
+  ok(/const photosAsk = photosAskOpen\(a\)/.test(VV) && /photosAsk, photosReply, shape \};/.test(VV) && /<PhotosAskCard ask=\{photosAsk\}/.test(page) && /\{formsCard\}\{photosCard\}/.test(page), 'the visit link shows the ask until they send');
   const PA = await import('../../src/components/visit/PhotosAskCard');
   const card = renderToStaticMarkup(<PA.PhotosAskCard ask={{ note: 'A closer photo of the shape', by: 'Kai' }} token="tokA1234" tenantId="t1" accent="#8b5e57" onSent={() => {}} />);
   ok(/Kai asked for a different inspiration photo/.test(card) && /“A closer photo of the shape”/.test(card) && /disabled=""[^>]*>Send the photo/.test(card), 'who asked, their note, the photo tool, and Send', card.slice(0, 300));

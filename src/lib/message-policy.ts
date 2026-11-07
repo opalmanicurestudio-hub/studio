@@ -189,7 +189,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{service}}', '{{when}}', '{{reason}}', '{{refund_line}}', '{{link}}', '{{studio}}'],
     requiredTokens: [],
     defaultSubject: 'An update about your appointment on {{when}}',
-    defaultBody: 'Hi {{client_first}},\n\nWe\'re sorry to let you know that we\'ve had to cancel your {{service}} on {{when}}, as no one on our team is available to take it. We know this is frustrating, and we apologize.\n\n{{refund_line}}\n\nWe\'d be glad to see you another time. You can choose a new time here: {{link}}',
+    defaultBody: 'Hi {{client_first}},\n\nWe\'re sorry to let you know that we\'ve had to cancel your {{service}} on {{when}}, as we\'re no longer able to take it. We know this is frustrating, and we apologize.\n\n{{refund_line}}\n\nWe\'d be glad to see you another time. You can choose a new time here: {{link}}',
     timing: 'immediate',
   },
   {
@@ -530,7 +530,7 @@ export const MESSAGE_KINDS: MessageKindDef[] = [
     tokens: ['{{client_first}}', '{{team}}', '{{book_link}}', '{{review_link}}', '{{aftercare_link}}', '{{studio}}'],
     requiredTokens: [],
     defaultSubject: 'Thank you for visiting {{studio}}',
-    defaultBody: 'Hi {{client_first}},\n\nThank you for coming in yesterday. {{team}} really enjoyed having you.\nWhenever you\'re ready, you can book your next visit here: {{book_link}}\nIf you have a moment, we\'d be so grateful for a review: {{review_link}}',
+    defaultBody: 'Hi {{client_first}},\n\nThank you for your visit yesterday. {{team}} really enjoyed having you.\nWhenever you\'re ready, you can book your next visit here: {{book_link}}\nIf you have a moment, we\'d be so grateful for a review: {{review_link}}',
     timing: 'immediate',
   },
   {

@@ -30,7 +30,7 @@ const Pill = ({ children, onClick, ink, disabled }: { children: React.ReactNode;
   <button type="button" onClick={onClick} disabled={disabled} className="inline-flex min-h-11 items-center rounded-full px-4 text-[14px] font-medium disabled:opacity-50"
     style={ink ? { background: INK, color: '#fff', fontWeight: 600 } : { background: SOFT, color: INK }}>{children}</button>);
 
-export function BeforeVisit({ tenantId, tenant, appointment, client, services, forms, signedConsents, canSeeHealth = false, formsLoading, me }: {
+export function BeforeVisit({ tenantId, tenant, appointment, client, services, forms, signedConsents, canSeeHealth = false, formsLoading, me, solo = false }: {
   tenantId: string; tenant: any; appointment: any; client: any; services: any[]; forms: any[]; signedConsents?: any[] | null;
   /** May this person read health answers (Settings › privacy: care notes)? */
   canSeeHealth?: boolean;
@@ -38,6 +38,8 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
   formsLoading?: boolean;
   /** Who's signed in (their marks on the client's photos go by their first name). */
   me?: { uid?: string | null; name?: string | null };
+  /** One person sees every client (lib/business-shape): no "team" in the words. */
+  solo?: boolean;
 }) {
   const [open, setOpen] = React.useState<string | null>(null);
   const [waiving, setWaiving] = React.useState<string | null>(null);
@@ -249,7 +251,7 @@ export function BeforeVisit({ tenantId, tenant, appointment, client, services, f
       </div>
       {markAt >= 0 && <TeamPhotoMarkup key={marking!} tenantId={tenantId} apptId={String(appointment.id)} photo={photos[markAt]} n={markAt + 1} of={photos.length}
         title={`${String(appointment?.serviceName || 'Visit')}${toMs(appointment?.startTime) ? `, ${format(wallDate(new Date(toMs(appointment.startTime)), zone), 'EEE h:mm a')}` : ''}`} clientName={String(appointment?.clientName || client?.name || '')} me={me || {}}
-        nowUrl={nowP?.url || null} onClose={(text) => { setMarking(null); if (text) setSaid({ text, ok: true }); }} />}
+        nowUrl={nowP?.url || null} solo={solo} onClose={(text) => { setMarking(null); if (text) setSaid({ text, ok: true }); }} />}
       {Array.isArray(comparing) && <OverSheet label="Compare"><PhotoCompare inline viewer="team" now={{ src: comparing[0], label: 'Now' }} goals={comparing.slice(1).map((src, i) => ({ src, label: comparing.length > 2 ? `Photo ${i + 1}` : 'Goal' }))} onClose={() => setComparing(null)} /></OverSheet>}
       {said && <p role={said.ok ? 'status' : 'alert'} className="px-1 text-[13.5px]" style={{ color: said.ok ? GOOD : WARN }}>{said.text}</p>}
       {todos.length > 0 && <p className="px-1 text-[13.5px] leading-relaxed" style={{ color: MUTED }}>

@@ -8,6 +8,7 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import { CancellationReview } from '@/components/settings/CancellationReview';
 import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
 import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
+import { BusinessShapeCard } from '@/components/settings/BusinessShapeCard';
 import { SettingsStyle } from '@/components/settings/settings-style';
 import { useLocation } from '@/context/LocationContext';
 import { ProtocolsCard } from '@/components/settings/ProtocolsCard';
@@ -533,6 +534,7 @@ function SettingsPageImpl() {
                   <input className={cfInput} style={cfInputStyle} autoComplete="street-address" value={(tenantData as any).address || ''} placeholder="Street, city, state" onChange={(e) => setTenantData((prev) => ({ ...prev, address: e.target.value } as any))} />
                 </Row>
               </Section>
+              {tenantId && <BusinessShapeCard tenantId={tenantId} tenant={selectedTenant} canEdit={String((role as any) || '').toLowerCase() === 'owner'} />}
               <More label="Time zone" help="Set when you signed up — change it only if you’ve moved.">
                 <TimezoneSettingCard firestore={firestore} tenantId={tenantId || ''} tenant={selectedTenant} />
               </More>
