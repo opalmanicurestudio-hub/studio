@@ -1695,7 +1695,7 @@ function PlannerPageContent() {
       )}
 
       {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
-      {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: (clients || []).find(c => c.id === selectedAppointment.clientId), service: (services || []).find(s => s.id === selectedAppointment.serviceId) }} staff={allStaff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
+      {selectedAppointment && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: selectedAppointment, client: (clients || []).find(c => c.id === selectedAppointment.clientId), service: (services || []).find(s => s.id === selectedAppointment.serviceId) }} onTakePayment={(id: string) => router.push(`/pos?checkout_id=${id}`)} staff={allStaff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
 
       <StaffBookSheet open={isAddAppointmentOpen} onClose={() => { setIsAddAppointmentOpen(false); setClientForNewApt(null); setAppointmentToRebook(null); setBookPreset(null); setBookMode('one'); setBookGuests(null); }}
         tenantId={tenantId || ''} tenant={selectedTenant} clients={clients || []} services={services || []} staff={(allStaff || []).filter((st: any) => st.role !== 'renter' && st.active !== false)}

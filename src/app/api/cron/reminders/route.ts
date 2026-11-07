@@ -32,6 +32,7 @@ import { settingsOf, aftercareFor } from '@/lib/making-it-right';
 import { aftercareDocFor, aftercareSettingsOf } from '@/lib/aftercare';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { shapeOf } from '@/lib/business-shape';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { sendNotification } from '@/lib/notify';
 import { resolveMessage, tidyBody } from '@/lib/message-policy';
@@ -582,10 +583,16 @@ export async function GET(req: NextRequest) {
         } catch { /* context is a bonus */ }
         if (byStaff.size > 0) {
           const staffSnap = await db.collection(`tenants/${tid}/staff`).get();
+          // One person who sees every client and gets the owner's morning brief on the same phone gets just the brief
+          // (it has the same day in it), not two texts (lib/business-shape).
+          const briefGoes = cfg.ownerBrief !== false && !!cfg.ownerPhone && resolveMessage(tDoc.data(), 'owner_brief').send;
+          const oneOfUs = shapeOf(tDoc.data(), staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) }))).solo;
+          const digits = (p: any) => String(p || '').replace(/\D/g, '').slice(-10);
           for (const sDoc of staffSnap.docs) {
             const s = sDoc.data() as any;
             const agenda = byStaff.get(sDoc.id);
             if (!agenda || !s.phone || s.active === false || s.archived) continue;
+            if (briefGoes && oneOfUs && digits(s.phone).length === 10 && digits(s.phone) === digits(cfg.ownerPhone)) continue;
             try {
               const am = resolveMessage(tDoc.data(), 'staff_agenda', { staff_first: String(s.name || '').split(' ')[0], count: agenda.count, appointments: `${agenda.count} appointment${agenda.count === 1 ? '' : 's'}`, first_time: agenda.firstLabel || '', note: downNote, studio: (tDoc.data() as any)?.name || '' }, 'sms');
               if (!am.send) continue;

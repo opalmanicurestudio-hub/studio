@@ -191,13 +191,17 @@ export async function GET(req: NextRequest) {
           }
         }
 
+        // A health form (the builder's "Intake" forms) this visit's service asks for that's still needed: what the health
+        // form reminder below goes on. A business with no health forms is never told about one.
+        let healthMissing = false;
+
         // ── consentFormUnsigned ──────────────────────────────────────────
         // A service with its own forms rule (Settings › Forms and documents) is handled by lib/forms-release instead.
         if (service?.requiredFormIds?.length && !(service?.formsRule && typeof service.formsRule === 'object')) {
           // The service's own forms (as before: a form the team added to one visit never cancels it), signed for this
           // visit or still current on file (lib/forms): a form signed online or at the kiosk counts, so nobody is
           // reminded, held or canceled over a form already signed.
-          const { formsStillNeeded, formRulesOf } = await import('@/lib/forms');
+          const { formsStillNeeded, formRulesOf, isHealthForm } = await import('@/lib/forms');
           const ids = [...new Set((service.requiredFormIds || []).map(String))] as string[];
           if (!formCache.has(tenantId)) formCache.set(tenantId, new Map());
           const fc = formCache.get(tenantId)!;
@@ -207,7 +211,9 @@ export async function GET(req: NextRequest) {
           if (!unread) {
           // Only forms that still exist: a deleted form never reminds, holds or cancels anyone.
           const live = ids.filter((id) => !!fc.get(id));
-          const missing = formsStillNeeded({ apt, ids: live, client, forms: live.map((id) => fc.get(id)), rules: formRulesOf(tenant) }).length > 0;
+          const need = formsStillNeeded({ apt, ids: live, client, forms: live.map((id) => fc.get(id)), rules: formRulesOf(tenant) });
+          const missing = need.length > 0;
+          healthMissing = need.some((id) => isHealthForm(fc.get(id)));
           readinessFlags.formGateActive = missing;
           const r = evaluateWindow(automations.consentFormUnsigned, missing, hrsUntil, automationState, 'formReminderSentAt', 'formGateActiveAt', 'formReminderCount');
           Object.assign(updates, r.updates);
@@ -237,14 +243,15 @@ export async function GET(req: NextRequest) {
           if (r.shouldSendReminder) notifications.push({ title: 'Reference photos missing', message: `${apt.clientName || 'A client'} has not yet uploaded the reference photos you requested.` });
         }
 
-        // ── healthFormMissing (single-stage — only one field exists for this trigger) ──
+        // ── healthFormMissing (one reminder): only a health form the service asks for and that's still needed, and only
+        // while the business has it switched on (Settings › Automations).
         {
-          const missing = !apt.healthDisclosedAt;
-          readinessFlags.healthGateActive = missing;
           const t = automations.healthFormMissing;
+          const missing = healthMissing && t?.enabled !== false;
+          readinessFlags.healthGateActive = missing;
           if (t?.enabled && missing && hrsUntil <= t.firstWindowHours && !automationState.healthGateActiveAt) {
             updates['automationState.healthGateActiveAt'] = now.toISOString();
-            notifications.push({ title: 'Health disclosure missing', message: `${apt.clientName || 'A client'} has not yet completed their health and allergy disclosure.` });
+            notifications.push({ title: 'Health form not filled in', message: `${apt.clientName || 'A client'} hasn’t filled in the health form for their visit yet.` });
           }
         }
 

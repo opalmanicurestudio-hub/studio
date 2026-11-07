@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+import { visitActions } from '@/lib/visit-client';
 import { hourlyRate } from '@/lib/product-cost';
 import { printAppointmentTicket } from '@/lib/appointment-ticket';
 import { StaffBookSheet } from '@/components/pos/desk/StaffBookSheet';
@@ -66,6 +67,15 @@ function POSPage() {
     checkoutHubProps, getPreviousFormula, getVisitCount, waitingNowCount, cartItemCount, walkInGroupSizes,
   } = __engine;
   const [resumeDraft, setResumeDraft] = useState<any>(null);
+  // A visit finished here with no front desk opens its payment as soon as it shows as ready to pay (the finish screen's
+  // onTakePayment); if it hasn't within a few seconds, staff are told where to find it.
+  const [payFor, setPayFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!payFor) return;
+    if ((readyForCheckoutAppointments || []).some((a: any) => a.id === payFor)) { const id = payFor; setPayFor(null); visitActions().checkout?.(id); return; }
+    const t = setTimeout(() => { setPayFor(null); toast({ title: 'Ready to pay', description: 'Open it from Ready to pay to take payment.' }); }, 6000);
+    return () => clearTimeout(t);
+  }, [payFor, readyForCheckoutAppointments, toast]);
   // "Resume" in POS → Needs attention → Callbacks reopens the booking with what was saved.
   useEffect(() => {
     const on = (ev: any) => { setResumeDraft(ev?.detail || null); setIsQuickBookOpen(true); };
@@ -152,7 +162,7 @@ function POSPage() {
 
 
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', checkInStatusTimestamp: new Date().toISOString(), overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
-      {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
+      {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onTakePayment={(id: string) => setPayFor(id)} onSendToFrontDesk={handleSendToFrontDesk} />}
       <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
       <DeskCheckIn e={__engine} accent={pageAccent(selectedTenant) || null} />
 

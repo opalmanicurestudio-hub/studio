@@ -9,7 +9,8 @@ import * as React from 'react';
 import { collection, query, orderBy, limit, type Firestore } from 'firebase/firestore';
 import { useCollection, useMemoFirebase } from '@/firebase';
 import { payPost } from '@/components/pay/pay-client';
-import { settingsOf, PAY_APPS } from '@/lib/making-it-right';
+import { settingsOf, twoPersonCount, PAY_APPS } from '@/lib/making-it-right';
+import { shapeOf } from '@/lib/business-shape';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', RED = '#b42318', GREEN = '#1f7a4d', AMBER = '#b45309';
 const CARD: React.CSSProperties = { background: 'rgba(255,255,255,0.62)', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 20, boxShadow: '0 1px 2px rgba(22,23,26,0.04)' };
@@ -79,7 +80,8 @@ function Card({ x, on, onPick }: { x: any; on: boolean; onPick: () => void }) {
 const Chip = ({ children, ok, dark }: { children: React.ReactNode; ok?: boolean; dark?: boolean }) => <span className="inline-flex h-7 items-center rounded-full px-2.5 text-[12.5px] font-medium" style={dark ? { background: INK, color: '#fff' } : ok ? { background: 'color-mix(in srgb, #1f7a4d 11%, transparent)', color: GREEN } : { background: 'hsl(var(--secondary))', color: MUTED }}>{children}</span>;
 
 function Detail({ p, tenantId, tenant, staff, phone = false }: { p: any; tenantId: string; tenant: any; staff: any[]; phone?: boolean }) {
-  const C = settingsOf(tenant).cashRefund; const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [ok, setOk] = React.useState('');
+  // A second person counts the cash only where there is one (lib/making-it-right twoPersonCount).
+  const C = { ...settingsOf(tenant).cashRefund, twoPerson: twoPersonCount(tenant, shapeOf(tenant, staff?.length ? staff : null)) }; const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [ok, setOk] = React.useState('');
   const act = async (action: string, extra: any = {}, done = 'Saved.') => { setBusy(true); setErr(''); setOk(''); const r = await payPost('/api/refund-payouts', { tenantId, id: p.id, action, ...extra }); setBusy(false); if (r.ok) { setOk(done); return r; } setErr(r.error || 'That didn’t work.'); return null; };
   const isDone = ['handed', 'sent', 'credited', 'cancelled'].includes(p.status);
   return <div className="mx-auto max-w-[620px] space-y-4">

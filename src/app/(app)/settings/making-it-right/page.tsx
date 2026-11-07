@@ -12,12 +12,15 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { payPost } from '@/components/pay/pay-client';
 import { SettingsPage, Section, Row, Toggle, Choice, More, cfInput, cfInputStyle } from '@/components/settings/settings-ui';
-import { settingsOf, PRESETS, FIX_LABEL, FIX_HINT, policySections, clientPolicyLine, PAY_APPS, type MirSettings, type FixKind, type Reason, type PayApp } from '@/lib/making-it-right';
+import { settingsOf, twoPersonCount, PRESETS, FIX_LABEL, FIX_HINT, policySections, clientPolicyLine, PAY_APPS, type MirSettings, type FixKind, type Reason, type PayApp } from '@/lib/making-it-right';
+import { useBusinessShape } from '@/hooks/use-business-shape';
 
 export default function MakingItRightSettings() {
   const { selectedTenant, role } = useTenant() as any; const { firestore } = useFirebase(); const { toast } = useToast();
   const tenantId = selectedTenant?.id || ''; const canEdit = String(role || '').toLowerCase() === 'owner';
   const [s, setS] = React.useState<MirSettings | null>(null); const [dirty, setDirty] = React.useState(false); const [saving, setSaving] = React.useState(false);
+  // A second person counting refund cash: worked out from how the business works until the owner chooses (twoPersonCount).
+  const shape = useBusinessShape(tenantId, selectedTenant); const [twoTouched, setTwoTouched] = React.useState(false);
   React.useEffect(() => { if (selectedTenant && !s) setS(settingsOf(selectedTenant)); }, [selectedTenant, s]);
   const svcQ = useMemoFirebase(() => (firestore && tenantId ? collection(firestore as Firestore, `tenants/${tenantId}/services`) : null), [firestore, tenantId]);
   const { data: services } = useCollection<any>(svcQ);
@@ -45,7 +48,9 @@ export default function MakingItRightSettings() {
       const replace = same ? false : !handEdited || window.confirm('The policy document was edited in Documents since it was written from these settings. Replace it with the updated wording? (Cancel keeps your edited version; your settings still save.)');
       const roles = Object.keys(rolesFor(selectedTenant)).filter((r) => !['renter', 'owner'].includes(r));
       const since = (selectedTenant as any)?.makingItRight?.policySince || new Date().toISOString();
-      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { makingItRight: { ...JSON.parse(JSON.stringify(s)), policySince: since, policyVersion: (same || replace) ? version : (Number(cur?.version) || 1) } });
+      const out = JSON.parse(JSON.stringify(s));
+      if (!twoTouched && typeof (selectedTenant as any)?.makingItRight?.cashRefund?.twoPerson !== 'boolean') delete out.cashRefund.twoPerson;   // still worked out
+      await updateDoc(doc(firestore as Firestore, 'tenants', tenantId), { makingItRight: { ...out, policySince: since, policyVersion: (same || replace) ? version : (Number(cur?.version) || 1) } });
       if (!same && replace) await setDoc(dref, { generatedSig: sig(sections), id: 'making-it-right', title: 'Making it right — complaints, redos and refunds', category: 'policy', status: 'published', assignedRoles: roles, sections, version, updatedAt: new Date().toISOString(), createdAt: cur?.createdAt || new Date().toISOString(), source: 'making_it_right', requiresAck: true }, { merge: true });
       if (!same && replace) void fetch('/api/comms/dispatch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'document', tenantId, documentId: 'making-it-right' }) }).catch(() => { /* notices are best-effort */ });
       setDirty(false); toast({ title: 'Making it right saved', description: same ? undefined : version > 1 ? 'The team is asked to sign the updated policy.' : 'The policy is in the team’s Handbook and documents to sign.' });
@@ -126,7 +131,7 @@ export default function MakingItRightSettings() {
         {(Object.keys(PAY_APPS) as PayApp[]).map((k) => <Row key={k} label={PAY_APPS[k].label} help={s.cashRefund.apps[k].on ? `${PAY_APPS[k].hint}. Staff send it, then record it here.` : `${PAY_APPS[k].hint}.`}>
           <div className="flex flex-wrap items-center gap-3"><Toggle checked={s.cashRefund.apps[k].on} onChange={(v) => crApp(k, { on: v })} label={PAY_APPS[k].label} disabled={!canEdit} />
             {s.cashRefund.apps[k].on && <input value={s.cashRefund.apps[k].from} onChange={(e) => crApp(k, { from: e.target.value.slice(0, 80) })} placeholder={k === 'venmo' ? '@YourBusiness' : k === 'cashapp' ? '$YourBusiness' : k === 'zelle' ? 'Business bank / email' : 'Business iPhone number'} aria-label={`${PAY_APPS[k].label} sent from`} className={`${cfInput} w-64`} style={cfInputStyle} disabled={!canEdit} />}</div></Row>)}
-        <Row label="A second person counts the envelope" help="Whoever takes the cash out can’t also be the one who counts it." inline><Toggle checked={s.cashRefund.twoPerson} onChange={(v) => cr({ twoPerson: v })} label="Second person counts" disabled={!canEdit} /></Row>
+        <Row label="A second person counts the envelope" help={shape.alone ? 'Off: nobody else is on your team to count it.' : 'Whoever takes the cash out can’t also be the one who counts it.'} inline><Toggle checked={shape.alone ? false : twoTouched ? s.cashRefund.twoPerson : twoPersonCount(selectedTenant, shape)} onChange={(v) => { setTwoTouched(true); cr({ twoPerson: v }); }} label="Second person counts" disabled={!canEdit || shape.alone} /></Row>
         <Row label="Clients can say they’re on the way" help="The desk gets an alert so the envelope is ready when they walk in." inline><Toggle checked={s.cashRefund.onTheWay} onChange={(v) => cr({ onTheWay: v })} label="On the way" disabled={!canEdit} /></Row>
         {s.cashRefund.onTheWay && <Row label="…and share how far away they are" help={(selectedTenant as any)?.studioLocation ? 'Their choice each time. The desk sees distance and minutes away, never where they are. It stops when they arrive or after an hour, and nothing about their location is kept.' : 'Needs your studio address with a map pin — set it in Settings → Business details.'} inline><Toggle checked={s.cashRefund.liveLocation} onChange={(v) => cr({ liveLocation: v })} label="Share distance" disabled={!canEdit} /></Row>}
         <Row label="Missed pickups before pickup stops being offered" help="Each missed pickup puts the cash back in the till and asks them for a new time. After this many, they choose another way." inline><Num value={s.cashRefund.missedLimit} onChange={(n) => cr({ missedLimit: Math.min(5, Math.max(1, n)) })} width="w-16" /></Row>

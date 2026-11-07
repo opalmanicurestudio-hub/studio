@@ -71,6 +71,14 @@ export function cashRefundOf(raw: any): CashRefundSettings {
     twoPerson: c.twoPerson !== false, onTheWay: c.onTheWay !== false, liveLocation: c.liveLocation !== false, missedLimit: Math.min(5, Math.max(1, Number(c.missedLimit) || 2)),
     sendRole: c.sendRole === 'desk' ? 'desk' : 'manager', signer: String(c.signer || '') };
 }
+/** Whether a second person counts a cash refund before it's handed over: never when nobody else is on the team (it
+ *  could never be done); otherwise the business's own choice, or, not chosen, on for a team and off for one person
+ *  (lib/business-shape). */
+export function twoPersonCount(tenant: any, b: { solo: boolean; alone: boolean }): boolean {
+  if (b.alone) return false;
+  const raw = tenant?.makingItRight?.cashRefund?.twoPerson;
+  return typeof raw === 'boolean' ? raw : !b.solo;
+}
 /** The business's settings, with anything not set yet filled from its starting set. */
 export function settingsOf(tenant: any): MirSettings {
   const key = presetKey(tenant); const P = PRESETS[key]; const s: any = tenant?.makingItRight || {};

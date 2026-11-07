@@ -71,9 +71,9 @@ export async function applyPrep(db: any, tenantId: string, apptId: string, by: {
   if (q.safety) return { ok: false, error: 'This is a safety-related answer. Please speak with the client first.' };
   const { prepCtx } = await import('@/lib/prep-ctx'); const ctx = await prepCtx(db, tenantId, a); const tenant: any = ctx.tenant;   // a renter's visit: the renter's rules
   if (q.switched && a.staffId) { const svc: any = ctx.services.find((x: any) => x.id === q.serviceId) || {};
-    const { isCertified } = await import('@/lib/availability'); if (!isCertified(svc, String(a.staffId))) return { ok: false, error: `${first(a.staffName) || 'This provider'} is not certified for ${q.serviceName}. Please send it to the front desk.` }; }
+    const { isCertified } = await import('@/lib/availability'); if (!isCertified(svc, String(a.staffId))) return { ok: false, error: `${first(a.staffName) || 'This provider'} isn’t certified for ${q.serviceName}, so it can’t be approved for this visit.` }; }
   const extra = Math.max(0, q.newMinutes - (Math.round((endOf(a) - ms(a.startTime)) / 60000)));
-  const fit = await fitsAfter(db, tenantId, apptId, a, extra); if (!fit.fits) return { ok: false, error: 'This change does not fit in the available time. Please send it to the front desk.', fits: false };
+  const fit = await fitsAfter(db, tenantId, apptId, a, extra); if (!fit.fits) return { ok: false, error: 'This change doesn’t fit in the time available.', fits: false };
   const now = new Date().toISOString(); const fields = bookingFieldsFor(a, q);
   const S = ctx.S; const word = S.quote === 'about' ? 'about' : 'up to';
   // A bigger price can mean a bigger deposit — only if the business asks for it, and only on a visit that took one.

@@ -12,7 +12,7 @@
 // after the business's limit of missed pickups, pickup is no longer offered.
 import { createHmac, randomInt } from 'crypto';
 import { FieldValue } from 'firebase-admin/firestore';
-import { settingsOf, PAY_APPS, type PayApp } from '@/lib/making-it-right';
+import { settingsOf, twoPersonCount, PAY_APPS, type PayApp } from '@/lib/making-it-right';
 import { tenantTimeZone, wallToUtc, todayIn, addDays } from '@/lib/tenant-time';
 import { brandAccent, brandLogo } from '@/lib/brand-accent';
 
@@ -373,6 +373,9 @@ export async function clientAct(db: any, tenantId: string, id: string, k: string
 /** What the desk and managers do. */
 export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
   const T0 = T(tenantId); const tenant: any = (await db.doc(T0).get()).data() || {}; const C = settingsOf(tenant).cashRefund;
+  // A second person counts the cash only where there is one (lib/making-it-right twoPersonCount); the team is read only
+  // for the steps that need it.
+  const twoNow = async () => twoPersonCount(tenant, await (await import('./business-shape')).shapeFromDb(db, tenantId, tenant));
   if (b.action === 'create') return createPayout(db, tenantId, tenant, actor, b);
   if (b.action === 'sale_kind') {   // how the visit behind a case was paid — decides card refund vs. cash refund options
     const cs = await db.doc(`${T0}/cases/${String(b.caseId || '')}`).get(); const c: any = cs.data() || {};
@@ -409,9 +412,10 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
       return out.ok ? { ok: true as const } : out;
     }
     case 'counted': {
+      const two = await twoNow();
       if (!p.prep?.tillAt) return { ok: false as const, error: 'Take the cash out first.' };
       const counter = String(b.countedBy || by).trim();
-      if (C.twoPerson && counter && p.prep?.preparedBy && counter.toLowerCase() === String(p.prep.preparedBy).toLowerCase()) return { ok: false as const, error: 'A second person counts it — not the one who prepared it.' };
+      if (two && counter && p.prep?.preparedBy && counter.toLowerCase() === String(p.prep.preparedBy).toLowerCase()) return { ok: false as const, error: 'A second person counts it — not the one who prepared it.' };
       const out = await onePayoutStep(db, ref, (cur, tx) => {
         if (!cur.prep?.tillAt) return 'Take the cash out first.';
         tx.set(ref, { prep: { countedBy: counter, countedAt: now(), sealedAt: now() }, updatedAt: now(), timeline: FieldValue.arrayUnion(line(by, `Counted by ${counter} and sealed`)) }, { merge: true });
@@ -441,9 +445,10 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
       return out.ok ? { ok: true as const } : out;
     }
     case 'handover': {
+      const two = await twoNow();
       if (p.method !== 'pickup' || !['scheduled', 'on_way'].includes(p.status)) return { ok: false as const, error: 'This refund isn’t a pickup that’s ready.' };
       if (!p.prep?.tillAt) return { ok: false as const, error: 'Take the cash out and count it first.' };
-      if (C.twoPerson && !p.prep?.countedBy) return { ok: false as const, error: 'A second person counts it before it’s handed over.' };
+      if (two && !p.prep?.countedBy) return { ok: false as const, error: 'A second person counts it before it’s handed over.' };
       if ((Number(p.codeTries) || 0) >= 5 && !actor.isManager && !actor.isOwner) return { ok: false as const, error: 'Too many wrong codes — a manager needs to hand this one over.' };
       const code = await codeOf(db, tenantId, p.id);
       if (!code || String(b.code || '').trim() !== code) { await ref.set({ codeTries: FieldValue.increment(1), timeline: FieldValue.arrayUnion(line(by, 'Wrong pickup code entered')) }, { merge: true }); return { ok: false as const, error: 'That code doesn’t match. Ask them to check their text.' }; }
@@ -455,7 +460,7 @@ export async function staffAct(db: any, tenantId: string, actor: any, b: any) {
         if (cur.status === 'handed') return 'This refund has already been handed over.';
         if (cur.method !== 'pickup' || !['scheduled', 'on_way'].includes(cur.status)) return 'This refund isn’t a pickup that’s ready.';
         if (!cur.prep?.tillAt) return 'Take the cash out and count it first.';
-        if (C.twoPerson && !cur.prep?.countedBy) return 'A second person counts it before it’s handed over.';
+        if (two && !cur.prep?.countedBy) return 'A second person counts it before it’s handed over.';
         tx.set(ref, { status: 'handed', handedAt: now(), handedBy: by, signatureUrl, trip: cur.trip ? { ...cur.trip, live: false } : null, updatedAt: now(),
           timeline: FieldValue.arrayUnion(line(by, `Handed ${money(cur.amountCents)} to ${cur.clientFirst} — code matched, signed`)) }, { merge: true });
       });

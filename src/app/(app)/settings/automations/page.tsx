@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select';
 import {
   AlertTriangle, Zap, Clock, FileSignature, CreditCard, Image,
-  Heart, Wallet, CheckCircle2, Info, Save, Loader,
+  Heart, Wallet, Info, Save, Loader,
 } from 'lucide-react';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
@@ -30,7 +30,7 @@ export type AutomationTrigger = {
   severity:         AutomationSeverity;
   firstWindowHours: number;   // hours before appointment to send first reminder
   secondWindowHours?: number; // hours before to escalate / auto-cancel
-  canDisable:       boolean;  // some triggers (health form) cannot be disabled
+  canDisable:       boolean;  // every trigger can be turned off
 };
 
 export type AppointmentAutomations = {
@@ -62,7 +62,7 @@ const DEFAULT_AUTOMATIONS: AppointmentAutomations = {
   },
   healthFormMissing: {
     enabled: true, severity: 'require',
-    firstWindowHours: 48, secondWindowHours: 0, canDisable: false, // cannot disable
+    firstWindowHours: 48, secondWindowHours: 0, canDisable: true,   // only for services that ask for a health form
   },
   outstandingBalance: {
     enabled: true, severity: 'require',
@@ -145,10 +145,10 @@ const TRIGGER_DEFS: {
   {
     key: 'healthFormMissing',
     icon: <Heart className="w-4 h-4" />,
-    label: 'Health / allergy disclosure missing',
-    description: 'Client has not disclosed allergies or medical conditions before chemical service.',
-    scheduleImpact: 'Liability risk — applying product without disclosure. Cannot be waived.',
-    badgeColor: 'bg-red-100 text-red-700',
+    label: 'Health form not filled in',
+    description: 'A health form the service asks for (an Intake form in Forms and documents) hasn’t been filled in yet.',
+    scheduleImpact: 'Only for services that ask for a health form. Without one, nothing is sent.',
+    badgeColor: 'bg-amber-100 text-amber-700',
     hasSecondWindow: false,
   },
   {
@@ -185,7 +185,6 @@ function TriggerCard({
   onChange: (v: AutomationTrigger) => void;
 }) {
   const severityDef = SEVERITY_OPTIONS.find(s => s.value === value.severity)!;
-  const isLocked    = !def.hasSecondWindow && def.key === 'healthFormMissing';
 
   return (
     <Card className={cn(
@@ -202,9 +201,6 @@ function TriggerCard({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-[12px] font-black uppercase tracking-tight text-foreground">{def.label}</p>
-                {!def.hasSecondWindow && def.key === 'healthFormMissing' && (
-                  <span className="text-[8px] font-black uppercase bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Always on</span>
-                )}
               </div>
               <p className="text-[10px] font-bold text-muted-foreground mt-0.5">{def.description}</p>
               <div className="flex items-start gap-1.5 mt-1.5 p-2 rounded-lg bg-amber-50 border border-amber-100">
@@ -213,17 +209,11 @@ function TriggerCard({
               </div>
             </div>
           </div>
-          {!isLocked ? (
-            <Switch
-              checked={value.enabled}
-              onCheckedChange={v => onChange({ ...value, enabled: v })}
-              className="shrink-0 mt-1"
-            />
-          ) : (
-            <div className="shrink-0 mt-1">
-              <CheckCircle2 className="w-5 h-5 text-red-500" />
-            </div>
-          )}
+          <Switch
+            checked={value.enabled}
+            onCheckedChange={v => onChange({ ...value, enabled: v })}
+            className="shrink-0 mt-1"
+          />
         </div>
 
         {value.enabled && (

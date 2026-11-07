@@ -8,6 +8,7 @@ import { useInventoryOptional } from '@/context/InventoryContext';
 import * as React from 'react';
 import { format, differenceInMinutes } from 'date-fns';
 import { stateOf, visitMarks, MARK_COLOR, elapsedLabel, useNow } from '@/components/planner/AgendaView';
+import { shapeOf } from '@/lib/business-shape';
 
 const safe = (v: any) => (v instanceof Date ? v : new Date(v?.toDate ? v.toDate() : v));
 // format(), but a date that can't be read shows nothing instead of breaking the panel.
@@ -44,7 +45,8 @@ export function VisitPanel({ appointment, appointments, clients, services, staff
   if (isRequest && confirmDecline && more.onDecline) { actions.push(btn('Yes, decline', () => { setConfirmDecline(false); more.onDecline!(a); }, true)); actions.push(btn('Keep it', () => setConfirmDecline(false))); }
   if (a.issue?.status === 'open' && more.canResolve && more.onResolveIssue) actions.push(btn('Resolve the issue', () => more.onResolveIssue!(a), true));
   if (a.status === 'confirmed' && a.checkInStatus === 'arrived') actions.push(btn('Start', () => onStart(a), true));
-  if (a.status === 'servicing') actions.push(btn('Finished — to the desk', () => onFinish(a), true));
+  // With no front desk, whoever finishes takes the payment next (the finish screen opens it).
+  if (a.status === 'servicing') actions.push(btn(shapeOf(tenantNow, staff.length ? staff : null).desk ? 'Finished — to the desk' : 'Finished — take payment', () => onFinish(a), true));
   if (a.status === 'ready_for_checkout') actions.push(btn('Take payment', () => onToDesk(a), true));
   if (onRunningLate && ['confirmed', 'servicing'].includes(String(a.status)) && next) actions.push(btn(`Tell ${nextClient?.name?.split(' ')[0] || 'the next client'} we're late`, () => onRunningLate(next)));
   actions.push(btn('Open the full visit', () => onOpen(a)));

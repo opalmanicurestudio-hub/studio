@@ -99,6 +99,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Badge } from '@/components/ui/badge';
 // FIX #2: Added updateDocumentNonBlocking to the firebase import
 import { useUser, useFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { shapeOf } from '@/lib/business-shape';
 import { useTenant } from '@/context/TenantContext';
 import { AfterPhoto } from '@/components/making-it-right/AfterPhoto';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -162,9 +163,13 @@ interface TechnicianReviewDialogProps {
     service: Service | undefined;
   };
   onSendToFrontDesk: (appointmentId: string, checkoutState: AppointmentCheckoutState) => void;
+  /** With no front desk, the screen that takes payment, opened straight after the visit is finished. */
+  onTakePayment?: (appointmentId: string) => void;
   staff: Staff[];
   /** The staff portal passes these: a PIN sign-in has no app tenant, and its sign-in id isn't a staff id. */
   tenantIdOverride?: string;
+  /** The business itself, where there's no app tenant (the staff portal), for how it works (lib/business-shape). */
+  tenantOverride?: any;
   actorStaffId?: string;
 }
 
@@ -173,8 +178,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   onOpenChange,
   appointmentData,
   onSendToFrontDesk,
+  onTakePayment,
   staff,
   tenantIdOverride,
+  tenantOverride,
   actorStaffId,
 }) => {
   const { appointment, client, service } = appointmentData;
@@ -187,6 +194,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const [finishing, setFinishing] = useState(false);
   const [afterPhotoMissing, setAfterPhotoMissing] = useState(false);
   const tmhr = hourlyRate(selectedTenant);
+  // How the business works (lib/business-shape): with no front desk, finishing goes straight on to payment.
+  const shape = shapeOf(tenantOverride || selectedTenant, staff?.length ? staff : null);
+  const payNext = !shape.desk && !!onTakePayment;
   const isMobile = useIsMobile();
   const { toast } = useToast();
   
@@ -459,9 +469,10 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
             const r = await fetch('/api/visits/handoff', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) },
               body: JSON.stringify({ tenantId, appointmentId: appointment.id, checkoutState: JSON.parse(JSON.stringify(checkoutState)), serviceName: service.name, clientName: client.name }) })
               .then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection — try again.' }));
-            if (!r.ok) { toast({ variant: 'destructive', title: 'Not sent to the front desk', description: r.error || 'Try again.' }); return; }
-            toast({ title: "Service Concluded", description: "Record sent to front desk for settlement." });
+            if (!r.ok) { toast({ variant: 'destructive', title: shape.desk ? 'Not sent to the front desk' : 'That didn’t save', description: r.error || 'Please try again.' }); return; }
+            toast({ title: 'Visit finished', description: shape.desk ? 'Sent to the front desk for payment.' : payNext ? 'Opening payment.' : 'Ready to take payment.' });
             onOpenChange(false);
+            if (payNext) onTakePayment!(appointment.id);
           } finally { setFinishing(false); }
         })();
     } else {
@@ -497,7 +508,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const ContentComponent = isMobile ? SheetContent : DialogContent;
 
   const titleText = isLastProvider ? 'Complete Service' : 'Service Hand-off';
-  const buttonLabel = isLastProvider ? 'Complete Service & Send to Desk' : 'Complete Part & Hand-off';
+  const buttonLabel = isLastProvider ? (shape.desk ? 'Complete Service & Send to Desk' : payNext ? 'Complete Service & Take Payment' : 'Complete Service') : 'Complete Part & Hand-off';
 
   // v2 — Target Reference block extracted so it can be rendered inside the
   // right-hand desktop column instead of always full-width. Logic/markup

@@ -137,6 +137,7 @@ import { PrepSummary } from '@/components/staff-portal/PrepSummary';
 import { DayChange } from '@/components/staff-portal/DayChange';
 import { MyNumbers } from '@/components/staff-portal/MyNumbers';
 import { isSoloTeam } from '@/lib/solo';
+import { shapeOf } from '@/lib/business-shape';
 import { BottomNav, Segments, navOf, type NavKey } from '@/components/staff-portal/PortalChrome';
 import { brandAccent, brandLogo } from '@/lib/brand-accent';
 import { can, isManagerRole } from '@/lib/permissions';
@@ -531,10 +532,12 @@ function TabSkeleton() {
 // then writes to Firestore and notifies the assigned technician.
 // The mid-service add-on sheet lives in components/visit/AddOnSheet (shared with the planner's visit).
 // ─── APPOINTMENT ACTION DRAWER ────────────────────────────────────────────────
-function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, currentStaffId, tenantId, firestore, onClose, onAction, onReview, onEscalate, onOpenTicket, viewerIsRenter = false }: {
+function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, currentStaffId, tenantId, firestore, onClose, onAction, onReview, onEscalate, onOpenTicket, viewerIsRenter = false, desk = true }: {
   onOpenTicket?: (id: string) => void; viewerIsRenter?: boolean;
   apt: any; service: any; allServices: any[]; allStaff: any[]; allShifts: any[]; currentStaffId: string;
   tenantId: string; firestore: any;
+  /** The business has a front desk (lib/business-shape); with none, reports go to the owner or a manager. */
+  desk?: boolean;
   onClose: () => void;
   onAction: (aptId: string, action: string, apt: any) => void;
   onReview: (apt: any) => void;
@@ -676,7 +679,7 @@ function AppointmentDrawer({ apt, service, allServices, allStaff, allShifts, cur
             {!['cancelled','no_show','completed','checked_out','paid'].includes(st) && <DayChange apt={apt} tenantId={tenantId} solo={viewerIsRenter || isSoloTeam(allStaff || [])} staffName={(allStaff || []).find((m: any) => m.id === apt.staffId)?.name || apt.staffName} />}
             {!viewerIsRenter && ['servicing','in_service','ready_for_checkout','completed','checked_out','paid'].includes(st) && <AftercareNote apt={apt} tenantId={tenantId} firestore={firestore} staffId={currentStaffId} staffName={(allStaff || []).find((m: any) => m.id === currentStaffId)?.name} />}
             {!['cancelled','no_show'].includes(st) && <SomethingHappened apt={apt} tenantId={tenantId} />}
-            {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} />}
+            {st === 'completed' && <NotHappy apt={apt} tenantId={tenantId} firestore={firestore} desk={desk} />}
             {['cancelled','no_show'].includes(st) && (
               <p className="text-center text-[11px] font-semibold text-muted-foreground opacity-30 py-2">
                 No actions available
@@ -2590,7 +2593,7 @@ function WalkInLeaderboard({
 }
 
 // ─── NEXT APPOINTMENT BANNER ──────────────────────────────────────────────────
-function NextBanner({ appointments, services }: any) {
+function NextBanner({ appointments, services, askWho = 'the front desk' }: any) {
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30_000); return () => clearInterval(t); }, []);
 
@@ -2687,7 +2690,7 @@ function NextBanner({ appointments, services }: any) {
           {lateFeeApplies && (
             <div className="flex items-center gap-1.5 text-amber-700">
               <DollarSign className="w-3 h-3 shrink-0" />
-              <p className="text-[12px] font-semibold">Late fee may apply — notify front desk</p>
+              <p className="text-[12px] font-semibold">A late fee may apply. Please tell {askWho}.</p>
             </div>
           )}
         </div>
@@ -3896,6 +3899,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: incomingSwapsRaw }                      = useCollection<any>(incomingSwapQ);
   const { data: pendingApprovalsRaw }                   = useCollection<any>(pendingApprovalQ);
   const { data: allStaff }                              = useCollection<any>(allStaffQ);
+  // How the business works (lib/business-shape): with no front desk, hand-offs and asks name the owner instead.
+  const shape = shapeOf(portalTenant, allStaff?.length ? allStaff : null);
+  const askWho = shape.desk ? 'the front desk' : 'the owner or a manager';
   // Locations: the floor and the walk-in line show one location at a time when the business has more than one.
   const locsQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/locations`), [firestore, tenantId]);
   const { data: locsRaw } = useCollection<any>(locsQ);
@@ -4043,7 +4049,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         // The same readiness check as the planner: forms signed and any required deposit paid.
         const cSnap = apt?.clientId ? await getDoc(doc(firestore, `tenants/${tenantId}/clients`, apt.clientId)).catch(() => null) : null;
         const blocked = startBlocker(apt, (services || []).find((s: any) => s.id === apt?.serviceId), cSnap?.exists() ? cSnap.data() : undefined, undefined, portalTenant);
-        if (blocked) { toast({ variant: 'destructive', title: 'Not ready to start', description: `${blocked}. Ask the front desk to sort it out.` }); return; }
+        if (blocked) { toast({ variant: 'destructive', title: 'Not ready to start', description: `${blocked}. Ask ${askWho} to sort it out.` }); return; }
         batch.update(aptRef,{ status:'servicing', actualStartTime:now });
         batch.set(doc(firestore,`tenants/${tenantId}/staff`,staffMember.id),{ status:'busy', currentAppointmentId:aptId },{ merge:true });
         break; }
@@ -4451,7 +4457,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                       />
                     </div>
                   ))}
-                {todayView === 'day' && <NextBanner appointments={allMyApts} services={services} />}
+                {todayView === 'day' && <NextBanner appointments={allMyApts} services={services} askWho={askWho} />}
                 {(takesWalkIns || todayView === 'floor') && floorPicker}
                 {takesWalkIns && <WalkInLeaderboard
                   compact onOpen={() => setViewingWalkIns(true)}
@@ -4720,6 +4726,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       {scanOpen && <PortalScan open={scanOpen} onOpenChange={setScanOpen} firestore={firestore} tenantId={tenantId} appointments={[...(allTodayApptsRaw || []), ...(allMyApts || [])]} services={services || []} staff={allStaff || []} onFound={(a: any) => setTicketId(a.id)} />}
       {drawerApt && (
         <AppointmentDrawer
+          desk={shape.desk}
           viewerIsRenter={isRenter}
           apt={drawerApt}
           service={drawerSvc}
@@ -4751,12 +4758,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             // The same hand-off as the planner and the desk (lib/part-handoff).
             const { allDone } = writePartHandoff(batch, firestore, tenantId, reviewApt, checkoutState);
             batch.commit()
-              .then(() => toast({ title: allDone ? 'Sent to the front desk' : 'Handed on' }))
-              .catch(() => toast({ variant: 'destructive', title: 'Handoff FAILED', description: 'The front desk did not receive this checkout — reopen and send again.' }));
+              .then(() => toast({ title: allDone ? (shape.desk ? 'Sent to the front desk' : 'Finished and ready to pay') : 'Handed on' }))
+              .catch(() => toast({ variant: 'destructive', title: 'That didn’t save', description: `${shape.desk ? 'The front desk didn’t get this checkout' : 'This checkout wasn’t saved'}. Please open it and send it again.` }));
             setReviewApt(null); setReviewSvc(null);
           }}
           staff={allStaff || []}
           tenantIdOverride={tenantId}
+          tenantOverride={portalTenant}
           actorStaffId={staffMember.id}
         />
       )}
