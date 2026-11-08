@@ -23,7 +23,7 @@ import { signals, ownersLastSignIn } from '@/lib/hq-signals';
 import { fromTenantModules, toTenantModules, TOOL_BY_ID, type ToolId } from '@/lib/module-catalog';
 import { SCHEDULED_JOBS } from '@/lib/cron-heartbeat';
 import { internalOrigin } from '@/lib/message-policy';
-import { platformAdminEmails, signupIsOpen, can, permsFor, type HqPerm } from '@/lib/platform-admin';
+import { platformAdminEmails, can, permsFor, type HqPerm } from '@/lib/platform-admin';
 import { aiDraftReply, CATEGORY_LABEL, SLA_HOURS, type Priority } from '@/lib/support-triage';
 import { computeMetrics } from '@/lib/hq-metrics';
 import { askAI, aiConfigured } from '@/lib/ai';
@@ -33,13 +33,13 @@ import { ALL_PRICES } from '@/lib/billing-plans';
 
 // Which permission each action needs (see src/lib/platform-admin.ts).
 const NEEDS: Record<string, HqPerm> = {
-  tenants: 'tenants', tenant: 'tenants', fix: 'fix', system: 'system', tickets: 'tickets', 'ticket-reply': 'tickets', 'ticket-status': 'tickets',
+  tenants: 'tenants', tenant: 'tenants', fix: 'fix', system: 'system', readiness: 'system', tickets: 'tickets', 'ticket-reply': 'tickets', 'ticket-status': 'tickets',
   'ticket-update': 'tickets', 'ticket-note': 'tickets', 'ticket-draft': 'tickets', macros: 'tickets', 'macro-save': 'tickets', 'macro-delete': 'tickets',
   insights: 'insights', 'insights-refresh': 'insights', 'insights-brief': 'insights', team: 'team', 'team-save': 'team', 'team-remove': 'team',
   finance: 'finance', 'finance-sync': 'finance', 'finance-settings': 'finance', 'expense-save': 'finance', 'expense-delete': 'finance',
   'billing-settings': 'finance', 'billing-setup-prices': 'finance', addon: 'fix',
 };
-import { smsConfigured } from '@/lib/sms';
+import { launchReadiness } from '@/lib/launch-readiness';
 
 // Every HQ action that changes something is written here: who, what, when.
 async function audit(db: any, by: string, tenantId: string | null, action: string, summary: string, extra: any = {}) {
@@ -242,18 +242,14 @@ ClarityFlow` }) }).catch(() => null);
     const behind: any[] = [];
     for (const d of presence.docs) { const v = d.data() as any; const ver = v.version || 'unknown'; versions[ver] = (versions[ver] || 0) + 1;
       if (current && ver !== current && v.lastSeenAt && now - new Date(v.lastSeenAt).getTime() < 3 * 86400000) behind.push({ tenantId: d.id, version: ver, host: v.host || null, lastSeenAt: v.lastSeenAt }); }
-    const from = resolveFromAddress();
-    const settings = [
-      { key: 'PLATFORM_ADMIN_EMAILS', ok: platformAdminEmails().length > 0, note: 'Who can open HQ' },
-      { key: 'RESEND_API_KEY', ok: !!process.env.RESEND_API_KEY, note: 'All email' },
-      { key: 'NOTIFY_FROM_EMAIL', ok: !!process.env.NOTIFY_FROM_EMAIL && !/resend\.dev/i.test(from), note: /resend\.dev/i.test(from) ? `Sending from Resend’s test address (${from}) — only reaches you` : `Sending as ${from}` },
-      { key: 'Texting (Twilio)', ok: smsConfigured(), note: smsConfigured() ? 'Connected' : 'TWILIO_* not set — no texts' },
-      { key: 'CRON_SECRET', ok: !!process.env.CRON_SECRET, note: 'Protects the daily jobs' },
-      { key: 'LEADS_NOTIFY_EMAIL', ok: !!process.env.LEADS_NOTIFY_EMAIL, note: 'Where access requests and help requests are emailed' },
-      { key: 'Live address', ok: !!process.env.VERCEL_PROJECT_PRODUCTION_URL, note: process.env.VERCEL_PROJECT_PRODUCTION_URL || 'Turn on “Automatically expose System Environment Variables”' },
-      { key: 'Sign-up', ok: true, note: signupIsOpen() ? 'Open to everyone' : 'Invite only' },
-    ];
-    return NextResponse.json({ ok: true, jobs, delivery, failures, versions, behind: behind.slice(0, 20), current, settings, openTickets: (openTickets as any).size || 0, tenants: tenantsSnap.size });
+    return NextResponse.json({ ok: true, jobs, delivery, failures, versions, behind: behind.slice(0, 20), current, openTickets: (openTickets as any).size || 0, tenants: tenantsSnap.size });
+  }
+
+  // Ready to launch? Every setting, Stripe webhook and published rule the platform needs (lib/launch-readiness). Its own
+  // action, since it asks Stripe and Firebase: the rest of System shows without waiting for them.
+  if (b.action === 'readiness') {
+    const rows = await launchReadiness().catch((e) => { console.error('[hq readiness]', e); return null; });
+    return rows ? NextResponse.json({ ok: true, rows }) : NextResponse.json({ ok: false, error: 'The launch check didn’t load. Please reload.' });
   }
 
   if (b.action === 'tickets') {

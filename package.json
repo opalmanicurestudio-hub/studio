@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack --port 9002",
+    "prebuild": "node scripts/rules-fingerprint.mjs",
     "build": "NODE_ENV=production next build",
     "start": "next start",
     "lint": "next lint",
